@@ -5,7 +5,7 @@ if [[ -z "$FRAPPE_BRANCH" ]]; then
     FRAPPE_BRANCH='version-14'
 fi
 
-if [[ -z "$FRAPPE_ADMIN_PASS" ]]; then
+if [[ -z "$ADMIN_PASS" ]]; then
     ADMIN_PASS='admin'
 fi
 
@@ -17,11 +17,11 @@ if [[ -z "$REDIS_SOCKETIO_PORT" ]]; then
     REDIS_SOCKETIO_PORT=9000
 fi
 
-if [[ -z "$FRAPPE_WEB_PORT" ]]; then
+if [[ -z "$WEB_PORT" ]]; then
     WEB_PORT=80
 fi
 
-if [[ -z "$FRAPPE_DEVELOPER_MODE" ]]; then
+if [[ -z "$DEVELOPER_MODE" ]]; then
     DEVELOPER_MODE=0
 fi
 
