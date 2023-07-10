@@ -14,7 +14,7 @@
 | rq-dashboard   | <http://mysite.localhost/rq-dash> |
 
 
-# Customization avaialbe for frappe container using envrionmental Variable.
+# Customization availabe for frappe container using envrionmental Variable.
 
 You can use this envrionmental varaible to change frappe container default configuration.
 
@@ -132,7 +132,7 @@ docker compose down -v --rmi
       mkcert -key-file key.pem -cert-file cert.pem mysite.localhost test.localhost
     ```
 
-4.  Now use the `ENABLE_SSL` envrionmental variable. By default this is `false` in the `docker-compose.yml`. Change `ENABLE_SSL` variable to `true`.
+4.  Now Change `ENABLE_SSL` environament variable to `true`.. By default this is `false` in the `docker-compose.yml`. 
 5.  Now rebuild the nginx container. In the repo directory run this commands.
     
     ```bash
