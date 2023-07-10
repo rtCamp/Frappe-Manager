@@ -15,16 +15,16 @@
 | rq-dashboard   | <http://mysite.localhost/rq-dash> |
 
 
-# Customization availabe for frappe container using envrionmental Variable.
+# Customization available for frappe container using envrionmental Variable.
 
 You can use this envrionmental varaible to change frappe container default configuration.
 
 | Variable                | Default    | Accepted Value         | Purpose                                                                                                                                |
 |----------------------- |---------- |---------------------- |-------------------------------------------------------------------------------------------------------------------------------------- |
 | FRAPPE\_BRANCH          | version-14 | `string`               | Must be a valid frappe branch. Used to change the default branch at the time of bench setup.                                           |
-| FRAPPE\_ADMIN\_PASS     | admin      | `string`               | Used to set the frappe web app administrator user password.                                                                            |
+| ADMIN\_PASS     | admin      | `string`               | Used to set the frappe web app administrator user password.                                                                            |
 | MARIADB\_ROOT\_PASS     | root       | `string`               | User to set the password of the mariadb that will be used frappe.                                                                      |
-| FRAPPE\_DEVELOPER\_MODE | 1          | `0 or 1` or  `boolean` | Used to tell frappe to enable developer\_mode(when you create a new doctype, it will be created on the file system).                   |
+| DEVELOPER\_MODE | 1          | `0 or 1` or  `boolean` | Used to tell frappe to enable developer\_mode(when you create a new doctype, it will be created on the file system).                   |
 | BENCH\_START\_OFF       | null       | any `string`           | This will not run bench start at the start of the container instead this will use sleep command to make the container always avaialbe. |
 
 
@@ -37,7 +37,7 @@ You can use this envrionmental varaible to change frappe container default confi
 
     -   Clone the repo.
     -   Change directory into repo.
-    -   Build the containers. Building images takes time!!!.
+    -   Build the containers. This will take time.
         
         ```bash
           ./build.sh
@@ -133,7 +133,7 @@ docker compose down -v --rmi
       mkcert -key-file key.pem -cert-file cert.pem mysite.localhost test.localhost
     ```
 
-4.  Now Change `ENABLE_SSL` environament variable to `true`.. By default this is `false` in the `docker-compose.yml`. 
+4.  Now Change `ENABLE_SSL` environament variable to `true`. By default this is `false` in the `docker-compose.yml`. 
 5.  Now rebuild the nginx container. In the repo directory run this commands.
     
     ```bash
