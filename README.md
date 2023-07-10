@@ -1,7 +1,8 @@
 # Frappe Local Setup
 
 -   This requires **docker** to be installed in your system.
--   By default this will handle any site created as subdomain to localhost in frappe-bench.
+-   This can handle any site created as subdomain to localhost in frappe-bench.
+-   By default site mysite.localhost is created.  
 
 
 ## Links
@@ -54,7 +55,7 @@ You can use this envrionmental varaible to change frappe container default confi
           docker compose up -d
         ```
     
-    1.  Access frappe container shell
+    -   Access frappe container shell
     
         ```bash
         # access frappe container shell
