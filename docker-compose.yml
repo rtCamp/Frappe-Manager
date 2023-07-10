@@ -1,0 +1,89 @@
+version: "3.9"
+services:
+  frappe:
+    image: frappe-local-frappe
+    environment:
+      - USERID=1000
+      - USERGROUP=1000
+      - SHELL=/bin/bash
+    volumes:
+      - ./workspace:/workspace:cached
+      # Enable if you require git cloning
+      # - ${HOME}/.ssh:/home/frappe/.ssh
+    ports:
+      - 80
+      - 9000:9000
+    extra_hosts:
+      - "mysite.localhost:127.0.0.1"
+
+  nginx:
+    image: frappe-local-nginx
+    environment:
+      - ENABLE_SSL=true
+    volumes:
+      - ./workspace:/workspace:cached
+      - ./certs:/etc/nginx/certs
+    ports:
+      - 80:80
+      - 443:443
+
+  mailhog:
+    image: frappe-local-mailhog
+    ports:
+      - 1025
+      - 8025
+
+  mariadb:
+    image: mariadb:10.6
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --skip-character-set-client-handshake
+      - --skip-innodb-read-only-compressed # Temporary fix for MariaDB 10.6
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+    volumes:
+      - mariadb-data:/var/lib/mysql
+
+  adminer:
+    image: adminer:latest
+    restart: unless-stopped
+    environment:
+      - ADMINER_DEFAULT_SERVER=mariadb
+    ports:
+      - 8080
+
+  rq-dashboard:
+    image: frappe-local-rqdashboard
+    environment:
+      - RQ_DASHBOARD_REDIS_URL=redis://redis-queue:6379
+    ports:
+      - 9181
+
+
+  redis-cache:
+    image: redis:alpine
+    volumes:
+      - redis-cache-data:/data
+    ports:
+      - 6379
+
+  redis-queue:
+    image: redis:alpine
+    volumes:
+      - redis-queue-data:/data
+    ports:
+      - 6379
+
+  redis-socketio:
+    image: redis:alpine
+    volumes:
+       - redis-socketio-data:/data
+    ports:
+      - 6379
+
+volumes:
+  mariadb-data:
+  redis-socketio-data:
+  redis-queue-data:
+  redis-cache-data:
