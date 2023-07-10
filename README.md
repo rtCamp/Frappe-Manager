@@ -42,6 +42,12 @@ You can use this envrionmental varaible to change frappe container default confi
           ./build.sh
         ```
     
+    -   Change docker-compose.yml frappe contianer `USERID` and `USERGROUP` envrionmental variable to your current user `id` and `group` respectively.
+
+        ```bash
+          # your current user id and group can be found using this command.
+          id
+        ```
     -   Now run the docker compose command.
         
         ```bash
@@ -62,6 +68,13 @@ You can use this envrionmental varaible to change frappe container default confi
         
         ```bash
           ./build.sh
+        ```
+
+    -   Change docker-compose.yml frappe contianer `USERID` and `USERGROUP` envrionmental variable to your current user `id` and `group` respectively.
+
+        ```bash
+          # your current user id and group can be found using this command.
+          id
         ```
     -   Now open the repo in vscode.
     -   Now vscode will display a pop up saying reopen in contaienr, Click it.

@@ -19,7 +19,7 @@ services:
   nginx:
     image: frappe-local-nginx
     environment:
-      - ENABLE_SSL=true
+      - ENABLE_SSL=false
     volumes:
       - ./workspace:/workspace:cached
       - ./certs:/etc/nginx/certs
