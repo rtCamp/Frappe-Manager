@@ -6,6 +6,7 @@ services:
       - USERID=1000
       - USERGROUP=1000
       - SHELL=/bin/bash
+      - DEVELOPER_MODE=1
     volumes:
       - ./workspace:/workspace:cached
       # Enable if you require git cloning

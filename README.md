@@ -25,7 +25,7 @@ You can use this envrionmental varaible to change frappe container default confi
 | ADMIN\_PASS     | admin      | `string`               | Used to set the frappe web app administrator user password.                                                                            |
 | MARIADB\_ROOT\_PASS     | root       | `string`               | User to set the password of the mariadb that will be used frappe.                                                                      |
 | DEVELOPER\_MODE | 1          | `0 or 1` or  `boolean` | Used to tell frappe to enable developer\_mode(when you create a new doctype, it will be created on the file system).                   |
-| BENCH\_START\_OFF       | null       | any `string`           | This will not run bench start at the start of the container instead this will use sleep command to make the container always avaialbe. |
+| BENCH\_START\_OFF       | null       | any `string`           | This will not run bench start at the start of the container instead this will use sleep command to make the container always available. |
 
 
 ## Usage
@@ -96,20 +96,12 @@ docker compose down -v --rmi
 
 ## Bonus
 
-
-### Create one more site.
-
--   Run this commands in frappe container. Suppose you want to create `test.localhost`.
--   Change admin password as you want.
-    
-    ```bash
-      bench new-site test.localhost --db-root-password root --admin-password testadmin
-    ```
-
-
 ### Adding https support
 
 1.  Install [mkcert](https://github.com/FiloSottile/mkcert) tool.
+    ```bash
+      brew install mkcert
+    ```
 2.  Setup mkcert ca.
     
     ```bash
@@ -140,6 +132,15 @@ docker compose down -v --rmi
       docker compose up nginx -d
     ```
 6.  You will need to repeat the steps step 3 and step 5 for new sites.
+
+### Create one more site.
+
+-   Run this commands in frappe container. Suppose you want to create `test.localhost`.
+-   Change admin password as you want.
+
+    ```bash
+      bench new-site test.localhost --db-root-password root --admin-password testadmin
+    ```
 
 
 ## Troubleshooting
