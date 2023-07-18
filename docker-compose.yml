@@ -6,6 +6,7 @@ services:
       - USERID=1000
       - USERGROUP=1000
       - SHELL=/bin/bash
+      - DEVELOPER_MODE=1
       #- BENCH_START_OFF=1
     tty: true
     volumes:
