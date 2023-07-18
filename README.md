@@ -184,7 +184,7 @@ In this frappe local setup this error indicates that
 ### Site not available or not accessible using browser.
 
 -   This usually happes when container has stopped/existed.
--   Check if the continaer is running.
+-   Check if the container is running.
 -   To start the container use this commands.
     
     ```bash

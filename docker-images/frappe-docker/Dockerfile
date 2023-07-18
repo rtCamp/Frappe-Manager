@@ -64,8 +64,10 @@ RUN apt-get update \
     tk-dev \
     liblzma-dev \
     wait-for-it \
-    gosu \
-    && rm -rf /var/lib/apt/lists/*
+    supervisor \
+    psmisc \
+    gosu
+    #&& rm -rf /var/lib/apt/lists/*
 
 RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
     && dpkg-reconfigure --frontend=noninteractive locales
@@ -127,8 +129,17 @@ RUN mkdir -p /workspace
 
 WORKDIR /workspace
 
+RUN mkdir -p /opt/user/.bin
+ENV PATH /opt/user/.bin:${PATH}
+
+RUN echo PATH='/opt/user/.bin:$PATH' >> "$USERBASHRC"
+
+COPY ./supervisord.conf /opt/user/
+COPY ./bench-start.sh /opt/user/
+COPY ./bench-wrapper.sh /opt/user/.bin/bench
 COPY ./entrypoint.sh /
 COPY ./user-script.sh /
-RUN sudo chmod +x /entrypoint.sh /user-script.sh
+
+RUN sudo chmod +x /entrypoint.sh /user-script.sh /opt/user/bench-start.sh /opt/user/.bin/bench
 
 ENTRYPOINT ["/bin/bash","/entrypoint.sh"]

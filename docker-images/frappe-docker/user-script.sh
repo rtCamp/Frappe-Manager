@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # This script creates bench and executes it.
 
+touch /opt/user/bench-start.log
+
 if [[ -z "$FRAPPE_BRANCH" ]]; then
     FRAPPE_BRANCH='version-14'
 fi
 
-if [[ -z "$ADMIN_PASS" ]]; then
+if [[ -z "$FRAPPE_ADMIN_PASS" ]]; then
     ADMIN_PASS='admin'
 fi
 
@@ -17,11 +19,11 @@ if [[ -z "$REDIS_SOCKETIO_PORT" ]]; then
     REDIS_SOCKETIO_PORT=9000
 fi
 
-if [[ -z "$WEB_PORT" ]]; then
+if [[ -z "$FRAPPE_WEB_PORT" ]]; then
     WEB_PORT=80
 fi
 
-if [[ -z "$DEVELOPER_MODE" ]]; then
+if [[ -z "$FRAPPE_DEVELOPER_MODE" ]]; then
     DEVELOPER_MODE=0
 fi
 
@@ -67,9 +69,9 @@ if [[ ! -d "frappe-bench" ]]; then
     bench --site mysite.localhost scheduler enable
 
     if [[ -n "$BENCH_START_OFF" ]]; then
-        sleep infinity
+        tail -f /dev/null
     else
-        bench start --procfile /workspace/frappe-bench/Procfile.local_setup
+        supervisord -c /opt/user/supervisord.conf
     fi
 
 else
@@ -93,9 +95,9 @@ else
     fi
 
     if [[ -n "$BENCH_START_OFF" ]]; then
-        sleep infinity
+        tail -f /dev/null
     else
-        bench start --procfile /workspace/frappe-bench/Procfile.local_setup
+        supervisord -c /opt/user/supervisord.conf
     fi
 
 fi
