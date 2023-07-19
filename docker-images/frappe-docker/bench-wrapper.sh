@@ -3,9 +3,7 @@
 # 	supervisorctl -c /opt/user/supervisord.conf stop bench-dev
 # }
 after_command() {
-	if [[ -f "/opt/user/supervisord.sock" ]]; then
-		supervisorctl -c /opt/user/supervisord.conf signal KILL bench-dev
-	fi
+		supervisorctl -c /opt/user/supervisord.conf restart bench-dev
 }
 wrapper() {
 	#before_command
