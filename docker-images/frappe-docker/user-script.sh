@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # This script creates bench and executes it.
 
-touch /opt/user/bench-start.log
+if [[ ! -d 'logs'  ]]; then
+    mkdir -p logs
+fi
 
 if [[ -z "$FRAPPE_BRANCH" ]]; then
     FRAPPE_BRANCH='version-14'
@@ -68,6 +70,7 @@ if [[ ! -d "frappe-bench" ]]; then
 
     bench --site mysite.localhost scheduler enable
 
+    wait
     if [[ -n "$BENCH_START_OFF" ]]; then
         tail -f /dev/null
     else
@@ -94,6 +97,7 @@ else
         bench set-config -g webserver_port "$WEB_PORT";
     fi
 
+    wait
     if [[ -n "$BENCH_START_OFF" ]]; then
         tail -f /dev/null
     else
