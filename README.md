@@ -1,7 +1,7 @@
 # Frappe Local Setup
 
 -   This requires **docker** to be installed in your system.
--   This can handle any site created as subdomain to localhost in frappe-bench.
+-   This can handle any site created as subdomain to `.localhost` in frappe-bench.
 -   By default site mysite.localhost is created.  
 
 
@@ -90,7 +90,7 @@ docker compose down
 # stop and remove containers,volumes
 docker compose down -v
 # stop and remove containers,volumes, images
-docker compose down -v --rmi
+docker compose down -v --rmi all
 ```
 
 
