@@ -5,7 +5,57 @@
 -   By default site mysite.localhost is created.  
 
 
-## Links
+## Usage
+
+
+### Bulding Containers (one-time)
+
+Clone the repo and change directory into repo.
+
+Build the containers. This will take time.
+    
+```bash
+./build.sh
+```
+
+### Configuration 
+
+Change `docker-compose.yml` frappe contianer `USERID` and `USERGROUP` envrionmental variable to your current user `id` and `group` respectively.
+
+```bash
+# your current user id 
+id -u
+
+# your current group id 
+id -g
+```
+
+Optionally, you can use following envrionmental varaible to change frappe container default configuration.
+
+| Variable                | Default    | Accepted Value         | Purpose                                                                                                                                |
+|----------------------- |---------- |---------------------- |-------------------------------------------------------------------------------------------------------------------------------------- |
+| FRAPPE\_BRANCH          | version-14 | `string`               | Must be a valid [frappe branch](https://github.com/frappe/frappe/branches). Used to change the default branch at the time of bench setup.                                           |
+| ADMIN\_PASS     | admin      | `string`               | Used to set the frappe web app administrator user password.                                                                            |
+| MARIADB\_ROOT\_PASS     | root       | `string`               | User to set the password of the mariadb that will be used frappe.                                                                      |
+| DEVELOPER\_MODE | 1          | `0 or 1` or  `boolean` | Used to tell frappe to enable developer\_mode(when you create a new doctype, it will be created on the file system).                   |
+| BENCH\_START\_OFF       | null       | any `string`           | This will not run bench start at the start of the container instead this will use sleep command to make the container always available. |
+
+
+### Running
+
+Please note, first run will take time as Frappe will be downloaded and installed as per your config file.
+
+If you are using vscode devcontainers, just open the repo in vscode. Vscode will display a pop up saying reopen in contaienr, Click it.
+
+If you are not using vscode, or you want to start Frappe directly, you can use following. 
+    
+```bash
+docker compose up -d
+```
+
+**Links**
+
+You can use following URLs to access Frappe as well as other services web interface.
 
 | Service        | Url                               |
 |-------------- |--------------------------------- |
@@ -15,76 +65,26 @@
 | rq-dashboard   | <http://mysite.localhost/rq-dash> |
 
 
-# Customization available for frappe container using envrionmental Variable.
+### Debugging
 
-You can use this envrionmental varaible to change frappe container default configuration.
-
-| Variable                | Default    | Accepted Value         | Purpose                                                                                                                                |
-|----------------------- |---------- |---------------------- |-------------------------------------------------------------------------------------------------------------------------------------- |
-| FRAPPE\_BRANCH          | version-14 | `string`               | Must be a valid frappe branch. Used to change the default branch at the time of bench setup.                                           |
-| ADMIN\_PASS     | admin      | `string`               | Used to set the frappe web app administrator user password.                                                                            |
-| MARIADB\_ROOT\_PASS     | root       | `string`               | User to set the password of the mariadb that will be used frappe.                                                                      |
-| DEVELOPER\_MODE | 1          | `0 or 1` or  `boolean` | Used to tell frappe to enable developer\_mode(when you create a new doctype, it will be created on the file system).                   |
-| BENCH\_START\_OFF       | null       | any `string`           | This will not run bench start at the start of the container instead this will use sleep command to make the container always available. |
-
-
-## Usage
-
-
-### Initial Setup
-
-1.  Using docker compose
-
-    -   Clone the repo.
-    -   Change directory into repo.
-    -   Build the containers. This will take time.
-        
-        ```bash
-          ./build.sh
-        ```
-    
-    -   Change docker-compose.yml frappe contianer `USERID` and `USERGROUP` envrionmental variable to your current user `id` and `group` respectively.
-
-        ```bash
-          # your current user id and group can be found using this command.
-          id
-        ```
-    -   Now run the docker compose command.
-        
-        ```bash
-          docker compose up -d
-        ```
-    
-    -   Access frappe container shell
-    
-        ```bash
-        # access frappe container shell
-        docker compose exec --user frappe frappe bash
-        ```
-
-2.  Using vscode devcontainers
-
-    -   Clone the repo.
-    -   Build the containers.
-        
-        ```bash
-          ./build.sh
-        ```
-
-    -   Change docker-compose.yml frappe contianer `USERID` and `USERGROUP` envrionmental variable to your current user `id` and `group` respectively.
-
-        ```bash
-          # your current user id and group can be found using this command.
-          id
-        ```
-    -   Now open the repo in vscode.
-    -   Now vscode will display a pop up saying reopen in contaienr, Click it.
-
-
-### Destroy Container
+View logs from frappe container
 
 ```bash
+docker compose logs -f frappe
+```
 
+### Accessing Container Shell
+
+Access frappe container shell
+    
+```bash
+# access frappe container shell
+docker compose exec --user frappe frappe bash
+```
+
+### Shutdown Container
+
+```bash
 # stop and remove containers
 docker compose down
 # stop and remove containers,volumes
@@ -93,43 +93,41 @@ docker compose down -v
 docker compose down -v --rmi all
 ```
 
-
 ## Bonus
 
 ### Adding https support
 
 1.  Install [mkcert](https://github.com/FiloSottile/mkcert) tool.
     ```bash
-      brew install mkcert
+    brew install mkcert
     ```
 2.  Setup mkcert ca.
     
     ```bash
-      # install ca-cert
-      mkcert -install
-      # create cert for one site
+    # install ca-cert
+    mkcert -install
+    # create cert for one site
     ```
 
 3.  Create certs for sites. Remember to keep the key and cert file name same as in the example.
     
     ```bash
-      # syntax
-      # mkcert -key-file key.pem -cert-file cert.pem <site-name1> <site-name2> <site-name3> ....
+    # syntax
+    # mkcert -key-file key.pem -cert-file cert.pem <site-name1> <site-name2> <site-name3> ....
+    cd certs
     
-      cd certs
+    # creating cert for mysite.localhost
+    mkcert -key-file key.pem -cert-file cert.pem mysite.localhost
     
-      # creating cert for mysite.localhost
-      mkcert -key-file key.pem -cert-file cert.pem mysite.localhost
-    
-      # creating cert for mysite.localhost and test.localhost
-      mkcert -key-file key.pem -cert-file cert.pem mysite.localhost test.localhost
+    # creating cert for mysite.localhost and test.localhost
+    mkcert -key-file key.pem -cert-file cert.pem mysite.localhost test.localhost
     ```
 
 4.  Now Change `ENABLE_SSL` environament variable to `true`. By default this is `false` in the `docker-compose.yml`. 
 5.  Now rebuild the nginx container. In the repo directory run this commands.
     
     ```bash
-      docker compose up nginx -d
+    docker compose up nginx -d
     ```
 6.  You will need to repeat the steps step 3 and step 5 for new sites.
 
@@ -139,7 +137,7 @@ docker compose down -v --rmi all
 -   Change admin password as you want.
 
     ```bash
-      bench new-site test.localhost --db-root-password root --admin-password testadmin
+    bench new-site test.localhost --db-root-password root --admin-password testadmin
     ```
 
 
@@ -167,7 +165,7 @@ In this frappe local setup this error indicates that
     Reinstall the site using the below command so that the database can be created.
     
     ```bash
-      bench --site mysite.localhost reinstall --admin-password admin --db-root-password root
+    bench --site mysite.localhost reinstall --admin-password admin --db-root-password root
     ```
 
 
@@ -177,7 +175,7 @@ In this frappe local setup this error indicates that
 -   Change builder to default.
     
     ```bash
-      docker buildx use default
+    docker buildx use default
     ```
 
 
@@ -188,5 +186,5 @@ In this frappe local setup this error indicates that
 -   To start the container use this commands.
     
     ```bash
-      docker compose up frappe -d
+    docker compose up frappe -d
     ```
