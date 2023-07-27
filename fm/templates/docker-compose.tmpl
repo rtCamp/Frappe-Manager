@@ -1,7 +1,7 @@
 version: "3.9"
 services:
   frappe:
-    image: fm-frappe
+    image: xieytx/fm-frappe
     environment:
       - SHELL=/bin/bash
      {%- for env in frappe_env %}
@@ -20,7 +20,7 @@ services:
      {%- endfor %}
 
   nginx:
-    image: fm-nginx
+    image: xieytx/fm-nginx
     environment:
       - SITENAME={{ extra_hosts[0].name }}
      {%- for env  in nginx_env %}
@@ -34,7 +34,7 @@ services:
       - 443:443
 
   mailhog:
-    image: fm-mailhog
+    image: xieytx/fm-mailhog
     ports:
       - 1025
       - 8025
@@ -60,7 +60,7 @@ services:
       - 8080
 
   rq-dashboard:
-    image: fm-rqdashboard
+    image: xieytx/fm-rqdashboard
     environment:
       - RQ_DASHBOARD_REDIS_URL=redis://redis-queue:6379
     ports:
