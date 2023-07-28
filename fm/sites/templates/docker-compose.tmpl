@@ -4,7 +4,7 @@ services:
     image: xieytx/fm-frappe
     environment:
       - SHELL=/bin/bash
-     {%- for env in frappe_env %}
+     {%- for env in inputs.frappe_env %}
       - {{ env.name }}={{ env.value }}
      {%- endfor %}
     volumes:
@@ -15,15 +15,14 @@ services:
       - 80
       - 9000:9000
     extra_hosts:
-     {%- for host in extra_hosts %}
+     {%- for host in inputs.extra_hosts %}
       - "{{ host.name }}:{{ host.ip }}"
      {%- endfor %}
 
   nginx:
     image: xieytx/fm-nginx
     environment:
-      - SITENAME={{ extra_hosts[0].name }}
-     {%- for env  in nginx_env %}
+     {%- for env  in inputs.nginx_env %}
       - {{ env.name }}={{ env.value }}
      {%- endfor %}
     volumes:
