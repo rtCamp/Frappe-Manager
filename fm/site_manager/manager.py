@@ -1,12 +1,14 @@
 from python_on_whales import DockerClient
+from python_on_whales import docker as Docker
 from typing import List
 from pathlib import Path
-from fm.sites.site import Site
+from fm.site_manager.site import Site
 from rich.console import Console
+import shlex
 
 console = Console()
 
-class Sites:
+class SiteManager:
     def __init__(self, sitesdir: Path):
         self.sitesdir = sitesdir
         self.site = None
@@ -16,7 +18,7 @@ class Sites:
         # check if the site name is correct
         if not self.sitesdir.exists():
             # creating the sites dir
-            # also check if it's writeable and readable
+            # TODO check if it's writeable and readable
             self.sitesdir.mkdir(parents=True,exist_ok=True)
             print(f"Sites directory doesn't exists! Created at -> {str(self.sitesdir)}")
 
@@ -43,8 +45,6 @@ class Sites:
 
     def get_all_sites(self):
         sites = {}
-        sites_list = []
-
         for dir in self.sitesdir.iterdir():
             if dir.is_dir():
                 name = dir.parts[-1]
@@ -83,10 +83,12 @@ class Sites:
 
     def list_sites(self):
         # format -> name , status [ 'stale', 'running' ]
-        sites_list = self.__get_all_sites_path()
-        for site in sites_list:
-            docker = DockerClient(compose_files=[site])
-            docker.compose.down()
+        #sites_list = self.__get_all_sites_path()
+        sites_list = self.get_all_sites()
+        global_compose_list = Docker.compose.ls()
+        print(global_compose_list[0])
+        #docker = DockerClient(compose_files=[site])
+        #for site in sites_list:
 
     def stop_site(self):
         self.stop_sites()
@@ -99,6 +101,7 @@ class Sites:
         # start the provided site
         self.site.start()
 
-    def attach_to_site(self):
-        #container_hex =  self.site.get_frappe_container_hex()
+    def attach_to_site(self,user: str,extensions: List[str] | None):
+        container_hex =  self.site.get_frappe_container_hex()
+        vscode_cmd = shlex.join(['code',f"--folder-uri=vscode-remote://attached-container+{container_hex}+/workspace"])
         print("IN PROGRESS")

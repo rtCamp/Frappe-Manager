@@ -42,8 +42,15 @@ class Site:
             # console.print(f"[bold red][ERROR] : [/bold red][bold cyan]Not a valid sitename.[/bold cyan]")
             # exit(2)
         return True
-    def get_frappe_container_hex(self):
-        return self.name.encode().hex()
+
+    def get_frappe_container_hex(self) -> None | str:
+        containers = self.docker.ps()
+        container_name = [ x.name for x in containers ]
+        for name in container_name:
+            frappe_container = re.search('-frappe',name)
+            if not frappe_container == None:
+                return frappe_container.string.encode().hex()
+        return None
 
     def __get_template(self,file_name: str):
         file_name = f"templates/{file_name}"
@@ -77,7 +84,9 @@ class Site:
 
     def status(self) -> str:
         ps_output =self.docker.compose.ps()
-        print(ps_output)
+        for container in ps_output:
+            print(container.state.status)
+        #print(ps_output)
 
     def remove(self) -> bool:
         self.docker.compose.down(remove_orphans=True,volumes=True,timeout=30)
