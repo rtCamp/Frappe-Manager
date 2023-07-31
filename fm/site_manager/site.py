@@ -3,8 +3,10 @@ import shutil
 from typing import List
 from pathlib import Path
 import jinja2
-import pkgutil
 import re
+from fm.site_manager.SiteCompose import SiteCompose
+import rich
+
 
 def delete_dir(path: Path):
     for sub in path.iterdir():
@@ -22,17 +24,12 @@ class Site:
     def __init__(self,path: Path , name:str):
         self.path= path
         self.name= name
-        self.docker = DockerClient(compose_files=[str(self.get_compose_path())])
+        self.exists = self.path.exists()
+        self.init()
 
-    def exists(self) -> bool:
-        return self.path.exists()
-
-    def get_compose_path(self) -> Path:
-        return(self.path / "docker-compose.yml")
-
-    def has_compose(self):
-        compose_path = self.get_compose_path()
-        return compose_path.exists()
+    def init(self):
+        self.composefile = SiteCompose(self.path / 'docker-compose.yml')
+        self.docker = DockerClient(compose_files=[str(self.composefile.compose_path)])
 
     def validate_sitename(self) -> bool:
         sitename = self.name
@@ -52,21 +49,14 @@ class Site:
                 return frappe_container.string.encode().hex()
         return None
 
-    def __get_template(self,file_name: str):
-        file_name = f"templates/{file_name}"
-        data = pkgutil.get_data(__name__,file_name)
-        return data.decode()
 
     def generate_compose(self,inputs:dict) -> None:
-        # input var is send to template
-        compose_template = self.jinja.from_string(self.__get_template('docker-compose.tmpl'))
-        site_compose_content = compose_template.render(inputs=inputs)
+        self.composefile.set_envs('frappe',inputs['frappe_env'])
+        self.composefile.set_envs('nginx',inputs['nginx_env'])
+        self.composefile.set_extrahosts('frappe',inputs['extra_hosts'])
+        self.composefile.write_to_file()
 
-        # saving the docker compose to the directory
-        with open(self.get_compose_path(),'w') as f:
-            f.write(site_compose_content)
-
-    def create(self) -> bool:
+    def create_dirs(self) -> bool:
         # create site dir
         self.path.mkdir(parents=True, exist_ok=True)
         # create compose bind dirs -> workspace
@@ -77,7 +67,11 @@ class Site:
 
     def start(self) -> bool:
         self.docker.compose.up(pull='always',detach=True)
-        pass
+
+    def logs(self):
+        console = rich.console.Console()
+        for t,c in self.docker.compose.logs(services=['frappe'],stream=True):
+            console.print(c.decode())
 
     def stop(self) -> bool:
         self.docker.compose.down(remove_orphans=True)
@@ -88,8 +82,21 @@ class Site:
             print(container.state.status)
         #print(ps_output)
 
+    def running(self) -> bool:
+        ls_output = self.docker.compose.ls()
+        if ls_output:
+            for composeproject in ls_output:
+                if composeproject.config_files[0] == self.composefile.compose_path.absolute() and composeproject.running >= 9:
+                    return True
+        return False
+
+
     def remove(self) -> bool:
-        self.docker.compose.down(remove_orphans=True,volumes=True,timeout=30)
+        if self.composefile.exists:
+            self.docker.compose.down(remove_orphans=True,volumes=True,timeout=30)
         # TODO handle low leverl error like read only, write only etc
         shutil.rmtree(self.path)
         #delete_dir(self.path)
+        #
+    def exec(self) -> None:
+        self.docker.compose.execute()

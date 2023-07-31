@@ -2,7 +2,7 @@ import typer
 from typing import Annotated, List, Optional, Set
 from pathlib import Path
 from fm.site_manager.manager import SiteManager
-import re
+import os
 
 app = typer.Typer()
 
@@ -10,12 +10,26 @@ app = typer.Typer()
 sites_dir = Path() / __name__.split(".")[0]
 # self.sites_dir= Path.home() / __name__.split('.')[0]
 sites = SiteManager(sites_dir)
+default_extension = [
+    "ms-python.python",
+    "ms-python.black-formatter",
+    "esbenp.prettier-vscode",
+    "visualstudioexptteam.vscodeintellicode",
+]
+
+
+def apps_validation(value: List[str] | None):
+    if value:
+        typer.Exit("Wrong Apps List")
+    return value
 
 
 @app.command()
 def create(
     sitename: Annotated[str, typer.Argument(help="Name of the site")],
-    apps: Annotated[str, typer.Option(..., help="Frappe apps to install")],
+    apps: Annotated[
+        Optional[List[str]], typer.Option("--apps", "-a", help="Frappe apps to install")
+    ] = None,
     developer_mode: Annotated[bool, typer.Option(help="Enable developer mode")] = True,
     frappe_branch: Annotated[
         str, typer.Option(help="Specify the branch name for frappe app")
@@ -32,26 +46,30 @@ def create(
 
     sites.init(sitename)
 
-    uid: int = fire.core.shlex.os.getuid()
-    gid: int = fire.core.shlex.os.getgid()
+    uid: int = os.getuid()
+    gid: int = os.getgid()
 
-    frappe_env: List[dict] = [
-        {"name": "USERID", "value": uid},
-        {"name": "USERGROUP", "value": gid},
-        {"name": "APPS_LIST", "value": apps},
-        {"name": "FRAPPE_BRANCH", "value": frappe_branch},
-        {"name": "DEVELOPER_MODE", "value": developer_mode},
-        {"name": "ADMIN_PASS", "value": admin_pass},
-        {"name": "DB_NAME", "value": sites.site.name.replace(".", "-")},
-        {"name": "SITENAME", "value": sites.site.name},
-    ]
+    # apps list as appname:version-14
+    # TODO add validation for branch name
 
-    nginx_env: List[dict] = [
-        {"name": "ENABLE_SSL", "value": enable_ssl},
-        {"name": "SITENAME", "value": sites.site.name},
-    ]
+    frappe_env: dict = {
+        "USERID": uid,
+        "USERGROUP": gid,
+        "APPS_LIST": ",".join(apps) if apps else None,
+        "FRAPPE_BRANCH": frappe_branch,
+        "DEVELOPER_MODE": developer_mode,
+        "ADMIN_PASS": admin_pass,
+        "DB_NAME": sites.site.name.replace(".", "-"),
+        "SITENAME": sites.site.name,
+    }
 
-    extra_hosts: List[dict] = [{"name": sitename, "ip": "127.0.0.1"}]
+    print(frappe_env)
+    nginx_env: dict = {
+        "ENABLE_SSL": enable_ssl,
+        "SITENAME": sites.site.name,
+    }
+
+    extra_hosts: List[str] = [f"{sitename}:127.0.0.1"]
 
     template_inputs: dict = {
         "frappe_env": frappe_env,
@@ -92,24 +110,27 @@ def stop(sitename: Annotated[str, typer.Argument(help="Name of the site")]):
     sites.init(sitename)
     sites.stop_site()
 
-default_extension = ['ms-python.python','ms-vscode.live-server','mtxr.sqltools','visualstudioexptteam.vscodeintellicode']
+
 def code_callback(extensions: List[str]) -> List[str]:
     extx = extensions + default_extension
-    unique_ext:Set = set(extx)
-    unique_ext_list:List[str] = list(unique_ext)
+    unique_ext: Set = set(extx)
+    unique_ext_list: List[str] = [x for x in unique_ext]
     return unique_ext_list
+
 
 @app.command()
 def code(
     sitename: Annotated[str, typer.Argument(help="Name of the site.")],
-    user: Annotated[str, typer.Option(help="Connect as this user.")] = 'frappe',
+    user: Annotated[str, typer.Option(help="Connect as this user.")] = "frappe",
     extensions: Annotated[
         Optional[List[str]],
         typer.Option(
             "--extension",
             "-e",
             help="List of extensions to install in vscode at startup.",
-        )] = default_extension,
+            callback=code_callback,
+        ),
+    ] = default_extension,
 ):
     """Open site in vscode."""
     # check if vscode is installed
@@ -117,9 +138,9 @@ def code(
     # cmd: -> code --folder-uri=vscode-remote://attached-container+(contianer name hex)+/workspace
     # LABELS can be added to container to support extensions and remote user
     # check if configuration can be given
-    #print(extensions)
+    # print(extensions)
     sites.init(sitename)
-    sites.attach_to_site(user,extensions)
+    sites.attach_to_site(user, extensions)
     # sites.attach_to_site()
 
 

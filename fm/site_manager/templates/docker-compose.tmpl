@@ -4,27 +4,16 @@ services:
     image: xieytx/fm-frappe
     environment:
       - SHELL=/bin/bash
-     {%- for env in inputs.frappe_env %}
-      - {{ env.name }}={{ env.value }}
-     {%- endfor %}
     volumes:
       - ./workspace:/workspace:cached
-      # Enable if you require git cloning
-      # - ${HOME}/.ssh:/home/frappe/.ssh
     ports:
       - 80
       - 9000:9000
     extra_hosts:
-     {%- for host in inputs.extra_hosts %}
-      - "{{ host.name }}:{{ host.ip }}"
-     {%- endfor %}
 
   nginx:
     image: xieytx/fm-nginx
     environment:
-     {%- for env  in inputs.nginx_env %}
-      - {{ env.name }}={{ env.value }}
-     {%- endfor %}
     volumes:
       - ./workspace:/workspace:cached
       - ./certs:/etc/nginx/certs
