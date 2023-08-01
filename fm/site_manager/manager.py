@@ -3,34 +3,43 @@ from python_on_whales import docker as Docker
 from typing import List
 from pathlib import Path
 from fm.site_manager.site import Site
-from rich.console import Console
 import subprocess
 import json
 import shlex
 import typer
 
-console = Console()
+from fm.site_manager.richprint import console
+
+from rich.columns import Columns
+from rich.panel import Panel
+
 
 class SiteManager:
     def __init__(self, sitesdir: Path):
         self.sitesdir = sitesdir
-        self.site = None
+        self.site: SiteManager = None
         self.sitepath = None
 
-    def init(self, sitename: str):
+    def init(self, sitename: str| None = None,createdir: bool = False):
         # check if the site name is correct
         if not self.sitesdir.exists():
             # creating the sites dir
             # TODO check if it's writeable and readable
-            self.sitesdir.mkdir(parents=True, exist_ok=True)
-            print(f"Sites directory doesn't exists! Created at -> {str(self.sitesdir)}")
+            if createdir:
+                self.sitesdir.mkdir(parents=True, exist_ok=True)
+                print(f"Sites directory doesn't exists! Created at -> {str(self.sitesdir)}")
+            else:
+                print(f"Sites directory doesn't exists!")
+                raise typer.Exit(1)
 
         if not self.sitesdir.is_dir():
             print("Sites directory is not a directory! Aborting!")
-            exit(1)
-        sitename = sitename + ".localhost"
-        sitepath: Path = self.sitesdir / sitename
-        self.site: Site = Site(sitepath, sitename)
+            raise typer.Exit(1)
+
+        if sitename:
+            sitename = sitename + ".localhost"
+            sitepath: Path = self.sitesdir / sitename
+            self.site: Site = Site(sitepath, sitename)
         # check if ports -> 9000,80.443 available
         # TODO flag which can force stop if any continer is using this ports
         # docker = DockerClient()
@@ -106,9 +115,23 @@ class SiteManager:
                 else:
                    stale.append({'name': name,'path':temppath.absolute()})
         if running:
-            pass
+            columns_data = [ f"[b]{x['name']}[/b]\n[dim]{x['path']}[/dim]" for x in running ]
+            panel = Panel(Columns(columns_data),title='Running',title_align='left',style='green')
+            console.print(panel)
+
+            # print in live panel with define input
+            #panels = [Panel() for name,]
+            #running_coloumn = Columns(['sdfdsf','wow','no'],align="center")
+            #running_panel = Panel(title='Running')
+            # pass
+
         if stale:
-            pass
+            columns_data = [ f"[b]{x['name']}[/b]\n[dim]{x['path']}[/dim]" for x in stale ]
+            panel = Panel(Columns(columns_data),title='Stale',title_align='left',style='dark_turquoise')
+            console.print(panel)
+
+            # for i in col:
+            #     c.print(i)
         # docker = DockerClient(compose_files=[site])
         # for site in sites_list:
 
@@ -142,8 +165,19 @@ class SiteManager:
         }
         # set user
         # set extensions
-        self.site.composefile.set_labels('frappe',labels)
-        self.site.composefile.write_to_file()
+        # check if the extension are the same if they are different then only update
+        labels_pre = self.site.composefile.get_labels('frappe')
+        # extensions_pre = json.loads(labels_pre['devcontainer.metadata'])
+        # extensions_pre[0]['customizations']['vscode']['extensions']
+        #['customizations']['vscode']['extensions']
+        # print(extensions_pre == labels['devcontainer.metadata'])
+        # if labels_previous['devcontainer.metadata']:
+        #     labels_previous['devcontainer.metadata'][0]['vscode']
+        #     if not labels_previous['devcontainer.metadata'] == labels['devcontainer.metadata']:
+        #         print('not equal')
+                # self.site.composefile.set_labels('frappe',labels)
+                # self.site.composefile.write_to_file()
+        # exit()
         if self.site.running():
             self.site.start()
             # TODO check if vscode exists

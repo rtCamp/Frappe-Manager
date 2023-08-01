@@ -2,6 +2,7 @@ import pkgutil
 from pathlib import Path
 import yaml
 from typing import List
+import json
 
 def represent_none(self, _):
     return self.represent_scalar('tag:yaml.org,2002:null', '')
@@ -51,8 +52,9 @@ class SiteCompose:
     def set_labels(self,container:str, labels:dict):
         self.yml['services'][container]['labels'] = labels
 
-    def get_labels(self,container:str,labels:dict):
-        return self.yml['services'][container]['labels']
+    def get_labels(self,container:str) -> dict:
+        labels = self.yml['services'][container]['labels']
+        return labels
 
     def set_extrahosts(self,container:str,extrahosts:list):
         """Sets extrahosts to contianer."""

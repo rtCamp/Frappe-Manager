@@ -44,7 +44,7 @@ def create(
 ):
     """Create a new site."""
 
-    sites.init(sitename)
+    sites.init(sitename,createdir=True)
 
     uid: int = os.getuid()
     gid: int = os.getgid()
@@ -92,6 +92,7 @@ def delete(sitename: Annotated[str, typer.Argument(help="Name of the site")]):
 @app.command()
 def list():
     """Lists all of the available sites."""
+    sites.init()
     sites.list_sites()
     # for site in sites.keys():
     # console.print(f"[bold green] {site} [/bold green] -> [bold cyan] {sites[site]}[/bold cyan]")
