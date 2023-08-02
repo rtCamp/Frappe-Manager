@@ -3,3 +3,4 @@
 *.log
 tmp/*
 **/__pycache__/**
+readme.org
