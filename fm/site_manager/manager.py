@@ -144,7 +144,7 @@ class SiteManager:
         self.stop_sites()
         # start the provided site
         self.site.start()
-        self.site.logs()
+        #self.site.logs()
 
     def attach_to_site(self, user: str, extensions: List[str]):
         container_hex = self.site.get_frappe_container_hex()
