@@ -8,9 +8,9 @@ import requests
 app = typer.Typer()
 
 # TODO configure this using config
-#sites_dir = Path() / __name__.split(".")[0]
+# sites_dir = Path() / __name__.split(".")[0]
 
-sites_dir= Path.home() / __name__.split('.')[0]
+sites_dir = Path.home() / __name__.split(".")[0]
 sites = SiteManager(sites_dir)
 
 default_extension = [
@@ -19,53 +19,71 @@ default_extension = [
     "esbenp.prettier-vscode",
     "visualstudioexptteam.vscodeintellicode",
 ]
-def check_frappe_app_exists(appname:str,branchname:str | None = None):
 
+
+def check_frappe_app_exists(appname: str, branchname: str | None = None):
     # check appname
-    app_url = f'https://github.com/frappe/{appname}'
+    app_url = f"https://github.com/frappe/{appname}"
     app = requests.get(app_url).status_code
 
     if branchname:
-        branch_url = f'https://github.com/frappe/{appname}/tree/{branchname}'
+        branch_url = f"https://github.com/frappe/{appname}/tree/{branchname}"
         # check branch
         branch = requests.get(branch_url).status_code
-        return {'app': True if app == 200 else False,'branch': True if branch == 200 else False}
-
-    return {'app': True if app == 200 else False}
-
+        return {
+            "app": True if app == 200 else False,
+            "branch": True if branch == 200 else False,
+        }
+    return {"app": True if app == 200 else False}
 
 
 def apps_validation(value: List[str] | None):
     # don't allow frappe the be included throw error
     if value:
         for app in value:
-            appx = app.split(':')
-            if appx == 'frappe':
+            appx = app.split(":")
+            if appx == "frappe":
                 raise typer.BadParameter("Frappe should not be included here.")
             if len(appx) == 1:
                 exists = check_frappe_app_exists(appx[0])
-                if not exists['app']:
+                if not exists["app"]:
                     raise typer.BadParameter(f"{app} is not a valid FrappeVerse app!")
             if len(appx) == 2:
-                exists = check_frappe_app_exists(appx[0],appx[1])
-                if not exists['app']:
+                exists = check_frappe_app_exists(appx[0], appx[1])
+                if not exists["app"]:
                     raise typer.BadParameter(f"{app} is not a valid FrappeVerse app!")
-                if not exists['branch']:
-                    raise typer.BadParameter(f"{appx[1]} is not a valid branch of {appx[0]}!")
+                if not exists["branch"]:
+                    raise typer.BadParameter(
+                        f"{appx[1]} is not a valid branch of {appx[0]}!"
+                    )
             if len(appx) > 2:
-                raise typer.BadParameter(f"App should be specified in format <appname>:<branch> or <appname> ")
+                raise typer.BadParameter(
+                    f"App should be specified in format <appname>:<branch> or <appname> "
+                )
     return value
+
+
+def frappe_branch_validation(value: str):
+    if value:
+        exists = check_frappe_app_exists("frappe", value)
+        if exists['branch']:
+            return value
+        else:
+            raise typer.BadParameter(f"Frappe branch -> {value} is not valid!! ")
 
 
 @app.command()
 def create(
     sitename: Annotated[str, typer.Argument(help="Name of the site")],
     apps: Annotated[
-        Optional[List[str]], typer.Option("--apps", "-a", help="Frappe apps to install",callback=apps_validation)
+        Optional[List[str]],
+        typer.Option(
+            "--apps", "-a", help="Frappe apps to install", callback=apps_validation
+        ),
     ] = None,
     developer_mode: Annotated[bool, typer.Option(help="Enable developer mode")] = True,
     frappe_branch: Annotated[
-        str, typer.Option(help="Specify the branch name for frappe app")
+        str, typer.Option(help="Specify the branch name for frappe app",callback=frappe_branch_validation)
     ] = "version-14",
     admin_pass: Annotated[
         str,
@@ -77,7 +95,7 @@ def create(
 ):
     """Create a new site."""
 
-    sites.init(sitename,createdir=True)
+    sites.init(sitename, createdir=True)
 
     uid: int = os.getuid()
     gid: int = os.getgid()
@@ -176,22 +194,25 @@ def code(
     sites.attach_to_site(user, extensions)
     # sites.attach_to_site()
 
+
 @app.command()
 def logs(
     sitename: Annotated[str, typer.Argument(help="Name of the site.")],
-    service: Annotated[str, typer.Option(help="Specify Service")] = 'frappe',
+    service: Annotated[str, typer.Option(help="Specify Service")] = "frappe",
 ):
     sites.init(sitename)
     sites.logs(service)
+
 
 @app.command()
 def shell(
     sitename: Annotated[str, typer.Argument(help="Name of the site.")],
     user: Annotated[str, typer.Option(help="Connect as this user.")] = None,
-    service: Annotated[str, typer.Option(help="Specify Service")] = 'frappe',
+    service: Annotated[str, typer.Option(help="Specify Service")] = "frappe",
 ):
     sites.init(sitename)
-    sites.shell(service,user)
+    sites.shell(service, user)
+
 
 def config():
     pass
