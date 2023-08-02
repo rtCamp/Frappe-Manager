@@ -108,7 +108,7 @@ RUN git clone --depth 1 https://github.com/pyenv/pyenv.git .pyenv \
 RUN pip install frappe-bench
 
 # Install Node via nvm
-ENV NODE_VERSION=16.18.0
+ENV NODE_VERSION=18
 ENV NVM_DIR /opt/.nvm
 ENV PATH ${NVM_DIR}/versions/node/v${NODE_VERSION}/bin/:${PATH}
 
