@@ -1,7 +1,7 @@
 version: "3.9"
 services:
   frappe:
-    image: xieytx/fm-frappe
+    image: xieytx/fm-frappe:latest
     environment:
       - SHELL=/bin/bash
     volumes:
@@ -12,7 +12,7 @@ services:
     extra_hosts:
 
   nginx:
-    image: xieytx/fm-nginx
+    image: xieytx/fm-nginx:latest
     environment:
     volumes:
       - ./workspace:/workspace:cached
@@ -22,7 +22,7 @@ services:
       - 443:443
 
   mailhog:
-    image: xieytx/fm-mailhog
+    image: xieytx/fm-mailhog:latest
     ports:
       - 1025
       - 8025
@@ -48,7 +48,7 @@ services:
       - 8080
 
   rq-dashboard:
-    image: xieytx/fm-rqdashboard
+    image: xieytx/fm-rqdashboard:latest
     environment:
       - RQ_DASHBOARD_REDIS_URL=redis://redis-queue:6379
     ports:

@@ -56,7 +56,7 @@ if [[ ! -d "frappe-bench" ]]; then
 
     bench build
     bench new-site --db-root-password "$MARIADB_ROOT_PASS" --db-name "$DB_NAME"  --no-mariadb-socket --admin-password "$ADMIN_PASS"  "$SITENAME"
-    bench --site mysite.localhost scheduler enable
+    bench --site "$SITENAME" scheduler enable
 
     wait
 

@@ -3,24 +3,57 @@ from typing import Annotated, List, Optional, Set
 from pathlib import Path
 from fm.site_manager.manager import SiteManager
 import os
+import requests
 
 app = typer.Typer()
 
 # TODO configure this using config
-sites_dir = Path() / __name__.split(".")[0]
-# self.sites_dir= Path.home() / __name__.split('.')[0]
+#sites_dir = Path() / __name__.split(".")[0]
+
+sites_dir= Path.home() / __name__.split('.')[0]
 sites = SiteManager(sites_dir)
+
 default_extension = [
     "ms-python.python",
     "ms-python.black-formatter",
     "esbenp.prettier-vscode",
     "visualstudioexptteam.vscodeintellicode",
 ]
+def check_frappe_app_exists(appname:str,branchname:str | None = None):
+
+    # check appname
+    app_url = f'https://github.com/frappe/{appname}'
+    app = requests.get(app_url).status_code
+
+    if branchname:
+        branch_url = f'https://github.com/frappe/{appname}/tree/{branchname}'
+        # check branch
+        branch = requests.get(branch_url).status_code
+        return {'app': True if app == 200 else False,'branch': True if branch == 200 else False}
+
+    return {'app': True if app == 200 else False}
+
 
 
 def apps_validation(value: List[str] | None):
+    # don't allow frappe the be included throw error
     if value:
-        typer.Exit("Wrong Apps List")
+        for app in value:
+            appx = app.split(':')
+            if appx == 'frappe':
+                raise typer.BadParameter("Frappe should not be included here.")
+            if len(appx) == 1:
+                exists = check_frappe_app_exists(appx[0])
+                if not exists['app']:
+                    raise typer.BadParameter(f"{app} is not a valid FrappeVerse app!")
+            if len(appx) == 2:
+                exists = check_frappe_app_exists(appx[0],appx[1])
+                if not exists['app']:
+                    raise typer.BadParameter(f"{app} is not a valid FrappeVerse app!")
+                if not exists['branch']:
+                    raise typer.BadParameter(f"{appx[1]} is not a valid branch of {appx[0]}!")
+            if len(appx) > 2:
+                raise typer.BadParameter(f"App should be specified in format <appname>:<branch> or <appname> ")
     return value
 
 
@@ -28,7 +61,7 @@ def apps_validation(value: List[str] | None):
 def create(
     sitename: Annotated[str, typer.Argument(help="Name of the site")],
     apps: Annotated[
-        Optional[List[str]], typer.Option("--apps", "-a", help="Frappe apps to install")
+        Optional[List[str]], typer.Option("--apps", "-a", help="Frappe apps to install",callback=apps_validation)
     ] = None,
     developer_mode: Annotated[bool, typer.Option(help="Enable developer mode")] = True,
     frappe_branch: Annotated[
@@ -139,11 +172,26 @@ def code(
     # cmd: -> code --folder-uri=vscode-remote://attached-container+(contianer name hex)+/workspace
     # LABELS can be added to container to support extensions and remote user
     # check if configuration can be given
-    # print(extensions)
     sites.init(sitename)
     sites.attach_to_site(user, extensions)
     # sites.attach_to_site()
 
+@app.command()
+def logs(
+    sitename: Annotated[str, typer.Argument(help="Name of the site.")],
+    service: Annotated[str, typer.Option(help="Specify Service")] = 'frappe',
+):
+    sites.init(sitename)
+    sites.logs(service)
+
+@app.command()
+def shell(
+    sitename: Annotated[str, typer.Argument(help="Name of the site.")],
+    user: Annotated[str, typer.Option(help="Connect as this user.")] = None,
+    service: Annotated[str, typer.Option(help="Specify Service")] = 'frappe',
+):
+    sites.init(sitename)
+    sites.shell(service,user)
 
 def config():
     pass

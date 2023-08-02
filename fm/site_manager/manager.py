@@ -146,7 +146,7 @@ class SiteManager:
         self.site.start()
         self.site.logs()
 
-    def attach_to_site(self, user: str, extensions: List[str] | None):
+    def attach_to_site(self, user: str, extensions: List[str]):
         container_hex = self.site.get_frappe_container_hex()
         vscode_cmd = shlex.join(
             [
@@ -154,6 +154,8 @@ class SiteManager:
                 f"--folder-uri=vscode-remote://attached-container+{container_hex}+/workspace",
             ]
         )
+
+        extensions.sort()
 
         labels = {
             "devcontainer.metadata": json.dumps([
@@ -163,27 +165,29 @@ class SiteManager:
                 }
             ])
         }
-        # set user
-        # set extensions
+
         # check if the extension are the same if they are different then only update
         labels_pre = self.site.composefile.get_labels('frappe')
-        # extensions_pre = json.loads(labels_pre['devcontainer.metadata'])
-        # extensions_pre[0]['customizations']['vscode']['extensions']
-        #['customizations']['vscode']['extensions']
-        # print(extensions_pre == labels['devcontainer.metadata'])
-        # if labels_previous['devcontainer.metadata']:
-        #     labels_previous['devcontainer.metadata'][0]['vscode']
-        #     if not labels_previous['devcontainer.metadata'] == labels['devcontainer.metadata']:
-        #         print('not equal')
-                # self.site.composefile.set_labels('frappe',labels)
-                # self.site.composefile.write_to_file()
-        # exit()
+        extensions_pre = json.loads(labels_pre['devcontainer.metadata'])
+        extensions_pre = extensions_pre[0]['customizations']['vscode']['extensions']
+        extensions_pre.sort()
+
         if self.site.running():
-            self.site.start()
+            if extensions_pre:
+                if not extensions_pre == extensions:
+                    self.site.composefile.set_labels('frappe',labels)
+                    self.site.composefile.write_to_file()
+                    self.site.start()
             # TODO check if vscode exists
             subprocess.run(vscode_cmd,shell=True)
         else:
             print(f"Site: {self.site.name} is not running!!")
 
-    def exec_site(self,user:str):
-        pass
+    def logs(self,service:str):
+        self.site.logs(service)
+
+    def shell(self,container:str, user:str | None):
+        if container == 'frappe':
+            if not user:
+                user = 'frappe'
+        self.site.shell(container,user)

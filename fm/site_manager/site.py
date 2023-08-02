@@ -1,6 +1,7 @@
+from click import command
 from python_on_whales import DockerClient
 import shutil
-from typing import List
+from typing import List, Type
 from pathlib import Path
 import jinja2
 import re
@@ -68,10 +69,22 @@ class Site:
     def start(self) -> bool:
         self.docker.compose.up(pull='always',detach=True)
 
-    def logs(self):
+    def logs(self,service:str):
         console = rich.console.Console()
-        for t,c in self.docker.compose.logs(services=['frappe'],stream=True):
+        for t , c in self.docker.compose.logs(services=[service],follow=True,stream=True):
+            console.print(c.decode(),end='')
+
+    # def check_frappe_setup(self) -> bool:
+    #     self.docker.execute('frappe')
+    #     pass
+        #== 'unix:///opt/user/supervisor.sock no such file'
+
+    def frappe_logs(self):
+        console = rich.console.Console()
+        for t , c in self.docker.compose.logs(services=['frappe'],follow=True,stream=True):
+            #check if setup done
             console.print(c.decode())
+
 
     def stop(self) -> bool:
         self.docker.compose.down(remove_orphans=True)
@@ -98,5 +111,16 @@ class Site:
         shutil.rmtree(self.path)
         #delete_dir(self.path)
         #
-    def exec(self) -> None:
-        self.docker.compose.execute()
+    def shell(self,container:str, user:str | None = None):
+        # TODO check user exists
+        non_bash_supported = ['redis-cache','redis-cache','redis-socketio','redis-queue']
+        if not container in non_bash_supported:
+            if user:
+                self.docker.compose.execute(container,tty=True,user=user,command=['/bin/bash'])
+            else:
+                self.docker.compose.execute(container,tty=True,command=['/bin/bash'])
+        else:
+            if user:
+                self.docker.compose.execute(container,tty=True,user=user,command=['sh'])
+            else:
+                self.docker.compose.execute(container,tty=True,command=['sh'])
