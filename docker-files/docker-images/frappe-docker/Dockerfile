@@ -109,9 +109,9 @@ RUN pip install frappe-bench
 
 # Install Node via nvm
 ENV NODE_VERSION=18
+
 ENV NVM_DIR /opt/.nvm
 ENV PATH ${NVM_DIR}/versions/node/v${NODE_VERSION}/bin/:${PATH}
-
 
 RUN mkdir -p /opt/.nvm \
     && wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash \
@@ -141,12 +141,5 @@ COPY ./entrypoint.sh /
 COPY ./user-script.sh /
 
 RUN sudo chmod +x /entrypoint.sh /user-script.sh /opt/user/bench-start.sh /opt/user/.bin/bench
-
-LABEL devcontainer.metadata='[{ "remoteUser": "frappe", "customizations": { "vscode": { "extensions": [ "ms-python.python", "ms-vscode.live-server", "grapecity.gc-excelviewer", "mtxr.sqltools", "visualstudioexptteam.vscodeintellicode"] } } }]'
-#LABEL devcontainer.metadata='[{ \
-#  "remoteUser": "frappe", \
-#}]'
-
-  #"extensions": [ "ms-python.python", "ms-vscode.live-server", "grapecity.gc-excelviewer", "mtxr.sqltools", "visualstudioexptteam.vscodeintellicode"], \
 
 ENTRYPOINT ["/bin/bash","/entrypoint.sh"]
