@@ -92,7 +92,7 @@ class SiteManager:
             console.print(
                 f"Site {self.site.name} doesn't exists! Aborting! -> [bold cyan] {self.site.path}[/bold cyan]"
             )
-            exit(1)
+            raise typer.Exit(1)
         # check if running -> stop it
         # remove dir
         self.site.remove()
@@ -136,10 +136,20 @@ class SiteManager:
         # for site in sites_list:
 
     def stop_site(self):
+        if not self.site.exists:
+            console.print(
+                f"Site {self.site.name} doesn't exists! Aborting!"
+            )
+            raise typer.Exit(1)
         self.stop_sites()
         self.site.stop()
 
     def start_site(self):
+        if not self.site.exists:
+            console.print(
+                f"Site {self.site.name} doesn't exists! Aborting!"
+            )
+            raise typer.Exit(1)
         # stop all sites
         self.stop_sites()
         # start the provided site
@@ -184,10 +194,30 @@ class SiteManager:
             print(f"Site: {self.site.name} is not running!!")
 
     def logs(self,service:str):
-        self.site.logs(service)
+        if not self.site.exists:
+            console.print(
+                f"Site {self.site.name} doesn't exists! Aborting!"
+            )
+            raise typer.Exit(1)
+        if self.site.running():
+            self.site.logs(service)
+        else:
+            console.print(
+                f"Site {self.site.name} not running!"
+            )
 
     def shell(self,container:str, user:str | None):
-        if container == 'frappe':
-            if not user:
-                user = 'frappe'
-        self.site.shell(container,user)
+        if not self.site.exists:
+            console.print(
+                f"Site {self.site.name} doesn't exists! Aborting!"
+            )
+            raise typer.Exit(1)
+        if self.site.running():
+            if container == 'frappe':
+                if not user:
+                    user = 'frappe'
+            self.site.shell(container,user)
+        else:
+            console.print(
+                f"Site {self.site.name} not running!"
+            )

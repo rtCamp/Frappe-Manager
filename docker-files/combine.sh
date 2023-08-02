@@ -17,6 +17,8 @@ docker manifest create xieytx/fm-rqdashboard:latest \
 
 docker manifest push xieytx/fm-rqdashboard:latest
 
+docker pull xieytx/fm-frappe:amd64
+
 docker manifest create xieytx/fm-frappe:latest \
 --amend xieytx/fm-frappe:amd64 \
 --amend xieytx/fm-frappe:arm64
