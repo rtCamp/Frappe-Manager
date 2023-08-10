@@ -5,7 +5,7 @@ from fm.site_manager.manager import SiteManager
 import os
 import requests
 
-app = typer.Typer()
+app = typer.Typer(no_args_is_help=True)
 
 # TODO configure this using config
 # sites_dir = Path() / __name__.split(".")[0]
@@ -100,9 +100,6 @@ def create(
     uid: int = os.getuid()
     gid: int = os.getgid()
 
-    # apps list as appname:version-14
-    # TODO add validation for branch name
-
     frappe_env: dict = {
         "USERID": uid,
         "USERGROUP": gid,
@@ -145,8 +142,6 @@ def list():
     """Lists all of the available sites."""
     sites.init()
     sites.list_sites()
-    # for site in sites.keys():
-    # console.print(f"[bold green] {site} [/bold green] -> [bold cyan] {sites[site]}[/bold cyan]")
 
 
 @app.command()
@@ -185,14 +180,8 @@ def code(
     ] = default_extension,
 ):
     """Open site in vscode."""
-    # check if vscode is installed
-    # Attach to container
-    # cmd: -> code --folder-uri=vscode-remote://attached-container+(contianer name hex)+/workspace
-    # LABELS can be added to container to support extensions and remote user
-    # check if configuration can be given
     sites.init(sitename)
     sites.attach_to_site(user, extensions)
-    # sites.attach_to_site()
 
 
 @app.command()
@@ -215,20 +204,20 @@ def shell(
     sites.init(sitename)
     sites.shell(service, user)
 
-@app.command()
-def doctor():
-    # Runs the doctor script in the container. or commands defined in py file
-    pass
+# @app.command()
+# def doctor():
+#     # Runs the doctor script in the container. or commands defined in py file
+#     pass
 
-def db_import():
-    pass
-def db_export():
-    pass
-def site_export():
-    # backup export ()
-    pass
-def site_import():
-    # backup import ()
-    pass
-def config():
-    pass
+# def db_import():
+#     pass
+# def db_export():
+#     pass
+# def site_export():
+#     # backup export ()
+#     pass
+# def site_import():
+#     # backup import ()
+#     pass
+# def config():
+#     pass

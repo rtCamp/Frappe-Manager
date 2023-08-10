@@ -3,8 +3,7 @@ FROM ubuntu:22.04 as bench
 LABEL author=Xieyt
 ARG PYTHON_VERSION=3.11.0
 
-RUN apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
     # For frappe framework
     git \
     mariadb-client \
@@ -68,6 +67,7 @@ RUN apt-get update \
     psmisc \
     jq \
     gosu
+
     #&& rm -rf /var/lib/apt/lists/*
 
 RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
