@@ -179,7 +179,7 @@ def code(
         typer.Option(
             "--extension",
             "-e",
-            help="List of extensions to install in vscode at startup.",
+            help="List of extensions to install in vscode at startup.Provide extension id eg: ms-python.python",
             callback=code_callback,
         ),
     ] = default_extension,
@@ -200,6 +200,7 @@ def logs(
     sitename: Annotated[str, typer.Argument(help="Name of the site.")],
     service: Annotated[str, typer.Option(help="Specify Service")] = "frappe",
 ):
+    """Show logs for the given site."""
     sites.init(sitename)
     sites.logs(service)
 
@@ -210,9 +211,24 @@ def shell(
     user: Annotated[str, typer.Option(help="Connect as this user.")] = None,
     service: Annotated[str, typer.Option(help="Specify Service")] = "frappe",
 ):
+    """Open shell for the give site."""
     sites.init(sitename)
     sites.shell(service, user)
 
+@app.command()
+def doctor():
+    # Runs the doctor script in the container. or commands defined in py file
+    pass
 
+def db_import():
+    pass
+def db_export():
+    pass
+def site_export():
+    # backup export ()
+    pass
+def site_import():
+    # backup import ()
+    pass
 def config():
     pass

@@ -9,6 +9,8 @@ services:
     ports:
       - 80
       - 9000:9000
+    labels:
+        devcontainer.metadata: '[{ "remoteUser": "frappe"}]'
     extra_hosts:
 
   nginx:

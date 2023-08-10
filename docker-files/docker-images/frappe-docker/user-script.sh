@@ -47,6 +47,31 @@ if [[ ! -d "frappe-bench" ]]; then
     bench set-config -g disable_mail_smtp_authentication 1
     bench set-config -g webserver_port "$WEB_PORT"
     bench set-config -g developer_mode "$DEVELOPER_MODE"
+    # HANDLE APPS
+    # apps are taken as follows
+    # appsname:branch
+    # no branch if you want to do default installation of the app
+
+    apps_json='[]'
+    if [[ "${APPS_LIST:-}" ]]; then
+        apps=$(awk -F ',' '{for (i=1; i<=NF; i++) {print $i}}' <<<"$APPS_LIST")
+        for app in $apps; do
+            app_name=$(echo "$app" | awk 'BEGIN {FS=":"}; {print $1}')
+            branch_name=$(echo "$app" | awk 'BEGIN {FS=":"}; {print $2}')
+            if [[ "${branch_name:-}" ]]; then
+                echo "Installing app $app_name -> $branch_name"
+                bench get-app --skip-assets --branch "${branch_name}" "${app_name}"
+            else
+                echo "Installing app $app_name"
+                bench get-app --skip-assets "${app_name}"
+            fi
+            apps_json=$(echo "$apps_json" | jq --arg app_name "${app_name}" '.+ [$app_name]')
+            done
+    fi
+    apps_json=$(echo "$apps_json" | jq -rc '.')
+
+    # add install apps config to common site config
+    bench set-config -g install_apps "$apps_json" --parse
 
     # change the procfile port 8000 to 80
     # this will chaange the web serving port from 8000 to 80
@@ -65,6 +90,7 @@ if [[ ! -d "frappe-bench" ]]; then
     else
         supervisord -c /opt/user/supervisord.conf
     fi
+
 
 else
     wait-for-it -t 120 mariadb:3306;
@@ -94,3 +120,4 @@ else
     fi
 
 fi
+

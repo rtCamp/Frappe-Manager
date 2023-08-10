@@ -1,13 +1,19 @@
-from click import command
-from python_on_whales import DockerClient
+from python_on_whales import DockerClient, DockerException
+import rich
 import shutil
+import re
 from typing import List, Type
 from pathlib import Path
-import jinja2
-import re
 from fm.site_manager.SiteCompose import SiteCompose
-import rich
+from fm.site_manager.Richprint import richprint
 
+from time import sleep
+from rich.live import Live
+from rich.table import Table,Row
+from rich.progress import Progress
+
+def handle_DockerException():
+    pass
 
 def delete_dir(path: Path):
     for sub in path.iterdir():
@@ -20,8 +26,6 @@ def delete_dir(path: Path):
 # TODO handle all the dockers errors here
 
 class Site:
-    jinja = jinja2.Environment()
-
     def __init__(self,path: Path , name:str):
         self.path= path
         self.name= name
@@ -67,60 +71,87 @@ class Site:
         certs_path.mkdir(parents=True, exist_ok=True)
 
     def start(self) -> bool:
-        self.docker.compose.up(pull='always',detach=True)
+        try:
+            self.docker.compose.up(detach=True)
+        except DockerException as e:
+            richprint.error(f"{e.stdout}{e.stderr}")
+    def pull(self):
+        try:
+            self.docker.compose.pull(ignore_pull_failures=True)
+        except DockerException as e:
+            richprint.error(f"{e.stdout}{e.stderr}")
 
     def logs(self,service:str):
-        console = rich.console.Console()
-        for t , c in self.docker.compose.logs(services=[service],follow=True,stream=True):
-            console.print(c.decode(),end='')
+        for t , c in self.docker.compose.logs(services=[service],no_log_prefix=True,follow=True,stream=True):
+                line = c.decode()
+                if "Updating DocTypes".lower() in line.lower():
+                    print(line)
+                else:
+                    richprint.stdout.print(line,end='')
 
-    # def check_frappe_setup(self) -> bool:
-    #     self.docker.execute('frappe')
-    #     pass
-        #== 'unix:///opt/user/supervisor.sock no such file'
-
-    def frappe_logs(self):
-        console = rich.console.Console()
-        for t , c in self.docker.compose.logs(services=['frappe'],follow=True,stream=True):
-            #check if setup done
-            console.print(c.decode())
-
+    def frappe_logs_till_start(self):
+        from rich.padding import Padding
+        try:
+            for t , c in self.docker.compose.logs(services=['frappe'],no_log_prefix=True,follow=True,stream=True):
+                line = c.decode()
+                if "Updating DocTypes".lower() in line.lower():
+                    print(line)
+                else:
+                    richprint.stdout.print(line,end='')
+                if "INFO spawned: 'bench-dev' with pid".lower() in line.lower():
+                    break
+        except DockerException as e:
+            richprint.error(f"{e.stdout}{e.stderr}")
 
     def stop(self) -> bool:
-        self.docker.compose.down(remove_orphans=True)
+        try:
+            self.docker.compose.down(remove_orphans=True)
+        except DockerException as e:
+            richprint.error(f"{e.stdout}{e.stderr}")
 
     def status(self) -> str:
-        ps_output =self.docker.compose.ps()
-        for container in ps_output:
-            print(container.state.status)
-        #print(ps_output)
+        try:
+            ps_output =self.docker.compose.ps()
+            for container in ps_output:
+                print(container.state.status)
+        except DockerException as e:
+            richprint.error(f"{e.stdout}{e.stderr}")
+
 
     def running(self) -> bool:
-        ls_output = self.docker.compose.ls()
-        if ls_output:
-            for composeproject in ls_output:
-                if composeproject.config_files[0] == self.composefile.compose_path.absolute() and composeproject.running >= 9:
-                    return True
-        return False
+        try:
+            ls_output = self.docker.compose.ls()
+            if ls_output:
+                for composeproject in ls_output:
+                    if composeproject.config_files[0] == self.composefile.compose_path.absolute() and composeproject.running >= 9:
+                        return True
+            return False
+        except DockerException as e:
+            richprint.error(f"{e.stdout}{e.stderr}")
 
 
     def remove(self) -> bool:
         if self.composefile.exists:
-            self.docker.compose.down(remove_orphans=True,volumes=True,timeout=30)
-        # TODO handle low leverl error like read only, write only etc
-        shutil.rmtree(self.path)
-        #delete_dir(self.path)
-        #
+            try:
+                self.docker.compose.down(remove_orphans=True,volumes=True,timeout=2)
+                # TODO handle low leverl error like read only, write only etc
+                shutil.rmtree(self.path)
+            except DockerException as e:
+                richprint.error(f"{e.stdout}{e.stderr}")
+
     def shell(self,container:str, user:str | None = None):
         # TODO check user exists
         non_bash_supported = ['redis-cache','redis-cache','redis-socketio','redis-queue']
-        if not container in non_bash_supported:
-            if user:
-                self.docker.compose.execute(container,tty=True,user=user,command=['/bin/bash'])
+        try:
+            if not container in non_bash_supported:
+                if user:
+                    self.docker.compose.execute(container,tty=True,user=user,command=['/bin/bash'])
+                else:
+                    self.docker.compose.execute(container,tty=True,command=['/bin/bash'])
             else:
-                self.docker.compose.execute(container,tty=True,command=['/bin/bash'])
-        else:
-            if user:
-                self.docker.compose.execute(container,tty=True,user=user,command=['sh'])
-            else:
-                self.docker.compose.execute(container,tty=True,command=['sh'])
+                if user:
+                    self.docker.compose.execute(container,tty=True,user=user,command=['sh'])
+                else:
+                    self.docker.compose.execute(container,tty=True,command=['sh'])
+        except DockerException as e:
+            richprint.error(f"{e.stdout}{e.stderr}")

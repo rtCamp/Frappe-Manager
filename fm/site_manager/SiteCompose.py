@@ -53,7 +53,10 @@ class SiteCompose:
         self.yml['services'][container]['labels'] = labels
 
     def get_labels(self,container:str) -> dict:
-        labels = self.yml['services'][container]['labels']
+        try:
+            labels = self.yml['services'][container]['labels']
+        except Exception:
+            return {}
         return labels
 
     def set_extrahosts(self,container:str,extrahosts:list):

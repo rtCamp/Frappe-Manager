@@ -18,7 +18,7 @@ FrappeManager is a docker compose based tool to easily manager frappe based proj
     ```bash
       pip install fm-0.2.0.tar.gz
       # or
-      pip install fm-0.2.0.whl
+      pip install fm-0.2.0-py3-none-any.whl
     ```
 
 
