@@ -66,6 +66,7 @@ RUN apt-get update \
     wait-for-it \
     supervisor \
     psmisc \
+    jq \
     gosu
     #&& rm -rf /var/lib/apt/lists/*
 
