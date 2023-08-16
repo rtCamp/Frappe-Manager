@@ -1,5 +1,3 @@
-name: build and push docker images
-
 on:
   workflow_dispatch:
     inputs:
@@ -12,7 +10,8 @@ on:
         - info
         - warning
         - debug
-
+        
+name: build and push docker images
 jobs:
   docker:
     runs-on: ubuntu-latest
