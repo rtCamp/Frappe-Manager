@@ -1,6 +1,6 @@
 from python_on_whales import DockerClient, DockerException
 from python_on_whales import docker as Docker
-from typing import List
+from typing import List, Type
 from pathlib import Path
 import subprocess
 import json
@@ -39,19 +39,15 @@ class SiteManager:
             sitename = sitename + ".localhost"
             sitepath: Path = self.sitesdir / sitename
             self.site: Site = Site(sitepath, sitename)
-        # check if ports -> 9000,80.443 available
-        # TODO flag which can force stop if any container is using this ports
-        # docker = DockerClient()
-        # print(docker.compose.ls())
 
     def __get_all_sites_path(self, exclude: List[str] = []):
         sites_path = []
-        for dir in self.sitesdir.iterdir():
-            if dir.is_dir():
-                if not dir.parts[-1] in exclude:
-                    dir = dir / "docker-compose.yml"
-                    if dir.exists():
-                        sites_path.append(str(dir.absolute()))
+        for d in self.sitesdir.iterdir():
+            if d.is_dir():
+                if not d.parts[-1] in exclude:
+                    d = d / "docker-compose.yml"
+                    if d.exists():
+                        sites_path.append(str(d.absolute()))
         return sites_path
 
     def get_all_sites(self):
@@ -65,15 +61,15 @@ class SiteManager:
         return sites
 
     def stop_sites(self):
+        """ Stop all sites except the current site."""
         # this will override all
         # get list of all sub directories in the dir
         exclude = [self.site.name]
         site_compose: list = self.__get_all_sites_path(exclude)
         if site_compose:
             docker = DockerClient(compose_files=site_compose)
-            print(docker.compose.down())
             try:
-                print('wow')
+                docker.compose.down(timeout=2)
             except DockerException as e:
                 richprint.error(f"{e.stdout}{e.stderr}")
 
@@ -83,9 +79,11 @@ class SiteManager:
                 f"Site {self.site.name} already exists! Aborting! -> [bold cyan] {self.site.path}[/bold cyan]"
             )
             exit(1)
+        self.stop_sites()
+        # check if ports are available
+        self.check_ports()
         self.site.create_dirs()
         self.site.generate_compose(template_inputs)
-        self.stop_sites()
         self.site.pull()
         self.site.start()
         self.site.frappe_logs_till_start()
@@ -146,6 +144,7 @@ class SiteManager:
             raise typer.Exit(1)
         # stop all sites
         self.stop_sites()
+        self.check_ports()
         # start the provided site
         self.site.pull()
         self.site.start()
@@ -205,6 +204,21 @@ class SiteManager:
             richprint.error(
                 f"Site {self.site.name} not running!"
             )
+
+    def check_ports(self):
+        to_check = [9000,80,443]
+        already_binded = []
+
+        import psutil
+        for conn in psutil.net_connections('tcp4'):
+            if conn.laddr.port in to_check:
+                already_binded.append(conn.laddr.port)
+
+        if already_binded:
+            # show warning and exit
+            #richprint.error(f"{' '.join([str(x) for x in already_binded])} ports { 'are' if len(already_binded) > 1 else 'is' } already in use. Please free these ports.")
+            richprint.error(f" Whoa there! Looks like the {' '.join([ str(x) for x in already_binded ])} { 'ports are' if len(already_binded) > 1 else 'port is' } having a party already! Can you do us a solid and free up those ports? They're in high demand and ready to mingle!")
+            raise typer.Exit()
 
     def shell(self,container:str, user:str | None):
         if not self.site.exists:
