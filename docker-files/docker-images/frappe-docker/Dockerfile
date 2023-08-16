@@ -66,7 +66,9 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
     supervisor \
     psmisc \
     jq \
-    gosu
+    gosu \
+    fonts-powerline \
+    zsh
 
     #&& rm -rf /var/lib/apt/lists/*
 
@@ -86,21 +88,24 @@ RUN if [ "$(uname -m)" = "aarch64" ]; then export ARCH=arm64; fi \
 # Install Python via pyenv
 ENV PYENV_ROOT /opt/.pyenv
 ENV PATH $PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH
-ENV USERBASHRC /opt/user/.bashrc
+ENV USERZSHRC /opt/user/.zshrc
 ENV USERPROFILE /opt/user/.profile
 
 # From https://github.com/pyenv/pyenv#basic-github-checkout
 WORKDIR /opt
 
-RUN mkdir -p /opt/user && touch /opt/user/.profile && touch /opt/user/.bashrc
+RUN mkdir -p /opt/user && touch /opt/user/.profile && mkdir -p /opt/user/.antigen
+
+COPY ./zshrc /opt/user/.zshrc
+RUN curl -L git.io/antigen > /opt/user/.antigen/antigen.zsh
 
 RUN git clone --depth 1 https://github.com/pyenv/pyenv.git .pyenv \
     && pyenv install $PYTHON_VERSION \
     && PYENV_VERSION=$PYTHON_VERSION pip install --no-cache-dir virtualenv \
     && pyenv global $PYTHON_VERSION \
-    && echo 'export PYENV_ROOT="/opt/.pyenv"' >> "$USERBASHRC" \
-    && echo 'command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"' >> "$USERBASHRC" \
-    && echo 'eval "$(pyenv init -)"' >>"$USERBASHRC"
+    && echo 'export PYENV_ROOT="/opt/.pyenv"' >> "$USERZSHRC" \
+    && echo 'command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"' >> "$USERZSHRC" \
+    && echo 'eval "$(pyenv init -)"' >>"$USERZSHRC"
 
     #&& echo 'eval "$(pyenv init -)"' >>"$USERPROFILE"
     #&& sed -Ei -e '/^([^#]|$)/ {a export PYENV_ROOT="/opt/.pyenv" a export PATH="$PYENV_ROOT/bin:$PATH" a ' -e ':a' -e '$!{n;ba};}' "$USERPROFILE" \
@@ -122,9 +127,9 @@ RUN mkdir -p /opt/.nvm \
     && npm install -g yarn \
     && nvm alias default v${NODE_VERSION} \
     && rm -rf ${NVM_DIR}/.cache \
-    && echo 'export NVM_DIR="/opt/.nvm"' >>"$USERBASHRC" \
-    && echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm' >> "$USERBASHRC" \
-    && echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion' >> "$USERBASHRC"
+    && echo 'export NVM_DIR="/opt/.nvm"' >>"$USERZSHRC" \
+    && echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm' >> "$USERZSHRC" \
+    && echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion' >> "$USERZSHRC"
 
 RUN mkdir -p /workspace
 
@@ -133,7 +138,7 @@ WORKDIR /workspace
 RUN mkdir -p /opt/user/.bin
 ENV PATH /opt/user/.bin:${PATH}
 
-RUN echo PATH='/opt/user/.bin:$PATH' >> "$USERBASHRC"
+RUN echo PATH='/opt/user/.bin:$PATH' >> "$USERZSHRC"
 
 COPY ./supervisord.conf /opt/user/
 COPY ./bench-start.sh /opt/user/

@@ -144,10 +144,14 @@ class Site:
         non_bash_supported = ['redis-cache','redis-cache','redis-socketio','redis-queue']
         try:
             if not container in non_bash_supported:
-                if user:
-                    self.docker.compose.execute(container,tty=True,user=user,command=['/bin/bash'])
+                if container == 'frappe':
+                    shell_path = '/usr/bin/zsh'
                 else:
-                    self.docker.compose.execute(container,tty=True,command=['/bin/bash'])
+                    shell_path = '/bin/bash'
+                if user:
+                    self.docker.compose.execute(container,tty=True,user=user,command=[shell_path])
+                else:
+                    self.docker.compose.execute(container,tty=True,command=[shell_path])
             else:
                 if user:
                     self.docker.compose.execute(container,tty=True,user=user,command=['sh'])
