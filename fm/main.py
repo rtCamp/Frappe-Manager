@@ -5,7 +5,7 @@ from fm.site_manager.manager import SiteManager
 import os
 import requests
 
-app = typer.Typer(no_args_is_help=True)
+app = typer.Typer(no_args_is_help=True,rich_markup_mode="markdown")
 
 # TODO configure this using config
 # sites_dir = Path() / __name__.split(".")[0]
@@ -78,7 +78,7 @@ def create(
     apps: Annotated[
         Optional[List[str]],
         typer.Option(
-            "--apps", "-a", help="Frappe apps to install", callback=apps_validation
+            "--apps", "-a", help="FrappeVerse apps to install. App should be specified in format \<appname\>:\<branch\> or \<appname\>.", callback=apps_validation
         ),
     ] = None,
     developer_mode: Annotated[bool, typer.Option(help="Enable developer mode")] = True,
@@ -93,7 +93,24 @@ def create(
     ] = "admin",
     enable_ssl: Annotated[bool, typer.Option(help="Enable https")] = False,
 ):
-    """Create a new site."""
+    # TODO Create markdown table for the below help
+    """
+    Create a new site. Frappe will be installed by default.
+
+    Examples:
+
+    * **Install frappe[version-14]**
+    `fm create example`
+
+    * **Install frappe[version-15-beta]**
+    `fm create example --frappe-branch version-15-beta`
+
+    * **Install frappe[version-14], erpnext[version-14] and hrms[version-14]**
+    `fm create example --apps erpnext:version-14 --apps hrms:version-14`
+
+    * **Install frappe[version-15-beta], erpnext[version-15-beta] and hrms[version-15-beta]**
+    `fm create example --frappe-branch version-15-beta --apps erpnext:version-15-beta --apps hrms:version-15-beta`
+    """
 
     sites.init(sitename, createdir=True)
 
