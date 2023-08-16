@@ -117,7 +117,8 @@ def create(
         "SITENAME": sites.site.name,
     }
 
-    extra_hosts: List[str] = [f"{sitename}:127.0.0.1"]
+    # fix for macos
+    extra_hosts: List[str] = [f"{sites.site.name}:127.0.0.1"]
 
     template_inputs: dict = {
         "frappe_env": frappe_env,
