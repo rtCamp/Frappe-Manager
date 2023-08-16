@@ -14,10 +14,13 @@ sites_dir = Path.home() / __name__.split(".")[0]
 sites = SiteManager(sites_dir)
 
 default_extension = [
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
     "ms-python.python",
     "ms-python.black-formatter",
-    "esbenp.prettier-vscode",
+    "ms-python.flake8",
     "visualstudioexptteam.vscodeintellicode",
+    "VisualStudioExptTeam.intellicode-api-usage-examples"
 ]
 
 
