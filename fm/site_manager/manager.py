@@ -144,7 +144,8 @@ class SiteManager:
             raise typer.Exit(1)
         # stop all sites
         self.stop_sites()
-        self.check_ports()
+        if not self.site.running():
+            self.check_ports()
         # start the provided site
         self.site.pull()
         self.site.start()

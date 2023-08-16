@@ -199,9 +199,12 @@ def code(
             callback=code_callback,
         ),
     ] = default_extension,
+    force_start: Annotated[bool , typer.Option(help="Force start the site before attaching to container.")] = False
 ):
     """Open site in vscode."""
     sites.init(sitename)
+    if force_start:
+        sites.start_site()
     sites.attach_to_site(user, extensions)
 
 
