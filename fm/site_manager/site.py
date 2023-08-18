@@ -1,4 +1,5 @@
 from python_on_whales import DockerClient, DockerException
+import typer
 import rich
 import shutil
 import re
@@ -81,10 +82,10 @@ class Site:
         except DockerException as e:
             richprint.error(f"{e.stdout}{e.stderr}")
 
-    def logs(self,service:str):
-        for t , c in self.docker.compose.logs(services=[service],no_log_prefix=True,follow=True,stream=True):
+    def logs(self,service:str,follow:bool=False):
+        for t , c in self.docker.compose.logs(services=[service],no_log_prefix=True,follow=follow,stream=True):
                 line = c.decode()
-                if "Updating DocTypes".lower() in line.lower():
+                if "[==".lower() in line.lower():
                     print(line)
                 else:
                     richprint.stdout.print(line,end='')
@@ -94,7 +95,7 @@ class Site:
         try:
             for t , c in self.docker.compose.logs(services=['frappe'],no_log_prefix=True,follow=True,stream=True):
                 line = c.decode()
-                if "Updating DocTypes".lower() in line.lower():
+                if "[==".lower() in line.lower():
                     print(line)
                 else:
                     richprint.stdout.print(line,end='')
@@ -128,6 +129,7 @@ class Site:
             return False
         except DockerException as e:
             richprint.error(f"{e.stdout}{e.stderr}")
+            raise typer.Exit(1)
 
 
     def remove(self) -> bool:
@@ -144,10 +146,14 @@ class Site:
         non_bash_supported = ['redis-cache','redis-cache','redis-socketio','redis-queue']
         try:
             if not container in non_bash_supported:
-                if user:
-                    self.docker.compose.execute(container,tty=True,user=user,command=['/bin/bash'])
+                if container == 'frappe':
+                    shell_path = '/usr/bin/zsh'
                 else:
-                    self.docker.compose.execute(container,tty=True,command=['/bin/bash'])
+                    shell_path = '/bin/bash'
+                if user:
+                    self.docker.compose.execute(container,tty=True,user=user,command=[shell_path])
+                else:
+                    self.docker.compose.execute(container,tty=True,command=[shell_path])
             else:
                 if user:
                     self.docker.compose.execute(container,tty=True,user=user,command=['sh'])

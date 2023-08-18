@@ -4,20 +4,25 @@ from pathlib import Path
 from fm.site_manager.manager import SiteManager
 import os
 import requests
+from fm.site_manager.Richprint import richprint
 
-app = typer.Typer(no_args_is_help=True)
+app = typer.Typer(no_args_is_help=True,rich_markup_mode='rich')
 
 # TODO configure this using config
-# sites_dir = Path() / __name__.split(".")[0]
+#sites_dir = Path().home() / __name__.split(".")[0]
 
-sites_dir = Path.home() / __name__.split(".")[0]
+sites_dir = Path.home() / 'frappe'
+
 sites = SiteManager(sites_dir)
 
 default_extension = [
+    "dbaeumer.vscode-eslint",
+    "esbenp.prettier-vscode",
     "ms-python.python",
     "ms-python.black-formatter",
-    "esbenp.prettier-vscode",
+    "ms-python.flake8",
     "visualstudioexptteam.vscodeintellicode",
+    "VisualStudioExptTeam.intellicode-api-usage-examples"
 ]
 
 
@@ -71,14 +76,22 @@ def frappe_branch_validation(value: str):
         else:
             raise typer.BadParameter(f"Frappe branch -> {value} is not valid!! ")
 
+@app.callback()
+def get_epilog(ctx: typer.Context):
+    # start rich print
 
-@app.command()
+    # TODO handle sites dir creation and configuration
+    richprint.start(f"Working")
+
+
+@app.command(no_args_is_help=True)
 def create(
     sitename: Annotated[str, typer.Argument(help="Name of the site")],
     apps: Annotated[
         Optional[List[str]],
         typer.Option(
-            "--apps", "-a", help="Frappe apps to install", callback=apps_validation
+            "--apps", "-a", help="FrappeVerse apps to install. App should be specified in format <appname>:<branch> or <appname>.", callback=apps_validation,
+            show_default=False
         ),
     ] = None,
     developer_mode: Annotated[bool, typer.Option(help="Enable developer mode")] = True,
@@ -93,7 +106,26 @@ def create(
     ] = "admin",
     enable_ssl: Annotated[bool, typer.Option(help="Enable https")] = False,
 ):
-    """Create a new site."""
+    # TODO Create markdown table for the below help
+    """
+    Create a new site. :sparkles:
+
+    Frappe\[version-14] will be installed by default.
+
+    [bold white on black]Examples:[/bold white on black]
+
+    [bold]# Install frappe\[version-14][/bold]
+    $ [blue]fm create example[/blue]
+
+    [bold]# Install frappe\[version-15-beta][/bold]
+    $ [blue]fm create example --frappe-branch version-15-beta[/blue]
+
+    [bold]# Install frappe\[version-14], erpnext\[version-14] and hrms\[version-14][/bold]
+    $ [blue]fm create example --apps erpnext:version-14 --apps hrms:version-14[/blue]
+
+    [bold]# Install frappe\[version-15-beta], erpnext\[version-15-beta] and hrms\[version-15-beta][/bold]
+    $ [blue]fm create example --frappe-branch version-15-beta --apps erpnext:version-15-beta --apps hrms:version-15-beta[/blue]
+    """
 
     sites.init(sitename, createdir=True)
 
@@ -117,7 +149,8 @@ def create(
         "SITENAME": sites.site.name,
     }
 
-    extra_hosts: List[str] = [f"{sitename}:127.0.0.1"]
+    # fix for macos
+    extra_hosts: List[str] = [f"{sites.site.name}:127.0.0.1"]
 
     template_inputs: dict = {
         "frappe_env": frappe_env,
@@ -129,9 +162,9 @@ def create(
     sites.create_site(template_inputs)
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def delete(sitename: Annotated[str, typer.Argument(help="Name of the site")]):
-    """Delete a site."""
+    """Delete a site. :sparkles:"""
     sites.init(sitename)
     # turn off the site
     sites.remove_site()
@@ -139,21 +172,21 @@ def delete(sitename: Annotated[str, typer.Argument(help="Name of the site")]):
 
 @app.command()
 def list():
-    """Lists all of the available sites."""
+    """Lists all of the available sites. :sparkles:"""
     sites.init()
     sites.list_sites()
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def start(sitename: Annotated[str, typer.Argument(help="Name of the site")]):
-    """Start a site."""
+    """Start a site. :sparkles:"""
     sites.init(sitename)
     sites.start_site()
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def stop(sitename: Annotated[str, typer.Argument(help="Name of the site")]):
-    """Stop a site."""
+    """Stop a site. :sparkles:"""
     sites.init(sitename)
     sites.stop_site()
 
@@ -165,7 +198,7 @@ def code_callback(extensions: List[str]) -> List[str]:
     return unique_ext_list
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def code(
     sitename: Annotated[str, typer.Argument(help="Name of the site.")],
     user: Annotated[str, typer.Option(help="Connect as this user.")] = "frappe",
@@ -178,29 +211,33 @@ def code(
             callback=code_callback,
         ),
     ] = default_extension,
+    force_start: Annotated[bool , typer.Option(help="Force start the site before attaching to container.")] = False
 ):
-    """Open site in vscode."""
+    """Open site in vscode. :sparkles:"""
     sites.init(sitename)
+    if force_start:
+        sites.start_site()
     sites.attach_to_site(user, extensions)
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def logs(
     sitename: Annotated[str, typer.Argument(help="Name of the site.")],
     service: Annotated[str, typer.Option(help="Specify Service")] = "frappe",
+    follow: Annotated[bool, typer.Option(help="Follow logs.")] = False,
 ):
-    """Show logs for the given site."""
+    """Show logs for the given site. :sparkles:"""
     sites.init(sitename)
-    sites.logs(service)
+    sites.logs(service,follow)
 
 
-@app.command()
+@app.command(no_args_is_help=True)
 def shell(
     sitename: Annotated[str, typer.Argument(help="Name of the site.")],
     user: Annotated[str, typer.Option(help="Connect as this user.")] = None,
     service: Annotated[str, typer.Option(help="Specify Service")] = "frappe",
 ):
-    """Open shell for the give site."""
+    """Open shell for the give site. :sparkles:"""
     sites.init(sitename)
     sites.shell(service, user)
 
@@ -221,3 +258,4 @@ def shell(
 #     pass
 # def config():
 #     pass
+
