@@ -22,9 +22,9 @@ FrappeManager is a docker compose based tool to easily manager frappe based proj
 -   Install it using pip
     
     ```bash
-      pip install fm-0.3.0.tar.gz
+      pip install fm-0.4.0.tar.gz
       # or
-      pip install fm-0.3.0-py3-none-any.whl
+      pip install fm-0.4.0-py3-none-any.whl
     ```
 
 
@@ -66,5 +66,6 @@ fm create example --frappe-branch version-15-beta --apps erpnext:version-15-beta
 -   [ ] Exceptions handling with error messages.
 -   [ ] Better status messages.
 -   [ ] Handle dependencies(mkcert,docker,code).
+-   [ ] Add Https support.
 -   Add vscode devcontainer support.
 -   Create cli with basic options.
