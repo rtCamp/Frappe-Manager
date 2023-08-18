@@ -217,10 +217,15 @@ class SiteManager:
         to_check = [9000,80,443]
         already_binded = []
 
-        import psutil
-        for conn in psutil.net_connections('tcp4'):
-            if conn.laddr.port in to_check:
-                already_binded.append(conn.laddr.port)
+        for port in to_check:
+        # check port using lsof
+            cmd = f"lsof -i:{port} -sTCP:LISTEN -P -n"
+            try:
+                output = subprocess.run(cmd,check=True,shell=True,capture_output=True)
+                if output.returncode == 0:
+                    already_binded.append(port)
+            except subprocess.CalledProcessError as e:
+                pass
 
         if already_binded:
             # TODO handle if ports are open using docker
