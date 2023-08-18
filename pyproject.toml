@@ -1,11 +1,9 @@
 [tool.poetry]
 name = "fm"
-version = "0.3.0"
-description = "Frappe Manager for Local Development Setup"
+version = "0.4.0"
+description = "Frappe Manager for local frappe development environment management."
 authors = ["Xieyt <alokmilenium@gmail.com>"]
 readme = "README.md"
-include = ["fm/templates/*"]
-#packages = [{include = "fm"}]
 
 [tool.poetry.scripts]
 fm = "fm.main:app"
