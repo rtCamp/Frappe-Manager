@@ -1,7 +1,4 @@
 on:
-  push:
-    branches:
-      - cli-typer
   workflow_dispatch:
     inputs:
       logLevel:
