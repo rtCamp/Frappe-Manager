@@ -13,9 +13,9 @@ fm = "fm.main:app"
 [tool.poetry.dependencies]
 python = "^3.11"
 jinja2 = "^3.1.2"
-python-on-whales = "^0.63.0"
 typer = {extras = ["all"], version = "^0.9.0"}
 pyyaml = "^6.0.1"
+python-on-whales = "^0.64.2"
 
 
 [build-system]
