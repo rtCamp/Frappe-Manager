@@ -64,14 +64,17 @@ class SiteManager:
         """ Stop all sites except the current site."""
         # this will override all
         # get list of all sub directories in the dir
+        richprint.change_head("Stopping all other sites !")
         exclude = [self.site.name]
         site_compose: list = self.__get_all_sites_path(exclude)
         if site_compose:
-            docker = DockerClient(compose_files=site_compose)
-            try:
-                docker.compose.down(timeout=2)
-            except DockerException as e:
-                richprint.error(f"{e.stdout}{e.stderr}")
+            for site_compose_path in site_compose:
+                docker = DockerClient(compose_files=[site_compose_path])
+                try:
+                    docker.compose.down(timeout=2)
+                except DockerException as e:
+                    richprint.error(f"{e.stdout}{e.stderr}")
+        richprint.print("Stopped all sites !")
 
     def create_site(self, template_inputs: dict):
         if self.site.exists:
@@ -147,9 +150,13 @@ class SiteManager:
         if not self.site.running():
             self.check_ports()
         # start the provided site
+        richprint.change_head(f"Pulling Docker Images")
         self.site.pull()
+        richprint.change_head(f"Starting site")
         self.site.start()
         self.site.frappe_logs_till_start()
+        richprint.change_head(f"Started site")
+        richprint.stop()
 
     def attach_to_site(self, user: str, extensions: List[str]):
         container_hex = self.site.get_frappe_container_hex()
