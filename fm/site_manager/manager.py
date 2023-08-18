@@ -225,7 +225,7 @@ class SiteManager:
 
         for port in to_check:
         # check port using lsof
-            cmd = f"lsof -i:{port} -sTCP:LISTEN -P -n"
+            cmd = f"lsof -iTCP:{port} -sTCP:LISTEN -P -n"
             try:
                 output = subprocess.run(cmd,check=True,shell=True,capture_output=True)
                 if output.returncode == 0:
