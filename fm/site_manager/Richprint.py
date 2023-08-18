@@ -3,6 +3,7 @@ from rich.style import Style
 from rich.theme import Theme
 from rich.spinner import Spinner
 from rich.live import Live
+from rich.text import Text
 
 error = Style()
 theme = Theme({
@@ -19,7 +20,7 @@ class Richprint:
         self.live = Live(self.spinner, console=self.stdout)
 
     def start(self,text: str):
-        self.current_head = self.previous_head = text
+        self.current_head = self.previous_head = Text(text=text,style='bold blue')
         self.spinner.update(text=self.current_head)
         self.live.start()
 
@@ -32,13 +33,13 @@ class Richprint:
     def update_head(self, text: str):
         self.previous_head = self.current_head
         self.current_head = text
-        self.live.console.print(self.previous_head)
-        self.spinner.update(text=self.current_head)
+        self.live.console.print(self.previous_head,style='blue')
+        self.spinner.update(text=Text(self.current_head,style='blue bold'),style='bold blue')
 
     def change_head(self, text: str):
         self.previous_head = self.current_head
         self.current_head = text
-        self.spinner.update(text=self.current_head)
+        self.spinner.update(text=Text(self.current_head,style='blue bold'))
 
     def stop(self):
         self.live.stop()

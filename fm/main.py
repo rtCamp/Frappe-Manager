@@ -4,13 +4,15 @@ from pathlib import Path
 from fm.site_manager.manager import SiteManager
 import os
 import requests
+from fm.site_manager.Richprint import richprint
 
-app = typer.Typer(no_args_is_help=True,rich_markup_mode="markdown")
+app = typer.Typer(no_args_is_help=True,rich_markup_mode='rich')
 
 # TODO configure this using config
-# sites_dir = Path() / __name__.split(".")[0]
+#sites_dir = Path().home() / __name__.split(".")[0]
 
-sites_dir = Path.home() / __name__.split(".")[0]
+sites_dir = Path.home() / 'frappe'
+
 sites = SiteManager(sites_dir)
 
 default_extension = [
