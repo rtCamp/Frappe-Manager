@@ -1,5 +1,4 @@
 from python_on_whales import DockerClient, DockerException
-from python_on_whales import docker as Docker
 from typing import List, Type
 from pathlib import Path
 import subprocess
@@ -200,20 +199,21 @@ class SiteManager:
         else:
             print(f"Site: {self.site.name} is not running!!")
 
-    def logs(self,service:str):
+    def logs(self,service:str,follow):
         if not self.site.exists:
             richprint.error(
                 f"Site {self.site.name} doesn't exists! Aborting!"
             )
             raise typer.Exit(1)
         if self.site.running():
-            self.site.logs(service)
+            self.site.logs(service,follow)
         else:
             richprint.error(
                 f"Site {self.site.name} not running!"
             )
 
     def check_ports(self):
+        richprint.update_head("Checking Ports")
         to_check = [9000,80,443]
         already_binded = []
 
@@ -223,10 +223,12 @@ class SiteManager:
                 already_binded.append(conn.laddr.port)
 
         if already_binded:
+            # TODO handle if ports are open using docker
             # show warning and exit
             #richprint.error(f"{' '.join([str(x) for x in already_binded])} ports { 'are' if len(already_binded) > 1 else 'is' } already in use. Please free these ports.")
             richprint.error(f" Whoa there! Looks like the {' '.join([ str(x) for x in already_binded ])} { 'ports are' if len(already_binded) > 1 else 'port is' } having a party already! Can you do us a solid and free up those ports? They're in high demand and ready to mingle!")
             raise typer.Exit()
+        richprint.change_head("Checking Ports")
 
     def shell(self,container:str, user:str | None):
         if not self.site.exists:
@@ -243,3 +245,14 @@ class SiteManager:
             richprint.error(
                 f"Site {self.site.name} not running!"
             )
+
+    def info(self):
+        if not self.site.exists:
+            richprint.error(
+                f"Site {self.site.name} doesn't exists! Aborting!"
+            )
+            raise typer.Exit(1)
+        # database info
+        # backend apps info -> realtime by using bench list-apps
+        # site info -> which apps are installed on site
+        # admin-password -> site
