@@ -84,11 +84,17 @@ class SiteManager:
         self.stop_sites()
         # check if ports are available
         self.check_ports()
+        richprint.change_head(f"Creating Site Directory")
         self.site.create_dirs()
+        richprint.change_head(f"Generating Compose")
         self.site.generate_compose(template_inputs)
+        richprint.change_head(f"Pulling Docker Images")
         self.site.pull()
+        richprint.change_head(f"Starting Site")
         self.site.start()
         self.site.frappe_logs_till_start()
+        richprint.change_head(f"Started site")
+        richprint.stop()
 
     def remove_site(self):
         # TODO maybe the site is running and folder has been delted and all the containers are there. We need to clean it.
@@ -217,10 +223,15 @@ class SiteManager:
         to_check = [9000,80,443]
         already_binded = []
 
-        import psutil
-        for conn in psutil.net_connections('tcp4'):
-            if conn.laddr.port in to_check:
-                already_binded.append(conn.laddr.port)
+        for port in to_check:
+        # check port using lsof
+            cmd = f"lsof -i:{port} -sTCP:LISTEN -P -n"
+            try:
+                output = subprocess.run(cmd,check=True,shell=True,capture_output=True)
+                if output.returncode == 0:
+                    already_binded.append(port)
+            except subprocess.CalledProcessError as e:
+                pass
 
         if already_binded:
             # TODO handle if ports are open using docker
