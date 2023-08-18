@@ -84,11 +84,17 @@ class SiteManager:
         self.stop_sites()
         # check if ports are available
         self.check_ports()
+        richprint.change_head(f"Creating Site Directory")
         self.site.create_dirs()
+        richprint.change_head(f"Generating Compose")
         self.site.generate_compose(template_inputs)
+        richprint.change_head(f"Pulling Docker Images")
         self.site.pull()
+        richprint.change_head(f"Starting Site")
         self.site.start()
         self.site.frappe_logs_till_start()
+        richprint.change_head(f"Started site")
+        richprint.stop()
 
     def remove_site(self):
         # TODO maybe the site is running and folder has been delted and all the containers are there. We need to clean it.
