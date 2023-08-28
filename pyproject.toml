@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "fm"
-version = "0.4.0"
+version = "0.5.0"
 description = "Frappe Manager for local frappe development environment management."
 authors = ["Xieyt <alokmilenium@gmail.com>"]
 readme = "README.md"
