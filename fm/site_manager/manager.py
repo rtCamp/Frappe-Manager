@@ -21,6 +21,7 @@ class SiteManager:
         self.sitepath = None
 
     def init(self, sitename: str| None = None,createdir: bool = False):
+        richprint.start(f"Working")
         # check if the site name is correct
         if not self.sitesdir.exists():
             # creating the sites dir
@@ -29,17 +30,16 @@ class SiteManager:
                 self.sitesdir.mkdir(parents=True, exist_ok=True)
                 richprint.print(f"Sites directory doesn't exists! Created at -> {str(self.sitesdir)}")
             else:
-                richprint.error(f"Sites directory doesn't exists!")
-                raise typer.Exit(1)
+                richprint.exit(f"Sites directory doesn't exists!")
 
         if not self.sitesdir.is_dir():
-            richprint.error("Sites directory is not a directory! Aborting!")
-            raise typer.Exit(1)
+            richprint.exit("Sites directory is not a directory! Aborting!")
 
         if sitename:
             sitename = sitename + ".localhost"
             sitepath: Path = self.sitesdir / sitename
             self.site: Site = Site(sitepath, sitename)
+
 
     def __get_all_sites_path(self, exclude: List[str] = []):
         sites_path = []
@@ -72,17 +72,16 @@ class SiteManager:
             for site_compose_path in site_compose:
                 docker = DockerClient(compose_files=[site_compose_path])
                 try:
-                    docker.compose.down(timeout=2)
+                    docker.compose.stop(timeout=2)
                 except DockerException as e:
                     richprint.error(f"{e.stdout}{e.stderr}")
         richprint.print("Stopped all sites !")
 
     def create_site(self, template_inputs: dict):
-        if self.site.exists:
-            richprint.error(
+        if self.site.exists():
+            richprint.exit(
                 f"Site {self.site.name} already exists! Aborting! -> [bold cyan] {self.site.path}[/bold cyan]"
             )
-            exit(1)
         self.stop_sites()
         # check if ports are available
         self.check_ports()
@@ -96,19 +95,21 @@ class SiteManager:
         self.site.start()
         self.site.frappe_logs_till_start()
         richprint.change_head(f"Started site")
-        richprint.stop()
+        self.info()
 
     def remove_site(self):
         # TODO maybe the site is running and folder has been delted and all the containers are there. We need to clean it.
         # check if it exits
-        if not self.site.exists:
-            richprint.error(
+        if not self.site.exists():
+            richprint.exit(
                 f"Site {self.site.name} doesn't exists! Aborting! -> [bold cyan] {self.site.path}[/bold cyan]"
             )
-            raise typer.Exit(1)
+
+        richprint.change_head(f"Removing Site")
         # check if running -> stop it
         # remove dir
         self.site.remove()
+        richprint.stop()
 
     def list_sites(self):
         # format -> name , status [ 'stale', 'running' ]
@@ -127,6 +128,7 @@ class SiteManager:
                     running.append({'name': name,'path':temppath.absolute()})
                 else:
                    stale.append({'name': name,'path':temppath.absolute()})
+        richprint.stop()
         if running:
             columns_data = [ f"[b]{x['name']}[/b]\n[dim]{x['path']}[/dim]" for x in running ]
             panel = Panel(Columns(columns_data),title='Running',title_align='left',style='green')
@@ -138,20 +140,18 @@ class SiteManager:
             richprint.stdout.print(panel)
 
     def stop_site(self):
-        if not self.site.exists:
-            richprint.error(
+        if not self.site.exists():
+            richprint.exit(
                 f"Site {self.site.name} doesn't exists! Aborting!"
             )
-            raise typer.Exit(1)
         self.stop_sites()
         self.site.stop()
 
     def start_site(self):
-        if not self.site.exists:
-            richprint.error(
+        if not self.site.exists():
+            richprint.exit(
                 f"Site {self.site.name} doesn't exists! Aborting!"
             )
-            raise typer.Exit(1)
         # stop all sites
         self.stop_sites()
         if not self.site.running():
@@ -203,22 +203,25 @@ class SiteManager:
                 self.site.composefile.write_to_file()
                 self.site.start()
             # TODO check if vscode exists
+            richprint.change_head("Attaching to Container")
+            richprint.stop()
             subprocess.run(vscode_cmd,shell=True)
         else:
             print(f"Site: {self.site.name} is not running!!")
 
     def logs(self,service:str,follow):
-        if not self.site.exists:
-            richprint.error(
+        if not self.site.exists():
+            richprint.exit(
                 f"Site {self.site.name} doesn't exists! Aborting!"
             )
-            raise typer.Exit(1)
+        richprint.change_head(f"Showing logs")
         if self.site.running():
             self.site.logs(service,follow)
         else:
             richprint.error(
                 f"Site {self.site.name} not running!"
             )
+        richprint.stop()
 
     def check_ports(self):
         richprint.update_head("Checking Ports")

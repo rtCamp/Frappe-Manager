@@ -30,12 +30,24 @@ class Site:
     def __init__(self,path: Path , name:str):
         self.path= path
         self.name= name
-        self.exists = self.path.exists()
         self.init()
 
     def init(self):
         self.composefile = SiteCompose(self.path / 'docker-compose.yml')
         self.docker = DockerClient(compose_files=[str(self.composefile.compose_path)])
+
+        if not self.is_docker_daemon_running():
+            richprint.exit("Docker daemon not running. Please start docker service.")
+
+    def exists(self):
+        return self.path.exists()
+
+    def is_docker_daemon_running(self) -> bool:
+        # TODO don't check if docker is not required for specific commands
+        docker_info= self.docker.info()
+        if docker_info.id:
+            return True
+        return False
 
     def validate_sitename(self) -> bool:
         sitename = self.name
@@ -106,7 +118,7 @@ class Site:
 
     def stop(self) -> bool:
         try:
-            self.docker.compose.down(remove_orphans=True)
+            self.docker.compose.stop(timeout=200)
         except DockerException as e:
             richprint.error(f"{e.stdout}{e.stderr}")
 
@@ -128,15 +140,16 @@ class Site:
                         return True
             return False
         except DockerException as e:
-            richprint.error(f"{e.stdout}{e.stderr}")
-            raise typer.Exit(1)
+            richprint.exit(f"{e.stdout}{e.stderr}")
 
 
     def remove(self) -> bool:
         if self.composefile.exists:
             try:
+                richprint.change_head(f"Removing Containers")
                 self.docker.compose.down(remove_orphans=True,volumes=True,timeout=2)
                 # TODO handle low leverl error like read only, write only etc
+                richprint.change_head(f"Removing Dirs")
                 shutil.rmtree(self.path)
             except DockerException as e:
                 richprint.error(f"{e.stdout}{e.stderr}")

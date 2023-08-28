@@ -47,6 +47,7 @@ if [[ ! -d "frappe-bench" ]]; then
     bench set-config -g disable_mail_smtp_authentication 1
     bench set-config -g webserver_port "$WEB_PORT"
     bench set-config -g developer_mode "$DEVELOPER_MODE"
+
     # HANDLE APPS
     # apps are taken as follows
     # appsname:branch

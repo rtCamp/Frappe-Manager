@@ -4,6 +4,7 @@ from rich.theme import Theme
 from rich.spinner import Spinner
 from rich.live import Live
 from rich.text import Text
+from typer import Exit
 
 error = Style()
 theme = Theme({
@@ -25,10 +26,15 @@ class Richprint:
         self.live.start()
 
     def error(self,text: str):
-        self.stderr.print(f":x: {text}")
+        self.stderr.print(f"\n:x: {text}")
+
+    def exit(self,text: str):
+        self.stop()
+        self.stderr.print(f"\n:x: {text}")
+        raise Exit(1)
 
     def print(self,text: str):
-        self.stdout.print(f":white_check_mark: {text}")
+        self.stdout.print(f"\n:white_check_mark: {text}")
 
     def update_head(self, text: str):
         self.previous_head = self.current_head
