@@ -143,7 +143,6 @@ def create(
         "SITENAME": sites.site.name,
     }
 
-    print(frappe_env)
     nginx_env: dict = {
         "ENABLE_SSL": enable_ssl,
         "SITENAME": sites.site.name,
