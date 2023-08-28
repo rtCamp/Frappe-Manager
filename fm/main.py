@@ -76,14 +76,6 @@ def frappe_branch_validation(value: str):
         else:
             raise typer.BadParameter(f"Frappe branch -> {value} is not valid!! ")
 
-@app.callback()
-def get_epilog(ctx: typer.Context):
-    # start rich print
-
-    # TODO handle sites dir creation and configuration
-    richprint.start(f"Working")
-
-
 @app.command(no_args_is_help=True)
 def create(
     sitename: Annotated[str, typer.Argument(help="Name of the site")],
@@ -143,7 +135,6 @@ def create(
         "SITENAME": sites.site.name,
     }
 
-    print(frappe_env)
     nginx_env: dict = {
         "ENABLE_SSL": enable_ssl,
         "SITENAME": sites.site.name,
@@ -240,6 +231,14 @@ def shell(
     """Open shell for the give site. :sparkles:"""
     sites.init(sitename)
     sites.shell(service, user)
+
+@app.command(no_args_is_help=True)
+def info(
+    sitename: Annotated[str, typer.Argument(help="Name of the site.")],
+):
+    """Shows information about given site."""
+    sites.init(sitename)
+    sites.info()
 
 # @app.command()
 # def doctor():
