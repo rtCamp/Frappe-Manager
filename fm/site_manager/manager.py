@@ -144,8 +144,11 @@ class SiteManager:
             richprint.exit(
                 f"Site {self.site.name} doesn't exists! Aborting!"
             )
-        self.stop_sites()
+        richprint.change_head(f"Stopping site")
+        #self.stop_sites()
         self.site.stop()
+        richprint.update_head(f"Stopped site")
+        richprint.stop()
 
     def start_site(self):
         if not self.site.exists():

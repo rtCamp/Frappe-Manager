@@ -124,7 +124,7 @@ class Site:
 
     def stop(self) -> bool:
         try:
-            self.docker.compose.stop(timeout=200)
+            self.docker.compose.stop(timeout=10)
         except DockerException as e:
             richprint.exit(f"{e.stdout}{e.stderr}")
 

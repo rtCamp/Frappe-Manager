@@ -201,7 +201,7 @@ def code(
             callback=code_callback,
         ),
     ] = default_extension,
-    force_start: Annotated[bool , typer.Option(help="Force start the site before attaching to container.")] = False
+    force_start: Annotated[bool , typer.Option('--force-start','-f',help="Force start the site before attaching to container.")] = False
 ):
     """Open site in vscode. :sparkles:"""
     sites.init(sitename)
