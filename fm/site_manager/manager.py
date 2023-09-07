@@ -39,7 +39,7 @@ class SiteManager:
             sitename = sitename + ".localhost"
             sitepath: Path = self.sitesdir / sitename
             self.site: Site = Site(sitepath, sitename)
-
+            self.migrate_site()
 
     def __get_all_sites_path(self, exclude: List[str] = []):
         sites_path = []
@@ -173,9 +173,7 @@ class SiteManager:
                 f"--folder-uri=vscode-remote://attached-container+{container_hex}+/workspace",
             ]
         )
-
         extensions.sort()
-
         labels = {
             "devcontainer.metadata": json.dumps([
                 {
@@ -311,3 +309,11 @@ class SiteManager:
                     bench_apps_list_table.add_row(app,apps_json[app]['version'])
                 richprint.stdout.print(bench_apps_list_table)
         richprint.stop()
+
+    def migrate_site(self):
+        if not self.site.composefile.is_services_name_same_as_template():
+            self.site.down()
+        self.site.migrate_site()
+        if self.site.running():
+            self.site.start()
+

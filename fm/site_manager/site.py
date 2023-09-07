@@ -1,17 +1,12 @@
 from python_on_whales import DockerClient, DockerException
-import typer
-import rich
+import importlib
 import shutil
 import re
 from typing import List, Type
 from pathlib import Path
+
 from fm.site_manager.SiteCompose import SiteCompose
 from fm.site_manager.Richprint import richprint
-
-from time import sleep
-from rich.live import Live
-from rich.table import Table,Row
-from rich.progress import Progress
 
 def handle_DockerException():
     pass
@@ -67,11 +62,22 @@ class Site:
                 return frappe_container.string.encode().hex()
         return None
 
+    def migrate_site(self) -> None:
+        if self.composefile.exists():
+            richprint.change_head("Checking Envrionment Version")
+            compose_version = self.composefile.get_version()
+            fm_version = importlib.metadata.version('fm')
+            if not compose_version == fm_version:
+                richprint.change_head("Migrating Environment")
+                self.composefile.migrate_compose(fm_version)
+                richprint.print("Migrated Environment")
 
     def generate_compose(self,inputs:dict) -> None:
         self.composefile.set_envs('frappe',inputs['frappe_env'])
         self.composefile.set_envs('nginx',inputs['nginx_env'])
         self.composefile.set_extrahosts('frappe',inputs['extra_hosts'])
+        fm_version = importlib.metadata.version('fm')
+        self.composefile.set_version(fm_version)
         self.composefile.write_to_file()
 
     def create_dirs(self) -> bool:
@@ -120,31 +126,38 @@ class Site:
         try:
             self.docker.compose.stop(timeout=200)
         except DockerException as e:
-            richprint.error(f"{e.stdout}{e.stderr}")
+            richprint.exit(f"{e.stdout}{e.stderr}")
 
     def status(self) -> str:
         try:
-            ps_output =self.docker.compose.ps()
+            ps_output = self.docker.compose.ps()
             for container in ps_output:
                 print(container.state.status)
         except DockerException as e:
             richprint.error(f"{e.stdout}{e.stderr}")
-
 
     def running(self) -> bool:
         try:
             ls_output = self.docker.compose.ls()
             if ls_output:
                 for composeproject in ls_output:
-                    if composeproject.config_files[0] == self.composefile.compose_path.absolute() and composeproject.running >= 9:
+                    if composeproject.config_files[0] == self.composefile.compose_path.absolute() and composeproject.running >= len(self.composefile.get_services_list()):
                         return True
             return False
         except DockerException as e:
             richprint.exit(f"{e.stdout}{e.stderr}")
 
+    def down(self) -> bool:
+        if self.composefile.exists():
+            try:
+                richprint.change_head(f"Removing Containers")
+                self.docker.compose.down(remove_orphans=True,timeout=2)
+                # TODO handle low leverl error like read only, write only etc
+            except DockerException as e:
+                richprint.exit(f"{e.stdout}{e.stderr}")
 
     def remove(self) -> bool:
-        if self.composefile.exists:
+        if self.composefile.exists():
             try:
                 richprint.change_head(f"Removing Containers")
                 self.docker.compose.down(remove_orphans=True,volumes=True,timeout=2)
@@ -152,7 +165,7 @@ class Site:
                 richprint.change_head(f"Removing Dirs")
                 shutil.rmtree(self.path)
             except DockerException as e:
-                richprint.error(f"{e.stdout}{e.stderr}")
+                richprint.exit(f"{e.stdout}{e.stderr}")
 
     def shell(self,container:str, user:str | None = None):
         # TODO check user exists
