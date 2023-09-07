@@ -12,12 +12,6 @@ docker manifest create xieytx/fm-mailhog:latest \
 
 docker manifest push xieytx/fm-mailhog:latest
 
-docker manifest create xieytx/fm-rqdashboard:latest \
---amend xieytx/fm-rqdashboard:amd64 \
---amend xieytx/fm-rqdashboard:arm64
-
-docker manifest push xieytx/fm-rqdashboard:latest
-
 docker manifest create xieytx/fm-frappe:latest \
 --amend xieytx/fm-frappe:amd64 \
 --amend xieytx/fm-frappe:arm64

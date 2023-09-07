@@ -4,7 +4,6 @@ from pathlib import Path
 from fm.site_manager.manager import SiteManager
 import os
 import requests
-from fm.site_manager.Richprint import richprint
 
 app = typer.Typer(no_args_is_help=True,rich_markup_mode='rich')
 
@@ -202,7 +201,7 @@ def code(
             callback=code_callback,
         ),
     ] = default_extension,
-    force_start: Annotated[bool , typer.Option(help="Force start the site before attaching to container.")] = False
+    force_start: Annotated[bool , typer.Option('--force-start','-f',help="Force start the site before attaching to container.")] = False
 ):
     """Open site in vscode. :sparkles:"""
     sites.init(sitename)
