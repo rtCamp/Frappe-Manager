@@ -77,7 +77,7 @@ if [[ ! -d "frappe-bench" ]]; then
     # change the procfile port 8000 to 80
     # this will chaange the web serving port from 8000 to 80
 
-    awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--port "a); print}' Procfile >> Procfile.local_setup
+    awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--host 0.0.0.0 --port "a); print}' Procfile >> Procfile.local_setup
 
 
     bench build
@@ -108,7 +108,7 @@ else
             exit 1
         fi
 
-        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--port "a); print}' Procfile >> Procfile.local_setup
+        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--host 0.0.0.0 --port "a); print}' Procfile >> Procfile.local_setup
         bench set-config -g webserver_port "$WEB_PORT";
     fi
 
