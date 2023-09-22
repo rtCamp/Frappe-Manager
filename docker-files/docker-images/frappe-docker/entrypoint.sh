@@ -17,8 +17,8 @@ usermod -a -G tty "$NAME"
 echo "$NAME ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
 chown -R "$USERID":"$USERGROUP" /opt
-cat /opt/user/.zshrc >> /home/$NAME/.zshrc
-cat /opt/user/.profile >> /home/$NAME/.profile
+cat /opt/user/.zshrc > /home/$NAME/.zshrc
+cat /opt/user/.profile > /home/$NAME/.profile
 chown -R "$USERID":"$USERGROUP" /workspace
 
 gosu "${USERID}":"${USERGROUP}" /user-script.sh
