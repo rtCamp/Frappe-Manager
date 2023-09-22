@@ -81,9 +81,9 @@ if [[ ! -d "frappe-bench" ]]; then
     host_changed=$(echo "$bench_serve_help_output" | grep -c 'host')
 
     if [[ "$host_changed" -ge 1 ]]; then
-        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--host 0.0.0.0 --port "a); print}' Procfile >> Procfile.local_setup
+        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--host 0.0.0.0 --port "a); print}' Procfile > Procfile.local_setup
     else
-        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--port "a); print}' Procfile >> Procfile.local_setup
+        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--port "a); print}' Procfile > Procfile.local_setup
     fi
 
 
@@ -117,9 +117,9 @@ else
     fi
 
     if [[ "$host_changed" -ge 1 ]]; then
-        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--host 0.0.0.0 --port "a); print}' Procfile >> Procfile.local_setup
+        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--host 0.0.0.0 --port "a); print}' Procfile > Procfile.local_setup
     else
-        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--port "a); print}' Procfile >> Procfile.local_setup
+        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--port "a); print}' Procfile > Procfile.local_setup
     fi
     bench set-config -g webserver_port "$WEB_PORT";
 
