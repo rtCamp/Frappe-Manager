@@ -77,7 +77,14 @@ if [[ ! -d "frappe-bench" ]]; then
     # change the procfile port 8000 to 80
     # this will chaange the web serving port from 8000 to 80
 
-    awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--port "a); print}' Procfile >> Procfile.local_setup
+    bench_serve_help_output=$(bench serve --help)
+    host_changed=$(echo "$bench_serve_help_output" | grep -c 'host')
+
+    if [[ "$host_changed" -ge 1 ]]; then
+        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--host 0.0.0.0 --port "a); print}' Procfile > Procfile.local_setup
+    else
+        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--port "a); print}' Procfile > Procfile.local_setup
+    fi
 
 
     bench build
@@ -101,16 +108,20 @@ else
 
     cd frappe-bench
 
-    if [[ ! -f "Procfile.local_setup" ]]; then
+    bench_serve_help_output=$(bench serve --help)
+    host_changed=$(echo "$bench_serve_help_output" | grep -c 'host')
 
-        if [[ ! -f "Procfile" ]]; then
-            echo "Procfile doesn't exist. Please create it so bench start can work."
-            exit 1
-        fi
-
-        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--port "a); print}' Procfile >> Procfile.local_setup
-        bench set-config -g webserver_port "$WEB_PORT";
+    if [[ ! -f "Procfile" ]]; then
+        echo "Procfile doesn't exist. Please create it so bench start can work."
+        exit 1
     fi
+
+    if [[ "$host_changed" -ge 1 ]]; then
+        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--host 0.0.0.0 --port "a); print}' Procfile > Procfile.local_setup
+    else
+        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--port "a); print}' Procfile > Procfile.local_setup
+    fi
+    bench set-config -g webserver_port "$WEB_PORT";
 
     wait
 
