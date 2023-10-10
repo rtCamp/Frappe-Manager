@@ -43,7 +43,6 @@ services:
 
   adminer:
     image: adminer:latest
-    restart: unless-stopped
     environment:
       - ADMINER_DEFAULT_SERVER=mariadb
     ports:

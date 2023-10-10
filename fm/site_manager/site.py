@@ -1,10 +1,11 @@
-from python_on_whales import DockerClient, DockerException
 import importlib
 import shutil
 import re
+import json
 from typing import List, Type
 from pathlib import Path
 
+from fm.docker_wrapper import DockerClient, DockerException
 from fm.site_manager.SiteCompose import SiteCompose
 from fm.site_manager.Richprint import richprint
 
@@ -19,30 +20,22 @@ def delete_dir(path: Path):
             sub.unlink()
     path.rmdir()
 
-# TODO handle all the dockers errors here
-
 class Site:
-    def __init__(self,path: Path , name:str):
+    def __init__(self,path: Path , name:str, verbose: bool = False):
         self.path= path
         self.name= name
+        self.quiet = not verbose
         self.init()
 
     def init(self):
         self.composefile = SiteCompose(self.path / 'docker-compose.yml')
-        self.docker = DockerClient(compose_files=[str(self.composefile.compose_path)])
+        self.docker = DockerClient(compose_file_path=self.composefile.compose_path)
 
-        if not self.is_docker_daemon_running():
+        if not self.docker.server_running():
             richprint.exit("Docker daemon not running. Please start docker service.")
 
     def exists(self):
         return self.path.exists()
-
-    def is_docker_daemon_running(self) -> bool:
-        # TODO don't check if docker is not required for specific commands
-        docker_info= self.docker.info()
-        if docker_info.id:
-            return True
-        return False
 
     def validate_sitename(self) -> bool:
         sitename = self.name
@@ -62,7 +55,7 @@ class Site:
                 return frappe_container.string.encode().hex()
         return None
 
-    def migrate_site(self) -> None:
+    def migrate_site(self) -> bool:
         if self.composefile.exists():
             richprint.change_head("Checking Envrionment Version")
             compose_version = self.composefile.get_version()
@@ -71,6 +64,8 @@ class Site:
                 richprint.change_head("Migrating Environment")
                 self.composefile.migrate_compose(fm_version)
                 richprint.print("Migrated Environment")
+                return True
+        return False
 
     def generate_compose(self,inputs:dict) -> None:
         self.composefile.set_envs('frappe',inputs['frappe_env'])
@@ -90,100 +85,167 @@ class Site:
         certs_path.mkdir(parents=True, exist_ok=True)
 
     def start(self) -> bool:
+        status_text= 'Starting Docker Containers'
+        richprint.change_head(status_text)
         try:
-            self.docker.compose.up(detach=True)
+            output = self.docker.compose.up(detach=True,stream=self.quiet)
+            if self.quiet:
+                richprint.live_lines(output, padding=(0,0,0,2))
+            richprint.print(f"{status_text}: Done!")
         except DockerException as e:
-            richprint.error(f"{e.stdout}{e.stderr}")
+            richprint.exit(f"{status_text}: Failed!")
+
     def pull(self):
+        status_text= 'Pulling Docker Images'
+        richprint.change_head(status_text)
         try:
-            self.docker.compose.pull(ignore_pull_failures=True)
+            output = self.docker.compose.pull(stream=self.quiet)
+            if self.quiet:
+                richprint.live_lines(output, padding=(0,0,0,2))
+            richprint.print(f"{status_text}: Done!")
         except DockerException as e:
-            richprint.error(f"{e.stdout}{e.stderr}")
+            richprint.warning(f"{status_text}: Failed!")
 
-    def logs(self,service:str,follow:bool=False):
-        for t , c in self.docker.compose.logs(services=[service],no_log_prefix=True,follow=follow,stream=True):
-                line = c.decode()
+    def logs(self,service:str, follow:bool=False):
+        output = self.docker.compose.logs(services=[service],no_log_prefix=True,follow=follow,stream=True)
+        for source , line in output:
+            line = line.decode()
+            if source == 'stdout':
                 if "[==".lower() in line.lower():
                     print(line)
                 else:
-                    richprint.stdout.print(line,end='')
+                    richprint.stdout.print(line)
 
+    # def frappe_logs_till_start(self):
+    #     from rich.padding import Padding
+
+    #     if self.quiet:
+    #         from rich.text import Text
+    #         from rich.table import Table
+    #         from collections import deque
+    #         max_height = 5
+    #         displayed_lines = deque(maxlen=max_height)
+    #         for source , line in self.docker.compose.logs(services=['frappe'],no_log_prefix=True,follow=True,stream=True):
+    #             if not source == 'exit_code':
+    #                 line = line.decode()
+    #                 displayed_lines.append(line)
+    #                 table = Table(show_header=False,box=None)
+    #                 table.add_column()
+    #                 for linex in list(displayed_lines):
+    #                     table.add_row(
+    #                         Text(f"=> {linex.strip()}",style='grey')
+    #                     )
+    #                 richprint.update_live(table,padding=(0,0,0,2))
+    #                 if "INFO spawned: 'bench-dev' with pid".lower() in line.lower():
+    #                     break
+    #         richprint.update_live()
+    #     else:
+    #         for source , line in self.docker.compose.logs(services=['frappe'],no_log_prefix=True,follow=True,stream=True):
+    #             if not source == 'exit_code':
+    #                 line = line.decode()
+    #                 if "[==".lower() in line.lower():
+    #                     print(line)
+    #                 else:
+    #                     richprint.stdout.print(line,end='')
+    #                 if "INFO spawned: 'bench-dev' with pid".lower() in line.lower():
+    #                     break
     def frappe_logs_till_start(self):
-        from rich.padding import Padding
+        status_text= 'Creating Site'
+        richprint.change_head(status_text)
         try:
-            for t , c in self.docker.compose.logs(services=['frappe'],no_log_prefix=True,follow=True,stream=True):
-                line = c.decode()
-                if "[==".lower() in line.lower():
-                    print(line)
-                else:
-                    richprint.stdout.print(line,end='')
-                if "INFO spawned: 'bench-dev' with pid".lower() in line.lower():
-                    break
+            output = self.docker.compose.logs(services=['frappe'],no_log_prefix=True,follow=True,stream=True)
+            if self.quiet:
+                richprint.live_lines(output, padding=(0,0,0,2),stop_string="INFO spawned: 'bench-dev' with pid")
+            else:
+                for source , line in self.docker.compose.logs(services=['frappe'],no_log_prefix=True,follow=True,stream=True):
+                    if not source == 'exit_code':
+                        line = line.decode()
+                        if "[==".lower() in line.lower():
+                            print(line)
+                        else:
+                            richprint.stdout.print(line,end='')
+                        if "INFO spawned: 'bench-dev' with pid".lower() in line.lower():
+                            break
+            richprint.print(f"{status_text}: Done!")
         except DockerException as e:
-            richprint.error(f"{e.stdout}{e.stderr}")
+            richprint.warning(f"{status_text}: Failed!")
+
 
     def stop(self) -> bool:
+        status_text= 'Stopping Containers'
+        richprint.change_head(status_text)
         try:
-            self.docker.compose.stop(timeout=10)
+            output = self.docker.compose.stop(timeout=10,stream=self.quiet)
+            if self.quiet:
+                richprint.live_lines(output, padding=(0,0,0,2))
+            richprint.print(f"{status_text}: Done!")
         except DockerException as e:
-            richprint.exit(f"{e.stdout}{e.stderr}")
+            richprint.exit(f"{status_text}: Failed!")
 
-    def status(self) -> str:
-        try:
-            ps_output = self.docker.compose.ps()
-            for container in ps_output:
-                print(container.state.status)
-        except DockerException as e:
-            richprint.error(f"{e.stdout}{e.stderr}")
+    # def status(self) -> str:
+    #     try:
+    #         ps_output = self.docker.compose.ps()
+    #         for container in ps_output:
+    #             print(container.state.status)
+    #     except DockerException as e:
+    #         richprint.error(f"{e.stdout}{e.stderr}")
 
     def running(self) -> bool:
         try:
-            ls_output = self.docker.compose.ls()
-            if ls_output:
-                for composeproject in ls_output:
-                    if composeproject.config_files[0] == self.composefile.compose_path.absolute() and composeproject.running >= len(self.composefile.get_services_list()):
-                        return True
+            output = self.docker.compose.ps(format='json',filter='running',stream=True)
+            status: dict = {}
+            for source,line in output:
+                if source == 'stdout':
+                    status = json.loads(line.decode())
+            running_containers = len(status)
+            if running_containers >= len(self.composefile.get_services_list()):
+                return True
             return False
         except DockerException as e:
             richprint.exit(f"{e.stdout}{e.stderr}")
 
     def down(self) -> bool:
         if self.composefile.exists():
+            status_text='Removing Containers'
+            richprint.change_head(status_text)
             try:
-                richprint.change_head(f"Removing Containers")
-                self.docker.compose.down(remove_orphans=True,timeout=2)
-                # TODO handle low leverl error like read only, write only etc
+                output = self.docker.compose.down(remove_orphans=True,volumes=True,timeout=2,stream=self.quiet)
+                if self.quiet:
+                    exit_code = richprint.live_lines(output,padding=(0,0,0,2))
+                richprint.print(f"Removing Containers: Done!")
             except DockerException as e:
-                richprint.exit(f"{e.stdout}{e.stderr}")
+                richprint.exit(f"{status_text}: Failed!")
 
     def remove(self) -> bool:
+        # TODO handle low leverl error like read only, write only etc
         if self.composefile.exists():
+            status_text = 'Removing Containers'
+            richprint.change_head(status_text)
             try:
-                richprint.change_head(f"Removing Containers")
-                self.docker.compose.down(remove_orphans=True,volumes=True,timeout=2)
-                # TODO handle low leverl error like read only, write only etc
+                output = self.docker.compose.down(remove_orphans=True,volumes=True,timeout=2,stream=True,stream_only_exit_code=self.quiet)
+                if self.quiet:
+                    exit_code = richprint.live_lines(output,padding=(0,0,0,2))
+                richprint.print(f"Removing Containers: Done!")
                 richprint.change_head(f"Removing Dirs")
                 shutil.rmtree(self.path)
+                richprint.change_head(f"Removing Dirs: Done!")
             except DockerException as e:
                 richprint.exit(f"{e.stdout}{e.stderr}")
 
     def shell(self,container:str, user:str | None = None):
         # TODO check user exists
         non_bash_supported = ['redis-cache','redis-cache','redis-socketio','redis-queue']
-        try:
-            if not container in non_bash_supported:
-                if container == 'frappe':
-                    shell_path = '/usr/bin/zsh'
-                else:
-                    shell_path = '/bin/bash'
-                if user:
-                    self.docker.compose.execute(container,tty=True,user=user,command=[shell_path])
-                else:
-                    self.docker.compose.execute(container,tty=True,command=[shell_path])
+        if not container in non_bash_supported:
+            if container == 'frappe':
+                shell_path = '/usr/bin/zsh'
             else:
-                if user:
-                    self.docker.compose.execute(container,tty=True,user=user,command=['sh'])
-                else:
-                    self.docker.compose.execute(container,tty=True,command=['sh'])
-        except DockerException as e:
-            richprint.error(f"{e.stdout}{e.stderr}")
+                shell_path = '/bin/bash'
+            if user:
+                self.docker.compose.exec(container,user=user,command=shell_path)
+            else:
+                self.docker.compose.exec(container,command=shell_path)
+        else:
+            if user:
+                self.docker.compose.exec(container,user=user,command='sh')
+            else:
+                self.docker.compose.exec(container,command='sh')

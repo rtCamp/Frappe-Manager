@@ -11,8 +11,15 @@ app = typer.Typer(no_args_is_help=True,rich_markup_mode='rich')
 #sites_dir = Path().home() / __name__.split(".")[0]
 
 sites_dir = Path.home() / 'frappe'
-
 sites = SiteManager(sites_dir)
+
+@app.callback()
+def app_callback(verbose: Annotated[bool, typer.Option(help="Enable verbose output.")] = False):
+    """
+    FrappeManager for creating frappe development envrionments.
+    """
+    if verbose:
+        sites.set_verbose()
 
 default_extension = [
     "dbaeumer.vscode-eslint",
@@ -67,7 +74,7 @@ def apps_validation(value: List[str] | None):
     return value
 
 
-def frappe_branch_validation(value: str):
+def frappe_branch_validation_callback(value: str):
     if value:
         exists = check_frappe_app_exists("frappe", value)
         if exists['branch']:
@@ -87,7 +94,7 @@ def create(
     ] = None,
     developer_mode: Annotated[bool, typer.Option(help="Enable developer mode")] = True,
     frappe_branch: Annotated[
-        str, typer.Option(help="Specify the branch name for frappe app",callback=frappe_branch_validation)
+        str, typer.Option(help="Specify the branch name for frappe app",callback=frappe_branch_validation_callback)
     ] = "version-14",
     admin_pass: Annotated[
         str,
@@ -181,7 +188,7 @@ def stop(sitename: Annotated[str, typer.Argument(help="Name of the site")]):
     sites.stop_site()
 
 
-def code_callback(extensions: List[str]) -> List[str]:
+def code_command_callback(extensions: List[str]) -> List[str]:
     extx = extensions + default_extension
     unique_ext: Set = set(extx)
     unique_ext_list: List[str] = [x for x in unique_ext]
@@ -198,7 +205,7 @@ def code(
             "--extension",
             "-e",
             help="List of extensions to install in vscode at startup.Provide extension id eg: ms-python.python",
-            callback=code_callback,
+            callback=code_command_callback,
         ),
     ] = default_extension,
     force_start: Annotated[bool , typer.Option('--force-start','-f',help="Force start the site before attaching to container.")] = False

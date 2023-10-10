@@ -1,10 +1,15 @@
-from rich.console import Console
+from rich.console import Console, Group
 from rich.style import Style
 from rich.theme import Theme
 from rich.spinner import Spinner
 from rich.live import Live
 from rich.text import Text
+from rich.padding import Padding
 from typer import Exit
+
+from rich.table import Table
+from collections import deque
+from typing import Optional
 
 error = Style()
 theme = Theme({
@@ -25,16 +30,19 @@ class Richprint:
         self.spinner.update(text=self.current_head)
         self.live.start()
 
-    def error(self,text: str):
-        self.stderr.print(f"\n:x: {text}")
+    def error(self,text: str,emoji_code: str = ':x:'):
+        self.stderr.print(f"{emoji_code} {text}")
 
-    def exit(self,text: str):
+    def warning(self,text: str,emoji_code: str = ':warning:'):
+        self.stderr.print(f"{emoji_code} {text}")
+
+    def exit(self,text: str,emoji_code: str = ':x:'):
         self.stop()
-        self.stderr.print(f"\n:x: {text}")
+        self.stderr.print(f"{emoji_code} {text}")
         raise Exit(1)
 
-    def print(self,text: str):
-        self.stdout.print(f"\n:white_check_mark: {text}")
+    def print(self,text: str,emoji_code: str = ':white_check_mark:'):
+        self.stdout.print(f"{emoji_code} {text}")
 
     def update_head(self, text: str):
         self.previous_head = self.current_head
@@ -47,7 +55,52 @@ class Richprint:
         self.current_head = text
         self.spinner.update(text=Text(self.current_head,style='blue bold'))
 
+    def update_live(self,renderable = None, padding: tuple = (0,0,0,0)):
+        if padding:
+            renderable=Padding(renderable,padding)
+        if renderable:
+            group = Group(self.spinner,renderable)
+            self.live.update(group)
+        else:
+            self.live.update(self.spinner)
+
+    def live_lines(
+            self,
+            data,
+            stdout:bool = True,
+            stderr:bool = True,
+            lines: int = 4,
+            padding:tuple = (0,0,0,0),
+            return_exit_code:bool = False,
+            exit_on_faliure:bool = False,
+            stop_string: Optional[str] = None,
+            log_prefix: str = '=>',
+    ):
+        max_height = lines
+        displayed_lines = deque(maxlen=max_height)
+        while True:
+            try:
+                source, line = next(data)
+                line = line.decode()
+                if source == 'stdout' and stdout:
+                    displayed_lines.append(line)
+                if source == 'stderr' and stderr:
+                    displayed_lines.append(line)
+                if stop_string:
+                    if stop_string.lower() in line.lower():
+                        return 0
+                table = Table(show_header=False,box=None)
+                table.add_column()
+                for linex in list(displayed_lines):
+                    table.add_row(
+                        Text(f"{log_prefix} {linex.strip()}",style='grey')
+                    )
+                self.update_live(table,padding=padding)
+            except StopIteration:
+                break
+
     def stop(self):
+        self.live.update(Text('',end=''))
         self.live.stop()
 
 richprint = Richprint()

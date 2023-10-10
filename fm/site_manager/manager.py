@@ -19,6 +19,7 @@ class SiteManager:
         self.sitesdir = sitesdir
         self.site = None
         self.sitepath = None
+        self.verbose = False
 
     def init(self, sitename: str| None = None,createdir: bool = False):
         richprint.start(f"Working")
@@ -38,8 +39,12 @@ class SiteManager:
         if sitename:
             sitename = sitename + ".localhost"
             sitepath: Path = self.sitesdir / sitename
-            self.site: Site = Site(sitepath, sitename)
+            self.site: Site = Site(sitepath, sitename, verbose= self.verbose)
+            # TODO disabled for testing
             self.migrate_site()
+
+    def set_verbose(self):
+        self.verbose = True
 
     def __get_all_sites_path(self, exclude: List[str] = []):
         sites_path = []
@@ -75,7 +80,7 @@ class SiteManager:
                     docker.compose.stop(timeout=2)
                 except DockerException as e:
                     richprint.error(f"{e.stdout}{e.stderr}")
-        richprint.print("Stopped all sites !")
+        richprint.print("Sites stopped: All other sites halted.")
 
     def create_site(self, template_inputs: dict):
         if self.site.exists():
@@ -89,7 +94,6 @@ class SiteManager:
         self.site.create_dirs()
         richprint.change_head(f"Generating Compose")
         self.site.generate_compose(template_inputs)
-        richprint.change_head(f"Pulling Docker Images")
         self.site.pull()
         richprint.change_head(f"Starting Site")
         self.site.start()
@@ -147,7 +151,7 @@ class SiteManager:
         richprint.change_head(f"Stopping site")
         #self.stop_sites()
         self.site.stop()
-        richprint.update_head(f"Stopped site")
+        richprint.print(f"Stopped site")
         richprint.stop()
 
     def start_site(self):
@@ -160,12 +164,9 @@ class SiteManager:
         if not self.site.running():
             self.check_ports()
         # start the provided site
-        richprint.change_head(f"Pulling Docker Images")
         self.site.pull()
-        richprint.change_head(f"Starting site")
         self.site.start()
         self.site.frappe_logs_till_start()
-        richprint.change_head(f"Started site")
         richprint.stop()
 
     def attach_to_site(self, user: str, extensions: List[str]):
@@ -225,7 +226,7 @@ class SiteManager:
         richprint.stop()
 
     def check_ports(self):
-        richprint.update_head("Checking Ports")
+        richprint.change_head("Checking Ports")
         to_check = [9000,80,443]
         already_binded = []
 
@@ -244,7 +245,7 @@ class SiteManager:
             # show warning and exit
             #richprint.error(f"{' '.join([str(x) for x in already_binded])} ports { 'are' if len(already_binded) > 1 else 'is' } already in use. Please free these ports.")
             richprint.exit(f" Whoa there! Looks like the {' '.join([ str(x) for x in already_binded ])} { 'ports are' if len(already_binded) > 1 else 'port is' } having a party already! Can you do us a solid and free up those ports? They're in high demand and ready to mingle!")
-        richprint.change_head("Checking Ports")
+        richprint.print("Ports Check : Passed")
 
     def shell(self,container:str, user:str | None):
         if not self.site.exists():
@@ -316,7 +317,35 @@ class SiteManager:
     def migrate_site(self):
         if not self.site.composefile.is_services_name_same_as_template():
             self.site.down()
-        self.site.migrate_site()
-        if self.site.running():
+        migrate_status = self.site.migrate_site()
+        if migrate_status:
             self.site.start()
 
+    def test(self):
+        self.site.pull()
+
+        #richprint.stop()
+        # from rich.text import Text
+        # from rich.table import Table
+        # from collections import deque
+        # from time import sleep
+        # richprint.change_head("Showing logs")
+        # max_height = 5
+        # displayed_lines = deque(maxlen=max_height)
+        # try:
+        #     for source , line in self.site.docker.compose.logs(services=['nginx'],no_log_prefix=True,stream=True):
+        #         if source == 'stdout':
+        #             sleep(0.1)
+        #             line = line.decode()
+        #             displayed_lines.append(line)
+        #             table = Table(show_header=False,box=None)
+        #             table.add_column()
+        #             for linex in list(displayed_lines):
+        #                 table.add_row(
+        #                     Text(f" => {linex.strip()}",style='grey')
+        #                 )
+        #             richprint.update_live(table,padding=(0,0,0,2))
+        # except DockerException as e:
+        #     richprint.error(f"{e.stdout}{e.stderr}")
+        # richprint.update_live()
+        # richprint.stop()
