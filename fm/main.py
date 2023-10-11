@@ -261,14 +261,6 @@ def info(
     sites.init(sitename)
     sites.info()
 
-@app.command(no_args_is_help=True)
-def test(
-    sitename: Annotated[str, typer.Argument(help="Name of the site.")],
-):
-    """Shows information about given site."""
-    sites.init(sitename)
-    sites.test()
-
 # @app.command()
 # def doctor():
 #     # Runs the doctor script in the container. or commands defined in py file
