@@ -40,7 +40,6 @@ class SiteManager:
             sitename = sitename + ".localhost"
             sitepath: Path = self.sitesdir / sitename
             self.site: Site = Site(sitepath, sitename, verbose= self.verbose)
-            # TODO disabled for testing
             self.migrate_site()
 
     def set_verbose(self):
@@ -320,32 +319,5 @@ class SiteManager:
         migrate_status = self.site.migrate_site()
         if migrate_status:
             self.site.start()
-
-    def test(self):
-        self.site.pull()
-
-        #richprint.stop()
-        # from rich.text import Text
-        # from rich.table import Table
-        # from collections import deque
-        # from time import sleep
-        # richprint.change_head("Showing logs")
-        # max_height = 5
-        # displayed_lines = deque(maxlen=max_height)
-        # try:
-        #     for source , line in self.site.docker.compose.logs(services=['nginx'],no_log_prefix=True,stream=True):
-        #         if source == 'stdout':
-        #             sleep(0.1)
-        #             line = line.decode()
-        #             displayed_lines.append(line)
-        #             table = Table(show_header=False,box=None)
-        #             table.add_column()
-        #             for linex in list(displayed_lines):
-        #                 table.add_row(
-        #                     Text(f" => {linex.strip()}",style='grey')
-        #                 )
-        #             richprint.update_live(table,padding=(0,0,0,2))
-        # except DockerException as e:
-        #     richprint.error(f"{e.stdout}{e.stderr}")
-        # richprint.update_live()
-        # richprint.stop()
+        else:
+            richprint.exit('Migrate Envrionment: Failed')
