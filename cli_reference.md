@@ -49,25 +49,17 @@ $ fm code [OPTIONS] SITENAME
 * `-f, --force-start`: Force start the site before attaching to container.
 * `--help`: Show this message and exit.
 
+**Examples**:
+
+```console
+$ fm code example
+```
+
 ## `fm create`
 
 Create a new site.
 
 Frappe will be installed by default.
-
-Examples:
-
-# Install frappe
-$ fm create example
-
-# Install frappe
-$ fm create example --frappe-branch version-15-beta
-
-# Install frappe, erpnext and hrms
-$ fm create example --apps erpnext:version-14 --apps hrms:version-14
-
-# Install frappe, erpnext and hrms
-$ fm create example --frappe-branch version-15-beta --apps erpnext:version-15-beta --apps hrms:version-15-beta
 
 **Usage**:
 
@@ -88,6 +80,22 @@ $ fm create [OPTIONS] SITENAME
 * `--enable-ssl / --no-enable-ssl`: Enable https  [default: no-enable-ssl]
 * `--help`: Show this message and exit.
 
+**Examples**:
+
+```console
+# Install frappe
+$ fm create example
+
+# Install frappe
+$ fm create example --frappe-branch version-15-beta
+
+# Install frappe, erpnext and hrms
+$ fm create example --apps erpnext:version-14 --apps hrms:version-14
+
+# Install frappe, erpnext and hrms
+$ fm create example --frappe-branch version-15-beta --apps erpnext:version-15-beta --apps hrms:version-15-beta
+```
+
 ## `fm delete`
 
 Delete a site. 
@@ -105,6 +113,13 @@ $ fm delete [OPTIONS] SITENAME
 **Options**:
 
 * `--help`: Show this message and exit.
+
+**Examples**:
+
+```console
+$ fm delete example
+```
+
 
 ## `fm info`
 
@@ -124,6 +139,12 @@ $ fm info [OPTIONS] SITENAME
 
 * `--help`: Show this message and exit.
 
+**Examples**:
+
+```console
+$ fm info example
+```
+
 ## `fm list`
 
 Lists all of the available sites. 
@@ -137,6 +158,12 @@ $ fm list [OPTIONS]
 **Options**:
 
 * `--help`: Show this message and exit.
+
+**Examples**:
+
+```console
+$ fm list example
+```
 
 ## `fm logs`
 
@@ -158,6 +185,12 @@ $ fm logs [OPTIONS] SITENAME
 * `--follow / --no-follow`: Follow logs.  [default: no-follow]
 * `--help`: Show this message and exit.
 
+**Examples**:
+
+```console
+$ fm logs example
+```
+
 ## `fm shell`
 
 Open shell for the give site. 
@@ -178,6 +211,12 @@ $ fm shell [OPTIONS] SITENAME
 * `--service TEXT`: Specify Service  [default: frappe]
 * `--help`: Show this message and exit.
 
+**Examples**:
+
+```console
+$ fm shell example
+```
+
 ## `fm start`
 
 Start a site. 
@@ -196,6 +235,12 @@ $ fm start [OPTIONS] SITENAME
 
 * `--help`: Show this message and exit.
 
+**Examples**:
+
+```console
+$ fm start example
+```
+
 ## `fm stop`
 
 Stop a site. 
@@ -213,3 +258,9 @@ $ fm stop [OPTIONS] SITENAME
 **Options**:
 
 * `--help`: Show this message and exit.
+
+**Examples**:
+
+```console
+$ fm stop example
+```
