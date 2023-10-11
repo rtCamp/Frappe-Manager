@@ -1,3 +1,5 @@
+from python_on_whales import DockerException
+from requests import status_codes
 from rich.console import Console, Group
 from rich.style import Style
 from rich.theme import Theme
@@ -19,11 +21,11 @@ theme = Theme({
 class Richprint:
     def __init__(self):
         self.stdout = Console()
-        self.stderr = Console(stderr=True)
+        # self.stderr = Console(stderr=True)
         self.previous_head = None
         self.current_head = None
         self.spinner = Spinner(text=self.current_head, name="dots2", speed=1)
-        self.live = Live(self.spinner, console=self.stdout)
+        self.live = Live(self.spinner, console=self.stdout, transient=True)
 
     def start(self,text: str):
         self.current_head = self.previous_head = Text(text=text,style='bold blue')
@@ -31,14 +33,14 @@ class Richprint:
         self.live.start()
 
     def error(self,text: str,emoji_code: str = ':x:'):
-        self.stderr.print(f"{emoji_code} {text}")
+        self.stdout.print(f"{emoji_code} {text}")
 
-    def warning(self,text: str,emoji_code: str = ':warning:'):
-        self.stderr.print(f"{emoji_code} {text}")
+    def warning(self,text: str,emoji_code: str = ':warning: '):
+        self.stdout.print(f"{emoji_code} {text}")
 
     def exit(self,text: str,emoji_code: str = ':x:'):
         self.stop()
-        self.stderr.print(f"{emoji_code} {text}")
+        self.stdout.print(f"{emoji_code} {text}")
         raise Exit(1)
 
     def print(self,text: str,emoji_code: str = ':white_check_mark:'):
@@ -54,6 +56,7 @@ class Richprint:
         self.previous_head = self.current_head
         self.current_head = text
         self.spinner.update(text=Text(self.current_head,style='blue bold'))
+        self.live.refresh()
 
     def update_live(self,renderable = None, padding: tuple = (0,0,0,0)):
         if padding:
@@ -63,6 +66,7 @@ class Richprint:
             self.live.update(group)
         else:
             self.live.update(self.spinner)
+            self.live.refresh()
 
     def live_lines(
             self,
@@ -96,10 +100,16 @@ class Richprint:
                         Text(f"{log_prefix} {linex.strip()}",style='grey')
                     )
                 self.update_live(table,padding=padding)
+                self.live.refresh()
+            # except DockerException:
+            #     self.update_live()
+            #     self.stop()
+            #     raise
             except StopIteration:
                 break
 
     def stop(self):
+        self.spinner.update()
         self.live.update(Text('',end=''))
         self.live.stop()
 
