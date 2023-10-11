@@ -1,7 +1,9 @@
 import typer
+import importlib
 from typing import Annotated, List, Optional, Set
 from pathlib import Path
 from fm.site_manager.manager import SiteManager
+from fm.site_manager.Richprint import richprint
 import os
 import requests
 
@@ -13,8 +15,21 @@ app = typer.Typer(no_args_is_help=True,rich_markup_mode='rich')
 sites_dir = Path.home() / 'frappe'
 sites = SiteManager(sites_dir)
 
+
+def version_callback(version: Optional[bool] = None):
+    if version:
+        fm_version = importlib.metadata.version('fm')
+        richprint.print(fm_version,emoji_code='')
+        raise typer.Exit()
+
+
 @app.callback()
-def app_callback(verbose: Annotated[bool, typer.Option(help="Enable verbose output.")] = False):
+def app_callback(
+        verbose: Annotated[bool, typer.Option(help="Enable verbose output.")] = False,
+        version: Annotated[
+            Optional[bool], typer.Option("--version",help="Show Version.",callback=version_callback)
+        ] = None,
+):
     """
     FrappeManager for creating frappe development envrionments.
     """
@@ -106,7 +121,7 @@ def create(
 ):
     # TODO Create markdown table for the below help
     """
-    Create a new site. :sparkles:
+    Create a new site.
 
     Frappe\[version-14] will be installed by default.
 
@@ -161,7 +176,7 @@ def create(
 
 @app.command(no_args_is_help=True)
 def delete(sitename: Annotated[str, typer.Argument(help="Name of the site")]):
-    """Delete a site. :sparkles:"""
+    """Delete a site. """
     sites.init(sitename)
     # turn off the site
     sites.remove_site()
@@ -169,21 +184,21 @@ def delete(sitename: Annotated[str, typer.Argument(help="Name of the site")]):
 
 @app.command()
 def list():
-    """Lists all of the available sites. :sparkles:"""
+    """Lists all of the available sites. """
     sites.init()
     sites.list_sites()
 
 
 @app.command(no_args_is_help=True)
 def start(sitename: Annotated[str, typer.Argument(help="Name of the site")]):
-    """Start a site. :sparkles:"""
+    """Start a site. """
     sites.init(sitename)
     sites.start_site()
 
 
 @app.command(no_args_is_help=True)
 def stop(sitename: Annotated[str, typer.Argument(help="Name of the site")]):
-    """Stop a site. :sparkles:"""
+    """Stop a site. """
     sites.init(sitename)
     sites.stop_site()
 
@@ -210,7 +225,7 @@ def code(
     ] = default_extension,
     force_start: Annotated[bool , typer.Option('--force-start','-f',help="Force start the site before attaching to container.")] = False
 ):
-    """Open site in vscode. :sparkles:"""
+    """Open site in vscode. """
     sites.init(sitename)
     if force_start:
         sites.start_site()
@@ -223,7 +238,7 @@ def logs(
     service: Annotated[str, typer.Option(help="Specify Service")] = "frappe",
     follow: Annotated[bool, typer.Option(help="Follow logs.")] = False,
 ):
-    """Show logs for the given site. :sparkles:"""
+    """Show logs for the given site. """
     sites.init(sitename)
     sites.logs(service,follow)
 
@@ -234,7 +249,7 @@ def shell(
     user: Annotated[str, typer.Option(help="Connect as this user.")] = None,
     service: Annotated[str, typer.Option(help="Specify Service")] = "frappe",
 ):
-    """Open shell for the give site. :sparkles:"""
+    """Open shell for the give site. """
     sites.init(sitename)
     sites.shell(service, user)
 
@@ -245,6 +260,14 @@ def info(
     """Shows information about given site."""
     sites.init(sitename)
     sites.info()
+
+@app.command(no_args_is_help=True)
+def test(
+    sitename: Annotated[str, typer.Argument(help="Name of the site.")],
+):
+    """Shows information about given site."""
+    sites.init(sitename)
+    sites.test()
 
 # @app.command()
 # def doctor():
