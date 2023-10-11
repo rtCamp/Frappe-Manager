@@ -5,6 +5,7 @@ import subprocess
 import json
 import shlex
 import typer
+import shutil
 
 from fm.site_manager.site import Site
 from fm.site_manager.Richprint import richprint
@@ -165,50 +166,60 @@ class SiteManager:
         # start the provided site
         self.site.pull()
         self.site.start()
-        self.site.frappe_logs_till_start()
         richprint.stop()
 
     def attach_to_site(self, user: str, extensions: List[str]):
-        container_hex = self.site.get_frappe_container_hex()
-        vscode_cmd = shlex.join(
-            [
-                "code",
-                f"--folder-uri=vscode-remote://attached-container+{container_hex}+/workspace",
-            ]
-        )
-        extensions.sort()
-        labels = {
-            "devcontainer.metadata": json.dumps([
-                {
-                    "remoteUser": user,
-                    "customizations": {"vscode": {"extensions": extensions}},
-                }
-            ])
-        }
-
-        labels_previous = self.site.composefile.get_labels('frappe')
-
-        # check if the extension are the same if they are different then only update
-        # check if customizations key available
-        try:
-            extensions_previous = json.loads(labels_previous['devcontainer.metadata'])
-            extensions_previous = extensions_previous[0]['customizations']['vscode']['extensions']
-        except KeyError:
-            extensions_previous = []
-
-        extensions_previous.sort()
-
         if self.site.running():
+            # check if vscode is installed
+            vscode_path= shutil.which('code')
+
+            if not vscode_path:
+                richprint.exit("vscode(excutable code) not accessible via cli.")
+
+            container_hex = self.site.get_frappe_container_hex()
+            vscode_cmd = shlex.join(
+                [
+                    vscode_path,
+                    f"--folder-uri=vscode-remote://attached-container+{container_hex}+/workspace",
+                ]
+            )
+            extensions.sort()
+            labels = {
+                "devcontainer.metadata": json.dumps([
+                    {
+                        "remoteUser": user,
+                        "customizations": {"vscode": {"extensions": extensions}},
+                    }
+                ])
+            }
+
+            labels_previous = self.site.composefile.get_labels('frappe')
+
+            # check if the extension are the same if they are different then only update
+            # check if customizations key available
+            try:
+                extensions_previous = json.loads(labels_previous['devcontainer.metadata'])
+                extensions_previous = extensions_previous[0]['customizations']['vscode']['extensions']
+            except KeyError:
+                extensions_previous = []
+
+            extensions_previous.sort()
+
             if not extensions_previous == extensions:
+                richprint.print(f"Extensions are changed, Recreating containers..")
                 self.site.composefile.set_labels('frappe',labels)
                 self.site.composefile.write_to_file()
                 self.site.start()
+                richprint.print(f"Recreating Containers : Done")
             # TODO check if vscode exists
             richprint.change_head("Attaching to Container")
-            richprint.stop()
-            subprocess.run(vscode_cmd,shell=True)
+            output = subprocess.run(vscode_cmd,shell=True)
+            if output.returncode != 0:
+                richprint.exit(f"Attaching to Container : Failed")
+            richprint.print(f"Attaching to Container : Done")
         else:
-            print(f"Site: {self.site.name} is not running!!")
+            print(f"Site: {self.site.name} is not running")
+        richprint.stop()
 
     def logs(self,service:str,follow):
         if not self.site.exists():

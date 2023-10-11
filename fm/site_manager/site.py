@@ -6,6 +6,7 @@ from typing import List, Type
 from pathlib import Path
 
 from fm.docker_wrapper import DockerClient, DockerException
+
 from fm.site_manager.SiteCompose import SiteCompose
 from fm.site_manager.Richprint import richprint
 
@@ -47,8 +48,12 @@ class Site:
         return True
 
     def get_frappe_container_hex(self) -> None | str:
-        containers = self.docker.ps()
-        container_name = [ x.name for x in containers ]
+        output = self.docker.compose.ps(format='json',stream=True)
+        for source,line in output:
+            if source == 'stdout':
+                output = json.loads(line.decode())
+                break
+        container_name = [ x['Name'] for x in output ]
         for name in container_name:
             frappe_container = re.search('-frappe',name)
             if not frappe_container == None:
@@ -88,7 +93,7 @@ class Site:
         status_text= 'Starting Docker Containers'
         richprint.change_head(status_text)
         try:
-            output = self.docker.compose.up(detach=True,stream=self.quiet)
+            output = self.docker.compose.up(detach=True,pull='never',stream=self.quiet)
             if self.quiet:
                 richprint.live_lines(output, padding=(0,0,0,2))
             richprint.print(f"{status_text}: Done!")
@@ -100,6 +105,7 @@ class Site:
         richprint.change_head(status_text)
         try:
             output = self.docker.compose.pull(stream=self.quiet)
+            richprint.stdout.clear_live()
             if self.quiet:
                 richprint.live_lines(output, padding=(0,0,0,2))
             richprint.print(f"{status_text}: Done!")
@@ -116,39 +122,6 @@ class Site:
                 else:
                     richprint.stdout.print(line)
 
-    # def frappe_logs_till_start(self):
-    #     from rich.padding import Padding
-
-    #     if self.quiet:
-    #         from rich.text import Text
-    #         from rich.table import Table
-    #         from collections import deque
-    #         max_height = 5
-    #         displayed_lines = deque(maxlen=max_height)
-    #         for source , line in self.docker.compose.logs(services=['frappe'],no_log_prefix=True,follow=True,stream=True):
-    #             if not source == 'exit_code':
-    #                 line = line.decode()
-    #                 displayed_lines.append(line)
-    #                 table = Table(show_header=False,box=None)
-    #                 table.add_column()
-    #                 for linex in list(displayed_lines):
-    #                     table.add_row(
-    #                         Text(f"=> {linex.strip()}",style='grey')
-    #                     )
-    #                 richprint.update_live(table,padding=(0,0,0,2))
-    #                 if "INFO spawned: 'bench-dev' with pid".lower() in line.lower():
-    #                     break
-    #         richprint.update_live()
-    #     else:
-    #         for source , line in self.docker.compose.logs(services=['frappe'],no_log_prefix=True,follow=True,stream=True):
-    #             if not source == 'exit_code':
-    #                 line = line.decode()
-    #                 if "[==".lower() in line.lower():
-    #                     print(line)
-    #                 else:
-    #                     richprint.stdout.print(line,end='')
-    #                 if "INFO spawned: 'bench-dev' with pid".lower() in line.lower():
-    #                     break
     def frappe_logs_till_start(self):
         status_text= 'Creating Site'
         richprint.change_head(status_text)
@@ -181,14 +154,6 @@ class Site:
             richprint.print(f"{status_text}: Done!")
         except DockerException as e:
             richprint.exit(f"{status_text}: Failed!")
-
-    # def status(self) -> str:
-    #     try:
-    #         ps_output = self.docker.compose.ps()
-    #         for container in ps_output:
-    #             print(container.state.status)
-    #     except DockerException as e:
-    #         richprint.error(f"{e.stdout}{e.stderr}")
 
     def running(self) -> bool:
         try:
@@ -230,7 +195,7 @@ class Site:
                 shutil.rmtree(self.path)
                 richprint.change_head(f"Removing Dirs: Done!")
             except DockerException as e:
-                richprint.exit(f"{e.stdout}{e.stderr}")
+                richprint.exit(f"{status_text}: Failed!")
 
     def shell(self,container:str, user:str | None = None):
         # TODO check user exists
@@ -249,3 +214,11 @@ class Site:
                 self.docker.compose.exec(container,user=user,command='sh')
             else:
                 self.docker.compose.exec(container,command='sh')
+
+    def get_site_installed_apps(self):
+        command = f'/opt/.pyenv/shims/bench --site {self.name} list-apps'
+        # command = f'which bench'
+        output = self.docker.compose.exec('frappe',user='frappe',workdir='/workspace/frappe-bench',command=command,stream=True)
+        for source,line in output:
+            line = line.decode()
+            print(line)
