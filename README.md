@@ -2,8 +2,10 @@
 
 A docker compose based tool to easily manage frappe based projects.
 
+
 ## Infomation
 
+-   This is in beta phase as of now.
 -   This will create site as sub domain of localhost.
 -   Each site is created in `frappe` directory in your user `home` directory.
 -   Whenever new site is created, `frappe` is installed by default with latest stable branch(now i.e `version-14`).
