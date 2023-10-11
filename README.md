@@ -5,11 +5,10 @@ A docker compose based tool to easily manage frappe based projects.
 
 ## Infomation
 
--   This is in beta phase as of now.
--   This will create site as sub domain of localhost.
--   Each site is created in `frappe` directory in your user `home` directory.
--   Whenever new site is created, `frappe` is installed by default with latest stable branch(now i.e `version-14`).
-
+  - This app is currently in its beta phase.
+  - It allows you to create a new site, which will be accessible as a subdomain of your localhost.
+  - Each site you create is stored within the 'frappe' directory located in your user's home directory.
+  - When a new site is created, the app automatically installs 'frappe' with the latest stable branch, which is currently 'version-14'.
 
 ### Dependencies
 
@@ -30,10 +29,10 @@ A docker compose based tool to easily manage frappe based projects.
 
 ## Usage
 
--   You can directly run fm into the shell.
--   You can use `fm --help` to see all the available commands.
--   You can use `--help` in any command to view it&rsquo;s help.
-
+  - You have the option to execute fm directly within the shell.
+  - To view a list of all available commands, you can utilize `fm --help`.
+  - For any specific command's help, simply use `--help` in conjunction with that command.
+  - You can access the complete CLI reference [here](./cli_reference.md).
 
 ### Example
 
@@ -44,7 +43,6 @@ A docker compose based tool to easily manage frappe based projects.
     -   By default this will install `frappe`, branch `version-14`.
     
     ```bash
-    
     # create example.localhost site with only frappe, version -> version-14
     fm create example
     
