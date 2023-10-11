@@ -1,4 +1,4 @@
-from python_on_whales import DockerClient, DockerException
+from fm.docker_wrapper import DockerClient, DockerException
 from typing import List, Type
 from pathlib import Path
 import subprocess
@@ -53,7 +53,7 @@ class SiteManager:
                 if not d.parts[-1] in exclude:
                     d = d / "docker-compose.yml"
                     if d.exists():
-                        sites_path.append(str(d.absolute()))
+                        sites_path.append(d)
         return sites_path
 
     def get_all_sites(self):
@@ -63,24 +63,25 @@ class SiteManager:
                 name = dir.parts[-1]
                 dir = dir / "docker-compose.yml"
                 if dir.exists():
-                    sites[name] = str(dir.absolute())
+                    sites[name] = str(dir)
         return sites
 
     def stop_sites(self):
         """ Stop all sites except the current site."""
-        # this will override all
-        # get list of all sub directories in the dir
-        richprint.change_head("Stopping all other sites !")
+        status_text='Halting other sites'
+        richprint.change_head(status_text)
         exclude = [self.site.name]
         site_compose: list = self.__get_all_sites_path(exclude)
         if site_compose:
             for site_compose_path in site_compose:
-                docker = DockerClient(compose_files=[site_compose_path])
+                docker = DockerClient(compose_file_path=site_compose_path)
                 try:
-                    docker.compose.stop(timeout=2)
+                    output = docker.compose.stop(timeout=10,stream=not self.verbose)
+                    if not self.verbose:
+                        richprint.live_lines(output, padding=(0,0,0,2))
                 except DockerException as e:
-                    richprint.error(f"{e.stdout}{e.stderr}")
-        richprint.print("Sites stopped: All other sites halted.")
+                    richprint.exit(f"{status_text}: Failed!")
+        richprint.print(f"{status_text}: Done!")
 
     def create_site(self, template_inputs: dict):
         if self.site.exists():

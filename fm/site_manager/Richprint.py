@@ -1,5 +1,3 @@
-from python_on_whales import DockerException
-from requests import status_codes
 from rich.console import Console, Group
 from rich.style import Style
 from rich.theme import Theme

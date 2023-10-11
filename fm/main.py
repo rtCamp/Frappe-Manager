@@ -5,7 +5,6 @@ from pathlib import Path
 from fm.site_manager.manager import SiteManager
 from fm.site_manager.Richprint import richprint
 import os
-import requests
 
 app = typer.Typer(no_args_is_help=True,rich_markup_mode='rich')
 
