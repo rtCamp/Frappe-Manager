@@ -1,4 +1,6 @@
 import os
+import shlex
+import shutil
 import signal
 import subprocess
 import sys
@@ -6,9 +8,11 @@ from datetime import datetime, timedelta
 from importlib.metadata import version
 from pathlib import Path
 from queue import Queue
-from subprocess import PIPE, Popen
+from subprocess import PIPE, Popen, run
 from threading import Thread
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, overload
+
+from rich import control
 
 from fm.docker_wrapper.DockerException import DockerException
 
@@ -64,18 +68,26 @@ def stream_stdout_and_stderr(
 def run_command_with_exit_code(
     full_cmd: list,
     env: Dict[str, str] = None,
-    quiet: bool = False):
-# ) -> Union[int, Iterable] :
-    if quiet:
-        try:
-            for source ,line in stream_stdout_and_stderr(full_cmd):
-                if source == 'exit_code':
-                    exit_code: int = int(line.decode())
-                    return(exit_code)
-        except Exception as e:
-            pass
+    stream: bool = True,
+    quiet: bool = False
+):
+    if stream:
+        if quiet:
+            try:
+                for source ,line in stream_stdout_and_stderr(full_cmd):
+                    if source == 'exit_code':
+                        exit_code: int = int(line.decode())
+                        return(exit_code)
+            except Exception as e:
+                pass
+        else:
+            return stream_stdout_and_stderr(full_cmd)
     else:
-        return stream_stdout_and_stderr(full_cmd)
+        from fm.site_manager.Richprint import richprint
+        output = run(full_cmd)
+        exit_code = output.returncode
+        if exit_code != 0:
+            raise DockerException(full_cmd,exit_code)
 
 def parameter_to_option(param: str) -> str:
     """changes parameter's to option"""
@@ -90,7 +102,6 @@ def parameters_to_options(param: dict, exclude: list = []) -> list:
 
     for key in exclude:
         del temp_param[key]
-
 
     # remove all parameters which are not booleans
     params: list = []

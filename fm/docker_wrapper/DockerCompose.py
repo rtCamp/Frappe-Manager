@@ -20,6 +20,7 @@ from fm.docker_wrapper.utils import (
     run_command_with_exit_code,
 )
 
+
 # Docker Compose version 2.18.1
 class DockerComposeWrapper:
     def __init__(self, path: Path, timeout: int = 100):
@@ -34,7 +35,6 @@ class DockerComposeWrapper:
             self.compose_file_path.as_posix(),
         ]
 
-    # @handle_docker_error
     def up(
         self,
         detach: bool = True,
@@ -44,6 +44,7 @@ class DockerComposeWrapper:
         always_recreate_deps: bool = False,
         services: list[str] = [],
         quiet_pull: bool = False,
+        pull: Literal["missing", "never", "always"] = "missing",
         stream: bool = False,
         stream_only_exit_code: bool = False,
     ):
@@ -59,50 +60,46 @@ class DockerComposeWrapper:
         # subprocess_env = dict(os.environ)
         # subprocess_env.update(env)
 
-        if stream:
-            iterator = run_command_with_exit_code(
-                self.docker_compose_cmd + up_cmd, quiet=stream_only_exit_code
-            )
-            return iterator
-        else:
-            return run(self.docker_compose_cmd + up_cmd)
+        iterator = run_command_with_exit_code(
+            self.docker_compose_cmd + up_cmd, quiet=stream_only_exit_code,
+            stream=stream
+        )
+        return iterator
 
     # @handle_docker_error
     def down(
         self,
         timeout: int = 100,
         remove_orphans: bool = False,
-        rmi: Union[bool, Literal['all', 'local']] = False,
+        rmi: Union[bool, Literal["all", "local"]] = False,
         volumes: bool = False,
         dry_run: bool = False,
         stream: bool = False,
         stream_only_exit_code: bool = False,
     ):
         parameters: dict = locals()
-        parameters['timeout'] = str(timeout)
+        parameters["timeout"] = str(timeout)
 
         down_cmd: list[str] = ["down"]
 
-        remove_parameters = ["stream","stream_only_exit_code"]
+        remove_parameters = ["stream", "stream_only_exit_code"]
 
         if not rmi:
-            remove_parameters.append('rmi')
+            remove_parameters.append("rmi")
         else:
-            parameters['rmi'] = 'all'
+            parameters["rmi"] = "all"
 
         down_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
-        if stream:
-            iterator = run_command_with_exit_code(
-                self.docker_compose_cmd + down_cmd, quiet=stream_only_exit_code
-            )
-            return iterator
-        else:
-            return run(self.docker_compose_cmd + down_cmd)
+        iterator = run_command_with_exit_code(
+            self.docker_compose_cmd + down_cmd, quiet=stream_only_exit_code,
+            stream=stream
+        )
+        return iterator
 
     def start(
         self,
-        services: Union[None,list[str]] = None,
+        services: Union[None, list[str]] = None,
         dry_run: bool = False,
         stream: bool = False,
         stream_only_exit_code: bool = False,
@@ -111,7 +108,7 @@ class DockerComposeWrapper:
 
         start_cmd: list[str] = ["start"]
 
-        remove_parameters = ["services","stream","stream_only_exit_code"]
+        remove_parameters = ["services", "stream", "stream_only_exit_code"]
 
         start_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
@@ -119,17 +116,15 @@ class DockerComposeWrapper:
         if type(services) == list:
             start_cmd += services
 
-        if stream:
-            iterator = run_command_with_exit_code(
-                self.docker_compose_cmd + start_cmd, quiet=stream_only_exit_code
-            )
-            return iterator
-        else:
-            return run(self.docker_compose_cmd + start_cmd)
+        iterator = run_command_with_exit_code(
+            self.docker_compose_cmd + start_cmd, quiet=stream_only_exit_code,
+            stream=stream
+        )
+        return iterator
 
     def restart(
         self,
-        services: Union[None,list[str]] = None,
+        services: Union[None, list[str]] = None,
         dry_run: bool = False,
         timeout: int = 100,
         no_deps: bool = False,
@@ -137,11 +132,11 @@ class DockerComposeWrapper:
         stream_only_exit_code: bool = False,
     ):
         parameters: dict = locals()
-        parameters['timeout'] = str(timeout)
+        parameters["timeout"] = str(timeout)
 
         restart_cmd: list[str] = ["restart"]
 
-        remove_parameters = ["service","stream","stream_only_exit_code"]
+        remove_parameters = ["service", "stream", "stream_only_exit_code"]
 
         restart_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
@@ -149,27 +144,25 @@ class DockerComposeWrapper:
         if type(services) == list:
             restart_cmd += services
 
-        if stream:
-            iterator = run_command_with_exit_code(
-                self.docker_compose_cmd + restart_cmd, quiet=stream_only_exit_code
-            )
-            return iterator
-        else:
-            return run(self.docker_compose_cmd + restart_cmd)
+        iterator = run_command_with_exit_code(
+            self.docker_compose_cmd + restart_cmd, quiet=stream_only_exit_code,
+            stream=stream
+        )
+        return iterator
 
     def stop(
         self,
-        services: Union[None,list[str]] = None,
+        services: Union[None, list[str]] = None,
         timeout: int = 100,
         stream: bool = False,
         stream_only_exit_code: bool = False,
     ):
         parameters: dict = locals()
-        parameters['timeout'] = str(timeout)
+        parameters["timeout"] = str(timeout)
 
         stop_cmd: list[str] = ["stop"]
 
-        remove_parameters = ["services","stream","stream_only_exit_code"]
+        remove_parameters = ["services", "stream", "stream_only_exit_code"]
 
         stop_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
@@ -177,24 +170,22 @@ class DockerComposeWrapper:
         if type(services) == list:
             stop_cmd += services
 
-        if stream:
-            iterator = run_command_with_exit_code(
-                self.docker_compose_cmd + stop_cmd, quiet=stream_only_exit_code
-            )
-            return iterator
-        else:
-            return run(self.docker_compose_cmd + stop_cmd)
+        iterator = run_command_with_exit_code(
+            self.docker_compose_cmd + stop_cmd, quiet=stream_only_exit_code,
+            stream=stream
+        )
+        return iterator
 
     def exec(
         self,
         service: str,
         command: str,
         detach: bool = False,
-        env: Union[None,list[str]] = None,
+        env: Union[None, list[str]] = None,
         no_tty: bool = False,
         privileged: bool = False,
-        user: Union[None,str] = None,
-        workdir: Union[None,str] = None,
+        user: Union[None, str] = None,
+        workdir: Union[None, str] = None,
         stream: bool = False,
         stream_only_exit_code: bool = False,
     ):
@@ -202,25 +193,30 @@ class DockerComposeWrapper:
 
         exec_cmd: list[str] = ["exec"]
 
-        remove_parameters = ["service","stream","stream_only_exit_code","command", "env"]
+        remove_parameters = [
+            "service",
+            "stream",
+            "stream_only_exit_code",
+            "command",
+            "env",
+        ]
 
         exec_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
         if type(env) == list:
             for i in env:
-                exec_cmd += ['--env',i]
+                exec_cmd += ["--env", i]
 
         exec_cmd += [service]
 
         exec_cmd += shlex.split(command)
 
-        if stream:
-            iterator = run_command_with_exit_code(
-                self.docker_compose_cmd + exec_cmd, quiet=stream_only_exit_code
-            )
-            return iterator
-        else:
-            return run(self.docker_compose_cmd + exec_cmd)
+        iterator = run_command_with_exit_code(
+            self.docker_compose_cmd + exec_cmd,
+            quiet=stream_only_exit_code,
+            stream=stream,
+        )
+        return iterator
 
     def ps(
         self,
@@ -228,9 +224,33 @@ class DockerComposeWrapper:
         dry_run: bool = False,
         all: bool = False,
         services: bool = False,
-        filter: Union[None,Literal["paused","restarting","removing","running","dead","created","exited"]] = None,
-        format: Union[None,Literal['table','json']] = None,
-        status: Union[None, list[Literal["paused","restarting","removing","running","dead","created","exited"]]] = None,
+        filter: Union[
+            None,
+            Literal[
+                "paused",
+                "restarting",
+                "removing",
+                "running",
+                "dead",
+                "created",
+                "exited",
+            ],
+        ] = None,
+        format: Union[None, Literal["table", "json"]] = None,
+        status: Union[
+            None,
+            list[
+                Literal[
+                    "paused",
+                    "restarting",
+                    "removing",
+                    "running",
+                    "dead",
+                    "created",
+                    "exited",
+                ]
+            ],
+        ] = None,
         quiet: bool = False,
         stream: bool = False,
         stream_only_exit_code: bool = False,
@@ -239,28 +259,30 @@ class DockerComposeWrapper:
 
         ps_cmd: list[str] = ["ps"]
 
-        remove_parameters = ["service","stream","stream_only_exit_code","filter","status"]
+        remove_parameters = [
+            "service",
+            "stream",
+            "stream_only_exit_code",
+            "filter",
+            "status",
+        ]
 
         if filter:
-            parameters['filter'] = f'status={filter}'
+            parameters["filter"] = f"status={filter}"
 
         ps_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
-
         if type(status) == list:
             for i in status:
-                ps_cmd += ['--status',i]
+                ps_cmd += ["--status", i]
 
         if service:
             ps_cmd += service
 
-        if stream:
-            iterator = run_command_with_exit_code(
-                self.docker_compose_cmd + ps_cmd, quiet=stream_only_exit_code
-            )
-            return iterator
-        else:
-            return run(self.docker_compose_cmd + ps_cmd)
+        iterator = run_command_with_exit_code(
+            self.docker_compose_cmd + ps_cmd, quiet=stream_only_exit_code, stream=stream
+        )
+        return iterator
 
     def logs(
         self,
@@ -280,26 +302,25 @@ class DockerComposeWrapper:
 
         logs_cmd: list[str] = ["logs"]
 
-        remove_parameters = ["services","stream","stream_only_exit_code"]
+        remove_parameters = ["services", "stream", "stream_only_exit_code"]
 
         logs_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
         if services:
             logs_cmd += services
 
-        if stream:
-            iterator = run_command_with_exit_code(
-                self.docker_compose_cmd + logs_cmd, quiet=stream_only_exit_code
-            )
-            return iterator
-        else:
-            return run(self.docker_compose_cmd + logs_cmd)
+        iterator = run_command_with_exit_code(
+            self.docker_compose_cmd + logs_cmd,
+            quiet=stream_only_exit_code,
+            stream=stream,
+        )
+        return iterator
 
     def ls(
         self,
         all: bool = False,
         dry_run: bool = False,
-        format: Literal['table','json'] = 'table',
+        format: Literal["table", "json"] = "table",
         quiet: bool = False,
     ):
         parameters: dict = locals()
@@ -307,6 +328,7 @@ class DockerComposeWrapper:
         ls_cmd: list[str] = ["ls"]
 
         ls_cmd += parameters_to_options(parameters)
+
         try:
             output = run(self.docker_compose_cmd + ls_cmd, capture_output=True)
             output = output.stdout.decode()
@@ -329,14 +351,13 @@ class DockerComposeWrapper:
 
         pull_cmd: list[str] = ["pull"]
 
-        remove_parameters = ["stream","stream_only_exit_code"]
+        remove_parameters = ["stream", "stream_only_exit_code"]
 
         pull_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
-        if stream:
-            iterator = run_command_with_exit_code(
-                self.docker_compose_cmd + pull_cmd, quiet=stream_only_exit_code
-            )
-            return iterator
-        else:
-            return run(self.docker_compose_cmd + pull_cmd)
+        iterator = run_command_with_exit_code(
+            self.docker_compose_cmd + pull_cmd,
+            quiet=stream_only_exit_code,
+            stream=stream,
+        )
+        return iterator

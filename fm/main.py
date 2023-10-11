@@ -25,7 +25,7 @@ def version_callback(version: Optional[bool] = None):
 
 @app.callback()
 def app_callback(
-        verbose: Annotated[bool, typer.Option(help="Enable verbose output.")] = False,
+        verbose: Annotated[Optional[bool], typer.Option('--verbose','-v',help="Enable verbose output.")] = None,
         version: Annotated[
             Optional[bool], typer.Option("--version",help="Show Version.",callback=version_callback)
         ] = None,
