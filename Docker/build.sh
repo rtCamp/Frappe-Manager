@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-TAG='v0.7.0'
+TAG='v0.8.0'
 ARCH=$(uname -m)
 
 # arm64
