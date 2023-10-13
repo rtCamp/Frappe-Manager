@@ -5,6 +5,7 @@ from pathlib import Path
 from fm.site_manager.manager import SiteManager
 from fm.site_manager.Richprint import richprint
 import os
+import requests
 
 app = typer.Typer(no_args_is_help=True,rich_markup_mode='rich')
 
@@ -24,6 +25,7 @@ def version_callback(version: Optional[bool] = None):
 
 @app.callback()
 def app_callback(
+        ctx: typer.Context,
         verbose: Annotated[Optional[bool], typer.Option('--verbose','-v',help="Enable verbose output.")] = None,
         version: Annotated[
             Optional[bool], typer.Option("--version",help="Show Version.",callback=version_callback)
@@ -32,8 +34,10 @@ def app_callback(
     """
     FrappeManager for creating frappe development envrionments.
     """
+    sites.set_typer_context(ctx)
     if verbose:
         sites.set_verbose()
+
 
 default_extension = [
     "dbaeumer.vscode-eslint",
