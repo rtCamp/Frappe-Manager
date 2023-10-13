@@ -10,17 +10,6 @@ from fm.docker_wrapper import DockerClient, DockerException
 from fm.site_manager.SiteCompose import SiteCompose
 from fm.site_manager.Richprint import richprint
 
-def handle_DockerException():
-    pass
-
-def delete_dir(path: Path):
-    for sub in path.iterdir():
-        if sub.is_dir():
-            delete_dir(sub)
-        else:
-            sub.unlink()
-    path.rmdir()
-
 class Site:
     def __init__(self,path: Path , name:str, verbose: bool = False):
         self.path= path
@@ -29,6 +18,9 @@ class Site:
         self.init()
 
     def init(self):
+        """
+        The function checks if the Docker daemon is running and exits with an error message if it is not.
+        """
         self.composefile = SiteCompose(self.path / 'docker-compose.yml')
         self.docker = DockerClient(compose_file_path=self.composefile.compose_path)
 
@@ -36,9 +28,19 @@ class Site:
             richprint.exit("Docker daemon not running. Please start docker service.")
 
     def exists(self):
+        """
+        The `exists` function checks if a file or directory exists at the specified path.
+        :return: a boolean value. If site path exits then returns `True` else `False`.
+        """
         return self.path.exists()
 
     def validate_sitename(self) -> bool:
+        """
+        The function `validate_sitename` checks if a given sitename is valid by using a regular expression
+        pattern.
+        :return: a boolean value. If the sitename is valid, it returns True. If the sitename is not valid,
+        it returns False.
+        """
         sitename = self.name
         match = re.search(r'^[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?',sitename)
         if len(sitename) != match.span()[-1]:
@@ -48,6 +50,12 @@ class Site:
         return True
 
     def get_frappe_container_hex(self) -> None | str:
+        """
+        The function `get_frappe_container_hex` searches for a Docker container with the name containing
+        "-frappe" and returns its hexadecimal representation if found, otherwise returns None.
+        :return: either a hexadecimal string representing the name of the Frappe container, or None if no
+        Frappe container is found.
+        """
         output = self.docker.compose.ps(format='json',stream=True)
         for source,line in output:
             if source == 'stdout':
@@ -61,6 +69,10 @@ class Site:
         return None
 
     def migrate_site(self) -> bool:
+        """
+        The `migrate_site` function checks the environment version and migrates it if necessary.
+        :return: a boolean value,`True` if the site migrated else `False`.
+        """
         if self.composefile.exists():
             richprint.change_head("Checking Envrionment Version")
             compose_version = self.composefile.get_version()
@@ -73,6 +85,13 @@ class Site:
         return False
 
     def generate_compose(self,inputs:dict) -> None:
+        """
+        The function `generate_compose` sets environment variables, extra hosts, and version information in
+        a compose file and writes it to a file.
+        
+        :param inputs: The `inputs` parameter is a dictionary that contains the values which will be used in compose file.
+        :type inputs: dict
+        """
         self.composefile.set_envs('frappe',inputs['frappe_env'])
         self.composefile.set_envs('nginx',inputs['nginx_env'])
         self.composefile.set_extrahosts('frappe',inputs['extra_hosts'])
@@ -81,6 +100,10 @@ class Site:
         self.composefile.write_to_file()
 
     def create_dirs(self) -> bool:
+        """
+        The function `create_dirs` creates two directories, `workspace` and `certs`, within a specified
+        path.
+        """
         # create site dir
         self.path.mkdir(parents=True, exist_ok=True)
         # create compose bind dirs -> workspace
@@ -90,6 +113,9 @@ class Site:
         certs_path.mkdir(parents=True, exist_ok=True)
 
     def start(self) -> bool:
+        """
+        The function starts Docker containers and prints the status of the operation.
+        """
         status_text= 'Starting Docker Containers'
         richprint.change_head(status_text)
         try:
@@ -101,6 +127,9 @@ class Site:
             richprint.exit(f"{status_text}: Failed!")
 
     def pull(self):
+        """
+        The function pulls Docker images and displays the status of the operation.
+        """
         status_text= 'Pulling Docker Images'
         richprint.change_head(status_text)
         try:
@@ -113,6 +142,20 @@ class Site:
             richprint.warning(f"{status_text}: Failed!")
 
     def logs(self,service:str, follow:bool=False):
+        """
+        The `logs` function prints the logs of a specified service, with the option to follow the logs in
+        real-time.
+        
+        :param service: The "service" parameter is a string that specifies the name of the service whose
+        logs you want to retrieve. It is used to filter the logs and only retrieve the logs for that
+        specific service
+        :type service: str
+        :param follow: The `follow` parameter is a boolean flag that determines whether to continuously
+        stream the logs or not. If `follow` is set to `True`, the logs will be streamed continuously as they
+        are generated. If `follow` is set to `False`, only the existing logs will be returned, defaults to
+        False
+        :type follow: bool (optional)
+        """
         output = self.docker.compose.logs(services=[service],no_log_prefix=True,follow=follow,stream=True)
         for source , line in output:
             line = line.decode()
@@ -123,6 +166,9 @@ class Site:
                     richprint.stdout.print(line)
 
     def frappe_logs_till_start(self):
+        """
+        The function `frappe_logs_till_start` prints logs until a specific line is found and then stops.
+        """
         status_text= 'Creating Site'
         richprint.change_head(status_text)
         try:
@@ -145,6 +191,10 @@ class Site:
 
 
     def stop(self) -> bool:
+        """
+        The `stop` function stops containers and prints the status of the operation using the `richprint`
+        module.
+        """
         status_text= 'Stopping Containers'
         richprint.change_head(status_text)
         try:
@@ -156,6 +206,11 @@ class Site:
             richprint.exit(f"{status_text}: Failed!")
 
     def running(self) -> bool:
+        """
+        The `running` function checks if all the services defined in a Docker Compose file are running.
+        :return: a boolean value. If the number of running containers is greater than or equal to the number
+        of services listed in the compose file, it returns True. Otherwise, it returns False.
+        """
         try:
             output = self.docker.compose.ps(format='json',filter='running',stream=True)
             status: dict = {}
@@ -170,6 +225,9 @@ class Site:
             richprint.exit(f"{e.stdout}{e.stderr}")
 
     def down(self) -> bool:
+        """
+        The `down` function removes containers using Docker Compose and prints the status of the operation.
+        """
         if self.composefile.exists():
             status_text='Removing Containers'
             richprint.change_head(status_text)
@@ -182,6 +240,9 @@ class Site:
                 richprint.exit(f"{status_text}: Failed!")
 
     def remove(self) -> bool:
+        """
+        The `remove` function removes containers and then recursively  site directories.
+        """
         # TODO handle low leverl error like read only, write only etc
         if self.composefile.exists():
             status_text = 'Removing Containers'
@@ -198,6 +259,17 @@ class Site:
                 richprint.exit(f"{status_text}: Failed!")
 
     def shell(self,container:str, user:str | None = None):
+        """
+        The `shell` function spawns a shell for a specified container and user.
+        
+        :param container: The `container` parameter is a string that specifies the name of the container in
+        which the shell command will be executed
+        :type container: str
+        :param user: The `user` parameter is an optional argument that specifies the user under which the
+        shell command should be executed. If a user is provided, the shell command will be executed as that
+        user. If no user is provided, the shell command will be executed as the default user
+        :type user: str | None
+        """
         # TODO check user exists
         non_bash_supported = ['redis-cache','redis-cache','redis-socketio','redis-queue']
         if not container in non_bash_supported:
@@ -216,9 +288,13 @@ class Site:
                 self.docker.compose.exec(container,command='sh')
 
     def get_site_installed_apps(self):
+        """
+        The function executes a command to list the installed apps for a specific site and prints the
+        output.
+        """
         command = f'/opt/.pyenv/shims/bench --site {self.name} list-apps'
         # command = f'which bench'
         output = self.docker.compose.exec('frappe',user='frappe',workdir='/workspace/frappe-bench',command=command,stream=True)
         for source,line in output:
             line = line.decode()
-            print(line)
+            pass
