@@ -1,10 +1,11 @@
-from python_on_whales import DockerClient, DockerException
-from typing import List, Type
+from fm.docker_wrapper import DockerClient, DockerException
+from typing import List, Optional, Type
 from pathlib import Path
 import subprocess
 import json
 import shlex
 import typer
+import shutil
 
 from fm.site_manager.site import Site
 from fm.site_manager.Richprint import richprint
@@ -19,9 +20,26 @@ class SiteManager:
         self.sitesdir = sitesdir
         self.site = None
         self.sitepath = None
+        self.verbose = False
+        self.typer_context: Optional[typer.Context] = None
 
     def init(self, sitename: str| None = None,createdir: bool = False):
+        """
+        The `init` function initializes a site by checking if the site directory exists, creating it if
+        necessary, and setting the site name and path.
+        
+        :param sitename: The `sitename` parameter is a string that represents the name of the site. It is
+        optional and can be set to `None`. If a value is provided, it will be used to create a site path by
+        appending ".localhost" to the sitename
+        :type sitename: str| None
+        :param createdir: The `createdir` parameter is a boolean flag that determines whether or not to
+        create the sites directory if it doesn't already exist. If `createdir` is set to `True`, the code
+        will create the directory. If it's set to `False`, the code will exit with an error, defaults to
+        False
+        :type createdir: bool (optional)
+        """
         richprint.start(f"Working")
+
         # check if the site name is correct
         if not self.sitesdir.exists():
             # creating the sites dir
@@ -38,46 +56,90 @@ class SiteManager:
         if sitename:
             sitename = sitename + ".localhost"
             sitepath: Path = self.sitesdir / sitename
-            self.site: Site = Site(sitepath, sitename)
-            self.migrate_site()
+            self.site: Site = Site(sitepath, sitename, verbose= self.verbose)
+            # self.migrate_site()
+
+    def set_verbose(self):
+        """
+        The function sets the "verbose" attribute of an object to True.
+        """
+        self.verbose = True
+
+    def set_typer_context(self,ctx: typer.Context):
+        """
+        The function sets the typer context from the
+        :param typer context
+        :type ctx: typer.Context
+        """
+        self.typer_context = ctx
 
     def __get_all_sites_path(self, exclude: List[str] = []):
+        """
+        The function `__get_all_sites_path` returns a list of paths to all the `docker-compose.yml` files in
+        the `sitesdir` directory, excluding any directories specified in the `exclude` list.
+        
+        :param exclude: The `exclude` parameter is a list of strings that contains the names of directories
+        to be excluded from the list of sites paths
+        :type exclude: List[str]
+        :return: a list of paths to `docker-compose.yml` files within directories in `self.sitesdir`,
+        excluding any directories specified in the `exclude` list.
+        """
         sites_path = []
         for d in self.sitesdir.iterdir():
             if d.is_dir():
                 if not d.parts[-1] in exclude:
                     d = d / "docker-compose.yml"
                     if d.exists():
-                        sites_path.append(str(d.absolute()))
+                        sites_path.append(d)
         return sites_path
 
     def get_all_sites(self):
+        """
+        The function `get_all_sites` returns a dictionary of site names and their corresponding
+        docker-compose.yml file paths from a given directory.
+        :return: a dictionary where the keys are the names of directories within the `sitesdir` directory
+        and the values are the paths to the corresponding `docker-compose.yml` files within those
+        directories.
+        """
         sites = {}
         for dir in self.sitesdir.iterdir():
             if dir.is_dir():
                 name = dir.parts[-1]
                 dir = dir / "docker-compose.yml"
                 if dir.exists():
-                    sites[name] = str(dir.absolute())
+                    sites[name] = str(dir)
         return sites
 
     def stop_sites(self):
-        """ Stop all sites except the current site."""
-        # this will override all
-        # get list of all sub directories in the dir
-        richprint.change_head("Stopping all other sites !")
+        """
+        The `stop_sites` function stops all sites except the current site by halting their Docker
+        containers.
+        """
+        status_text='Halting other sites'
+        richprint.change_head(status_text)
         exclude = [self.site.name]
         site_compose: list = self.__get_all_sites_path(exclude)
         if site_compose:
             for site_compose_path in site_compose:
-                docker = DockerClient(compose_files=[site_compose_path])
+                docker = DockerClient(compose_file_path=site_compose_path)
                 try:
-                    docker.compose.stop(timeout=2)
+                    output = docker.compose.stop(timeout=10,stream=not self.verbose)
+                    if not self.verbose:
+                        richprint.live_lines(output, padding=(0,0,0,2))
                 except DockerException as e:
-                    richprint.error(f"{e.stdout}{e.stderr}")
-        richprint.print("Stopped all sites !")
+                    richprint.exit(f"{status_text}: Failed!")
+        richprint.print(f"{status_text}: Done!")
 
     def create_site(self, template_inputs: dict):
+        """
+        The `create_site` function creates a new site directory, generates a compose file, pulls the
+        necessary images, starts the site, and displays information about the site.
+        
+        :param template_inputs: The `template_inputs` parameter is a dictionary that contains the inputs or
+        configuration values required to generate the compose file for the site. These inputs can be used to
+        customize the site's configuration, such as database settings, domain name, etc
+        :type template_inputs: dict
+        """
         if self.site.exists():
             richprint.exit(
                 f"Site {self.site.name} already exists! Aborting! -> [bold cyan] {self.site.path}[/bold cyan]"
@@ -89,7 +151,6 @@ class SiteManager:
         self.site.create_dirs()
         richprint.change_head(f"Generating Compose")
         self.site.generate_compose(template_inputs)
-        richprint.change_head(f"Pulling Docker Images")
         self.site.pull()
         richprint.change_head(f"Starting Site")
         self.site.start()
@@ -98,6 +159,10 @@ class SiteManager:
         self.info()
 
     def remove_site(self):
+        """
+        The `remove_site` function checks if a site exists, stops it if it is running, and then removes the
+        site directory.
+        """
         # TODO maybe the site is running and folder has been delted and all the containers are there. We need to clean it.
         # check if it exits
         if not self.site.exists():
@@ -112,6 +177,10 @@ class SiteManager:
         richprint.stop()
 
     def list_sites(self):
+        """
+        The `list_sites` function retrieves a list of sites, categorizes them as either running or stale,
+        and displays them in separate panels using the Rich library.
+        """
         # format -> name , status [ 'stale', 'running' ]
         # sites_list = self.__get_all_sites_path()
         running = []
@@ -140,6 +209,10 @@ class SiteManager:
             richprint.stdout.print(panel)
 
     def stop_site(self):
+        """
+        The function `stop_site` checks if a site exists, stops it if it does, and prints a message
+        indicating that the site has been stopped.
+        """
         if not self.site.exists():
             richprint.exit(
                 f"Site {self.site.name} doesn't exists! Aborting!"
@@ -147,10 +220,14 @@ class SiteManager:
         richprint.change_head(f"Stopping site")
         #self.stop_sites()
         self.site.stop()
-        richprint.update_head(f"Stopped site")
+        richprint.print(f"Stopped site")
         richprint.stop()
 
     def start_site(self):
+        """
+        The function `start_site` checks if a site exists, stops all sites, checks ports, pulls the site,
+        and starts it.
+        """
         if not self.site.exists():
             richprint.exit(
                 f"Site {self.site.name} doesn't exists! Aborting!"
@@ -160,57 +237,87 @@ class SiteManager:
         if not self.site.running():
             self.check_ports()
         # start the provided site
-        richprint.change_head(f"Pulling Docker Images")
+        self.migrate_site()
         self.site.pull()
-        richprint.change_head(f"Starting site")
         self.site.start()
-        self.site.frappe_logs_till_start()
-        richprint.change_head(f"Started site")
         richprint.stop()
 
     def attach_to_site(self, user: str, extensions: List[str]):
-        container_hex = self.site.get_frappe_container_hex()
-        vscode_cmd = shlex.join(
-            [
-                "code",
-                f"--folder-uri=vscode-remote://attached-container+{container_hex}+/workspace",
-            ]
-        )
-        extensions.sort()
-        labels = {
-            "devcontainer.metadata": json.dumps([
-                {
-                    "remoteUser": user,
-                    "customizations": {"vscode": {"extensions": extensions}},
-                }
-            ])
-        }
-
-        labels_previous = self.site.composefile.get_labels('frappe')
-
-        # check if the extension are the same if they are different then only update
-        # check if customizations key available
-        try:
-            extensions_previous = json.loads(labels_previous['devcontainer.metadata'])
-            extensions_previous = extensions_previous[0]['customizations']['vscode']['extensions']
-        except KeyError:
-            extensions_previous = []
-
-        extensions_previous.sort()
-
+        """
+        The `attach_to_site` function attaches to a running site and opens it in Visual Studio Code with
+        specified extensions.
+        
+        :param user: The `user` parameter is a string that represents the username of the user who wants to
+        attach to the site
+        :type user: str
+        :param extensions: The `extensions` parameter is a list of strings that represents the extensions to
+        be installed in Visual Studio Code
+        :type extensions: List[str]
+        """
         if self.site.running():
+            # check if vscode is installed
+            vscode_path= shutil.which('code')
+
+            if not vscode_path:
+                richprint.exit("vscode(excutable code) not accessible via cli.")
+
+            container_hex = self.site.get_frappe_container_hex()
+            vscode_cmd = shlex.join(
+                [
+                    vscode_path,
+                    f"--folder-uri=vscode-remote://attached-container+{container_hex}+/workspace",
+                ]
+            )
+            extensions.sort()
+            labels = {
+                "devcontainer.metadata": json.dumps([
+                    {
+                        "remoteUser": user,
+                        "customizations": {"vscode": {"extensions": extensions}},
+                    }
+                ])
+            }
+
+            labels_previous = self.site.composefile.get_labels('frappe')
+
+            # check if the extension are the same if they are different then only update
+            # check if customizations key available
+            try:
+                extensions_previous = json.loads(labels_previous['devcontainer.metadata'])
+                extensions_previous = extensions_previous[0]['customizations']['vscode']['extensions']
+            except KeyError:
+                extensions_previous = []
+
+            extensions_previous.sort()
+
             if not extensions_previous == extensions:
+                richprint.print(f"Extensions are changed, Recreating containers..")
                 self.site.composefile.set_labels('frappe',labels)
                 self.site.composefile.write_to_file()
                 self.site.start()
+                richprint.print(f"Recreating Containers : Done")
             # TODO check if vscode exists
             richprint.change_head("Attaching to Container")
-            richprint.stop()
-            subprocess.run(vscode_cmd,shell=True)
+            output = subprocess.run(vscode_cmd,shell=True)
+            if output.returncode != 0:
+                richprint.exit(f"Attaching to Container : Failed")
+            richprint.print(f"Attaching to Container : Done")
         else:
-            print(f"Site: {self.site.name} is not running!!")
+            print(f"Site: {self.site.name} is not running")
+        richprint.stop()
 
     def logs(self,service:str,follow):
+        """
+        The `logs` function checks if a site exists, and if it does, it shows the logs for a specific
+        service. If the site is not running, it displays an error message.
+        
+        :param service: The `service` parameter is a string that represents the specific service or
+        component for which you want to view the logs. It could be the name of a specific container
+        :type service: str
+        :param follow: The "follow" parameter is a boolean value that determines whether to continuously
+        follow the logs or not. If "follow" is set to True, the logs will be continuously displayed as they
+        are generated. If "follow" is set to False, only the existing logs will be displayed
+        """
         if not self.site.exists():
             richprint.exit(
                 f"Site {self.site.name} doesn't exists! Aborting!"
@@ -225,7 +332,11 @@ class SiteManager:
         richprint.stop()
 
     def check_ports(self):
-        richprint.update_head("Checking Ports")
+        """
+        The `check_ports` function checks if certain ports are already bound by another process using the
+        `lsof` command.
+        """
+        richprint.change_head("Checking Ports")
         to_check = [9000,80,443]
         already_binded = []
 
@@ -244,9 +355,20 @@ class SiteManager:
             # show warning and exit
             #richprint.error(f"{' '.join([str(x) for x in already_binded])} ports { 'are' if len(already_binded) > 1 else 'is' } already in use. Please free these ports.")
             richprint.exit(f" Whoa there! Looks like the {' '.join([ str(x) for x in already_binded ])} { 'ports are' if len(already_binded) > 1 else 'port is' } having a party already! Can you do us a solid and free up those ports? They're in high demand and ready to mingle!")
-        richprint.change_head("Checking Ports")
+        richprint.print("Ports Check : Passed")
 
     def shell(self,container:str, user:str | None):
+        """
+        The `shell` function checks if a site exists and is running, and then executes a shell command on
+        the specified container with the specified user.
+        
+        :param container: The "container" parameter is a string that specifies the name of the container.
+        :type container: str
+        :param user: The `user` parameter in the `shell` method is an optional parameter that specifies the
+        user for which the shell command should be executed. If no user is provided, the default user is set
+        to 'frappe'
+        :type user: str | None
+        """
         if not self.site.exists():
             richprint.exit(
                 f"Site {self.site.name} doesn't exists! Aborting!"
@@ -266,6 +388,10 @@ class SiteManager:
         richprint.stop()
 
     def info(self):
+        """
+        The `info` function retrieves information about a site, including its URL, root path, database
+        details, Frappe username and password, and a list of installed apps.
+        """
         if not self.site.exists():
             richprint.exit(
                 f"Site {self.site.name} doesn't exists! Aborting!"
@@ -314,9 +440,14 @@ class SiteManager:
         richprint.stop()
 
     def migrate_site(self):
+        """
+        The function `migrate_site` checks if the services name is the same as the template, if not, it
+        brings down the site, migrates the site, and starts it.
+        """
         if not self.site.composefile.is_services_name_same_as_template():
             self.site.down()
-        self.site.migrate_site()
-        if self.site.running():
+        migrate_status = self.site.migrate_site()
+        if migrate_status:
             self.site.start()
-
+        else:
+            richprint.exit('Migrate Envrionment: Failed')
