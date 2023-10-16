@@ -369,6 +369,7 @@ class SiteManager:
         to 'frappe'
         :type user: str | None
         """
+        richprint.change_head(f"Spawning shell")
         if not self.site.exists():
             richprint.exit(
                 f"Site {self.site.name} doesn't exists! Aborting!"
@@ -377,14 +378,11 @@ class SiteManager:
             if container == 'frappe':
                 if not user:
                     user = 'frappe'
-            richprint.change_head(f"Executing into shell")
-            richprint.stop()
             self.site.shell(container,user)
         else:
             richprint.exit(
                 f"Site {self.site.name} not running!"
             )
-        richprint.change_head(f"Started site")
         richprint.stop()
 
     def info(self):
@@ -444,10 +442,12 @@ class SiteManager:
         The function `migrate_site` checks if the services name is the same as the template, if not, it
         brings down the site, migrates the site, and starts it.
         """
+        richprint.change_head("Migrating Environment")
         if not self.site.composefile.is_services_name_same_as_template():
             self.site.down()
         migrate_status = self.site.migrate_site()
         if migrate_status:
-            self.site.start()
+            # self.site.start()
+            richprint.print("Migrate Environment: Done")
         else:
             richprint.exit('Migrate Envrionment: Failed')

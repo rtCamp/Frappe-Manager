@@ -79,10 +79,10 @@ class Site:
             fm_version = importlib.metadata.version('fm')
             if not compose_version == fm_version:
                 richprint.change_head("Migrating Environment")
-                self.composefile.migrate_compose(fm_version)
+                status = self.composefile.migrate_compose(fm_version)
                 richprint.print("Migrated Environment")
-                return True
-        return False
+                return status
+        return True
 
     def generate_compose(self,inputs:dict) -> None:
         """
@@ -122,9 +122,9 @@ class Site:
             output = self.docker.compose.up(detach=True,pull='never',stream=self.quiet)
             if self.quiet:
                 richprint.live_lines(output, padding=(0,0,0,2))
-            richprint.print(f"{status_text}: Done!")
+            richprint.print(f"{status_text}: Done")
         except DockerException as e:
-            richprint.exit(f"{status_text}: Failed!")
+            richprint.exit(f"{status_text}: Failed")
 
     def pull(self):
         """
@@ -137,9 +137,9 @@ class Site:
             richprint.stdout.clear_live()
             if self.quiet:
                 richprint.live_lines(output, padding=(0,0,0,2))
-            richprint.print(f"{status_text}: Done!")
+            richprint.print(f"{status_text}: Done")
         except DockerException as e:
-            richprint.warning(f"{status_text}: Failed!")
+            richprint.warning(f"{status_text}: Failed")
 
     def logs(self,service:str, follow:bool=False):
         """
@@ -185,9 +185,9 @@ class Site:
                             richprint.stdout.print(line,end='')
                         if "INFO spawned: 'bench-dev' with pid".lower() in line.lower():
                             break
-            richprint.print(f"{status_text}: Done!")
+            richprint.print(f"{status_text}: Done")
         except DockerException as e:
-            richprint.warning(f"{status_text}: Failed!")
+            richprint.warning(f"{status_text}: Failed")
 
 
     def stop(self) -> bool:
@@ -201,9 +201,9 @@ class Site:
             output = self.docker.compose.stop(timeout=10,stream=self.quiet)
             if self.quiet:
                 richprint.live_lines(output, padding=(0,0,0,2))
-            richprint.print(f"{status_text}: Done!")
+            richprint.print(f"{status_text}: Done")
         except DockerException as e:
-            richprint.exit(f"{status_text}: Failed!")
+            richprint.exit(f"{status_text}: Failed")
 
     def running(self) -> bool:
         """
@@ -235,9 +235,9 @@ class Site:
                 output = self.docker.compose.down(remove_orphans=True,volumes=True,timeout=2,stream=self.quiet)
                 if self.quiet:
                     exit_code = richprint.live_lines(output,padding=(0,0,0,2))
-                richprint.print(f"Removing Containers: Done!")
+                richprint.print(f"Removing Containers: Done")
             except DockerException as e:
-                richprint.exit(f"{status_text}: Failed!")
+                richprint.exit(f"{status_text}: Failed")
 
     def remove(self) -> bool:
         """
@@ -248,15 +248,15 @@ class Site:
             status_text = 'Removing Containers'
             richprint.change_head(status_text)
             try:
-                output = self.docker.compose.down(remove_orphans=True,volumes=True,timeout=2,stream=True,stream_only_exit_code=self.quiet)
+                output = self.docker.compose.down(remove_orphans=True,volumes=True,timeout=2,stream=self.quiet)
                 if self.quiet:
                     exit_code = richprint.live_lines(output,padding=(0,0,0,2))
-                richprint.print(f"Removing Containers: Done!")
+                richprint.print(f"Removing Containers: Done")
                 richprint.change_head(f"Removing Dirs")
                 shutil.rmtree(self.path)
-                richprint.change_head(f"Removing Dirs: Done!")
+                richprint.change_head(f"Removing Dirs: Done")
             except DockerException as e:
-                richprint.exit(f"{status_text}: Failed!")
+                richprint.exit(f"{status_text}: Failed")
 
     def shell(self,container:str, user:str | None = None):
         """
@@ -271,6 +271,7 @@ class Site:
         :type user: str | None
         """
         # TODO check user exists
+        richprint.stop()
         non_bash_supported = ['redis-cache','redis-cache','redis-socketio','redis-queue']
         if not container in non_bash_supported:
             if container == 'frappe':

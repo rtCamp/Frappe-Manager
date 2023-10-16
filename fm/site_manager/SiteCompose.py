@@ -51,7 +51,7 @@ class SiteCompose:
         """
         return self.compose_path
 
-    def migrate_compose(self,version):
+    def migrate_compose(self,version) -> bool:
         """
         The `migrate_compose` function migrates a Docker Compose file by updating the version, environment
         variables, and extra hosts.
@@ -71,6 +71,8 @@ class SiteCompose:
             self.set_envs('nginx',nginx_envs)
             self.set_extrahosts('frappe',extra_hosts)
             self.write_to_file()
+            return True
+        return False
 
     def __get_template(self,file_name: str)-> None | str:
         """
