@@ -96,10 +96,18 @@ class SiteCompose:
         return yml
 
     def set_container_names(self):
+        """
+        The function sets the container names for each service in a compose file based on the site name.
+        """
         for service in self.yml['services'].keys():
             self.yml['services'][service]['container_name'] = self.site_name.replace('.','') + f'-{service}'
 
     def get_container_names(self) -> dict:
+        """
+        The function `get_container_names` returns a dictionary of container names for each service in a
+        compose file.
+        :return: a dictionary containing the names of the containers specified in the compose file.
+        """
         if self.exists():
             container_names:dict = {}
             for service in self.yml['services'].keys():
