@@ -21,6 +21,7 @@ def represent_none(self, _):
 class SiteCompose:
     def __init__(self,loadfile: Path):
         self.compose_path:Path = loadfile
+        self.site_name:str = loadfile.parent.name
         self.yml: yaml | None = None
         self.init()
 
@@ -70,6 +71,7 @@ class SiteCompose:
             self.set_envs('frappe',frappe_envs)
             self.set_envs('nginx',nginx_envs)
             self.set_extrahosts('frappe',extra_hosts)
+            self.set_container_names()
             self.write_to_file()
             return True
         return False
@@ -92,6 +94,17 @@ class SiteCompose:
             raise typer.Exit(1)
         yml = data.decode()
         return yml
+
+    def set_container_names(self):
+        for service in self.yml['services'].keys():
+            self.yml['services'][service]['container_name'] = self.site_name.replace('.','') + f'-{service}'
+
+    def get_container_names(self) -> dict:
+        if self.exists():
+            container_names:dict = {}
+            for service in self.yml['services'].keys():
+                container_names[service] = self.yml['services'][service]['container_name']
+            return container_names
 
     def get_services_list(self) -> list:
         """

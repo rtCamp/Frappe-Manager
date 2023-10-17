@@ -445,9 +445,4 @@ class SiteManager:
         richprint.change_head("Migrating Environment")
         if not self.site.composefile.is_services_name_same_as_template():
             self.site.down()
-        migrate_status = self.site.migrate_site()
-        if migrate_status:
-            # self.site.start()
-            richprint.print("Migrate Environment: Done")
-        else:
-            richprint.exit('Migrate Envrionment: Failed')
+        self.site.migrate_site()

@@ -56,19 +56,10 @@ class Site:
         :return: either a hexadecimal string representing the name of the Frappe container, or None if no
         Frappe container is found.
         """
-        output = self.docker.compose.ps(format='json',stream=True)
-        for source,line in output:
-            if source == 'stdout':
-                output = json.loads(line.decode())
-                break
-        container_name = [ x['Name'] for x in output ]
-        for name in container_name:
-            frappe_container = re.search('-frappe',name)
-            if not frappe_container == None:
-                return frappe_container.string.encode().hex()
-        return None
+        container_name = self.composefile.get_container_names()
+        return container_name['frappe'].encode().hex()
 
-    def migrate_site(self) -> bool:
+    def migrate_site(self) :
         """
         The `migrate_site` function checks the environment version and migrates it if necessary.
         :return: a boolean value,`True` if the site migrated else `False`.
@@ -78,11 +69,13 @@ class Site:
             compose_version = self.composefile.get_version()
             fm_version = importlib.metadata.version('fm')
             if not compose_version == fm_version:
-                richprint.change_head("Migrating Environment")
                 status = self.composefile.migrate_compose(fm_version)
-                richprint.print("Migrated Environment")
-                return status
-        return True
+                if status:
+                    richprint.print(f"Environment Migration Done: {compose_version} -> {fm_version}")
+                else:
+                    richprint.print(f"Environment Migration Failed: {compose_version} -> {fm_version}")
+            else:
+                richprint.print("Already Latest Envrionment Version")
 
     def generate_compose(self,inputs:dict) -> None:
         """
@@ -95,6 +88,7 @@ class Site:
         self.composefile.set_envs('frappe',inputs['frappe_env'])
         self.composefile.set_envs('nginx',inputs['nginx_env'])
         self.composefile.set_extrahosts('frappe',inputs['extra_hosts'])
+        self.composefile.set_container_names()
         fm_version = importlib.metadata.version('fm')
         self.composefile.set_version(fm_version)
         self.composefile.write_to_file()
@@ -273,20 +267,23 @@ class Site:
         # TODO check user exists
         richprint.stop()
         non_bash_supported = ['redis-cache','redis-cache','redis-socketio','redis-queue']
-        if not container in non_bash_supported:
-            if container == 'frappe':
-                shell_path = '/usr/bin/zsh'
+        try:
+            if not container in non_bash_supported:
+                if container == 'frappe':
+                    shell_path = '/usr/bin/zsh'
+                else:
+                    shell_path = '/bin/bash'
+                if user:
+                    self.docker.compose.exec(container,user=user,command=shell_path)
+                else:
+                    self.docker.compose.exec(container,command=shell_path)
             else:
-                shell_path = '/bin/bash'
-            if user:
-                self.docker.compose.exec(container,user=user,command=shell_path)
-            else:
-                self.docker.compose.exec(container,command=shell_path)
-        else:
-            if user:
-                self.docker.compose.exec(container,user=user,command='sh')
-            else:
-                self.docker.compose.exec(container,command='sh')
+                if user:
+                    self.docker.compose.exec(container,user=user,command='sh')
+                else:
+                    self.docker.compose.exec(container,command='sh')
+        except DockerException as e:
+             richprint.exit(f"Shell exited with error code: {e.return_code}")
 
     def get_site_installed_apps(self):
         """
