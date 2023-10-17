@@ -196,6 +196,8 @@ class Richprint:
             try:
                 source, line = next(data)
                 line = line.decode()
+                if "[==".lower() in line.lower():
+                    continue
                 if source == 'stdout' and stdout:
                     displayed_lines.append(line)
                 if source == 'stderr' and stderr:

@@ -94,10 +94,16 @@ ENV USERPROFILE /opt/user/.profile
 # From https://github.com/pyenv/pyenv#basic-github-checkout
 WORKDIR /opt
 
-RUN mkdir -p /opt/user && touch /opt/user/.profile && mkdir -p /opt/user/.antigen
+RUN mkdir -p /opt/user && touch /opt/user/.profile
+
+ENV ZSH /opt/user/.oh-my-zsh
+ENV DISABLE_UPDATE_PROMPT true
+
+RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
+
+RUN unset ZSH
 
 COPY ./zshrc /opt/user/.zshrc
-RUN curl -L git.io/antigen > /opt/user/.antigen/antigen.zsh
 
 RUN git clone --depth 1 https://github.com/pyenv/pyenv.git .pyenv \
     && pyenv install $PYTHON_VERSION \

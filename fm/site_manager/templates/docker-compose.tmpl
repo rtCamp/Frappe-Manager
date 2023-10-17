@@ -1,7 +1,7 @@
 version: "3.9"
 services:
   frappe:
-    image: xieytx/fm-frappe:v0.8.0
+    image: xieytx/fm-frappe:v0.8.2
     environment:
       - SHELL=/bin/bash
     volumes:
@@ -14,7 +14,7 @@ services:
     extra_hosts:
 
   nginx:
-    image: xieytx/fm-nginx:v0.8.0
+    image: xieytx/fm-nginx:v0.8.2
     environment:
     volumes:
       - ./workspace:/workspace:cached
@@ -24,7 +24,7 @@ services:
       - 443:443
 
   mailhog:
-    image: xieytx/fm-mailhog:v0.8.0
+    image: xieytx/fm-mailhog:v0.8.2
     ports:
       - 1025
       - 8025
