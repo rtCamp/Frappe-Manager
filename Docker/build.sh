@@ -12,7 +12,7 @@ fi
 
 #amd64
 if [[ "${ARCH}" == 'x86_64' ]]; then
-    echo "Building arm64 Images with tag amd64-${TAG}"
+    echo "Building amd64 Images with tag amd64-${TAG}"
     docker build --push --platform linux/amd64 -t ghcr.io/rtcamp/frappe-manager-nginx:amd64-"${TAG}" nginx/.
     docker build --push --platform linux/amd64 -t ghcr.io/rtcamp/frappe-manager-mailhog:amd64-"${TAG}" mailhog/.
     docker build --push --platform linux/amd64 -t ghcr.io/rtcamp/frappe-manager-frappe:amd64-"${TAG}" frappe/.
