@@ -65,7 +65,7 @@ class Site:
         :return: a boolean value,`True` if the site migrated else `False`.
         """
         if self.composefile.exists():
-            richprint.change_head("Checking Envrionment Version")
+            richprint.change_head("Checking Environment Version")
             compose_version = self.composefile.get_version()
             fm_version = importlib.metadata.version('fm')
             if not compose_version == fm_version:
@@ -75,7 +75,7 @@ class Site:
                 else:
                     richprint.print(f"Environment Migration Failed: {compose_version} -> {fm_version}")
             else:
-                richprint.print("Already Latest Envrionment Version")
+                richprint.print("Already Latest Environment Version")
 
     def generate_compose(self,inputs:dict) -> None:
         """

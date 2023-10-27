@@ -127,8 +127,8 @@ class SiteManager:
                     if not self.verbose:
                         richprint.live_lines(output, padding=(0,0,0,2))
                 except DockerException as e:
-                    richprint.exit(f"{status_text}: Failed!")
-        richprint.print(f"{status_text}: Done!")
+                    richprint.exit(f"{status_text}: Failed")
+        richprint.print(f"{status_text}: Done")
 
     def create_site(self, template_inputs: dict):
         """
