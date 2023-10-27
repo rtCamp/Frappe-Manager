@@ -34,7 +34,7 @@ fm create example --frappe-branch develop
 fm create example --apps erpnext:version-15 --apps hrms:version-15    
 ```
 
-Visit CLI Wiki for more examples
+Visit CLI [Wiki](https://github.com/rtCamp/Frappe-Manager/wiki) for more examples
 
 ## Credits
 Dockerfiles: [Frappe Docker](https://github.com/frappe/frappe_docker)
