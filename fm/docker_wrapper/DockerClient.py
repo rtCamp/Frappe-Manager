@@ -48,6 +48,7 @@ class DockerClient:
         function returns True. Otherwise, it returns False.
         """
         docker_info = self.version()
-        if docker_info['Server']:
+        if 'Server' in docker_info:
             return True
-        return False
+        else:
+            return False
