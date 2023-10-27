@@ -246,11 +246,15 @@ class Site:
                 if self.quiet:
                     exit_code = richprint.live_lines(output,padding=(0,0,0,2))
                 richprint.print(f"Removing Containers: Done")
-                richprint.change_head(f"Removing Dirs")
-                shutil.rmtree(self.path)
-                richprint.change_head(f"Removing Dirs: Done")
             except DockerException as e:
                 richprint.exit(f"{status_text}: Failed")
+        richprint.change_head(f"Removing Dirs")
+        try:
+            shutil.rmtree(self.path)
+        except Exception as e:
+            richprint.error(e)
+            richprint.exit(f'Please remove {self.path} manually')
+        richprint.change_head(f"Removing Dirs: Done")
 
     def shell(self,container:str, user:str | None = None):
         """
