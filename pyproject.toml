@@ -8,7 +8,7 @@ authors = ["rtCamp <sys@rtcamp.com>"]
 readme = "README.md"
 
 [tool.poetry.scripts]
-fm = "fm.main:app"
+fm = "frappe-manager.main:app"
 
 [tool.poetry.dependencies]
 python = "^3.11"

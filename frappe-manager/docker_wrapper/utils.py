@@ -14,7 +14,7 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, overload
 
 from rich import control
 
-from fm.docker_wrapper.DockerException import DockerException
+from frappe-manager.docker_wrapper.DockerException import DockerException
 
 
 def reader(pipe, pipe_name, queue):
@@ -83,7 +83,7 @@ def run_command_with_exit_code(
         else:
             return stream_stdout_and_stderr(full_cmd)
     else:
-        from fm.site_manager.Richprint import richprint
+        from frappe-manager.site_manager.Richprint import richprint
         output = run(full_cmd)
         exit_code = output.returncode
         if exit_code != 0:
