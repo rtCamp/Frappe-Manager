@@ -1,74 +1,44 @@
-# FrappeManager
+# Frappe-Manager
 
-A docker compose based tool to easily manage frappe based projects.
+A CLI too based on Docker Compose to easily manage Frappe based projects. As of now, only suitable for development in local machines running on Mac and Linux based OS.
 
-  - This app is currently in its beta phase.
-  - It allows you to create a new site, which will be accessible as a subdomain of your localhost.
-  - Each site you create is stored within the 'frappe' directory located in your user's home directory.
-  - When a new site is created, the app automatically installs 'frappe' with the latest stable branch, which is currently 'version-14'.
 
-### Dependencies
-
--   `python3.11+`
--   `docker`
--   `vscode`
+![Frappe-Manager-Create-Site.svg](https://github.com/rtCamp/Frappe-Manager/assets/26240780/784418f5-7438-4f21-ab84-d2ce44b7d8c2)
 
 
 ## Installation
+**Requirements:** Python3.11+, Docker, VSCode(optional)
 
--   Download the latest release `.tar` file.
--   Install it using pip
-    
-    ```bash
-      pip install fm-0.8.0.tar.gz
-    ```
+```bash
+pip install frappe-manager
+```
+
+### Setup Autocompletion    
+1. ```bash
+   fm --install-completion
+   ```
+2. Restart shell or terminal
 
 
 ## Usage
+### Create a site
 
-  - You have the option to execute fm directly within the shell.
-  - To view a list of all available commands, you can utilize `fm --help`.
-  - For any specific command's help, simply use `--help` in conjunction with that command.
-  - You can access the complete CLI reference [here](./cli_reference.md).
+```bash
+# create example.localhost site with only frappe, version -> version-15
+fm create example
 
-### Example
+# create example.localhost site with only frappe, version -> develop
+fm create example --frappe-branch develop
 
-1.  Creating a site
+# create example.localhost site with frappe, erpnext and hrms, version -> version-15
+fm create example --apps erpnext:version-15 --apps hrms:version-15    
+```
 
-    -   This comand will create a site `example.localhost`.
-    -   This command will also start the site.
-    -   By default this will install `frappe`, branch `version-14`.
-    
-    ```bash
-    # create example.localhost site with only frappe, version -> version-14
-    fm create example
-    
-    # create example.localhost site with only frappe, version -> develop
-    fm create example --frappe-branch develop
-    
-    # create example.localhost site with only frappe and erpnext with branch version-14
-    fm create example --apps erpnext:version-14
-    
-    # create example.localhost site with frappe, erpnext and hrms, version -> version-14
-    fm create example --apps erpnext:version-14 --apps hrms:version-14
-    
-    # create example.localhost site with frappe, erpnext and hrms, version -> version-15-beta
-    fm create example --frappe-branch version-15-beta --apps erpnext:version-15-beta --apps hrms:version-15-beta
-    ```
+Visit CLI [Wiki](https://github.com/rtCamp/Frappe-Manager/wiki) for more examples
 
-2.  Deleting a site
+## Credits
+Dockerfiles: [Frappe Docker](https://github.com/frappe/frappe_docker)
 
-    ```bash
-    # delete site example.localhost
-    fm delete example
-    ```
+## Does this interest you?
 
-
-### Setup Autocompletion
-
--   Install completion using the below command.
-    
-    ```bash
-    fm --install-completion
-    ```
--   Restart Shell
+<a href="https://rtcamp.com/"><img src="https://rtcamp.com/wp-content/uploads/sites/2/2019/04/github-banner@2x.png" alt="Join us at rtCamp, we specialize in providing high performance enterprise WordPress solutions"></a>
