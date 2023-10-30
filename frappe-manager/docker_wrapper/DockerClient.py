@@ -1,8 +1,8 @@
 from typing import Literal, Optional
 import json
-from fm.docker_wrapper.DockerCompose import DockerComposeWrapper
+from frappe-manager.docker_wrapper.DockerCompose import DockerComposeWrapper
 from pathlib import Path
-from fm.docker_wrapper.utils import (
+from frappe-manager.docker_wrapper.utils import (
     parameters_to_options,
     run_command_with_exit_code,
 )
@@ -48,6 +48,7 @@ class DockerClient:
         function returns True. Otherwise, it returns False.
         """
         docker_info = self.version()
-        if docker_info['Server']:
+        if 'Server' in docker_info:
             return True
-        return False
+        else:
+            return False
