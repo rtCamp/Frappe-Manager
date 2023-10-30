@@ -39,4 +39,6 @@ setopt autocd autopushd pushdminus pushdsilent pushdtohome cdablevars
 DIRSTACKSIZE=5
 
 # aliases
+alias fm='/opt/.pyenv/shims/bench'
+alias fm='/opt/.pyenv/shims/bench'
 [[ -f ~/.zsh_aliases ]] && source ~/.zsh_aliases

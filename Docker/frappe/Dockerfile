@@ -1,6 +1,7 @@
 FROM ubuntu:22.04 as bench
 
-LABEL author=Xieyt
+LABEL author=rtCamp
+LABEL org.opencontainers.image.source=https://github.com/rtcamp/Frappe-Manager
 ARG PYTHON_VERSION=3.11.0
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \

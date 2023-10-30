@@ -2,8 +2,8 @@ import typer
 import importlib
 from typing import Annotated, List, Optional, Set
 from pathlib import Path
-from fm.site_manager.manager import SiteManager
-from fm.site_manager.Richprint import richprint
+from frappe-manager.site_manager.manager import SiteManager
+from frappe-manager.site_manager.Richprint import richprint
 import os
 import requests
 
@@ -113,7 +113,7 @@ def create(
     developer_mode: Annotated[bool, typer.Option(help="Enable developer mode")] = True,
     frappe_branch: Annotated[
         str, typer.Option(help="Specify the branch name for frappe app",callback=frappe_branch_validation_callback)
-    ] = "version-14",
+    ] = "version-15",
     admin_pass: Annotated[
         str,
         typer.Option(

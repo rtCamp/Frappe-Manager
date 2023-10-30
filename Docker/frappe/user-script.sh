@@ -13,6 +13,8 @@ REDIS_SOCKETIO_PORT=9000
 WEB_PORT=80
 MARIADB_ROOT_PASS='root'
 
+BENCH_COMMAND='/opt/.pyenv/shims/bench'
+
 # if the bench doesn't exists
 if [[ ! -d "frappe-bench" ]]; then
 
@@ -25,7 +27,7 @@ if [[ ! -d "frappe-bench" ]]; then
     [[ "${DB_NAME:-}" ]] || emer "[ERROR] DB_NAME env not found. Please provide DB_NAME env."
 
     # create the bench
-    bench init --skip-assets --skip-redis-config-generation --frappe-branch "$FRAPPE_BRANCH" frappe-bench
+    $BENCH_COMMAND init --skip-assets --skip-redis-config-generation --frappe-branch "$FRAPPE_BRANCH" frappe-bench
 
     # setting configuration
     wait-for-it -t 120 mariadb:3306
@@ -35,18 +37,18 @@ if [[ ! -d "frappe-bench" ]]; then
 
     cd frappe-bench
 
-    bench config dns_multitenant on
-    bench set-config -g db_host 'mariadb'
-    bench set-config -g db_port 3306
-    bench set-config -g redis_cache 'redis://redis-cache:6379'
-    bench set-config -g redis_queue 'redis://redis-queue:6379'
-    bench set-config -g redis_socketio 'redis://redis-socketio:6379'
-    bench set-config -g socketio_port "$REDIS_SOCKETIO_PORT"
-    bench set-config -g mail_port 1025
-    bench set-config -g mail_server 'mailhog'
-    bench set-config -g disable_mail_smtp_authentication 1
-    bench set-config -g webserver_port "$WEB_PORT"
-    bench set-config -g developer_mode "$DEVELOPER_MODE"
+    $BENCH_COMMAND config dns_multitenant on
+    $BENCH_COMMAND set-config -g db_host 'mariadb'
+    $BENCH_COMMAND set-config -g db_port 3306
+    $BENCH_COMMAND set-config -g redis_cache 'redis://redis-cache:6379'
+    $BENCH_COMMAND set-config -g redis_queue 'redis://redis-queue:6379'
+    $BENCH_COMMAND set-config -g redis_socketio 'redis://redis-socketio:6379'
+    $BENCH_COMMAND set-config -g socketio_port "$REDIS_SOCKETIO_PORT"
+    $BENCH_COMMAND set-config -g mail_port 1025
+    $BENCH_COMMAND set-config -g mail_server 'mailhog'
+    $BENCH_COMMAND set-config -g disable_mail_smtp_authentication 1
+    $BENCH_COMMAND set-config -g webserver_port "$WEB_PORT"
+    $BENCH_COMMAND set-config -g developer_mode "$DEVELOPER_MODE"
 
     # HANDLE APPS
     # apps are taken as follows
@@ -61,10 +63,10 @@ if [[ ! -d "frappe-bench" ]]; then
             branch_name=$(echo "$app" | awk 'BEGIN {FS=":"}; {print $2}')
             if [[ "${branch_name:-}" ]]; then
                 echo "Installing app $app_name -> $branch_name"
-                bench get-app --skip-assets --branch "${branch_name}" "${app_name}"
+                $BENCH_COMMAND get-app --skip-assets --branch "${branch_name}" "${app_name}"
             else
                 echo "Installing app $app_name"
-                bench get-app --skip-assets "${app_name}"
+                $BENCH_COMMAND get-app --skip-assets "${app_name}"
             fi
             apps_json=$(echo "$apps_json" | jq --arg app_name "${app_name}" '.+ [$app_name]')
             done
@@ -72,12 +74,13 @@ if [[ ! -d "frappe-bench" ]]; then
     apps_json=$(echo "$apps_json" | jq -rc '.')
 
     # add install apps config to common site config
-    bench set-config -g install_apps "$apps_json" --parse
+    $BENCH_COMMAND set-config -g install_apps "$apps_json" --parse
 
     # change the procfile port 8000 to 80
     # this will chaange the web serving port from 8000 to 80
 
-    bench_serve_help_output=$(bench serve --help)
+    bench_serve_help_output=$($BENCH_COMMAND serve --help)
+
     host_changed=$(echo "$bench_serve_help_output" | grep -c 'host')
 
     if [[ "$host_changed" -ge 1 ]]; then
@@ -87,9 +90,9 @@ if [[ ! -d "frappe-bench" ]]; then
     fi
 
 
-    bench build
-    bench new-site --db-root-password "$MARIADB_ROOT_PASS" --db-name "$DB_NAME"  --no-mariadb-socket --admin-password "$ADMIN_PASS"  "$SITENAME"
-    bench --site "$SITENAME" scheduler enable
+    $BENCH_COMMAND build
+    $BENCH_COMMAND new-site --db-root-password "$MARIADB_ROOT_PASS" --db-name "$DB_NAME"  --no-mariadb-socket --admin-password "$ADMIN_PASS"  "$SITENAME"
+    $BENCH_COMMAND --site "$SITENAME" scheduler enable
 
     wait
 
@@ -108,7 +111,8 @@ else
 
     cd frappe-bench
 
-    bench_serve_help_output=$(bench serve --help)
+    bench_serve_help_output=$($BENCH_COMMAND serve --help)
+
     host_changed=$(echo "$bench_serve_help_output" | grep -c 'host')
 
     if [[ ! -f "Procfile" ]]; then
@@ -121,9 +125,10 @@ else
     else
         awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--port "a); print}' Procfile > Procfile.local_setup
     fi
-    bench set-config -g webserver_port "$WEB_PORT";
 
-    wait
+    if [[ ! "${WEB_PORT}" == 80 ]]; then
+        $BENCH_COMMAND set-config -g webserver_port "$WEB_PORT";
+    fi
 
     if [[ -n "$BENCH_START_OFF" ]]; then
         tail -f /dev/null

@@ -1,5 +1,7 @@
 FROM golang:1.18-alpine as builder
 
+LABEL org.opencontainers.image.source=https://github.com/rtcamp/Frappe-Manager
+
 # Install MailHog:
 RUN apk --no-cache add --virtual build-dependencies \
     git \

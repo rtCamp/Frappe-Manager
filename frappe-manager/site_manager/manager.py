@@ -1,4 +1,4 @@
-from fm.docker_wrapper import DockerClient, DockerException
+from frappe-manager.docker_wrapper import DockerClient, DockerException
 from typing import List, Optional, Type
 from pathlib import Path
 import subprocess
@@ -7,8 +7,8 @@ import shlex
 import typer
 import shutil
 
-from fm.site_manager.site import Site
-from fm.site_manager.Richprint import richprint
+from frappe-manager.site_manager.site import Site
+from frappe-manager.site_manager.Richprint import richprint
 
 from rich.columns import Columns
 from rich.panel import Panel
@@ -127,8 +127,8 @@ class SiteManager:
                     if not self.verbose:
                         richprint.live_lines(output, padding=(0,0,0,2))
                 except DockerException as e:
-                    richprint.exit(f"{status_text}: Failed!")
-        richprint.print(f"{status_text}: Done!")
+                    richprint.exit(f"{status_text}: Failed")
+        richprint.print(f"{status_text}: Done")
 
     def create_site(self, template_inputs: dict):
         """
