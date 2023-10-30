@@ -2,8 +2,8 @@ import typer
 import importlib
 from typing import Annotated, List, Optional, Set
 from pathlib import Path
-from frappe-manager.site_manager.manager import SiteManager
-from frappe-manager.site_manager.Richprint import richprint
+from frappe_manager.site_manager.manager import SiteManager
+from frappe_manager.site_manager.Richprint import richprint
 import os
 import requests
 

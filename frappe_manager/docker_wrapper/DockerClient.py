@@ -1,8 +1,8 @@
 from typing import Literal, Optional
 import json
-from frappe-manager.docker_wrapper.DockerCompose import DockerComposeWrapper
+from frappe_manager.docker_wrapper.DockerCompose import DockerComposeWrapper
 from pathlib import Path
-from frappe-manager.docker_wrapper.utils import (
+from frappe_manager.docker_wrapper.utils import (
     parameters_to_options,
     run_command_with_exit_code,
 )

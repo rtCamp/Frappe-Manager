@@ -4,7 +4,7 @@ import yaml
 from typing import List
 import typer
 
-from frappe-manager.site_manager.Richprint import richprint
+from frappe_manager.site_manager.Richprint import richprint
 
 def represent_none(self, _):
     """

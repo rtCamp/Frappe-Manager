@@ -5,10 +5,10 @@ import json
 from typing import List, Type
 from pathlib import Path
 
-from frappe-manager.docker_wrapper import DockerClient, DockerException
+from frappe_manager.docker_wrapper import DockerClient, DockerException
 
-from frappe-manager.site_manager.SiteCompose import SiteCompose
-from frappe-manager.site_manager.Richprint import richprint
+from frappe_manager.site_manager.SiteCompose import SiteCompose
+from frappe_manager.site_manager.Richprint import richprint
 
 class Site:
     def __init__(self,path: Path , name:str, verbose: bool = False):

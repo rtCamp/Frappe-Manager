@@ -1,4 +1,4 @@
-from frappe-manager.docker_wrapper import DockerClient, DockerException
+from frappe_manager.docker_wrapper import DockerClient, DockerException
 from typing import List, Optional, Type
 from pathlib import Path
 import subprocess
@@ -7,8 +7,8 @@ import shlex
 import typer
 import shutil
 
-from frappe-manager.site_manager.site import Site
-from frappe-manager.site_manager.Richprint import richprint
+from frappe_manager.site_manager.site import Site
+from frappe_manager.site_manager.Richprint import richprint
 
 from rich.columns import Columns
 from rich.panel import Panel
