@@ -5,7 +5,7 @@ from typing import Union, Literal
 from rich import print
 
 import shlex
-from frappe-manager.docker_wrapper.utils import (
+from frappe_manager.docker_wrapper.utils import (
     stream_stdout_and_stderr,
     parameters_to_options,
     run_command_with_exit_code,

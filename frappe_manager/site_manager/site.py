@@ -5,10 +5,10 @@ import json
 from typing import List, Type
 from pathlib import Path
 
-from frappe-manager.docker_wrapper import DockerClient, DockerException
+from frappe_manager.docker_wrapper import DockerClient, DockerException
 
-from frappe-manager.site_manager.SiteCompose import SiteCompose
-from frappe-manager.site_manager.Richprint import richprint
+from frappe_manager.site_manager.SiteCompose import SiteCompose
+from frappe_manager.site_manager.Richprint import richprint
 
 class Site:
     def __init__(self,path: Path , name:str, verbose: bool = False):
@@ -67,7 +67,7 @@ class Site:
         if self.composefile.exists():
             richprint.change_head("Checking Environment Version")
             compose_version = self.composefile.get_version()
-            fm_version = importlib.metadata.version('fm')
+            fm_version = importlib.metadata.version('frappe-manager')
             if not compose_version == fm_version:
                 status = self.composefile.migrate_compose(fm_version)
                 if status:
