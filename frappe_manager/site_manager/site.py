@@ -89,7 +89,7 @@ class Site:
         self.composefile.set_envs('nginx',inputs['nginx_env'])
         self.composefile.set_extrahosts('frappe',inputs['extra_hosts'])
         self.composefile.set_container_names()
-        fm_version = importlib.metadata.version('fm')
+        fm_version = importlib.metadata.version('frappe-manager')
         self.composefile.set_version(fm_version)
         self.composefile.write_to_file()
 
