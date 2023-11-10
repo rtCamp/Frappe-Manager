@@ -18,7 +18,7 @@ sites = SiteManager(sites_dir)
 
 def version_callback(version: Optional[bool] = None):
     if version:
-        fm_version = importlib.metadata.version('fm')
+        fm_version = importlib.metadata.version('frappe_manager')
         richprint.print(fm_version,emoji_code='')
         raise typer.Exit()
 
