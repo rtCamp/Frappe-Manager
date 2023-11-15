@@ -3,7 +3,7 @@
 A CLI tool based on Docker Compose to easily manage Frappe based projects. As of now, only suitable for development in local machines running on Mac and Linux based OS.
 
 
-![Frappe-Manager-Create-Site.svg](https://github.com/rtCamp/Frappe-Manager/assets/26240780/784418f5-7438-4f21-ab84-d2ce44b7d8c2)
+![Frappe-Manager-Create-Site.svg](https://user-images.githubusercontent.com/28294795/283108791-0237d05a-2562-48be-987b-037a200d71a3.svg)
 
 
 ## Installation
@@ -38,7 +38,3 @@ Visit CLI [Wiki](https://github.com/rtCamp/Frappe-Manager/wiki) for more example
 
 ## Credits
 Dockerfiles: [Frappe Docker](https://github.com/frappe/frappe_docker)
-
-## Does this interest you?
-
-<a href="https://rtcamp.com/"><img src="https://rtcamp.com/wp-content/uploads/sites/2/2019/04/github-banner@2x.png" alt="Join us at rtCamp, we specialize in providing high performance enterprise WordPress solutions"></a>
