@@ -145,6 +145,8 @@ class SiteManager:
             richprint.exit(
                 f"Site {self.site.name} already exists! Aborting! -> [bold cyan] {self.site.path}[/bold cyan]"
             )
+        # check if provided sitename is valid and only one level subdom of localhost
+        self.site.validate_sitename()
         self.stop_sites()
         # check if ports are available
         self.check_ports()
