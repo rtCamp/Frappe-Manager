@@ -167,6 +167,7 @@ class Site:
         richprint.change_head(status_text)
         try:
             output = self.docker.compose.logs(services=['frappe'],no_log_prefix=True,follow=True,stream=True)
+
             if self.quiet:
                 richprint.live_lines(output, padding=(0,0,0,2),stop_string="INFO spawned: 'bench-dev' with pid")
             else:
@@ -176,7 +177,7 @@ class Site:
                         if "[==".lower() in line.lower():
                             print(line)
                         else:
-                            richprint.stdout.print(line,end='')
+                            richprint.stdout.print(line)
                         if "INFO spawned: 'bench-dev' with pid".lower() in line.lower():
                             break
             richprint.print(f"{status_text}: Done")
