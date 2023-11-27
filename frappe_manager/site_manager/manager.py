@@ -54,7 +54,8 @@ class SiteManager:
             richprint.exit("Sites directory is not a directory! Aborting!")
 
         if sitename:
-            sitename = sitename + ".localhost"
+            if not '.localhost' in sitename:
+                sitename = sitename + ".localhost"
             sitepath: Path = self.sitesdir / sitename
             self.site: Site = Site(sitepath, sitename, verbose= self.verbose)
             # self.migrate_site()
