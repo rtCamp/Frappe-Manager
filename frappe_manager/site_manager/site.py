@@ -42,12 +42,9 @@ class Site:
         it returns False.
         """
         sitename = self.name
-        match = re.search(r'^[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?',sitename)
-        if len(sitename) != match.span()[-1]:
-            return False
-            # console.print(f"[bold red][ERROR] : [/bold red][bold cyan]Not a valid sitename.[/bold cyan]")
-            # exit(2)
-        return True
+        match = re.search(r'^[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?.localhost$',sitename)
+        if not match:
+            richprint.exit("The site name on localhost must follow a single-level subdomain Fully Qualified Domain Name (FQDN) format, such as 'suddomain.localhost'.")
 
     def get_frappe_container_hex(self) -> None | str:
         """
@@ -167,6 +164,7 @@ class Site:
         richprint.change_head(status_text)
         try:
             output = self.docker.compose.logs(services=['frappe'],no_log_prefix=True,follow=True,stream=True)
+
             if self.quiet:
                 richprint.live_lines(output, padding=(0,0,0,2),stop_string="INFO spawned: 'bench-dev' with pid")
             else:
@@ -176,7 +174,7 @@ class Site:
                         if "[==".lower() in line.lower():
                             print(line)
                         else:
-                            richprint.stdout.print(line,end='')
+                            richprint.stdout.print(line)
                         if "INFO spawned: 'bench-dev' with pid".lower() in line.lower():
                             break
             richprint.print(f"{status_text}: Done")

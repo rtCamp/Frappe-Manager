@@ -52,18 +52,21 @@ default_extension = [
 
 def check_frappe_app_exists(appname: str, branchname: str | None = None):
     # check appname
-    app_url = f"https://github.com/frappe/{appname}"
-    app = requests.get(app_url).status_code
+    try:
+        app_url = f"https://github.com/frappe/{appname}"
+        app = requests.get(app_url).status_code
 
-    if branchname:
-        branch_url = f"https://github.com/frappe/{appname}/tree/{branchname}"
-        # check branch
-        branch = requests.get(branch_url).status_code
-        return {
-            "app": True if app == 200 else False,
-            "branch": True if branch == 200 else False,
-        }
-    return {"app": True if app == 200 else False}
+        if branchname:
+            branch_url = f"https://github.com/frappe/{appname}/tree/{branchname}"
+            # check branch
+            branch = requests.get(branch_url).status_code
+            return {
+                "app": True if app == 200 else False,
+                "branch": True if branch == 200 else False,
+            }
+        return {"app": True if app == 200 else False}
+    except Exception:
+        richprint.exit("Not able to connect to github.com.")
 
 
 def apps_validation(value: List[str] | None):
