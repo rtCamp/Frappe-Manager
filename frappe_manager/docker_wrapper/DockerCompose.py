@@ -1,12 +1,9 @@
 from subprocess import Popen, run, TimeoutExpired, CalledProcessError
 from pathlib import Path
-import subprocess
 from typing import Union, Literal
-from rich import print
 
 import shlex
 from frappe_manager.docker_wrapper.utils import (
-    stream_stdout_and_stderr,
     parameters_to_options,
     run_command_with_exit_code,
 )

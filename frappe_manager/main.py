@@ -60,7 +60,51 @@ def app_callback(
     """
     FrappeManager for creating frappe development envrionments.
     """
+    richprint.start(f"Working")
+
+    # Checks for cli directory
+    if not CLI_DIR.exists():
+        # creating the sites dir
+        # TODO check if it's writeable and readable -> by writing a file to it and catching exception
+        CLI_DIR.mkdir(parents=True, exist_ok=True)
+        richprint.print(f"fm directory doesn't exists! Created at -> {str(CLI_DIR)}")
+    else:
+        if not CLI_DIR.is_dir():
+            richprint.exit("Sites directory is not a directory! Aborting!")
+
+    # migration for directory change from CLI_DIR to CLI_DIR/sites
+    # TODO remove when not required, introduced in 0.8.4
+    sitesdir = CLI_DIR / 'sites'
+    if not sitesdir.exists():
+        richprint.change_head("Site directory migration")
+        move_directory_list = []
+        for site_dir in CLI_DIR.iterdir():
+            if site_dir.is_dir():
+                docker_compose_path = site_dir / "docker-compose.yml"
+                if docker_compose_path.exists():
+                    move_directory_list.append(site_dir)
+
+        # stop all the sites
+        sitesdir.mkdir(parents=True, exist_ok=True)
+        sites_mananger = SiteManager(CLI_DIR)
+        sites_mananger.stop_sites()
+        # move all the directories
+        for site in move_directory_list:
+            site_name = site.parts[-1]
+            new_path = sitesdir / site_name
+            try:
+                shutil.move(site,new_path)
+                richprint.print(f"Directory migrated: {site_name}")
+            except:
+                logger.debug(f'Site Directory migration failed: {site}')
+                richprint.warning(f"Unable to site directory migration for {site}\nPlease manually move it to {new_path}")
+        richprint.print("Site directory migration: Done")
+
+    global sites
+    sites = SiteManager(sitesdir)
+
     sites.set_typer_context(ctx)
+
     if verbose:
         sites.set_verbose()
 
@@ -172,7 +216,7 @@ def create(
     $ [blue]fm create example --frappe-branch version-15-beta --apps erpnext:version-15-beta --apps hrms:version-15-beta[/blue]
     """
 
-    sites.init(sitename, createdir=True)
+    sites.init(sitename)
 
     uid: int = os.getuid()
     gid: int = os.getgid()

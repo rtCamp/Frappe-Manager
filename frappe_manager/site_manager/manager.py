@@ -1,5 +1,5 @@
 from frappe_manager.docker_wrapper import DockerClient, DockerException
-from typing import List, Optional, Type
+from typing import List, Optional
 from pathlib import Path
 import subprocess
 import json
@@ -23,7 +23,7 @@ class SiteManager:
         self.verbose = False
         self.typer_context: Optional[typer.Context] = None
 
-    def init(self, sitename: str| None = None,createdir: bool = False):
+    def init(self, sitename: str| None = None):
         """
         The `init` function initializes a site by checking if the site directory exists, creating it if
         necessary, and setting the site name and path.
@@ -32,33 +32,27 @@ class SiteManager:
         optional and can be set to `None`. If a value is provided, it will be used to create a site path by
         appending ".localhost" to the sitename
         :type sitename: str| None
-        :param createdir: The `createdir` parameter is a boolean flag that determines whether or not to
-        create the sites directory if it doesn't already exist. If `createdir` is set to `True`, the code
-        will create the directory. If it's set to `False`, the code will exit with an error, defaults to
-        False
-        :type createdir: bool (optional)
         """
-        richprint.start(f"Working")
-
-        # check if the site name is correct
-        if not self.sitesdir.exists():
-            # creating the sites dir
-            # TODO check if it's writeable and readable
-            if createdir:
-                self.sitesdir.mkdir(parents=True, exist_ok=True)
-                richprint.print(f"Sites directory doesn't exists! Created at -> {str(self.sitesdir)}")
-            else:
-                richprint.exit(f"Sites directory doesn't exists!")
-
-        if not self.sitesdir.is_dir():
-            richprint.exit("Sites directory is not a directory! Aborting!")
 
         if sitename:
             if not '.localhost' in sitename:
                 sitename = sitename + ".localhost"
             sitepath: Path = self.sitesdir / sitename
+
+            site_directory_exits_check_for_commands = ['create']
+
+            if self.typer_context.invoked_subcommand in site_directory_exits_check_for_commands:
+                if sitepath.exists():
+                    richprint.exit(
+                        f"Site {sitename} already exists! Aborting! -> [bold cyan] {sitepath}[/bold cyan]"
+                    )
+            else:
+                if not sitepath.exists():
+                    richprint.exit(
+                        f"Site {sitename} doesn't exists! Aborting! -> [bold cyan] {sitepath}[/bold cyan]"
+                    )
+
             self.site: Site = Site(sitepath, sitename, verbose= self.verbose)
-            # self.migrate_site()
 
     def set_verbose(self):
         """
@@ -118,8 +112,11 @@ class SiteManager:
         """
         status_text='Halting other sites'
         richprint.change_head(status_text)
-        exclude = [self.site.name]
-        site_compose: list = self.__get_all_sites_path(exclude)
+        if self.site:
+            exclude = [self.site.name]
+            site_compose: list = self.__get_all_sites_path(exclude)
+        else:
+            site_compose: list = self.__get_all_sites_path()
         if site_compose:
             for site_compose_path in site_compose:
                 docker = DockerClient(compose_file_path=site_compose_path)
@@ -141,10 +138,6 @@ class SiteManager:
         customize the site's configuration, such as database settings, domain name, etc
         :type template_inputs: dict
         """
-        if self.site.exists():
-            richprint.exit(
-                f"Site {self.site.name} already exists! Aborting! -> [bold cyan] {self.site.path}[/bold cyan]"
-            )
         # check if provided sitename is valid and only one level subdom of localhost
         self.site.validate_sitename()
         self.stop_sites()
@@ -167,17 +160,10 @@ class SiteManager:
         site directory.
         """
         # TODO maybe the site is running and folder has been delted and all the containers are there. We need to clean it.
-        # check if it exits
-        if not self.site.exists():
-            richprint.exit(
-                f"Site {self.site.name} doesn't exists! Aborting! -> [bold cyan] {self.site.path}[/bold cyan]"
-            )
-
         richprint.change_head(f"Removing Site")
         # check if running -> stop it
         # remove dir
         self.site.remove()
-        richprint.stop()
 
     def list_sites(self):
         """
@@ -190,7 +176,7 @@ class SiteManager:
         stale = []
         sites_list = self.get_all_sites()
         if not sites_list:
-            richprint.error("No available sites!!")
+            richprint.error("No sites available !")
             typer.Exit(2)
         else:
             for name in sites_list.keys():
@@ -201,6 +187,7 @@ class SiteManager:
                 else:
                    stale.append({'name': name,'path':temppath.absolute()})
         richprint.stop()
+
         if running:
             columns_data = [ f"[b]{x['name']}[/b]\n[dim]{x['path']}[/dim]" for x in running ]
             panel = Panel(Columns(columns_data),title='Running',title_align='left',style='green')
@@ -216,25 +203,16 @@ class SiteManager:
         The function `stop_site` checks if a site exists, stops it if it does, and prints a message
         indicating that the site has been stopped.
         """
-        if not self.site.exists():
-            richprint.exit(
-                f"Site {self.site.name} doesn't exists! Aborting!"
-            )
         richprint.change_head(f"Stopping site")
         #self.stop_sites()
         self.site.stop()
         richprint.print(f"Stopped site")
-        richprint.stop()
 
     def start_site(self):
         """
         The function `start_site` checks if a site exists, stops all sites, checks ports, pulls the site,
         and starts it.
         """
-        if not self.site.exists():
-            richprint.exit(
-                f"Site {self.site.name} doesn't exists! Aborting!"
-            )
         # stop all sites
         self.stop_sites()
         if not self.site.running():
@@ -243,7 +221,6 @@ class SiteManager:
         self.migrate_site()
         self.site.pull()
         self.site.start()
-        richprint.stop()
 
     def attach_to_site(self, user: str, extensions: List[str]):
         """
@@ -306,8 +283,7 @@ class SiteManager:
                 richprint.exit(f"Attaching to Container : Failed")
             richprint.print(f"Attaching to Container : Done")
         else:
-            print(f"Site: {self.site.name} is not running")
-        richprint.stop()
+            richprint.print(f"Site: {self.site.name} is not running")
 
     def logs(self,service:str,follow):
         """
@@ -321,10 +297,6 @@ class SiteManager:
         follow the logs or not. If "follow" is set to True, the logs will be continuously displayed as they
         are generated. If "follow" is set to False, only the existing logs will be displayed
         """
-        if not self.site.exists():
-            richprint.exit(
-                f"Site {self.site.name} doesn't exists! Aborting!"
-            )
         richprint.change_head(f"Showing logs")
         if self.site.running():
             self.site.logs(service,follow)
@@ -332,7 +304,6 @@ class SiteManager:
             richprint.error(
                 f"Site {self.site.name} not running!"
             )
-        richprint.stop()
 
     def check_ports(self):
         """
@@ -373,10 +344,6 @@ class SiteManager:
         :type user: str | None
         """
         richprint.change_head(f"Spawning shell")
-        if not self.site.exists():
-            richprint.exit(
-                f"Site {self.site.name} doesn't exists! Aborting!"
-            )
         if self.site.running():
             if container == 'frappe':
                 if not user:
@@ -386,17 +353,12 @@ class SiteManager:
             richprint.exit(
                 f"Site {self.site.name} not running!"
             )
-        richprint.stop()
 
     def info(self):
         """
         The `info` function retrieves information about a site, including its URL, root path, database
         details, Frappe username and password, and a list of installed apps.
         """
-        if not self.site.exists():
-            richprint.exit(
-                f"Site {self.site.name} doesn't exists! Aborting!"
-            )
         richprint.change_head(f"Getting site info")
         site_config_file = self.site.path / 'workspace' / 'frappe-bench' / 'sites' / self.site.name / 'site_config.json'
         db_user = None
@@ -438,7 +400,6 @@ class SiteManager:
                 for app in apps_json.keys():
                     bench_apps_list_table.add_row(app,apps_json[app]['version'])
                 richprint.stdout.print(bench_apps_list_table)
-        richprint.stop()
 
     def migrate_site(self):
         """
@@ -448,4 +409,4 @@ class SiteManager:
         richprint.change_head("Migrating Environment")
         if not self.site.composefile.is_services_name_same_as_template():
             self.site.down()
-        self.site.migrate_site()
+        self.site.migrate_site_compose()
