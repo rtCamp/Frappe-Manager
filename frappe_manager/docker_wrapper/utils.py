@@ -11,18 +11,19 @@ from queue import Queue
 from subprocess import PIPE, Popen, run
 from threading import Thread
 from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, overload
-
+from frappe_manager.logger import log
 from rich import control
-
 from frappe_manager.docker_wrapper.DockerException import DockerException
 
+logger = log.get_logger()
 
 def reader(pipe, pipe_name, queue):
     try:
         with pipe:
             for line in iter(pipe.readline, b""):
-                # queue.put((pipe_name, line))
-                queue.put((pipe_name, str(line.decode().strip('\n')).encode()))
+                queue_line = line.decode().strip('\n')
+                logger.debug(queue_line)
+                queue.put((pipe_name, str(queue_line).encode()))
     finally:
         queue.put(None)
 
@@ -32,7 +33,8 @@ def stream_stdout_and_stderr(
     full_cmd: list,
     env: Dict[str, str] = None,
 ) -> Iterable[Tuple[str, bytes]]:
-
+    logger.debug('- -'*10)
+    logger.debug(f"DOCKER COMMAND: {' '.join(full_cmd)}")
     if env is None:
         subprocess_env = None
     else:
@@ -40,7 +42,6 @@ def stream_stdout_and_stderr(
         subprocess_env.update(env)
 
     full_cmd = list(map(str, full_cmd))
-    #print(full_cmd)
     process = Popen(full_cmd, stdout=PIPE, stderr=PIPE, env=subprocess_env)
     q = Queue()
     full_stderr = b""  # for the error message
@@ -60,6 +61,8 @@ def stream_stdout_and_stderr(
 
     exit_code = process.wait()
 
+    logger.debug(f"RETURN CODE: {exit_code}")
+    logger.debug('- -'*10)
     if exit_code != 0:
         raise DockerException(full_cmd, exit_code, stderr=full_stderr)
 

@@ -1,27 +1,53 @@
 import typer
 import importlib
-from typing import Annotated, List, Optional, Set
-from pathlib import Path
-from frappe_manager.site_manager.manager import SiteManager
-from frappe_manager.site_manager.Richprint import richprint
 import os
 import requests
+import sys
+import shutil
+import atexit
+from typing import Annotated, List, Optional, Set
+from frappe_manager.site_manager.manager import SiteManager
+from frappe_manager.site_manager.Richprint import richprint
+from frappe_manager import CLI_DIR
+from frappe_manager.logger import log
 
 app = typer.Typer(no_args_is_help=True,rich_markup_mode='rich')
 
 # TODO configure this using config
 #sites_dir = Path().home() / __name__.split(".")[0]
 
-sites_dir = Path.home() / 'frappe'
-sites = SiteManager(sites_dir)
+def exit_cleanup():
+    """
+    This function is used to perform cleanup at the exit.
+    """
+    richprint.stop()
 
+def cli_entrypoint():
+    # logging
+    logger = log.get_logger()
+    logger.info('')
+    logger.info(f"{':'*20}FM Invoked{':'*20}")
+    logger.info('')
+
+    # logging command provided by user
+    logger.info(f"RUNNING COMMAND: {' '.join(sys.argv[1:])}")
+    logger.info('-'*20)
+    try:
+        app()
+    except Exception as e:
+        logger.exception(f"Exception:  : {e}")
+        raise e
+    finally:
+        atexit.register(exit_cleanup)
+
+# this will be initiated later in the app_callback
+sites: Optional[SiteManager] = None
 
 def version_callback(version: Optional[bool] = None):
     if version:
         fm_version = importlib.metadata.version('frappe_manager')
         richprint.print(fm_version,emoji_code='')
         raise typer.Exit()
-
 
 @app.callback()
 def app_callback(
