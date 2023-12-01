@@ -370,7 +370,8 @@ class SiteManager:
                 db_pass= site_config['db_password']
 
         frappe_password = self.site.composefile.get_envs('frappe')['ADMIN_PASS']
-        site_info_table = Table(box=box.ASCII2,show_lines=True,show_header=False)
+        root_db_password = self.site.composefile.get_envs('mariadb')['MYSQL_ROOT_PASSWORD']
+        site_info_table = Table(box=box.ASCII2,show_lines=True,show_header=False,highlight=True)
         data = {
             "Site Url":f"http://{self.site.name}",
             "Site Root":f"{self.site.path.absolute()}",
@@ -378,28 +379,36 @@ class SiteManager:
             "Adminer Url":f"http://{self.site.name}/adminer",
             "Frappe Username" : "administrator",
             "Frappe Password" : frappe_password,
-            "DB Host" : f"mariadb",
+            "Root DB User" : 'root',
+            "Root DB Password" : root_db_password,
+            "DB Host" : "mariadb",
             "DB Name" : db_user,
             "DB User" : db_user,
             "DB Password" : db_pass,
+
             }
         site_info_table.add_column()
         site_info_table.add_column()
         for key in data.keys():
             site_info_table.add_row(key,data[key])
-        richprint.stdout.print(site_info_table)
+
         # bench apps list
         richprint.stdout.print('')
-        bench_apps_list_table=Table(title="Bench Apps",box=box.ASCII2,show_lines=True)
+        # bench_apps_list_table=Table(title="Bench Apps",box=box.ASCII2,show_lines=True)
+        bench_apps_list_table=Table(box=box.ASCII2,show_lines=True,expand=True,show_edge=False,pad_edge=False)
         bench_apps_list_table.add_column("App")
         bench_apps_list_table.add_column("Version")
+
+
         apps_json_file = self.site.path / 'workspace' / 'frappe-bench' / 'sites' / 'apps.json'
         if apps_json_file.exists():
             with open(apps_json_file,'r') as f:
                 apps_json = json.load(f)
                 for app in apps_json.keys():
                     bench_apps_list_table.add_row(app,apps_json[app]['version'])
-                richprint.stdout.print(bench_apps_list_table)
+
+            site_info_table.add_row('Bench Apps',bench_apps_list_table)
+        richprint.stdout.print(site_info_table)
 
     def migrate_site(self):
         """
