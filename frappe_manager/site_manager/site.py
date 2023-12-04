@@ -44,7 +44,7 @@ class Site:
         sitename = self.name
         match = re.search(r'^[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?.localhost$',sitename)
         if not match:
-            richprint.exit("The site name on localhost must follow a single-level subdomain Fully Qualified Domain Name (FQDN) format, such as 'suddomain.localhost'.")
+            richprint.exit("The site name must follow a single-level subdomain Fully Qualified Domain Name (FQDN) format of localhost, such as 'suddomain.localhost'.")
 
     def get_frappe_container_hex(self) -> None | str:
         """
@@ -56,7 +56,7 @@ class Site:
         container_name = self.composefile.get_container_names()
         return container_name['frappe'].encode().hex()
 
-    def migrate_site(self) :
+    def migrate_site_compose(self) :
         """
         The `migrate_site` function checks the environment version and migrates it if necessary.
         :return: a boolean value,`True` if the site migrated else `False`.
