@@ -3,7 +3,7 @@ from enum import Enum
 
 # TODO configure this using config
 #sites_dir = Path().home() / __name__.split(".")[0]
-CLI_DIR = Path.home() / 'fm'
+CLI_DIR = Path.home() / 'frappe'
 
 default_extension = [
     "dbaeumer.vscode-eslint",
