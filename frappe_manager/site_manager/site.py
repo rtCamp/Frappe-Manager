@@ -9,6 +9,7 @@ from frappe_manager.docker_wrapper import DockerClient, DockerException
 
 from frappe_manager.site_manager.SiteCompose import SiteCompose
 from frappe_manager.site_manager.Richprint import richprint
+from frappe_manager.site_manager.utils import log_file
 
 class Site:
     def __init__(self,path: Path , name:str, verbose: bool = False):
@@ -285,7 +286,7 @@ class Site:
                 else:
                     self.docker.compose.exec(container,command='sh')
         except DockerException as e:
-             richprint.exit(f"Shell exited with error code: {e.return_code}")
+             richprint.warning(f"Shell exited with error code: {e.return_code}")
 
     def get_site_installed_apps(self):
         """
@@ -298,3 +299,21 @@ class Site:
         for source,line in output:
             line = line.decode()
             pass
+
+    def bench_dev_server_logs(self, follow = False):
+        """
+        This function is used to tail logs found at /workspace/logs/bench-start.log.
+        :param follow: Bool detemines whether to follow the log file for changes
+        """
+        bench_start_log_path = self.path / 'workspace' / 'logs' / 'bench-start.log'
+
+        if bench_start_log_path.exists() and bench_start_log_path.is_file():
+            with open(bench_start_log_path,'r') as bench_start_log:
+                bench_start_log_data = log_file(bench_start_log,follow=follow)
+                try:
+                    for line in bench_start_log_data:
+                        richprint.stdout.print(line)
+                except KeyboardInterrupt:
+                    richprint.stdout.print("Detected CTRL+C. Exiting.")
+        else:
+            richprint.error(f"Log file not found: {bench_start_log_path}")

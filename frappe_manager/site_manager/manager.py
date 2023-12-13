@@ -299,8 +299,13 @@ class SiteManager:
         are generated. If "follow" is set to False, only the existing logs will be displayed
         """
         richprint.change_head(f"Showing logs")
+
         if self.site.running():
-            self.site.logs(service,follow)
+
+            if service:
+                self.site.logs(service,follow)
+            else:
+                self.site.bench_dev_server_logs(follow)
         else:
             richprint.error(
                 f"Site {self.site.name} not running!"

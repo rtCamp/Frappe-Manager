@@ -47,3 +47,27 @@ def check_ports(ports):
                     already_binded.append(port)
 
         return already_binded
+
+def log_file(file, refresh_time:float = 0.1, follow:bool =False):
+    '''generator function that yields new lines in a file
+    '''
+    # while True:
+    #     line = file.readline()        # sleep if file hasn't been updated
+    #     yield line
+    #     if not line:
+    #         break
+    # seek the end of the file
+    # file.seek(0, os.SEEK_END)
+    file.seek(0)
+
+    # start infinite loop
+    while True:
+        # read last line of file
+        line = file.readline()        # sleep if file hasn't been updated
+        if not line:
+            if not follow:
+                break
+            time.sleep(refresh_time)
+            continue
+        line = line.strip('\n')
+        yield line
