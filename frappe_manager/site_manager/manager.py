@@ -8,6 +8,7 @@ import typer
 import shutil
 
 from frappe_manager.site_manager.site import Site
+from frappe_manager.site_manager.utils import check_ports
 from frappe_manager.site_manager.Richprint import richprint
 
 from rich.columns import Columns
@@ -312,24 +313,11 @@ class SiteManager:
         """
         richprint.change_head("Checking Ports")
         to_check = [9000,80,443]
-        already_binded = []
-
-        for port in to_check:
-        # check port using lsof
-            cmd = f"lsof -iTCP:{port} -sTCP:LISTEN -P -n"
-            try:
-                output = subprocess.run(cmd,check=True,shell=True,capture_output=True)
-                if output.returncode == 0:
-                    already_binded.append(port)
-            except subprocess.CalledProcessError as e:
-                pass
-
+        already_binded = check_ports(to_check)
         if already_binded:
-            # TODO handle if ports are open using docker
-            # show warning and exit
-            #richprint.error(f"{' '.join([str(x) for x in already_binded])} ports { 'are' if len(already_binded) > 1 else 'is' } already in use. Please free these ports.")
-            richprint.exit(f" Whoa there! Looks like the {' '.join([ str(x) for x in already_binded ])} { 'ports are' if len(already_binded) > 1 else 'port is' } having a party already! Can you do us a solid and free up those ports? They're in high demand and ready to mingle!")
+            richprint.exit(f"Whoa there! Looks like the {' '.join([ str(x) for x in already_binded ])} { 'ports are' if len(already_binded) > 1 else 'port is' } having a party already! Can you do us a solid and free up those ports?")
         richprint.print("Ports Check : Passed")
+
 
     def shell(self,container:str, user:str | None):
         """
