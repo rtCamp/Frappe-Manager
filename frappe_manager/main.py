@@ -106,18 +106,6 @@ def app_callback(
     if verbose:
         sites.set_verbose()
 
-
-default_extension = [
-    "dbaeumer.vscode-eslint",
-    "esbenp.prettier-vscode",
-    "ms-python.python",
-    "ms-python.black-formatter",
-    "ms-python.flake8",
-    "visualstudioexptteam.vscodeintellicode",
-    "VisualStudioExptTeam.intellicode-api-usage-examples"
-]
-
-
 def check_frappe_app_exists(appname: str, branchname: str | None = None):
     # check appname
     try:
@@ -309,10 +297,10 @@ def code(
 @app.command(no_args_is_help=True)
 def logs(
     sitename: Annotated[str, typer.Argument(help="Name of the site.")],
-    service: Annotated[str, typer.Option(help="Specify Service")] = "frappe",
+    service: Annotated[Optional[SiteServicesEnum], typer.Option(help="Specify service name to show container logs.")] = None,
     follow: Annotated[bool, typer.Option(help="Follow logs.")] = False,
 ):
-    """Show logs for the given site. """
+    """Show frappe dev server logs or container logs for a given site. """
     sites.init(sitename)
     sites.logs(service,follow)
 
@@ -321,7 +309,7 @@ def logs(
 def shell(
     sitename: Annotated[str, typer.Argument(help="Name of the site.")],
     user: Annotated[str, typer.Option(help="Connect as this user.")] = None,
-    service: Annotated[str, typer.Option(help="Specify Service")] = "frappe",
+    service: Annotated[SiteServicesEnum, typer.Option(help="Specify Service")] = 'frappe',
 ):
     """Open shell for the give site. """
     sites.init(sitename)
