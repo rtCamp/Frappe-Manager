@@ -298,7 +298,7 @@ def code(
 def logs(
     sitename: Annotated[str, typer.Argument(help="Name of the site.")],
     service: Annotated[Optional[SiteServicesEnum], typer.Option(help="Specify service name to show container logs.")] = None,
-    follow: Annotated[bool, typer.Option(help="Follow logs.")] = False,
+    follow: Annotated[bool, typer.Option('--follow','-f',help="Follow logs.")] = False,
 ):
     """Show frappe dev server logs or container logs for a given site. """
     sites.init(sitename)
