@@ -45,7 +45,7 @@ class Site:
         sitename = self.name
         match = re.search(r'^[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?.localhost$',sitename)
         if not match:
-            richprint.exit("The site name must follow a single-level subdomain Fully Qualified Domain Name (FQDN) format of localhost, such as 'suddomain.localhost'.")
+            richprint.exit("The site name must follow a single-level subdomain Fully Qualified Domain Name (FQDN) format of localhost, such as 'subdomain.localhost'.")
 
     def get_frappe_container_hex(self) -> None | str:
         """
