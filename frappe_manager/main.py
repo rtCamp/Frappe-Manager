@@ -5,16 +5,13 @@ import requests
 import sys
 import shutil
 import atexit
-from typing import Annotated, List, Optional, Set
+from typing import Annotated, List, Literal, Optional, Set
 from frappe_manager.site_manager.manager import SiteManager
 from frappe_manager.site_manager.Richprint import richprint
-from frappe_manager import CLI_DIR
+from frappe_manager import CLI_DIR, default_extension, SiteServicesEnum
 from frappe_manager.logger import log
 
 app = typer.Typer(no_args_is_help=True,rich_markup_mode='rich')
-
-# TODO configure this using config
-#sites_dir = Path().home() / __name__.split(".")[0]
 
 def exit_cleanup():
     """
@@ -62,19 +59,20 @@ def app_callback(
     """
     richprint.start(f"Working")
 
+    sitesdir = CLI_DIR / 'sites'
     # Checks for cli directory
     if not CLI_DIR.exists():
         # creating the sites dir
         # TODO check if it's writeable and readable -> by writing a file to it and catching exception
         CLI_DIR.mkdir(parents=True, exist_ok=True)
+        sitesdir.mkdir(parents=True, exist_ok=True)
         richprint.print(f"fm directory doesn't exists! Created at -> {str(CLI_DIR)}")
     else:
         if not CLI_DIR.is_dir():
             richprint.exit("Sites directory is not a directory! Aborting!")
 
-    # migration for directory change from CLI_DIR to CLI_DIR/sites
+    # Migration for directory change from CLI_DIR to CLI_DIR/sites
     # TODO remove when not required, introduced in 0.8.4
-    sitesdir = CLI_DIR / 'sites'
     if not sitesdir.exists():
         richprint.change_head("Site directory migration")
         move_directory_list = []
@@ -107,18 +105,6 @@ def app_callback(
 
     if verbose:
         sites.set_verbose()
-
-
-default_extension = [
-    "dbaeumer.vscode-eslint",
-    "esbenp.prettier-vscode",
-    "ms-python.python",
-    "ms-python.black-formatter",
-    "ms-python.flake8",
-    "visualstudioexptteam.vscodeintellicode",
-    "VisualStudioExptTeam.intellicode-api-usage-examples"
-]
-
 
 def check_frappe_app_exists(appname: str, branchname: str | None = None):
     # check appname
@@ -311,10 +297,10 @@ def code(
 @app.command(no_args_is_help=True)
 def logs(
     sitename: Annotated[str, typer.Argument(help="Name of the site.")],
-    service: Annotated[str, typer.Option(help="Specify Service")] = "frappe",
-    follow: Annotated[bool, typer.Option(help="Follow logs.")] = False,
+    service: Annotated[Optional[SiteServicesEnum], typer.Option(help="Specify service name to show container logs.")] = None,
+    follow: Annotated[bool, typer.Option('--follow','-f',help="Follow logs.")] = False,
 ):
-    """Show logs for the given site. """
+    """Show frappe dev server logs or container logs for a given site. """
     sites.init(sitename)
     sites.logs(service,follow)
 
@@ -323,7 +309,7 @@ def logs(
 def shell(
     sitename: Annotated[str, typer.Argument(help="Name of the site.")],
     user: Annotated[str, typer.Option(help="Connect as this user.")] = None,
-    service: Annotated[str, typer.Option(help="Specify Service")] = "frappe",
+    service: Annotated[SiteServicesEnum, typer.Option(help="Specify Service")] = 'frappe',
 ):
     """Open shell for the give site. """
     sites.init(sitename)
