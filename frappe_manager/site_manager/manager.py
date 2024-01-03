@@ -1,3 +1,4 @@
+from frappe_manager import CLI_DIR
 from frappe_manager.docker_wrapper import DockerClient, DockerException
 from typing import List, Optional
 from pathlib import Path
@@ -6,29 +7,33 @@ import json
 import shlex
 import typer
 import shutil
+import typer
+from frappe_manager.global_services.GlobalServices import GlobalServices
 
 from frappe_manager.site_manager.site import Site
-from frappe_manager.site_manager.utils import check_ports
-from frappe_manager.site_manager.Richprint import richprint
+from frappe_manager.utils import check_ports_with_msg as check_ports
+from frappe_manager.console_manager.Richprint import richprint
 
 from rich.columns import Columns
 from rich.panel import Panel
 from rich.table import Table
 from rich import box
 
+
 class SiteManager:
-    def __init__(self, sitesdir: Path):
+    def __init__(self, sitesdir: Path, global_service: GlobalServices):
         self.sitesdir = sitesdir
         self.site = None
         self.sitepath = None
+        self.global_service = global_service
         self.verbose = False
         self.typer_context: Optional[typer.Context] = None
 
-    def init(self, sitename: str| None = None):
+    def init(self, sitename: str | None = None):
         """
         The `init` function initializes a site by checking if the site directory exists, creating it if
         necessary, and setting the site name and path.
-        
+
         :param sitename: The `sitename` parameter is a string that represents the name of the site. It is
         optional and can be set to `None`. If a value is provided, it will be used to create a site path by
         appending ".localhost" to the sitename
@@ -36,24 +41,34 @@ class SiteManager:
         """
 
         if sitename:
-            if not '.localhost' in sitename:
+            if not ".localhost" in sitename:
                 sitename = sitename + ".localhost"
             sitepath: Path = self.sitesdir / sitename
 
-            site_directory_exits_check_for_commands = ['create']
+            site_directory_exits_check_for_commands = ["create"]
+            skip_check_for_commands = ["delete"]
 
-            if self.typer_context.invoked_subcommand in site_directory_exits_check_for_commands:
+            if (
+                self.typer_context.invoked_subcommand
+                in site_directory_exits_check_for_commands
+            ):
                 if sitepath.exists():
                     richprint.exit(
                         f"The site '{sitename}' already exists at {sitepath}. Aborting operation."
                     )
             else:
-                if not sitepath.exists():
-                    richprint.exit(
-                        f"The site '{sitename}' does not exist. Aborting operation."
-                    )
+                if not self.typer_context.invoked_subcommand in skip_check_for_commands:
+                    if not sitepath.exists():
+                        richprint.exit(
+                            f"The site '{sitename}' does not exist. Aborting operation."
+                        )
 
-            self.site: Site = Site(sitepath, sitename, verbose= self.verbose)
+            self.site: Site = Site(
+                sitepath,
+                sitename,
+                global_service=self.global_service,
+                verbose=self.verbose,
+            )
 
     def set_verbose(self):
         """
@@ -61,7 +76,7 @@ class SiteManager:
         """
         self.verbose = True
 
-    def set_typer_context(self,ctx: typer.Context):
+    def set_typer_context(self, ctx: typer.Context):
         """
         The function sets the typer context from the
         :param typer context
@@ -73,7 +88,7 @@ class SiteManager:
         """
         The function `__get_all_sites_path` returns a list of paths to all the `docker-compose.yml` files in
         the `sitesdir` directory, excluding any directories specified in the `exclude` list.
-        
+
         :param exclude: The `exclude` parameter is a list of strings that contains the names of directories
         to be excluded from the list of sites paths
         :type exclude: List[str]
@@ -111,7 +126,7 @@ class SiteManager:
         The `stop_sites` function stops all sites except the current site by halting their Docker
         containers.
         """
-        status_text='Halting other sites'
+        status_text = "Halting other sites"
         richprint.change_head(status_text)
         if self.site:
             exclude = [self.site.name]
@@ -122,18 +137,18 @@ class SiteManager:
             for site_compose_path in site_compose:
                 docker = DockerClient(compose_file_path=site_compose_path)
                 try:
-                    output = docker.compose.stop(timeout=10,stream=not self.verbose)
+                    output = docker.compose.stop(timeout=10, stream=not self.verbose)
                     if not self.verbose:
-                        richprint.live_lines(output, padding=(0,0,0,2))
+                        richprint.live_lines(output, padding=(0, 0, 0, 2))
                 except DockerException as e:
                     richprint.exit(f"{status_text}: Failed")
         richprint.print(f"{status_text}: Done")
 
-    def create_site(self, template_inputs: dict):
+    def create_site(self, template_inputs: dict, timeout=60):
         """
         The `create_site` function creates a new site directory, generates a compose file, pulls the
         necessary images, starts the site, and displays information about the site.
-        
+
         :param template_inputs: The `template_inputs` parameter is a dictionary that contains the inputs or
         configuration values required to generate the compose file for the site. These inputs can be used to
         customize the site's configuration, such as database settings, domain name, etc
@@ -141,19 +156,43 @@ class SiteManager:
         """
         # check if provided sitename is valid and only one level subdom of localhost
         self.site.validate_sitename()
-        self.stop_sites()
+        # self.stop_sites()
         # check if ports are available
-        self.check_ports()
         richprint.change_head(f"Creating Site Directory")
-        self.site.create_dirs()
+        self.site.create_site_dir()
+        richprint.print("Creating Site Directory: Done")
         richprint.change_head(f"Generating Compose")
         self.site.generate_compose(template_inputs)
+        self.site.create_compose_dirs()
         self.site.pull()
         richprint.change_head(f"Starting Site")
         self.site.start()
         self.site.frappe_logs_till_start()
-        richprint.change_head(f"Started site")
-        self.info()
+        self.site.sync_workers_compose()
+        richprint.update_live()
+        richprint.change_head(f"Checking Site")
+
+        # check if site is created
+        if self.site.is_site_created():
+            richprint.print(f"Creating Site: Done")
+            self.site.remove_secrets()
+            self.typer_context.obj["logger"].info(
+                f"SITE_STATUS {self.site.name}: WORKING"
+            )
+            richprint.print(f"Started site")
+            self.info()
+        else:
+            self.typer_context.obj["logger"].error(f"{self.site.name}: NOT WORKING")
+            richprint.stop()
+            richprint.error(
+                f"There has been some error creating/starting the site.\nPlease check the logs at {CLI_DIR/ 'logs'/'fm.log'}"
+            )
+            # prompt if site not working to delete the site
+            if typer.confirm(f"Do you want to delete this site {self.site.name}?"):
+                richprint.start("Removing Site")
+                self.remove_site()
+            else:
+                self.info()
 
     def remove_site(self):
         """
@@ -165,6 +204,7 @@ class SiteManager:
         # check if running -> stop it
         # remove dir
         self.site.remove()
+        self.site.remove_database_and_user()
 
     def list_sites(self):
         """
@@ -173,6 +213,7 @@ class SiteManager:
         """
         # format -> name , status [ 'stale', 'running' ]
         # sites_list = self.__get_all_sites_path()
+
         running = []
         stale = []
         sites_list = self.get_all_sites()
@@ -182,21 +223,49 @@ class SiteManager:
         else:
             for name in sites_list.keys():
                 temppath = self.sitesdir / name
-                tempSite = Site(temppath,name)
+                tempSite = Site(temppath, name, global_service=self.global_service)
                 if tempSite.running():
-                    running.append({'name': name,'path':temppath.absolute()})
+                    running.append(
+                        {
+                            "name": name,
+                            "path": temppath.absolute(),
+                        }
+                    )
                 else:
-                   stale.append({'name': name,'path':temppath.absolute()})
+                    stale.append(
+                        {
+                            "name": name,
+                            "path": temppath.absolute(),
+                        }
+                    )
+                # stale.append({'name': name,'path':temppath.absolute()})
         richprint.stop()
 
         if running:
-            columns_data = [ f"[b]{x['name']}[/b]\n[dim]{x['path']}[/dim]" for x in running ]
-            panel = Panel(Columns(columns_data),title='Running',title_align='left',style='green')
+            columns_data = [
+                f"[b]{x['name']}[/b]\n[dim]{x['path']}[/dim]"
+                for x in running
+            ]
+            panel = Panel(
+                Columns(columns_data),
+                title="Running",
+                title_align="left",
+                style="green",
+            )
             richprint.stdout.print(panel)
 
         if stale:
-            columns_data = [ f"[b]{x['name']}[/b]\n[dim]{x['path']}[/dim]" for x in stale ]
-            panel = Panel(Columns(columns_data),title='Stale',title_align='left',style='dark_turquoise')
+            columns_data = [
+                f"[b]{x['name']}[/b]\n[dim]{x['path']}[/dim]"
+                for x in stale
+            ]
+            # columns_data = [ f"[b]{x['name']}[/b]\n[dim]{x['path']}[/dim]" for x in stale ]
+            panel = Panel(
+                Columns(columns_data),
+                title="Stale",
+                title_align="left",
+                style="dark_turquoise",
+            )
             richprint.stdout.print(panel)
 
     def stop_site(self):
@@ -205,7 +274,7 @@ class SiteManager:
         indicating that the site has been stopped.
         """
         richprint.change_head(f"Stopping site")
-        #self.stop_sites()
+        # self.stop_sites()
         self.site.stop()
         richprint.print(f"Stopped site")
 
@@ -215,19 +284,18 @@ class SiteManager:
         and starts it.
         """
         # stop all sites
-        self.stop_sites()
-        if not self.site.running():
-            self.check_ports()
-        # start the provided site
+        # self.stop_sites()
         self.migrate_site()
         self.site.pull()
         self.site.start()
+        self.site.sync_workers_compose()
+        self.site.workers.start()
 
     def attach_to_site(self, user: str, extensions: List[str]):
         """
         The `attach_to_site` function attaches to a running site and opens it in Visual Studio Code with
         specified extensions.
-        
+
         :param user: The `user` parameter is a string that represents the username of the user who wants to
         attach to the site
         :type user: str
@@ -237,7 +305,7 @@ class SiteManager:
         """
         if self.site.running():
             # check if vscode is installed
-            vscode_path= shutil.which('code')
+            vscode_path = shutil.which("code")
 
             if not vscode_path:
                 richprint.exit("vscode(excutable code) not accessible via cli.")
@@ -251,21 +319,27 @@ class SiteManager:
             )
             extensions.sort()
             labels = {
-                "devcontainer.metadata": json.dumps([
-                    {
-                        "remoteUser": user,
-                        "customizations": {"vscode": {"extensions": extensions}},
-                    }
-                ])
+                "devcontainer.metadata": json.dumps(
+                    [
+                        {
+                            "remoteUser": user,
+                            "customizations": {"vscode": {"extensions": extensions}},
+                        }
+                    ]
+                )
             }
 
-            labels_previous = self.site.composefile.get_labels('frappe')
+            labels_previous = self.site.composefile.get_labels("frappe")
 
             # check if the extension are the same if they are different then only update
             # check if customizations key available
             try:
-                extensions_previous = json.loads(labels_previous['devcontainer.metadata'])
-                extensions_previous = extensions_previous[0]['customizations']['vscode']['extensions']
+                extensions_previous = json.loads(
+                    labels_previous["devcontainer.metadata"]
+                )
+                extensions_previous = extensions_previous[0]["customizations"][
+                    "vscode"
+                ]["extensions"]
             except KeyError:
                 extensions_previous = []
 
@@ -273,24 +347,24 @@ class SiteManager:
 
             if not extensions_previous == extensions:
                 richprint.print(f"Extensions are changed, Recreating containers..")
-                self.site.composefile.set_labels('frappe',labels)
+                self.site.composefile.set_labels("frappe", labels)
                 self.site.composefile.write_to_file()
                 self.site.start()
                 richprint.print(f"Recreating Containers : Done")
             # TODO check if vscode exists
             richprint.change_head("Attaching to Container")
-            output = subprocess.run(vscode_cmd,shell=True)
+            output = subprocess.run(vscode_cmd, shell=True)
             if output.returncode != 0:
                 richprint.exit(f"Attaching to Container : Failed")
             richprint.print(f"Attaching to Container : Done")
         else:
             richprint.print(f"Site: {self.site.name} is not running")
 
-    def logs(self,service:str,follow):
+    def logs(self, service: str, follow):
         """
         The `logs` function checks if a site exists, and if it does, it shows the logs for a specific
         service. If the site is not running, it displays an error message.
-        
+
         :param service: The `service` parameter is a string that represents the specific service or
         component for which you want to view the logs. It could be the name of a specific container
         :type service: str
@@ -301,34 +375,18 @@ class SiteManager:
         richprint.change_head(f"Showing logs")
 
         if self.site.running():
-
             if service:
-                self.site.logs(service,follow)
+                self.site.logs(service, follow)
             else:
                 self.site.bench_dev_server_logs(follow)
         else:
-            richprint.error(
-                f"Site {self.site.name} not running!"
-            )
+            richprint.error(f"Site {self.site.name} not running!")
 
-    def check_ports(self):
-        """
-        The `check_ports` function checks if certain ports are already bound by another process using the
-        `lsof` command.
-        """
-        richprint.change_head("Checking Ports")
-        to_check = [9000,80,443]
-        already_binded = check_ports(to_check)
-        if already_binded:
-            richprint.exit(f"Whoa there! Looks like the {' '.join([ str(x) for x in already_binded ])} { 'ports are' if len(already_binded) > 1 else 'port is' } having a party already! Can you do us a solid and free up those ports?")
-        richprint.print("Ports Check : Passed")
-
-
-    def shell(self,container:str, user:str | None):
+    def shell(self, container: str, user: str | None):
         """
         The `shell` function checks if a site exists and is running, and then executes a shell command on
         the specified container with the specified user.
-        
+
         :param container: The "container" parameter is a string that specifies the name of the container.
         :type container: str
         :param user: The `user` parameter in the `shell` method is an optional parameter that specifies the
@@ -338,14 +396,12 @@ class SiteManager:
         """
         richprint.change_head(f"Spawning shell")
         if self.site.running():
-            if container == 'frappe':
+            if container == "frappe":
                 if not user:
-                    user = 'frappe'
-            self.site.shell(container,user)
+                    user = "frappe"
+            self.site.shell(container, user)
         else:
-            richprint.exit(
-                f"Site {self.site.name} not running!"
-            )
+            richprint.exit(f"Site {self.site.name} not running!")
 
     def info(self):
         """
@@ -353,54 +409,63 @@ class SiteManager:
         details, Frappe username and password, and a list of installed apps.
         """
         richprint.change_head(f"Getting site info")
-        site_config_file = self.site.path / 'workspace' / 'frappe-bench' / 'sites' / self.site.name / 'site_config.json'
-        db_user = None
-        db_pass = None
-        if site_config_file.exists():
-            with open(site_config_file,'r') as f:
-                site_config = json.load(f)
-                db_user = site_config['db_name']
-                db_pass= site_config['db_password']
 
-        frappe_password = self.site.composefile.get_envs('frappe')['ADMIN_PASS']
-        root_db_password = self.site.composefile.get_envs('mariadb')['MYSQL_ROOT_PASSWORD']
-        site_info_table = Table(box=box.ASCII2,show_lines=True,show_header=False,highlight=True)
+        global_db_info = self.global_service.get_database_info()
+        database_info = self.site.get_site_db_info()
+
+        frappe_password = self.site.composefile.get_envs("frappe")["ADMIN_PASS"]
+        site_info_table = Table(
+            box=box.ROUNDED, show_lines=True, show_header=False, highlight=True
+        )
+
         data = {
-            "Site Url":f"http://{self.site.name}",
-            "Site Root":f"{self.site.path.absolute()}",
-            "Mailhog Url":f"http://{self.site.name}/mailhog",
-            "Adminer Url":f"http://{self.site.name}/adminer",
-            "Frappe Username" : "administrator",
-            "Frappe Password" : frappe_password,
-            "Root DB User" : 'root',
-            "Root DB Password" : root_db_password,
-            "DB Host" : "mariadb",
-            "DB Name" : db_user,
-            "DB User" : db_user,
-            "DB Password" : db_pass,
+            "Site Url": f"http://{self.site.name}",
+            "Site Root": f"{self.site.path.absolute()}",
+            "Mailhog Url": f"http://{self.site.name}/mailhog",
+            "Adminer Url": f"http://{self.site.name}/adminer",
+            "Frappe Username": "administrator",
+            "Frappe Password": frappe_password,
+        }
 
-            }
+        if database_info:
+            data["DB Name"] = database_info["name"]
+            data["DB User"] = database_info["user"]
+            data["DB Password"] = database_info["password"]
+
+        if global_db_info:
+            data["DB Host"] = global_db_info["host"]
+            data["Root DB User"] = global_db_info["user"]
+            data["Root DB Password"] = global_db_info["password"]
+
         site_info_table.add_column()
         site_info_table.add_column()
+
         for key in data.keys():
-            site_info_table.add_row(key,data[key])
+            value = data[key]
+            site_info_table.add_row(key, value)
 
         # bench apps list
-        richprint.stdout.print('')
-        # bench_apps_list_table=Table(title="Bench Apps",box=box.ASCII2,show_lines=True)
-        bench_apps_list_table=Table(box=box.ASCII2,show_lines=True,expand=True,show_edge=False,pad_edge=False)
+        richprint.stdout.print("")
+        bench_apps_list_table = Table(
+            box=box.ROUNDED,
+            show_lines=True,
+            expand=True,
+            show_edge=False,
+            pad_edge=False,
+        )
         bench_apps_list_table.add_column("App")
         bench_apps_list_table.add_column("Version")
 
-
-        apps_json_file = self.site.path / 'workspace' / 'frappe-bench' / 'sites' / 'apps.json'
+        apps_json_file = (
+            self.site.path / "workspace" / "frappe-bench" / "sites" / "apps.json"
+        )
         if apps_json_file.exists():
-            with open(apps_json_file,'r') as f:
+            with open(apps_json_file, "r") as f:
                 apps_json = json.load(f)
                 for app in apps_json.keys():
-                    bench_apps_list_table.add_row(app,apps_json[app]['version'])
+                    bench_apps_list_table.add_row(app, apps_json[app]["version"])
 
-            site_info_table.add_row('Bench Apps',bench_apps_list_table)
+            site_info_table.add_row("Bench Apps", bench_apps_list_table)
         richprint.stdout.print(site_info_table)
 
     def migrate_site(self):
@@ -412,3 +477,8 @@ class SiteManager:
         if not self.site.composefile.is_services_name_same_as_template():
             self.site.down()
         self.site.migrate_site_compose()
+
+    def test(self):
+        # self.site.generate_worker_compose()
+        print(self.site.workers.get_services_running_status())
+        # self.global_service.get_host_port_binds()
