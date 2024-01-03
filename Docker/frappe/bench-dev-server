@@ -1,0 +1,3 @@
+#!/bin/bash
+fuser -k 80/tcp
+bench serve --port 80
