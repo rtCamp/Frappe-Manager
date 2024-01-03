@@ -10,12 +10,12 @@ from typer import Exit
 from rich.table import Table
 from collections import deque
 from typing import Optional
+import typer
 
 error = Style()
 theme = Theme({
     'errors': error
 })
-
 class Richprint:
     def __init__(self):
         self.stdout = Console()
@@ -59,7 +59,7 @@ class Richprint:
         """
         self.stdout.print(f"{emoji_code} {text}")
 
-    def exit(self,text: str,emoji_code: str = ':x:'):
+    def exit(self,text: str,emoji_code: str = ':x:',os_exit= False, error_msg= None):
         """
         The `exit` function stops the program, prints a message with an emoji, and exits using `typer.Exit`
         exception.
@@ -72,8 +72,14 @@ class Richprint:
         :type emoji_code: str (optional)
         """
         self.stop()
-        self.stdout.print(f"{emoji_code} {text}")
-        raise Exit(1)
+        if error_msg:
+            to_print = f"{emoji_code} {text}\n Error : {error_msg}"
+        else:
+            to_print = f"{emoji_code} {text} "
+        self.stdout.print(to_print)
+        if os_exit:
+            exit(1)
+        raise typer.Exit(1)
 
     def print(self,text: str,emoji_code: str = ':white_check_mark:'):
         """
@@ -127,14 +133,15 @@ class Richprint:
         left)`. These values represent the amount of padding to be added to the `renderable` object on each
         :type padding: tuple
         """
-        if padding:
-            renderable=Padding(renderable,padding)
+
         if renderable:
+            if padding:
+                renderable=Padding(renderable,padding)
             group = Group(self.spinner,renderable)
             self.live.update(group)
         else:
             self.live.update(self.spinner)
-            self.live.refresh()
+            # self.live.refresh()
 
     def live_lines(
             self,
@@ -217,6 +224,7 @@ class Richprint:
             #     self.update_live()
             #     self.stop()
             #     raise
+            # except KeyboardInterrupt as e:
             except StopIteration:
                 break
 
