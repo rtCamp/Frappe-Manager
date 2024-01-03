@@ -1,0 +1,28 @@
+services:
+  worker-name:
+    image: frappe-manager-frappe:v0.9.3
+    environment:
+      TIMEOUT: 6000
+      CHANGE_DIR: /workspace/frappe-bench
+      WAIT_FOR: /workspace/frappe-bench/config/frappe-bench-frappe-{worker-name}.fm.workers.supervisor.conf
+      # here worker-name will be replace with the worker name
+      COMMAND: |
+        ln -sfn /workspace/frappe-bench/config/frappe-bench-frappe-{worker-name}.fm.workers.supervisor.conf /opt/user/conf.d/frappe-bench-frappe-{worker-name}.fm.workers.supervisor.conf
+        supervisord -c /opt/user/supervisord.conf
+    command: launch.sh
+    volumes:
+      - ./workspace:/workspace:cached
+    networks:
+      site-network:
+      global-backend-network:
+
+networks:
+  site-network:
+    name: REPLACE_ME_WITH_SITE_NAME_NETWORK
+    external: true
+  global-frontend-network:
+    name: global-frontend-network
+    external: true
+  global-backend-network:
+    name: global-backend-network
+    external: true

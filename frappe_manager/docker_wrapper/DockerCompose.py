@@ -286,6 +286,7 @@ class DockerComposeWrapper:
         workdir: Union[None, str] = None,
         stream: bool = False,
         stream_only_exit_code: bool = False,
+        use_shlex_split: bool = True,
     ):
         """
         The `exec` function in Python executes a command in a Docker container and returns an iterator for
@@ -338,6 +339,7 @@ class DockerComposeWrapper:
             "stream_only_exit_code",
             "command",
             "env",
+            "use_shlex_split",
         ]
 
         exec_cmd += parameters_to_options(parameters, exclude=remove_parameters)
@@ -348,7 +350,10 @@ class DockerComposeWrapper:
 
         exec_cmd += [service]
 
-        exec_cmd += shlex.split(command)
+        if use_shlex_split:
+            exec_cmd += shlex.split(command, posix=True)
+        else:
+            exec_cmd += command
 
         iterator = run_command_with_exit_code(
             self.docker_compose_cmd + exec_cmd,
