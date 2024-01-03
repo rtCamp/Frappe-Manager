@@ -360,7 +360,7 @@ class SiteManager:
         else:
             richprint.print(f"Site: {self.site.name} is not running")
 
-    def logs(self, service: str, follow):
+    def logs(self, follow,service: str = None):
         """
         The `logs` function checks if a site exists, and if it does, it shows the logs for a specific
         service. If the site is not running, it displays an error message.

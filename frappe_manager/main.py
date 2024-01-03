@@ -411,7 +411,10 @@ def logs(
 ):
     """Show frappe dev server logs or container logs for a given site."""
     sites.init(sitename)
-    sites.logs(SiteServicesEnum(service).name, follow)
+    if service:
+        sites.logs(service=SiteServicesEnum(service).name, follow=follow)
+    else:
+        sites.logs(follow=follow)
 
 
 @app.command(no_args_is_help=True)

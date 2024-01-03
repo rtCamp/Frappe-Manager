@@ -527,7 +527,7 @@ class Site:
         This function is used to tail logs found at /workspace/logs/bench-start.log.
         :param follow: Bool detemines whether to follow the log file for changes
         """
-        bench_start_log_path = self.path / "workspace" / "frappe-bench" / "bench-start.log"
+        bench_start_log_path = self.path / "workspace" / "frappe-bench" / 'logs' / "web.dev.log"
 
         if bench_start_log_path.exists() and bench_start_log_path.is_file():
             with open(bench_start_log_path, "r") as bench_start_log:
