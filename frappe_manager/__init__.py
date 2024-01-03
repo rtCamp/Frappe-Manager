@@ -15,12 +15,15 @@ default_extension = [
     "VisualStudioExptTeam.intellicode-api-usage-examples"
 ]
 
+# TODO Make it dynamic using compose file template
 class SiteServicesEnum(str, Enum):
     frappe= "frappe"
     nginx = "nginx"
     mailhog = "mailhog"
     adminer = "adminer"
     mariadb = "mariadb"
+    schedule = "schedule"
+    socketio = "socketio"
     redis_queue = "redis-queue"
     redis_cache = "redis-cache"
     redis_socketio = "redis-socketio"
