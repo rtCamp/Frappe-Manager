@@ -75,8 +75,3 @@ def shell(
     Open shell for the specificed global service.
     """
     service.shell(service_name, users)
-
-
-@global_services_app.command()
-def test():
-    print(service.is_service_running("global-db"))

@@ -437,15 +437,3 @@ def info(
     """Shows information about given site."""
     sites.init(sitename)
     sites.info()
-
-
-@app.command(no_args_is_help=True)
-def test(
-    sitename: Annotated[str, typer.Argument(help="Name of the site.")],
-):
-    """Shows information about given site."""
-    # sites.init(sitename)
-    # sites.test()
-    print("test")
-    # docker = DockerClient()
-    # host_run_cp(image='nginx',source='/etc/nginx',destination='/tmp/lolgnx',docker=docker)

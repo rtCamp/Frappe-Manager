@@ -477,8 +477,3 @@ class SiteManager:
         if not self.site.composefile.is_services_name_same_as_template():
             self.site.down()
         self.site.migrate_site_compose()
-
-    def test(self):
-        # self.site.generate_worker_compose()
-        print(self.site.workers.get_services_running_status())
-        # self.global_service.get_host_port_binds()
