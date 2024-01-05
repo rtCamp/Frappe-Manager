@@ -36,7 +36,7 @@ class DockerClient:
             for source ,line in iterator:
                 if source == 'stdout':
                     output = json.loads(line.decode())
-        except Exception:
+        except Exception as e:
             return {}
         return output
 
@@ -48,6 +48,7 @@ class DockerClient:
         function returns True. Otherwise, it returns False.
         """
         docker_info = self.version()
+
         if 'Server' in docker_info:
             return True
         else:

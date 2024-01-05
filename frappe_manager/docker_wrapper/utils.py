@@ -34,6 +34,7 @@ def stream_stdout_and_stderr(
     full_cmd: list,
     env: Dict[str, str] = None,
 ) -> Iterable[Tuple[str, bytes]]:
+    logger = log.get_logger()
     logger.debug('- -'*10)
     logger.debug(f"DOCKER COMMAND: {' '.join(full_cmd)}")
     if env is None:
