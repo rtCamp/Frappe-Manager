@@ -1,5 +1,9 @@
+import importlib
+import requests
+import json
 from frappe_manager.logger import log
 from frappe_manager.docker_wrapper.utils import process_opened
+from frappe_manager.site_manager.Richprint import richprint
 
 def remove_zombie_subprocess_process():
     """
@@ -22,3 +26,18 @@ def remove_zombie_subprocess_process():
             except psutil.AccessDenied:
                 logger.cleanup(f"{pid} Permission denied")
         logger.cleanup("-" * 20)
+
+def check_update():
+    url = "https://pypi.org/pypi/frappe-manager/json"
+    try:
+        update_info = requests.get(url, timeout=0.1)
+        update_info = json.loads(update_info.text)
+        fm_version = importlib.metadata.version("frappe-manager")
+        latest_version = update_info["info"]["version"]
+        if not fm_version == latest_version:
+            richprint.warning(
+                f'Ready for an update? Run "pip install --upgrade frappe-manager" to update to the latest version {latest_version}.',
+                emoji_code=":arrows_counterclockwise:️",
+            )
+    except Exception as e:
+        pass
