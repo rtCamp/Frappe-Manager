@@ -308,7 +308,7 @@ def logs(
 ):
     """Show frappe dev server logs or container logs for a given site. """
     sites.init(sitename)
-    sites.logs(service,follow)
+    sites.logs(SiteServicesEnum(service).value,follow)
 
 
 @app.command(no_args_is_help=True)
@@ -319,7 +319,7 @@ def shell(
 ):
     """Open shell for the give site. """
     sites.init(sitename)
-    sites.shell(service, user)
+    sites.shell(SiteServicesEnum(service).value, user)
 
 @app.command(no_args_is_help=True)
 def info(
@@ -328,21 +328,3 @@ def info(
     """Shows information about given site."""
     sites.init(sitename)
     sites.info()
-
-# @app.command()
-# def doctor():
-#     # Runs the doctor script in the container. or commands defined in py file
-#     pass
-
-# def db_import():
-#     pass
-# def db_export():
-#     pass
-# def site_export():
-#     # backup export ()
-#     pass
-# def site_import():
-#     # backup import ()
-#     pass
-# def config():
-#     pass
