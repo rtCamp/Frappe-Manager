@@ -15,9 +15,10 @@ from frappe_manager.logger import log
 from rich import control
 from frappe_manager.docker_wrapper.DockerException import DockerException
 
-logger = log.get_logger()
+process_opened = []
 
 def reader(pipe, pipe_name, queue):
+    logger = log.get_logger()
     try:
         with pipe:
             for line in iter(pipe.readline, b""):
@@ -43,6 +44,10 @@ def stream_stdout_and_stderr(
 
     full_cmd = list(map(str, full_cmd))
     process = Popen(full_cmd, stdout=PIPE, stderr=PIPE, env=subprocess_env)
+
+
+    process_opened.append(process.pid)
+
     q = Queue()
     full_stderr = b""  # for the error message
     # we use deamon threads to avoid hanging if the user uses ctrl+c
