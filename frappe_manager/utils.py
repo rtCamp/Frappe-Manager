@@ -130,6 +130,7 @@ def host_run_cp(image: str, source: str, destination: str, docker, verbose=False
     richprint.change_head(f"{status_text} {source} -> {destination}")
     source_container_name = generate_random_text(10)
     dest_path = Path(destination)
+    errror_exception = None
 
     failed: bool = False
     # run the container
@@ -144,6 +145,7 @@ def host_run_cp(image: str, source: str, destination: str, docker, verbose=False
         if not verbose:
             richprint.live_lines(output, padding=(0, 0, 0, 2))
     except DockerException as e:
+        errror_exception = e
         failed = 0
 
     if not failed:
@@ -158,6 +160,7 @@ def host_run_cp(image: str, source: str, destination: str, docker, verbose=False
             if not verbose:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
         except DockerException as e:
+            errror_exception = e
             failed = 1
 
     # # kill the container
@@ -176,6 +179,7 @@ def host_run_cp(image: str, source: str, destination: str, docker, verbose=False
             if not verbose:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
         except DockerException as e:
+            errror_exception = e
             failed = 2
 
     # check if the destination file exists
@@ -194,7 +198,8 @@ def host_run_cp(image: str, source: str, destination: str, docker, verbose=False
                     richprint.live_lines(output, padding=(0, 0, 0, 2))
             except DockerException as e:
                 pass
-        richprint.exit(f"{status_text} failed.")
+        # TODO introuduce custom exception to handle this type of cases where if the flow is not completed then it should raise exception which is handled by caller and then site creation check is done
+        richprint.exit(f"{status_text} failed.",error_msg=errror_exception)
 
     elif not Path(destination).exists():
         richprint.exit(f"{status_text} failed. Copied {destination} not found.")
