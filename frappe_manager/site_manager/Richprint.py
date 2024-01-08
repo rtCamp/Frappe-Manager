@@ -6,8 +6,9 @@ from rich.live import Live
 from rich.text import Text
 from rich.padding import Padding
 from typer import Exit
-
 from rich.table import Table
+
+import typer
 from collections import deque
 from typing import Optional
 
@@ -59,11 +60,11 @@ class Richprint:
         """
         self.stdout.print(f"{emoji_code} {text}")
 
-    def exit(self,text: str,emoji_code: str = ':x:'):
+    def exit(self,text: str,emoji_code: str = ':x:',os_exit= False, error_msg= None):
         """
         The `exit` function stops the program, prints a message with an emoji, and exits using `typer.Exit`
         exception.
-        
+
         :param text: The `text` parameter is a string that represents the message or reason for exiting. It
         is the text that will be printed when the `exit` method is called
         :type text: str
@@ -72,8 +73,14 @@ class Richprint:
         :type emoji_code: str (optional)
         """
         self.stop()
-        self.stdout.print(f"{emoji_code} {text}")
-        raise Exit(1)
+        if error_msg:
+            to_print = f"{emoji_code} {text}\n Error : {error_msg}"
+        else:
+            to_print = f"{emoji_code} {text} "
+        self.stdout.print(to_print)
+        if os_exit:
+            exit(1)
+        raise typer.Exit(1)
 
     def print(self,text: str,emoji_code: str = ':white_check_mark:'):
         """
