@@ -198,3 +198,32 @@ def host_run_cp(image: str, source: str, destination: str, docker, verbose=False
 
     elif not Path(destination).exists():
         richprint.exit(f"{status_text} failed. Copied {destination} not found.")
+
+def is_cli_help_called(ctx):
+    help_called = False
+
+    # is called command is sub command group
+    try:
+        for subtyper_command in ctx.command.commands[
+            ctx.invoked_subcommand
+        ].commands.keys():
+            check_command = " ".join(sys.argv[2:])
+            if check_command == subtyper_command:
+                if (
+                    ctx.command.commands[ctx.invoked_subcommand]
+                    .commands[subtyper_command]
+                    .params
+                ):
+                    help_called = True
+    except AttributeError:
+        help_called = False
+
+    if not help_called:
+        # is called command is sub command
+        check_command = " ".join(sys.argv[1:])
+        if check_command == ctx.invoked_subcommand:
+            # is called command supports arguments then help called
+            if ctx.command.commands[ctx.invoked_subcommand].params:
+                help_called = True
+
+    return help_called
