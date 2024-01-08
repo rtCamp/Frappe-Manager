@@ -36,12 +36,12 @@ class DockerComposeWrapper:
 
     def up(
         self,
+        services: list[str] = [],
         detach: bool = True,
         build: bool = False,
         remove_orphans: bool = False,
         no_recreate: bool = False,
         always_recreate_deps: bool = False,
-        services: list[str] = [],
         quiet_pull: bool = False,
         pull: Literal["missing", "never", "always"] = "missing",
         stream: bool = False,
@@ -86,7 +86,7 @@ class DockerComposeWrapper:
         """
         parameters: dict = locals()
 
-        remove_parameters = ["stream", "stream_only_exit_code"]
+        remove_parameters = ["services","stream", "stream_only_exit_code"]
 
         up_cmd: list = ["up"]
         up_cmd += services
@@ -215,7 +215,7 @@ class DockerComposeWrapper:
 
         restart_cmd: list[str] = ["restart"]
 
-        remove_parameters = ["service", "stream", "stream_only_exit_code"]
+        remove_parameters = ["services", "stream", "stream_only_exit_code"]
 
         restart_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
@@ -286,11 +286,12 @@ class DockerComposeWrapper:
         workdir: Union[None, str] = None,
         stream: bool = False,
         stream_only_exit_code: bool = False,
+        use_shlex_split: bool = True,
     ):
         """
         The `exec` function in Python executes a command in a Docker container and returns an iterator for
         the command's output.
-        
+
         :param service: The `service` parameter is a string that represents the name of the service you want
         to execute the command on
         :type service: str
@@ -348,7 +349,10 @@ class DockerComposeWrapper:
 
         exec_cmd += [service]
 
-        exec_cmd += shlex.split(command)
+        if use_shlex_split:
+            exec_cmd += shlex.split(command, posix=True)
+        else:
+            exec_cmd += command
 
         iterator = run_command_with_exit_code(
             self.docker_compose_cmd + exec_cmd,
