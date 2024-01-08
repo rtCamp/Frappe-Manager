@@ -29,11 +29,11 @@ class SiteManager:
         self.verbose = False
         self.typer_context: Optional[typer.Context] = None
 
-    def init(self, sitename: str| None = None):
+    def init(self, sitename: str | None = None):
         """
         The `init` function initializes a site by checking if the site directory exists, creating it if
         necessary, and setting the site name and path.
-        
+
         :param sitename: The `sitename` parameter is a string that represents the name of the site. It is
         optional and can be set to `None`. If a value is provided, it will be used to create a site path by
         appending ".localhost" to the sitename
@@ -41,13 +41,16 @@ class SiteManager:
         """
 
         if sitename:
-            if not '.localhost' in sitename:
+            if not ".localhost" in sitename:
                 sitename = sitename + ".localhost"
             sitepath: Path = self.sitesdir / sitename
 
-            site_directory_exits_check_for_commands = ['create']
+            site_directory_exits_check_for_commands = ["create"]
 
-            if self.typer_context.invoked_subcommand in site_directory_exits_check_for_commands:
+            if (
+                self.typer_context.invoked_subcommand
+                in site_directory_exits_check_for_commands
+            ):
                 if sitepath.exists():
                     richprint.exit(
                         f"The site '{sitename}' already exists at {sitepath}. Aborting operation."
@@ -58,7 +61,7 @@ class SiteManager:
                         f"The site '{sitename}' does not exist. Aborting operation."
                     )
 
-            self.site: Site = Site(sitepath, sitename, verbose= self.verbose)
+            self.site: Site = Site(sitepath, sitename, verbose=self.verbose)
 
     def set_verbose(self):
         """
@@ -66,7 +69,7 @@ class SiteManager:
         """
         self.verbose = True
 
-    def set_typer_context(self,ctx: typer.Context):
+    def set_typer_context(self, ctx: typer.Context):
         """
         The function sets the typer context from the
         :param typer context
@@ -78,7 +81,7 @@ class SiteManager:
         """
         The function `__get_all_sites_path` returns a list of paths to all the `docker-compose.yml` files in
         the `sitesdir` directory, excluding any directories specified in the `exclude` list.
-        
+
         :param exclude: The `exclude` parameter is a list of strings that contains the names of directories
         to be excluded from the list of sites paths
         :type exclude: List[str]
@@ -116,7 +119,7 @@ class SiteManager:
         The `stop_sites` function stops all sites except the current site by halting their Docker
         containers.
         """
-        status_text='Halting other sites'
+        status_text = "Halting other sites"
         richprint.change_head(status_text)
         if self.site:
             exclude = [self.site.name]
@@ -127,9 +130,9 @@ class SiteManager:
             for site_compose_path in site_compose:
                 docker = DockerClient(compose_file_path=site_compose_path)
                 try:
-                    output = docker.compose.stop(timeout=10,stream=not self.verbose)
+                    output = docker.compose.stop(timeout=10, stream=not self.verbose)
                     if not self.verbose:
-                        richprint.live_lines(output, padding=(0,0,0,2))
+                        richprint.live_lines(output, padding=(0, 0, 0, 2))
                 except DockerException as e:
                     richprint.exit(f"{status_text}: Failed")
         richprint.print(f"{status_text}: Done")
@@ -231,7 +234,7 @@ class SiteManager:
         indicating that the site has been stopped.
         """
         richprint.change_head(f"Stopping site")
-        #self.stop_sites()
+        # self.stop_sites()
         self.site.stop()
         richprint.print(f"Stopped site")
 
@@ -253,7 +256,7 @@ class SiteManager:
         """
         The `attach_to_site` function attaches to a running site and opens it in Visual Studio Code with
         specified extensions.
-        
+
         :param user: The `user` parameter is a string that represents the username of the user who wants to
         attach to the site
         :type user: str
@@ -263,7 +266,7 @@ class SiteManager:
         """
         if self.site.running():
             # check if vscode is installed
-            vscode_path= shutil.which('code')
+            vscode_path = shutil.which("code")
 
             if not vscode_path:
                 richprint.exit("vscode(excutable code) not accessible via cli.")
@@ -277,21 +280,27 @@ class SiteManager:
             )
             extensions.sort()
             labels = {
-                "devcontainer.metadata": json.dumps([
-                    {
-                        "remoteUser": user,
-                        "customizations": {"vscode": {"extensions": extensions}},
-                    }
-                ])
+                "devcontainer.metadata": json.dumps(
+                    [
+                        {
+                            "remoteUser": user,
+                            "customizations": {"vscode": {"extensions": extensions}},
+                        }
+                    ]
+                )
             }
 
-            labels_previous = self.site.composefile.get_labels('frappe')
+            labels_previous = self.site.composefile.get_labels("frappe")
 
             # check if the extension are the same if they are different then only update
             # check if customizations key available
             try:
-                extensions_previous = json.loads(labels_previous['devcontainer.metadata'])
-                extensions_previous = extensions_previous[0]['customizations']['vscode']['extensions']
+                extensions_previous = json.loads(
+                    labels_previous["devcontainer.metadata"]
+                )
+                extensions_previous = extensions_previous[0]["customizations"][
+                    "vscode"
+                ]["extensions"]
             except KeyError:
                 extensions_previous = []
 
@@ -299,24 +308,24 @@ class SiteManager:
 
             if not extensions_previous == extensions:
                 richprint.print(f"Extensions are changed, Recreating containers..")
-                self.site.composefile.set_labels('frappe',labels)
+                self.site.composefile.set_labels("frappe", labels)
                 self.site.composefile.write_to_file()
                 self.site.start()
                 richprint.print(f"Recreating Containers : Done")
             # TODO check if vscode exists
             richprint.change_head("Attaching to Container")
-            output = subprocess.run(vscode_cmd,shell=True)
+            output = subprocess.run(vscode_cmd, shell=True)
             if output.returncode != 0:
                 richprint.exit(f"Attaching to Container : Failed")
             richprint.print(f"Attaching to Container : Done")
         else:
             richprint.print(f"Site: {self.site.name} is not running")
 
-    def logs(self,service:str,follow):
+    def logs(self, follow, service: Optional[str] = None):
         """
         The `logs` function checks if a site exists, and if it does, it shows the logs for a specific
         service. If the site is not running, it displays an error message.
-        
+
         :param service: The `service` parameter is a string that represents the specific service or
         component for which you want to view the logs. It could be the name of a specific container
         :type service: str
@@ -356,14 +365,12 @@ class SiteManager:
         """
         richprint.change_head(f"Spawning shell")
         if self.site.running():
-            if container == 'frappe':
+            if container == "frappe":
                 if not user:
-                    user = 'frappe'
-            self.site.shell(container,user)
+                    user = "frappe"
+            self.site.shell(container, user)
         else:
-            richprint.exit(
-                f"Site {self.site.name} not running!"
-            )
+            richprint.exit(f"Site {self.site.name} not running!")
 
     def info(self):
         """
@@ -371,54 +378,65 @@ class SiteManager:
         details, Frappe username and password, and a list of installed apps.
         """
         richprint.change_head(f"Getting site info")
-        site_config_file = self.site.path / 'workspace' / 'frappe-bench' / 'sites' / self.site.name / 'site_config.json'
+        site_config_file = (
+            self.site.path
+            / "workspace"
+            / "frappe-bench"
+            / "sites"
+            / self.site.name
+            / "site_config.json"
+        )
         db_user = None
         db_pass = None
         if site_config_file.exists():
-            with open(site_config_file,'r') as f:
+            with open(site_config_file, "r") as f:
                 site_config = json.load(f)
-                db_user = site_config['db_name']
-                db_pass= site_config['db_password']
+                db_user = site_config["db_name"]
+                db_pass = site_config["db_password"]
 
-        frappe_password = self.site.composefile.get_envs('frappe')['ADMIN_PASS']
-        root_db_password = self.site.composefile.get_envs('mariadb')['MYSQL_ROOT_PASSWORD']
-        site_info_table = Table(box=box.ASCII2,show_lines=True,show_header=False,highlight=True)
+        frappe_password = self.site.composefile.get_envs("frappe")["ADMIN_PASS"]
+        root_db_password = self.site.composefile.get_envs("mariadb")[
+            "MYSQL_ROOT_PASSWORD"
+        ]
+        site_info_table = Table(show_lines=True, show_header=False, highlight=True)
         data = {
-            "Site Url":f"http://{self.site.name}",
-            "Site Root":f"{self.site.path.absolute()}",
-            "Mailhog Url":f"http://{self.site.name}/mailhog",
-            "Adminer Url":f"http://{self.site.name}/adminer",
-            "Frappe Username" : "administrator",
-            "Frappe Password" : frappe_password,
-            "Root DB User" : 'root',
-            "Root DB Password" : root_db_password,
-            "DB Host" : "mariadb",
-            "DB Name" : db_user,
-            "DB User" : db_user,
-            "DB Password" : db_pass,
-
-            }
+            "Site Url": f"http://{self.site.name}",
+            "Site Root": f"{self.site.path.absolute()}",
+            "Mailhog Url": f"http://{self.site.name}/mailhog",
+            "Adminer Url": f"http://{self.site.name}/adminer",
+            "Frappe Username": "administrator",
+            "Frappe Password": frappe_password,
+            "Root DB User": "root",
+            "Root DB Password": root_db_password,
+            "DB Host": "mariadb",
+            "DB Name": db_user,
+            "DB User": db_user,
+            "DB Password": db_pass,
+        }
         site_info_table.add_column()
         site_info_table.add_column()
         for key in data.keys():
-            site_info_table.add_row(key,data[key])
+            site_info_table.add_row(key, data[key])
 
         # bench apps list
-        richprint.stdout.print('')
+        richprint.stdout.print("")
         # bench_apps_list_table=Table(title="Bench Apps",box=box.ASCII2,show_lines=True)
-        bench_apps_list_table=Table(box=box.ASCII2,show_lines=True,expand=True,show_edge=False,pad_edge=False)
+        bench_apps_list_table = Table(
+            show_lines=True, expand=True, show_edge=False, pad_edge=False
+        )
         bench_apps_list_table.add_column("App")
         bench_apps_list_table.add_column("Version")
 
-
-        apps_json_file = self.site.path / 'workspace' / 'frappe-bench' / 'sites' / 'apps.json'
+        apps_json_file = (
+            self.site.path / "workspace" / "frappe-bench" / "sites" / "apps.json"
+        )
         if apps_json_file.exists():
-            with open(apps_json_file,'r') as f:
+            with open(apps_json_file, "r") as f:
                 apps_json = json.load(f)
                 for app in apps_json.keys():
-                    bench_apps_list_table.add_row(app,apps_json[app]['version'])
+                    bench_apps_list_table.add_row(app, apps_json[app]["version"])
 
-            site_info_table.add_row('Bench Apps',bench_apps_list_table)
+            site_info_table.add_row("Bench Apps", bench_apps_list_table)
         richprint.stdout.print(site_info_table)
 
     def migrate_site(self):
