@@ -17,7 +17,7 @@ theme = Theme({
     'errors': error
 })
 
-class Richprint:
+class DisplayManager:
     def __init__(self):
         self.stdout = Console()
         # self.stderr = Console(stderr=True)
@@ -224,7 +224,8 @@ class Richprint:
             # except DockerException:
             #     self.update_live()
             #     self.stop()
-            #     raise
+            except KeyboardInterrupt as e:
+                richprint.live.refresh()
             except StopIteration:
                 break
 
@@ -236,4 +237,4 @@ class Richprint:
         self.live.update(Text('',end=''))
         self.live.stop()
 
-richprint = Richprint()
+richprint = DisplayManager()

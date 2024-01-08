@@ -5,7 +5,7 @@ from frappe_manager import CLI_DIR
 import shutil
 import gzip
 from typing import Dict, Optional, Union
-from frappe_manager.site_manager.Richprint import richprint
+from frappe_manager.display_manager.DisplayManager import richprint
 
 def namer(name):
     return name + ".gz"

@@ -4,7 +4,7 @@ import yaml
 from typing import List
 import typer
 
-from frappe_manager.site_manager.Richprint import richprint
+from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.compose_manager.utils import represent_none
 
 yaml.representer.ignore_aliases = lambda *args: True

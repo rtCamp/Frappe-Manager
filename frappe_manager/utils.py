@@ -9,7 +9,7 @@ from pathlib import Path
 from frappe_manager.logger import log
 from frappe_manager.docker_wrapper.utils import process_opened
 from frappe_manager.docker_wrapper.DockerException import DockerException
-from frappe_manager.site_manager.Richprint import richprint
+from frappe_manager.display_manager.DisplayManager import richprint
 
 
 def remove_zombie_subprocess_process():

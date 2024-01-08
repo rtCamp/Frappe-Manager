@@ -2,7 +2,7 @@ from typing import Literal, Optional
 import json
 from frappe_manager.docker_wrapper.DockerCompose import DockerComposeWrapper
 from pathlib import Path
-from frappe_manager.site_manager.Richprint import richprint
+from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker_wrapper.utils import (
     is_current_user_in_group,
     parameters_to_options,

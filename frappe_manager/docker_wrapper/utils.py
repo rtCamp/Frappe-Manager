@@ -92,7 +92,7 @@ def run_command_with_exit_code(
         else:
             return stream_stdout_and_stderr(full_cmd)
     else:
-        from frappe_manager.site_manager.Richprint import richprint
+        from frappe_manager.display_manager.DisplayManager import richprint
         output = run(full_cmd)
         exit_code = output.returncode
         if exit_code != 0:
@@ -138,7 +138,7 @@ def parameters_to_options(param: dict, exclude: list = []) -> list:
 def is_current_user_in_group(group_name) -> bool:
     """Check if the current user is in the given group"""
 
-    from frappe_manager.site_manager.Richprint import richprint
+    from frappe_manager.display_manager.DisplayManager import richprint
 
     import platform
     if platform.system() == 'Linux':

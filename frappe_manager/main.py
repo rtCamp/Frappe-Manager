@@ -6,15 +6,14 @@ import sys
 import shutil
 import atexit
 from typing import Annotated, List, Literal, Optional, Set
-from frappe_manager.site_manager.manager import SiteManager
-from frappe_manager.site_manager.Richprint import richprint
+from frappe_manager.site_manager.SiteManager import SiteManager
+from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager import CLI_DIR, default_extension, SiteServicesEnum
 from frappe_manager.logger import log
-from frappe_manager.utils import check_update, remove_zombie_subprocess_process
+from frappe_manager.utils import check_update, is_cli_help_called, remove_zombie_subprocess_process
 from frappe_manager.site_manager.utils import get_container_name_prefix
 
 app = typer.Typer(no_args_is_help=True,rich_markup_mode='rich')
-global_service = None
 sites = None
 logger = None
 

@@ -4,7 +4,7 @@ import json
 from copy import deepcopy
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 #from frappe_manager.console_manager.Richprint import richprint
-from frappe_manager.site_manager.Richprint import richprint
+from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager.utils import get_container_name_prefix, log_file
 from frappe_manager.docker_wrapper import DockerClient, DockerException
 

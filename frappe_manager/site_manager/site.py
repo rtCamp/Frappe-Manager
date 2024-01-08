@@ -8,7 +8,7 @@ from pathlib import Path
 from frappe_manager.docker_wrapper import DockerClient, DockerException
 
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
-from frappe_manager.site_manager.Richprint import richprint
+from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager.workers_manager.SiteWorker import SiteWorkers
 from frappe_manager.site_manager.utils import log_file, get_container_name_prefix
 from frappe_manager.utils import host_run_cp
@@ -88,7 +88,7 @@ class Site:
                     labels = self.composefile.get_all_labels()
                     # extrahosts = self.composefile.get_all_extrahosts()
 
-                    # handle users, should be of the new invocation
+                    # overwrite user for each invocation
                     import os
                     users = {"nginx":{
                                     "uid": os.getuid(),
@@ -111,6 +111,7 @@ class Site:
                     self.composefile.set_version(fm_version)
                     self.composefile.set_top_networks_name("site-network",get_container_name_prefix(self.name))
                     self.composefile.write_to_file()
+                    status = True
 
                 if status:
                     richprint.print(

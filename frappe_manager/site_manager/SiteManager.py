@@ -8,7 +8,7 @@ import typer
 import shutil
 
 from frappe_manager.site_manager.site import Site
-from frappe_manager.site_manager.Richprint import richprint
+from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager import CLI_DIR
 
 from frappe_manager.utils import (
