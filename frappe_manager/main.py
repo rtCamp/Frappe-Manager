@@ -316,7 +316,10 @@ def logs(
 ):
     """Show frappe dev server logs or container logs for a given site. """
     sites.init(sitename)
-    sites.logs(SiteServicesEnum(service).value,follow)
+    if service:
+        sites.logs(SiteServicesEnum(service).value,follow)
+    else:
+        sites.logs(follow)
 
 
 @app.command(no_args_is_help=True)
@@ -327,7 +330,10 @@ def shell(
 ):
     """Open shell for the give site. """
     sites.init(sitename)
-    sites.shell(SiteServicesEnum(service).value, user)
+    if service:
+        sites.shell(SiteServicesEnum(service).value,follow)
+    else:
+        sites.shell(follow)
 
 @app.command(no_args_is_help=True)
 def info(
