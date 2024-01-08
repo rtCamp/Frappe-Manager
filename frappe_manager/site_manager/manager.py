@@ -335,13 +335,11 @@ class SiteManager:
         """
         richprint.change_head(f"Showing logs")
 
-        if self.site.running():
-            if service:
+        if service:
+            if self.site.is_service_running(service):
                 self.site.logs(service, follow)
-            else:
-                self.site.bench_dev_server_logs(follow)
         else:
-            richprint.error(f"Site {self.site.name} not running!")
+            self.site.bench_dev_server_logs(follow)
 
     def check_ports(self):
         """
@@ -351,26 +349,27 @@ class SiteManager:
 
         check_ports_with_msg([80, 443], exclude=self.site.get_host_port_binds())
 
-    def shell(self, container: str, user: str | None):
+    def shell(self, service: str, user: str | None):
         """
         The `shell` function checks if a site exists and is running, and then executes a shell command on
         the specified container with the specified user.
 
-        :param container: The "container" parameter is a string that specifies the name of the container.
-        :type container: str
+        :param service: The "container" parameter is a string that specifies the name of the container.
+        :type service: str
         :param user: The `user` parameter in the `shell` method is an optional parameter that specifies the
         user for which the shell command should be executed. If no user is provided, the default user is set
         to 'frappe'
         :type user: str | None
         """
         richprint.change_head(f"Spawning shell")
-        if self.site.running():
-            if container == "frappe":
-                if not user:
-                    user = "frappe"
-            self.site.shell(container, user)
+
+        if service == "frappe":
+            if not user:
+                user = "frappe"
+        if self.site.is_service_running(service):
+            self.site.shell(service, user)
         else:
-            richprint.exit(f"Site {self.site.name} not running!")
+            richprint.exit(f"Cannot spawn shell. [blue]{self.site.name}[/blue]'s compose service '{service}' not running!")
 
     def info(self):
         """

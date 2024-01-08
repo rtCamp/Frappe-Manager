@@ -331,9 +331,9 @@ def shell(
     """Open shell for the give site. """
     sites.init(sitename)
     if service:
-        sites.shell(SiteServicesEnum(service).value,follow)
+        sites.shell(SiteServicesEnum(service).value,user=user)
     else:
-        sites.shell(follow)
+        sites.shell(user=user)
 
 @app.command(no_args_is_help=True)
 def info(
