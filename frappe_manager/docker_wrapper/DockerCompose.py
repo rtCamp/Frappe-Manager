@@ -1,3 +1,4 @@
+
 from subprocess import Popen, run, TimeoutExpired, CalledProcessError
 from pathlib import Path
 from typing import Union, Literal
@@ -50,7 +51,7 @@ class DockerComposeWrapper:
         """
         The `up` function is a Python method that runs the `docker-compose up` command with various options
         and returns an iterator.
-        
+
         :param detach: A boolean flag indicating whether to run containers in the background or not. If set
         to True, containers will be detached and run in the background. If set to False, containers will run
         in the foreground, defaults to True
@@ -103,7 +104,7 @@ class DockerComposeWrapper:
         return iterator
 
     # @handle_docker_error
-    def down( 
+    def down(
         self,
         timeout: int = 100,
         remove_orphans: bool = False,
@@ -143,7 +144,7 @@ class DockerComposeWrapper:
         """
         The `start` function is used to start Docker services specified in the `services` parameter, with
         options for dry run, streaming output, and checking only the exit code.
-        
+
         :param services: A list of services to start. If None, all services will be started
         :type services: Union[None, list[str]]
         :param dry_run: A boolean flag indicating whether the start operation should be performed in dry run
@@ -189,7 +190,7 @@ class DockerComposeWrapper:
         """
         The `restart` function restarts specified services in a Docker Compose environment with various
         options and returns an iterator.
-        
+
         :param services: A list of services to restart. If set to None, all services will be restarted
         :type services: Union[None, list[str]]
         :param dry_run: A boolean flag indicating whether the restart operation should be performed as a dry
@@ -239,7 +240,7 @@ class DockerComposeWrapper:
         """
         The `stop` function stops specified services in a Docker Compose environment, with options for
         timeout, streaming output, and checking for service existence.
-        
+
         :param services: A list of service names to stop. If None, all services will be stopped
         :type services: Union[None, list[str]]
         :param timeout: The `timeout` parameter specifies the maximum time (in seconds) to wait for the
@@ -339,6 +340,7 @@ class DockerComposeWrapper:
             "stream_only_exit_code",
             "command",
             "env",
+            "use_shlex_split",
         ]
 
         exec_cmd += parameters_to_options(parameters, exclude=remove_parameters)
@@ -401,7 +403,7 @@ class DockerComposeWrapper:
         """
         The `ps` function is a Python method that executes the `docker-compose ps` command with various
         parameters and returns an iterator.
-        
+
         :param service: A list of service names to filter the results by. If None, all services are included
         :type service: Union[None, list[str]]
         :param dry_run: A boolean flag indicating whether the command should be executed in dry run mode,
@@ -415,7 +417,7 @@ class DockerComposeWrapper:
         :type services: bool (optional)
         :param filter: The `filter` parameter is used to filter the list of containers based on their
         status. It accepts the following values:
-        :type filter: Union[j ,, 
+        :type filter: Union[j ,,
         :param format: The `format` parameter specifies the output format for the `ps` command. It can be
         set to either "table" or "json"
         :type format: Union[None, Literal["table", "json"]]
@@ -493,7 +495,7 @@ class DockerComposeWrapper:
         """
         The `logs` function in Python takes in various parameters and returns an iterator that runs a Docker
         Compose command to retrieve logs from specified services.
-        
+
         :param services: A list of services for which to retrieve logs. If None, logs for all services will
         be retrieved
         :type services: Union[None, list[str]]
@@ -559,7 +561,7 @@ class DockerComposeWrapper:
         """
         The `ls` function is a Python method that runs the `ls` command in Docker Compose and returns the
         output.
-        
+
         :param all: A boolean flag indicating whether to show hidden files and directories, defaults to
         False
         :type all: bool (optional)
@@ -601,7 +603,7 @@ class DockerComposeWrapper:
     ):
         """
         The `pull` function is used to pull Docker images, with various options for customization.
-        
+
         :param dry_run: A boolean flag indicating whether the pull operation should be performed as a dry
         run (without actually pulling the images), defaults to False
         :type dry_run: bool (optional)
