@@ -5,26 +5,17 @@ from typing import List
 import typer
 
 from frappe_manager.site_manager.Richprint import richprint
+from frappe_manager.compose_manager.utils import represent_none
 
-def represent_none(self, _):
-    """
-    The function `represent_none` represents the value `None` as a null scalar in YAML format.
-    
-    :param _: The underscore (_) parameter is a convention in Python to indicate that the parameter is
-    not going to be used in the function.
-    :return: a representation of `None` as a YAML scalar with the tag `tag:yaml.org,2002:null` and an
-    empty string as its value.
-    """
-    return self.represent_scalar('tag:yaml.org,2002:null', '')
+yaml.representer.ignore_aliases = lambda *args: True
 
 
-class SiteCompose:
-    def __init__(self,loadfile: Path, template_name:str = 'docker-compose.tmpl'):
-        self.compose_path:Path = loadfile
-        self.site_name:str = loadfile.parent.name
+class ComposeFile:
+    def __init__(self, loadfile: Path, template_name: str = "docker-compose.tmpl"):
+        self.compose_path: Path = loadfile
         self.template_name = template_name
         self.is_template_loaded = False
-        self.yml: yaml | None = None
+        self.yml = None
         self.init()
 
     def init(self):
@@ -34,10 +25,10 @@ class SiteCompose:
         """
         # if the load file not found then the site not exits
         if self.exists():
-            with open(self.compose_path,'r') as f:
+            with open(self.compose_path, "r") as f:
                 self.yml = yaml.safe_load(f)
         else:
-            template =self.get_template(self.template_name)
+            template = self.get_template(self.template_name)
             self.yml = yaml.safe_load(template)
             self.is_template_loaded = True
 
@@ -55,7 +46,9 @@ class SiteCompose:
         """
         return self.compose_path
 
-    def get_template(self, file_name: str, template_directory = "templates")-> None | str:
+    def get_template(
+        self, file_name: str, template_directory="templates"
+    ) -> None | str:
         """
         The function `get_template` retrieves a template file and returns its contents as a string, or
         raises an error if the template file is not found.
@@ -67,7 +60,7 @@ class SiteCompose:
         """
         file_name = f"{template_directory}/{file_name}"
         try:
-            data = pkgutil.get_data(__name__,file_name)
+            data = pkgutil.get_data(__name__, file_name)
         except Exception as e:
             richprint.exit(f"{file_name} template not found! Error:{e}")
         yml = data.decode()
@@ -77,13 +70,13 @@ class SiteCompose:
         template = self.get_template(self.template_name)
         self.yml = yaml.safe_load(template)
 
-    def set_container_names(self,prefix):
+    def set_container_names(self, prefix):
         """
         The function sets the container names for each service in a compose file based on the site name.
         """
 
-        for service in self.yml['services'].keys():
-            self.yml['services'][service]['container_name'] = prefix + f'-{service}'
+        for service in self.yml["services"].keys():
+            self.yml["services"][service]["container_name"] = prefix + f"-{service}"
 
     def get_container_names(self) -> dict:
         """
@@ -91,14 +84,16 @@ class SiteCompose:
         compose file.
         :return: a dictionary containing the names of the containers specified in the compose file.
         """
-        container_names:dict = {}
+        container_names: dict = {}
 
         # site_name = self.compose_path.parent.name
 
         if self.exists():
             services = self.get_services_list()
             for service in services:
-                container_names[service] = self.yml['services'][service]['container_name']
+                container_names[service] = self.yml["services"][service][
+                    "container_name"
+                ]
                 # container_names[service] = site_name.replace('.','') + f'-{service}'
 
         return container_names
@@ -108,7 +103,7 @@ class SiteCompose:
         Getting for getting all docker compose services name as a list.
         :return: list of docker composer servicers.
         """
-        return list(self.yml['services'].keys())
+        return list(self.yml["services"].keys())
 
     def is_services_name_same_as_template(self):
         """
@@ -117,48 +112,52 @@ class SiteCompose:
         :return: a boolean value indicating whether the list of service names in the current YAML file is
         the same as the list of service names in the template YAML file.
         """
-        template = self.__get_template('docker-compose.tmpl')
+        template = self.__get_template("docker-compose.tmpl")
         template_yml = yaml.safe_load(template)
-        template_service_name_list = list(template_yml['services'].keys())
+        template_service_name_list = list(template_yml["services"].keys())
         template_service_name_list.sort()
-        current_service_name_list = list(self.yml['services'].keys())
+        current_service_name_list = list(self.yml["services"].keys())
         current_service_name_list.sort()
         return current_service_name_list == template_service_name_list
 
-    def set_user(self,service,uid,gid):
+    def set_user(self, service, uid, gid):
         try:
-           self.yml['services'][service]['user'] = f'{uid}:{gid}'
+            self.yml["services"][service]["user"] = f"{uid}:{gid}"
         except KeyError:
             richprint.exit("Issue in docker template. Not able to set user.")
 
     def get_user(self, service):
         try:
-           user = self.yml[service]['user']
-           uid = user.split(":")[0]
-           uid = user.split(":")[1]
+            user = self.yml[service]["user"]
+            uid = user.split(":")[0]
+            uid = user.split(":")[1]
 
         except KeyError:
             return None
         return user
 
-    def set_network_alias(self,service_name, network_name,alias: list = []):
+    def set_network_alias(self, service_name, network_name, alias: list = []):
         if alias:
             try:
-                all_networks=  self.yml['services'][service_name]['networks']
+                all_networks = self.yml["services"][service_name]["networks"]
                 if network_name in all_networks:
-                    self.yml['services'][service_name]['networks'][network_name] = {"aliases":alias}
+                    self.yml["services"][service_name]["networks"][network_name] = {
+                        "aliases": alias
+                    }
                     return True
             except KeyError as e:
                 return False
         else:
             return False
 
-    def get_network_alias(self,service_name,network_name) -> list | None:
+    def get_network_alias(self, service_name, network_name) -> list | None:
         try:
-                all_networks=  self.yml['services'][service_name]['networks']
-                if network_name in all_networks:
-                    aliases = self.yml['services'][service_name]['networks'][network_name]['aliases']
-                return aliases
+            all_networks = self.yml["services"][service_name]["networks"]
+            if network_name in all_networks:
+                aliases = self.yml["services"][service_name]["networks"][network_name][
+                    "aliases"
+                ]
+            return aliases
         except KeyError as e:
             return None
         else:
@@ -172,80 +171,80 @@ class SiteCompose:
         it returns None.
         """
         try:
-            compose_version = self.yml['x-version']
+            compose_version = self.yml["x-version"]
         except KeyError:
-            return None
+            return 0
         return compose_version
 
     def set_version(self, version):
         """
         The function sets the value of the 'x-version' key in a YAML dictionary to the specified version.
-        
+
         :param version: current fm version to set it to "x-version" key in the compose file.
         """
-        self.yml['x-version'] = version
+        self.yml["x-version"] = version
 
     def get_all_envs(self):
         """
         This functtion returns all the container environment variables
         """
         envs = {}
-        for service in self.yml['services'].keys():
+        for service in self.yml["services"].keys():
             try:
-                env = self.yml['services'][service]['environment']
+                env = self.yml["services"][service]["environment"]
                 envs[service] = env
             except KeyError:
                 pass
         return envs
 
-    def set_all_envs(self,environments:dict):
+    def set_all_envs(self, environments: dict):
         """
         This functtion returns all the container environment variables
         """
         for container_name in environments.keys():
-            self.set_envs(container_name,environments[container_name],append=True)
+            self.set_envs(container_name, environments[container_name], append=True)
 
     def get_all_labels(self):
         """
         This functtion returns all the container labels variables
         """
         labels = {}
-        for service in self.yml['services'].keys():
+        for service in self.yml["services"].keys():
             try:
-                label = self.yml['services'][service]['labels']
+                label = self.yml["services"][service]["labels"]
                 labels[service] = label
             except KeyError:
                 pass
         return labels
 
-    def set_all_labels(self,labels:dict):
+    def set_all_labels(self, labels: dict):
         """
         This functtion returns all the container environment variables
         """
         for container_name in labels.keys():
-            self.set_labels(container_name,labels[container_name])
+            self.set_labels(container_name, labels[container_name])
 
     def get_all_extrahosts(self):
         """
         This functtion returns all the container labels variables
         """
-        extrahosts= {}
-        for service in self.yml['services'].keys():
+        extrahosts = {}
+        for service in self.yml["services"].keys():
             try:
-                extrahost = self.yml['services'][service]['extra_hosts']
+                extrahost = self.yml["services"][service]["extra_hosts"]
                 extrahosts[service] = extrahost
             except KeyError:
                 pass
         return extrahosts
 
-    def set_all_extrahosts(self,extrahosts:dict,skip_not_found: bool = False):
+    def set_all_extrahosts(self, extrahosts: dict, skip_not_found: bool = False):
         """
         This functtion returns all the container environment variables
         """
         for container_name in extrahosts.keys():
-            self.set_extrahosts(container_name,extrahosts[container_name])
+            self.set_extrahosts(container_name, extrahosts[container_name])
 
-    def set_envs(self,container:str,env:dict, append = False):
+    def set_envs(self, container: str, env: dict, append=False):
         """
         The function `set_envs` sets environment variables for a given container in a compose file.
 
@@ -258,20 +257,20 @@ class SiteCompose:
         """
         # change dict to list
         if append and type(env) == dict:
-                prev_env = self.get_envs(container)
-                if prev_env:
-                    new_env = prev_env | env
-                else:
-                    new_env = env
+            prev_env = self.get_envs(container)
+            if prev_env:
+                new_env = prev_env | env
+            else:
+                new_env = env
         else:
             new_env = env
 
         try:
-            self.yml['services'][container]['environment'] = new_env
+            self.yml["services"][container]["environment"] = new_env
         except KeyError as e:
             pass
 
-    def get_envs(self, container:str) -> dict:
+    def get_envs(self, container: str) -> dict:
         """
         The function `get_envs` retrieves the environment variables from a specified container in a compose
         file.
@@ -281,12 +280,12 @@ class SiteCompose:
         :return: a dictionary containing the environment variables of the specified container.
         """
         try:
-            env = self.yml['services'][container]['environment']
+            env = self.yml["services"][container]["environment"]
             return env
         except KeyError:
             return None
 
-    def set_labels(self,container:str, labels:dict):
+    def set_labels(self, container: str, labels: dict):
         """
         The function `set_labels` sets the labels for a specified container in a compose file.
 
@@ -300,11 +299,11 @@ class SiteCompose:
         :type labels: dict
         """
         try:
-            self.yml['services'][container]['labels'] = labels
+            self.yml["services"][container]["labels"] = labels
         except KeyError as e:
             pass
 
-    def get_labels(self,container:str) -> dict:
+    def get_labels(self, container: str) -> dict:
         """
         The function `get_labels` takes a container name as input and returns the labels associated with
         that container from a compose file.
@@ -314,12 +313,12 @@ class SiteCompose:
         :return: a dictionary of labels.
         """
         try:
-            labels = self.yml['services'][container]['labels']
+            labels = self.yml["services"][container]["labels"]
             return labels
         except KeyError:
             return None
 
-        def set_extrahosts(self,container:str,extrahosts:list):
+    def set_extrahosts(self, container: str, extrahosts: list):
         """
         The function `set_extrahosts` sets the `extra_hosts` property of a container in a compose file.
 
@@ -330,12 +329,11 @@ class SiteCompose:
         :type extrahosts: list
         """
         try:
-            self.yml['services'][container]['extra_hosts'] = extrahosts
+            self.yml["services"][container]["extra_hosts"] = extrahosts
         except KeyError as e:
             pass
 
-
-    def get_extrahosts(self,container:str) -> list:
+    def get_extrahosts(self, container: str) -> list:
         """
         The function `get_extrahosts` returns a list of extra hosts for a given container.
 
@@ -345,7 +343,7 @@ class SiteCompose:
         no extra hosts defined for the container, an empty list is returned.
         """
         try:
-            extra_hosts = self.yml['services'][container]['extra_hosts']
+            extra_hosts = self.yml["services"][container]["extra_hosts"]
             return extra_hosts
         except KeyError:
             return None
@@ -354,7 +352,8 @@ class SiteCompose:
         """
         The function writes the contents of a YAML object to a file.
         """
+
         # saving the docker compose to the directory
-        with open(self.compose_path,'w') as f:
+        with open(self.compose_path, "w") as f:
             yaml.add_representer(type(None), represent_none)
-            f.write(yaml.dump(self.yml))
+            f.write(yaml.dump(self.yml, default_flow_style=False))
