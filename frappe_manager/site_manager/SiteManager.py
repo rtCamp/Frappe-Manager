@@ -17,9 +17,11 @@ from frappe_manager.utils import (
 
 from rich.columns import Columns
 from rich.panel import Panel
-from rich.table import Table
+from rich.table import Table, Row
 from rich.text import Text
+from rich.console import Group
 from rich import box
+
 
 class SiteManager:
     def __init__(self, sitesdir: Path):
@@ -399,10 +401,12 @@ class SiteManager:
         root_db_password = self.site.composefile.get_envs("mariadb")[
             "MYSQL_ROOT_PASSWORD"
         ]
+
         site_info_table = Table(show_lines=True, show_header=False, highlight=True)
+
         data = {
             "Site Url": f"http://{self.site.name}",
-            "Site Root": f"{self.site.path.absolute()}",
+            "Site Root": f"[link=file://{self.site.path.absolute()}]{self.site.path.absolute()}[/link]",
             "Mailhog Url": f"http://{self.site.name}/mailhog",
             "Adminer Url": f"http://{self.site.name}/adminer",
             "Frappe Username": "administrator",
@@ -414,17 +418,15 @@ class SiteManager:
             "DB User": db_user,
             "DB Password": db_pass,
         }
-        site_info_table.add_column()
-        site_info_table.add_column()
+
+        site_info_table.add_column(no_wrap=True)
+        site_info_table.add_column(no_wrap=True)
+
         for key in data.keys():
             site_info_table.add_row(key, data[key])
 
         # bench apps list
-        richprint.stdout.print("")
-        # bench_apps_list_table=Table(title="Bench Apps",box=box.ASCII2,show_lines=True)
-        bench_apps_list_table = Table(
-            show_lines=True, expand=True, show_edge=False, pad_edge=False
-        )
+        bench_apps_list_table = Table(show_lines=True, show_edge=False, pad_edge=False, expand=True)
         bench_apps_list_table.add_column("App")
         bench_apps_list_table.add_column("Version")
 
@@ -432,13 +434,69 @@ class SiteManager:
             self.site.path / "workspace" / "frappe-bench" / "sites" / "apps.json"
         )
         if apps_json_file.exists():
+
             with open(apps_json_file, "r") as f:
                 apps_json = json.load(f)
                 for app in apps_json.keys():
                     bench_apps_list_table.add_row(app, apps_json[app]["version"])
 
             site_info_table.add_row("Bench Apps", bench_apps_list_table)
+
+        # running site services status
+        running_site_services = self.site.get_services_running_status()
+        if running_site_services:
+            site_services_table = Table(show_lines=False, show_edge=False, pad_edge=False, show_header=False,expand=True,box=None)
+            site_services_table.add_column("Service Status",ratio=1,no_wrap=True,width=None,min_width=20)
+            site_services_table.add_column("Service Status",ratio=1,no_wrap=True,width=None,min_width=20)
+            # site_services_table.add_column("Service Status",ratio=1,no_wrap=True)
+
+            #half_of_running_site_services = len(running_site_services) // 2
+
+            index = 0
+            while index < len(running_site_services):
+                first_service_table = None
+                second_service_table = None
+
+                try:
+                    first_service = list(running_site_services.keys())[index]
+                    index += 1
+                except IndexError:
+                    pass
+                    first_service= None
+                try:
+                    second_service = list(running_site_services.keys())[index]
+                    index += 1
+                except IndexError:
+                    second_service = None
+
+                # Fist Coloumn
+                if first_service:
+                    first_service_table = Table(show_lines=False, show_header=False, highlight=True, expand=True,box=None)
+                    first_service_table.add_column("Service",justify="left",no_wrap=True)
+                    first_service_table.add_column("Status",justify="right",no_wrap=True)
+                    first_service_table.add_row(f"{first_service}", f"{':green_square:' if running_site_services[first_service] == 'running' else ':red_square:'}")
+
+                # Fist Coloumn
+                if second_service:
+                    second_service_table = Table(show_lines=False, show_header=False, highlight=True, expand=True,box=None)
+                    second_service_table.add_column("Service",justify="left",no_wrap=True,)
+                    second_service_table.add_column("Status",justify="right",no_wrap=True)
+                    second_service_table.add_row(f"{second_service}", f"{':green_square:' if running_site_services[second_service] == 'running' else ':red_square:'}")
+
+                site_services_table.add_row(first_service_table,second_service_table)
+
+            hints_table = Table(show_lines=True, show_header=False, highlight=True, expand=True,show_edge=True, box=None,padding=(1,0,0,0))
+            hints_table.add_column("First",justify="center",no_wrap=True)
+            hints_table.add_column("Second",justify="center",ratio=8,no_wrap=True)
+            hints_table.add_column("Third",justify="center",ratio=8,no_wrap=True)
+            hints_table.add_row(":light_bulb:",f":green_square: -> Active", f":red_square: -> Inactive")
+
+            site_services_table_group = Group(site_services_table,hints_table)
+
+            site_info_table.add_row("Site Services", site_services_table_group)
+
         richprint.stdout.print(site_info_table)
+        richprint.print(f"Run 'fm list' to list all available sites.",emoji_code=':light_bulb:')
 
     def migrate_site(self):
         """
