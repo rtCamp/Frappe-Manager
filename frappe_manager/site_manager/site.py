@@ -447,19 +447,6 @@ class Site:
         :return: a boolean value. If the number of running containers is greater than or equal to the number
         of services listed in the compose file, it returns True. Otherwise, it returns False.
         """
-        # try:
-        #     output = self.docker.compose.ps(format='json',filter='running',stream=True)
-        #     status: dict = {}
-        #     for source,line in output:
-        #         if source == 'stdout':
-        #             status = json.loads(line.decode())
-        #     running_containers = len(status)
-        #     if running_containers >= len(self.composefile.get_services_list()):
-        #         return True
-        #     return False
-        # except DockerException as e:
-        #     richprint.exit(f"{e.stdout}{e.stderr}")
-
         services = self.composefile.get_services_list()
         running_status = self.get_services_running_status()
 

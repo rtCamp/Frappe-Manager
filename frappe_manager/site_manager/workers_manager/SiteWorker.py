@@ -1,5 +1,4 @@
 import importlib
-import yaml
 import json
 from copy import deepcopy
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
@@ -147,6 +146,7 @@ class SiteWorkers:
         except DockerException as e:
             richprint.exit(f"{e.stdout}{e.stderr}")
 
+
     def running(self) -> bool:
         """
         The `running` function checks if all the services defined in a Docker Compose file are running.
@@ -158,7 +158,10 @@ class SiteWorkers:
 
         if running_status:
             for service in services:
-                if not running_status[service] == 'running':
+                try:
+                    if not running_status[service] == "running":
+                        return False
+                except KeyError:
                     return False
         else:
             return False
