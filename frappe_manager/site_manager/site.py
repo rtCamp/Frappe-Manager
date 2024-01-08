@@ -82,10 +82,11 @@ class Site:
             if not compose_version == fm_version:
                 status = False
                 if self.composefile.exists():
-                    envs = self.composefile.get_all_envs()
-                    # extrahosts = self.composefile.get_all_extrahosts()
-                    labels = self.composefile.get_all_labels()
 
+                    # get all the payloads
+                    envs = self.composefile.get_all_envs()
+                    labels = self.composefile.get_all_labels()
+                    # extrahosts = self.composefile.get_all_extrahosts()
 
                     # handle users, should be of the new invocation
                     import os
@@ -95,14 +96,14 @@ class Site:
                                     }
                             }
 
+                    # load template
+                    self.composefile.load_template()
 
+                    # set all the payload
                     self.composefile.set_all_envs(envs)
                     self.composefile.set_all_labels(labels)
                     self.composefile.set_all_users(users)
                     # self.composefile.set_all_extrahosts(extrahosts)
-
-                    # handle network name
-                    self.composefile.load_template()
 
                     self.composefile.set_network_alias("nginx", "site-network", [self.name])
                     self.composefile.set_container_names(get_container_name_prefix(self.name))
