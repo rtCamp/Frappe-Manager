@@ -143,7 +143,7 @@ class SiteManager:
         """
         The `create_site` function creates a new site directory, generates a compose file, pulls the
         necessary images, starts the site, and displays information about the site.
-        
+
         :param template_inputs: The `template_inputs` parameter is a dictionary that contains the inputs or
         configuration values required to generate the compose file for the site. These inputs can be used to
         customize the site's configuration, such as database settings, domain name, etc
@@ -206,8 +206,11 @@ class SiteManager:
         """
         # format -> name , status [ 'stale', 'running' ]
         # sites_list = self.__get_all_sites_path()
-        running = []
+        active = []
+        inactive = []
         stale = []
+
+
         sites_list = self.get_all_sites()
         if not sites_list:
             richprint.error("No sites available !")
@@ -215,22 +218,50 @@ class SiteManager:
         else:
             for name in sites_list.keys():
                 temppath = self.sitesdir / name
-                tempSite = Site(temppath,name)
+                tempSite = Site(temppath, name)
+
+                # know if all services are running
+                tempsite_services_status = tempSite.get_services_running_status()
+
+                inactive_status = False
+                for service in tempsite_services_status.keys():
+                    if tempsite_services_status[service] == "running":
+                        inactive_status = True
+
                 if tempSite.running():
-                    running.append({'name': name,'path':temppath.absolute()})
+                    active.append({"name": name, "path": temppath.absolute()})
+                elif inactive_status:
+                    inactive.append({"name": name, "path": temppath.absolute()})
                 else:
-                   stale.append({'name': name,'path':temppath.absolute()})
-        richprint.stop()
+                    stale.append({"name": name, "path": temppath.absolute()})
 
-        if running:
-            columns_data = [ f"[b]{x['name']}[/b]\n[dim]{x['path']}[/dim]" for x in running ]
-            panel = Panel(Columns(columns_data),title='Running',title_align='left',style='green')
-            richprint.stdout.print(panel)
+            richprint.stop()
 
-        if stale:
-            columns_data = [ f"[b]{x['name']}[/b]\n[dim]{x['path']}[/dim]" for x in stale ]
-            panel = Panel(Columns(columns_data),title='Stale',title_align='left',style='dark_turquoise')
-            richprint.stdout.print(panel)
+            list_table = Table(show_lines=True, show_header=True, highlight=True)
+            list_table.add_column("Site")
+            list_table.add_column("Status", vertical="middle")
+            list_table.add_column("Path")
+
+            for site in active:
+                row_data = f"[link=http://{site['name']}]{site['name']}[/link]"
+                path_data = f"[link=file://{site['path']}]{site['path']}[/link]"
+                status_data = "[green]Active[/green]"
+                list_table.add_row(row_data, status_data, path_data, style="green")
+
+            for site in inactive:
+                row_data = f"[link=http://{site['name']}]{site['name']}[/link]"
+                path_data = f"[link=file://{site['path']}]{site['path']}[/link]"
+                status_data = "[red]Inactive[/red]"
+                list_table.add_row(row_data, status_data, path_data,style="red")
+
+            for site in stale:
+                row_data = f"[link=http://{site['name']}]{site['name']}[/link]"
+                path_data = f"[link=file://{site['path']}]{site['path']}[/link]"
+                status_data = "[grey]Stale[/grey]"
+                list_table.add_row(row_data, status_data, path_data)
+
+            richprint.stdout.print(list_table)
+            richprint.print(f"Run 'fm info <sitename>' to get detail information about a site.",emoji_code=':light_bulb:')
 
     def stop_site(self):
         """
