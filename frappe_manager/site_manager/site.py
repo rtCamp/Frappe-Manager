@@ -416,11 +416,8 @@ class Site:
         if bench_start_log_path.exists() and bench_start_log_path.is_file():
             with open(bench_start_log_path, "r") as bench_start_log:
                 bench_start_log_data = log_file(bench_start_log, follow=follow)
-                try:
-                    for line in bench_start_log_data:
-                        richprint.stdout.print(line)
-                except KeyboardInterrupt:
-                    richprint.stdout.print("Detected CTRL+C. Exiting.")
+                for line in bench_start_log_data:
+                    richprint.stdout.print(line)
         else:
             richprint.error(f"Log file not found: {bench_start_log_path}")
 
