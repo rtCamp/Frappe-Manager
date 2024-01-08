@@ -198,25 +198,6 @@ class Site:
         except DockerException as e:
             richprint.exit(f"{status_text}: Failed")
 
-    def running(self) -> bool:
-        """
-        The `running` function checks if all the services defined in a Docker Compose file are running.
-        :return: a boolean value. If the number of running containers is greater than or equal to the number
-        of services listed in the compose file, it returns True. Otherwise, it returns False.
-        """
-        try:
-            output = self.docker.compose.ps(format='json',filter='running',stream=True)
-            status: dict = {}
-            for source,line in output:
-                if source == 'stdout':
-                    status = json.loads(line.decode())
-            running_containers = len(status)
-            if running_containers >= len(self.composefile.get_services_list()):
-                return True
-            return False
-        except DockerException as e:
-            richprint.exit(f"{e.stdout}{e.stderr}")
-
     def down(self,remove_ophans=True,volumes=True,timeout=5) -> bool:
         """
         The `down` function removes containers using Docker Compose and prints the status of the operation.
@@ -334,3 +315,55 @@ class Site:
                 i += 1
                 continue
         return False
+
+    def running(self) -> bool:
+            """
+            The `running` function checks if all the services defined in a Docker Compose file are running.
+            :return: a boolean value. If the number of running containers is greater than or equal to the number
+            of services listed in the compose file, it returns True. Otherwise, it returns False.
+            """
+            # try:
+            #     output = self.docker.compose.ps(format='json',filter='running',stream=True)
+            #     status: dict = {}
+            #     for source,line in output:
+            #         if source == 'stdout':
+            #             status = json.loads(line.decode())
+            #     running_containers = len(status)
+            #     if running_containers >= len(self.composefile.get_services_list()):
+            #         return True
+            #     return False
+            # except DockerException as e:
+            #     richprint.exit(f"{e.stdout}{e.stderr}")
+
+            services = self.composefile.get_services_list()
+            running_status = self.get_services_running_status()
+
+            if running_status:
+                for service in services:
+                    try:
+                        if not running_status[service] == "running":
+                            return False
+                    except KeyError:
+                        return False
+            else:
+                return False
+            return True
+
+    def get_services_running_status(self)-> dict:
+        services = self.composefile.get_services_list()
+        containers = self.composefile.get_container_names().values()
+        services_status = {}
+        try:
+            output = self.docker.compose.ps(service=services,format="json",all=True,stream=True)
+            status: dict = {}
+            for source, line in output:
+                if source == "stdout":
+                    status = json.loads(line.decode())
+
+            # this is done to exclude docker runs using docker compose run command
+            for container in status:
+                if container['Name'] in containers:
+                    services_status[container['Service']] = container['State']
+            return services_status
+        except DockerException as e:
+            richprint.exit(f"{e.stdout}{e.stderr}")
