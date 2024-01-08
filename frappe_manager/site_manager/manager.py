@@ -8,8 +8,12 @@ import typer
 import shutil
 
 from frappe_manager.site_manager.site import Site
-from frappe_manager.site_manager.utils import check_ports
 from frappe_manager.site_manager.Richprint import richprint
+from frappe_manager import CLI_DIR
+
+from frappe_manager.utils import (
+    check_ports_with_msg,
+)
 
 from rich.columns import Columns
 from rich.panel import Panel
@@ -323,34 +327,26 @@ class SiteManager:
         richprint.change_head(f"Showing logs")
 
         if self.site.running():
-
             if service:
-                self.site.logs(service,follow)
+                self.site.logs(service, follow)
             else:
                 self.site.bench_dev_server_logs(follow)
         else:
-            richprint.error(
-                f"Site {self.site.name} not running!"
-            )
+            richprint.error(f"Site {self.site.name} not running!")
 
     def check_ports(self):
         """
         The `check_ports` function checks if certain ports are already bound by another process using the
         `lsof` command.
         """
-        richprint.change_head("Checking Ports")
-        to_check = [9000,80,443]
-        already_binded = check_ports(to_check)
-        if already_binded:
-            richprint.exit(f"Whoa there! Looks like the {' '.join([ str(x) for x in already_binded ])} { 'ports are' if len(already_binded) > 1 else 'port is' } having a party already! Can you do us a solid and free up those ports?")
-        richprint.print("Ports Check : Passed")
 
+        check_ports_with_msg([80, 443], exclude=self.site.get_host_port_binds())
 
-    def shell(self,container:str, user:str | None):
+    def shell(self, container: str, user: str | None):
         """
         The `shell` function checks if a site exists and is running, and then executes a shell command on
         the specified container with the specified user.
-        
+
         :param container: The "container" parameter is a string that specifies the name of the container.
         :type container: str
         :param user: The `user` parameter in the `shell` method is an optional parameter that specifies the
