@@ -11,6 +11,7 @@ from frappe_manager.site_manager.Richprint import richprint
 from frappe_manager import CLI_DIR, default_extension, SiteServicesEnum
 from frappe_manager.logger import log
 from frappe_manager.utils import check_update, remove_zombie_subprocess_process
+from frappe_manager.site_manager.utils import get_container_name_prefix
 
 app = typer.Typer(no_args_is_help=True,rich_markup_mode='rich')
 global_service = None

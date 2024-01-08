@@ -268,24 +268,21 @@ class Site:
             )
 
             if self.quiet:
-                richprint.live_lines(
+                exit_code = richprint.live_lines(
                     output,
                     padding=(0, 0, 0, 2),
-                    stop_string="INFO spawned: 'bench-dev' with pid",
+                    stop_string="INFO supervisord started with pid",
                 )
             else:
-                for source, line in self.docker.compose.logs(
-                    services=["frappe"], no_log_prefix=True, follow=True, stream=True
-                ):
+                for source, line in output:
                     if not source == "exit_code":
                         line = line.decode()
                         if "[==".lower() in line.lower():
                             print(line)
                         else:
                             richprint.stdout.print(line)
-                        if "INFO spawned: 'bench-dev' with pid".lower() in line.lower():
+                        if "INFO supervisord started with pid".lower() in line.lower():
                             break
-            richprint.print(f"{status_text}: Done")
         except DockerException as e:
             richprint.warning(f"{status_text}: Failed")
 
@@ -414,7 +411,7 @@ class Site:
         This function is used to tail logs found at /workspace/logs/bench-start.log.
         :param follow: Bool detemines whether to follow the log file for changes
         """
-        bench_start_log_path = self.path / "workspace" / "logs" / "bench-start.log"
+        bench_start_log_path = self.path / "workspace" / "frappe-bench" / 'logs' / "web.dev.log"
 
         if bench_start_log_path.exists() and bench_start_log_path.is_file():
             with open(bench_start_log_path, "r") as bench_start_log:
