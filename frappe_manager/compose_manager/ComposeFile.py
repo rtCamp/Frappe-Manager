@@ -1,13 +1,15 @@
 import pkgutil
 from pathlib import Path
-import yaml
+from ruamel.yaml import YAML
 from typing import List
 import typer
 
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.compose_manager.utils import represent_none
 
+yaml = YAML(typ='safe',pure=True)
 yaml.representer.ignore_aliases = lambda *args: True
+yaml.representer.add_representer(type(None), represent_none)
 
 
 class ComposeFile:
@@ -26,10 +28,10 @@ class ComposeFile:
         # if the load file not found then the site not exits
         if self.exists():
             with open(self.compose_path, "r") as f:
-                self.yml = yaml.safe_load(f)
+                self.yml = yaml.load(f)
+
         else:
-            template = self.get_template(self.template_name)
-            self.yml = yaml.safe_load(template)
+            self.yml = self.load_template()
             self.is_template_loaded = True
 
     def exists(self):
@@ -60,15 +62,20 @@ class ComposeFile:
         """
         file_name = f"{template_directory}/{file_name}"
         try:
-            data = pkgutil.get_data(__name__, file_name)
+            import pkg_resources
+            file_path = pkg_resources.resource_filename(__name__, file_name)
+            return file_path
+            #data = pkgutil.get_data(__name__, file_name)
         except Exception as e:
             richprint.exit(f"{file_name} template not found! Error:{e}")
-        yml = data.decode()
-        return yml
+        #yml = data
 
     def load_template(self):
-        template = self.get_template(self.template_name)
-        self.yml = yaml.safe_load(template)
+        template_path = self.get_template(self.template_name)
+        if template_path:
+            with open(template_path, "r") as f:
+                yml = yaml.load(f)
+                return yml
 
     def set_container_names(self, prefix):
         """
@@ -112,8 +119,7 @@ class ComposeFile:
         :return: a boolean value indicating whether the list of service names in the current YAML file is
         the same as the list of service names in the template YAML file.
         """
-        template = self.get_template(self.template_name)
-        template_yml = yaml.safe_load(template)
+        template_yml = self.load_template()
         template_service_name_list = list(template_yml["services"].keys())
         template_service_name_list.sort()
         current_service_name_list = list(self.yml["services"].keys())
@@ -391,7 +397,9 @@ class ComposeFile:
         The function writes the contents of a YAML object to a file.
         """
 
-        # saving the docker compose to the directory
-        with open(self.compose_path, "w") as f:
-            yaml.add_representer(type(None), represent_none)
-            f.write(yaml.dump(self.yml, default_flow_style=False))
+        try:
+            # saving the docker compose to the directory
+            with open(self.compose_path, "w") as f:
+                yaml.dump(self.yml, f)
+        except Exception as e:
+            richprint.exit(f"Error in writing compose file.",error_msg=e)
