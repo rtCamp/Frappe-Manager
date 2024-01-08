@@ -1,8 +1,7 @@
 version: "3.9"
 services:
   frappe:
-    # image: ghcr.io/rtcamp/frappe-manager-frappe:v0.10.0
-    image: frappe-manager-frappe:v0.10.0
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.10.0
     environment:
       ADMIN_PASS: REPLACE_ME_WITH_FRAPPE_WEB_ADMIN_PASS
       # apps are defined as <app-name>:<branch-name>, if branch name not given then default github branch will be used.
@@ -25,8 +24,7 @@ services:
       site-network:
 
   nginx:
-    # image: ghcr.io/rtcamp/frappe-manager-nginx:v0.10.0
-    image: frappe-manager-nginx:v0.10.0
+    image: ghcr.io/rtcamp/frappe-manager-nginx:v0.10.0
     user: REPLACE_ME_WITH_CURRENT_USER:REPLACE_ME_WITH_CURRENT_USER_GROUP
     environment:
       # not implemented as of now
@@ -78,7 +76,7 @@ services:
       site-network:
 
   socketio:
-    image: frappe-manager-frappe:v0.10.0
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.10.0
     environment:
       TIMEOUT: 60000
       CHANGE_DIR: /workspace/frappe-bench/logs
@@ -95,7 +93,7 @@ services:
       site-network:
 
   schedule:
-    image: frappe-manager-frappe:v0.10.0
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.10.0
     environment:
       TIMEOUT: 60000
       CHANGE_DIR: /workspace/frappe-bench
