@@ -134,3 +134,28 @@ def parameters_to_options(param: dict, exclude: list = []) -> list:
                 params += value
 
     return params
+
+def is_current_user_in_group(group_name) -> bool:
+    """Check if the current user is in the given group"""
+
+    from frappe_manager.site_manager.Richprint import richprint
+
+    import platform
+    if platform.system() == 'Linux':
+        import grp
+        import pwd
+        import os
+        current_user = pwd.getpwuid(os.getuid()).pw_name
+        try:
+            docker_gid = grp.getgrnam(group_name).gr_gid
+            docker_group_members = grp.getgrgid(docker_gid).gr_mem
+            if current_user in docker_group_members:
+                return True
+            else:
+                richprint.error(f"Your current user [blue][b] {current_user} [/b][/blue] is not in the group 'docker'. Please add it to the group and restart your terminal.")
+                return False
+        except KeyError:
+            richprint.error(f"The group '{group_name}' does not exist. Please create it and add your current user [blue][b] {current_user} [/b][/blue] to it.")
+            return False
+    else:
+        return True

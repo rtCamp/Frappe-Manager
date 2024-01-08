@@ -2,7 +2,9 @@ from typing import Literal, Optional
 import json
 from frappe_manager.docker_wrapper.DockerCompose import DockerComposeWrapper
 from pathlib import Path
+from frappe_manager.site_manager.Richprint import richprint
 from frappe_manager.docker_wrapper.utils import (
+    is_current_user_in_group,
     parameters_to_options,
     run_command_with_exit_code,
 )
@@ -48,8 +50,9 @@ class DockerClient:
         function returns True. Otherwise, it returns False.
         """
         docker_info = self.version()
-
         if 'Server' in docker_info:
             return True
         else:
+            # check if the current user in the docker group and notify the user
+            is_current_user_in_group('docker')
             return False
