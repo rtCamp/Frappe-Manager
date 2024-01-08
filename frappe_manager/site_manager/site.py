@@ -9,7 +9,9 @@ from frappe_manager.docker_wrapper import DockerClient, DockerException
 
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.site_manager.Richprint import richprint
+from frappe_manager.site_manager.workers_manager.SiteWorker import SiteWorkers
 from frappe_manager.site_manager.utils import log_file, get_container_name_prefix
+from frappe_manager.utils import host_run_cp
 
 
 class Site:
@@ -25,9 +27,15 @@ class Site:
         """
         self.composefile = ComposeFile(self.path / "docker-compose.yml")
         self.docker = DockerClient(compose_file_path=self.composefile.compose_path)
+        self.workers = SiteWorkers(self.path,self.name,self.quiet)
 
         if not self.docker.server_running():
             richprint.exit("Docker daemon not running. Please start docker service.")
+
+        if self.workers.exists():
+            if not self.workers.running():
+                if self.running():
+                    self.workers.start()
 
     def exists(self):
         """
@@ -103,10 +111,6 @@ class Site:
             else:
                 richprint.print("Already Latest Environment Version")
 
-    def set_site_network_name(self):
-        self.composefile.yml["networks"]["site-network"]["name"] = (
-            self.name.replace(".", "") + f"-network"
-        )
 
     def generate_compose(self, inputs: dict) -> None:
         """
@@ -140,26 +144,45 @@ class Site:
         self.composefile.set_container_names(get_container_name_prefix(self.name))
         fm_version = importlib.metadata.version("frappe-manager")
         self.composefile.set_version(fm_version)
-        self.set_site_network_name()
+        self.composefile.set_top_networks_name("site-network",get_container_name_prefix(self.name))
         self.composefile.write_to_file()
 
-    def set_site_network_name(self):
-        self.composefile.yml["networks"]["site-network"]["name"] = (
-            self.name.replace(".", "") + f"-network"
-        )
+    def create_site_dir(self):
+        # create site dir
+        self.path.mkdir(parents=True, exist_ok=True)
 
-    def create_dirs(self) -> bool:
+    def create_compose_dirs(self) -> bool:
         """
         The function `create_dirs` creates two directories, `workspace` and `certs`, within a specified
         path.
         """
-        # create site dir
-        self.path.mkdir(parents=True, exist_ok=True)
+        richprint.change_head("Creating Compose directories")
+
         # create compose bind dirs -> workspace
         workspace_path = self.path / "workspace"
         workspace_path.mkdir(parents=True, exist_ok=True)
-        certs_path = self.path / "certs"
-        certs_path.mkdir(parents=True, exist_ok=True)
+
+        configs_path = self.path / 'configs'
+        configs_path.mkdir(parents=True, exist_ok=True)
+
+        # create nginx dirs
+        nginx_dir = configs_path / "nginx"
+        nginx_dir.mkdir(parents=True, exist_ok=True)
+
+        nginx_poluate_dir = ['conf']
+        nginx_image = self.composefile.yml['services']['nginx']['image']
+
+        for directory in nginx_poluate_dir:
+            new_dir = nginx_dir / directory
+            new_dir_abs = str(new_dir.absolute())
+            host_run_cp(nginx_image,source="/etc/nginx",destination=new_dir_abs,docker=self.docker)
+
+        nginx_subdirs = ['logs','cache','run']
+        for directory in nginx_subdirs:
+            new_dir = nginx_dir / directory
+            new_dir.mkdir(parents=True, exist_ok=True)
+
+        richprint.print("Creating Compose directories: Done")
 
     def start(self) -> bool:
         """
@@ -175,7 +198,11 @@ class Site:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
             richprint.print(f"{status_text}: Done")
         except DockerException as e:
-            richprint.exit(f"{status_text}: Failed")
+            richprint.exit(f"{status_text}: Failed",error_msg=e)
+
+        # start workers if exits
+        if self.workers.exists():
+            self.workers.start()
 
     def pull(self):
         """
@@ -265,6 +292,10 @@ class Site:
             richprint.print(f"{status_text}: Done")
         except DockerException as e:
             richprint.exit(f"{status_text}: Failed")
+
+        # stopping worker containers
+        if self.workers.exists():
+            self.workers.stop()
 
     def down(self, remove_ophans=True, volumes=True, timeout=5) -> bool:
         """
@@ -456,3 +487,50 @@ class Site:
             return services_status
         except DockerException as e:
             richprint.exit(f"{e.stdout}{e.stderr}")
+
+    def get_host_port_binds(self):
+        try:
+            output = self.docker.compose.ps(all=True, format="json", stream=True)
+            status: dict = {}
+            for source, line in output:
+                if source == "stdout":
+                    status = json.loads(line.decode())
+                    break
+            ports_info = []
+            for container in status:
+                try:
+                    port_info = container["Publishers"]
+                    if port_info:
+                        ports_info = ports_info + port_info
+                except KeyError as e:
+                    pass
+
+            published_ports = set()
+            for port in ports_info:
+                try:
+                    published_port = port["PublishedPort"]
+                    if published_port > 0:
+                        published_ports.add(published_port)
+                except KeyError as e:
+                    pass
+
+            return list(published_ports)
+
+        except DockerException as e:
+            return []
+
+    def is_service_running(self, service):
+        running_status = self.get_services_running_status()
+        if running_status[service] == "running":
+            return True
+        else:
+            return False
+
+    def sync_workers_compose(self):
+
+        are_workers_not_changed = self.workers.is_expected_worker_same_as_template()
+        if not are_workers_not_changed:
+            self.workers.generate_compose()
+            self.workers.start()
+        else:
+            richprint.print("Workers configuration remains unchanged.")
