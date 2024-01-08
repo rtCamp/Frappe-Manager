@@ -9,6 +9,7 @@ emer() {
 
 if [[ ! -d 'logs'  ]]; then
     mkdir -p logs
+    ln -sfn ../frappe-bench/logs/web.dev.log logs/web.dev.log
 fi
 
 REDIS_SOCKETIO_PORT=80
