@@ -153,13 +153,15 @@ class SiteManager:
         # check if ports are available
         self.check_ports()
         richprint.change_head(f"Creating Site Directory")
-        self.site.create_dirs()
+        self.site.create_site_dir()
         richprint.change_head(f"Generating Compose")
         self.site.generate_compose(template_inputs)
+        self.site.create_compose_dirs()
         self.site.pull()
         richprint.change_head(f"Starting Site")
         self.site.start()
         self.site.frappe_logs_till_start()
+        self.site.sync_workers_compose()
         richprint.update_live()
         richprint.change_head(f"Checking site")
 

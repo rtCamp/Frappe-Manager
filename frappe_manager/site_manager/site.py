@@ -86,19 +86,30 @@ class Site:
                     # extrahosts = self.composefile.get_all_extrahosts()
                     labels = self.composefile.get_all_labels()
 
-                    self.composefile.load_template()
-                    self.composefile.set_version(fm_version)
+
+                    # handle users, should be of the new invocation
+                    import os
+                    users = {"nginx":{
+                                    "uid": os.getuid(),
+                                    "gid": os.getgid()
+                                    }
+                            }
+
 
                     self.composefile.set_all_envs(envs)
-                    # self.composefile.set_all_extrahosts(extrahosts)
                     self.composefile.set_all_labels(labels)
+                    self.composefile.set_all_users(users)
+                    # self.composefile.set_all_extrahosts(extrahosts)
 
-                    self.composefile.set_container_names(
-                        get_container_name_prefix(self.name)
-                    )
-                    self.set_site_network_name()
+                    # handle network name
+                    self.composefile.load_template()
+
+                    self.composefile.set_network_alias("nginx", "site-network", [self.name])
+                    self.composefile.set_container_names(get_container_name_prefix(self.name))
+                    fm_version = importlib.metadata.version("frappe-manager")
+                    self.composefile.set_version(fm_version)
+                    self.composefile.set_top_networks_name("site-network",get_container_name_prefix(self.name))
                     self.composefile.write_to_file()
-                    status = True
 
                 if status:
                     richprint.print(

@@ -221,32 +221,50 @@ def create(
     uid: int = os.getuid()
     gid: int = os.getgid()
 
-    frappe_env: dict = {
-        "USERID": uid,
-        "USERGROUP": gid,
-        "APPS_LIST": ",".join(apps) if apps else None,
-        "FRAPPE_BRANCH": frappe_branch,
-        "DEVELOPER_MODE": developer_mode,
-        "ADMIN_PASS": admin_pass,
-        "DB_NAME": sites.site.name.replace(".", "-"),
-        "SITENAME": sites.site.name,
+    environment = {
+        "frappe": {
+            "USERID": uid,
+            "USERGROUP": gid,
+            "APPS_LIST": ",".join(apps) if apps else None,
+            "FRAPPE_BRANCH": frappe_branch,
+            "DEVELOPER_MODE": developer_mode,
+            "ADMIN_PASS": admin_pass,
+            "DB_NAME": sites.site.name.replace(".", "-"),
+            "SITENAME": sites.site.name,
+            "MARIADB_ROOT_PASS": 'root',
+            "CONTAINER_NAME_PREFIX": get_container_name_prefix(sites.site.name),
+            "ENVIRONMENT": "dev",
+        },
+        "nginx": {
+            "ENABLE_SSL": enable_ssl,
+            "SITENAME": sites.site.name,
+            "VIRTUAL_HOST": sites.site.name,
+            "VIRTUAL_PORT": 80,
+        },
+        "worker": {
+            "USERID": uid,
+            "USERGROUP": gid,
+        },
+        "schedule": {
+            "USERID": uid,
+            "USERGROUP": gid,
+        },
+        "socketio": {
+            "USERID": uid,
+            "USERGROUP": gid,
+        },
     }
 
-    nginx_env: dict = {
-        "ENABLE_SSL": enable_ssl,
-        "SITENAME": sites.site.name,
-    }
-
-    # fix for macos
-    extra_hosts: List[str] = [f"{sites.site.name}:127.0.0.1"]
+    users: dict = {"nginx": {"uid": uid, "gid": gid}}
 
     template_inputs: dict = {
-        "frappe_env": frappe_env,
-        "nginx_env": nginx_env,
-        "extra_hosts": extra_hosts,
+        "environment": environment,
+        # "extra_hosts": extra_hosts,
+        "user": users,
     }
     # turn off all previous
     # start the docker compose
+
     sites.create_site(template_inputs)
 
 
