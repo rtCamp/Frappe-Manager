@@ -7,9 +7,9 @@ from pathlib import Path
 
 from frappe_manager.docker_wrapper import DockerClient, DockerException
 
-from frappe_manager.site_manager.SiteCompose import SiteCompose
+from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.site_manager.Richprint import richprint
-from frappe_manager.site_manager.utils import log_file
+from frappe_manager.site_manager.utils import log_file, get_container_name_prefix
 
 class Site:
     def __init__(self,path: Path , name:str, verbose: bool = False):
@@ -22,7 +22,7 @@ class Site:
         """
         The function checks if the Docker daemon is running and exits with an error message if it is not.
         """
-        self.composefile = SiteCompose(self.path / 'docker-compose.yml')
+        self.composefile = ComposeFile(self.path / "docker-compose.yml")
         self.docker = DockerClient(compose_file_path=self.composefile.compose_path)
 
         if not self.docker.server_running():
@@ -57,7 +57,7 @@ class Site:
         container_name = self.composefile.get_container_names()
         return container_name['frappe'].encode().hex()
 
-    def migrate_site_compose(self) :
+    def migrate_site_compose(self):
         """
         The `migrate_site` function checks the environment version and migrates it if necessary.
         :return: a boolean value,`True` if the site migrated else `False`.
@@ -65,31 +65,82 @@ class Site:
         if self.composefile.exists():
             richprint.change_head("Checking Environment Version")
             compose_version = self.composefile.get_version()
-            fm_version = importlib.metadata.version('frappe-manager')
+            fm_version = importlib.metadata.version("frappe-manager")
             if not compose_version == fm_version:
-                status = self.composefile.migrate_compose(fm_version)
+                status = False
+                if self.composefile.exists():
+                    envs = self.composefile.get_all_envs()
+                    # extrahosts = self.composefile.get_all_extrahosts()
+                    labels = self.composefile.get_all_labels()
+
+                    self.composefile.load_template()
+                    self.composefile.set_version(fm_version)
+
+                    self.composefile.set_all_envs(envs)
+                    # self.composefile.set_all_extrahosts(extrahosts)
+                    self.composefile.set_all_labels(labels)
+
+                    self.composefile.set_container_names(get_container_name_prefix(self.name))
+                    self.set_site_network_name()
+                    self.composefile.write_to_file()
+                    status = True
+
                 if status:
-                    richprint.print(f"Environment Migration Done: {compose_version} -> {fm_version}")
+                    richprint.print(
+                        f"Environment Migration Done: {compose_version} -> {fm_version}"
+                    )
                 else:
-                    richprint.print(f"Environment Migration Failed: {compose_version} -> {fm_version}")
+                    richprint.print(
+                        f"Environment Migration Failed: {compose_version} -> {fm_version}"
+                    )
             else:
                 richprint.print("Already Latest Environment Version")
 
-    def generate_compose(self,inputs:dict) -> None:
+    def set_site_network_name(self):
+        self.composefile.yml["networks"]["site-network"]["name"] = (
+            self.name.replace(".", "") + f"-network"
+        )
+
+    def generate_compose(self, inputs: dict) -> None:
         """
         The function `generate_compose` sets environment variables, extra hosts, and version information in
         a compose file and writes it to a file.
-        
+
         :param inputs: The `inputs` parameter is a dictionary that contains the values which will be used in compose file.
         :type inputs: dict
         """
-        self.composefile.set_envs('frappe',inputs['frappe_env'])
-        self.composefile.set_envs('nginx',inputs['nginx_env'])
-        self.composefile.set_extrahosts('frappe',inputs['extra_hosts'])
-        self.composefile.set_container_names()
-        fm_version = importlib.metadata.version('frappe-manager')
+        try:
+            if "environment" in inputs.keys():
+                environments: dict = inputs["environment"]
+                self.composefile.set_all_envs(environments)
+
+            if "labels" in inputs.keys():
+                labels: dict = inputs["labels"]
+                self.composefile.set_all_labels(labels)
+
+            # handle user
+            if "user" in inputs.keys():
+                user: dict = inputs["user"]
+                for container_name in user.keys():
+                    uid = user[container_name]["uid"]
+                    gid = user[container_name]["gid"]
+                    self.composefile.set_user(container_name, uid, gid)
+
+        except Exception as e:
+            richprint.exit(f"Not able to generate site compose. Error: {e}")
+
+
+        self.composefile.set_network_alias('nginx','site-network',[self.name])
+        self.composefile.set_container_names(get_container_name_prefix(self.name))
+        fm_version = importlib.metadata.version("frappe-manager")
         self.composefile.set_version(fm_version)
+        self.set_site_network_name()
         self.composefile.write_to_file()
+
+    def set_site_network_name(self):
+        self.composefile.yml["networks"]["site-network"]["name"] = (
+            self.name.replace(".", "") + f"-network"
+        )
 
     def create_dirs(self) -> bool:
         """
