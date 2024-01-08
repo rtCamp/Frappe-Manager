@@ -370,11 +370,16 @@ class SiteManager:
         """
         richprint.change_head(f"Showing logs")
 
-        if service:
-            if self.site.is_service_running(service):
-                self.site.logs(service, follow)
-        else:
-            self.site.bench_dev_server_logs(follow)
+        try:
+            if service:
+                if self.site.is_service_running(service):
+                    self.site.logs(service, follow)
+                else:
+                    richprint.exit(f"Cannot show logs. [blue]{self.site.name}[/blue]'s compose service '{service}' not running!")
+            else:
+                self.site.bench_dev_server_logs(follow)
+        except KeyboardInterrupt:
+            richprint.stdout.print("Detected CTRL+C. Exiting.")
 
     def check_ports(self):
         """
