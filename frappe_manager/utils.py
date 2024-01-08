@@ -109,3 +109,85 @@ def check_ports_with_msg(ports_to_check: list, exclude=[]):
                 f"Whoa there! Looks like the {' '.join([ str(x) for x in already_binded ])} { 'ports are' if len(already_binded) > 1 else 'port is' } having a party already! Can you do us a solid and free up those ports?"
             )
     richprint.print("Ports Check : Passed")
+
+def generate_random_text(length=50):
+    import random
+    import string
+
+    alphanumeric_chars = string.ascii_letters + string.digits
+    return "".join(random.choice(alphanumeric_chars) for _ in range(length))
+
+
+def host_run_cp(image: str, source: str, destination: str, docker, verbose=False):
+    status_text = "Copying files"
+    richprint.change_head(f"{status_text} {source} -> {destination}")
+    source_container_name = generate_random_text(10)
+    dest_path = Path(destination)
+
+    failed: bool = False
+    # run the container
+    try:
+        output = docker.run(
+            image=image,
+            name=source_container_name,
+            detach=True,
+            stream=not verbose,
+            command="tail -f /dev/null",
+        )
+        if not verbose:
+            richprint.live_lines(output, padding=(0, 0, 0, 2))
+    except DockerException as e:
+        failed = 0
+
+    if not failed:
+        # cp from the container
+        try:
+            output = docker.cp(
+                source=source,
+                destination=destination,
+                source_container=source_container_name,
+                stream=not verbose,
+            )
+            if not verbose:
+                richprint.live_lines(output, padding=(0, 0, 0, 2))
+        except DockerException as e:
+            failed = 1
+
+    # # kill the container
+    # try:
+    #     output = docker.kill(container=source_container_name,stream=True)
+    #     richprint.live_lines(output, padding=(0,0,0,2))
+    # except DockerException as e:
+    #     richprint.exit(f"{status_text} failed. Error: {e}")
+
+    if not failed:
+        # rm the container
+        try:
+            output = docker.rm(
+                container=source_container_name, force=True, stream=not verbose
+            )
+            if not verbose:
+                richprint.live_lines(output, padding=(0, 0, 0, 2))
+        except DockerException as e:
+            failed = 2
+
+    # check if the destination file exists
+    if not type(failed) == bool:
+        if failed > 1:
+            if dest_path.exists():
+                import shutil
+
+                shutil.rmtree(dest_path)
+        if failed == 2:
+            try:
+                output = docker.rm(
+                    container=source_container_name, force=True, stream=not verbose
+                )
+                if not verbose:
+                    richprint.live_lines(output, padding=(0, 0, 0, 2))
+            except DockerException as e:
+                pass
+        richprint.exit(f"{status_text} failed.")
+
+    elif not Path(destination).exists():
+        richprint.exit(f"{status_text} failed. Copied {destination} not found.")
