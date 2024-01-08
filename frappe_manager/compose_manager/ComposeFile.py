@@ -112,7 +112,7 @@ class ComposeFile:
         :return: a boolean value indicating whether the list of service names in the current YAML file is
         the same as the list of service names in the template YAML file.
         """
-        template = self.__get_template("docker-compose.tmpl")
+        template = self.get_template(self.template_name)
         template_yml = yaml.safe_load(template)
         template_service_name_list = list(template_yml["services"].keys())
         template_service_name_list.sort()
@@ -135,6 +135,17 @@ class ComposeFile:
         except KeyError:
             return None
         return user
+
+    def set_top_networks_name(self, networks_name, prefix):
+        """
+        The function sets the network names for each service in a compose file based on the site name.
+        """
+
+        if not self.yml["networks"][networks_name]:
+            self.yml["networks"][networks_name] = { "name" : prefix + f"-network" }
+        else:
+            self.yml["networks"][networks_name]["name"] = prefix + f"-network"
+
 
     def set_network_alias(self, service_name, network_name, alias: list = []):
         if alias:
@@ -183,6 +194,33 @@ class ComposeFile:
         :param version: current fm version to set it to "x-version" key in the compose file.
         """
         self.yml["x-version"] = version
+
+    def get_all_users(self):
+        """
+        The function `get_all_users` returns a dictionary of users for each service in a compose file.
+        :return: a dictionary containing the users of the containers specified in the compose file.
+        """
+        users: dict = {}
+
+        if self.exists():
+            services = self.get_services_list()
+            for service in services:
+                if "user" in self.yml["services"][service]:
+                    user_data = self.yml["services"][service]["user"]
+                    uid = user_data.split(":")[0]
+                    gid = user_data.split(":")[1]
+                    users[service] = {"uid": uid, "gid": gid}
+        return users
+
+    def set_all_users(self, users: dict):
+        """
+        The function `set_all_users` sets the users for each service in a compose file.
+
+        :param users: The `users` parameter is a dictionary that contains users for each service in a
+        compose file.
+        """
+        for service in users.keys():
+            self.set_user(service, users[service]["uid"], users[service]["gid"])
 
     def get_all_envs(self):
         """
