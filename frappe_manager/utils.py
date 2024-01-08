@@ -5,9 +5,12 @@ import json
 import subprocess
 import platform
 
+from pathlib import Path
 from frappe_manager.logger import log
 from frappe_manager.docker_wrapper.utils import process_opened
+from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.site_manager.Richprint import richprint
+
 
 def remove_zombie_subprocess_process():
     """
@@ -20,6 +23,7 @@ def remove_zombie_subprocess_process():
 
         # terminate zombie docker process
         import psutil
+
         for pid in process_opened:
             try:
                 process = psutil.Process(pid)
@@ -30,6 +34,7 @@ def remove_zombie_subprocess_process():
             except psutil.AccessDenied:
                 logger.cleanup(f"{pid} Permission denied")
         logger.cleanup("-" * 20)
+
 
 def check_update():
     url = "https://pypi.org/pypi/frappe-manager/json"
@@ -45,6 +50,7 @@ def check_update():
             )
     except Exception as e:
         pass
+
 
 def is_port_in_use(port):
     """
@@ -109,6 +115,7 @@ def check_ports_with_msg(ports_to_check: list, exclude=[]):
                 f"Whoa there! Looks like the {' '.join([ str(x) for x in already_binded ])} { 'ports are' if len(already_binded) > 1 else 'port is' } having a party already! Can you do us a solid and free up those ports?"
             )
     richprint.print("Ports Check : Passed")
+
 
 def generate_random_text(length=50):
     import random
