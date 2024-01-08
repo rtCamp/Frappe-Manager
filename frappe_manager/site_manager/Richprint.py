@@ -127,9 +127,10 @@ class Richprint:
         left)`. These values represent the amount of padding to be added to the `renderable` object on each
         :type padding: tuple
         """
-        if padding:
-            renderable=Padding(renderable,padding)
         if renderable:
+            if padding:
+                renderable=Padding(renderable,padding)
+
             group = Group(self.spinner,renderable)
             self.live.update(group)
         else:

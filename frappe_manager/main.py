@@ -15,6 +15,7 @@ from frappe_manager.utils import check_update, remove_zombie_subprocess_process
 app = typer.Typer(no_args_is_help=True,rich_markup_mode='rich')
 global_service = None
 sites = None
+logger = None
 
 def exit_cleanup():
     """
@@ -22,11 +23,12 @@ def exit_cleanup():
     """
     remove_zombie_subprocess_process()
     check_update()
+    print('')
     richprint.stop()
-
 
 def cli_entrypoint():
     # logging
+    global logger
     logger = log.get_logger()
     logger.info('')
     logger.info(f"{':'*20}FM Invoked{':'*20}")
@@ -63,6 +65,8 @@ def app_callback(
     """
     FrappeManager for creating frappe development envrionments.
     """
+    ctx.obj = {}
+
     richprint.start(f"Working")
 
     sitesdir = CLI_DIR / 'sites'
@@ -111,6 +115,10 @@ def app_callback(
 
     if verbose:
         sites.set_verbose()
+
+    ctx.obj["services"] = global_service
+    ctx.obj["sites"] = sites
+    ctx.obj["logger"] = logger
 
 def check_frappe_app_exists(appname: str, branchname: str | None = None):
     # check appname

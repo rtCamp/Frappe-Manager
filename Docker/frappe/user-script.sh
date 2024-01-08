@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # This script creates bench and executes it.
+
+set -e
 emer() {
     echo "$@"
     exit 1

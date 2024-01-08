@@ -217,7 +217,7 @@ class Site:
         except DockerException as e:
             richprint.exit(f"{e.stdout}{e.stderr}")
 
-    def down(self) -> bool:
+    def down(self,remove_ophans=True,volumes=True,timeout=5) -> bool:
         """
         The `down` function removes containers using Docker Compose and prints the status of the operation.
         """
@@ -225,7 +225,7 @@ class Site:
             status_text='Removing Containers'
             richprint.change_head(status_text)
             try:
-                output = self.docker.compose.down(remove_orphans=True,volumes=True,timeout=2,stream=self.quiet)
+                output = self.docker.compose.down(remove_orphans=remove_ophans,volumes=volumes,timeout=timeout,stream=self.quiet)
                 if self.quiet:
                     exit_code = richprint.live_lines(output,padding=(0,0,0,2))
                 richprint.print(f"Removing Containers: Done")
@@ -317,3 +317,20 @@ class Site:
                     richprint.stdout.print("Detected CTRL+C. Exiting.")
         else:
             richprint.error(f"Log file not found: {bench_start_log_path}")
+
+    def is_site_created(self, retry=30, interval=1) -> bool:
+        import requests
+        from time import sleep
+        i = 0
+        while i < retry:
+            try:
+                response = requests.get(f"http://{self.name}")
+            except Exception:
+                return False
+            if response.status_code == 200:
+                return True
+            else:
+                sleep(interval)
+                i += 1
+                continue
+        return False

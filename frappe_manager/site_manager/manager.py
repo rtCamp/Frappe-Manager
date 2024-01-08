@@ -14,6 +14,7 @@ from frappe_manager.site_manager.Richprint import richprint
 from rich.columns import Columns
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 from rich import box
 
 class SiteManager:
@@ -152,8 +153,29 @@ class SiteManager:
         richprint.change_head(f"Starting Site")
         self.site.start()
         self.site.frappe_logs_till_start()
-        richprint.change_head(f"Started site")
-        self.info()
+        richprint.update_live()
+        richprint.change_head(f"Checking site")
+
+        # check if site is created
+        if self.site.is_site_created():
+            richprint.print(f"Creating Site: Done")
+            self.typer_context.obj["logger"].info(
+                f"SITE_STATUS {self.site.name}: WORKING"
+            )
+            richprint.print(f"Started site")
+            self.info()
+        else:
+            self.typer_context.obj["logger"].error(f"{self.site.name}: NOT WORKING")
+            richprint.stop()
+            richprint.error(
+                f"There has been some error creating/starting the site.\nPlease check the logs at {CLI_DIR/ 'logs'/'fm.log'}"
+            )
+            # prompt if site not working to delete the site
+            if typer.confirm(f"Do you want to delete this site {self.site.name}?"):
+                richprint.start("Removing Site")
+                self.remove_site()
+            else:
+                self.info()
 
     def remove_site(self):
         """
@@ -410,5 +432,5 @@ class SiteManager:
         """
         richprint.change_head("Migrating Environment")
         if not self.site.composefile.is_services_name_same_as_template():
-            self.site.down()
+            self.site.down(volumes=False)
         self.site.migrate_site_compose()
