@@ -91,7 +91,10 @@ class Site:
                     if not 'ENVIRONMENT' in envs['frappe']:
                         envs['frappe']['ENVIRONMENT'] = 'dev'
 
-                    envs['frappe']['CONTAINER_NAME_PREFIX'] = get_container_name_prefix(self.name),
+                    envs['frappe']['CONTAINER_NAME_PREFIX'] = get_container_name_prefix(self.name)
+                    envs['frappe']['MARIADB_ROOT_PASS'] = 'root'
+
+                    envs['nginx']['VIRTUAL_HOST'] = self.name
 
 
                     # overwrite user for each invocation
