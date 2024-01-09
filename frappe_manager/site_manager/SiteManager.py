@@ -485,9 +485,6 @@ class SiteManager:
             site_services_table = Table(show_lines=False, show_edge=False, pad_edge=False, show_header=False,expand=True,box=None)
             site_services_table.add_column("Service Status",ratio=1,no_wrap=True,width=None,min_width=20)
             site_services_table.add_column("Service Status",ratio=1,no_wrap=True,width=None,min_width=20)
-            # site_services_table.add_column("Service Status",ratio=1,no_wrap=True)
-
-            #half_of_running_site_services = len(running_site_services) // 2
 
             index = 0
             while index < len(running_site_services):
@@ -525,53 +522,54 @@ class SiteManager:
             site_info_table.add_row("Site Services", site_services_table)
 
 
-        running_site_services = self.site.workers.get_services_running_status()
-        if running_site_services:
-            worker_services_table = Table(show_lines=False, show_edge=False, pad_edge=False, show_header=False,expand=True,box=None)
-            worker_services_table.add_column("Service Status",ratio=1,no_wrap=True,width=None,min_width=20)
-            worker_services_table.add_column("Service Status",ratio=1,no_wrap=True,width=None,min_width=20)
+        if self.site.workers.exists():
+            running_site_services = self.site.workers.get_services_running_status()
+            if running_site_services:
+                worker_services_table = Table(show_lines=False, show_edge=False, pad_edge=False, show_header=False,expand=True,box=None)
+                worker_services_table.add_column("Service Status",ratio=1,no_wrap=True,width=None,min_width=20)
+                worker_services_table.add_column("Service Status",ratio=1,no_wrap=True,width=None,min_width=20)
 
-            index = 0
-            while index < len(running_site_services):
-                first_service_table = None
-                second_service_table = None
+                index = 0
+                while index < len(running_site_services):
+                    first_service_table = None
+                    second_service_table = None
 
-                try:
-                    first_service = list(running_site_services.keys())[index]
-                    index += 1
-                except IndexError:
-                    pass
-                    first_service= None
-                try:
-                    second_service = list(running_site_services.keys())[index]
-                    index += 1
-                except IndexError:
-                    second_service = None
+                    try:
+                        first_service = list(running_site_services.keys())[index]
+                        index += 1
+                    except IndexError:
+                        pass
+                        first_service= None
+                    try:
+                        second_service = list(running_site_services.keys())[index]
+                        index += 1
+                    except IndexError:
+                        second_service = None
 
-                # Fist Coloumn
-                if first_service:
-                    first_service_table = Table(show_lines=False, show_header=False, highlight=True, expand=True,box=None)
-                    first_service_table.add_column("Service",justify="left",no_wrap=True)
-                    first_service_table.add_column("Status",justify="right",no_wrap=True)
-                    first_service_table.add_row(f"{first_service}", f"{':green_square:' if running_site_services[first_service] == 'running' else ':red_square:'}")
+                    # Fist Coloumn
+                    if first_service:
+                        first_service_table = Table(show_lines=False, show_header=False, highlight=True, expand=True,box=None)
+                        first_service_table.add_column("Service",justify="left",no_wrap=True)
+                        first_service_table.add_column("Status",justify="right",no_wrap=True)
+                        first_service_table.add_row(f"{first_service}", f"{':green_square:' if running_site_services[first_service] == 'running' else ':red_square:'}")
 
-                # Fist Coloumn
-                if second_service:
-                    second_service_table = Table(show_lines=False, show_header=False, highlight=True, expand=True,box=None)
-                    second_service_table.add_column("Service",justify="left",no_wrap=True,)
-                    second_service_table.add_column("Status",justify="right",no_wrap=True)
-                    second_service_table.add_row(f"{second_service}", f"{':green_square:' if running_site_services[second_service] == 'running' else ':red_square:'}")
+                    # Fist Coloumn
+                    if second_service:
+                        second_service_table = Table(show_lines=False, show_header=False, highlight=True, expand=True,box=None)
+                        second_service_table.add_column("Service",justify="left",no_wrap=True,)
+                        second_service_table.add_column("Status",justify="right",no_wrap=True)
+                        second_service_table.add_row(f"{second_service}", f"{':green_square:' if running_site_services[second_service] == 'running' else ':red_square:'}")
 
-                worker_services_table.add_row(first_service_table,second_service_table)
+                    worker_services_table.add_row(first_service_table,second_service_table)
 
-            # hints_table = Table(show_lines=True, show_header=False, highlight=True, expand=True,show_edge=True, box=None,padding=(1,0,0,0))
-            # hints_table.add_column("First",justify="center",no_wrap=True)
-            # hints_table.add_column("Second",justify="center",ratio=8,no_wrap=True)
-            # hints_table.add_column("Third",justify="center",ratio=8,no_wrap=True)
-            # hints_table.add_row(":light_bulb:",f":green_square: -> Active", f":red_square: -> Inactive")
+                # hints_table = Table(show_lines=True, show_header=False, highlight=True, expand=True,show_edge=True, box=None,padding=(1,0,0,0))
+                # hints_table.add_column("First",justify="center",no_wrap=True)
+                # hints_table.add_column("Second",justify="center",ratio=8,no_wrap=True)
+                # hints_table.add_column("Third",justify="center",ratio=8,no_wrap=True)
+                # hints_table.add_row(":light_bulb:",f":green_square: -> Active", f":red_square: -> Inactive")
 
-            # worker_services_table_group = Group(worker_services_table,hints_table)
-            site_info_table.add_row("Worker Services", worker_services_table)
+                # worker_services_table_group = Group(worker_services_table,hints_table)
+                site_info_table.add_row("Worker Services", worker_services_table)
 
             richprint.stdout.print(site_info_table)
             richprint.print(f":green_square: -> Active :red_square: -> Inactive",emoji_code=':information:')
