@@ -1,4 +1,4 @@
-def represent_null_empty(self, s):
+def represent_null_empty(s):
     """
     The function `represent_none` represents the value `None` as a null scalar in YAML format.
 
