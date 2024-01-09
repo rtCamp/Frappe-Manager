@@ -267,11 +267,15 @@ class Site:
                 else:
                     richprint.stdout.print(line)
 
-    def frappe_logs_till_start(self):
+    def frappe_logs_till_start(self,status_msg = None):
         """
         The function `frappe_logs_till_start` prints logs until a specific line is found and then stops.
         """
         status_text = "Creating Site"
+
+        if status_msg:
+            status_text = status_msg
+
         richprint.change_head(status_text)
         try:
             output = self.docker.compose.logs(
