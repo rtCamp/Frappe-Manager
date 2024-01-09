@@ -152,7 +152,7 @@ def is_current_user_in_group(group_name) -> bool:
             if current_user in docker_group_members:
                 return True
             else:
-                richprint.error(f"Your current user [blue][b] {current_user} [/b][/blue] is not in the group 'docker'. Please add it to the group and restart your terminal.")
+                richprint.error(f"Your current user [blue][b] {current_user} [/b][/blue] is not in the 'docker' group. Please add it and restart your terminal.")
                 return False
         except KeyError:
             richprint.error(f"The group '{group_name}' does not exist. Please create it and add your current user [blue][b] {current_user} [/b][/blue] to it.")
