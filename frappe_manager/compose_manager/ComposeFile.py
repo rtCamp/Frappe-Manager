@@ -5,11 +5,14 @@ from typing import List
 import typer
 
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.compose_manager.utils import represent_none
+from frappe_manager.compose_manager.utils import represent_null_empty
 
 yaml = YAML(typ='safe',pure=True)
 yaml.representer.ignore_aliases = lambda *args: True
-yaml.representer.add_representer(type(None), represent_none)
+#yaml.representer.add_representer(type(None), represent_none)
+
+# Set the default flow style to None to preserve the null representation
+yaml.default_flow_style = None
 
 
 class ComposeFile:
@@ -68,7 +71,6 @@ class ComposeFile:
             #data = pkgutil.get_data(__name__, file_name)
         except Exception as e:
             richprint.exit(f"{file_name} template not found! Error:{e}")
-        #yml = data
 
     def load_template(self):
         template_path = self.get_template(self.template_name)
@@ -392,14 +394,14 @@ class ComposeFile:
         except KeyError:
             return None
 
+
     def write_to_file(self):
         """
         The function writes the contents of a YAML object to a file.
         """
-
         try:
             # saving the docker compose to the directory
             with open(self.compose_path, "w") as f:
-                yaml.dump(self.yml, f)
+                yaml.dump(self.yml, f,transform=represent_null_empty)
         except Exception as e:
             richprint.exit(f"Error in writing compose file.",error_msg=e)
