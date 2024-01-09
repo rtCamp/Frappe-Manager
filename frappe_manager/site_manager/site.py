@@ -525,10 +525,60 @@ class Site:
             return False
 
     def sync_workers_compose(self):
-
         are_workers_not_changed = self.workers.is_expected_worker_same_as_template()
         if not are_workers_not_changed:
             self.workers.generate_compose()
             self.workers.start()
         else:
             richprint.print("Workers configuration remains unchanged.")
+
+
+    def regenerate_supervisor_conf(self):
+        richprint.change_head("Regenerating supervisor.conf.")
+        backup = False
+        # take backup
+        if self.workers.supervisor_config_path.exists():
+            shutil.copy(self.workers.supervisor_config_path, self.workers.supervisor_config_path.parent / "supervisor.conf.bak")
+            for file_path in self.workers.config_dir.iterdir():
+                file_path_abs = str(file_path.absolute())
+                if file_path.is_file():
+                    if '.workers.fm.supervisor.conf' in file_path_abs:
+                        shutil.copy(file_path, file_path.parent / f"{file_path.name}.bak")
+            backup = True
+
+        # generate the supervisor.conf
+        try:
+            bench_setup_supervisor_command = 'bench setup supervisor --skip-redis --skip-supervisord --yes --user frappe'
+
+            output = self.docker.compose.exec(
+                service='frappe',
+                command=bench_setup_supervisor_command,
+                stream=True,
+                user='frappe',
+                workdir='/workspace/frappe-bench'
+            )
+            richprint.live_lines(output, padding=(0, 0, 0, 2))
+
+            generate_split_config_command = '/scripts/divide-supervisor-conf.py config/supervisor.conf'
+
+            output = self.docker.compose.exec(
+            service='frappe',
+            command=generate_split_config_command ,
+            stream=True,
+            user='frappe',
+            workdir='/workspace/frappe-bench'
+            )
+            richprint.live_lines(output, padding=(0, 0, 0, 2))
+            return True
+        except DockerException as e:
+            richprint.error("Failure in generating, supervisor.conf file.")
+            if backup:
+                richprint.print("Rolling back to previous workers configuration.")
+                shutil.copy(self.workers.supervisor_config_path.parent / "supervisor.conf.bak", self.workers.supervisor_config_path)
+
+                for file_path in self.workers.config_dir.iterdir():
+                    file_path_abs = str(file_path.absolute())
+                    if file_path.is_file():
+                        if '.workers.fm.supervisor.conf.bak' in file_path_abs:
+                            shutil.copy(file_path, file_path.parent / f"{file_path.name}".replace(".back",""))
+            return False

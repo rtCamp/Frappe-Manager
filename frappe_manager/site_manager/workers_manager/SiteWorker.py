@@ -11,6 +11,7 @@ class SiteWorkers:
     def __init__(self,site_path, site_name, quiet: bool = True):
         self.compose_path = site_path / "docker-compose.workers.yml"
         self.config_dir = site_path / 'workspace' / 'frappe-bench' / 'config'
+        self.supervisor_config_path = self.config_dir  / 'supervisor.conf'
         self.site_name = site_name
         self.quiet = quiet
         self.init()
@@ -33,7 +34,7 @@ class SiteWorkers:
         for file_path in self.config_dir.iterdir():
             file_path_abs = str(file_path.absolute())
             if file_path.is_file():
-                if 'fm.workers.supervisor.conf' in file_path_abs:
+                if '.workers.fm.supervisor.conf' in file_path_abs:
                     workers_supervisor_conf_paths.append(file_path)
 
         workers_expected_service_names = []
@@ -41,7 +42,7 @@ class SiteWorkers:
         for worker_name in workers_supervisor_conf_paths:
             worker_name = worker_name.name
             worker_name = worker_name.replace("frappe-bench-frappe-","")
-            worker_name = worker_name.replace(".fm.workers.supervisor.conf","")
+            worker_name = worker_name.replace(".workers.fm.supervisor.conf","")
             workers_expected_service_names.append(worker_name)
         workers_expected_service_names.sort()
 
