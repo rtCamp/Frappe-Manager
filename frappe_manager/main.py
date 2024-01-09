@@ -27,16 +27,6 @@ def exit_cleanup():
     richprint.stop()
 
 def cli_entrypoint():
-    # logging
-    global logger
-    logger = log.get_logger()
-    logger.info('')
-    logger.info(f"{':'*20}FM Invoked{':'*20}")
-    logger.info('')
-
-    # logging command provided by user
-    logger.info(f"RUNNING COMMAND: {' '.join(sys.argv[1:])}")
-    logger.info('-'*20)
     try:
         app()
     except Exception as e:
@@ -65,16 +55,19 @@ def app_callback(
     """
     FrappeManager for creating frappe development envrionments.
     """
+
+
     ctx.obj = {}
 
     help_called = is_cli_help_called(ctx)
     ctx.obj["is_help_called"] = help_called
 
     if not help_called:
-        richprint.start(f"Working")
 
         sitesdir = CLI_DIR / 'sites'
-        # Checks for cli directory
+
+        richprint.start(f"Working")
+
         if not CLI_DIR.exists():
             # creating the sites dir
             # TODO check if it's writeable and readable -> by writing a file to it and catching exception
@@ -84,6 +77,17 @@ def app_callback(
         else:
             if not CLI_DIR.is_dir():
                 richprint.exit("Sites directory is not a directory! Aborting!")
+
+        # logging
+        global logger
+        logger = log.get_logger()
+        logger.info('')
+        logger.info(f"{':'*20}FM Invoked{':'*20}")
+        logger.info('')
+
+        # logging command provided by user
+        logger.info(f"RUNNING COMMAND: {' '.join(sys.argv[1:])}")
+        logger.info('-'*20)
 
         # Migration for directory change from CLI_DIR to CLI_DIR/sites
         # TODO remove when not required, introduced in 0.8.4
