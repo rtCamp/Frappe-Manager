@@ -1,3 +1,4 @@
+from copy import deepcopy
 import importlib
 import shutil
 import re
@@ -96,9 +97,16 @@ class Site:
 
                     envs['nginx']['VIRTUAL_HOST'] = self.name
 
+                    import os
+                    envs_user_info = {}
+                    userid_groupid:dict = {"USERID": os.getuid(), "USERGROUP": os.getgid() }
+
+                    env_user_info_container_list = ['frappe','schedule','socketio']
+
+                    for env in env_user_info_container_list:
+                        envs_user_info[env] = deepcopy(userid_groupid)
 
                     # overwrite user for each invocation
-                    import os
                     users = {"nginx":{
                                     "uid": os.getuid(),
                                     "gid": os.getgid()
@@ -110,10 +118,12 @@ class Site:
 
                     # set all the payload
                     self.composefile.set_all_envs(envs)
+                    self.composefile.set_all_envs(envs_user_info)
                     self.composefile.set_all_labels(labels)
                     self.composefile.set_all_users(users)
                     # self.composefile.set_all_extrahosts(extrahosts)
 
+                    self.create_compose_dirs()
                     self.composefile.set_network_alias("nginx", "site-network", [self.name])
                     self.composefile.set_container_names(get_container_name_prefix(self.name))
                     fm_version = importlib.metadata.version("frappe-manager")
@@ -196,8 +206,9 @@ class Site:
 
         for directory in nginx_poluate_dir:
             new_dir = nginx_dir / directory
-            new_dir_abs = str(new_dir.absolute())
-            host_run_cp(nginx_image,source="/etc/nginx",destination=new_dir_abs,docker=self.docker)
+            if not new_dir.exists():
+                new_dir_abs = str(new_dir.absolute())
+                host_run_cp(nginx_image,source="/etc/nginx",destination=new_dir_abs,docker=self.docker)
 
         nginx_subdirs = ['logs','cache','run']
         for directory in nginx_subdirs:
