@@ -88,7 +88,7 @@ class Site:
                     labels = self.composefile.get_all_labels()
 
                     if not 'ENVIRONMENT' in envs['frappe']:
-                        envs['frappe']['ENVRIRONMENT'] = 'dev'
+                        envs['frappe']['ENVIRONMENT'] = 'dev'
 
                     # overwrite user for each invocation
                     import os
