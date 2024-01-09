@@ -481,6 +481,7 @@ class SiteManager:
 
         # running site services status
         running_site_services = self.site.get_services_running_status()
+
         if running_site_services:
             site_services_table = Table(show_lines=False, show_edge=False, pad_edge=False, show_header=False,expand=True,box=None)
             site_services_table.add_column("Service Status",ratio=1,no_wrap=True,width=None,min_width=20)
@@ -571,9 +572,9 @@ class SiteManager:
                 # worker_services_table_group = Group(worker_services_table,hints_table)
                 site_info_table.add_row("Worker Services", worker_services_table)
 
-            richprint.stdout.print(site_info_table)
-            richprint.print(f":green_square: -> Active :red_square: -> Inactive",emoji_code=':information:')
-            richprint.print(f"Run 'fm list' to list all available sites.",emoji_code=':light_bulb:')
+        richprint.stdout.print(site_info_table)
+        richprint.print(f":green_square: -> Active :red_square: -> Inactive",emoji_code=':information:')
+        richprint.print(f"Run 'fm list' to list all available sites.",emoji_code=':light_bulb:')
 
     def migrate_site(self):
         """
