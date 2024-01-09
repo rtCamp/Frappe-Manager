@@ -124,21 +124,27 @@ class SiteWorkers:
         except DockerException as e:
             richprint.exit(f"{status_text}: Failed")
 
-    def get_services_running_status(self)-> dict:
+    def get_services_running_status(self) -> dict:
         services = self.composefile.get_services_list()
         containers = self.composefile.get_container_names().values()
         services_status = {}
         try:
-            output = self.docker.compose.ps(service=services,format="json",all=True,stream=True)
-            status: dict = {}
+            output = self.docker.compose.ps(
+                service=services, format="json", all=True, stream=True
+            )
+            status: list = []
             for source, line in output:
                 if source == "stdout":
-                    status = json.loads(line.decode())
+                    current_status = json.loads(line.decode())
+                    if type(current_status) == dict:
+                        status.append(current_status)
+                    else:
+                        status += current_status
 
             # this is done to exclude docker runs using docker compose run command
             for container in status:
-                if container['Name'] in containers:
-                    services_status[container['Service']] = container['State']
+                if container["Name"] in containers:
+                    services_status[container["Service"]] = container["State"]
             return services_status
         except DockerException as e:
             richprint.exit(f"{e.stdout}{e.stderr}")

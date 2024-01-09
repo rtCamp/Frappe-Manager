@@ -469,10 +469,14 @@ class Site:
             output = self.docker.compose.ps(
                 service=services, format="json", all=True, stream=True
             )
-            status: dict = {}
+            status: list = []
             for source, line in output:
                 if source == "stdout":
-                    status = json.loads(line.decode())
+                    current_status = json.loads(line.decode())
+                    if type(current_status) == dict:
+                        status.append(current_status)
+                    else:
+                        status += current_status
 
             # this is done to exclude docker runs using docker compose run command
             for container in status:
