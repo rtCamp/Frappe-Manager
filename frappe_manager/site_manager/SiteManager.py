@@ -286,7 +286,7 @@ class SiteManager:
         self.migrate_site()
         self.site.pull()
         self.site.start()
-        self.site.frappe_logs_till_start()
+        self.site.frappe_logs_till_start(status_msg='Starting Site')
         self.site.sync_workers_compose()
 
     def attach_to_site(self, user: str, extensions: List[str]):
