@@ -86,9 +86,6 @@ class SiteWorkers:
                 worker_config['environment']['USERID']  = os.getuid()
                 worker_config['environment']['USERGROUP']  = os.getgid()
 
-                # setting extrahosts
-                worker_config['extra_hosts'] = [f'{self.site_name}:127.0.0.1']
-
                 self.composefile.yml['services'][worker] = worker_config
 
             self.composefile.set_container_names(get_container_name_prefix(self.site_name))
