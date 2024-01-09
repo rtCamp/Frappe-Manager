@@ -573,7 +573,7 @@ class SiteManager:
                 site_info_table.add_row("Worker Services", worker_services_table)
 
         richprint.stdout.print(site_info_table)
-        richprint.print(f":green_square: -> Active :red_square: -> Inactive",emoji_code=':information:')
+        richprint.print(f":green_square: -> Active :red_square: -> Inactive",emoji_code=':information: ')
         richprint.print(f"Run 'fm list' to list all available sites.",emoji_code=':light_bulb:')
 
     def migrate_site(self):
