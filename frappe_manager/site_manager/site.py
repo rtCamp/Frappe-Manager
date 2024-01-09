@@ -97,7 +97,7 @@ class Site:
                             }
 
                     # load template
-                    self.composefile.load_template()
+                    self.composefile.yml = self.composefile.load_template()
 
                     # set all the payload
                     self.composefile.set_all_envs(envs)

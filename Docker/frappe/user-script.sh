@@ -98,7 +98,8 @@ if [[ ! -d "frappe-bench" ]]; then
 
     host_changed=$(echo "$bench_serve_help_output" | grep -c 'host' || true)
 
-    SUPERVIOSRCONFIG_STATUS=$(bench setup supervisor --skip-redis --skip-supervisord --yes --user "$USER")
+    # SUPERVIOSRCONFIG_STATUS=$(bench setup supervisor --skip-redis --skip-supervisord --yes --user "$USER")
+    bench setup supervisor --skip-redis --skip-supervisord --yes --user "$USER"
 
     /scripts/divide-supervisor-conf.py config/supervisor.conf
 
@@ -142,7 +143,7 @@ else
 
     host_changed=$(echo "$bench_serve_help_output" | grep -c 'host' || true)
 
-    SUPERVIOSRCONFIG_STATUS=$(bench setup supervisor --skip-redis --skip-supervisord --yes --user "$USER")
+    bench setup supervisor --skip-redis --skip-supervisord --yes --user "$USER"
 
     /scripts/divide-supervisor-conf.py config/supervisor.conf
 

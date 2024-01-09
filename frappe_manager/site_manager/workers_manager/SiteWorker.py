@@ -67,7 +67,7 @@ class SiteWorkers:
             richprint.print("Workers configuration changed. Recreating compose...")
 
         # create compose file for workers
-        self.composefile.load_template()
+        self.composefile.yml = self.composefile.load_template()
 
         template_worker_config = self.composefile.yml['services']['worker-name']
 

@@ -285,6 +285,7 @@ class SiteManager:
         # start the provided site
         self.migrate_site()
         self.site.pull()
+        self.site.sync_workers_compose()
         self.site.start()
 
     def attach_to_site(self, user: str, extensions: List[str]):
