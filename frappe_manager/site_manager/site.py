@@ -87,8 +87,12 @@ class Site:
                     envs = self.composefile.get_all_envs()
                     labels = self.composefile.get_all_labels()
 
+                    # introduced in v0.10.0
                     if not 'ENVIRONMENT' in envs['frappe']:
                         envs['frappe']['ENVIRONMENT'] = 'dev'
+
+                    envs['frappe']['CONTAINER_NAME_PREFIX'] = get_container_name_prefix(self.name),
+
 
                     # overwrite user for each invocation
                     import os
