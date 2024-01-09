@@ -86,7 +86,8 @@ class Site:
                     # get all the payloads
                     envs = self.composefile.get_all_envs()
                     labels = self.composefile.get_all_labels()
-                    # extrahosts = self.composefile.get_all_extrahosts()
+
+                    envs['frappe']['ENVRIRONMENT'] = 'dev'
 
                     # overwrite user for each invocation
                     import os
