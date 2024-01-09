@@ -32,7 +32,7 @@ for section_name in config.sections():
             section_config.set(section_name, key, value)
 
         if 'worker' in section_name:
-            file_name = f"{section_name.replace('program:','')}.fm.workers.supervisor.conf"
+            file_name = f"{section_name.replace('program:','')}.workers.fm.supervisor.conf"
         else:
             file_name = f"{section_name.replace('program:','')}.fm.supervisor.conf"
 

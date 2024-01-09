@@ -1,18 +1,15 @@
-import pkgutil
 from pathlib import Path
 from ruamel.yaml import YAML
-from typing import List
-import typer
 
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.compose_manager.utils import represent_null_empty
 
 yaml = YAML(typ='safe',pure=True)
 yaml.representer.ignore_aliases = lambda *args: True
-#yaml.representer.add_representer(type(None), represent_none)
 
 # Set the default flow style to None to preserve the null representation
-yaml.default_flow_style = None
+yaml.default_flow_style = False
+
 
 
 class ComposeFile:
