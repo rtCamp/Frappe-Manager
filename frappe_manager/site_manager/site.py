@@ -513,11 +513,14 @@ class Site:
     def get_host_port_binds(self):
         try:
             output = self.docker.compose.ps(all=True, format="json", stream=True)
-            status: dict = {}
+            status: list = []
             for source, line in output:
                 if source == "stdout":
-                    status = json.loads(line.decode())
-                    break
+                    current_status = json.loads(line.decode())
+                    if type(current_status) == dict:
+                        status.append(current_status)
+                    else:
+                        status += current_status
             ports_info = []
             for container in status:
                 try:
