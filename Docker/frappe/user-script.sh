@@ -102,7 +102,7 @@ if [[ ! -d "frappe-bench" ]]; then
     host_changed=$(echo "$bench_serve_help_output" | grep -c 'host' || true)
 
     # SUPERVIOSRCONFIG_STATUS=$(bench setup supervisor --skip-redis --skip-supervisord --yes --user "$USER")
-    bench setup supervisor --skip-redis --skip-supervisord --yes --user "$USER"
+    $BENCH_COMMAND setup supervisor --skip-redis --skip-supervisord --yes --user "$USER"
 
     /scripts/divide-supervisor-conf.py config/supervisor.conf
 
@@ -146,7 +146,7 @@ else
 
     host_changed=$(echo "$bench_serve_help_output" | grep -c 'host' || true)
 
-    bench setup supervisor --skip-redis --skip-supervisord --yes --user "$USER"
+    $BENCH_COMMAND setup supervisor --skip-redis --skip-supervisord --yes --user "$USER"
 
     /scripts/divide-supervisor-conf.py config/supervisor.conf
 
@@ -158,15 +158,29 @@ else
 
     chmod +x /opt/user/bench-dev-server.sh
 
-    if [[ ! "${WEB_PORT}" == 80 ]]; then
-        $BENCH_COMMAND set-config -g webserver_port "$WEB_PORT";
-    fi
-
+    $BENCH_COMMAND config dns_multitenant on
+    $BENCH_COMMAND set-config -g db_host "$MARIADB_HOST"
+    $BENCH_COMMAND set-config -g db_port 3306
+    $BENCH_COMMAND set-config -g redis_cache "redis://${CONTAINER_NAME_PREFIX}-redis-cache:6379"
+    $BENCH_COMMAND set-config -g redis_queue "redis://${CONTAINER_NAME_PREFIX}-redis-queue:6379"
+    $BENCH_COMMAND set-config -g redis_socketio "redis://${CONTAINER_NAME_PREFIX}-redis-socketio:6379"
+    $BENCH_COMMAND set-config -g webserver_port "$WEB_PORT"
+    $BENCH_COMMAND set-config -g socketio_port "$REDIS_SOCKETIO_PORT"
 
     if [[ "${ENVIRONMENT}" = "dev" ]]; then
+
+        $BENCH_COMMAND set-config -g mail_port 1025
+        $BENCH_COMMAND set-config -g mail_server 'mailhog'
+        $BENCH_COMMAND set-config -g disable_mail_smtp_authentication 1
+        $BENCH_COMMAND set-config -g developer_mode "$DEVELOPER_MODE"
+
         cp /opt/user/frappe-dev.conf /opt/user/conf.d/frappe-dev.conf
     else
-        ln -sfn /workspace/frappe-bench/config/frappe-bench-frappe-web.fm.supervisor.conf /opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf
+        if [[ -f '/opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf' ]]; then
+                ln -sfn /workspace/frappe-bench/config/frappe-bench-frappe-web.fm.supervisor.conf /opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf
+        else
+            emer 'Not able to start the server. /opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf not available.'
+        fi
     fi
 
     if [[ -n "$BENCH_START_OFF" ]]; then
