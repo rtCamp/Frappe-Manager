@@ -7,10 +7,13 @@ emer() {
     exit 1
 }
 
-if [[ ! -d 'logs'  ]]; then
-    mkdir -p logs
+if [[ -d 'logs'  ]]; then
+    if [[ -f 'logs/bench-start.log' ]]; then
+        mv logs/bench-start.log logs/bench-start.log.bak
+    fi
     ln -sfn ../frappe-bench/logs/web.dev.log logs/bench-start.log
 fi
+
 
 REDIS_SOCKETIO_PORT=80
 WEB_PORT=80
