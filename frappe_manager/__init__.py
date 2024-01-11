@@ -24,5 +24,5 @@ class SiteServicesEnum(str, Enum):
     redis_queue = "redis-queue"
     redis_cache = "redis-cache"
     redis_socketio = "redis-socketio"
-    scheduler = "scheduler"
+    schedule = "schedule"
     socketio = "socketio"
