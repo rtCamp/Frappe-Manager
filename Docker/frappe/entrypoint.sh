@@ -32,7 +32,7 @@ if [[ ! -f "/workspace/.profile" ]]; then
    cat /opt/user/.profile > /workspace/.profile
 fi
 
-chown -R "$USERID":"$USERGROUP" /workspace
+#chown -R "$USERID":"$USERGROUP" /workspace
 
 if [ "$#" -gt 0 ]; then
     gosu "$USERID":"$USERGROUP" "/scripts/$@"
