@@ -48,10 +48,10 @@ if [[ ! -d "frappe-bench" ]]; then
     $BENCH_COMMAND init --skip-assets --skip-redis-config-generation --frappe-branch "$FRAPPE_BRANCH" frappe-bench
 
     # setting configuration
-    wait-for-it -t 120 "$MARIADB_HOST":3306
-    wait-for-it -t 120 redis-cache:6379
-    wait-for-it -t 120 redis-queue:6379
-    wait-for-it -t 120 redis-socketio:6379
+    wait-for-it -t 120 "$MARIADB_HOST":3306;
+    wait-for-it -t 120 "${CONTAINER_NAME_PREFIX}-redis-cache":6379;
+    wait-for-it -t 120 "${CONTAINER_NAME_PREFIX}-redis-queue":6379;
+    wait-for-it -t 120 "${CONTAINER_NAME_PREFIX}-redis-socketio":6379;
 
     cd frappe-bench
 
