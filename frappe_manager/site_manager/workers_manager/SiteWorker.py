@@ -34,7 +34,7 @@ class SiteWorkers:
         for file_path in self.config_dir.iterdir():
             file_path_abs = str(file_path.absolute())
             if file_path.is_file():
-                if '.workers.fm.supervisor.conf' in file_path_abs:
+                if file_path_abs.endswith('.workers.fm.supervisor.conf'):
                     workers_supervisor_conf_paths.append(file_path)
 
         workers_expected_service_names = []
@@ -55,7 +55,8 @@ class SiteWorkers:
         if not self.composefile.is_template_loaded:
             prev_workers = self.composefile.get_services_list()
             prev_workers.sort()
-            return prev_workers == self.get_expected_workers()
+            expected_workers = self.get_expected_workers()
+            return prev_workers == expected_workers
         else:
             return False
 
