@@ -32,8 +32,10 @@ if [[ ! -f "/workspace/.profile" ]]; then
    cat /opt/user/.profile > /workspace/.profile
 fi
 
-find /workspace -type d -print0 | xargs -0 -n 200 -P "$(nproc)" chown "$USERID":"$USERGROUP"
-find /workspace -type f -print0 | xargs -0 -n 200 -P "$(nproc)" chown "$USERID":"$USERGROUP"
+if [[ ! -d '/workspace/frappe-bench' ]]; then
+	find /workspace -type d -print0 | xargs -0 -n 200 -P "$(nproc)" chown "$USERID":"$USERGROUP"
+	find /workspace -type f -print0 | xargs -0 -n 200 -P "$(nproc)" chown "$USERID":"$USERGROUP"
+fi
 
 if [ "$#" -gt 0 ]; then
     gosu "$USERID":"$USERGROUP" "/scripts/$@"
