@@ -69,9 +69,8 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
     jq \
     gosu \
     fonts-powerline \
-    zsh
-
-    #&& rm -rf /var/lib/apt/lists/*
+    zsh \
+    && rm -rf /var/lib/apt/lists/*
 
 RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
     && dpkg-reconfigure --frontend=noninteractive locales
@@ -112,11 +111,7 @@ RUN git clone --depth 1 https://github.com/pyenv/pyenv.git .pyenv \
     && pyenv global $PYTHON_VERSION \
     && echo 'export PYENV_ROOT="/opt/.pyenv"' >> "$USERZSHRC" \
     && echo 'command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"' >> "$USERZSHRC" \
-    && echo 'eval "$(pyenv init -)"' >>"$USERZSHRC"
-
-    #&& echo 'eval "$(pyenv init -)"' >>"$USERPROFILE"
-    #&& sed -Ei -e '/^([^#]|$)/ {a export PYENV_ROOT="/opt/.pyenv" a export PATH="$PYENV_ROOT/bin:$PATH" a ' -e ':a' -e '$!{n;ba};}' "$USERPROFILE" \
-    #&& echo 'eval "$(pyenv init --path)"' >>"$USERPROFILE" \
+    && echo 'eval "$(pyenv init --path)"' >>"$USERZSHRC"
 
 RUN pip install frappe-bench
 
@@ -137,6 +132,7 @@ RUN mkdir -p /opt/.nvm \
     && echo 'export NVM_DIR="/opt/.nvm"' >>"$USERZSHRC" \
     && echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm' >> "$USERZSHRC" \
     && echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion' >> "$USERZSHRC"
+
 
 RUN mkdir -p /workspace
 
