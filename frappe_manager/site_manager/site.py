@@ -565,6 +565,7 @@ class Site:
         return True
 
     def get_services_running_status(self) -> dict:
+
         services = self.composefile.get_services_list()
         containers = self.composefile.get_container_names().values()
         services_status = {}
@@ -587,7 +588,7 @@ class Site:
                     services_status[container["Service"]] = container["State"]
             return services_status
         except DockerException as e:
-            richprint.exit(f"{e.stdout}{e.stderr}")
+            return {}
 
     def get_host_port_binds(self):
         try:

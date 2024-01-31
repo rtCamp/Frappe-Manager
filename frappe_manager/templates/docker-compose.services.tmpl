@@ -16,7 +16,7 @@ services:
       MYSQL_USER: REPLACE_WITH_DB_USER
       MYSQL_PASSWORD_FILE: REPLACE_WITH_DB_PASSWORD_SECRET_FILE
     volumes:
-      - fm-global-db-data:/var/lib/mysql
+      - ./mariadb/data:/var/lib/mysql
       - ./mariadb/conf:/etc/mysql
       - ./mariadb/logs:/var/log/mysql
     networks:
@@ -64,6 +64,3 @@ secrets:
      file: REPLACE_ME_WITH_DB_PASSWORD_TXT_PATH
    db_root_password:
      file: REPLACE_ME_WITH_DB_ROOT_PASSWORD_TXT_PATH
-
-volumes:
-  fm-global-db-data:

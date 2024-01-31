@@ -9,7 +9,7 @@ import importlib
 from frappe_manager.docker_wrapper import DockerException
 from frappe_manager.migration_manager.backup_manager import BackupData
 from frappe_manager.migration_manager.migration_base import MigrationBase
-from frappe_manager import CLI_DIR
+from frappe_manager import CLI_DIR, services_manager
 from frappe_manager.migration_manager.migration_exections import MigrationExceptionInSite
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.services_manager.services import ServicesManager
@@ -143,8 +143,8 @@ class MigrationV0100(MigrationBase):
 
         self.services_manager.down()
 
-        if self.services_manager.exists():
-            shutil.rmtree(self.services_manager.path)
+        if self.services_manager.path.exists():
+            self.services_manager.remove_itself()
 
         sites_manager = SiteManager(self.sites_dir)
         sites = sites_manager.get_all_sites()
@@ -321,21 +321,18 @@ class MigrationV0100(MigrationBase):
             new_dir = nginx_dir / directory
             new_dir.mkdir(parents=True, exist_ok=True)
 
-    def is_site_database_started(self, site, service="mariadb", interval=5, timeout=60):
+    def is_database_started(self, docker_object, db_user='root', db_password='root',db_host='127.0.0.1', service="mariadb", interval=5, timeout=30):
         import time
-
         i = 0
-        db_host = "127.0.0.1"
-        db_user = "root"
-        db_password = "root"
 
         check_connection_command = f"/usr/bin/mariadb -h{db_host} -u{db_user} -p'{db_password}' -e 'SHOW DATABASES;'"
         connected = False
         error = None
+
         while i < timeout:
             try:
                 time.sleep(interval)
-                output = site.docker.compose.exec(
+                output = docker_object.compose.exec(
                     service,
                     command=check_connection_command,
                     stream=True,
@@ -366,7 +363,7 @@ class MigrationV0100(MigrationBase):
 
             self.logger.debug("[db export] checking if mariadb started")
 
-            self.is_site_database_started(site)
+            self.is_database_started(site.docker)
 
             # create dir to store migration
             db_migration_dir_path = site.path / "workspace" / "migrations"
@@ -420,6 +417,9 @@ class MigrationV0100(MigrationBase):
             raise SiteDatabaseExport(site.name, f"Error while exporting db: {e}")
 
     def db_migration_import(self, site: Site, db_backup_file: BackupData):
+
+        self.logger.info(f"[database import: global-db] {site.name} -> {db_backup_file}")
+
         # cp into the global contianer
         self.services_manager.docker.compose.cp(
             source=str(db_backup_file.src.absolute()),
@@ -441,7 +441,7 @@ class MigrationV0100(MigrationBase):
         mariadb_command = f"/usr/bin/mariadb -u{services_db_user} -p'{services_db_pass}' -h'{services_db_host}' -P3306  -e "
         mariadb = f"/usr/bin/mariadb -u{services_db_user} -p'{services_db_pass}' -h'{services_db_host}' -P3306"
 
-
+        self.is_database_started(self.services_manager.docker, service='global-db',db_user=services_db_user,db_password=services_db_pass)
 
         db_add_database = mariadb_command + f"'CREATE DATABASE IF NOT EXISTS `{site_db_name}`';"
 
@@ -512,3 +512,4 @@ class MigrationV0100(MigrationBase):
             raise SiteDatabaseAddUserException(
                 site.name, f"Database user creation failed: {error}"
             )
+

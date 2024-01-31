@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Optional
 
 from frappe_manager import CLI_DIR
-from frappe_manager.services_manager.services_exceptions import ServicesComposeNotExist, ServicesDBNotStart
+from frappe_manager.services_manager.services_exceptions import ServicesComposeNotExist, ServicesDBNotStart, ServicesException, ServicesNotCreated
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.utils.helpers import (
@@ -47,19 +47,20 @@ class ServicesManager:
     def entrypoint_checks(self, start = False):
 
         if not self.path.exists():
-            richprint.print(f"Creating services",emoji_code=":construction:")
-            self.path.mkdir(parents=True, exist_ok=True)
-            self.create()
+            try:
+                richprint.print(f"Creating services",emoji_code=":construction:")
+                self.path.mkdir(parents=True, exist_ok=True)
+                self.create()
+            except Exception as e:
+                raise ServicesNotCreated(f'Error Caused: {e}')
+
             self.pull()
             richprint.print(f"Creating services: Done")
             if start:
                 self.start()
 
         if not self.compose_path.exists():
-            raise ServicesComposeNotExist("Seems like services has taken a down. Please recreate services.")
-            # richprint.exit(
-            #     "Seems like global services has taken a down. Please recreate global services."
-            # )
+            raise ServicesComposeNotExist(f"Seems like services has taken a down. Compose file not found at -> {self.compose_path}. Please recreate services.")
 
         if start:
             if not self.typer_context.invoked_subcommand == "service":
@@ -70,9 +71,15 @@ class ServicesManager:
     def init(self):
         # check if the global services exits if not then create
 
+        current_system = platform.system()
         self.composefile = ComposeFile(
             self.compose_path, template_name="docker-compose.services.tmpl"
         )
+
+        if current_system == "Darwin":
+            self.composefile = ComposeFile(
+                self.compose_path, template_name="docker-compose.services.osx.tmpl"
+            )
 
         self.docker = DockerClient(compose_file_path=self.composefile.compose_path)
 
@@ -89,6 +96,7 @@ class ServicesManager:
 
         current_system = platform.system()
 
+        inputs = {"environment": envs}
 
         try:
             user = {
@@ -96,16 +104,17 @@ class ServicesManager:
                     "uid": os.getuid(),
                     "gid": os.getgid(),
                 }}
+
             if not current_system == "Darwin":
-                user["global-nginx-proxy"]: {
+                user["global-nginx-proxy"] = {
                     "uid": os.getuid(),
                     "gid": get_unix_groups()["docker"],
                 }
+            inputs["user"]= user
 
         except KeyError:
-            richprint.exit("docker group not found in system.")
+            raise ServicesException("docker group not found in system. Please add docker group to the system and current user to the docker group.")
 
-        inputs = {"environment": envs, "user": user}
 
         if backup:
             if self.path.exists():
@@ -134,6 +143,12 @@ class ServicesManager:
             "secrets"
         ]
             #"mariadb/data",
+
+        if current_system == "Darwin":
+            self.composefile.remove_container_user('global-nginx-proxy')
+            self.composefile.remove_container_user('global-db')
+        else:
+            dirs_to_create.append("mariadb/data")
 
         # create dirs
         for folder in dirs_to_create:
@@ -168,9 +183,6 @@ class ServicesManager:
         # set secrets in compose
         self.generate_compose(inputs)
 
-        if current_system == "Darwin":
-            self.composefile.remove_container_user('global-nginx-proxy')
-            self.composefile.remove_container_user('global-db')
 
         self.composefile.set_secret_file_path('db_password',str(db_password_path.absolute()))
         self.composefile.set_secret_file_path('db_root_password',str(db_root_password_path.absolute()))
@@ -181,21 +193,18 @@ class ServicesManager:
         Provides info about databse
         """
         info: dict = {}
+        info["user"] = "root"
+        info["host"] = "global-db"
+        info["port"] = 3306
         try:
             password_path = self.composefile.get_secret_file_path('db_root_password')
             with open(Path(password_path),'r') as f:
                 password = f.read()
                 info["password"] = password
-                info["user"] = "root"
-                info["host"] = "global-db"
-                info["port"] = 3306
             return info
         except KeyError as e:
             # TODO secrets not exists
             info["password"] = None
-            info["user"] = "root"
-            info["host"] = "global-db"
-            info["port"] = 3306
             return info
 
     def exists(self):
@@ -204,12 +213,14 @@ class ServicesManager:
     def generate_compose(self, inputs: dict):
         """
         This can get a file like
+
         inputs = {
         "environment" : {'key': 'value'},
         "extrahosts" : {'key': 'value'},
         "user" : {'uid': 'value','gid': 'value'},
         "labels" : {'key': 'value'},
         }
+
         """
         try:
             # handle envrionment
@@ -497,31 +508,9 @@ class ServicesManager:
         remove_db_user = f"/usr/bin/mariadb -P3306 -h{db_host} -u{db_user} -p'{db_password}' -e 'DROP USER `{site_db_user}`@`%`;'"
         add_db_user = f"/usr/bin/mariadb -h{db_host} -P3306 -u{db_user} -p'{db_password}' -e 'CREATE USER `{site_db_user}`@`%` IDENTIFIED BY \"{site_db_pass}\";'"
         grant_user = f"/usr/bin/mariadb -h{db_host} -P3306 -u{db_user} -p'{db_password}' -e 'GRANT ALL PRIVILEGES ON `{site_db_name}`.* TO `{site_db_user}`@`%`;'"
-        # SHOW_db_user= f"/usr/bin/mariadb -P3306-h{db_host} -u{db_user} -p'{db_password}' -e 'SELECT User, Host FROM mysql.user;'"
-#
-        # import time;
-        # check_connection_command = f"/usr/bin/mariadb -h{db_host} -u{db_user} -p'{db_password}' -e 'SHOW DATABASES;'"
-
-        # i = 0
-        # connected = False
-
-        # error = None
-        # while i < timeout:
-        #     try:
-        #         time.sleep(5)
-        #         output = self.docker.compose.exec('global-db', command=check_connection_command, stream=self.quiet, stream_only_exit_code=True)
-        #         if next(output) == 0:
-        #             connected = True
-        #     except DockerException as e:
-        #         error = e
-        #         pass
-
-        #     i += 1
-
-        # if not connected:
-        #     raise ServicesDBNotStart(f"DB did not start: {error}")
 
         removed = True
+
         try:
             output = self.docker.compose.exec('global-db', command=remove_db_user, stream=self.quiet,stream_only_exit_code=True)
         except DockerException as e:
@@ -536,3 +525,6 @@ class ServicesManager:
                 richprint.print(f"Recreated user {site_db_user}")
             except DockerException as e:
                 raise ServicesDBNotStart(f"Database user creation failed: {e}")
+
+    def remove_itself(self):
+        shutil.rmtree(self.path)

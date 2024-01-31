@@ -130,8 +130,10 @@ class SiteWorkers:
             richprint.warning(f"{status_text}: Failed")
 
     def get_services_running_status(self) -> dict:
+
         services = self.composefile.get_services_list()
         containers = self.composefile.get_container_names().values()
+
         services_status = {}
         try:
             output = self.docker.compose.ps(
@@ -152,7 +154,7 @@ class SiteWorkers:
                     services_status[container["Service"]] = container["State"]
             return services_status
         except DockerException as e:
-            richprint.exit(f"{e.stdout}{e.stderr}")
+            return {}
 
 
     def running(self) -> bool:

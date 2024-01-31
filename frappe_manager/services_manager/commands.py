@@ -76,6 +76,6 @@ def shell(
     user: Annotated[str, typer.Option(help="Connect as this user.")] = None,
 ):
     """
-    Open shell for the specificed global services_manager.
+    Open shell for the specificed global service.
     """
     services_manager.shell(service_name.value, users)

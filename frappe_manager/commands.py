@@ -5,6 +5,7 @@ import requests
 import sys
 import shutil
 from typing import Annotated, List, Optional, Set
+from frappe_manager.services_manager.services_exceptions import ServicesNotCreated
 from frappe_manager.site_manager.SiteManager import SiteManager
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager import CLI_DIR, default_extension, SiteServicesEnum, services_manager
@@ -12,6 +13,7 @@ from frappe_manager.logger import log
 from frappe_manager.docker_wrapper import DockerClient
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
+from frappe_manager.site_manager.site_exceptions import SiteException
 from frappe_manager.utils.callbacks import apps_list_validation_callback, frappe_branch_validation_callback, version_callback
 from frappe_manager.utils.helpers import get_container_name_prefix, is_cli_help_called
 from frappe_manager.services_manager.commands import services_app
@@ -79,7 +81,11 @@ def app_callback(
         global services_manager
         services_manager = ServicesManager(verbose=verbose)
         services_manager.init()
-        services_manager.entrypoint_checks()
+        try:
+            services_manager.entrypoint_checks()
+        except ServicesNotCreated as e:
+            services_manager.remove_itself()
+            richprint.exit(f"Not able to create services. {e}")
 
         if not services_manager.running():
             services_manager.start()
