@@ -14,8 +14,12 @@ services:
       - ./workspace:/workspace:cached
     networks:
       site-network:
+      global-backend-network:
 
 networks:
   site-network:
     name: REPLACE_ME_WITH_SITE_NAME_NETWORK
+    external: true
+  global-backend-network:
+    name: fm-global-backend-network
     external: true
