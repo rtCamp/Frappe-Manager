@@ -1,9 +1,11 @@
-from typing import Literal, Optional
 import json
-from frappe_manager.docker_wrapper.DockerCompose import DockerComposeWrapper
+import shlex
+
+from typing import Literal, Optional
 from pathlib import Path
+from frappe_manager.docker_wrapper.DockerCompose import DockerComposeWrapper
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.docker_wrapper.utils import (
+from frappe_manager.utils.docker import (
     is_current_user_in_group,
     parameters_to_options,
     run_command_with_exit_code,
@@ -11,16 +13,33 @@ from frappe_manager.docker_wrapper.utils import (
 
 
 class DockerClient:
+    """
+    This class provide one to one mapping to the docker command.
+
+    Only this args have are different use case.
+        stream (bool, optional): A boolean flag indicating whether to stream the output of the command as it runs. 
+            If set to True, the output will be displayed in real-time. If set to False, the output will be 
+            displayed after the command completes. Defaults to False.
+        stream_only_exit_code (bool, optional): A boolean flag indicating whether to only stream the exit code of the 
+            command. Defaults to False.
+    """
+
     def __init__(self, compose_file_path: Optional[Path] = None):
+        """
+        Initializes a DockerClient object.
+        Args:
+            compose_file_path (Optional[Path]): The path to the Docker Compose file. Defaults to None.
+        """
         self.docker_cmd = ["docker"]
         if compose_file_path:
             self.compose = DockerComposeWrapper(compose_file_path)
 
     def version(self) -> dict:
         """
-        The `version` function retrieves the version information of a Docker container and returns it as a
-        JSON object.
-        :return: a dictionary object named "output".
+        Retrieves the version information of the Docker client.
+
+        Returns:
+            A dictionary containing the version information.
         """
         parameters: dict = locals()
 
@@ -33,20 +52,22 @@ class DockerClient:
         iterator = run_command_with_exit_code(self.docker_cmd + ver_cmd, quiet=False)
 
         output: dict = {}
+
         try:
             for source, line in iterator:
                 if source == "stdout":
                     output = json.loads(line.decode())
         except Exception as e:
             return {}
+
         return output
 
     def server_running(self) -> bool:
         """
-        The function `server_running` checks if the Docker server is running and returns a boolean value
-        indicating its status.
-        :return: a boolean value. If the 'Server' key in the 'docker_info' dictionary is truthy, then the
-        function returns True. Otherwise, it returns False.
+        Checks if the Docker server is running.
+
+        Returns:
+            bool: True if the Docker server is running, False otherwise.
         """
         docker_info = self.version()
         if "Server" in docker_info:
@@ -146,19 +167,25 @@ class DockerClient:
         name: Optional[str] = None,
         detach: bool = False,
         entrypoint: Optional[str] = None,
+        pull: Literal["missing", "never", "always"] = "missing",
+        use_shlex_split: bool = True,
         stream: bool = False,
         stream_only_exit_code: bool = False,
     ):
         parameters: dict = locals()
         run_cmd: list = ["run"]
 
-        remove_parameters = ["stream", "stream_only_exit_code", "image", "command"]
+        remove_parameters = ["stream", "stream_only_exit_code", "command", "image","use_shlex_split"]
 
         run_cmd += parameters_to_options(parameters, exclude=remove_parameters)
+
         run_cmd += [f"{image}"]
 
         if command:
-            run_cmd += [f"{command}"]
+            if use_shlex_split:
+                run_cmd += shlex.split(command, posix=True)
+            else:
+                run_cmd += [command]
 
         iterator = run_command_with_exit_code(
             self.docker_cmd + run_cmd, quiet=stream_only_exit_code, stream=stream
