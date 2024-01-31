@@ -4,6 +4,9 @@ from enum import Enum
 # TODO configure this using config
 #sites_dir = Path().home() / __name__.split(".")[0]
 CLI_DIR = Path.home() / 'frappe'
+CLI_METADATA_PATH = CLI_DIR / '.fm.toml'
+CLI_SITES_ARCHIVE = CLI_DIR / 'archived'
+
 
 default_extension = [
     "dbaeumer.vscode-eslint",
