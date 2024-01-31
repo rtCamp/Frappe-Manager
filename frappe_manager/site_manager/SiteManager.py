@@ -423,6 +423,7 @@ class SiteManager:
             site_info_table.add_row("Bench Apps", bench_apps_list_table)
 
         running_site_services = self.site.get_services_running_status()
+
         running_site_workers = self.site.workers.get_services_running_status()
 
         if running_site_services:
@@ -434,10 +435,10 @@ class SiteManager:
             site_info_table.add_row("Site Workers", site_workers_table)
 
         richprint.stdout.print(site_info_table)
-        richprint.print(
-            f":green_square: -> Active :red_square: -> Inactive",
-            emoji_code=":information: ",
-        )
+        # richprint.print(
+        #     f":green_square: -> Active :red_square: -> Inactive",
+        #     emoji_code=":information: ",
+        # )
         richprint.print(
             f"Run 'fm list' to list all available sites.", emoji_code=":light_bulb:"
         )

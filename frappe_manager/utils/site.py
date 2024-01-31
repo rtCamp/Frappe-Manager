@@ -49,7 +49,7 @@ def create_service_element(service, running_status):
     )
     service_table.add_column("Service", justify="left", no_wrap=True)
     service_table.add_column("Status", justify="right", no_wrap=True)
-    service_status = ":green_square:" if running_status == "running" else ":red_square:"
+    service_status = "\u2713" if running_status == "running" else "\u2718"
     service_table.add_row(
         f"{service}",
         f"{service_status}",
