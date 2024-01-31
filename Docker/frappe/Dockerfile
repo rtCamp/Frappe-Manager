@@ -141,7 +141,7 @@ WORKDIR /workspace
 RUN mkdir -p /opt/user/.bin
 ENV PATH /opt/user/.bin:${PATH}
 
-RUN echo PATH='/opt/user/.bin:$PATH' >> "$USERZSHRC"
+RUN echo 'export PATH="/opt/user/.bin:$PATH"' >> "$USERZSHRC"
 
 COPY ./supervisord.conf /opt/user/
 COPY ./bench-dev-server /opt/user/
