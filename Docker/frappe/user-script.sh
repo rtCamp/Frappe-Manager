@@ -1,6 +1,5 @@
 #!/bin/bash
 # This script creates bench and executes it.
-
 set -e
 emer() {
     echo "$@"
@@ -19,7 +18,7 @@ REDIS_SOCKETIO_PORT=80
 WEB_PORT=80
 
 if [[ ! "${MARIADB_HOST:-}" ]]; then
-	MARIADB_HOST='mariadb'
+	MARIADB_HOST='global-db'
 fi
 
 if [[ ! "${MARIADB_ROOT_PASS:-}" ]]; then
@@ -42,7 +41,6 @@ if [[ ! -d "frappe-bench" ]]; then
     [[ "${ADMIN_PASS:-}" ]] || emer "[ERROR] ADMIN_PASS env not found. Please provide ADMIN_PASS env."
     [[ "${DB_NAME:-}" ]] || emer "[ERROR] DB_NAME env not found. Please provide DB_NAME env."
     [[ "${CONTAINER_NAME_PREFIX:-}" ]] || emer "[ERROR] CONTAINER_NAME_PREFIX env not found. Please provide CONTAINER_NAME_PREFIX env."
-
 
     # create the bench
     $BENCH_COMMAND init --skip-assets --skip-redis-config-generation --frappe-branch "$FRAPPE_BRANCH" frappe-bench
@@ -115,8 +113,7 @@ if [[ ! -d "frappe-bench" ]]; then
     chmod +x /opt/user/bench-dev-server.sh
 
     $BENCH_COMMAND build
-
-    $BENCH_COMMAND new-site --db-root-password "$MARIADB_ROOT_PASS" --db-name "$DB_NAME"  --no-mariadb-socket --admin-password "$ADMIN_PASS"  "$SITENAME"
+    $BENCH_COMMAND new-site --db-root-password $(cat $MARIADB_ROOT_PASS) --db-name "$DB_NAME"  --db-host "$MARIADB_HOST" --admin-password "$ADMIN_PASS" --no-mariadb-socket "$SITENAME"
     $BENCH_COMMAND --site "$SITENAME" scheduler enable
 
     wait
@@ -135,6 +132,7 @@ if [[ ! -d "frappe-bench" ]]; then
 
 
 else
+    set -x
     wait-for-it -t 120 "$MARIADB_HOST":3306;
     wait-for-it -t 120 "${CONTAINER_NAME_PREFIX}-redis-cache":6379;
     wait-for-it -t 120 "${CONTAINER_NAME_PREFIX}-redis-queue":6379;
@@ -158,21 +156,7 @@ else
 
     chmod +x /opt/user/bench-dev-server.sh
 
-    $BENCH_COMMAND config dns_multitenant on
-    $BENCH_COMMAND set-config -g db_host "$MARIADB_HOST"
-    $BENCH_COMMAND set-config -g db_port 3306
-    $BENCH_COMMAND set-config -g redis_cache "redis://${CONTAINER_NAME_PREFIX}-redis-cache:6379"
-    $BENCH_COMMAND set-config -g redis_queue "redis://${CONTAINER_NAME_PREFIX}-redis-queue:6379"
-    $BENCH_COMMAND set-config -g redis_socketio "redis://${CONTAINER_NAME_PREFIX}-redis-socketio:6379"
-    $BENCH_COMMAND set-config -g webserver_port "$WEB_PORT"
-    $BENCH_COMMAND set-config -g socketio_port "$REDIS_SOCKETIO_PORT"
-
     if [[ "${ENVIRONMENT}" = "dev" ]]; then
-
-        $BENCH_COMMAND set-config -g mail_port 1025
-        $BENCH_COMMAND set-config -g mail_server 'mailhog'
-        $BENCH_COMMAND set-config -g disable_mail_smtp_authentication 1
-        $BENCH_COMMAND set-config -g developer_mode "$DEVELOPER_MODE"
 
         cp /opt/user/frappe-dev.conf /opt/user/conf.d/frappe-dev.conf
     else

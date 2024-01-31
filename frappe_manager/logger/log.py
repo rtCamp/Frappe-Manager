@@ -35,7 +35,6 @@ def get_logger(log_dir=log_directory, log_file_name='fm') -> logging.Logger:
     # Build Log File Full Path
     logPath = log_dir / f"{log_file_name}.log"
 
-
     try:
         log_dir.mkdir(parents=False, exist_ok=True)
     except PermissionError as e:

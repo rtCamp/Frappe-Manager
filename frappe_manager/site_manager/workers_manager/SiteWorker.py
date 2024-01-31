@@ -1,10 +1,12 @@
 import importlib
 import json
 from copy import deepcopy
+
+from frappe_manager.site_manager.site_exceptions import SiteWorkerNotStart
+from rich import inspect
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
-#from frappe_manager.console_manager.Richprint import richprint
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.site_manager.utils import get_container_name_prefix, log_file
+from frappe_manager.utils.helpers import get_container_name_prefix
 from frappe_manager.docker_wrapper import DockerClient, DockerException
 
 class SiteWorkers:
@@ -20,15 +22,13 @@ class SiteWorkers:
         self.composefile = ComposeFile( self.compose_path, template_name='docker-compose.workers.tmpl')
         self.docker = DockerClient(compose_file_path=self.composefile.compose_path)
 
-        if not self.docker.server_running():
-            richprint.exit("Docker daemon not running. Please start docker service.")
-
     def exists(self):
         return self.compose_path.exists()
 
     def get_expected_workers(self)-> list[str]:
 
         richprint.change_head("Getting Workers info")
+
         workers_supervisor_conf_paths = []
 
         for file_path in self.config_dir.iterdir():
@@ -44,6 +44,7 @@ class SiteWorkers:
             worker_name = worker_name.replace("frappe-bench-frappe-","")
             worker_name = worker_name.replace(".workers.fm.supervisor.conf","")
             workers_expected_service_names.append(worker_name)
+
         workers_expected_service_names.sort()
 
         richprint.print("Getting Workers info: Done")
@@ -91,6 +92,7 @@ class SiteWorkers:
                 self.composefile.yml['services'][worker] = worker_config
 
             self.composefile.set_container_names(get_container_name_prefix(self.site_name))
+
             fm_version = importlib.metadata.version("frappe-manager")
             self.composefile.set_version(fm_version)
 
@@ -110,6 +112,7 @@ class SiteWorkers:
             richprint.print(f"{status_text}: Done")
         except DockerException as e:
             richprint.error (f"{status_text}: Failed Error: {e}")
+            raise e
 
     def stop(self) -> bool:
         """
@@ -124,7 +127,7 @@ class SiteWorkers:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
             richprint.print(f"{status_text}: Done")
         except DockerException as e:
-            richprint.exit(f"{status_text}: Failed")
+            richprint.warning(f"{status_text}: Failed")
 
     def get_services_running_status(self) -> dict:
         services = self.composefile.get_services_list()
