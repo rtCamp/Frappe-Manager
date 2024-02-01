@@ -72,17 +72,16 @@ class ServicesManager:
         # check if the global services exits if not then create
 
         current_system = platform.system()
+
         self.composefile = ComposeFile(
             self.compose_path, template_name="docker-compose.services.tmpl"
         )
-
         if current_system == "Darwin":
             self.composefile = ComposeFile(
                 self.compose_path, template_name="docker-compose.services.osx.tmpl"
             )
 
         self.docker = DockerClient(compose_file_path=self.composefile.compose_path)
-
 
     def create(self, backup=False):
         envs = {
@@ -110,6 +109,7 @@ class ServicesManager:
                     "uid": os.getuid(),
                     "gid": get_unix_groups()["docker"],
                 }
+
             inputs["user"]= user
 
         except KeyError:
@@ -143,6 +143,9 @@ class ServicesManager:
             "secrets"
         ]
             #"mariadb/data",
+
+        # set secrets in compose
+        self.generate_compose(inputs)
 
         if current_system == "Darwin":
             self.composefile.remove_container_user('global-nginx-proxy')
@@ -180,9 +183,6 @@ class ServicesManager:
             destination=mariadb_conf,
             docker=self.docker,
         )
-        # set secrets in compose
-        self.generate_compose(inputs)
-
 
         self.composefile.set_secret_file_path('db_password',str(db_password_path.absolute()))
         self.composefile.set_secret_file_path('db_root_password',str(db_root_password_path.absolute()))
