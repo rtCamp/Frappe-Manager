@@ -842,6 +842,8 @@ class Site:
 
         if running:
             self.start()
+            self.frappe_logs_till_start(status_msg='Starting Site')
+
         richprint.print(f"Removing Secrets: Done")
 
     def remove_database_and_user(self):

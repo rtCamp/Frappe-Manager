@@ -141,7 +141,6 @@ class SiteManager:
             self.typer_context.obj["logger"].info(
                 f"SITE_STATUS {self.site.name}: WORKING"
             )
-
             richprint.print(f"Started site")
 
             self.info()
