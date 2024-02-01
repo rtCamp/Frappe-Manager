@@ -347,7 +347,7 @@ class MigrationV0100(MigrationBase):
             i += 1
 
         if not connected:
-            raise SiteDatabaseStartTimeout(site.name, f"Not able to start db: {error}")
+            raise SiteDatabaseStartTimeout(f"Not able to start db: {error}")
 
     def db_migration_export(self, site) -> Path:
         self.logger.debug("[db export] site: %s", site.name)

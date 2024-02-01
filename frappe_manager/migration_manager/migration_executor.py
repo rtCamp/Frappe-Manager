@@ -67,10 +67,8 @@ class MigrationExecutor():
             except Exception as e:
                 print(f"Failed to register migration {name}: {e}")
 
-        #self.migrations.sort()
         self.migrations = sorted(self.migrations, key=lambda x: x.version)
 
-        # print info to user
         if self.migrations:
             richprint.print("Pending Migrations...")
 
@@ -128,6 +126,7 @@ class MigrationExecutor():
 
 
         if archive:
+            self.prev_version = self.undo_stack[-1].version
             for site, exception in self.migrate_sites.items():
                 if exception:
                     archive_site_path = CLI_SITES_ARCHIVE / site.name
