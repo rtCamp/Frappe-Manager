@@ -76,7 +76,11 @@ class MigrationExecutor():
                 richprint.print(f"[bold]MIGRATION:[/bold] v{migration.version}")
 
             richprint.print(
-                f"This may take some time.", emoji_code=":light_bulb:"
+                "This may take some time.", emoji_code=":light_bulb:"
+            )
+
+            richprint.print(
+                "Manual migration guide can be found here -> https://github.com/rtCamp/Frappe-Manager/wiki/Migrations#manual-migration-procedure", emoji_code=":light_bulb:"
             )
 
             migrate_msg =(
@@ -126,6 +130,8 @@ class MigrationExecutor():
                     if exception:
                         richprint.print(f"[bold][red]SITE[/red]:[/bold] {site.name}")
                         richprint.print(f"[bold][red]EXCEPTION[/red]:[/bold] {exception}")
+
+                richprint.print(f"More details about the error can be found in the log -> `~/frappe/logs/fm.log`")
 
                 archive_msg =(
                         f"\nIF [y]: Sites that have failed will be rolled back and stored in {CLI_SITES_ARCHIVE}."

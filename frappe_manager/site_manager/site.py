@@ -422,7 +422,7 @@ class Site:
                 )
                 if self.quiet:
                     exit_code = richprint.live_lines(output, padding=(0, 0, 0, 2))
-                richprint.print(f"Removing Containers: Done")
+                richprint.print(f"{status_text}: Done")
             except DockerException as e:
                 richprint.exit(f"{status_text}: Failed")
 
