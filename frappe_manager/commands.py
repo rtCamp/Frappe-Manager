@@ -4,6 +4,7 @@ import os
 import requests
 import sys
 import shutil
+
 from typing import Annotated, List, Optional, Set
 from frappe_manager.services_manager.services_exceptions import ServicesNotCreated
 from frappe_manager.site_manager.SiteManager import SiteManager
@@ -15,7 +16,7 @@ from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.site_manager.site_exceptions import SiteException
 from frappe_manager.utils.callbacks import apps_list_validation_callback, frappe_branch_validation_callback, version_callback
-from frappe_manager.utils.helpers import get_container_name_prefix, is_cli_help_called
+from frappe_manager.utils.helpers import get_container_name_prefix, is_cli_help_called, get_current_fm_version
 from frappe_manager.services_manager.commands import services_app
 
 app = typer.Typer(no_args_is_help=True,rich_markup_mode='rich')
@@ -44,6 +45,7 @@ def app_callback(
     if not help_called:
 
         sitesdir = CLI_DIR / 'sites'
+        first_time_install = False
 
         richprint.start(f"Working")
 
@@ -53,6 +55,7 @@ def app_callback(
             CLI_DIR.mkdir(parents=True, exist_ok=True)
             sitesdir.mkdir(parents=True, exist_ok=True)
             richprint.print(f"fm directory doesn't exists! Created at -> {str(CLI_DIR)}")
+            first_time_install = True
         else:
             if not CLI_DIR.is_dir():
                 richprint.exit("Sites directory is not a directory! Aborting!")
@@ -72,6 +75,14 @@ def app_callback(
         # check docker daemon service
         if not DockerClient().server_running():
             richprint.exit("Docker daemon not running. Please start docker service.")
+
+        if first_time_install :
+            from frappe_manager.metadata_manager import MetadataManager
+            from frappe_manager.migration_manager.version import Version
+            metadata_manager = MetadataManager()
+            current_version = Version(get_current_fm_version())
+            metadata_manager.set_version(current_version)
+            metadata_manager.save()
 
         migrations = MigrationExecutor()
         migration_status = migrations.execute()
