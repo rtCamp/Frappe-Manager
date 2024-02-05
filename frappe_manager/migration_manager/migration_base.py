@@ -12,10 +12,10 @@ class MigrationBase(Protocol):
     skip: bool = False
     migration_executor = None
     backup_manager: BackupManager  # Declare the backup_manager variable
-    logger = log.get_logger()
 
-    def __init__(self):
+    def init(self):
         self.backup_manager = BackupManager(str(self.version))  # Assign the value to backup_manager
+        self.logger = log.get_logger()
 
     def up(self):
         pass

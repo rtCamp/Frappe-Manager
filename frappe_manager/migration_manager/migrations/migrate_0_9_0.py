@@ -12,7 +12,7 @@ class MigrationV090(MigrationBase):
     version = Version("0.9.0")
 
     def __init__(self):
-        super().__init__()
+        super().init()
         self.sitesdir = CLI_DIR / "sites"
 
         if self.sitesdir.exists():

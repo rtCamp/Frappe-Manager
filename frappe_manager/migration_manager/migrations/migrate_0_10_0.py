@@ -37,7 +37,7 @@ class MigrationV0100(MigrationBase):
     version = Version("0.10.0")
 
     def __init__(self):
-        super().__init__()
+        super().init()
         self.sites_dir = CLI_DIR / "sites"
         self.services_manager = ServicesManager(verbose=False)
 
