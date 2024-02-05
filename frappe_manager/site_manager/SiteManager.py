@@ -214,10 +214,6 @@ class SiteManager:
 
         richprint.stop()
         richprint.stdout.print(list_table)
-        richprint.print(
-            f"Run 'fm info <sitename>' to get detail information about a site.",
-            emoji_code=":light_bulb:",
-        )
 
     def stop_site(self):
         """
@@ -438,9 +434,6 @@ class SiteManager:
         #     f":green_square: -> Active :red_square: -> Inactive",
         #     emoji_code=":information: ",
         # )
-        richprint.print(
-            f"Run 'fm list' to list all available sites.", emoji_code=":light_bulb:"
-        )
 
     def migrate_site(self):
         """
