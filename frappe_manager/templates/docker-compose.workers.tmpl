@@ -1,6 +1,7 @@
 services:
   worker-name:
     image: ghcr.io/rtcamp/frappe-manager-frappe:v0.10.0
+    restart: always
     environment:
       TIMEOUT: 6000
       CHANGE_DIR: /workspace/frappe-bench
