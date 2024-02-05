@@ -72,8 +72,27 @@ class MigrationExecutor():
         if self.migrations:
             richprint.print("Pending Migrations...")
 
-        for migration in self.migrations:
-            richprint.print(f"[bold]MIGRATION:[/bold] v{migration.version}")
+            for migration in self.migrations:
+                richprint.print(f"[bold]MIGRATION:[/bold] v{migration.version}")
+
+            richprint.print(
+                f"This may take some time.", emoji_code=":light_bulb:"
+            )
+
+            migrate_msg =(
+                    "\nIF [y]: Start Migration."
+                    "\nIF [N]: Don't migrate and revert to previous fm version."
+                    "\nDo you want to migrate ?"
+            )
+            # prompt
+            richprint.stop()
+            continue_migration = typer.confirm(migrate_msg)
+
+            if not continue_migration:
+                downgrade_package('frappe-manager',str(self.prev_version.version))
+                richprint.exit(f'Successfully installed [bold][blue]Frappe-Manager[/blue][/bold] version: v{str(self.prev_version.version)}',emoji_code=':white_check_mark:')
+
+            richprint.start('Working')
 
         rollback = False
         archive = False
