@@ -1,6 +1,6 @@
 #!/bin/bash
 after_command() {
-        supervisorctl -c /opt/user/supervisord.conf restart bench-dev
+        supervisorctl -c /opt/user/supervisord.conf restart frappe-bench-dev:
 }
 if [[ "$@" =~ ^restart[[:space:]]* ]]; then
         after_command
