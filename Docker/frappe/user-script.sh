@@ -1,54 +1,70 @@
-#!/usr/bin/env bash
+#!/bin/bash
 # This script creates bench and executes it.
+set -e
 emer() {
     echo "$@"
     exit 1
 }
 
-if [[ ! -d 'logs'  ]]; then
-    mkdir -p logs
+if [[ -d 'logs'  ]]; then
+    if [[ -f 'logs/bench-start.log' ]]; then
+        mv logs/bench-start.log logs/bench-start.log.bak
+    fi
+    ln -sfn ../frappe-bench/logs/web.dev.log logs/bench-start.log
 fi
 
-REDIS_SOCKETIO_PORT=9000
+
+REDIS_SOCKETIO_PORT=80
 WEB_PORT=80
-MARIADB_ROOT_PASS='root'
+
+if [[ ! "${MARIADB_HOST:-}" ]]; then
+	MARIADB_HOST='global-db'
+fi
+
+if [[ ! "${MARIADB_ROOT_PASS:-}" ]]; then
+	MARIADB_ROOT_PASS='root'
+fi
 
 BENCH_COMMAND='/opt/.pyenv/shims/bench'
+
+[[ "${ENVIRONMENT:-}" ]] || emer "[ERROR] ENVIRONMENT env not found. Please provide ENVIRONMENT env."
+[[ "${WEB_PORT:-}" ]] || emer "[ERROR] WEB_PORT env not found. Please provide WEB_PORT env."
+[[ "${SITENAME:-}" ]] || emer "[ERROR] SITENAME env not found. Please provide SITENAME env."
 
 # if the bench doesn't exists
 if [[ ! -d "frappe-bench" ]]; then
 
-    [[ "${SITENAME:-}" ]] || emer "[ERROR] SITENAME env not found. Please provide SITENAME env."
     [[ "${REDIS_SOCKETIO_PORT:-}" ]] || emer "[ERROR] REDIS_SOCKETIO_PORT env not found. Please provide REDIS_SOCKETIO_PORT env."
     [[ "${DEVELOPER_MODE:-}" ]] || emer "[ERROR] DEVELOPER_MODE env not found. Please provide DEVELOPER_MODE env."
-    [[ "${WEB_PORT:-}" ]] || emer "[ERROR] WEB_PORT env not found. Please provide WEB_PORT env."
     [[ "${MARIADB_ROOT_PASS:-}" ]] || emer "[ERROR] MARIADB_ROOT_PASS env not found. Please provide MARIADB_ROOT_PASS env."
+    [[ "${MARIADB_HOST:-}" ]] || emer "[ERROR] MARIADB_HOST env not found. Please provide MARIADB_HOST env."
     [[ "${ADMIN_PASS:-}" ]] || emer "[ERROR] ADMIN_PASS env not found. Please provide ADMIN_PASS env."
     [[ "${DB_NAME:-}" ]] || emer "[ERROR] DB_NAME env not found. Please provide DB_NAME env."
+    [[ "${CONTAINER_NAME_PREFIX:-}" ]] || emer "[ERROR] CONTAINER_NAME_PREFIX env not found. Please provide CONTAINER_NAME_PREFIX env."
 
     # create the bench
     $BENCH_COMMAND init --skip-assets --skip-redis-config-generation --frappe-branch "$FRAPPE_BRANCH" frappe-bench
 
     # setting configuration
-    wait-for-it -t 120 mariadb:3306
-    wait-for-it -t 120 redis-cache:6379
-    wait-for-it -t 120 redis-queue:6379
-    wait-for-it -t 120 redis-socketio:6379
+    wait-for-it -t 120 "$MARIADB_HOST":3306;
+    wait-for-it -t 120 "${CONTAINER_NAME_PREFIX}-redis-cache":6379;
+    wait-for-it -t 120 "${CONTAINER_NAME_PREFIX}-redis-queue":6379;
+    wait-for-it -t 120 "${CONTAINER_NAME_PREFIX}-redis-socketio":6379;
 
     cd frappe-bench
 
     $BENCH_COMMAND config dns_multitenant on
-    $BENCH_COMMAND set-config -g db_host 'mariadb'
+    $BENCH_COMMAND set-config -g db_host "$MARIADB_HOST"
     $BENCH_COMMAND set-config -g db_port 3306
-    $BENCH_COMMAND set-config -g redis_cache 'redis://redis-cache:6379'
-    $BENCH_COMMAND set-config -g redis_queue 'redis://redis-queue:6379'
-    $BENCH_COMMAND set-config -g redis_socketio 'redis://redis-socketio:6379'
-    $BENCH_COMMAND set-config -g socketio_port "$REDIS_SOCKETIO_PORT"
+    $BENCH_COMMAND set-config -g redis_cache "redis://${CONTAINER_NAME_PREFIX}-redis-cache:6379"
+    $BENCH_COMMAND set-config -g redis_queue "redis://${CONTAINER_NAME_PREFIX}-redis-queue:6379"
+    $BENCH_COMMAND set-config -g redis_socketio "redis://${CONTAINER_NAME_PREFIX}-redis-socketio:6379"
     $BENCH_COMMAND set-config -g mail_port 1025
     $BENCH_COMMAND set-config -g mail_server 'mailhog'
     $BENCH_COMMAND set-config -g disable_mail_smtp_authentication 1
     $BENCH_COMMAND set-config -g webserver_port "$WEB_PORT"
     $BENCH_COMMAND set-config -g developer_mode "$DEVELOPER_MODE"
+    $BENCH_COMMAND set-config -g socketio_port "$REDIS_SOCKETIO_PORT"
 
     # HANDLE APPS
     # apps are taken as follows
@@ -81,20 +97,32 @@ if [[ ! -d "frappe-bench" ]]; then
 
     bench_serve_help_output=$($BENCH_COMMAND serve --help)
 
-    host_changed=$(echo "$bench_serve_help_output" | grep -c 'host')
+    host_changed=$(echo "$bench_serve_help_output" | grep -c 'host' || true)
+
+    # SUPERVIOSRCONFIG_STATUS=$(bench setup supervisor --skip-redis --skip-supervisord --yes --user "$USER")
+    $BENCH_COMMAND setup supervisor --skip-redis --skip-supervisord --yes --user "$USER"
+
+    /scripts/divide-supervisor-conf.py config/supervisor.conf
 
     if [[ "$host_changed" -ge 1 ]]; then
-        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--host 0.0.0.0 --port "a); print}' Procfile > Procfile.local_setup
+        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--host 0.0.0.0 --port "a); print}' /opt/user/bench-dev-server > file.tmp && mv file.tmp /opt/user/bench-dev-server.sh
     else
-        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--port "a); print}' Procfile > Procfile.local_setup
+        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--port "a); print}' /opt/user/bench-dev-server > file.tmp && mv file.tmp /opt/user/bench-dev-server.sh
     fi
 
+    chmod +x /opt/user/bench-dev-server.sh
 
     $BENCH_COMMAND build
-    $BENCH_COMMAND new-site --db-root-password "$MARIADB_ROOT_PASS" --db-name "$DB_NAME"  --no-mariadb-socket --admin-password "$ADMIN_PASS"  "$SITENAME"
+    $BENCH_COMMAND new-site --db-root-password $(cat $MARIADB_ROOT_PASS) --db-name "$DB_NAME"  --db-host "$MARIADB_HOST" --admin-password "$ADMIN_PASS" --no-mariadb-socket "$SITENAME"
     $BENCH_COMMAND --site "$SITENAME" scheduler enable
 
     wait
+
+    if [[ "${ENVIRONMENT}" = "dev" ]]; then
+        cp /opt/user/frappe-dev.conf /opt/user/conf.d/frappe-dev.conf
+    else
+        ln -sfn /workspace/frappe-bench/config/frappe-bench-frappe-web.fm.supervisor.conf /opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf
+    fi
 
     if [[ -n "$BENCH_START_OFF" ]]; then
         tail -f /dev/null
@@ -104,30 +132,39 @@ if [[ ! -d "frappe-bench" ]]; then
 
 
 else
-    wait-for-it -t 120 mariadb:3306;
-    wait-for-it -t 120 redis-cache:6379;
-    wait-for-it -t 120 redis-queue:6379;
-    wait-for-it -t 120 redis-socketio:6379;
+    set -x
+    wait-for-it -t 120 "$MARIADB_HOST":3306;
+    wait-for-it -t 120 "${CONTAINER_NAME_PREFIX}-redis-cache":6379;
+    wait-for-it -t 120 "${CONTAINER_NAME_PREFIX}-redis-queue":6379;
+    wait-for-it -t 120 "${CONTAINER_NAME_PREFIX}-redis-socketio":6379;
 
     cd frappe-bench
 
     bench_serve_help_output=$($BENCH_COMMAND serve --help)
 
-    host_changed=$(echo "$bench_serve_help_output" | grep -c 'host')
+    host_changed=$(echo "$bench_serve_help_output" | grep -c 'host' || true)
 
-    if [[ ! -f "Procfile" ]]; then
-        echo "Procfile doesn't exist. Please create it so bench start can work."
-        exit 1
-    fi
+    $BENCH_COMMAND setup supervisor --skip-redis --skip-supervisord --yes --user "$USER"
+
+    /scripts/divide-supervisor-conf.py config/supervisor.conf
 
     if [[ "$host_changed" -ge 1 ]]; then
-        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--host 0.0.0.0 --port "a); print}' Procfile > Procfile.local_setup
+        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--host 0.0.0.0 --port "a); print}' /opt/user/bench-dev-server > file.tmp && mv file.tmp /opt/user/bench-dev-server.sh
     else
-        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--port "a); print}' Procfile > Procfile.local_setup
+        awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--port "a); print}' /opt/user/bench-dev-server > file.tmp && mv file.tmp /opt/user/bench-dev-server.sh
     fi
 
-    if [[ ! "${WEB_PORT}" == 80 ]]; then
-        $BENCH_COMMAND set-config -g webserver_port "$WEB_PORT";
+    chmod +x /opt/user/bench-dev-server.sh
+
+    if [[ "${ENVIRONMENT}" = "dev" ]]; then
+
+        cp /opt/user/frappe-dev.conf /opt/user/conf.d/frappe-dev.conf
+    else
+        if [[ -f '/opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf' ]]; then
+                ln -sfn /workspace/frappe-bench/config/frappe-bench-frappe-web.fm.supervisor.conf /opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf
+        else
+            emer 'Not able to start the server. /opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf not available.'
+        fi
     fi
 
     if [[ -n "$BENCH_START_OFF" ]]; then

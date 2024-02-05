@@ -1,0 +1,61 @@
+import shutil
+from frappe_manager.migration_manager.migration_base import MigrationBase
+
+from frappe_manager import CLI_DIR
+from frappe_manager.site_manager.SiteManager import SiteManager
+#from frappe_manager.display_manager.DisplayManager import richprint
+
+class MigrationV090(MigrationBase):
+
+    version = "0.9.0"
+
+    def __init__(self):
+        self.sitesdir = CLI_DIR / "sites"
+
+    def up(self):
+        if not self.sitesdir.exists():
+
+            move_directory_list = []
+            for site_dir in CLI_DIR.iterdir():
+
+                if site_dir.is_dir():
+                    docker_compose_path = site_dir / "docker-compose.yml"
+
+                    if docker_compose_path.exists():
+                        move_directory_list.append(site_dir)
+
+            # stop all the sites
+            self.sitesdir.mkdir(parents=True, exist_ok=True)
+            sites_mananger = SiteManager(CLI_DIR)
+            sites_mananger.stop_sites()
+
+            # move all the directories
+            for site in move_directory_list:
+                site_name = site.parts[-1]
+                new_path = self.sitesdir / site_name
+                shutil.move(site, new_path)
+
+    def down(self):
+
+        # check if any dirs is available in sites dir
+        if self.sitesdir.exists():
+            move_directory_list = []
+            for site_dir in CLI_DIR.iterdir():
+                if site_dir.is_dir():
+                    docker_compose_path = site_dir / "docker-compose.yml"
+
+                    if docker_compose_path.exists():
+                        move_directory_list.append(site_dir)
+
+            # stop all the sites
+            sites_mananger = SiteManager(CLI_DIR)
+            sites_mananger.stop_sites()
+
+            # move all the directories
+            for site in move_directory_list:
+                site_name = site.parts[-1]
+                new_path = self.sitesdir.parent / site_name
+                shutil.move(site, new_path)
+
+        # delete the sitedir
+        shutil.rmtree(self.sitesdir)

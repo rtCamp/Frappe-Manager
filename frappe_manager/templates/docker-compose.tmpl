@@ -1,0 +1,165 @@
+version: "3.9"
+services:
+  frappe:
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.10.0
+    container_name: REPLACE_ME_WITH_CONTAINER_NAME
+    restart: always
+    environment:
+      ADMIN_PASS: REPLACE_me_with_frappe_web_admin_pass
+      # apps are defined as <app-name>:<branch-name>, if branch name not given then default github branch will be used.
+      APPS_LIST: REPLACE_ME_APPS_LIST
+      DB_NAME: REPLACE_ME_WITH_DB_NAME_TO_CREATE
+      # DEVERLOPER_MODE bool -> true/false
+      DEVELOPER_MODE: REPLACE_ME_WITH_DEVELOPER_MODE_TOGGLE
+      FRAPPE_BRANCH: REPLACE_ME_WITH_BRANCH_OF_FRAPPE
+      MARIADB_ROOT_PASS: REPLACE_ME_WITH_DB_ROOT_PASSWORD
+      SITENAME: REPLACE_ME_WITH_THE_SITE_NAME
+      USERGROUP: REPLACE_ME_WITH_CURRENT_USER_GROUP
+      USERID: REPLACE_ME_WITH_CURRENT_USER
+      MARIADB_HOST: REPLACE_ME_WITH_DB_HOST
+    volumes:
+      - ./workspace:/workspace:cached
+    expose:
+      - 80
+    labels:
+        devcontainer.metadata: '[{ "remoteUser": "frappe"}]'
+    networks:
+      site-network:
+      global-backend-network:
+    secrets:
+      - db_root_password
+
+  nginx:
+    image: ghcr.io/rtcamp/frappe-manager-nginx:v0.10.0
+    container_name: REPLACE_ME_WITH_CONTAINER_NAME
+    user: REPLACE_ME_WITH_CURRENT_USER:REPLACE_ME_WITH_CURRENT_USER_GROUP
+    restart: always
+    environment:
+      # not implemented as of now
+      ENABLE_SSL: REPLACE_ME_WITH_TOGGLE_ENABLE_SSL
+      SITENAME: REPLACE_ME_WITH_THE_SITE_NAME
+      # for nginx-proxy
+      VIRTUAL_HOST: REPLACE_ME_WITH_SITE_NAME
+      VIRTUAL_PORT: 80
+    volumes:
+      - ./workspace:/workspace:cached
+      - ./configs/nginx/conf:/etc/nginx
+      - ./configs/nginx/logs:/var/log/nginx
+      - ./configs/nginx/cache:/var/cache/nginx
+      - ./configs/nginx/run:/var/run
+    expose:
+      - 80
+    networks:
+      site-network:
+      global-frontend-network:
+
+  mailhog:
+    image: ghcr.io/rtcamp/frappe-manager-mailhog:v0.8.3
+    container_name: REPLACE_ME_WITH_CONTAINER_NAME
+    restart: always
+    expose:
+      - 1025
+      - 8025
+    networks:
+      site-network:
+
+  adminer:
+    image: adminer:latest
+    container_name: REPLACE_ME_WITH_CONTAINER_NAME
+    restart: always
+    environment:
+      ADMINER_DEFAULT_SERVER: global-db
+    expose:
+      - 8080
+    networks:
+      site-network:
+      global-backend-network:
+
+  socketio:
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.10.0
+    container_name: REPLACE_ME_WITH_CONTAINER_NAME
+    restart: always
+    environment:
+      TIMEOUT: 60000
+      CHANGE_DIR: /workspace/frappe-bench/logs
+      WAIT_FOR: '/workspace/frappe-bench/config/frappe-bench-node-socketio.fm.supervisor.conf'
+      COMMAND: |
+        ln -sfn /workspace/frappe-bench/config/frappe-bench-node-socketio.fm.supervisor.conf /opt/user/conf.d/frappe-bench-node-socketio.fm.supervisor.conf
+        supervisord -c /opt/user/supervisord.conf
+    expose:
+      - 80
+    command: launch.sh
+    volumes:
+      - ./workspace:/workspace:cached
+    networks:
+      site-network:
+
+  schedule:
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.10.0
+    container_name: REPLACE_ME_WITH_CONTAINER_NAME
+    restart: always
+    environment:
+      TIMEOUT: 60000
+      CHANGE_DIR: /workspace/frappe-bench
+      WAIT_FOR: '/workspace/frappe-bench/config/frappe-bench-frappe-schedule.fm.supervisor.conf'
+      COMMAND: |
+        ln -sfn /workspace/frappe-bench/config/frappe-bench-frappe-schedule.fm.supervisor.conf /opt/user/conf.d/frappe-bench-frappe-schedule.fm.supervisor.conf
+        supervisord -c /opt/user/supervisord.conf
+    command: launch.sh
+    volumes:
+      - ./workspace:/workspace:cached
+    networks:
+      site-network:
+      global-backend-network:
+
+  redis-cache:
+    image: redis:alpine
+    container_name: REPLACE_ME_WITH_CONTAINER_NAME
+    restart: always
+    volumes:
+      - redis-cache-data:/data
+    expose:
+      - 6379
+    networks:
+      site-network:
+
+  redis-queue:
+    image: redis:alpine
+    container_name: REPLACE_ME_WITH_CONTAINER_NAME
+    restart: always
+    volumes:
+      - redis-queue-data:/data
+    expose:
+      - 6379
+    networks:
+      site-network:
+
+  redis-socketio:
+    image: redis:alpine
+    container_name: REPLACE_ME_WITH_CONTAINER_NAME
+    restart: always
+    volumes:
+       - redis-socketio-data:/data
+    expose:
+      - 6379
+    networks:
+      site-network:
+
+volumes:
+  redis-socketio-data:
+  redis-queue-data:
+  redis-cache-data:
+
+networks:
+  site-network:
+    name: REPLACE_ME_WITH_SITE_NAME_NETWORK
+  global-frontend-network:
+    name: fm-global-frontend-network
+    external: true
+  global-backend-network:
+    name: fm-global-backend-network
+    external: true
+
+secrets:
+  db_root_password:
+    file: REPLACE_ME_WITH_SECERETS_PATH
