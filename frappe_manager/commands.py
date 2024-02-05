@@ -118,6 +118,7 @@ def create(
     frappe_branch: Annotated[
         str, typer.Option(help="Specify the branch name for frappe app",callback=frappe_branch_validation_callback)
     ] = "version-15",
+    template: Annotated[bool, typer.Option(help="Create template site.")] = False,
     admin_pass: Annotated[
         str,
         typer.Option(
@@ -130,21 +131,21 @@ def create(
     """
     Create a new site.
 
-    Frappe\[version-14] will be installed by default.
+    Frappe\[version-15] will be installed by default.
 
     [bold white on black]Examples:[/bold white on black]
 
-    [bold]# Install frappe\[version-14][/bold]
+    [bold]# Install frappe\[version-15][/bold]
     $ [blue]fm create example[/blue]
 
-    [bold]# Install frappe\[version-15-beta][/bold]
-    $ [blue]fm create example --frappe-branch version-15-beta[/blue]
+    [bold]# Install frappe\[develop][/bold]
+    $ [blue]fm create example --frappe-branch develop[/blue]
 
-    [bold]# Install frappe\[version-14], erpnext\[version-14] and hrms\[version-14][/bold]
-    $ [blue]fm create example --apps erpnext:version-14 --apps hrms:version-14[/blue]
+    [bold]# Install frappe\[version-15], erpnext\[version-15] and hrms\[version-15][/bold]
+    $ [blue]fm create example --apps erpnext:version-15 --apps hrms:version-15[/blue]
 
-    [bold]# Install frappe\[version-15-beta], erpnext\[version-15-beta] and hrms\[version-15-beta][/bold]
-    $ [blue]fm create example --frappe-branch version-15-beta --apps erpnext:version-15-beta --apps hrms:version-15-beta[/blue]
+    [bold]# Install frappe\[version-15], erpnext\[version-14] and hrms\[version-14][/bold]
+    $ [blue]fm create example --frappe-branch version-14 --apps erpnext:version-14 --apps hrms:version-14[/blue]
     """
 
     sites.init(sitename)
@@ -197,7 +198,7 @@ def create(
     # turn off all previous
     # start the docker compose
 
-    sites.create_site(template_inputs)
+    sites.create_site(template_inputs,template_site=template)
 
 
 @app.command(no_args_is_help=True)

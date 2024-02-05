@@ -106,7 +106,7 @@ class SiteManager:
                     richprint.exit(f"{status_text}: Failed")
         richprint.print(f"{status_text}: Done")
 
-    def create_site(self, template_inputs: dict):
+    def create_site(self, template_inputs: dict,template_site: bool = False):
         """
         Creates a new site using the provided template inputs.
 
@@ -125,6 +125,10 @@ class SiteManager:
         self.site.generate_compose(template_inputs)
         self.site.create_compose_dirs()
         self.site.pull()
+
+        if template_site:
+            self.site.remove_secrets()
+            richprint.exit(f"Created template site: {self.site.name}",emoji_code=":white_check_mark:")
 
         richprint.change_head(f"Starting Site")
         self.site.start()
@@ -377,6 +381,8 @@ class SiteManager:
         frappe_password = self.site.composefile.get_envs("frappe")["ADMIN_PASS"]
         services_db_info = self.services.get_database_info()
         root_db_password = services_db_info['password']
+        root_db_host = services_db_info['host']
+        root_db_user = services_db_info['user']
 
         site_info_table = Table(show_lines=True, show_header=False, highlight=True)
 
@@ -387,9 +393,9 @@ class SiteManager:
             "Adminer Url": f"http://{self.site.name}/adminer",
             "Frappe Username": "administrator",
             "Frappe Password": frappe_password,
-            "Root DB User": "root",
+            "Root DB User": root_db_user,
             "Root DB Password": root_db_password,
-            "DB Host": "mariadb",
+            "Root DB Host": root_db_host,
             "DB Name": db_user,
             "DB User": db_user,
             "DB Password": db_pass,
