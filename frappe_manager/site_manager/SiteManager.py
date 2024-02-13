@@ -7,13 +7,14 @@ import shutil
 
 from typing import List, Optional
 from pathlib import Path
+from datetime import datetime
+from frappe_manager.site_manager import VSCODE_LAUNCH_JSON, VSCODE_TASKS_JSON
 from frappe_manager.site_manager.site import Site
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker_wrapper import DockerClient, DockerException
 from frappe_manager import CLI_DIR
 from rich.table import Table
 
-from frappe_manager.utils.helpers import check_and_display_port_status
 from frappe_manager.utils.site import generate_services_table
 
 
@@ -238,7 +239,7 @@ class SiteManager:
         self.site.frappe_logs_till_start(status_msg="Starting Site")
         self.site.sync_workers_compose()
 
-    def attach_to_site(self, user: str, extensions: List[str]):
+    def attach_to_site(self, user: str, extensions: List[str], debugger: bool = False):
         """
         Attaches to a running site's container using Visual Studio Code Remote Containers extension.
 
@@ -255,7 +256,7 @@ class SiteManager:
 
         if not vscode_path:
             richprint.exit(
-                "Visual Studio Code excutable 'code' nott accessible via cli."
+                "Visual Studio Code binary i.e 'code' is not accessible via cli."
             )
 
         container_hex = self.site.get_frappe_container_hex()
@@ -271,7 +272,15 @@ class SiteManager:
         vscode_config_json = [
             {
                 "remoteUser": user,
-                "customizations": {"vscode": {"extensions": extensions}},
+                "remoteEnv": {
+                    "SHELL": "/bin/zsh"
+                },
+                "customizations": {"vscode": {
+                    "settings": {
+                        "python.pythonPath": "/workspace/frappe-bench/env/bin/python"
+                    },
+                    "extensions": extensions
+                }},
             }
         ]
 
@@ -298,6 +307,34 @@ class SiteManager:
             self.site.composefile.write_to_file()
             self.site.start()
             richprint.print(f"Recreating Containers : Done")
+
+        # sync debugger files
+        if debugger:
+            richprint.change_head("Sync vscode debugger configuration")
+            dot_vscode_dir = self.site.path / 'workspace' / '.vscode'
+            tasks_json_path = dot_vscode_dir / 'tasks'
+            launch_json_path = dot_vscode_dir / 'launch'
+
+            dot_vscode_config = {
+                tasks_json_path : VSCODE_TASKS_JSON,
+                launch_json_path : VSCODE_LAUNCH_JSON,
+            }
+
+            if not dot_vscode_dir.exists():
+                dot_vscode_dir.mkdir(exist_ok=True,parents=True)
+
+            for file_path in [launch_json_path,tasks_json_path]:
+                file_name = f'{file_path.name}.json'
+                real_file_path = file_path.parent / file_name
+                if real_file_path.exists():
+                    backup_tasks_path = file_path.parent / f"{file_path.name}.{datetime.now().strftime('%d-%b-%y--%H-%M-%S')}.json"
+                    shutil.copy2(real_file_path, backup_tasks_path)
+                    richprint.print(f"Backup previous '{file_name}' : {backup_tasks_path}")
+
+                with open(real_file_path, 'w+') as f:
+                    f.write(json.dumps(dot_vscode_config[file_path]))
+
+            richprint.print("Sync vscode debugger configuration: Done")
 
         richprint.change_head("Attaching to Container")
         output = subprocess.run(vscode_cmd, shell=True)
@@ -424,7 +461,6 @@ class SiteManager:
             site_info_table.add_row("Bench Apps", bench_apps_list_table)
 
         running_site_services = self.site.get_services_running_status()
-
         running_site_workers = self.site.workers.get_services_running_status()
 
         if running_site_services:
@@ -436,10 +472,6 @@ class SiteManager:
             site_info_table.add_row("Site Workers", site_workers_table)
 
         richprint.stdout.print(site_info_table)
-        # richprint.print(
-        #     f":green_square: -> Active :red_square: -> Inactive",
-        #     emoji_code=":information: ",
-        # )
 
     def migrate_site(self):
         """
