@@ -1,22 +1,15 @@
 import shutil
 import typer
-import os
 import importlib
-import configparser
 import pkgutil
 from pathlib import Path
 
-import rich
-
-from rich import inspect
-from frappe_manager import CLI_DIR , CLI_SITES_ARCHIVE
-from frappe_manager.compose_manager.ComposeFile import ComposeFile
+from frappe_manager import CLI_SITES_ARCHIVE
 from frappe_manager.metadata_manager import MetadataManager
 from frappe_manager.migration_manager.migration_exections import MigrationExceptionInSite
 from frappe_manager.utils.helpers import downgrade_package, get_current_fm_version
 from frappe_manager.logger import log
 from frappe_manager.migration_manager.version import Version
-from frappe_manager.migration_manager.migration_base import MigrationBase
 from frappe_manager.display_manager.DisplayManager import richprint
 
 class MigrationExecutor():
@@ -169,7 +162,7 @@ class MigrationExecutor():
             downgrade_package('frappe-manager',str(self.prev_version.version))
             richprint.exit("Rollback complete.")
 
-        self.metadata_manager.set_version(self.prev_version)
+        self.metadata_manager.set_version(self.current_version)
         self.metadata_manager.save()
 
         return True
