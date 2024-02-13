@@ -6,8 +6,6 @@ import configparser
 import pkgutil
 from pathlib import Path
 
-import rich
-
 from rich import inspect
 from frappe_manager import CLI_DIR , CLI_SITES_ARCHIVE
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
