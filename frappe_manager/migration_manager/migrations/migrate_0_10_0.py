@@ -1,4 +1,3 @@
-from sys import exception
 from typing import Optional
 from dataclasses import dataclass
 import shutil
