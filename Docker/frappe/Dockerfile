@@ -145,6 +145,7 @@ RUN echo 'export PATH="/opt/user/.bin:$PATH"' >> "$USERZSHRC"
 
 COPY ./supervisord.conf /opt/user/
 COPY ./bench-dev-server /opt/user/
+COPY ./bench-dev-watch.sh /opt/user/
 COPY ./frappe-dev.conf /opt/user/
 COPY ./bench-wrapper.sh /opt/user/.bin/bench
 
@@ -155,6 +156,6 @@ COPY ./divide-supervisor-conf.py /scripts/
 
 RUN mkdir -p /scripts
 
-RUN sudo chmod +x /entrypoint.sh /scripts/user-script.sh /scripts/launch.sh /scripts/divide-supervisor-conf.py /opt/user/bench-dev-server /opt/user/.bin/bench
+RUN sudo chmod +x /entrypoint.sh /scripts/user-script.sh /scripts/launch.sh /scripts/divide-supervisor-conf.py /opt/user/bench-dev-server /opt/user/bench-dev-watch.sh /opt/user/.bin/bench
 
 ENTRYPOINT ["/bin/bash","/entrypoint.sh"]
