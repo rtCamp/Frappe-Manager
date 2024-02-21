@@ -3,7 +3,6 @@ import typer
 import importlib
 import pkgutil
 from pathlib import Path
-
 from frappe_manager import CLI_SITES_ARCHIVE
 from frappe_manager.metadata_manager import MetadataManager
 from frappe_manager.migration_manager.migration_exections import MigrationExceptionInSite

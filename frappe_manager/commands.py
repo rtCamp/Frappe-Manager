@@ -241,7 +241,7 @@ def stop(sitename: Annotated[str, typer.Argument(help="Name of the site")]):
     sites.stop_site()
 
 
-def code_command_callback(extensions: List[str]) -> List[str]:
+def code_command_extensions_callback(extensions: List[str]) -> List[str]:
     extx = extensions + default_extension
     unique_ext: Set = set(extx)
     unique_ext_list: List[str] = [x for x in unique_ext]
@@ -258,16 +258,17 @@ def code(
             "--extension",
             "-e",
             help="List of extensions to install in vscode at startup.Provide extension id eg: ms-python.python",
-            callback=code_command_callback,
+            callback=code_command_extensions_callback,
         ),
     ] = default_extension,
-    force_start: Annotated[bool , typer.Option('--force-start','-f',help="Force start the site before attaching to container.")] = False
+    force_start: Annotated[bool , typer.Option('--force-start','-f',help="Force start the site before attaching to container.")] = False,
+    debugger: Annotated[bool , typer.Option('--debugger','-d',help="Sync vscode debugger configuration.")] = False
 ):
     """Open site in vscode. """
     sites.init(sitename)
     if force_start:
         sites.start_site()
-    sites.attach_to_site(user, extensions)
+    sites.attach_to_site(user, extensions, debugger)
 
 
 @app.command(no_args_is_help=True)

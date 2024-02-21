@@ -25,13 +25,6 @@ from frappe_manager.utils.helpers import get_container_name_prefix
 from frappe_manager.migration_manager.version import Version
 from pathlib import Path
 
-# from frappe_manager.display_manager.DisplayManager import richprint
-
-# @dataclass
-# class MigrateSite:
-#     site_name : str
-#     exception: Optional[Exception] = None
-
 class MigrationV0100(MigrationBase):
     version = Version("0.10.0")
 
