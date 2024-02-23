@@ -17,13 +17,26 @@ def apps_list_validation_callback(value: List[str] | None):
     Returns:
         List[str] | None: The validated list of apps.
     """
+    apps_list = []
+
     if value:
         for app in value:
             appx = app.split(":")
+
             if appx == "frappe":
                 raise typer.BadParameter("Frappe should not be included here.")
+
+            if 'https:' in app or 'http:' in app:
+                temp_appx = appx
+                appx = [":".join(appx[:2])]
+
+                if len(temp_appx) == 3:
+                    appx.append(temp_appx[2])
+
             if len(appx) == 1:
+
                 exists = check_frappe_app_exists(appx[0])
+
                 if not exists["app"]:
                     raise typer.BadParameter(f"{app} is not a valid FrappeVerse app!")
             if len(appx) == 2:
@@ -38,7 +51,10 @@ def apps_list_validation_callback(value: List[str] | None):
                 raise typer.BadParameter(
                     "App should be specified in format <appname>:<branch> or <appname>"
                 )
-    return value
+
+            appx = ":".join(appx)
+            apps_list.append(appx)
+    return apps_list
 
 
 def frappe_branch_validation_callback(value: str):
