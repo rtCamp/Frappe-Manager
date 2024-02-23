@@ -25,21 +25,35 @@ def apps_list_validation_callback(value: List[str] | None):
             appx = app.split(":")
 
             if appx == "frappe":
-                raise typer.BadParameter("Frappe should not be included here.")
+                raise typer.BadParameter("'frappe' should not be included here.")
 
             if 'https:' in app or 'http:' in app:
                 temp_appx = appx
                 appx = [":".join(appx[:2])]
 
+
                 if len(temp_appx) == 3:
                     appx.append(temp_appx[2])
+
+                elif len(temp_appx) > 3:
+                    appx.append(temp_appx[2])
+                    appx.append(temp_appx[2])
+
+            if len(appx) > 2:
+                richprint.stop()
+                msg = (
+                    "Specify the app in the format <appname>:<branch> or <appname>."
+                    "\n<appname> can be a URL or, if it's a FrappeVerse app, simply provide it as 'erpnext' or 'hrms:develop'."
+                )
+                raise typer.BadParameter(msg)
 
             if len(appx) == 1:
 
                 exists = check_frappe_app_exists(appx[0])
 
                 if not exists["app"]:
-                    raise typer.BadParameter(f"{app} is not a valid FrappeVerse app!")
+                    richprint.stop()
+                    raise typer.BadParameter(f"Invalid app '{appx[0]}'.")
 
                 if appx[0] in STABLE_APP_BRANCH_MAPPING_LIST:
                     appx.append(STABLE_APP_BRANCH_MAPPING_LIST[appx[0]])
@@ -49,17 +63,15 @@ def apps_list_validation_callback(value: List[str] | None):
                 exists = check_frappe_app_exists(appx[0], appx[1])
 
                 if not exists["app"]:
-                    raise typer.BadParameter(f"{app} is not a valid FrappeVerse app!")
+                    richprint.stop()
+                    raise typer.BadParameter(f"Invalid app '{appx[0]}'.")
 
                 if not exists["branch"]:
+                    richprint.stop()
                     raise typer.BadParameter(
-                        f"{appx[1]} is not a valid branch of {appx[0]}!"
+                        f"Invaid branch '{appx[1]}' for '{appx[0]}'."
                     )
 
-            if len(appx) > 2:
-                raise typer.BadParameter(
-                    "App should be specified in format <appname>:<branch> or <appname>"
-                )
 
             appx = ":".join(appx)
             apps_list.append(appx)
