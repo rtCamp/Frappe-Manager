@@ -258,8 +258,20 @@ class Site:
         richprint.change_head("Creating Compose directories")
 
         # create compose bind dirs -> workspace
+        # create compose bind dirs -> workspace
+        # create workspace from frappe image
+
+        frappe_image = self.composefile.yml["services"]["frappe"]["image"]
+
         workspace_path = self.path / "workspace"
-        workspace_path.mkdir(parents=True, exist_ok=True)
+        workspace_path_abs = str(workspace_path.absolute())
+
+        host_run_cp(
+            frappe_image,
+            source="/workspace",
+            destination=workspace_path_abs,
+            docker=self.docker,
+        )
 
         configs_path = self.path / "configs"
         configs_path.mkdir(parents=True, exist_ok=True)
