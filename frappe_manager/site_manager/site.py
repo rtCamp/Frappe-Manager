@@ -1,7 +1,6 @@
 from copy import deepcopy
 import importlib
 import shutil
-import re
 import json
 from pathlib import Path
 from frappe_manager.docker_wrapper import DockerClient, DockerException
@@ -9,11 +8,11 @@ from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager.site_exceptions import (
     SiteDatabaseAddUserException,
-    SiteException,
 )
 from frappe_manager.site_manager.workers_manager.SiteWorker import SiteWorkers
 from frappe_manager.utils.helpers import log_file, get_container_name_prefix
 from frappe_manager.utils.docker import host_run_cp
+from frappe_manager.utils.site import is_fqdn
 
 
 class Site:
@@ -54,12 +53,11 @@ class Site:
         it returns False.
         """
         sitename = self.name
-        match = re.search(
-            r"^[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?.localhost$", sitename
-        )
+        match = is_fqdn(sitename)
+
         if not match:
             richprint.exit(
-                "The site name must follow a single-level subdomain Fully Qualified Domain Name (FQDN) format of localhost, such as 'subdomain.localhost'."
+                f"The {sitename} must follow a single-level subdomain Fully Qualified Domain Name (FQDN) format of localhost, such as 'subdomain.localhost'."
             )
 
     def get_frappe_container_hex(self) -> None | str:

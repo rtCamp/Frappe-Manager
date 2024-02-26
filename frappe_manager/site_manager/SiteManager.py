@@ -14,6 +14,7 @@ from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker_wrapper import DockerClient, DockerException
 from frappe_manager import CLI_DIR
 from rich.table import Table
+from frappe_manager.utils.site import generate_services_table, domain_level
 
 from frappe_manager.utils.site import generate_services_table
 
@@ -35,7 +36,7 @@ class SiteManager:
             sitename (str | None): The name of the site. If None, the default site will be used.
         """
         if sitename:
-            if not ".localhost" in sitename:
+            if domain_level(sitename) == 0:
                 sitename = sitename + ".localhost"
             sitepath: Path = self.sitesdir / sitename
 
