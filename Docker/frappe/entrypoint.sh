@@ -30,8 +30,10 @@ if [[ ! -f "/workspace/.profile" ]]; then
    cat /opt/user/.profile > /workspace/.profile
 fi
 
+chown "$USERID":"$USERGROUP" /workspace /workspace/frappe-bench
 
-chown -R "$USERID":"$USERGROUP" /workspace
+ls -p /workspace | grep -v 'frappe-bench/' | xargs -I{} chown -R "$USERID":"$USERGROUP" /workspace{}
+
 
 if [ "$#" -gt 0 ]; then
     gosu "$USERID":"$USERGROUP" "/scripts/$@"
