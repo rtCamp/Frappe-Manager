@@ -328,6 +328,7 @@ class Site:
             richprint.print(f"{status_text}: Done")
         except DockerException as e:
             richprint.warning(f"{status_text}: Failed")
+            raise e
 
     def logs(self, service: str, follow: bool = False):
         """
@@ -530,22 +531,23 @@ class Site:
             richprint.error(f"Log file not found: {bench_start_log_path}")
 
     def is_site_created(self, retry=60, interval=1) -> bool:
-        import requests
         from time import sleep
 
-        i = 0
-        while i < retry:
+        for _ in range(retry):
             try:
-                host_header = {"Host": f"{self.name}"}
-                response = requests.get(url=f"http://127.0.0.1", headers=host_header)
-                if response.status_code == 200:
-                    return True
-                else:
-                    raise Exception("Site not working.")
+                # Execute curl command on frappe service
+                result = self.docker.compose.exec(
+                    service="frappe",
+                    command=f"curl -I --max-time {retry} --connect-timeout {retry} http://localhost",
+                    stream = True
+                )
+
+                # Check if the site is working
+                for source , line in result:
+                    if "HTTP/1.1 200 OK" in line.decode():
+                        return True
             except Exception as e:
                 sleep(interval)
-                i += 1
-                continue
 
         return False
 
