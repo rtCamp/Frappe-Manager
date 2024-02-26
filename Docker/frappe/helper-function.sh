@@ -102,10 +102,10 @@ install_apps() {
 
             if [[ "${branch_name:-}" ]]; then
                 echo "Installing app $app_name -> $branch_name"
-                $BENCH_COMMAND get-app --resolve-deps --overwrite --skip-assets --branch "${branch_name}" "${app_name}"
+                $BENCH_COMMAND get-app --overwrite --skip-assets --branch "${branch_name}" "${app_name}"
             else
                 echo "Installing app $app_name"
-                $BENCH_COMMAND get-app --resolve-deps --overwrite --skip-assets "${app_name}"
+                $BENCH_COMMAND get-app --overwrite --skip-assets "${app_name}"
             fi
         done
     else
