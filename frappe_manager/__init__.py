@@ -31,3 +31,9 @@ class SiteServicesEnum(str, Enum):
     redis_socketio = "redis-socketio"
     schedule = "schedule"
     socketio = "socketio"
+
+
+STABLE_APP_BRANCH_MAPPING_LIST = {
+    "erpnext" :'version-15',
+    "hrms" :'version-15',
+}

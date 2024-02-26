@@ -2,7 +2,10 @@ FROM ubuntu:22.04 as bench
 
 LABEL author=rtCamp
 LABEL org.opencontainers.image.source=https://github.com/rtcamp/Frappe-Manager
+
 ARG PYTHON_VERSION=3.11.0
+ARG PREBAKE_APPS='erpnext:version-15,hrms:version-15'
+ARG PREBAKE_FRAPPE_BRANCH='version-15'
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
     # For frappe framework
@@ -15,7 +18,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
     xfonts-75dpi \
     xfonts-base \
     libssl-dev \
-    fonts-cantarell \ 
+    fonts-cantarell \
     libpangocairo-1.0-0 \
     # to work inside the container
     locales \
@@ -75,35 +78,47 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
 RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
     && dpkg-reconfigure --frontend=noninteractive locales
 
-# Detect arch and install wkhtmltopdf
-ENV WKHTMLTOPDF_VERSION 0.12.6.1-3
-RUN if [ "$(uname -m)" = "aarch64" ]; then export ARCH=arm64; fi \
-    && if [ "$(uname -m)" = "x86_64" ]; then export ARCH=amd64; fi \
-    && downloaded_file=wkhtmltox_$WKHTMLTOPDF_VERSION.jammy_${ARCH}.deb \
-    && wget -q https://github.com/wkhtmltopdf/packaging/releases/download/$WKHTMLTOPDF_VERSION/$downloaded_file \
-    && dpkg -i $downloaded_file \
-    && rm $downloaded_file
+# setup user
+RUN export NAME='frappe' && \
+    groupadd -g 1000 $NAME && \
+    useradd --no-log-init -r -m -u 1000 -g 1000 -G sudo -s /usr/bin/zsh -d /workspace "$NAME" && \
+    usermod -a -G tty "$NAME" && \
+    echo "$NAME ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
+RUN echo PREBAKE_APPS="$PREBAKE_APPS" >> /prebake_info && echo PREBAKE_FRAPPE_BRANCH="$PREBAKE_FRAPPE_BRANCH" >> /prebake_info
 
-# Install Python via pyenv
 ENV PYENV_ROOT /opt/.pyenv
 ENV PATH $PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH
+
+# for bench wrapper
+ENV PATH /opt/user/.bin:${PATH}
+
+# for nvm
+ENV NODE_VERSION=18.17.0
+ENV NVM_DIR /opt/.nvm
+ENV PATH ${NVM_DIR}/versions/node/v${NODE_VERSION}/bin/:${PATH}
+
+From bench as prebake
+
+RUN chown -R frappe:frappe /opt
+
+USER frappe
+
 ENV USERZSHRC /opt/user/.zshrc
 ENV USERPROFILE /opt/user/.profile
 
-# From https://github.com/pyenv/pyenv#basic-github-checkout
 WORKDIR /opt
 
-RUN mkdir -p /opt/user && touch /opt/user/.profile
+RUN mkdir -p /opt/user && touch /opt/user/.profile && ls -lah
 
 ENV ZSH /opt/user/.oh-my-zsh
 ENV DISABLE_UPDATE_PROMPT true
 
+# install ohmyzsh
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
-
 RUN unset ZSH
 
-COPY ./zshrc /opt/user/.zshrc
+COPY --chown=frappe:frappe ./zshrc /opt/user/.zshrc
 
 RUN git clone --depth 1 https://github.com/pyenv/pyenv.git .pyenv \
     && pyenv install $PYTHON_VERSION \
@@ -114,12 +129,6 @@ RUN git clone --depth 1 https://github.com/pyenv/pyenv.git .pyenv \
     && echo 'eval "$(pyenv init --path)"' >>"$USERZSHRC"
 
 RUN pip install frappe-bench
-
-# Install Node via nvm
-ENV NODE_VERSION=18.17.0
-
-ENV NVM_DIR /opt/.nvm
-ENV PATH ${NVM_DIR}/versions/node/v${NODE_VERSION}/bin/:${PATH}
 
 RUN mkdir -p /opt/.nvm \
     && wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash \
@@ -133,29 +142,55 @@ RUN mkdir -p /opt/.nvm \
     && echo '[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"  # This loads nvm' >> "$USERZSHRC" \
     && echo '[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"  # This loads nvm bash_completion' >> "$USERZSHRC"
 
-
 RUN mkdir -p /workspace
 
 WORKDIR /workspace
 
 RUN mkdir -p /opt/user/.bin
-ENV PATH /opt/user/.bin:${PATH}
 
 RUN echo 'export PATH="/opt/user/.bin:$PATH"' >> "$USERZSHRC"
 
-COPY ./supervisord.conf /opt/user/
-COPY ./bench-dev-server /opt/user/
-COPY ./bench-dev-watch.sh /opt/user/
-COPY ./frappe-dev.conf /opt/user/
-COPY ./bench-wrapper.sh /opt/user/.bin/bench
+COPY --chown=frappe:frappe ./supervisord.conf /opt/user/
+COPY --chown=frappe:frappe ./frappe-dev.conf /opt/user/
+COPY --chown=frappe:frappe --chmod=0755 ./bench-dev-watch.sh /opt/user/
+COPY --chown=frappe:frappe --chmod=0755 ./bench-dev-server /opt/user/
+COPY --chown=frappe:frappe --chmod=0755 ./bench-wrapper.sh /opt/user/.bin/bench
 
-COPY ./entrypoint.sh /
-COPY ./user-script.sh /scripts/
-COPY ./launch.sh /scripts/
-COPY ./divide-supervisor-conf.py /scripts/
+COPY --chmod=0755 ./prebake.sh /scripts/
+COPY --chmod=0755 ./helper-function.sh /scripts/
+COPY --chmod=0755 ./divide-supervisor-conf.py /scripts/
+
+RUN ls -lah /workspace && /scripts/prebake.sh && mv /workspace/frappe-bench/apps/* /workspace/
+
+FROM bench as fm_image
+
+# Detect arch and install wkhtmltopdf
+ENV WKHTMLTOPDF_VERSION 0.12.6.1-3
+RUN if [ "$(uname -m)" = "aarch64" ]; then export ARCH=arm64; fi \
+    && if [ "$(uname -m)" = "x86_64" ]; then export ARCH=amd64; fi \
+    && downloaded_file=wkhtmltox_$WKHTMLTOPDF_VERSION.jammy_${ARCH}.deb \
+    && wget -q https://github.com/wkhtmltopdf/packaging/releases/download/$WKHTMLTOPDF_VERSION/$downloaded_file \
+    && dpkg -i $downloaded_file \
+    && rm $downloaded_file
 
 RUN mkdir -p /scripts
 
-RUN sudo chmod +x /entrypoint.sh /scripts/user-script.sh /scripts/launch.sh /scripts/divide-supervisor-conf.py /opt/user/bench-dev-server /opt/user/bench-dev-watch.sh /opt/user/.bin/bench
+COPY --chmod=0755 ./entrypoint.sh /
+COPY --chmod=0755 ./user-script.sh /scripts/
+COPY --chmod=0755 ./launch.sh /scripts/
+COPY --chmod=0755 ./divide-supervisor-conf.py /scripts/
+COPY --chmod=0755 ./helper-function.sh /scripts/
+
+RUN rm -rf /opt && mkdir -p /workspace /opt
+
+WORKDIR /workspace
+
+COPY --from=prebake --chown=frappe:frappe /workspace/frappe-bench /workspace/frappe-bench
+COPY --from=prebake --chown=frappe:frappe /workspace/frappe /workspace/frappe-bench/apps/frappe
+COPY --from=prebake --chown=frappe:frappe /workspace/erpnext /workspace/frappe-bench/apps/erpnext
+COPY --from=prebake --chown=frappe:frappe /workspace/hrms /workspace/frappe-bench/apps/hrms
+COPY --from=prebake --chown=frappe:frappe /opt/.pyenv /opt/.pyenv
+COPY --from=prebake --chown=frappe:frappe /opt/.nvm /opt/.nvm
+COPY --from=prebake --chown=frappe:frappe /opt/user /opt/user
 
 ENTRYPOINT ["/bin/bash","/entrypoint.sh"]
