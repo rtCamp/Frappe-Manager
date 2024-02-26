@@ -3,13 +3,8 @@ import importlib
 import shutil
 import re
 import json
-from typing import List, Type
 from pathlib import Path
-from rich import inspect
-
-from rich.table import Table
 from frappe_manager.docker_wrapper import DockerClient, DockerException
-
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager.site_exceptions import (
@@ -35,9 +30,9 @@ class Site:
         The function checks if the Docker daemon is running and exits with an error message if it is not.
         """
         self.composefile = ComposeFile(self.path / "docker-compose.yml")
+
         self.docker = DockerClient(compose_file_path=self.composefile.compose_path)
         self.workers = SiteWorkers(self.path, self.name, self.quiet)
-
         # remove this from init
         if self.workers.exists():
             if not self.workers.running():

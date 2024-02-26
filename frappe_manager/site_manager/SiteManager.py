@@ -125,7 +125,6 @@ class SiteManager:
         richprint.change_head(f"Generating Compose")
         self.site.generate_compose(template_inputs)
         self.site.create_compose_dirs()
-        self.site.pull()
 
         if template_site:
             self.site.remove_secrets()
@@ -233,7 +232,6 @@ class SiteManager:
         Starts the site.
         """
         #self.migrate_site()
-        self.site.pull()
         self.site.sync_site_common_site_config()
         self.site.start()
         self.site.frappe_logs_till_start(status_msg="Starting Site")

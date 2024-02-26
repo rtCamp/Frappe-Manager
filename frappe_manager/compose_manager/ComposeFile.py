@@ -2,11 +2,15 @@ from pathlib import Path
 from rich import inspect
 from ruamel.yaml import YAML
 import platform
-from ruamel.yaml.comments import CommentedMap as OrderedDict, CommentedSeq as OrderedList
+from ruamel.yaml.comments import (
+    CommentedMap as OrderedDict,
+    CommentedSeq as OrderedList,
+)
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.utils.site import parse_docker_volume
 from frappe_manager.utils.helpers import represent_null_empty
 import importlib.resources as pkg_resources
+from frappe_manager.migration_manager.version import Version
 
 yaml = YAML(typ="rt")
 yaml.representer.ignore_aliases = lambda *args: True
@@ -50,9 +54,7 @@ class ComposeFile:
         """
         return self.compose_path
 
-    def get_template(
-        self, file_name: str
-    ):
+    def get_template(self, file_name: str):
         """
         Get the file path of a template.
 
@@ -66,9 +68,11 @@ class ComposeFile:
 
         try:
             template_path = f"templates/{file_name}"
-            return Path(str(pkg_resources.files('frappe_manager').joinpath(template_path)))
+            return Path(
+                str(pkg_resources.files("frappe_manager").joinpath(template_path))
+            )
         except FileNotFoundError as e:
-            richprint.exit(f"{file_name} template not found.",error_msg=e)
+            richprint.exit(f"{file_name} template not found.", error_msg=e)
 
     def load_template(self):
         """
@@ -233,9 +237,9 @@ class ComposeFile:
         """
         try:
             compose_version = self.yml["x-version"]
-            return compose_version
+            return Version(compose_version)
         except KeyError:
-            return '0.0.0'
+            return Version("0.0.0")
 
     def set_version(self, version):
         """
@@ -475,7 +479,7 @@ class ComposeFile:
         Get all the root volumes.
         """
 
-        volumes = self.yml['volumes']
+        volumes = self.yml["volumes"]
 
         return volumes
 
@@ -489,7 +493,7 @@ class ComposeFile:
 
         for service in services:
             try:
-                volumes_list = self.yml["services"][service]['volumes']
+                volumes_list = self.yml["services"][service]["volumes"]
                 for volume in volumes_list:
                     volumes_set.add(volume)
             except KeyError as e:
@@ -502,34 +506,62 @@ class ComposeFile:
 
         return volumes_list
 
-    def set_secret_file_path(self,secret_name,file_path):
+    def set_secret_file_path(self, secret_name, file_path):
         try:
-            self.yml['secrets'][secret_name]['file'] = file_path
+            self.yml["secrets"][secret_name]["file"] = file_path
         except KeyError:
-           richprint.warning("Not able to set secrets in compose.")
+            richprint.warning("Not able to set secrets in compose.")
 
-    def get_secret_file_path(self,secret_name):
+    def get_secret_file_path(self, secret_name):
         try:
-            file_path = self.yml['secrets'][secret_name]['file']
+            file_path = self.yml["secrets"][secret_name]["file"]
             return file_path
         except KeyError:
-           richprint.warning("Not able to set secrets in compose.")
+            richprint.warning("Not able to set secrets in compose.")
 
-    def remove_secrets_from_container(self,container):
+    def remove_secrets_from_container(self, container):
         try:
-            del self.yml['services'][container]['secrets']
+            del self.yml["services"][container]["secrets"]
         except KeyError:
-           richprint.warning(f"Not able to remove secrets from {container}.")
+            richprint.warning(f"Not able to remove secrets from {container}.")
 
     def remove_root_secrets_compose(self):
         try:
-            del self.yml['secrets']
+            del self.yml["secrets"]
         except KeyError:
-           richprint.warning(f"root level secrets not present.")
-
+            richprint.warning(f"root level secrets not present.")
 
     def remove_container_user(self, container):
         try:
-            del self.yml['services'][container]['user']
+            del self.yml["services"][container]["user"]
         except KeyError:
-           richprint.warning(f"user not present.")
+            richprint.warning(f"user not present.")
+
+    def get_all_images(self):
+        """
+        Retrieves all the images for each service in the Compose file.
+
+        Returns:
+            dict: A dictionary containing the service names as keys and their respective image names and tags as values.
+        """
+        images = {}
+        for service in self.yml["services"].keys():
+            try:
+                image = self.yml["services"][service]["image"]
+                name, tag = image.split(":") if ":" in image else (image, "latest")
+                images[service] = {"name": name, "tag": tag}
+            except KeyError:
+                pass
+        return images
+
+    def set_all_images(self, images: dict):
+        """
+        Sets the image for all services in the ComposeFile.
+
+        Args:
+            images (dict): A dictionary containing the service names as keys and the image names and tags as values.
+        """
+        for service, image_info in images.items():
+            image = f'{image_info["name"]}:{image_info["tag"]}'
+            if service in self.yml["services"]:
+                self.yml["services"][service]["image"] = image

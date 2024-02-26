@@ -1,4 +1,3 @@
-
 class MigrationExceptionInSite(Exception):
     def __init__(
         self,
