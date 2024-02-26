@@ -9,7 +9,7 @@ from frappe_manager.metadata_manager import MetadataManager
 from frappe_manager.migration_manager.migration_exections import (
     MigrationExceptionInSite,
 )
-from frappe_manager.utils.helpers import downgrade_package, get_current_fm_version
+from frappe_manager.utils.helpers import install_package, get_current_fm_version
 from frappe_manager.logger import log
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.display_manager.DisplayManager import richprint
@@ -96,7 +96,7 @@ class MigrationExecutor:
             continue_migration = Prompt.ask(migrate_msg, choices=["yes", "no"])
 
             if continue_migration == "no":
-                downgrade_package("frappe-manager", str(self.prev_version.version))
+                install_package("frappe-manager", str(self.prev_version.version))
                 richprint.exit(
                     f"Successfully installed [bold][blue]Frappe-Manager[/blue][/bold] version: v{str(self.prev_version.version)}",
                     emoji_code=":white_check_mark:",
@@ -192,7 +192,7 @@ class MigrationExecutor:
             richprint.print(
                 f"Installing [bold][blue]Frappe-Manager[/blue][/bold] version: v{str(self.rollback_version.version)}"
             )
-            downgrade_package("frappe-manager", str(self.rollback_version.version))
+            install_package("frappe-manager", str(self.rollback_version.version))
             richprint.exit("Rollback complete.")
 
         self.metadata_manager.set_version(self.current_version)

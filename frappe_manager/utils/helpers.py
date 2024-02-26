@@ -315,5 +315,5 @@ def get_unix_groups():
         groups[group_name] = group_entry.gr_gid
     return groups
 
-def downgrade_package(package_name, version):
+def install_package(package_name, version):
     subprocess.check_call([sys.executable, '-m', 'pip', 'install', f'{package_name}=={version}'])

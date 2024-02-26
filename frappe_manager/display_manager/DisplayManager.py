@@ -117,7 +117,7 @@ class DisplayManager:
             text=Text(self.current_head, style="blue bold"), style="bold blue"
         )
 
-    def change_head(self, text: str):
+    def change_head(self, text: str,style: Optional[str] = 'blue bold'):
         """
         Change the head text and update the spinner and live display.
 
@@ -129,7 +129,10 @@ class DisplayManager:
         """
         self.previous_head = self.current_head
         self.current_head = text
-        self.spinner.update(text=Text(self.current_head, style="blue bold"))
+        if style:
+            self.spinner.update(text=Text(self.current_head, style="blue bold"))
+        else:
+            self.spinner.update(text=self.current_head)
         self.live.refresh()
 
     def update_live(self, renderable=None, padding: tuple = (0, 0, 0, 0)):
