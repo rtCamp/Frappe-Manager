@@ -148,8 +148,9 @@ class SiteManager:
                 f"SITE_STATUS {self.site.name}: WORKING"
             )
             richprint.print(f"Started site")
-
             self.info()
+            if not '.localhost' in self.site.name:
+                richprint.print(f"Please note that You will have to add a host entry to your system's hosts file to access the site locally.")
         else:
             self.typer_context.obj["logger"].error(f"{self.site.name}: NOT WORKING")
 
