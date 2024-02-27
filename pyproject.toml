@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "frappe-manager"
-version = "0.10.1"
+version = "0.11.0"
 license = "MIT"
 repository = "https://github.com/rtcamp/frappe-manager"
 description = "A CLI tool based on Docker Compose to easily manage Frappe based projects. As of now, only suitable for development in local machines running on Mac and Linux based OS."
@@ -8,6 +8,10 @@ authors = ["rtCamp <sys@rtcamp.com>"]
 maintainers = ["Alok Singh <alok.singh@rtcamp.com>"]
 documentation = "https://github.com/rtcamp/frappe-manager/wiki"
 readme = "README.md"
+
+[tool.black]
+line-length = 79
+inline-quotes = "'"
 
 [tool.poetry.urls]
 "Bug Tracker" = "https://github.com/rtcamp/frappe-manager/issues"

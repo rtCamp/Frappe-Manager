@@ -17,6 +17,10 @@ class MigrationBase(Protocol):
         self.backup_manager = BackupManager(str(self.version))  # Assign the value to backup_manager
         self.logger = log.get_logger()
 
+    def get_rollback_version(self):
+
+        return self.version
+
     def up(self):
         pass
 

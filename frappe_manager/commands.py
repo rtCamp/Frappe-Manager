@@ -18,9 +18,11 @@ from frappe_manager.site_manager.site_exceptions import SiteException
 from frappe_manager.utils.callbacks import apps_list_validation_callback, frappe_branch_validation_callback, version_callback
 from frappe_manager.utils.helpers import get_container_name_prefix, is_cli_help_called, get_current_fm_version
 from frappe_manager.services_manager.commands import services_app
+from frappe_manager.sub_commands.self_commands import self_app
 
 app = typer.Typer(no_args_is_help=True,rich_markup_mode='rich')
 app.add_typer(services_app, name="services", help="Handle global services.")
+app.add_typer(self_app, name="self", help="Perform operations related to the [bold][blue]fm[/bold][/blue] itself.")
 
 # this will be initiated later in the app_callback
 sites: Optional[SiteManager] = None

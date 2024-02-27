@@ -191,3 +191,28 @@ class DockerClient:
             self.docker_cmd + run_cmd, quiet=stream_only_exit_code, stream=stream
         )
         return iterator
+
+    def pull(
+        self,
+        container_name: str,
+        all_tags: bool = False,
+        platform: Optional[str] = None,
+        quiet: bool = False,
+        stream: bool = False,
+        stream_only_exit_code: bool = False,
+    ):
+        parameters: dict = locals()
+
+        pull_cmd: list[str] = ["pull"]
+
+        remove_parameters = ["stream", "stream_only_exit_code","container_name"]
+
+        pull_cmd += parameters_to_options(parameters, exclude=remove_parameters)
+        pull_cmd += [container_name]
+
+        iterator = run_command_with_exit_code(
+            self.docker_cmd + pull_cmd,
+            quiet=stream_only_exit_code,
+            stream=stream,
+        )
+        return iterator

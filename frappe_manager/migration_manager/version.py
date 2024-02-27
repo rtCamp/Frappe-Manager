@@ -26,3 +26,6 @@ class Version:
 
     def __str__(self):
         return self.version
+
+    def version_string(self):
+        return f"v{self.version}"
