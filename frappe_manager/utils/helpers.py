@@ -56,7 +56,7 @@ def check_update():
         latest_version = update_info["info"]["version"]
         if not fm_version == latest_version:
             richprint.warning(
-                f'Ready for an update? Run "pip install --upgrade frappe-manager" to update to the latest version {latest_version}.',
+                f'[dim]Update available v{latest_version}.[/dim]',
                 emoji_code=":arrows_counterclockwise:️",
             )
     except Exception as e:

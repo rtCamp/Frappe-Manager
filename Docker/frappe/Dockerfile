@@ -126,7 +126,10 @@ RUN git clone --depth 1 https://github.com/pyenv/pyenv.git .pyenv \
     && pyenv global $PYTHON_VERSION \
     && echo 'export PYENV_ROOT="/opt/.pyenv"' >> "$USERZSHRC" \
     && echo 'command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"' >> "$USERZSHRC" \
-    && echo 'eval "$(pyenv init --path)"' >>"$USERZSHRC"
+    && echo 'eval "$(pyenv init --path)"' >>"$USERZSHRC" \
+    # remove *.pyc and *.pyo as used here in official docker image to reduce size
+    # https://github.com/docker-library/python/blob/789d789e4a8db71d3d393667971c49b845ffdc3f/3.11/alpine3.19/Dockerfile#L106-L111
+    && find /opt/.pyenv/versions -depth \( \( -type d -a \( -name test -o -name tests -o -name idle_test \) \) -o \( -type f -a \( -name '*.pyc' -o -name '*.pyo' -o -name 'libpython*.a' \) \) \) -exec rm -rf '{}' + ;
 
 RUN pip install frappe-bench
 

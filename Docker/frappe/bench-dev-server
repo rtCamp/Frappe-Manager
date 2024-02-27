@@ -1,3 +1,4 @@
 #!/bin/bash
+trap "kill -- -$$" EXIT
 fuser -k 80/tcp
 bench serve --port 80

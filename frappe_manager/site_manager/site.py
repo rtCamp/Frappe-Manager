@@ -1,7 +1,6 @@
 from copy import deepcopy
 import importlib
 import shutil
-import re
 import json
 from pathlib import Path
 from frappe_manager.docker_wrapper import DockerClient, DockerException
@@ -9,11 +8,11 @@ from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager.site_exceptions import (
     SiteDatabaseAddUserException,
-    SiteException,
 )
 from frappe_manager.site_manager.workers_manager.SiteWorker import SiteWorkers
 from frappe_manager.utils.helpers import log_file, get_container_name_prefix
 from frappe_manager.utils.docker import host_run_cp
+from frappe_manager.utils.site import is_fqdn
 
 
 class Site:
@@ -54,12 +53,11 @@ class Site:
         it returns False.
         """
         sitename = self.name
-        match = re.search(
-            r"^[A-Za-z0-9](?:[A-Za-z0-9\-]{0,61}[A-Za-z0-9])?.localhost$", sitename
-        )
+        match = is_fqdn(sitename)
+
         if not match:
             richprint.exit(
-                "The site name must follow a single-level subdomain Fully Qualified Domain Name (FQDN) format of localhost, such as 'subdomain.localhost'."
+                f"The {sitename} must follow a single-level subdomain Fully Qualified Domain Name (FQDN) format of localhost, such as 'subdomain.localhost'."
             )
 
     def get_frappe_container_hex(self) -> None | str:
@@ -330,6 +328,7 @@ class Site:
             richprint.print(f"{status_text}: Done")
         except DockerException as e:
             richprint.warning(f"{status_text}: Failed")
+            raise e
 
     def logs(self, service: str, follow: bool = False):
         """
@@ -451,11 +450,20 @@ class Site:
             except DockerException as e:
                 richprint.exit(f"{status_text}: Failed")
         richprint.change_head(f"Removing Dirs")
+
         try:
             shutil.rmtree(self.path)
-        except Exception as e:
-            richprint.error(e)
-            richprint.exit(f"Please remove {self.path} manually")
+        except PermissionError as e:
+            images = self.composefile.get_all_images()
+            if 'frappe' in images:
+                try:
+                    frappe_image = images['frappe']
+                    frappe_image = f"{frappe_image['name']}:{frappe_image['tag']}"
+                    output = self.docker.run(image=frappe_image,entrypoint="/bin/sh",command="-c 'chown -R frappe:frappe .'",volume=f'{self.path}/workspace:/workspace',stream=True, stream_only_exit_code=True)
+                    shutil.rmtree(self.path)
+                except Exception:
+                    richprint.error(e)
+                    richprint.exit(f"Please remove {self.path} manually")
         richprint.change_head(f"Removing Dirs: Done")
 
     def shell(self, container: str, user: str | None = None):
@@ -532,22 +540,23 @@ class Site:
             richprint.error(f"Log file not found: {bench_start_log_path}")
 
     def is_site_created(self, retry=60, interval=1) -> bool:
-        import requests
         from time import sleep
 
-        i = 0
-        while i < retry:
+        for _ in range(retry):
             try:
-                host_header = {"Host": f"{self.name}"}
-                response = requests.get(url=f"http://127.0.0.1", headers=host_header)
-                if response.status_code == 200:
-                    return True
-                else:
-                    raise Exception("Site not working.")
+                # Execute curl command on frappe service
+                result = self.docker.compose.exec(
+                    service="frappe",
+                    command=f"curl -I --max-time {retry} --connect-timeout {retry} http://localhost",
+                    stream = True
+                )
+
+                # Check if the site is working
+                for source , line in result:
+                    if "HTTP/1.1 200 OK" in line.decode():
+                        return True
             except Exception as e:
                 sleep(interval)
-                i += 1
-                continue
 
         return False
 

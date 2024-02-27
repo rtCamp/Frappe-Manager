@@ -2,6 +2,7 @@ import subprocess
 import json
 import shlex
 from ruamel.yaml import serialize
+from rich.prompt import Prompt
 import typer
 import shutil
 
@@ -14,6 +15,7 @@ from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker_wrapper import DockerClient, DockerException
 from frappe_manager import CLI_DIR
 from rich.table import Table
+from frappe_manager.utils.site import generate_services_table, domain_level
 
 from frappe_manager.utils.site import generate_services_table
 
@@ -35,7 +37,7 @@ class SiteManager:
             sitename (str | None): The name of the site. If None, the default site will be used.
         """
         if sitename:
-            if not ".localhost" in sitename:
+            if domain_level(sitename) == 0:
                 sitename = sitename + ".localhost"
             sitepath: Path = self.sitesdir / sitename
 
@@ -146,8 +148,9 @@ class SiteManager:
                 f"SITE_STATUS {self.site.name}: WORKING"
             )
             richprint.print(f"Started site")
-
             self.info()
+            if not '.localhost' in self.site.name:
+                richprint.print(f"Please note that You will have to add a host entry to your system's hosts file to access the site locally.")
         else:
             self.typer_context.obj["logger"].error(f"{self.site.name}: NOT WORKING")
 
@@ -173,9 +176,12 @@ class SiteManager:
         """
         Removes the site.
         """
-        richprint.change_head(f"Removing Site")
-        self.site.remove_database_and_user()
-        self.site.remove()
+        richprint.stop()
+        continue_remove= Prompt.ask(f"🤔 Do you want to remove [bold][green]'{self.site.name}'[/bold][/green]", choices=["yes", "no"],default='no')
+        if continue_remove == 'yes':
+            richprint.start('Removing Site')
+            self.site.remove_database_and_user()
+            self.site.remove()
 
     def list_sites(self):
         """

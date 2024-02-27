@@ -1,17 +1,22 @@
+from copy import deepcopy
+from re import template
 from ruamel.yaml import serialize
+from pathlib import Path
 import typer
 import os
 import requests
 import sys
 import shutil
+import importlib
+import json
 
 from typing import Annotated, List, Optional, Set
 from frappe_manager.services_manager.services_exceptions import ServicesNotCreated
 from frappe_manager.site_manager.SiteManager import SiteManager
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager import CLI_DIR, default_extension, SiteServicesEnum, services_manager
+from frappe_manager.docker_wrapper import DockerClient, DockerException
 from frappe_manager.logger import log
-from frappe_manager.docker_wrapper import DockerClient
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.site_manager.site_exceptions import SiteException
@@ -19,6 +24,9 @@ from frappe_manager.utils.callbacks import apps_list_validation_callback, frappe
 from frappe_manager.utils.helpers import get_container_name_prefix, is_cli_help_called, get_current_fm_version
 from frappe_manager.services_manager.commands import services_app
 from frappe_manager.sub_commands.self_commands import self_app
+from frappe_manager.metadata_manager import MetadataManager
+from frappe_manager.migration_manager.version import Version
+from frappe_manager.compose_manager.ComposeFile import ComposeFile
 
 app = typer.Typer(no_args_is_help=True,rich_markup_mode='rich')
 app.add_typer(services_app, name="services", help="Handle global services.")
@@ -78,13 +86,57 @@ def app_callback(
         if not DockerClient().server_running():
             richprint.exit("Docker daemon not running. Please start docker service.")
 
-        if first_time_install :
-            from frappe_manager.metadata_manager import MetadataManager
-            from frappe_manager.migration_manager.version import Version
-            metadata_manager = MetadataManager()
-            current_version = Version(get_current_fm_version())
-            metadata_manager.set_version(current_version)
-            metadata_manager.save()
+        metadata_manager = MetadataManager()
+
+        # docker pull
+        if first_time_install:
+            if not metadata_manager.toml_file.exists():
+                richprint.print("🔍 It seems like the first installation. Pulling images... 🖼️")
+                site_composefile = ComposeFile(loadfile=Path('docker-compose.yml'))
+                services_composefile = ComposeFile(loadfile=Path('docker-compose.services.yml',template='docker-compose.services.tmpl'))
+                images_list = []
+                docker = DockerClient()
+
+                if site_composefile.is_template_loaded:
+                    images = site_composefile.get_all_images()
+                    images.update(services_composefile.get_all_images())
+
+                    for service ,image_info in images.items():
+                        image = f"{image_info['name']}:{image_info['tag']}"
+                        images_list.append(image)
+
+                    # remove duplicates
+                    images_dict = dict.fromkeys(images_list)
+                    images_list = deepcopy(images_dict).keys()
+                    error = False
+
+                    for image in images_list:
+                        status = f"[blue]Pulling image[/blue] [bold][yellow]{image}[/yellow][/bold]"
+                        richprint.change_head(status,style=None)
+                        try:
+                            output = docker.pull(container_name=image , stream=True)
+                            richprint.live_lines(output, padding=(0, 0, 0, 2))
+                            richprint.print(f"{status} : Done")
+                        except DockerException as e:
+                            error = True
+                            images_dict[image] = e
+                            continue
+
+                            # richprint.error(f"[red][bold]Error :[/bold][/red] {e}")
+
+                    if error:
+                        print('')
+                        richprint.error(f"[bold][red]Pulling images failed for these images[/bold][/red]")
+                        for image,exception in images_dict.items():
+                            if exception:
+                                richprint.error(f'[bold][red]Image [/bold][/red]: {image}')
+                                richprint.error(f'[bold][red]Error [/bold][/red]: {exception}')
+                        shutil.rmtree(CLI_DIR)
+                        richprint.exit("Aborting. [bold][blue]fm[/blue][/bold] will not be able to work without images. 🖼️")
+
+                    current_version = Version(get_current_fm_version())
+                    metadata_manager.set_version(current_version)
+                    metadata_manager.save()
 
         migrations = MigrationExecutor()
         migration_status = migrations.execute()

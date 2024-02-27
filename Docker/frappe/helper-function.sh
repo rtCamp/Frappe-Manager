@@ -102,10 +102,10 @@ install_apps() {
 
             if [[ "${branch_name:-}" ]]; then
                 echo "Installing app $app_name -> $branch_name"
-                $BENCH_COMMAND get-app --resolve-deps --overwrite --skip-assets --branch "${branch_name}" "${app_name}"
+                $BENCH_COMMAND get-app --overwrite --skip-assets --branch "${branch_name}" "${app_name}"
             else
                 echo "Installing app $app_name"
-                $BENCH_COMMAND get-app --resolve-deps --overwrite --skip-assets "${app_name}"
+                $BENCH_COMMAND get-app --overwrite --skip-assets "${app_name}"
             fi
         done
     else
@@ -126,10 +126,25 @@ install_apps() {
         fi
     done
 
-    # create apps_json
-    for app_name in $(ls -1 apps | grep -v 'frappe' || exit 0); do
-        apps_json=$(echo "$apps_json" | jq -rc --arg app_name "${app_name}" '.+ [$app_name]')
+    # create apps_txt
+    local apps_list
+
+    apps_txt=$(mktemp)
+
+    apps_list=$(ls -1 apps|| exit 0)
+
+    for app_name in $(echo "$apps_list"); do
+        get_app_name  "$app_name"
+        echo "$APP_NAME" >> "$apps_txt"
     done
+
+    cat "$apps_txt" > sites/apps.txt
+
+    # create apps_json
+    for app_name in $(cat "$apps_txt" | grep -v 'frappe' || exit 0); do
+        apps_json=$(echo "$apps_json" | jq -rc --arg app_name "${APP_NAME}" '.+ [$app_name]')
+    done
+
     update_common_site_config install_apps "$apps_json" 'true'
 }
 
@@ -186,4 +201,20 @@ update_uid_gid() {
     groupmod -g "$gid" "$groupname"
 
     echo "UID and GID updated successfully."
+}
+
+# this return the list of apps
+# input
+# $1 -> app_name respective to apps dir
+get_app_name(){
+    local app="$1"
+    hooks_py_path="/workspce/frappe-bench/apps/$app"
+
+    # Extract the app name from the hooks.py file
+    APP_NAME=$(awk -F'"' '/app_name/{print $2}' "$hooks_py_path" || exit 0)
+
+    if ! [[ "${APP_NAME:-}" ]]; then
+        # If the app name is not found, use app name from basename of the app dir
+        APP_NAME=${app##*/}
+    fi
 }
