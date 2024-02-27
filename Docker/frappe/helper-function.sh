@@ -208,7 +208,9 @@ update_uid_gid() {
 # $1 -> app_name respective to apps dir
 get_app_name(){
     local app="$1"
-    hooks_py_path="/workspce/frappe-bench/apps/$app"
+    local app_dir
+    app_dir="/workspace/frappe-bench/apps/${app}"
+    hooks_py_path=$(find "$app_dir" -maxdepth 2 -type f -name hooks.py)
 
     # Extract the app name from the hooks.py file
     APP_NAME=$(awk -F'"' '/app_name/{print $2}' "$hooks_py_path" || exit 0)
