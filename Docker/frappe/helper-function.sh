@@ -144,6 +144,7 @@ install_apps() {
     for app_name in $(cat "$apps_txt" | grep -v 'frappe' || exit 0); do
         apps_json=$(echo "$apps_json" | jq -rc --arg app_name "${APP_NAME}" '.+ [$app_name]')
     done
+
     update_common_site_config install_apps "$apps_json" 'true'
 }
 
@@ -207,7 +208,7 @@ update_uid_gid() {
 # $1 -> app_name respective to apps dir
 get_app_name(){
     local app="$1"
-    hooks_py_path=f"/workspce/frappe-bench/apps/$app"
+    hooks_py_path="/workspce/frappe-bench/apps/$app"
 
     # Extract the app name from the hooks.py file
     APP_NAME=$(awk -F'"' '/app_name/{print $2}' "$hooks_py_path" || exit 0)
