@@ -132,9 +132,9 @@ def app_callback(
                     shutil.rmtree(CLI_DIR)
                     richprint.exit("Aborting. [bold][blue]fm[/blue][/bold] will not be able to work without images. 🖼️")
 
-                current_version = Version(get_current_fm_version())
-                metadata_manager.set_version(current_version)
-                metadata_manager.save()
+                # current_version = Version(get_current_fm_version())
+                # metadata_manager.set_version(current_version)
+                # metadata_manager.save()
 
         migrations = MigrationExecutor()
         migration_status = migrations.execute()
