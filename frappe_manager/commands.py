@@ -65,6 +65,7 @@ def app_callback(
             CLI_DIR.mkdir(parents=True, exist_ok=True)
             sitesdir.mkdir(parents=True, exist_ok=True)
             richprint.print(f"fm directory doesn't exists! Created at -> {str(CLI_DIR)}")
+            first_time_install = True
         else:
             if not CLI_DIR.is_dir():
                 richprint.exit("Sites directory is not a directory! Aborting!")
@@ -88,53 +89,54 @@ def app_callback(
         metadata_manager = MetadataManager()
 
         # docker pull
-        if not metadata_manager.toml_file.exists():
-            richprint.print("🔍 It seems like the first installation. Pulling images... 🖼️")
-            site_composefile = ComposeFile(loadfile=Path('docker-compose.yml'))
-            services_composefile = ComposeFile(loadfile=Path('docker-compose.services.yml',template='docker-compose.services.tmpl'))
-            images_list = []
-            docker = DockerClient()
+        if first_time_install:
+            if not metadata_manager.toml_file.exists():
+                richprint.print("🔍 It seems like the first installation. Pulling images... 🖼️")
+                site_composefile = ComposeFile(loadfile=Path('docker-compose.yml'))
+                services_composefile = ComposeFile(loadfile=Path('docker-compose.services.yml',template='docker-compose.services.tmpl'))
+                images_list = []
+                docker = DockerClient()
 
-            if site_composefile.is_template_loaded:
-                images = site_composefile.get_all_images()
-                images.update(services_composefile.get_all_images())
+                if site_composefile.is_template_loaded:
+                    images = site_composefile.get_all_images()
+                    images.update(services_composefile.get_all_images())
 
-                for service ,image_info in images.items():
-                    image = f"{image_info['name']}:{image_info['tag']}"
-                    images_list.append(image)
+                    for service ,image_info in images.items():
+                        image = f"{image_info['name']}:{image_info['tag']}"
+                        images_list.append(image)
 
-                # remove duplicates
-                images_dict = dict.fromkeys(images_list)
-                images_list = deepcopy(images_dict).keys()
-                error = False
+                    # remove duplicates
+                    images_dict = dict.fromkeys(images_list)
+                    images_list = deepcopy(images_dict).keys()
+                    error = False
 
-                for image in images_list:
-                    status = f"[blue]Pulling image[/blue] [bold][yellow]{image}[/yellow][/bold]"
-                    richprint.change_head(status,style=None)
-                    try:
-                        output = docker.pull(container_name=image , stream=True)
-                        richprint.live_lines(output, padding=(0, 0, 0, 2))
-                        richprint.print(f"{status} : Done")
-                    except DockerException as e:
-                        error = True
-                        images_dict[image] = e
-                        continue
+                    for image in images_list:
+                        status = f"[blue]Pulling image[/blue] [bold][yellow]{image}[/yellow][/bold]"
+                        richprint.change_head(status,style=None)
+                        try:
+                            output = docker.pull(container_name=image , stream=True)
+                            richprint.live_lines(output, padding=(0, 0, 0, 2))
+                            richprint.print(f"{status} : Done")
+                        except DockerException as e:
+                            error = True
+                            images_dict[image] = e
+                            continue
 
-                        # richprint.error(f"[red][bold]Error :[/bold][/red] {e}")
+                            # richprint.error(f"[red][bold]Error :[/bold][/red] {e}")
 
-                if error:
-                    print('')
-                    richprint.error(f"[bold][red]Pulling images failed for these images[/bold][/red]")
-                    for image,exception in images_dict.items():
-                        if exception:
-                            richprint.error(f'[bold][red]Image [/bold][/red]: {image}')
-                            richprint.error(f'[bold][red]Error [/bold][/red]: {exception}')
-                    shutil.rmtree(CLI_DIR)
-                    richprint.exit("Aborting. [bold][blue]fm[/blue][/bold] will not be able to work without images. 🖼️")
+                    if error:
+                        print('')
+                        richprint.error(f"[bold][red]Pulling images failed for these images[/bold][/red]")
+                        for image,exception in images_dict.items():
+                            if exception:
+                                richprint.error(f'[bold][red]Image [/bold][/red]: {image}')
+                                richprint.error(f'[bold][red]Error [/bold][/red]: {exception}')
+                        shutil.rmtree(CLI_DIR)
+                        richprint.exit("Aborting. [bold][blue]fm[/blue][/bold] will not be able to work without images. 🖼️")
 
-                # current_version = Version(get_current_fm_version())
-                # metadata_manager.set_version(current_version)
-                # metadata_manager.save()
+                    current_version = Version(get_current_fm_version())
+                    metadata_manager.set_version(current_version)
+                    metadata_manager.save()
 
         migrations = MigrationExecutor()
         migration_status = migrations.execute()
