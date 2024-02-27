@@ -25,5 +25,5 @@ def exit_cleanup():
     This function is used to perform cleanup at the exit.
     """
     remove_zombie_subprocess_process(process_opened)
-    check_update()
+    #check_update()
     richprint.stop()
