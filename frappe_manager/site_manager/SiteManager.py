@@ -2,6 +2,7 @@ import subprocess
 import json
 import shlex
 from ruamel.yaml import serialize
+from rich.prompt import Prompt
 import typer
 import shutil
 
@@ -174,9 +175,12 @@ class SiteManager:
         """
         Removes the site.
         """
-        richprint.change_head(f"Removing Site")
-        self.site.remove_database_and_user()
-        self.site.remove()
+        richprint.stop()
+        continue_remove= Prompt.ask(f"🤔 Do you want to remove [bold][green]'{self.site.name}'[/bold][/green]", choices=["yes", "no"],default='no')
+        if continue_remove == 'yes':
+            richprint.start('Removing Site')
+            self.site.remove_database_and_user()
+            self.site.remove()
 
     def list_sites(self):
         """

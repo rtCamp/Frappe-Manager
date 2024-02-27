@@ -450,11 +450,20 @@ class Site:
             except DockerException as e:
                 richprint.exit(f"{status_text}: Failed")
         richprint.change_head(f"Removing Dirs")
+
         try:
             shutil.rmtree(self.path)
-        except Exception as e:
-            richprint.error(e)
-            richprint.exit(f"Please remove {self.path} manually")
+        except PermissionError as e:
+            images = self.composefile.get_all_images()
+            if 'frappe' in images:
+                try:
+                    frappe_image = images['frappe']
+                    frappe_image = f"{frappe_image['name']}:{frappe_image['tag']}"
+                    output = self.docker.run(image=frappe_image,entrypoint="/bin/sh",command="-c 'chown -R frappe:frappe .'",volume=f'{self.path}/workspace:/workspace',stream=True, stream_only_exit_code=True)
+                    shutil.rmtree(self.path)
+                except Exception:
+                    richprint.error(e)
+                    richprint.exit(f"Please remove {self.path} manually")
         richprint.change_head(f"Removing Dirs: Done")
 
     def shell(self, container: str, user: str | None = None):

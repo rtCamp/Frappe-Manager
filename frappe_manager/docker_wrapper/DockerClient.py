@@ -162,9 +162,10 @@ class DockerClient:
 
     def run(
         self,
-        command: str,
         image: str,
+        command: Optional[str] = None,
         name: Optional[str] = None,
+        volume: Optional[str] = None,
         detach: bool = False,
         entrypoint: Optional[str] = None,
         pull: Literal["missing", "never", "always"] = "missing",
