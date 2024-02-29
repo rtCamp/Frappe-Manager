@@ -2,24 +2,26 @@ from pathlib import Path
 from enum import Enum
 
 # TODO configure this using config
-#sites_dir = Path().home() / __name__.split(".")[0]
-CLI_DIR = Path.home() / 'frappe'
-CLI_METADATA_PATH = CLI_DIR / '.fm.toml'
-CLI_SITES_ARCHIVE = CLI_DIR / 'archived'
+# sites_dir = Path().home() / __name__.split(".")[0]
+CLI_DIR = Path.home() / "frappe"
+CLI_METADATA_PATH = CLI_DIR / ".fm.toml"
+CLI_SITES_ARCHIVE = CLI_DIR / "archived"
 
 
 default_extension = [
     "dbaeumer.vscode-eslint",
     "esbenp.prettier-vscode",
     "ms-python.python",
-    "ms-python.black-formatter",
+    "ms-python.debugpy",
     "ms-python.flake8",
+    "ms-python.black-formatter",
     "visualstudioexptteam.vscodeintellicode",
-    "VisualStudioExptTeam.intellicode-api-usage-examples"
+    "VisualStudioExptTeam.intellicode-api-usage-examples",
 ]
 
+
 class SiteServicesEnum(str, Enum):
-    frappe= "frappe"
+    frappe = "frappe"
     nginx = "nginx"
     mailhog = "mailhog"
     adminer = "adminer"
@@ -29,3 +31,9 @@ class SiteServicesEnum(str, Enum):
     redis_socketio = "redis-socketio"
     schedule = "schedule"
     socketio = "socketio"
+
+
+STABLE_APP_BRANCH_MAPPING_LIST = {
+    "erpnext" :'version-15',
+    "hrms" :'version-15',
+}

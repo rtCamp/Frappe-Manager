@@ -1,5 +1,6 @@
 import importlib
 import sys
+from typing import Optional
 import requests
 import json
 import subprocess
@@ -55,7 +56,7 @@ def check_update():
         latest_version = update_info["info"]["version"]
         if not fm_version == latest_version:
             richprint.warning(
-                f'Ready for an update? Run "pip install --upgrade frappe-manager" to update to the latest version {latest_version}.',
+                f'[dim]Update available v{latest_version}.[/dim]',
                 emoji_code=":arrows_counterclockwise:️",
             )
     except Exception as e:
@@ -201,8 +202,7 @@ def get_current_fm_version():
     """
     return importlib.metadata.version("frappe-manager")
 
-
-def check_frappe_app_exists(appname: str, branchname: str | None = None):
+def check_repo_exists(app_url:str, branch_name: str | None = None):
     """
     Check if a Frappe app exists on GitHub.
 
@@ -214,19 +214,26 @@ def check_frappe_app_exists(appname: str, branchname: str | None = None):
         dict: A dictionary containing the existence status of the app and branch (if provided).
     """
     try:
-        app_url = f"https://github.com/frappe/{appname}"
         app = requests.get(app_url).status_code
 
-        if branchname:
-            branch_url = f"https://github.com/frappe/{appname}/tree/{branchname}"
+        if branch_name:
+            branch_url = f"{app_url}/tree/{branch_name}"
             branch = requests.get(branch_url).status_code
             return {
                 "app": True if app == 200 else False,
                 "branch": True if branch == 200 else False,
             }
         return {"app": True if app == 200 else False}
-    except Exception:
-        richprint.exit("Not able to connect to github.com.")
+
+    except Exception as e:
+        raise Exception("Not able to connect to github.com.")
+
+def check_frappe_app_exists(app: str, branch_name: Optional[str] = None):
+
+    if 'github.com' not in app:
+        app= f"https://github.com/frappe/{app}"
+
+    return check_repo_exists(app_url=app,branch_name=branch_name)
 
 
 def represent_null_empty(string_null):
@@ -308,5 +315,5 @@ def get_unix_groups():
         groups[group_name] = group_entry.gr_gid
     return groups
 
-def downgrade_package(package_name, version):
+def install_package(package_name, version):
     subprocess.check_call([sys.executable, '-m', 'pip', 'install', f'{package_name}=={version}'])

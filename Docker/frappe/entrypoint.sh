@@ -1,5 +1,7 @@
 #!/bin/bash
 
+source /scripts/helper-function.sh
+
 emer() {
    echo "$1"
    exit 1
@@ -10,11 +12,7 @@ emer() {
 
 echo "Setting up user"
 
-NAME='frappe'
-groupadd -g "$USERGROUP" $NAME
-useradd --no-log-init -r -m -u "$USERID" -g "$USERGROUP" -G sudo -s /usr/bin/zsh -d /workspace "$NAME"
-usermod -a -G tty "$NAME"
-echo "$NAME ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
+update_uid_gid "${USERID}" "${USERGROUP}" "frappe" "frappe"
 
 mkdir -p /opt/user/conf.d
 
@@ -32,12 +30,9 @@ if [[ ! -f "/workspace/.profile" ]]; then
    cat /opt/user/.profile > /workspace/.profile
 fi
 
+chown "$USERID":"$USERGROUP" /workspace /workspace/frappe-bench
 
-if [[ ! -d '/workspace/frappe-bench' ]]; then
-    chown -R "$USERID":"$USERGROUP" /workspace
-	# find /workspace -type d -print0 | xargs -0 -n 200 -P "$(nproc)" chown "$USERID":"$USERGROUP"
-	# find /workspace -type f -print0 | xargs -0 -n 200 -P "$(nproc)" chown "$USERID":"$USERGROUP"
-fi
+ls -p /workspace | grep -v 'frappe-bench/' | xargs -I{} chown -R "$USERID":"$USERGROUP" /workspace{}
 
 
 if [ "$#" -gt 0 ]; then

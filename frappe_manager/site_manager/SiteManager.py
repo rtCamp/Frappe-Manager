@@ -2,23 +2,26 @@ import subprocess
 import json
 import shlex
 from ruamel.yaml import serialize
+from rich.prompt import Prompt
 import typer
 import shutil
 
 from typing import List, Optional
 from pathlib import Path
+from datetime import datetime
+from frappe_manager.site_manager import VSCODE_LAUNCH_JSON, VSCODE_TASKS_JSON
 from frappe_manager.site_manager.site import Site
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker_wrapper import DockerClient, DockerException
 from frappe_manager import CLI_DIR
 from rich.table import Table
+from frappe_manager.utils.site import generate_services_table, domain_level
 
-from frappe_manager.utils.helpers import check_and_display_port_status
 from frappe_manager.utils.site import generate_services_table
 
 
 class SiteManager:
-    def __init__(self, sitesdir: Path, services = None):
+    def __init__(self, sitesdir: Path, services=None):
         self.sitesdir = sitesdir
         self.site = None
         self.sitepath = None
@@ -34,7 +37,7 @@ class SiteManager:
             sitename (str | None): The name of the site. If None, the default site will be used.
         """
         if sitename:
-            if not ".localhost" in sitename:
+            if domain_level(sitename) == 0:
                 sitename = sitename + ".localhost"
             sitepath: Path = self.sitesdir / sitename
 
@@ -54,7 +57,12 @@ class SiteManager:
                         f"The site '{sitename}' does not exist. Aborting operation."
                     )
 
-            self.site: Site = Site(sitepath, sitename, verbose=self.verbose,services=self.services)
+            self.site: Site = Site(
+                sitepath,
+                sitename,
+                verbose=self.verbose,
+                services=self.services,
+            )
 
     def set_verbose(self):
         """
@@ -99,14 +107,16 @@ class SiteManager:
             for site_compose_path in site_compose:
                 docker = DockerClient(compose_file_path=site_compose_path)
                 try:
-                    output = docker.compose.stop(timeout=10, stream=not self.verbose)
+                    output = docker.compose.stop(
+                        timeout=10, stream=not self.verbose
+                    )
                     if not self.verbose:
                         richprint.live_lines(output, padding=(0, 0, 0, 2))
                 except DockerException as e:
                     richprint.exit(f"{status_text}: Failed")
         richprint.print(f"{status_text}: Done")
 
-    def create_site(self, template_inputs: dict,template_site: bool = False):
+    def create_site(self, template_inputs: dict, template_site: bool = False):
         """
         Creates a new site using the provided template inputs.
 
@@ -124,11 +134,13 @@ class SiteManager:
         richprint.change_head(f"Generating Compose")
         self.site.generate_compose(template_inputs)
         self.site.create_compose_dirs()
-        self.site.pull()
 
         if template_site:
             self.site.remove_secrets()
-            richprint.exit(f"Created template site: {self.site.name}",emoji_code=":white_check_mark:")
+            richprint.exit(
+                f"Created template site: {self.site.name}",
+                emoji_code=":white_check_mark:",
+            )
 
         richprint.change_head(f"Starting Site")
         self.site.start()
@@ -146,10 +158,15 @@ class SiteManager:
                 f"SITE_STATUS {self.site.name}: WORKING"
             )
             richprint.print(f"Started site")
-
             self.info()
+            if not ".localhost" in self.site.name:
+                richprint.print(
+                    f"Please note that You will have to add a host entry to your system's hosts file to access the site locally."
+                )
         else:
-            self.typer_context.obj["logger"].error(f"{self.site.name}: NOT WORKING")
+            self.typer_context.obj["logger"].error(
+                f"{self.site.name}: NOT WORKING"
+            )
 
             richprint.stop()
 
@@ -162,20 +179,27 @@ class SiteManager:
 
             richprint.error(error_message.format(log_path))
 
-            # prompt if site not working to delete the site
-            if typer.confirm(f"Do you want to delete this site {self.site.name}?"):
-                richprint.start("Removing Site")
-                self.remove_site()
-            else:
+            remove_status = self.remove_site()
+            if not remove_status:
                 self.info()
 
-    def remove_site(self):
+    def remove_site(self) -> bool:
         """
         Removes the site.
         """
-        richprint.change_head(f"Removing Site")
+        richprint.stop()
+        continue_remove = Prompt.ask(
+            f"🤔 Do you want to remove [bold][green]'{self.site.name}'[/bold][/green]",
+            choices=["yes", "no"],
+            default="no",
+        )
+        if continue_remove == "no":
+            return False
+
+        richprint.start("Removing Site")
         self.site.remove_database_and_user()
         self.site.remove()
+        return True
 
     def list_sites(self):
         """
@@ -200,7 +224,9 @@ class SiteManager:
             temp_site = Site(site_path, site_name)
 
             row_data = f"[link=http://{temp_site.name}]{temp_site.name}[/link]"
-            path_data = f"[link=file://{temp_site.path}]{temp_site.path}[/link]"
+            path_data = (
+                f"[link=file://{temp_site.path}]{temp_site.path}[/link]"
+            )
 
             status_color = "white"
             status_msg = "Inactive"
@@ -231,14 +257,15 @@ class SiteManager:
         """
         Starts the site.
         """
-        #self.migrate_site()
-        self.site.pull()
+        # self.migrate_site()
         self.site.sync_site_common_site_config()
         self.site.start()
         self.site.frappe_logs_till_start(status_msg="Starting Site")
         self.site.sync_workers_compose()
 
-    def attach_to_site(self, user: str, extensions: List[str]):
+    def attach_to_site(
+        self, user: str, extensions: List[str], debugger: bool = False
+    ):
         """
         Attaches to a running site's container using Visual Studio Code Remote Containers extension.
 
@@ -255,7 +282,7 @@ class SiteManager:
 
         if not vscode_path:
             richprint.exit(
-                "Visual Studio Code excutable 'code' nott accessible via cli."
+                "Visual Studio Code binary i.e 'code' is not accessible via cli."
             )
 
         container_hex = self.site.get_frappe_container_hex()
@@ -271,7 +298,15 @@ class SiteManager:
         vscode_config_json = [
             {
                 "remoteUser": user,
-                "customizations": {"vscode": {"extensions": extensions}},
+                "remoteEnv": {"SHELL": "/bin/zsh"},
+                "customizations": {
+                    "vscode": {
+                        "settings": {
+                            "python.pythonPath": "/workspace/frappe-bench/env/bin/python"
+                        },
+                        "extensions": extensions,
+                    }
+                },
             }
         ]
 
@@ -282,10 +317,12 @@ class SiteManager:
         # check if the extension are the same if they are different then only update
         # check if customizations key available
         try:
-            extensions_previous = json.loads(labels_previous["devcontainer.metadata"])
-            extensions_previous = extensions_previous[0]["customizations"]["vscode"][
-                "extensions"
-            ]
+            extensions_previous = json.loads(
+                labels_previous["devcontainer.metadata"]
+            )
+            extensions_previous = extensions_previous[0]["customizations"][
+                "vscode"
+            ]["extensions"]
 
         except KeyError:
             extensions_previous = []
@@ -298,6 +335,39 @@ class SiteManager:
             self.site.composefile.write_to_file()
             self.site.start()
             richprint.print(f"Recreating Containers : Done")
+
+        # sync debugger files
+        if debugger:
+            richprint.change_head("Sync vscode debugger configuration")
+            dot_vscode_dir = self.site.path / "workspace" / ".vscode"
+            tasks_json_path = dot_vscode_dir / "tasks"
+            launch_json_path = dot_vscode_dir / "launch"
+
+            dot_vscode_config = {
+                tasks_json_path: VSCODE_TASKS_JSON,
+                launch_json_path: VSCODE_LAUNCH_JSON,
+            }
+
+            if not dot_vscode_dir.exists():
+                dot_vscode_dir.mkdir(exist_ok=True, parents=True)
+
+            for file_path in [launch_json_path, tasks_json_path]:
+                file_name = f"{file_path.name}.json"
+                real_file_path = file_path.parent / file_name
+                if real_file_path.exists():
+                    backup_tasks_path = (
+                        file_path.parent
+                        / f"{file_path.name}.{datetime.now().strftime('%d-%b-%y--%H-%M-%S')}.json"
+                    )
+                    shutil.copy2(real_file_path, backup_tasks_path)
+                    richprint.print(
+                        f"Backup previous '{file_name}' : {backup_tasks_path}"
+                    )
+
+                with open(real_file_path, "w+") as f:
+                    f.write(json.dumps(dot_vscode_config[file_path]))
+
+            richprint.print("Sync vscode debugger configuration: Done")
 
         richprint.change_head("Attaching to Container")
         output = subprocess.run(vscode_cmd, shell=True)
@@ -378,13 +448,17 @@ class SiteManager:
                 db_user = site_config["db_name"]
                 db_pass = site_config["db_password"]
 
-        frappe_password = self.site.composefile.get_envs("frappe")["ADMIN_PASS"]
+        frappe_password = self.site.composefile.get_envs("frappe")[
+            "ADMIN_PASS"
+        ]
         services_db_info = self.services.get_database_info()
-        root_db_password = services_db_info['password']
-        root_db_host = services_db_info['host']
-        root_db_user = services_db_info['user']
+        root_db_password = services_db_info["password"]
+        root_db_host = services_db_info["host"]
+        root_db_user = services_db_info["user"]
 
-        site_info_table = Table(show_lines=True, show_header=False, highlight=True)
+        site_info_table = Table(
+            show_lines=True, show_header=False, highlight=True
+        )
 
         data = {
             "Site Url": f"http://{self.site.name}",
@@ -424,11 +498,12 @@ class SiteManager:
             site_info_table.add_row("Bench Apps", bench_apps_list_table)
 
         running_site_services = self.site.get_services_running_status()
-
         running_site_workers = self.site.workers.get_services_running_status()
 
         if running_site_services:
-            site_services_table = generate_services_table(running_site_services)
+            site_services_table = generate_services_table(
+                running_site_services
+            )
             site_info_table.add_row("Site Services", site_services_table)
 
         if running_site_workers:
@@ -436,10 +511,6 @@ class SiteManager:
             site_info_table.add_row("Site Workers", site_workers_table)
 
         richprint.stdout.print(site_info_table)
-        # richprint.print(
-        #     f":green_square: -> Active :red_square: -> Inactive",
-        #     emoji_code=":information: ",
-        # )
 
     def migrate_site(self):
         """
