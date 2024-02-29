@@ -38,7 +38,7 @@ jobs:
           owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
           echo "Checkout: $latest_tag"
           git checkout "$latest_tag"
-          tag=$( cat "$GITHUB_WORKSPACE/Docker/images-tag.info" | jq -rc .${{ matrix.service_name }})
+          tag=$( cat "$GITHUB_WORKSPACE/Docker/images-tag.json" | jq -rc .${{ matrix.service_name }})
           echo "image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:${tag}" >> $GITHUB_ENV
 
       - name: Set up Docker Buildx
