@@ -9,7 +9,7 @@ import shutil
 from typing import List, Optional
 from pathlib import Path
 from datetime import datetime
-from frappe_manager.site_manager import VSCODE_LAUNCH_JSON, VSCODE_TASKS_JSON
+from frappe_manager.site_manager import VSCODE_LAUNCH_JSON, VSCODE_TASKS_JSON, VSCODE_SETTINGS_JSON
 from frappe_manager.site_manager.site import Site
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker_wrapper import DockerClient, DockerException
@@ -183,6 +183,7 @@ class SiteManager:
             if not remove_status:
                 self.info()
 
+
     def remove_site(self) -> bool:
         """
         Removes the site.
@@ -257,7 +258,6 @@ class SiteManager:
         """
         Starts the site.
         """
-        # self.migrate_site()
         self.site.sync_site_common_site_config()
         self.site.start()
         self.site.frappe_logs_till_start(status_msg="Starting Site")
@@ -275,7 +275,7 @@ class SiteManager:
         """
 
         if not self.site.running():
-            richprint.print(f"Site: {self.site.name} is not running")
+            richprint.exit(f"Site: {self.site.name} is not running")
 
         # check if vscode is installed
         vscode_path = shutil.which("code")
@@ -290,7 +290,7 @@ class SiteManager:
         vscode_cmd = shlex.join(
             [
                 vscode_path,
-                f"--folder-uri=vscode-remote://attached-container+{container_hex}+/workspace",
+                f"--folder-uri=vscode-remote://attached-container+{container_hex}+/workspace/frappe-bench",
             ]
         )
         extensions.sort()
@@ -301,9 +301,7 @@ class SiteManager:
                 "remoteEnv": {"SHELL": "/bin/zsh"},
                 "customizations": {
                     "vscode": {
-                        "settings": {
-                            "python.pythonPath": "/workspace/frappe-bench/env/bin/python"
-                        },
+                        "settings": VSCODE_SETTINGS_JSON,
                         "extensions": extensions,
                     }
                 },
@@ -339,19 +337,21 @@ class SiteManager:
         # sync debugger files
         if debugger:
             richprint.change_head("Sync vscode debugger configuration")
-            dot_vscode_dir = self.site.path / "workspace" / ".vscode"
+            dot_vscode_dir = self.site.path / "workspace"/ "frappe-bench" / ".vscode"
             tasks_json_path = dot_vscode_dir / "tasks"
             launch_json_path = dot_vscode_dir / "launch"
+            setting_json_path = dot_vscode_dir / "settings"
 
             dot_vscode_config = {
                 tasks_json_path: VSCODE_TASKS_JSON,
                 launch_json_path: VSCODE_LAUNCH_JSON,
+                setting_json_path: VSCODE_SETTINGS_JSON,
             }
 
             if not dot_vscode_dir.exists():
                 dot_vscode_dir.mkdir(exist_ok=True, parents=True)
 
-            for file_path in [launch_json_path, tasks_json_path]:
+            for file_path in [launch_json_path, tasks_json_path, setting_json_path]:
                 file_name = f"{file_path.name}.json"
                 real_file_path = file_path.parent / file_name
                 if real_file_path.exists():
@@ -366,6 +366,15 @@ class SiteManager:
 
                 with open(real_file_path, "w+") as f:
                     f.write(json.dumps(dot_vscode_config[file_path]))
+
+            # install black in env
+            try:
+                self.site.docker.compose.exec(service='frappe',command='/workspace/frappe-bench/env/bin/pip install black',stream=True,stream_only_exit_code=True)
+            except DockerException as e:
+                self.typer_context.obj["logger"].error(
+                    f"black installation exception: {e}"
+                )
+                richprint.warning("Not able to install black in env.")
 
             richprint.print("Sync vscode debugger configuration: Done")
 
