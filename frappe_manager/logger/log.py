@@ -1,11 +1,14 @@
 import logging
 import logging.handlers
 import os
-from frappe_manager import CLI_DIR
+from frappe_manager import CLI_LOG_DIRECTORY
 import shutil
 import gzip
 from typing import Dict, Optional, Union
 from frappe_manager.display_manager.DisplayManager import richprint
+
+# Define MESSAGE log level
+CLEANUP = 25
 
 def namer(name):
     return name + ".gz"
@@ -17,10 +20,6 @@ def rotator(source, dest):
     os.remove(source)
 
 loggers: Dict[str, logging.Logger] = {}
-log_directory = CLI_DIR / 'logs'
-
-# Define MESSAGE log level
-CLEANUP = 25
 
 # "Register" new loggin level
 logging.addLevelName(CLEANUP, 'CLEANUP')
@@ -30,7 +29,7 @@ class FMLOGGER(logging.Logger):
         if self.isEnabledFor(CLEANUP):
             self._log(CLEANUP, msg, args, **kwargs)
 
-def get_logger(log_dir=log_directory, log_file_name='fm') -> logging.Logger:
+def get_logger(log_dir=CLI_LOG_DIRECTORY, log_file_name='fm') -> logging.Logger:
     """ Creates a Log File and returns Logger object """
     # Build Log File Full Path
     logPath = log_dir / f"{log_file_name}.log"

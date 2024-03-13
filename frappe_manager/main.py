@@ -2,6 +2,7 @@ import atexit
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.logger import log
 from frappe_manager.utils.helpers import check_update, remove_zombie_subprocess_process
+from frappe_manager import CLI_DIR, CLI_LOG_DIRECTORY
 from frappe_manager.utils.docker import process_opened
 from frappe_manager.commands import app
 
@@ -11,6 +12,7 @@ def cli_entrypoint():
         app()
     except Exception as e:
         logger = log.get_logger()
+        richprint.error(f"Exception Occured: Please check logs at {CLI_LOG_DIRECTORY/'fm.log'}")
         richprint.stop()
         with richprint.stdout.capture() as capture:
             richprint.stdout.print_exception(show_locals=True)

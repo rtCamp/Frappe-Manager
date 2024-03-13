@@ -152,7 +152,7 @@ class MigrationExecutor:
                             f"[bold][red]FAILED MIGRATION VERSION[/red]:[/bold] {site_status['last_migration_version']}"
                         )
                         richprint.print(
-                            f"[bold][red]EXCEPTION[/red]:[/bold] {site_status['exception']}"
+                            f"[bold][red]EXCEPTION[/red]:[/bold] {type(site_status['exception']).__name__} - {site_status['exception']}"
                         )
 
                 richprint.print(
@@ -200,12 +200,13 @@ class MigrationExecutor:
         return True
 
     def set_site_data(
-        self, site, exception=None, migration_version: Optional[Version] = None
+        self, site, exception=None, migration_version: Optional[Version] = None, traceback_str: Optional[str] = None
     ):
         self.migrate_sites[site.name] = {
             "object": site,
             "exception": exception,
             "last_migration_version": migration_version,
+            "traceback": traceback_str,
         }
 
     def get_site_data(self, site_name):
