@@ -39,7 +39,7 @@ class DisplayManager:
         self.spinner.update(text=self.current_head)
         self.live.start()
 
-    def error(self, text: str, emoji_code: str = ":x:"):
+    def error(self, text: str,exception: Optional[Exception] = None, emoji_code: str = ":x:"):
         """
         Display an error message with an optional emoji code.
 
@@ -48,6 +48,9 @@ class DisplayManager:
             emoji_code (str, optional): The emoji code to display before the error message. Defaults to ':x:'.
         """
         self.stdout.print(f"{emoji_code} {text}")
+
+        if exception:
+            raise exception
 
     def warning(self, text: str, emoji_code: str = ":warning: "):
         """

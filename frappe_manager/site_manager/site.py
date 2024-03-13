@@ -42,8 +42,7 @@ class Site:
         match = is_fqdn(sitename)
 
         if not match:
-            richprint.error(f"The {sitename} must follow Fully Qualified Domain Name (FQDN) format.")
-            raise SiteException(self, f"Valid FQDN site name not provided.")
+            richprint.error(f"The {sitename} must follow Fully Qualified Domain Name (FQDN) format.",exception=SiteException(self, f"Valid FQDN site name not provided."))
 
         return True
 
@@ -215,7 +214,7 @@ class Site:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
             richprint.print(f"{status_text}: Done")
         except DockerException as e:
-            raise SiteException(self, f"{status_text}: Failed", e)
+            richprint.error(f"{status_text}: Failed",exception=e)
 
         # start workers if exists
         if self.workers.exists():
@@ -314,7 +313,7 @@ class Site:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
             richprint.print(f"{status_text}: Done")
         except DockerException as e:
-            raise SiteException(self, f"{status_text}: Failed", e)
+            richprint.error(f"{status_text}: Failed",exception=e)
 
         # stopping worker containers
         if self.workers.exists():
@@ -346,7 +345,7 @@ class Site:
                     exit_code = richprint.live_lines(output, padding=(0, 0, 0, 2))
                 richprint.print(f"{status_text}: Done")
             except DockerException as e:
-                raise SiteException(self, f"{status_text}: Failed", e)
+                richprint.error(f"{status_text}: Failed",exception=e)
 
     def remove(self) -> bool:
         """
@@ -371,7 +370,7 @@ class Site:
                     exit_code = richprint.live_lines(output, padding=(0, 0, 0, 2))
                 richprint.print(f"Removing Containers: Done")
             except DockerException as e:
-                raise SiteException(self, f"{status_text}: Failed", e)
+                richprint.error(f"{status_text}: Failed",exception=e)
 
         richprint.change_head(f"Removing Dirs")
 

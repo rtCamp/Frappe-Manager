@@ -12,7 +12,8 @@ def cli_entrypoint():
         app()
     except Exception as e:
         logger = log.get_logger()
-        richprint.error(f"Exception Occured: Please check logs at {CLI_LOG_DIRECTORY/'fm.log'}")
+        richprint.error(f'[red]Exception :[/red] {str(e).strip()}')
+        richprint.error(f"More info about error is logged in {CLI_LOG_DIRECTORY/'fm.log'}")
         richprint.stop()
         with richprint.stdout.capture() as capture:
             richprint.stdout.print_exception(show_locals=True)

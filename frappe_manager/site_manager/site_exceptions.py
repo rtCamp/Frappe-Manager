@@ -7,7 +7,7 @@ class SiteException(Exception):
         error_msg: str,
         exception: Optional[Exception] = None
     ):
-        error_msg = f"{self.name}: {error_msg}"
+        error_msg = f"{site.name}: {error_msg}"
         super().__init__(error_msg)
 
 class SiteWorkerNotStart(Exception):

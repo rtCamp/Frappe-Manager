@@ -6,6 +6,7 @@ from ruamel.yaml.comments import (
     CommentedMap as OrderedDict,
     CommentedSeq as OrderedList,
 )
+from frappe_manager.compose_manager.compose_file_exceptions import ComposeFileException
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.utils.site import parse_docker_volume
 from frappe_manager.utils.helpers import represent_null_empty
@@ -72,7 +73,7 @@ class ComposeFile:
                 str(pkg_resources.files("frappe_manager").joinpath(template_path))
             )
         except FileNotFoundError as e:
-            richprint.exit(f"{file_name} template not found.", error_msg=e)
+            richprint.error(f"{file_name} template not found.",e)
 
     def load_template(self):
         """
@@ -147,8 +148,8 @@ class ComposeFile:
         """
         try:
             self.yml["services"][service]["user"] = f"{uid}:{gid}"
-        except KeyError:
-            richprint.exit("Issue in docker template. Not able to set user.")
+        except KeyError as e:
+            richprint.error("Issue in docker template. Not able to set user.",e)
 
     def get_user(self, service):
         """
@@ -220,10 +221,12 @@ class ComposeFile:
         """
         try:
             all_networks = self.yml["services"][service_name]["networks"]
-            if network_name in all_networks:
-                aliases = self.yml["services"][service_name]["networks"][network_name][
-                    "aliases"
-                ]
+            if not network_name in all_networks:
+                return None
+
+            aliases = self.yml["services"][service_name]["networks"][network_name][
+                "aliases"
+            ]
             return aliases
         except KeyError as e:
             return None
@@ -472,7 +475,7 @@ class ComposeFile:
             with open(self.compose_path, "w") as f:
                 yaml.dump(self.yml, f, transform=represent_null_empty)
         except Exception as e:
-            richprint.exit(f"Error in writing compose file.", error_msg=e)
+            richprint.error(f"Error in writing compose file.",e)
 
     def get_all_volumes(self):
         """
