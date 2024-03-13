@@ -38,3 +38,9 @@ VSCODE_SETTINGS_JSON = {
   },
   "black-formatter.importStrategy" : "useBundled"
 }
+
+PREBAKED_SITE_APPS= {
+    "https://github.com/frappe/frappe": "version-15",
+    "https://github.com/frappe/erpnext": "version-15",
+    "https://github.com/frappe/hrms": "version-15",
+}

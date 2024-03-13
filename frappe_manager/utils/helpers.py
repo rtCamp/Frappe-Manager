@@ -13,6 +13,7 @@ from pathlib import Path
 from frappe_manager.logger import log
 from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.site_manager import PREBAKED_SITE_APPS
 
 
 def remove_zombie_subprocess_process(process):
@@ -202,7 +203,7 @@ def get_current_fm_version():
     """
     return importlib.metadata.version("frappe-manager")
 
-def check_repo_exists(app_url:str, branch_name: str | None = None):
+def check_repo_exists(app_url:str, branch_name: str | None = None, exclude_dict: dict[str,str] = PREBAKED_SITE_APPS ):
     """
     Check if a Frappe app exists on GitHub.
 
@@ -214,11 +215,19 @@ def check_repo_exists(app_url:str, branch_name: str | None = None):
         dict: A dictionary containing the existence status of the app and branch (if provided).
     """
     try:
-        app = requests.get(app_url).status_code
+        if app_url in exclude_dict:
+            app = 200
+        else:
+            app = requests.get(app_url).status_code
+
 
         if branch_name:
-            branch_url = f"{app_url}/tree/{branch_name}"
-            branch = requests.get(branch_url).status_code
+            if branch_name in exclude_dict.values():
+                branch = 200
+            else:
+                branch_url = f"{app_url}/tree/{branch_name}"
+                branch = requests.get(branch_url).status_code
+
             return {
                 "app": True if app == 200 else False,
                 "branch": True if branch == 200 else False,
@@ -226,7 +235,7 @@ def check_repo_exists(app_url:str, branch_name: str | None = None):
         return {"app": True if app == 200 else False}
 
     except Exception as e:
-        raise Exception("Not able to connect to github.com.")
+        richprint.error(f"Not able to validate app {app_url} for branch [blue]{branch_name}[/blue]",e)
 
 def check_frappe_app_exists(app: str, branch_name: Optional[str] = None):
 
