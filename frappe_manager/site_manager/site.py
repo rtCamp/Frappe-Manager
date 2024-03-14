@@ -458,7 +458,7 @@ class Site:
             with open(bench_start_log_path, "r") as bench_start_log:
                 bench_start_log_data = log_file(bench_start_log, follow=follow)
                 for line in bench_start_log_data:
-                    richprint.stdout.print(line)
+                    print(line)
         else:
             richprint.error(f"Log file not found: {bench_start_log_path}")
 
