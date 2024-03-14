@@ -42,12 +42,13 @@ class SiteManager:
 
             site_directory_exits_check_for_commands = ["create"]
 
-            if self.typer_context.invoked_subcommand in site_directory_exits_check_for_commands:
-                if sitepath.exists():
-                    richprint.exit(f"The site '{sitename}' already exists at {sitepath}. Aborting operation.")
-            else:
-                if not sitepath.exists():
-                    richprint.exit(f"The site '{sitename}' does not exist. Aborting operation.")
+            if self.typer_context:
+                if self.typer_context.invoked_subcommand in site_directory_exits_check_for_commands:
+                    if sitepath.exists():
+                        richprint.exit(f"The site '{sitename}' already exists at {sitepath}. Aborting operation.")
+                else:
+                    if not sitepath.exists():
+                        richprint.exit(f"The site '{sitename}' does not exist. Aborting operation.")
 
             self.site: Optional[Site] = Site(
                 sitepath,

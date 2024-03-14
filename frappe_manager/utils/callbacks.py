@@ -1,8 +1,10 @@
 import typer
+from pathlib import Path
 from typing import List, Optional
+from frappe_manager.site_manager.SiteManager import SiteManager
 from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager import STABLE_APP_BRANCH_MAPPING_LIST
+from frappe_manager import CLI_SITES_DIRECTORY, STABLE_APP_BRANCH_MAPPING_LIST
 
 
 def apps_list_validation_callback(value: List[str] | None):
@@ -109,3 +111,9 @@ def version_callback(version: Optional[bool] = None):
         fm_version = get_current_fm_version()
         richprint.print(fm_version, emoji_code='')
         raise typer.Exit()
+
+
+def sites_autocompletion_callback():
+    sites = SiteManager(CLI_SITES_DIRECTORY)
+    sites_list = sites.get_all_sites()
+    return sites_list
