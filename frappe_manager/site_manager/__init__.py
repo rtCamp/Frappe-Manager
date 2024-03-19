@@ -27,3 +27,14 @@ VSCODE_TASKS_JSON = {
         }
     ],
 }
+
+VSCODE_SETTINGS_JSON = {
+  "python.defaultInterpreterPath": "/workspace/frappe-bench/env/bin/python",
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    "editor.detectIndentation": True,
+    "editor.tabSize": 4,
+    "editor.insertSpaces": True,
+  },
+  "black-formatter.importStrategy" : "useBundled"
+}
