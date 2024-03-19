@@ -111,17 +111,28 @@ class MigrationV0110(MigrationBase):
             richprint.print(f"{status_msg} {compose_version} -> {fm_version}: Failed ")
             raise MigrationExceptionInSite(f"{site.composefile.compose_path} not found.")
 
+        images_info = site.composefile.get_all_images()
+        image_info = images_info['frappe']
+
+        # get v0.11.1 frappe image
+        image_info['tag'] = self.version.version_string()
+        image_info['name'] = 'ghcr.io/rtcamp/frappe-manager-frappe'
+
+        output = site.docker.pull(container_name=f"{image_info['name']}:{image_info['tag']}", stream=True)
+        richprint.live_lines(output, padding=(0, 0, 0, 2))
+
+        site.composefile.set_all_images(images_info)
         # remove restart: from all the services
+
         compose_yml = site.composefile.yml
         try:
             for service in compose_yml["services"]:
                 del compose_yml["services"][service]["restart"]
         except KeyError as e:
-            self.logger.error(f"Not able to delete [blue]restart: always[/blue] attribute from compose file.{e}")
+            self.logger.error(f"{site.name}: Not able to delete [blue]restart: always[/blue] attribute from compose file.{e}")
             pass
 
         site.composefile.set_version(str(self.version))
-
         site.composefile.write_to_file()
 
         richprint.print(f"{status_msg} {compose_version} -> {fm_version}: Done")
