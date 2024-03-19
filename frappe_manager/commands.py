@@ -14,13 +14,13 @@ from typing import Annotated, List, Optional, Set
 from frappe_manager.services_manager.services_exceptions import ServicesNotCreated
 from frappe_manager.site_manager.SiteManager import SiteManager
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager import CLI_DIR, default_extension, SiteServicesEnum, services_manager
+from frappe_manager import CLI_DIR, default_extension, SiteServicesEnum, services_manager, CLI_SITES_DIRECTORY
 from frappe_manager.docker_wrapper import DockerClient, DockerException
 from frappe_manager.logger import log
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.site_manager.site_exceptions import SiteException
-from frappe_manager.utils.callbacks import apps_list_validation_callback, frappe_branch_validation_callback, version_callback
+from frappe_manager.utils.callbacks import apps_list_validation_callback, frappe_branch_validation_callback, sites_autocompletion_callback, version_callback
 from frappe_manager.utils.helpers import get_container_name_prefix, is_cli_help_called, get_current_fm_version
 from frappe_manager.services_manager.commands import services_app
 from frappe_manager.sub_commands.self_commands import self_app
@@ -54,7 +54,6 @@ def app_callback(
 
     if not help_called:
 
-        sitesdir = CLI_DIR / 'sites'
         first_time_install = False
 
         richprint.start(f"Working")
@@ -63,7 +62,7 @@ def app_callback(
             # creating the sites dir
             # TODO check if it's writeable and readable -> by writing a file to it and catching exception
             CLI_DIR.mkdir(parents=True, exist_ok=True)
-            sitesdir.mkdir(parents=True, exist_ok=True)
+            CLI_SITES_DIRECTORY.mkdir(parents=True, exist_ok=True)
             richprint.print(f"fm directory doesn't exists! Created at -> {str(CLI_DIR)}")
             first_time_install = True
         else:
@@ -156,7 +155,7 @@ def app_callback(
             services_manager.start()
 
         global sites
-        sites = SiteManager(sitesdir, services=services_manager)
+        sites = SiteManager(CLI_SITES_DIRECTORY, services=services_manager)
 
         sites.set_typer_context(ctx)
 
@@ -265,10 +264,9 @@ def create(
 
 
 @app.command(no_args_is_help=True)
-def delete(sitename: Annotated[str, typer.Argument(help="Name of the site")]):
+def delete(sitename: Annotated[str, typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback)]):
     """Delete a site. """
     sites.init(sitename)
-    # turn off the site
     sites.remove_site()
 
 
@@ -280,14 +278,14 @@ def list():
 
 
 @app.command(no_args_is_help=True)
-def start(sitename: Annotated[str, typer.Argument(help="Name of the site")]):
+def start(sitename: Annotated[str, typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback)]):
     """Start a site. """
     sites.init(sitename)
     sites.start_site()
 
 
 @app.command(no_args_is_help=True)
-def stop(sitename: Annotated[str, typer.Argument(help="Name of the site")]):
+def stop(sitename: Annotated[str, typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback)]):
     """Stop a site. """
     sites.init(sitename)
     sites.stop_site()
@@ -302,7 +300,7 @@ def code_command_extensions_callback(extensions: List[str]) -> List[str]:
 
 @app.command(no_args_is_help=True)
 def code(
-    sitename: Annotated[str, typer.Argument(help="Name of the site.")],
+    sitename: Annotated[str, typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback)],
     user: Annotated[str, typer.Option(help="Connect as this user.")] = "frappe",
     extensions: Annotated[
         Optional[List[str]],
@@ -325,7 +323,7 @@ def code(
 
 @app.command(no_args_is_help=True)
 def logs(
-    sitename: Annotated[str, typer.Argument(help="Name of the site.")],
+    sitename: Annotated[str, typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback)],
     service: Annotated[Optional[SiteServicesEnum], typer.Option(help="Specify service name to show container logs.")] = None,
     follow: Annotated[bool, typer.Option('--follow','-f',help="Follow logs.")] = False,
 ):
@@ -339,7 +337,7 @@ def logs(
 
 @app.command(no_args_is_help=True)
 def shell(
-    sitename: Annotated[str, typer.Argument(help="Name of the site.")],
+    sitename: Annotated[str, typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback)],
     user: Annotated[str, typer.Option(help="Connect as this user.")] = None,
     service: Annotated[SiteServicesEnum, typer.Option(help="Specify Service")] = 'frappe',
 ):
@@ -352,7 +350,7 @@ def shell(
 
 @app.command(no_args_is_help=True)
 def info(
-    sitename: Annotated[str, typer.Argument(help="Name of the site.")],
+    sitename: Annotated[str, typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback)],
 ):
     """Shows information about given site."""
     sites.init(sitename)
