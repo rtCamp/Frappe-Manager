@@ -131,18 +131,18 @@ install_apps() {
 
     apps_txt=$(mktemp)
 
-    apps_list=$(ls -1 apps|| exit 0)
+    apps_list=$(ls -1 apps || exit 0)
 
     for app_name in $(echo "$apps_list"); do
         get_app_name  "$app_name"
         echo "$APP_NAME" >> "$apps_txt"
     done
 
-    cat "$apps_txt" > sites/apps.txt
+    cp "$apps_txt" sites/apps.txt
 
     # create apps_json
     for app_name in $(cat "$apps_txt" | grep -v 'frappe' || exit 0); do
-        apps_json=$(echo "$apps_json" | jq -rc --arg app_name "${APP_NAME}" '.+ [$app_name]')
+        apps_json=$(echo "$apps_json" | jq -rc --arg app_name "${app_name}" '.+ [$app_name]')
     done
 
     update_common_site_config install_apps "$apps_json" 'true'
