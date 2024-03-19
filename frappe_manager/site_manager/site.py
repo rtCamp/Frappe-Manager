@@ -478,29 +478,23 @@ class Site:
         user. If no user is provided, the shell command will be executed as the default user
         :type user: str | None
         """
-        # TODO check user exists
         richprint.stop()
-        non_bash_supported = [
-            "redis-cache",
-            "redis-cache",
-            "redis-socketio",
-            "redis-queue",
-        ]
+
+        non_bash_supported = ["redis-cache", "redis-socketio", "redis-queue"]
+
+        shell_path = "/bin/bash" if container not in non_bash_supported else "sh"
+
+        exec_args = {'service': container, 'command': shell_path}
+
+        if container == "frappe":
+            exec_args['command'] = "/usr/bin/zsh"
+            exec_args['workdir']= '/workspace/frappe-bench'
+
+        if user:
+            exec_args['user'] = user
+
         try:
-            if not container in non_bash_supported:
-                if container == "frappe":
-                    shell_path = "/usr/bin/zsh"
-                else:
-                    shell_path = "/bin/bash"
-                if user:
-                    self.docker.compose.exec(container, user=user, command=shell_path)
-                else:
-                    self.docker.compose.exec(container, command=shell_path)
-            else:
-                if user:
-                    self.docker.compose.exec(container, user=user, command="sh")
-                else:
-                    self.docker.compose.exec(container, command="sh")
+            self.docker.compose.exec(**exec_args)
         except DockerException as e:
             richprint.warning(f"Shell exited with error code: {e.return_code}")
 
