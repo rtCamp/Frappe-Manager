@@ -44,7 +44,7 @@ def app_callback(
         ] = None,
 ):
     """
-    Frappe-Manager for creating frappe development envrionments.
+    Frappe-Manager for creating frappe development environments.
     """
 
     ctx.obj = {}
