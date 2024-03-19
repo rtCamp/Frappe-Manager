@@ -260,8 +260,6 @@ def create(
         # "extra_hosts": extra_hosts,
         "user": users,
     }
-    # turn off all previous
-    # start the docker compose
 
     sites.create_site(template_inputs,template_site=template)
 
