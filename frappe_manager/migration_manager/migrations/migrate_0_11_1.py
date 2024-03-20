@@ -1,5 +1,6 @@
 import importlib
 from frappe_manager.migration_manager.migration_base import MigrationBase
+from frappe_manager.docker_wrapper.DockerClient import DockerClient
 from frappe_manager.migration_manager.migration_exections import MigrationExceptionInSite
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.services_manager.services import ServicesManager
@@ -29,6 +30,16 @@ class MigrationV0110(MigrationBase):
         sites_manager = SiteManager(self.sites_dir)
         sites_manager.stop_sites()
         sites = sites_manager.get_all_sites()
+
+        # Pulling latest image
+
+        self.image_info = {"tag": self.version.version_string(), "name": "ghcr.io/rtcamp/frappe-manager-frappe"}
+        pull_image = f"{self.image_info['name']}:{self.image_info['tag']}"
+
+        richprint.change_head(f"Pulling Image {pull_image}")
+        output = DockerClient().pull(container_name=pull_image, stream=True)
+        richprint.live_lines(output, padding=(0, 0, 0, 2))
+        richprint.print(f"Image pulled [blue]{pull_image}[/blue]")
 
         # migrate each site
         main_error = False
@@ -112,25 +123,42 @@ class MigrationV0110(MigrationBase):
             raise MigrationExceptionInSite(f"{site.composefile.compose_path} not found.")
 
         images_info = site.composefile.get_all_images()
-        image_info = images_info['frappe']
 
-        # get v0.11.1 frappe image
-        image_info['tag'] = self.version.version_string()
-        image_info['name'] = 'ghcr.io/rtcamp/frappe-manager-frappe'
+        # for all services
+        images_info["frappe"] = self.image_info
+        images_info["socketio"] = self.image_info
+        images_info["schedule"] = self.image_info
 
-        output = site.docker.pull(container_name=f"{image_info['name']}:{image_info['tag']}", stream=True)
-        richprint.live_lines(output, padding=(0, 0, 0, 2))
+        # workers image set
+        workers_info = site.workers.composefile.get_all_images()
+        for worker in workers_info.keys():
+            workers_info[worker] = self.image_info
 
+        site.workers.composefile.set_all_images(workers_info)
         site.composefile.set_all_images(images_info)
-        # remove restart: from all the services
 
         compose_yml = site.composefile.yml
-        try:
-            for service in compose_yml["services"]:
+        worker_compose_yml = site.workers.composefile.yml
+
+        # remove restart: from all the services
+        for service in compose_yml["services"]:
+            try:
                 del compose_yml["services"][service]["restart"]
-        except KeyError as e:
-            self.logger.error(f"{site.name}: Not able to delete [blue]restart: always[/blue] attribute from compose file.{e}")
-            pass
+            except KeyError as e:
+                self.logger.error(f"{site.name}: Not able to delete restart: always attribute from compose file.{e}")
+                pass
+
+        for service in worker_compose_yml["services"]:
+            try:
+                del worker_compose_yml["services"][service]["restart"]
+            except KeyError as e:
+                self.logger.error(f"{site.name} worker: Not able to delete restart: always attribute from compose file.{e}")
+                pass
+
+        richprint.print("Removed [blue]restart: always[/blue]")
+
+        site.workers.composefile.set_version(str(self.version))
+        site.workers.composefile.write_to_file()
 
         site.composefile.set_version(str(self.version))
         site.composefile.write_to_file()
