@@ -1,7 +1,7 @@
 import shutil
 from copy import deepcopy
 from pathlib import Path
-from frappe_manager.docker_wrapper import DockerException
+from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.migration_manager.backup_manager import BackupData
 from frappe_manager.migration_manager.migration_base import MigrationBase
 from frappe_manager import CLI_DIR

@@ -10,7 +10,7 @@ CLI_LOG_DIRECTORY = CLI_DIR / 'logs'
 CLI_SITES_DIRECTORY = CLI_DIR / 'sites'
 
 
-default_extension = [
+DEFAULT_EXTENSIONS = [
     "dbaeumer.vscode-eslint",
     "esbenp.prettier-vscode",
     "ms-python.python",

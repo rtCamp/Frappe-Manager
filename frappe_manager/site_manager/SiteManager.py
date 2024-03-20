@@ -11,9 +11,11 @@ from datetime import datetime
 from frappe_manager.site_manager import VSCODE_LAUNCH_JSON, VSCODE_TASKS_JSON, VSCODE_SETTINGS_JSON
 from frappe_manager.site_manager.site import Site
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.docker_wrapper import DockerClient, DockerException
+from frappe_manager.docker_wrapper.DockerClient import DockerClient
+from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager import CLI_DIR
 from rich.table import Table
+from frappe_manager.utils.helpers import get_sitename_from_current_path
 from frappe_manager.utils.site import generate_services_table, domain_level
 
 from frappe_manager.utils.site import generate_services_table

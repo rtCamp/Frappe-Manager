@@ -3,11 +3,11 @@ import json
 from copy import deepcopy
 
 from frappe_manager.site_manager.site_exceptions import SiteWorkerNotStart
-from rich import inspect
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.utils.helpers import get_container_name_prefix
-from frappe_manager.docker_wrapper import DockerClient, DockerException
+from frappe_manager.docker_wrapper.DockerClient import DockerClient
+from frappe_manager.docker_wrapper.DockerException import DockerException
 
 class SiteWorkers:
     def __init__(self,site_path, site_name, quiet: bool = True):
