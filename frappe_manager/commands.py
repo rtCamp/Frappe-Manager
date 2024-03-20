@@ -260,47 +260,43 @@ def create(
         "user": users,
     }
 
-    sites.create_site(template_inputs,template_site=template)
+    sites.create_site(template_inputs, template_site=template)
 
 
-@app.command(no_args_is_help=True)
-def delete(sitename: Annotated[str, typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback)]):
-    """Delete a site. """
+@app.command()
+def delete(sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None):
+    """Delete a site."""
     sites.init(sitename)
     sites.remove_site()
 
 
 @app.command()
 def list():
-    """Lists all of the available sites. """
+    """Lists all of the available sites."""
     sites.init()
     sites.list_sites()
 
 
-@app.command(no_args_is_help=True)
-def start(sitename: Annotated[str, typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback)]):
-    """Start a site. """
+@app.command()
+def start(
+    sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
+    force: Annotated[bool, typer.Option("--force", "-f", help="Force recreate site containers")] = False,
+):
+    """Start a site."""
     sites.init(sitename)
-    sites.start_site()
+    sites.start_site(force=force)
 
 
-@app.command(no_args_is_help=True)
-def stop(sitename: Annotated[str, typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback)]):
-    """Stop a site. """
+@app.command()
+def stop(sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None):
+    """Stop a site."""
     sites.init(sitename)
     sites.stop_site()
 
 
-def code_command_extensions_callback(extensions: List[str]) -> List[str]:
-    extx = extensions + default_extension
-    unique_ext: Set = set(extx)
-    unique_ext_list: List[str] = [x for x in unique_ext]
-    return unique_ext_list
-
-
-@app.command(no_args_is_help=True)
+@app.command()
 def code(
-    sitename: Annotated[str, typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback)],
+    sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
     user: Annotated[str, typer.Option(help="Connect as this user.")] = "frappe",
     extensions: Annotated[
         Optional[List[str]],

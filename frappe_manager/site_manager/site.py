@@ -198,7 +198,7 @@ class Site:
 
         return True
 
-    def start(self) -> bool:
+    def start(self,force: bool = False) -> bool:
         """
         Starts the Docker containers for the site.
 
@@ -209,7 +209,7 @@ class Site:
         richprint.change_head(status_text)
 
         try:
-            output = self.docker.compose.up(detach=True, pull="never", stream=self.quiet)
+            output = self.docker.compose.up(detach=True, pull="never",force_recreate=force, stream=self.quiet)
             if self.quiet:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
             richprint.print(f"{status_text}: Done")
