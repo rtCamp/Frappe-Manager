@@ -2,7 +2,8 @@ import importlib
 import shutil
 import json
 from pathlib import Path
-from frappe_manager.docker_wrapper import DockerClient, DockerException
+from frappe_manager.docker_wrapper.DockerClient import DockerClient
+from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager.site_exceptions import (
@@ -198,7 +199,7 @@ class Site:
 
         return True
 
-    def start(self) -> bool:
+    def start(self,force: bool = False) -> bool:
         """
         Starts the Docker containers for the site.
 
@@ -209,7 +210,7 @@ class Site:
         richprint.change_head(status_text)
 
         try:
-            output = self.docker.compose.up(detach=True, pull="never", stream=self.quiet)
+            output = self.docker.compose.up(detach=True, pull="never",force_recreate=force, stream=self.quiet)
             if self.quiet:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
             richprint.print(f"{status_text}: Done")

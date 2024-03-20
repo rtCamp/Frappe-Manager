@@ -11,9 +11,11 @@ from datetime import datetime
 from frappe_manager.site_manager import VSCODE_LAUNCH_JSON, VSCODE_TASKS_JSON, VSCODE_SETTINGS_JSON
 from frappe_manager.site_manager.site import Site
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.docker_wrapper import DockerClient, DockerException
+from frappe_manager.docker_wrapper.DockerClient import DockerClient
+from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager import CLI_DIR
 from rich.table import Table
+from frappe_manager.utils.helpers import get_sitename_from_current_path
 from frappe_manager.utils.site import generate_services_table, domain_level
 
 from frappe_manager.utils.site import generate_services_table
@@ -133,7 +135,7 @@ class SiteManager:
                 richprint.exit(f"Created template site: {self.site.name}", emoji_code=":white_check_mark:")
 
             richprint.change_head(f"Starting Site")
-            self.site.start()
+            self.site.start(force=True)
             self.site.frappe_logs_till_start()
             self.site.sync_workers_compose()
             richprint.update_live()
@@ -228,12 +230,12 @@ class SiteManager:
         self.site.stop()
         richprint.print(f"Stopped site")
 
-    def start_site(self):
+    def start_site(self,force: bool = False):
         """
         Starts the site.
         """
         self.site.sync_site_common_site_config()
-        self.site.start()
+        self.site.start(force=force)
         self.site.frappe_logs_till_start(status_msg="Starting Site")
         self.site.sync_workers_compose()
 
