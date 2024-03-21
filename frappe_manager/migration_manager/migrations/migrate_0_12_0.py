@@ -11,8 +11,8 @@ from frappe_manager.migration_manager.version import Version
 from frappe_manager import CLI_DIR
 
 
-class MigrationV0110(MigrationBase):
-    version = Version("0.11.1")
+class MigrationV0120(MigrationBase):
+    version = Version("0.12.0")
 
     def __init__(self):
         super().init()
