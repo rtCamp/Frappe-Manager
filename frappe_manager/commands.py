@@ -308,12 +308,13 @@ def code(
     ] = DEFAULT_EXTENSIONS,
     force_start: Annotated[bool, typer.Option("--force-start", "-f", help="Force start the site before attaching to container.")] = False,
     debugger: Annotated[bool, typer.Option("--debugger", "-d", help="Sync vscode debugger configuration.")] = False,
+    workdir: Annotated[str, typer.Option("--work-dir", "-w", help="Set working directory in vscode.")] = '/workspace/frappe-bench',
 ):
     """Open site in vscode."""
     sites.init(sitename)
     if force_start:
         sites.start_site()
-    sites.attach_to_site(user, extensions, debugger)
+    sites.attach_to_site(user, extensions, workdir,debugger)
 
 
 @app.command()

@@ -43,7 +43,7 @@ class Site:
         match = is_fqdn(sitename)
 
         if not match:
-            richprint.error(f"The {sitename} must follow Fully Qualified Domain Name (FQDN) format.",exception=SiteException(self, f"Valid FQDN site name not provided."))
+            richprint.error(f"The {sitename} must follow Fully Qualified Domain Name (FQDN) format.", exception=SiteException(self, f"Valid FQDN site name not provided."))
 
         return True
 
@@ -199,7 +199,7 @@ class Site:
 
         return True
 
-    def start(self,force: bool = False) -> bool:
+    def start(self, force: bool = False) -> bool:
         """
         Starts the Docker containers for the site.
 
@@ -210,16 +210,16 @@ class Site:
         richprint.change_head(status_text)
 
         try:
-            output = self.docker.compose.up(detach=True, pull="never",force_recreate=force, stream=self.quiet)
+            output = self.docker.compose.up(detach=True, pull="never", force_recreate=force, stream=self.quiet)
             if self.quiet:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
             richprint.print(f"{status_text}: Done")
         except DockerException as e:
-            richprint.error(f"{status_text}: Failed",exception=e)
+            richprint.error(f"{status_text}: Failed", exception=e)
 
         # start workers if exists
         if self.workers.exists():
-            self.workers.start()
+            self.workers.start(force=force)
 
         return True
 
@@ -314,7 +314,7 @@ class Site:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
             richprint.print(f"{status_text}: Done")
         except DockerException as e:
-            richprint.error(f"{status_text}: Failed",exception=e)
+            richprint.error(f"{status_text}: Failed", exception=e)
 
         # stopping worker containers
         if self.workers.exists():
@@ -346,7 +346,7 @@ class Site:
                     exit_code = richprint.live_lines(output, padding=(0, 0, 0, 2))
                 richprint.print(f"{status_text}: Done")
             except DockerException as e:
-                richprint.error(f"{status_text}: Failed",exception=e)
+                richprint.error(f"{status_text}: Failed", exception=e)
 
     def remove(self) -> bool:
         """
@@ -371,7 +371,7 @@ class Site:
                     exit_code = richprint.live_lines(output, padding=(0, 0, 0, 2))
                 richprint.print(f"Removing Containers: Done")
             except DockerException as e:
-                richprint.error(f"{status_text}: Failed",exception=e)
+                richprint.error(f"{status_text}: Failed", exception=e)
 
         richprint.change_head(f"Removing Dirs")
 
