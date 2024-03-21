@@ -230,7 +230,7 @@ class SiteManager:
         self.site.stop()
         richprint.print(f"Stopped site")
 
-    def start_site(self,force: bool = False):
+    def start_site(self, force: bool = False):
         """
         Starts the site.
         """
@@ -239,7 +239,7 @@ class SiteManager:
         self.site.frappe_logs_till_start(status_msg="Starting Site")
         self.site.sync_workers_compose()
 
-    def attach_to_site(self, user: str, extensions: List[str], debugger: bool = False):
+    def attach_to_site(self, user: str, extensions: List[str], workdir: str, debugger: bool = False):
         """
         Attaches to a running site's container using Visual Studio Code Remote Containers extension.
 
@@ -262,7 +262,7 @@ class SiteManager:
         vscode_cmd = shlex.join(
             [
                 vscode_path,
-                f"--folder-uri=vscode-remote://attached-container+{container_hex}+/workspace/frappe-bench",
+                f"--folder-uri=vscode-remote://attached-container+{container_hex}+{workdir}",
             ]
         )
         extensions.sort()
