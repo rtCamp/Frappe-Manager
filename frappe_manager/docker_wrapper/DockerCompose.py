@@ -41,6 +41,7 @@ class DockerComposeWrapper:
         build: bool = False,
         remove_orphans: bool = False,
         no_recreate: bool = False,
+        force_recreate: bool = False,
         always_recreate_deps: bool = False,
         quiet_pull: bool = False,
         pull: Literal["missing", "never", "always"] = "missing",

@@ -5,7 +5,8 @@ import json
 from rich.prompt import Prompt
 from pathlib import Path
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
-from frappe_manager.docker_wrapper import DockerClient, DockerException
+from frappe_manager.docker_wrapper.DockerClient import DockerClient
+from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.utils.helpers import install_package
 

@@ -6,9 +6,11 @@ from enum import Enum
 CLI_DIR = Path.home() / "frappe"
 CLI_METADATA_PATH = CLI_DIR / ".fm.toml"
 CLI_SITES_ARCHIVE = CLI_DIR / "archived"
+CLI_LOG_DIRECTORY = CLI_DIR / 'logs'
+CLI_SITES_DIRECTORY = CLI_DIR / 'sites'
 
 
-default_extension = [
+DEFAULT_EXTENSIONS = [
     "dbaeumer.vscode-eslint",
     "esbenp.prettier-vscode",
     "ms-python.python",

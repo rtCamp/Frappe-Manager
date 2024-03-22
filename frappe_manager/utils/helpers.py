@@ -10,9 +10,11 @@ import secrets
 import grp
 
 from pathlib import Path
+from frappe_manager.utils.site import is_fqdn
 from frappe_manager.logger import log
-from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.site_manager import PREBAKED_SITE_APPS
+from frappe_manager import CLI_SITES_DIRECTORY
 
 
 def remove_zombie_subprocess_process(process):
@@ -31,6 +33,7 @@ def remove_zombie_subprocess_process(process):
         logger.cleanup(f"PROCESS: USED PROCESS {process}")
 
         import psutil
+
         for pid in process:
             try:
                 process = psutil.Process(pid)
@@ -56,7 +59,7 @@ def check_update():
         latest_version = update_info["info"]["version"]
         if not fm_version == latest_version:
             richprint.warning(
-                f'[dim]Update available v{latest_version}.[/dim]',
+                f"[dim]Update available v{latest_version}.[/dim]",
                 emoji_code=":arrows_counterclockwise:️",
             )
     except Exception as e:
@@ -100,9 +103,7 @@ def check_ports(ports):
             # check port using lsof command
             cmd = f"lsof -iTCP:{port} -sTCP:LISTEN -P -n"
             try:
-                output = subprocess.run(
-                    cmd, check=True, shell=True, capture_output=True
-                )
+                output = subprocess.run(cmd, check=True, shell=True, capture_output=True)
                 if output.returncode == 0:
                     already_binded.append(port)
             except subprocess.CalledProcessError as e:
@@ -153,7 +154,6 @@ def generate_random_text(length=50):
     return "".join(random.choice(alphanumeric_chars) for _ in range(length))
 
 
-
 def is_cli_help_called(ctx):
     """
     Checks if the help is called for the CLI command.
@@ -167,17 +167,12 @@ def is_cli_help_called(ctx):
     help_called = False
     # is called command is sub command group
     try:
-        for subtyper_command in ctx.command.commands[
-            ctx.invoked_subcommand
-        ].commands.keys():
+        for subtyper_command in ctx.command.commands[ctx.invoked_subcommand].commands.keys():
             check_command = " ".join(sys.argv[2:])
             if check_command == subtyper_command:
-                if (
-                    ctx.command.commands[ctx.invoked_subcommand]
-                    .commands[subtyper_command]
-                    .params
-                ):
+                if ctx.command.commands[ctx.invoked_subcommand].commands[subtyper_command].params:
                     help_called = True
+
     except AttributeError:
         help_called = False
 
@@ -187,11 +182,14 @@ def is_cli_help_called(ctx):
 
         if check_command == ctx.invoked_subcommand:
             # is called command supports arguments then help called
-
             if ctx.command.commands[ctx.invoked_subcommand].params:
                 help_called = True
 
+            if not ctx.command.commands[ctx.invoked_subcommand].no_args_is_help:
+                help_called = False
+
     return help_called
+
 
 def get_current_fm_version():
     """
@@ -202,7 +200,8 @@ def get_current_fm_version():
     """
     return importlib.metadata.version("frappe-manager")
 
-def check_repo_exists(app_url:str, branch_name: str | None = None):
+
+def check_repo_exists(app_url: str, branch_name: str | None = None, exclude_dict: dict[str, str] = PREBAKED_SITE_APPS):
     """
     Check if a Frappe app exists on GitHub.
 
@@ -214,11 +213,18 @@ def check_repo_exists(app_url:str, branch_name: str | None = None):
         dict: A dictionary containing the existence status of the app and branch (if provided).
     """
     try:
-        app = requests.get(app_url).status_code
+        if app_url in exclude_dict:
+            app = 200
+        else:
+            app = requests.get(app_url).status_code
 
         if branch_name:
-            branch_url = f"{app_url}/tree/{branch_name}"
-            branch = requests.get(branch_url).status_code
+            if branch_name in exclude_dict.values():
+                branch = 200
+            else:
+                branch_url = f"{app_url}/tree/{branch_name}"
+                branch = requests.get(branch_url).status_code
+
             return {
                 "app": True if app == 200 else False,
                 "branch": True if branch == 200 else False,
@@ -226,14 +232,14 @@ def check_repo_exists(app_url:str, branch_name: str | None = None):
         return {"app": True if app == 200 else False}
 
     except Exception as e:
-        raise Exception("Not able to connect to github.com.")
+        richprint.error(f"Not able to validate app {app_url} for branch [blue]{branch_name}[/blue]", e)
+
 
 def check_frappe_app_exists(app: str, branch_name: Optional[str] = None):
+    if "github.com" not in app:
+        app = f"https://github.com/frappe/{app}"
 
-    if 'github.com' not in app:
-        app= f"https://github.com/frappe/{app}"
-
-    return check_repo_exists(app_url=app,branch_name=branch_name)
+    return check_repo_exists(app_url=app, branch_name=branch_name)
 
 
 def represent_null_empty(string_null):
@@ -246,11 +252,11 @@ def represent_null_empty(string_null):
     Returns:
         str: The modified string with "null" replaced by an empty string.
     """
-    return string_null.replace("null","")
+    return string_null.replace("null", "")
 
 
-def log_file(file, refresh_time:float = 0.1, follow:bool =False):
-    '''
+def log_file(file, refresh_time: float = 0.1, follow: bool = False):
+    """
     Generator function that yields new lines in a file
 
     Parameters:
@@ -260,7 +266,7 @@ def log_file(file, refresh_time:float = 0.1, follow:bool =False):
 
     Returns:
     - A generator that yields each new line in the file
-    '''
+    """
     file.seek(0)
 
     # start infinite loop
@@ -273,8 +279,9 @@ def log_file(file, refresh_time:float = 0.1, follow:bool =False):
             # sleep if file hasn't been updated
             time.sleep(refresh_time)
             continue
-        line = line.strip('\n')
+        line = line.strip("\n")
         yield line
+
 
 def get_container_name_prefix(site_name):
     """
@@ -286,7 +293,8 @@ def get_container_name_prefix(site_name):
     Returns:
         str: The container name prefix.
     """
-    return site_name.replace('.', '')
+    return site_name.replace(".", "")
+
 
 def random_password_generate(password_length=13, symbols=False):
     # Define the character set to include symbols
@@ -299,13 +307,11 @@ def random_password_generate(password_length=13, symbols=False):
 
     # Replace some characters with symbols in the generated password
     if symbols:
-        password = "".join(
-            c if secrets.choice([True, False]) else secrets.choice(symbols)
-            for c in generated_password
-        )
+        password = "".join(c if secrets.choice([True, False]) else secrets.choice(symbols) for c in generated_password)
         return password
 
     return generated_password
+
 
 # Retrieve Unix groups and their corresponding integer mappings
 def get_unix_groups():
@@ -315,5 +321,23 @@ def get_unix_groups():
         groups[group_name] = group_entry.gr_gid
     return groups
 
+
 def install_package(package_name, version):
-    subprocess.check_call([sys.executable, '-m', 'pip', 'install', f'{package_name}=={version}'])
+    subprocess.check_call([sys.executable, "-m", "pip", "install", f"{package_name}=={version}"])
+
+
+def get_sitename_from_current_path() -> Optional[str]:
+    current_path = Path().absolute()
+    sites_path = CLI_SITES_DIRECTORY.absolute()
+
+    if not current_path.is_relative_to(sites_path):
+        return None
+
+    sitename_list = list(current_path.relative_to(sites_path).parts)
+
+    if not sitename_list:
+        return None
+
+    sitename = sitename_list[0]
+    if is_fqdn(sitename):
+        return sitename

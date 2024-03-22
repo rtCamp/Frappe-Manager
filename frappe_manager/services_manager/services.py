@@ -19,7 +19,8 @@ from frappe_manager.utils.helpers import (
 
 )
 from frappe_manager.utils.docker import host_run_cp
-from frappe_manager.docker_wrapper import DockerClient, DockerException
+from frappe_manager.docker_wrapper.DockerClient import DockerClient
+from frappe_manager.docker_wrapper.DockerException import DockerException
 
 
 class ServicesManager:

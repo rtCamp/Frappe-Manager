@@ -27,3 +27,20 @@ VSCODE_TASKS_JSON = {
         }
     ],
 }
+
+VSCODE_SETTINGS_JSON = {
+  "python.defaultInterpreterPath": "/workspace/frappe-bench/env/bin/python",
+  "[python]": {
+    "editor.defaultFormatter": "ms-python.black-formatter",
+    "editor.detectIndentation": True,
+    "editor.tabSize": 4,
+    "editor.insertSpaces": True,
+  },
+  "black-formatter.importStrategy" : "useBundled"
+}
+
+PREBAKED_SITE_APPS= {
+    "https://github.com/frappe/frappe": "version-15",
+    "https://github.com/frappe/erpnext": "version-15",
+    "https://github.com/frappe/hrms": "version-15",
+}

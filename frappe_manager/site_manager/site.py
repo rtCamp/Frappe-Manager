@@ -1,13 +1,14 @@
-from copy import deepcopy
 import importlib
 import shutil
 import json
 from pathlib import Path
-from frappe_manager.docker_wrapper import DockerClient, DockerException
+from frappe_manager.docker_wrapper.DockerClient import DockerClient
+from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager.site_exceptions import (
     SiteDatabaseAddUserException,
+    SiteException,
 )
 from frappe_manager.site_manager.workers_manager.SiteWorker import SiteWorkers
 from frappe_manager.utils.helpers import log_file, get_container_name_prefix
@@ -16,199 +17,99 @@ from frappe_manager.utils.site import is_fqdn
 
 
 class Site:
-    def __init__(self, path: Path, name: str, verbose: bool = False, services=None):
+    def __init__(self, path: Path, name: str, verbose: bool = False, services=None) -> None:
         self.path = path
         self.name = name
         self.quiet = not verbose
         self.services = services
-        # self.logger = log.get_logger()
         self.init()
 
     def init(self):
-        """
-        The function checks if the Docker daemon is running and exits with an error message if it is not.
-        """
         self.composefile = ComposeFile(self.path / "docker-compose.yml")
 
         self.docker = DockerClient(compose_file_path=self.composefile.compose_path)
         self.workers = SiteWorkers(self.path, self.name, self.quiet)
-        # remove this from init
+
         if self.workers.exists():
             if not self.workers.running():
                 if self.running():
                     self.workers.start()
 
     def exists(self):
-        """
-        The `exists` function checks if a file or directory exists at the specified path.
-        :return: a boolean value. If site path exits then returns `True` else `False`.
-        """
         return self.path.exists()
 
     def validate_sitename(self) -> bool:
-        """
-        The function `validate_sitename` checks if a given sitename is valid by using a regular expression
-        pattern.
-        :return: a boolean value. If the sitename is valid, it returns True. If the sitename is not valid,
-        it returns False.
-        """
         sitename = self.name
         match = is_fqdn(sitename)
 
         if not match:
-            richprint.exit(
-                f"The {sitename} must follow a single-level subdomain Fully Qualified Domain Name (FQDN) format of localhost, such as 'subdomain.localhost'."
-            )
+            richprint.error(f"The {sitename} must follow Fully Qualified Domain Name (FQDN) format.", exception=SiteException(self, f"Valid FQDN site name not provided."))
+
+        return True
 
     def get_frappe_container_hex(self) -> None | str:
         """
-        The function `get_frappe_container_hex` searches for a Docker container with the name containing
-        "-frappe" and returns its hexadecimal representation if found, otherwise returns None.
-        :return: either a hexadecimal string representing the name of the Frappe container, or None if no
-        Frappe container is found.
+        Returns the hexadecimal representation of the frappe container name.
+
+        Returns:
+            str: The hexadecimal representation of the frappe container name.
         """
         container_name = self.composefile.get_container_names()
         return container_name["frappe"].encode().hex()
 
-    def migrate_site_compose(self):
-        """
-        The `migrate_site` function checks the environment version and migrates it if necessary.
-        :return: a boolean value,`True` if the site migrated else `False`.
-        """
-        if self.composefile.exists():
-            richprint.change_head("Checking Environment Version")
-            compose_version = self.composefile.get_version()
-            fm_version = importlib.metadata.version("frappe-manager")
-            if not compose_version == fm_version:
-                status = False
-                if self.composefile.exists():
-                    # get all the payloads
-                    envs = self.composefile.get_all_envs()
-                    labels = self.composefile.get_all_labels()
-
-                    # introduced in v0.10.0
-                    if not "ENVIRONMENT" in envs["frappe"]:
-                        envs["frappe"]["ENVIRONMENT"] = "dev"
-
-                    envs["frappe"]["CONTAINER_NAME_PREFIX"] = get_container_name_prefix(
-                        self.name
-                    )
-                    envs["frappe"]["MARIADB_ROOT_PASS"] = "root"
-
-                    envs["nginx"]["VIRTUAL_HOST"] = self.name
-
-                    import os
-
-                    envs_user_info = {}
-                    userid_groupid: dict = {
-                        "USERID": os.getuid(),
-                        "USERGROUP": os.getgid(),
-                    }
-
-                    env_user_info_container_list = ["frappe", "schedule", "socketio"]
-
-                    for env in env_user_info_container_list:
-                        envs_user_info[env] = deepcopy(userid_groupid)
-
-                    # overwrite user for each invocation
-                    users = {"nginx": {"uid": os.getuid(), "gid": os.getgid()}}
-
-                    # load template
-                    self.composefile.yml = self.composefile.load_template()
-
-                    # set all the payload
-                    self.composefile.set_all_envs(envs)
-                    self.composefile.set_all_envs(envs_user_info)
-                    self.composefile.set_all_labels(labels)
-                    self.composefile.set_all_users(users)
-                    # self.composefile.set_all_extrahosts(extrahosts)
-
-                    self.create_compose_dirs()
-                    self.composefile.set_network_alias(
-                        "nginx", "site-network", [self.name]
-                    )
-
-                    self.composefile.set_secret_file_path(
-                        "db_root_password",
-                        self.services.composefile.get_secret_file_path(
-                            "db_root_password"
-                        ),
-                    )
-
-                    self.composefile.set_container_names(
-                        get_container_name_prefix(self.name)
-                    )
-                    fm_version = importlib.metadata.version("frappe-manager")
-                    self.composefile.set_version(fm_version)
-                    self.composefile.set_top_networks_name(
-                        "site-network", get_container_name_prefix(self.name)
-                    )
-                    self.composefile.write_to_file()
-
-                    # change the node socketio port
-                    # self.common_site_config_set('socketio_port','80')
-                    status = True
-
-                if status:
-                    richprint.print(
-                        f"Environment Migration Done: {compose_version} -> {fm_version}"
-                    )
-                else:
-                    richprint.print(
-                        f"Environment Migration Failed: {compose_version} -> {fm_version}"
-                    )
-            else:
-                richprint.print("Already Latest Environment Version")
-
     def common_site_config_set(self, config: dict):
-        common_site_config_path = (
-            self.path / "workspace/frappe-bench/sites/common_site_config.json"
-        )
-        if common_site_config_path.exists():
-            common_site_config = {}
+        """
+        Sets the values in the common_site_config.json file.
 
-            with open(common_site_config_path, "r") as f:
-                common_site_config = json.load(f)
+        Args:
+            config (dict): A dictionary containing the key-value pairs to be set in the common_site_config.json file.
 
-            try:
-                for key, value in config.items():
-                    common_site_config[key] = value
-                with open(common_site_config_path, "w") as f:
-                    json.dump(common_site_config, f)
-                return True
-            except KeyError as e:
-                # log error that not able to change common site config
-                return False
-        else:
+        Returns:
+            bool: True if the values are successfully set, False otherwise.
+        """
+        common_site_config_path = self.path / "workspace/frappe-bench/sites/common_site_config.json"
+
+        if not common_site_config_path.exists():
+            return False
+
+        common_site_config = {}
+
+        with open(common_site_config_path, "r") as f:
+            common_site_config = json.load(f)
+
+        try:
+            for key, value in config.items():
+                common_site_config[key] = value
+            with open(common_site_config_path, "w") as f:
+                json.dump(common_site_config, f)
+            return True
+        except KeyError as e:
             return False
 
     def generate_compose(self, inputs: dict) -> None:
         """
-        The function `generate_compose` sets environment variables, extra hosts, and version information in
-        a compose file and writes it to a file.
+        Generates the compose file for the site based on the given inputs.
 
-        :param inputs: The `inputs` parameter is a dictionary that contains the values which will be used in compose file.
-        :type inputs: dict
+        Args:
+            inputs (dict): A dictionary containing the inputs for generating the compose file.
+
+        Returns:
+            None
         """
-        try:
-            if "environment" in inputs.keys():
-                environments: dict = inputs["environment"]
-                self.composefile.set_all_envs(environments)
+        if "environment" in inputs.keys():
+            environments: dict = inputs["environment"]
+            self.composefile.set_all_envs(environments)
 
-            if "labels" in inputs.keys():
-                labels: dict = inputs["labels"]
-                self.composefile.set_all_labels(labels)
+        if "labels" in inputs.keys():
+            labels: dict = inputs["labels"]
+            self.composefile.set_all_labels(labels)
 
-            # handle user
-            if "user" in inputs.keys():
-                user: dict = inputs["user"]
-                for container_name in user.keys():
-                    uid = user[container_name]["uid"]
-                    gid = user[container_name]["gid"]
-                    self.composefile.set_user(container_name, uid, gid)
-
-        except Exception as e:
-            richprint.exit(f"Not able to generate site compose. Error: {e}")
+        if "user" in inputs.keys():
+            user: dict = inputs["user"]
+            for container_name in user.keys():
+                uid = user[container_name]["uid"]
+                gid = user[container_name]["gid"]
+                self.composefile.set_user(container_name, uid, gid)
 
         self.composefile.set_network_alias("nginx", "site-network", [self.name])
         self.composefile.set_container_names(get_container_name_prefix(self.name))
@@ -216,43 +117,45 @@ class Site:
             "db_root_password",
             self.services.composefile.get_secret_file_path("db_root_password"),
         )
+
         fm_version = importlib.metadata.version("frappe-manager")
+
         self.composefile.set_version(fm_version)
-        self.composefile.set_top_networks_name(
-            "site-network", get_container_name_prefix(self.name)
-        )
+        self.composefile.set_top_networks_name("site-network", get_container_name_prefix(self.name))
         self.composefile.write_to_file()
 
     def create_site_dir(self):
-        # create site dir
         self.path.mkdir(parents=True, exist_ok=True)
 
     def sync_site_common_site_config(self):
+        """
+        Syncs the common site configuration with the global database information and container prefix.
+
+        This function sets the common site configuration data including the socketio port, database host and port,
+        and the Redis cache, queue, and socketio URLs.
+        """
         global_db_info = self.services.get_database_info()
-        global_db_host = global_db_info["host"]
-        global_db_port = global_db_info["port"]
+        container_prefix = get_container_name_prefix(self.name)
 
         # set common site config
         common_site_config_data = {
             "socketio_port": "80",
-            "db_host": global_db_host,
-            "db_port": global_db_port,
-            "redis_cache": f"redis://{get_container_name_prefix(self.name)}-redis-cache:6379",
-            "redis_queue": f"redis://{get_container_name_prefix(self.name)}-redis-queue:6379",
-            "redis_socketio": f"redis://{get_container_name_prefix(self.name)}-redis-cache:6379",
+            "db_host": global_db_info["host"],
+            "db_port": global_db_info["port"],
+            "redis_cache": f"redis://{container_prefix}-redis-cache:6379",
+            "redis_queue": f"redis://{container_prefix}-redis-queue:6379",
+            "redis_socketio": f"redis://{container_prefix}-redis-cache:6379",
         }
         self.common_site_config_set(common_site_config_data)
 
     def create_compose_dirs(self) -> bool:
         """
-        The function `create_dirs` creates two directories, `workspace` and `certs`, within a specified
-        path.
+        Creates the necessary directories for the Compose setup.
+
+        Returns:
+            bool: True if the directories are created successfully, False otherwise.
         """
         richprint.change_head("Creating Compose directories")
-
-        # create compose bind dirs -> workspace
-        # create compose bind dirs -> workspace
-        # create workspace from frappe image
 
         frappe_image = self.composefile.yml["services"]["frappe"]["image"]
 
@@ -294,29 +197,35 @@ class Site:
 
         richprint.print("Creating Compose directories: Done")
 
-    def start(self) -> bool:
+        return True
+
+    def start(self, force: bool = False) -> bool:
         """
-        The function starts Docker containers and prints the status of the operation.
+        Starts the Docker containers for the site.
+
+        Returns:
+            bool: True if the containers were started successfully, False otherwise.
         """
         status_text = "Starting Docker Containers"
         richprint.change_head(status_text)
+
         try:
-            output = self.docker.compose.up(
-                detach=True, pull="never", stream=self.quiet
-            )
+            output = self.docker.compose.up(detach=True, pull="never", force_recreate=force, stream=self.quiet)
             if self.quiet:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
             richprint.print(f"{status_text}: Done")
         except DockerException as e:
-            richprint.exit(f"{status_text}: Failed", error_msg=e)
+            richprint.error(f"{status_text}: Failed", exception=e)
 
-        # start workers if exits
+        # start workers if exists
         if self.workers.exists():
-            self.workers.start()
+            self.workers.start(force=force)
+
+        return True
 
     def pull(self):
         """
-        The function pulls Docker images and displays the status of the operation.
+        Pull docker images.
         """
         status_text = "Pulling Docker Images"
         richprint.change_head(status_text)
@@ -332,22 +241,13 @@ class Site:
 
     def logs(self, service: str, follow: bool = False):
         """
-        The `logs` function prints the logs of a specified service, with the option to follow the logs in
-        real-time.
+        Retrieve and print the logs for a specific service.
 
-        :param service: The "service" parameter is a string that specifies the name of the service whose
-        logs you want to retrieve. It is used to filter the logs and only retrieve the logs for that
-        specific service
-        :type service: str
-        :param follow: The `follow` parameter is a boolean flag that determines whether to continuously
-        stream the logs or not. If `follow` is set to `True`, the logs will be streamed continuously as they
-        are generated. If `follow` is set to `False`, only the existing logs will be returned, defaults to
-        False
-        :type follow: bool (optional)
+        Args:
+            service (str): The name of the service.
+            follow (bool, optional): Whether to continuously follow the logs. Defaults to False.
         """
-        output = self.docker.compose.logs(
-            services=[service], no_log_prefix=True, follow=follow, stream=True
-        )
+        output = self.docker.compose.logs(services=[service], no_log_prefix=True, follow=follow, stream=True)
         for source, line in output:
             line = line.decode()
             if source == "stdout":
@@ -358,7 +258,10 @@ class Site:
 
     def frappe_logs_till_start(self, status_msg=None):
         """
-        The function `frappe_logs_till_start` prints logs until a specific line is found and then stops.
+        Retrieves and prints the logs of the 'frappe' service until site supervisor starts.
+
+        Args:
+            status_msg (str, optional): Custom status message to display. Defaults to None.
         """
         status_text = "Creating Site"
 
@@ -368,7 +271,10 @@ class Site:
         richprint.change_head(status_text)
         try:
             output = self.docker.compose.logs(
-                services=["frappe"], no_log_prefix=True, follow=True, stream=True
+                services=["frappe"],
+                no_log_prefix=True,
+                follow=True,
+                stream=True,
             )
 
             if self.quiet:
@@ -395,8 +301,10 @@ class Site:
 
     def stop(self) -> bool:
         """
-        The `stop` function stops containers and prints the status of the operation using the `richprint`
-        module.
+        Stop the site by stopping the containers.
+
+        Returns:
+            bool: True if the site is successfully stopped, False otherwise.
         """
         status_text = "Stopping Containers"
         richprint.change_head(status_text)
@@ -406,7 +314,7 @@ class Site:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
             richprint.print(f"{status_text}: Done")
         except DockerException as e:
-            richprint.exit(f"{status_text}: Failed")
+            richprint.error(f"{status_text}: Failed", exception=e)
 
         # stopping worker containers
         if self.workers.exists():
@@ -414,7 +322,15 @@ class Site:
 
     def down(self, remove_ophans=True, volumes=True, timeout=5) -> bool:
         """
-        The `down` function removes containers using Docker Compose and prints the status of the operation.
+        Stops and removes the containers for the site.
+
+        Args:
+            remove_ophans (bool, optional): Whether to remove orphan containers. Defaults to True.
+            volumes (bool, optional): Whether to remove volumes. Defaults to True.
+            timeout (int, optional): Timeout in seconds for stopping the containers. Defaults to 5.
+
+        Returns:
+            bool: True if the containers were successfully stopped and removed, False otherwise.
         """
         if self.composefile.exists():
             status_text = "Removing Containers"
@@ -430,77 +346,85 @@ class Site:
                     exit_code = richprint.live_lines(output, padding=(0, 0, 0, 2))
                 richprint.print(f"{status_text}: Done")
             except DockerException as e:
-                richprint.exit(f"{status_text}: Failed")
+                richprint.error(f"{status_text}: Failed", exception=e)
 
     def remove(self) -> bool:
         """
-        The `remove` function removes containers and then recursively  site directories.
+        Removes the site by stopping and removing the containers associated with it,
+        and deleting the site directory.
+
+        Returns:
+            bool: True if the site is successfully removed, False otherwise.
         """
-        # TODO handle low leverl error like read only, write only etc
+        # TODO handle low level errors like read only, write only, etc.
         if self.composefile.exists():
             status_text = "Removing Containers"
             richprint.change_head(status_text)
             try:
                 output = self.docker.compose.down(
-                    remove_orphans=True, volumes=True, timeout=2, stream=self.quiet
+                    remove_orphans=True,
+                    volumes=True,
+                    timeout=2,
+                    stream=self.quiet,
                 )
                 if self.quiet:
                     exit_code = richprint.live_lines(output, padding=(0, 0, 0, 2))
                 richprint.print(f"Removing Containers: Done")
             except DockerException as e:
-                richprint.exit(f"{status_text}: Failed")
+                richprint.error(f"{status_text}: Failed", exception=e)
+
         richprint.change_head(f"Removing Dirs")
 
         try:
             shutil.rmtree(self.path)
         except PermissionError as e:
             images = self.composefile.get_all_images()
-            if 'frappe' in images:
+            if "frappe" in images:
                 try:
-                    frappe_image = images['frappe']
+                    frappe_image = images["frappe"]
                     frappe_image = f"{frappe_image['name']}:{frappe_image['tag']}"
-                    output = self.docker.run(image=frappe_image,entrypoint="/bin/sh",command="-c 'chown -R frappe:frappe .'",volume=f'{self.path}/workspace:/workspace',stream=True, stream_only_exit_code=True)
+                    output = self.docker.run(
+                        image=frappe_image,
+                        entrypoint="/bin/sh",
+                        command="-c 'chown -R frappe:frappe .'",
+                        volume=f"{self.path}/workspace:/workspace",
+                        stream=True,
+                        stream_only_exit_code=True,
+                    )
+
                     shutil.rmtree(self.path)
+
                 except Exception:
                     richprint.error(e)
                     richprint.exit(f"Please remove {self.path} manually")
+
         richprint.change_head(f"Removing Dirs: Done")
 
     def shell(self, container: str, user: str | None = None):
         """
-        The `shell` function spawns a shell for a specified container and user.
+        Open a shell inside a Docker container.
 
-        :param container: The `container` parameter is a string that specifies the name of the container in
-        which the shell command will be executed
-        :type container: str
-        :param user: The `user` parameter is an optional argument that specifies the user under which the
-        shell command should be executed. If a user is provided, the shell command will be executed as that
-        user. If no user is provided, the shell command will be executed as the default user
-        :type user: str | None
+        Args:
+            container (str): The name of the Docker container.
+            user (str, optional): The user to run the shell as. Defaults to None.
         """
-        # TODO check user exists
         richprint.stop()
-        non_bash_supported = [
-            "redis-cache",
-            "redis-cache",
-            "redis-socketio",
-            "redis-queue",
-        ]
+
+        non_bash_supported = ["redis-cache", "redis-socketio", "redis-queue"]
+
+        shell_path = "/bin/bash" if container not in non_bash_supported else "sh"
+
+        exec_args = {"service": container, "command": shell_path}
+
+        if container == "frappe":
+            exec_args["command"] = "/usr/bin/zsh"
+            exec_args["workdir"] = "/workspace/frappe-bench"
+
+        if user:
+            exec_args["user"] = user
+
         try:
-            if not container in non_bash_supported:
-                if container == "frappe":
-                    shell_path = "/usr/bin/zsh"
-                else:
-                    shell_path = "/bin/bash"
-                if user:
-                    self.docker.compose.exec(container, user=user, command=shell_path)
-                else:
-                    self.docker.compose.exec(container, command=shell_path)
-            else:
-                if user:
-                    self.docker.compose.exec(container, user=user, command="sh")
-                else:
-                    self.docker.compose.exec(container, command="sh")
+            self.docker.compose.exec(**exec_args)
         except DockerException as e:
             richprint.warning(f"Shell exited with error code: {e.return_code}")
 
@@ -524,22 +448,32 @@ class Site:
 
     def bench_dev_server_logs(self, follow=False):
         """
-        This function is used to tail logs found at /workspace/logs/bench-start.log.
-        :param follow: Bool detemines whether to follow the log file for changes
+        Display the logs of the development server in the Frappe Bench.
+
+        Args:
+            follow (bool, optional): Whether to continuously follow the logs. Defaults to False.
         """
-        bench_start_log_path = (
-            self.path / "workspace" / "frappe-bench" / "logs" / "web.dev.log"
-        )
+        bench_start_log_path = self.path / "workspace" / "frappe-bench" / "logs" / "web.dev.log"
 
         if bench_start_log_path.exists() and bench_start_log_path.is_file():
             with open(bench_start_log_path, "r") as bench_start_log:
                 bench_start_log_data = log_file(bench_start_log, follow=follow)
                 for line in bench_start_log_data:
-                    richprint.stdout.print(line)
+                    print(line)
         else:
             richprint.error(f"Log file not found: {bench_start_log_path}")
 
     def is_site_created(self, retry=60, interval=1) -> bool:
+        """
+        Checks if the site is created and accessible.
+
+        Args:
+            retry (int): Number of times to retry the check.
+            interval (int): Interval between each retry in seconds.
+
+        Returns:
+            bool: True if the site is created and accessible, False otherwise.
+        """
         from time import sleep
 
         for _ in range(retry):
@@ -548,11 +482,11 @@ class Site:
                 result = self.docker.compose.exec(
                     service="frappe",
                     command=f"curl -I --max-time {retry} --connect-timeout {retry} http://localhost",
-                    stream = True
+                    stream=True,
                 )
 
                 # Check if the site is working
-                for source , line in result:
+                for source, line in result:
                     if "HTTP/1.1 200 OK" in line.decode():
                         return True
             except Exception as e:
@@ -562,33 +496,39 @@ class Site:
 
     def running(self) -> bool:
         """
-        The `running` function checks if all the services defined in a Docker Compose file are running.
-        :return: a boolean value. If the number of running containers is greater than or equal to the number
-        of services listed in the compose file, it returns True. Otherwise, it returns False.
+        Check if all services specified in the compose file are running.
+
+        Returns:
+            bool: True if all services are running, False otherwise.
         """
         services = self.composefile.get_services_list()
         running_status = self.get_services_running_status()
 
-        if running_status:
-            for service in services:
-                try:
-                    if not running_status[service] == "running":
-                        return False
-                except KeyError:
-                    return False
-        else:
+        if not running_status:
             return False
+
+        for service in services:
+            try:
+                if not running_status[service] == "running":
+                    return False
+            except KeyError:
+                return False
+
         return True
 
     def get_services_running_status(self) -> dict:
+        """
+        Get the running status of services in the Docker Compose file.
 
+        Returns:
+            A dictionary containing the running status of services.
+            The keys are the service names, and the values are the container states.
+        """
         services = self.composefile.get_services_list()
         containers = self.composefile.get_container_names().values()
         services_status = {}
         try:
-            output = self.docker.compose.ps(
-                service=services, format="json", all=True, stream=True
-            )
+            output = self.docker.compose.ps(service=services, format="json", all=True, stream=True)
             status: list = []
             for source, line in output:
                 if source == "stdout":
@@ -607,6 +547,12 @@ class Site:
             return {}
 
     def get_host_port_binds(self):
+        """
+        Get the list of published ports on the host for all containers.
+
+        Returns:
+            list: A list of published ports on the host.
+        """
         try:
             output = self.docker.compose.ps(all=True, format="json", stream=True)
             status: list = []
@@ -644,8 +590,7 @@ class Site:
         running_status = self.get_services_running_status()
         if running_status[service] == "running":
             return True
-        else:
-            return False
+        return False
 
     def sync_workers_compose(self):
         self.regenerate_supervisor_conf()
@@ -696,9 +641,7 @@ class Site:
                 )
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
 
-                generate_split_config_command = (
-                    "/scripts/divide-supervisor-conf.py config/supervisor.conf"
-                )
+                generate_split_config_command = "/scripts/divide-supervisor-conf.py config/supervisor.conf"
 
                 output = self.docker.compose.exec(
                     service="frappe",
@@ -711,14 +654,14 @@ class Site:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
 
                 return True
+
             except DockerException as e:
                 richprint.error(f"Failure in generating, supervisor.conf file.{e}")
 
                 if backup:
                     richprint.print("Rolling back to previous workers configuration.")
                     shutil.copy(
-                        self.workers.supervisor_config_path.parent
-                        / "supervisor.conf.bak",
+                        self.workers.supervisor_config_path.parent / "supervisor.conf.bak",
                         self.workers.supervisor_config_path,
                     )
 
@@ -728,31 +671,18 @@ class Site:
                 return False
 
     def get_bench_installed_apps_list(self):
-        apps_json_file = (
-            self.path / "workspace" / "frappe-bench" / "sites" / "apps.json"
-        )
-
+        apps_json_file = self.path / "workspace" / "frappe-bench" / "sites" / "apps.json"
         apps_data: dict = {}
-
         if not apps_json_file.exists():
             return {}
-
         with open(apps_json_file, "r") as f:
             apps_data = json.load(f)
-
         return apps_data
 
     def get_site_db_info(self):
         db_info = {}
 
-        site_config_file = (
-            self.path
-            / "workspace"
-            / "frappe-bench"
-            / "sites"
-            / self.name
-            / "site_config.json"
-        )
+        site_config_file = self.path / "workspace" / "frappe-bench" / "sites" / self.name / "site_config.json"
 
         if site_config_file.exists():
             with open(site_config_file, "r") as f:
@@ -779,7 +709,7 @@ class Site:
         add_db_user = f"/usr/bin/mariadb -h{db_host} -P3306 -u{db_user} -p'{db_password}' -e 'CREATE USER `{site_db_user}`@`%` IDENTIFIED BY \"{site_db_pass}\";'"
         grant_user = f"/usr/bin/mariadb -h{db_host} -P3306 -u{db_user} -p'{db_password}' -e 'GRANT ALL PRIVILEGES ON `{site_db_name}`.* TO `{site_db_user}`@`%`;'"
         SHOW_db_user = f"/usr/bin/mariadb -P3306-h{db_host} -u{db_user} -p'{db_password}' -e 'SELECT User, Host FROM mysql.user;'"
-        #
+
         import time
 
         check_connection_command = f"/usr/bin/mariadb -h{db_host} -u{db_user} -p'{db_password}' -e 'SHOW DATABASES;'"
@@ -806,9 +736,7 @@ class Site:
             i += 1
 
         if not connected:
-            raise SiteDatabaseAddUserException(
-                self.name, f"Not able to start db: {error}"
-            )
+            raise SiteDatabaseAddUserException(self.name, f"Not able to start db: {error}")
 
         removed = True
         try:
@@ -839,9 +767,7 @@ class Site:
                 )
                 richprint.print(f"Recreated user {site_db_user}")
             except DockerException as e:
-                raise SiteDatabaseAddUserException(
-                    self.name, f"Database user creation failed: {e}"
-                )
+                raise SiteDatabaseAddUserException(self.name, f"Database user creation failed: {e}")
 
     def remove_secrets(self):
         richprint.print(f"Removing Secrets", emoji_code=":construction:")
@@ -858,7 +784,7 @@ class Site:
 
         if running:
             self.start()
-            self.frappe_logs_till_start(status_msg='Starting Site')
+            self.frappe_logs_till_start(status_msg="Starting Site")
 
         richprint.print(f"Removing Secrets: Done")
 
