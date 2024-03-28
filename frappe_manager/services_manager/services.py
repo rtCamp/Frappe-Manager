@@ -224,7 +224,7 @@ class ServicesManager:
 
         """
         try:
-            # handle envrionment
+            # handle environment
             if "environment" in inputs.keys():
                 environments: dict = inputs["environment"]
                 self.composefile.set_all_envs(environments)

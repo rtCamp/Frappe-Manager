@@ -51,7 +51,7 @@ def app_callback(
     version: Annotated[Optional[bool], typer.Option("--version", help="Show Version.", callback=version_callback)] = None,
 ):
     """
-    Frappe-Manager for creating frappe development envrionments.
+    Frappe-Manager for creating frappe development environments.
     """
 
     ctx.obj = {}
