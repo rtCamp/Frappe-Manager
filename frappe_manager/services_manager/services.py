@@ -84,7 +84,7 @@ class ServicesManager:
 
         self.docker = DockerClient(compose_file_path=self.composefile.compose_path)
 
-    def create(self, backup=False):
+    def create(self, backup: bool = False,clean_install: bool = True):
         envs = {
             "global-db": {
                 "MYSQL_ROOT_PASSWORD_FILE": '/run/secrets/db_root_password',
@@ -188,6 +188,10 @@ class ServicesManager:
         self.composefile.set_secret_file_path('db_password',str(db_password_path.absolute()))
         self.composefile.set_secret_file_path('db_root_password',str(db_root_password_path.absolute()))
         self.composefile.write_to_file()
+
+        if clean_install:
+            # remove previous contaniners and volumes
+            self.docker.compose.down(remove_orphans=True,timeout=1,volumes=True,stream=True, stream_only_exit_code=True)
 
     def get_database_info(self):
         """
