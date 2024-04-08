@@ -26,6 +26,7 @@ requests = "^2.31.0"
 psutil = "^5.9.6"
 ruamel-yaml = "^0.18.5"
 tomlkit = "^0.12.3"
+certbot = "^2.9.0"
 
 [tool.pyright]
 reportOptionalMemberAccess = false

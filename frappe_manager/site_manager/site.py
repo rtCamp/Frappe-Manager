@@ -1,25 +1,31 @@
 import importlib
 import shutil
 import json
+from typing import List, Optional
 from pathlib import Path
 from frappe_manager.docker_wrapper.DockerClient import DockerClient
 from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.site_exceptions import (
     SiteDatabaseAddUserException,
     SiteException,
 )
 from frappe_manager.site_manager.workers_manager.SiteWorker import SiteWorkers
+from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager.certificate import SSLCertificate
+from frappe_manager.ssl_manager.ssl_certificate_base import ssl_service_factory
+from frappe_manager.ssl_manager.ssl_certificate_manager import CertificateManager
 from frappe_manager.utils.helpers import log_file, get_container_name_prefix
 from frappe_manager.utils.docker import host_run_cp
-from frappe_manager.utils.site import is_fqdn
 
 
 class Site:
-    def __init__(self, path: Path, name: str, verbose: bool = False, services=None) -> None:
+    def __init__(self, path: Path, name: str, alias_domains: List[str] = [], verbose: bool = False, services: Optional[ServicesManager] = None) -> None:
         self.path = path
         self.name = name
+        self.alias_domains = alias_domains
         self.quiet = not verbose
         self.services = services
         self.init()
@@ -38,14 +44,9 @@ class Site:
     def exists(self):
         return self.path.exists()
 
-    def validate_sitename(self) -> bool:
-        sitename = self.name
-        match = is_fqdn(sitename)
+    def add_alias_domains(self, domains: List[str]):
+        self.alias_domains += domains
 
-        if not match:
-            richprint.error(f"The {sitename} must follow Fully Qualified Domain Name (FQDN) format.", exception=SiteException(self, f"Valid FQDN site name not provided."))
-
-        return True
 
     def get_frappe_container_hex(self) -> None | str:
         """
@@ -199,7 +200,7 @@ class Site:
 
         return True
 
-    def start(self, force: bool = False) -> bool:
+    def start(self,services: List[str] = [], force: bool = False) -> bool:
         """
         Starts the Docker containers for the site.
 
@@ -210,7 +211,7 @@ class Site:
         richprint.change_head(status_text)
 
         try:
-            output = self.docker.compose.up(detach=True, pull="never", force_recreate=force, stream=self.quiet)
+            output = self.docker.compose.up(services=services,detach=True, pull="never", force_recreate=force, stream=self.quiet)
             if self.quiet:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
             richprint.print(f"{status_text}: Done")
@@ -798,3 +799,30 @@ class Site:
             db_user = site_db_info["user"]
             self.services.remove_db_user(db_name)
             self.services.remove_db(db_user)
+
+
+    def generate_ssl_certificate(self,ssl_type):
+        if ssl_type == 'le':
+            # check if the nginx is started
+            output = self.is_service_running('nginx')
+            print(output)
+
+    def create_certificate(self, ssl_type: SUPPORTED_SSL_TYPES):
+
+        # create ssl factory
+        ssl_certificate = SSLCertificate(self.name)
+
+        if self.alias_domains:
+            ssl_certificate = SSLCertificate(self.name,alias_domains=self.alias_domains)
+
+
+        if self.services:
+            ssl_service = ssl_service_factory(services=self.services,ssl_type=ssl_type)
+
+            if ssl_service:
+                cert_manager = CertificateManager(certificate=ssl_certificate,service=ssl_service)
+                cert_manager.generate_certificate()
+        else:
+            raise SiteException(sitename=self.name,error_msg="Cannot create https certificate when services is in `not running` state.")
+
+        ...

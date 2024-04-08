@@ -206,7 +206,7 @@ class DisplayManager:
                 table.add_column()
 
                 for linex in list(displayed_lines):
-                    table.add_row(Text(f"{log_prefix} {linex.strip()}", style="grey"))
+                    table.add_row(Text(f"{log_prefix}=> {linex.strip()}", style="grey"))
 
                 self.update_live(table, padding=padding)
                 self.live.refresh()

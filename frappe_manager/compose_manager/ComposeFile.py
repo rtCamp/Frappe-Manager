@@ -6,7 +6,7 @@ from ruamel.yaml.comments import (
     CommentedMap as OrderedDict,
     CommentedSeq as OrderedList,
 )
-from frappe_manager.compose_manager.compose_file_exceptions import ComposeFileException
+from frappe_manager.compose_manager.compose_file_exceptions import ComposeFileException, ComposeServiceNotFound
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.utils.site import parse_docker_volume
 from frappe_manager.utils.helpers import represent_null_empty
@@ -482,9 +482,13 @@ class ComposeFile:
         Get all the root volumes.
         """
 
-        volumes = self.yml["volumes"]
+        try:
+            volumes = self.yml["volumes"]
+        except KeyError as e:
+            return {}
 
         return volumes
+
 
     def get_all_services_volumes(self):
         """
@@ -505,7 +509,27 @@ class ComposeFile:
         volumes_list = []
 
         for volume in volumes_set:
-            volumes_list.append((parse_docker_volume(volume)))
+            volumes_list.append((parse_docker_volume(volume,self.get_all_volumes())))
+
+        return volumes_list
+
+    def get_service_volumes(self, service: str):
+        """
+        Get all the volume mounts.
+        """
+        volumes_set = set()
+
+        try:
+            volumes_list = self.yml["services"][service]["volumes"]
+            for volume in volumes_list:
+                volumes_set.add(volume)
+        except KeyError as e:
+            raise ComposeServiceNotFound(service_name=service)
+
+        volumes_list = []
+
+        for volume in volumes_set:
+            volumes_list.append((parse_docker_volume(volume,self.get_all_volumes())))
 
         return volumes_list
 

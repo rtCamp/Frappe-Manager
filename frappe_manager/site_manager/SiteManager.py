@@ -7,6 +7,7 @@ import shutil
 
 from typing import List, Optional
 from pathlib import Path
+from rich.table import Table
 from datetime import datetime
 from frappe_manager.site_manager import VSCODE_LAUNCH_JSON, VSCODE_TASKS_JSON, VSCODE_SETTINGS_JSON
 from frappe_manager.site_manager.site import Site
@@ -14,7 +15,9 @@ from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker_wrapper.DockerClient import DockerClient
 from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager import CLI_DIR
-from rich.table import Table
+from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager.certificate import SSLCertificate
+from frappe_manager.ssl_manager.ssl_certificate_manager import CertificateManager
 from frappe_manager.utils.helpers import get_sitename_from_current_path
 from frappe_manager.utils.site import generate_services_table, domain_level
 
@@ -110,7 +113,7 @@ class SiteManager:
 
         richprint.print(f"{status_text}: Done")
 
-    def create_site(self, template_inputs: dict, template_site: bool = False):
+    def create_site(self, template_inputs: dict, template_site: bool = False, ssl_type: Optional[SUPPORTED_SSL_TYPES] = None, alias_domains: Optional[List[str]] = None):
         """
         Creates a new site using the provided template inputs.
 
@@ -121,8 +124,6 @@ class SiteManager:
             None
         """
         try:
-            self.site.validate_sitename()
-
             richprint.change_head(f"Creating Site Directory")
             self.site.create_site_dir()
 
@@ -150,13 +151,24 @@ class SiteManager:
             self.site.remove_secrets()
             self.typer_context.obj["logger"].info(f"SITE_STATUS {self.site.name}: WORKING")
             richprint.print(f"Started site")
+
+            if alias_domains:
+                self.site.add_alias_domains(alias_domains)
+
+            # create https
+            if ssl_type:
+                self.site.create_certificate(ssl_type=ssl_type)
+
             self.info()
+
             if not ".localhost" in self.site.name:
                 richprint.print(f"Please note that You will have to add a host entry to your system's hosts file to access the site locally.")
 
         except Exception as e:
             self.typer_context.obj["logger"].error(f"{self.site.name}: NOT WORKING\n Exception: {e}")
+
             richprint.stop()
+
             error_message = "There has been some error creating/starting the site.\n" "Please check the logs at {}"
             log_path = CLI_DIR / "logs" / "fm.log"
 
@@ -165,6 +177,21 @@ class SiteManager:
             remove_status = self.remove_site()
             if not remove_status:
                 self.info()
+
+    def create_certificate(self):
+
+        # create ssl factory
+        ssl_certificate = SSLCertificate(self.site.name)
+
+        if alias_domains:
+            ssl_certificate = SSLCertificate(self.site.name,alias_domains=alias_domains)
+
+        services: ServicesManager = ctx.obj['services']
+
+        ssl_service = ssl_service_factory(services=services,ssl_type=ssl)
+
+        if ssl_service:
+            cert_manager = CertificateManager(certificate=ssl_certificate,service=ssl_service)
 
     def remove_site(self) -> bool:
         """

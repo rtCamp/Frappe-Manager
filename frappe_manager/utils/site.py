@@ -1,5 +1,10 @@
 from rich.table import Table
+from pathlib import Path
 import re
+
+from frappe_manager.compose_manager import DockerVolumeMount, DockerVolumeType
+from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.site_manager.site_exceptions import SiteException
 
 def generate_services_table(services_status: dict):
     # running site services status
@@ -56,25 +61,31 @@ def create_service_element(service, running_status):
     )
     return service_table
 
-def parse_docker_volume(volume_string):
+def parse_docker_volume(volume_string: str, root_volumes:dict):
 
     string_parts = volume_string.split(':')
 
     if len(string_parts) > 1:
 
-        volume = {"src": string_parts[0], "dest": string_parts[0]}
+        src = string_parts[0]
+        dest = string_parts[0]
 
-        is_bind_mount = string_parts[0].startswith('./')
+        is_bind_mount = True
 
-        if len(string_parts) > 2:
-            volume = {"src": string_parts[0], "dest": string_parts[1]}
+        if string_parts[0] in root_volumes.keys():
+            is_bind_mount = False
 
-        volume['type'] = 'bind'
+        if len(string_parts) > 1:
+            dest = string_parts[1]
+
+        volume_type = DockerVolumeType.bind
 
         if not is_bind_mount:
-            volume['type'] = 'volume'
+            volume_type = DockerVolumeType.volume
 
-        return volume
+        docker_volume = DockerVolumeMount(src,dest,volume_type)
+
+        return docker_volume
 
 def is_fqdn(hostname: str) -> bool:
     """
@@ -99,9 +110,48 @@ def is_fqdn(hostname: str) -> bool:
     # Check that all labels match that pattern.
     return all(fqdn.match(label) for label in labels)
 
+def is_wildcard_fqdn(hostname: str) -> bool:
+    """
+    Check if the hostname is a fully qualified domain name (FQDN) with optional wildcard.
+
+    A wildcard domain can be specified with a leading asterisk in the first label (e.g., *.example.com).
+    https://en.m.wikipedia.org/wiki/Fully_qualified_domain_name
+    """
+    if not 1 < len(hostname) < 253:
+        print(hostname)
+        return False
+
+    # Remove trailing dot
+    if hostname[-1] == '.':
+        hostname = hostname[:-1]
+
+    # Split hostname into list of DNS labels
+    labels = hostname.split('.')
+
+    # Define pattern for a standard DNS label
+    fqdn_pattern = re.compile(r'^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$', re.IGNORECASE)
+
+    # Define pattern for a wildcard DNS label (only valid in the first label)
+    wildcard_pattern = re.compile(r'^\*\.?$', re.IGNORECASE)
+
+    status = (wildcard_pattern.match(labels[0])) and all(fqdn_pattern.match(label) for label in labels[1:])
+
+    if status == None:
+        status = False
+
+    # Check the first label for wildcard pattern, then check all labels for standard pattern
+    return status
+
 def domain_level(domain):
     # Split the domain name into individual parts
     parts = domain.split('.')
 
     # Return the number of parts minus 1 (excluding the TLD)
     return len(parts) - 1
+
+def validate_sitename(sitename: str) -> bool:
+    match = is_fqdn(sitename)
+    if not match:
+        richprint.error(f"The {sitename} must follow Fully Qualified Domain Name (FQDN) format.", exception=SiteException(sitename,f"Valid FQDN site name not provided."))
+
+    return True

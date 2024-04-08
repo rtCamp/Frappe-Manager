@@ -1,10 +1,19 @@
+from typing import Optional
+from dataclasses import dataclass
+from rich import inspect
 import typer
 from pathlib import Path
 from typing import List, Optional, Set
+from frappe_manager.compose_manager import DockerVolumeMount, DockerVolumeType
+from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.SiteManager import SiteManager
+from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager.nginxproxymanager import NginxProxyManager
+from frappe_manager.ssl_manager.ssl_certificate_base import SSLCertificateService
 from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version, get_sitename_from_current_path
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager import CLI_SITES_DIRECTORY, STABLE_APP_BRANCH_MAPPING_LIST, DEFAULT_EXTENSIONS
+from frappe_manager.utils.site import validate_sitename
 
 
 def apps_list_validation_callback(value: List[str] | None):
@@ -126,3 +135,8 @@ def code_command_extensions_callback(extensions: List[str]) -> List[str]:
     unique_ext: Set = set(extx)
     unique_ext_list: List[str] = [x for x in unique_ext]
     return unique_ext_list
+
+def create_command_sitename_callback(sitename: str):
+    # validate the site
+    validate_sitename(sitename)
+    return sitename

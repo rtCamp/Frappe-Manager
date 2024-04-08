@@ -341,3 +341,38 @@ def get_sitename_from_current_path() -> Optional[str]:
     sitename = sitename_list[0]
     if is_fqdn(sitename):
         return sitename
+
+def create_symlink(source: Path, destination: Path, force: bool = False):
+    if force:
+        # If the destination exists (whether it's a file, directory, or symlink), remove it
+        if destination.exists() or destination.is_symlink():
+            # This handles both files and directories, including non-empty directories
+            if destination.is_dir():
+                for item in destination.iterdir():
+                    if item.is_dir():
+                        create_symlink(item, destination / item.name)
+                    else:
+                        item.unlink()
+                destination.rmdir()
+            else:
+                destination.unlink()
+
+    # Create the symbolic link
+    destination.symlink_to(source)
+
+def create_class_from_dict(class_name, attributes_dict):
+    """
+    Dynamically creates a class with properties based on the provided attributes dictionary.
+
+    Parameters:
+    class_name (str): The name of the class to be created.
+    attributes_dict (dict): A dictionary where keys are the names of the properties and values are their default values.
+
+    Returns:
+    A new class with the specified properties and their default values.
+    """
+    # The 'type' function is used here to create a new class.
+    # The first argument is the class name, the second is a tuple of the parent class (for inheritance, if needed),
+    # and the third argument is a dictionary of attributes and their values.
+
+    return type(class_name, (object,), attributes_dict)

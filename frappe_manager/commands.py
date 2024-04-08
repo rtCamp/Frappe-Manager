@@ -10,7 +10,7 @@ import shutil
 import importlib
 import json
 
-from typing import Annotated, List, Optional
+from typing import Annotated, List, Literal, Optional
 from frappe_manager.services_manager.services_exceptions import ServicesNotCreated
 from frappe_manager.site_manager.SiteManager import SiteManager
 from frappe_manager.display_manager.DisplayManager import richprint
@@ -20,9 +20,11 @@ from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.logger import log
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
-from frappe_manager.site_manager.site_exceptions import SiteException
+from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.utils.callbacks import (
     apps_list_validation_callback,
+    create_command_sitename_callback,
     frappe_branch_validation_callback,
     sites_autocompletion_callback,
     version_callback,
@@ -35,14 +37,11 @@ from frappe_manager.sub_commands.self_commands import self_app
 from frappe_manager.metadata_manager import MetadataManager
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
+from frappe_manager.utils.site import domain_level
 
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
 app.add_typer(services_app, name="services", help="Handle global services.")
 app.add_typer(self_app, name="self", help="Perform operations related to the [bold][blue]fm[/bold][/blue] itself.")
-
-# this will be initiated later in the app_callback
-sites: Optional[SiteManager] = None
-
 
 @app.callback()
 def app_callback(
@@ -147,7 +146,6 @@ def app_callback(
         if not migration_status:
             richprint.exit(f"Rollbacked to previous version of fm {migrations.prev_version}.")
 
-        global services_manager
         services_manager = ServicesManager(verbose=verbose)
         services_manager.init()
         try:
@@ -159,7 +157,6 @@ def app_callback(
         if not services_manager.running():
             services_manager.start()
 
-        global sites
         sites = SiteManager(CLI_SITES_DIRECTORY, services=services_manager)
 
         sites.set_typer_context(ctx)
@@ -174,7 +171,8 @@ def app_callback(
 
 @app.command(no_args_is_help=True)
 def create(
-    sitename: Annotated[str, typer.Argument(help="Name of the site")],
+    ctx: typer.Context,
+    sitename: Annotated[str, typer.Argument(help="Name of the site",callback=create_command_sitename_callback)],
     apps: Annotated[
         Optional[List[str]],
         typer.Option(
@@ -188,7 +186,13 @@ def create(
         str,
         typer.Option(help="Default Password for the standard 'Administrator' User. This will be used as the password for the Administrator User for all new sites"),
     ] = "admin",
-    enable_ssl: Annotated[bool, typer.Option(help="Enable https")] = False,
+    ssl: Annotated[Optional[SUPPORTED_SSL_TYPES], typer.Option(help="Enable https",show_default=False)] = None,
+    alias_domains: Annotated[
+        Optional[List[str]],
+        typer.Option(
+            "--alias-domains", '-d', help="Specify alias domains", show_default=False
+        ),
+    ] = None,
 ):
     # TODO Create markdown table for the below help
     """
@@ -211,6 +215,8 @@ def create(
     $ [blue]fm create example --frappe-branch version-14 --apps erpnext:version-14 --apps hrms:version-14[/blue]
     """
 
+    sites: SiteManager = ctx.obj['sites']
+
     sites.init(sitename)
 
     uid: int = os.getuid()
@@ -232,7 +238,6 @@ def create(
             "ENVIRONMENT": "dev",
         },
         "nginx": {
-            "ENABLE_SSL": enable_ssl,
             "SITENAME": sites.site.name,
             "VIRTUAL_HOST": sites.site.name,
             "VIRTUAL_PORT": 80,
@@ -259,42 +264,57 @@ def create(
         "user": users,
     }
 
-    sites.create_site(template_inputs, template_site=template)
+    # if alias_domains:
+    #     sites.site.add_alias_domains(alias_domains)
+
+    # if ssl:
+    #     sites.site.create_certificate(ssl_type=ssl)
+    sites.create_site(template_inputs, template_site=template, ssl_type=ssl, alias_domains=alias_domains)
 
 
 @app.command()
-def delete(sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None):
+def delete(ctx: typer.Context,sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None):
     """Delete a site."""
+
+    sites = ctx.obj['sites']
     sites.init(sitename)
     sites.remove_site()
 
 
 @app.command()
-def list():
+def list(ctx: typer.Context):
     """Lists all of the available sites."""
+
+    sites = ctx.obj['sites']
     sites.init()
     sites.list_sites()
 
 
 @app.command()
 def start(
+    ctx: typer.Context,
     sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
     force: Annotated[bool, typer.Option("--force", "-f", help="Force recreate site containers")] = False,
 ):
     """Start a site."""
+
+    sites = ctx.obj['sites']
     sites.init(sitename)
     sites.start_site(force=force)
 
 
 @app.command()
-def stop(sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None):
+def stop(ctx: typer.Context, sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None):
     """Stop a site."""
+
+    sites = ctx.obj['sites']
     sites.init(sitename)
     sites.stop_site()
 
 
 @app.command()
 def code(
+    ctx: typer.Context,
     sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
     user: Annotated[str, typer.Option(help="Connect as this user.")] = "frappe",
     extensions: Annotated[
@@ -311,6 +331,8 @@ def code(
     workdir: Annotated[str, typer.Option("--work-dir", "-w", help="Set working directory in vscode.")] = '/workspace/frappe-bench',
 ):
     """Open site in vscode."""
+
+    sites = ctx.obj['sites']
     sites.init(sitename)
     if force_start:
         sites.start_site()
@@ -319,11 +341,13 @@ def code(
 
 @app.command()
 def logs(
+    ctx: typer.Context,
     sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
     service: Annotated[Optional[SiteServicesEnum], typer.Option(help="Specify service name to show container logs.")] = None,
     follow: Annotated[bool, typer.Option("--follow", "-f", help="Follow logs.")] = False,
 ):
     """Show frappe dev server logs or container logs for a given site."""
+    sites = ctx.obj['sites']
     sites.init(sitename)
     if service:
         sites.logs(service=SiteServicesEnum(service).value, follow=follow)
@@ -333,11 +357,14 @@ def logs(
 
 @app.command()
 def shell(
+    ctx: typer.Context,
     sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
     user: Annotated[Optional[str], typer.Option(help="Connect as this user.")] = None,
     service: Annotated[SiteServicesEnum, typer.Option(help="Specify Service")] = "frappe",
 ):
     """Open shell for the give site."""
+
+    sites = ctx.obj['sites']
     sites.init(sitename)
     if service:
         sites.shell(service=SiteServicesEnum(service).value, user=user)
@@ -347,8 +374,11 @@ def shell(
 
 @app.command()
 def info(
+    ctx: typer.Context,
     sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
 ):
     """Shows information about given site."""
+
+    sites = ctx.obj['sites']
     sites.init(sitename)
     sites.info()

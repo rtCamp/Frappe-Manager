@@ -1,7 +1,7 @@
 import json
 import shlex
 
-from typing import Literal, Optional
+from typing import Literal, Optional, List
 from pathlib import Path
 from frappe_manager.docker_wrapper.DockerCompose import DockerComposeWrapper
 from frappe_manager.display_manager.DisplayManager import richprint
@@ -164,6 +164,7 @@ class DockerClient:
         self,
         image: str,
         command: Optional[str] = None,
+        env: Optional[List[str]] = None,
         name: Optional[str] = None,
         volume: Optional[str] = None,
         detach: bool = False,
@@ -176,9 +177,13 @@ class DockerClient:
         parameters: dict = locals()
         run_cmd: list = ["run"]
 
-        remove_parameters = ["stream", "stream_only_exit_code", "command", "image","use_shlex_split"]
+        remove_parameters = ["stream", "stream_only_exit_code", "command", "image","use_shlex_split","env"]
 
         run_cmd += parameters_to_options(parameters, exclude=remove_parameters)
+
+        if type(env) == list:
+            for i in env:
+                run_cmd+= ["--env", i]
 
         run_cmd += [f"{image}"]
 
