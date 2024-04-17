@@ -1,7 +1,6 @@
 from typing import Optional
 
-
-class CertificateNotFoundError(Exception):
+class SSLCertificateNotFoundError(Exception):
     """Exception raised when a certificate is not found."""
 
     def __init__(self, domain, message="Certificate not found for domain: "):
@@ -9,18 +8,29 @@ class CertificateNotFoundError(Exception):
         self.message = message + domain
         super().__init__(self.message)
 
-class DNSMethodNotImplemented(Exception):
+class SSLDNSChallengeNotImplemented(Exception):
     """Exception raised for dns method not implemented."""
 
     def __init__(self):
         super().__init__()
 
-class CertificateGenerateFailed(Exception):
+class SSLCertificateChallengeFailed(Exception):
     """Exception raised when a certificate generation failed."""
 
-    def __init__(self, domain, message="Certificate generate failed for domain: ", exception: Optional[Exception] = None):
-        self.domain = domain
-        self.message = message + domain
-        super().__init__(self.message)
-        if exception:
-            raise exception
+    def __init__(
+            self,
+            challenge: str,
+        ):
+
+        self.challenge = challenge
+        msg = f'{self.challenge} challenge failed.'
+        super().__init__(msg)
+
+class SSLCertificateGenerateFailed(Exception):
+    """Exception raised when a certificate generation failed."""
+
+    def __init__(
+            self,
+        ):
+        message="Certificate generation failed."
+        super().__init__(message)

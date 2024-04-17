@@ -1,89 +1,75 @@
-from rich import inspect
-from datetime import datetime,timedelta
-from frappe_manager.ssl_manager.certificate_exceptions import CertificateNotFoundError, DNSMethodNotImplemented
-from frappe_manager.ssl_manager.certificate import RenewableSSLCertificate, SSLCertificate
-from frappe_manager.ssl_manager.ssl_certificate_base import SSLCertificateService
+from datetime import datetime
+from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager.certificate_exceptions import SSLDNSChallengeNotImplemented
+from frappe_manager.ssl_manager.certificate import SSLCertificate
+from frappe_manager.ssl_manager.no_op_certificate_service import NoOpCertificateService
+from frappe_manager.ssl_manager.renewable_certificate import RenewableSSLCertificate
+from frappe_manager.ssl_manager.ssl_certificate_service import SSLCertificateService
 from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.utils.helpers import create_symlink, format_time_remaining
 
 
-class CertificateManager:
-    certificate: SSLCertificate
+class SSLCertificateManager:
     service: SSLCertificateService
-    renew_before_days = 30
 
-    def __init__(self,certificate: SSLCertificate, service: SSLCertificateService):
+    def __init__(self, certificate: SSLCertificate, service: SSLCertificateService):
 
         # Check if the domains and alias domains doesn't contain wildcards
         if certificate.has_wildcard:
-            raise DNSMethodNotImplemented
+            raise SSLDNSChallengeNotImplemented
 
         self.certificate = certificate
         self.service = service
 
-    def _needs_renew(self, certificate: RenewableSSLCertificate)-> bool:
+    def renew_certificate(self, recertificate: RenewableSSLCertificate):
+        if self.needs_renewal(recertificate):
+            self.service.renew_certificate(recertificate)
+        else:
+            today_date = datetime.now()
+            if recertificate.expiry.tzinfo:
+                # Ensure that 'today_date' is timezone-aware if 'certificate.expiry' is
+                today_date = today_date.replace(tzinfo=recertificate.expiry.tzinfo)
+                time_remaining = recertificate.expiry - today_date
+                time_remaining_txt = format_time_remaining(time_remaining)
+                richprint.print(f"[yellow]{recertificate.domain}[/yellow] certificate is still valid for {time_remaining_txt}.")
 
-        expiry_date_with_minimum_renew_days = certificate.expiry - timedelta(days=self.renew_before_days)
-        today_date = datetime.now()
 
-        if expiry_date_with_minimum_renew_days.tzinfo:
-            today_date = today_date.replace(tzinfo=expiry_date_with_minimum_renew_days.tzinfo)
+    def needs_renewal(self, certificate: RenewableSSLCertificate)-> bool:
+        return self.service.needs_renewal(certificate)
 
-        if not expiry_date_with_minimum_renew_days > today_date:
-            return True
-        return False
 
-    def get_cert_storage_path(self):
-        """
-        This function returns search path for both host and container.
-        """
+    def is_domain_linked(self, recertificate: RenewableSSLCertificate):
+        fullchain_linked = False
+        key_linked = False
 
-        ...
-    def add_alias_domain(self):
-        ...
+        if recertificate.proxy_fullchain_path.is_symlink():
+            symlink_target = recertificate.proxy_fullchain_path.resolve()
+            if recertificate.fullchain_path == symlink_target:
+                fullchain_linked = True
 
-    def delete_alias_domain(self):
-        ...
+        if recertificate.proxy_privkey_path.is_symlink():
+            symlink_target = recertificate.proxy_privkey_path.resolve()
+            if recertificate.fullchain_path == symlink_target:
+                key_linked = True
 
-    def is_linked(self):
-        ...
+        return fullchain_linked and key_linked
 
-    def link_to_domain(self, certificate: RenewableSSLCertificate):
-        # domain_path =
-        ...
+    def create_certificate_to_domain_link(self, recertificate: RenewableSSLCertificate):
+        if not recertificate.ssl_type == SUPPORTED_SSL_TYPES.none:
+            create_symlink(recertificate.container_privkey_path,recertificate.proxy_privkey_path)
+            create_symlink(recertificate.container_fullchain_path,recertificate.proxy_fullchain_path)
 
-    def generate_certificate(self, force = False):
-        # checking previous certificate if any
-        regenerate_certificate = False
+    def remove_certificate_to_domain_link(self, recertificate: RenewableSSLCertificate):
+        if recertificate.proxy_privkey_path.is_symlink():
+            recertificate.proxy_privkey_path.unlink()
 
-        try:
-            existing_certificate: RenewableSSLCertificate = self.service.is_certificate_exists(self.certificate)
-            richprint.warning("Previous certificate detected.")
+        if recertificate.proxy_fullchain_path.is_symlink():
+            recertificate.proxy_fullchain_path.unlink()
 
-            if force:
-                regenerate_certificate = True
-                self.service.remove_certificate(existing_certificate)
-                richprint.print('Removed Previous Certificate.')
-            else:
-                if self._needs_renew(existing_certificate):
-                    regenerate_certificate = True
-                    self.service.remove_certificate(existing_certificate)
-                    richprint.print('Removed Previous Certificate.')
+    def remove_certificate(self, recertificate: RenewableSSLCertificate):
+        self.service.remove_certificate(recertificate)
 
-                existing_aliases = existing_certificate.alias_domains.sort()
-                current_aliases = self.certificate.alias_domains.sort()
-
-                if not existing_aliases == current_aliases:
-                    regenerate_certificate = True
-                    self.service.remove_certificate(existing_certificate)
-                    richprint.print('Removed Previous Certificate.')
-
-        except CertificateNotFoundError:
-            regenerate_certificate = True
-            pass
-
-        if regenerate_certificate:
-            new_cert = self.service.generate_certificate(self.certificate)
-
-        # save certificate
-        # get paths of certificate
-        # use that to link
+    def generate_certificate(self):
+        new_cert = self.service.generate_certificate(self.certificate)
+        self.create_certificate_to_domain_link(new_cert)
+        return new_cert
