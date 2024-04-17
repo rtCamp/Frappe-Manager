@@ -1,18 +1,11 @@
 from typing import Optional
-from dataclasses import dataclass
-from rich import inspect
 import typer
-from pathlib import Path
 from typing import List, Optional, Set
-from frappe_manager.compose_manager import DockerVolumeMount, DockerVolumeType
-from frappe_manager.services_manager.services import ServicesManager
-from frappe_manager.site_manager.SiteManager import SiteManager
-from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
-from frappe_manager.ssl_manager.nginxproxymanager import NginxProxyManager
-from frappe_manager.ssl_manager.ssl_certificate_base import SSLCertificateService
+from frappe_manager.site_manager.SiteManager import BenchesManager
+from frappe_manager.site_manager.site_exceptions import BenchNotFoundError
 from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version, get_sitename_from_current_path
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager import CLI_SITES_DIRECTORY, STABLE_APP_BRANCH_MAPPING_LIST, DEFAULT_EXTENSIONS
+from frappe_manager import CLI_BENCHES_DIRECTORY, STABLE_APP_BRANCH_MAPPING_LIST, DEFAULT_EXTENSIONS
 from frappe_manager.utils.site import validate_sitename
 
 
@@ -115,17 +108,26 @@ def version_callback(version: Optional[bool] = None):
 
 
 def sites_autocompletion_callback():
-    sites = SiteManager(CLI_SITES_DIRECTORY)
-    sites_list = sites.get_all_sites()
+    sites = BenchesManager(CLI_BENCHES_DIRECTORY)
+    sites_list = sites.get_all_bench()
     return sites_list
 
 
-def sitename_callback(sitename):
+def sitename_callback(sitename: Optional[str]):
+
     if not sitename:
         sitename = get_sitename_from_current_path()
 
     if not sitename:
         raise typer.BadParameter(message="Missing Argument")
+
+    sitename = validate_sitename(sitename)
+
+    # check if bench not exists
+    bench_path = CLI_BENCHES_DIRECTORY / sitename
+
+    if not bench_path.exists():
+        raise BenchNotFoundError(sitename,bench_path)
 
     return sitename
 
@@ -138,5 +140,12 @@ def code_command_extensions_callback(extensions: List[str]) -> List[str]:
 
 def create_command_sitename_callback(sitename: str):
     # validate the site
-    validate_sitename(sitename)
+    sitename = validate_sitename(sitename)
+
+    # check if already exists
+    bench_path = CLI_BENCHES_DIRECTORY / sitename
+
+    if bench_path.exists():
+        richprint.exit(f"The bench '{sitename}' already exists at {bench_path}. Aborting operation.")
+
     return sitename

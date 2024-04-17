@@ -27,6 +27,8 @@ psutil = "^5.9.6"
 ruamel-yaml = "^0.18.5"
 tomlkit = "^0.12.3"
 certbot = "^2.9.0"
+pydantic = "^2.6.4"
+email-validator = "^2.1.1"
 
 [tool.pyright]
 reportOptionalMemberAccess = false

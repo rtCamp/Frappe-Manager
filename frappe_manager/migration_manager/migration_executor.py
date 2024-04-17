@@ -7,9 +7,9 @@ from rich.prompt import Prompt
 from frappe_manager import CLI_DIR, CLI_SITES_ARCHIVE
 from frappe_manager.metadata_manager import MetadataManager
 from frappe_manager.migration_manager.migration_exections import (
-    MigrationExceptionInSite,
+    MigrationExceptionInBench,
 )
-from frappe_manager.utils.helpers import install_package, get_current_fm_version
+from frappe_manager.utils.helpers import capture_and_format_exception, install_package, get_current_fm_version
 from frappe_manager.logger import log
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.display_manager.DisplayManager import richprint
@@ -31,7 +31,7 @@ class MigrationExecutor:
         self.logger = log.get_logger()
         self.migrations = []
         self.undo_stack = []
-        self.migrate_sites = {}
+        self.migrate_benches = {}
 
     def execute(self):
         """
@@ -56,20 +56,19 @@ class MigrationExecutor:
                         and hasattr(attr, "up")
                         and hasattr(attr, "down")
                         and hasattr(attr, "set_migration_executor")
+                        and hasattr(attr, "version")
                     ):
-                        migration = attr()
-                        migration.set_migration_executor(migration_executor=self)
-                        current_migration = migration
-                        if (
-                            migration.version > self.prev_version
-                            and migration.version <= self.current_version
-                        ):
-                            # if not migration.skip:
-                            self.migrations.append(migration)
-                            # else:
+                        if not getattr(attr, "version") == Version('0.0.0'):
+                            migration = attr()
+                            migration.set_migration_executor(migration_executor=self)
+                            current_migration = migration
+
+                            if (migration.version > self.prev_version and migration.version <= self.current_version):
+                                self.migrations.append(migration)
 
             except Exception as e:
-                print(f"Failed to register migration {name}: {e}")
+                exception_str = capture_and_format_exception()
+                print(f"Failed to register migration {name}: {exception_str}")
 
         self.migrations = sorted(self.migrations, key=lambda x: x.version)
 
@@ -122,30 +121,32 @@ class MigrationExecutor:
                     if not self.rollback_version > migration.version:
                         self.rollback_version = migration.get_rollback_version()
 
-                except MigrationExceptionInSite as e:
-                    self.logger.error(f"[{migration.version}] : Migration Failed\n{e}")
+                except MigrationExceptionInBench as e:
+                    captured_output = capture_and_format_exception()
+                    self.logger.error(f"[{migration.version}] : Migration Failed\n{captured_output}")
                     if migration.version < self.migrations[-1].version:
                         continue
                     raise e
 
                 except Exception as e:
-                    self.logger.error(f"[{migration.version}] : Migration Failed\n{e}")
+                    captured_output = capture_and_format_exception()
+                    self.logger.error(f"[{migration.version}] : Migration Failed\n{captured_output}")
                     raise e
 
-        except MigrationExceptionInSite as e:
+        except MigrationExceptionInBench as e:
             richprint.stop()
-            if self.migrate_sites:
+            if self.migrate_benches:
                 richprint.print(
                     "[green]Migration was successfull on these sites.[/green]"
                 )
 
-                for site, site_status in self.migrate_sites.items():
+                for site, site_status in self.migrate_benches.items():
                     if not site_status["exception"]:
                         richprint.print(f"[bold][green]SITE:[/green][/bold] {site}")
 
                 richprint.print("[red]Migration failed on these sites[/red]")
 
-                for site, site_status in self.migrate_sites.items():
+                for site, site_status in self.migrate_benches.items():
                     if site_status["exception"]:
                         richprint.print(f"[bold][red]SITE[/red]:[/bold] {site}")
                         richprint.print(
@@ -176,7 +177,7 @@ class MigrationExecutor:
 
         if archive == "yes":
             self.prev_version = self.undo_stack[-1].version
-            for site, site_info in self.migrate_sites.items():
+            for site, site_info in self.migrate_benches.items():
                 if site_info["exception"]:
                     archive_site_path = CLI_SITES_ARCHIVE / site
                     CLI_SITES_ARCHIVE.mkdir(exist_ok=True, parents=True)
@@ -199,10 +200,10 @@ class MigrationExecutor:
         self.metadata_manager.save()
         return True
 
-    def set_site_data(
+    def set_bench_data(
         self, site, exception=None, migration_version: Optional[Version] = None, traceback_str: Optional[str] = None
     ):
-        self.migrate_sites[site.name] = {
+        self.migrate_benches[site.name] = {
             "object": site,
             "exception": exception,
             "last_migration_version": migration_version,
@@ -211,7 +212,7 @@ class MigrationExecutor:
 
     def get_site_data(self, site_name):
         try:
-            data = self.migrate_sites[site_name]
+            data = self.migrate_benches[site_name]
         except KeyError as e:
             return None
 

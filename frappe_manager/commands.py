@@ -1,27 +1,27 @@
 from copy import deepcopy
-from re import template
-from ruamel.yaml import serialize
 from pathlib import Path
 import typer
 import os
-import requests
 import sys
 import shutil
-import importlib
-import json
 
-from typing import Annotated, List, Literal, Optional
+from rich.prompt import Prompt
+from typing import Annotated, List, Optional
+from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.services_manager.services_exceptions import ServicesNotCreated
-from frappe_manager.site_manager.SiteManager import SiteManager
+from frappe_manager.site_manager.SiteManager import BenchesManager
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager import CLI_DIR, DEFAULT_EXTENSIONS, SiteServicesEnum, services_manager, CLI_SITES_DIRECTORY
+from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_DIR, DEFAULT_EXTENSIONS, STABLE_APP_BRANCH_MAPPING_LIST, SiteServicesEnum, CLI_BENCHES_DIRECTORY
 from frappe_manager.docker_wrapper.DockerClient import DockerClient
 from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.logger import log
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
+from frappe_manager.site_manager.site import Bench
+from frappe_manager.site_manager.workers_manager.SiteWorker import BenchWorkers
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
+from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.utils.callbacks import (
     apps_list_validation_callback,
     create_command_sitename_callback,
@@ -31,30 +31,32 @@ from frappe_manager.utils.callbacks import (
     sitename_callback,
     code_command_extensions_callback,
 )
-from frappe_manager.utils.helpers import get_container_name_prefix, is_cli_help_called, get_current_fm_version
-from frappe_manager.services_manager.commands import services_app
+from frappe_manager.utils.helpers import is_cli_help_called, get_current_fm_version
+from frappe_manager.services_manager.commands import services_root_command
 from frappe_manager.sub_commands.self_commands import self_app
+from frappe_manager.sub_commands.ssl_command import ssl_root_command
 from frappe_manager.metadata_manager import MetadataManager
+from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
-from frappe_manager.utils.site import domain_level
+from email_validator import validate_email
 
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
-app.add_typer(services_app, name="services", help="Handle global services.")
+app.add_typer(services_root_command, name="services", help="Handle global services.")
 app.add_typer(self_app, name="self", help="Perform operations related to the [bold][blue]fm[/bold][/blue] itself.")
+app.add_typer(ssl_root_command, name="ssl", help="Perform operations related to ssl.")
+
 
 @app.callback()
 def app_callback(
     ctx: typer.Context,
-    verbose: Annotated[Optional[bool], typer.Option("--verbose", "-v", help="Enable verbose output.")] = None,
-    version: Annotated[Optional[bool], typer.Option("--version", help="Show Version.", callback=version_callback)] = None,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output.")] = False,
+    version: Annotated[Optional[bool], typer.Option("--version", "-V", help="Show Version.", callback=version_callback)] = None,
 ):
     """
     Frappe-Manager for creating frappe development environments.
     """
-
     ctx.obj = {}
-
     help_called = is_cli_help_called(ctx)
     ctx.obj["is_help_called"] = help_called
 
@@ -67,7 +69,7 @@ def app_callback(
             # creating the sites dir
             # TODO check if it's writeable and readable -> by writing a file to it and catching exception
             CLI_DIR.mkdir(parents=True, exist_ok=True)
-            CLI_SITES_DIRECTORY.mkdir(parents=True, exist_ok=True)
+            CLI_BENCHES_DIRECTORY.mkdir(parents=True, exist_ok=True)
             richprint.print(f"fm directory doesn't exists! Created at -> {str(CLI_DIR)}")
             first_time_install = True
         else:
@@ -124,9 +126,6 @@ def app_callback(
                             error = True
                             images_dict[image] = e
                             continue
-
-                            # richprint.error(f"[red][bold]Error :[/bold][/red] {e}")
-
                     if error:
                         print("")
                         richprint.error(f"[bold][red]Pulling images failed for these images[/bold][/red]")
@@ -146,7 +145,7 @@ def app_callback(
         if not migration_status:
             richprint.exit(f"Rollbacked to previous version of fm {migrations.prev_version}.")
 
-        services_manager = ServicesManager(verbose=verbose)
+        services_manager: ServicesManager = ServicesManager(verbose=verbose)
         services_manager.init()
         try:
             services_manager.entrypoint_checks()
@@ -154,49 +153,33 @@ def app_callback(
             services_manager.remove_itself()
             richprint.exit(f"Not able to create services. {e}")
 
-        if not services_manager.running():
-            services_manager.start()
+        if not services_manager.compose_project.running:
+            services_manager.are_ports_free()
+            services_manager.compose_project.start_service()
 
-        sites = SiteManager(CLI_SITES_DIRECTORY, services=services_manager)
-
-        sites.set_typer_context(ctx)
-
-        if verbose:
-            sites.set_verbose()
-
-        ctx.obj["sites"] = sites
-        ctx.obj["logger"] = logger
         ctx.obj["services"] = services_manager
-
+        ctx.obj["verbose"] = verbose
 
 @app.command(no_args_is_help=True)
 def create(
     ctx: typer.Context,
-    sitename: Annotated[str, typer.Argument(help="Name of the site",callback=create_command_sitename_callback)],
+    benchname: Annotated[str, typer.Argument(help="Name of the bench",callback=create_command_sitename_callback)],
     apps: Annotated[
-        Optional[List[str]],
+        List[str],
         typer.Option(
             "--apps", "-a", help="FrappeVerse apps to install. App should be specified in format <appname>:<branch> or <appname>.", callback=apps_list_validation_callback, show_default=False
         ),
-    ] = None,
+    ] = [],
+    environment: Annotated[FMBenchEnvType, typer.Option("--environment", "--env", help="Select bench environment type.")] = FMBenchEnvType.dev,
     developer_mode: Annotated[bool, typer.Option(help="Enable developer mode")] = True,
     frappe_branch: Annotated[str, typer.Option(help="Specify the branch name for frappe app", callback=frappe_branch_validation_callback)] = "version-15",
-    template: Annotated[bool, typer.Option(help="Create template site.")] = False,
-    admin_pass: Annotated[
-        str,
-        typer.Option(help="Default Password for the standard 'Administrator' User. This will be used as the password for the Administrator User for all new sites"),
-    ] = "admin",
-    ssl: Annotated[Optional[SUPPORTED_SSL_TYPES], typer.Option(help="Enable https",show_default=False)] = None,
-    alias_domains: Annotated[
-        Optional[List[str]],
-        typer.Option(
-            "--alias-domains", '-d', help="Specify alias domains", show_default=False
-        ),
-    ] = None,
+    template: Annotated[bool, typer.Option(help="Create template bench.")] = False,
+    admin_pass: Annotated[str, typer.Option(help="Default Password for the standard 'Administrator' User. This will be used as the password for the Administrator User for all new bench."),] = "admin",
+    ssl: Annotated[SUPPORTED_SSL_TYPES, typer.Option(help="Enable https",show_default=False)] = SUPPORTED_SSL_TYPES.none,
 ):
     # TODO Create markdown table for the below help
     """
-    Create a new site.
+    Create a new bench.
 
     Frappe\[version-15] will be installed by default.
 
@@ -215,170 +198,239 @@ def create(
     $ [blue]fm create example --frappe-branch version-14 --apps erpnext:version-14 --apps hrms:version-14[/blue]
     """
 
-    sites: SiteManager = ctx.obj['sites']
-
-    sites.init(sitename)
+    services_manager = ctx.obj["services"]
+    verbose = ctx.obj['verbose']
+    benches = BenchesManager(CLI_BENCHES_DIRECTORY, services=services_manager, verbose=verbose)
+    benches.set_typer_context(ctx)
 
     uid: int = os.getuid()
     gid: int = os.getgid()
 
-    environment = {
-        "frappe": {
-            "USERID": uid,
-            "USERGROUP": gid,
-            "APPS_LIST": ",".join(apps) if apps else None,
-            "FRAPPE_BRANCH": frappe_branch,
-            "DEVELOPER_MODE": developer_mode,
-            "ADMIN_PASS": admin_pass,
-            "DB_NAME": sites.site.name.replace(".", "-"),
-            "SITENAME": sites.site.name,
-            "MARIADB_HOST": "global-db",
-            "MARIADB_ROOT_PASS": "/run/secrets/db_root_password",
-            "CONTAINER_NAME_PREFIX": get_container_name_prefix(sites.site.name),
-            "ENVIRONMENT": "dev",
-        },
-        "nginx": {
-            "SITENAME": sites.site.name,
-            "VIRTUAL_HOST": sites.site.name,
-            "VIRTUAL_PORT": 80,
-        },
-        "worker": {
-            "USERID": uid,
-            "USERGROUP": gid,
-        },
-        "schedule": {
-            "USERID": uid,
-            "USERGROUP": gid,
-        },
-        "socketio": {
-            "USERID": uid,
-            "USERGROUP": gid,
-        },
-    }
+    bench_path = benches.root_path / benchname
 
-    users: dict = {"nginx": {"uid": uid, "gid": gid}}
+    bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
 
-    template_inputs: dict = {
-        "environment": environment,
-        # "extra_hosts": extra_hosts,
-        "user": users,
-    }
+    if ssl == SUPPORTED_SSL_TYPES.le:
+        richprint.stop()
+        email = Prompt.ask("Please enter [bold][green]email[/bold][/green] for Let\'s Encrypt")
+        validate_email(email,check_deliverability=False)
+        richprint.start('Working')
+        ssl_certificate = LetsencryptSSLCertificate(domain=benchname,ssl_type=ssl,email=email)
 
-    # if alias_domains:
-    #     sites.site.add_alias_domains(alias_domains)
+    elif ssl == SUPPORTED_SSL_TYPES.none:
+        ssl_certificate = SSLCertificate(domain=benchname,ssl_type=ssl)
 
-    # if ssl:
-    #     sites.site.create_certificate(ssl_type=ssl)
-    sites.create_site(template_inputs, template_site=template, ssl_type=ssl, alias_domains=alias_domains)
+    bench_config: BenchConfig = BenchConfig(
+        name=benchname,
+        userid=uid,
+        usergroup=gid,
+        apps_list=apps,
+        frappe_branch=frappe_branch,
+        developer_mode=developer_mode,
+        admin_pass=admin_pass,
+
+        # TODO get this info from services, maybe ?
+        mariadb_host='global-db',
+        mariadb_root_pass="/run/secrets/db_root_password",
+        environment_type= environment,
+        root_path = bench_config_path,
+        ssl = ssl_certificate,
+    )
+
+    compose_path = bench_path / 'docker-compose.yml'
+    bench_workers = BenchWorkers(benchname, bench_path)
+    compose_file_manager = ComposeFile(compose_path)
+    compose_project = ComposeProject(compose_file_manager,verbose)
+
+    bench: Bench = Bench(bench_path,benchname,bench_config,compose_project,bench_workers,services_manager)
+    benches.add_bench(bench)
+    benches.create_benches(is_template_bench=template)
 
 
 @app.command()
-def delete(ctx: typer.Context,sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None):
-    """Delete a site."""
+def delete(
+    ctx: typer.Context,
+    benchname: Annotated[Optional[str], typer.Argument(help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
+    force: Annotated[bool, typer.Option("--force", "-f", help="Force delete bench.")] = False,
+):
+    """Delete a bench."""
 
-    sites = ctx.obj['sites']
-    sites.init(sitename)
-    sites.remove_site()
+    if benchname:
+        services_manager = ctx.obj["services"]
+        verbose = ctx.obj['verbose']
+        benches = BenchesManager(CLI_BENCHES_DIRECTORY, services=services_manager, verbose=verbose)
+        benches.set_typer_context(ctx)
+
+        bench_path: Path = benches.root_path / benchname
+        bench_compose_path = bench_path / 'docker-compose.yml'
+        compose_file_manager = ComposeFile(bench_compose_path)
+        bench_compose_project = ComposeProject(compose_file_manager)
+        bench_workers = BenchWorkers(benchname,bench_path)
+
+        bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
+        # try using bench object if not then create bench
+
+        if not bench_config_path.exists():
+            uid: int = os.getuid()
+            gid: int = os.getgid()
+
+            # generate fake bench
+            fake_config = BenchConfig(
+                name=benchname,
+                userid=uid,
+                usergroup=gid,
+                apps_list=[],
+                frappe_branch=STABLE_APP_BRANCH_MAPPING_LIST['frappe'],
+                developer_mode=False,
+                admin_pass='pass',
+                mariadb_host='global-db',
+                mariadb_root_pass="/run/secrets/db_root_password",
+                environment_type= FMBenchEnvType.dev,
+                ssl=SSLCertificate(domain=benchname,ssl_type=SUPPORTED_SSL_TYPES.none),
+                root_path=bench_config_path
+            )
+            bench = Bench(bench_path,benchname,fake_config,bench_compose_project,bench_workers,services=services_manager,workers_check=False)
+
+        else:
+            bench = Bench.get_object(benchname,services_manager,workers_check=False)
+
+        benches.add_bench(bench)
+        benches.remove_benches()
+
 
 
 @app.command()
 def list(ctx: typer.Context):
-    """Lists all of the available sites."""
+    """Lists all of the available benches."""
 
-    sites = ctx.obj['sites']
-    sites.init()
-    sites.list_sites()
+    services_manager = ctx.obj["services"]
+    verbose = ctx.obj['verbose']
+    benches = BenchesManager(CLI_BENCHES_DIRECTORY, services=services_manager, verbose=verbose)
+    benches.set_typer_context(ctx)
+    benches.list_benches()
 
 
 @app.command()
 def start(
     ctx: typer.Context,
-    sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
-    force: Annotated[bool, typer.Option("--force", "-f", help="Force recreate site containers")] = False,
+    benchname: Annotated[Optional[str], typer.Argument(help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
+    force: Annotated[bool, typer.Option("--force", "-f", help="Force recreate bench containers")] = False,
 ):
-    """Start a site."""
+    """Start a bench."""
 
-    sites = ctx.obj['sites']
-    sites.init(sitename)
-    sites.start_site(force=force)
+    services_manager = ctx.obj["services"]
+    verbose = ctx.obj['verbose']
+    bench = Bench.get_object(benchname,services_manager)
+    bench.start(force=force)
+
 
 
 @app.command()
-def stop(ctx: typer.Context, sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None):
-    """Stop a site."""
+def stop(ctx: typer.Context, benchname: Annotated[Optional[str], typer.Argument(help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None):
+    """Stop a bench."""
 
-    sites = ctx.obj['sites']
-    sites.init(sitename)
-    sites.stop_site()
+    services_manager = ctx.obj["services"]
+    verbose = ctx.obj['verbose']
+    bench = Bench.get_object(benchname,services_manager)
+    benches = BenchesManager(CLI_BENCHES_DIRECTORY, services=services_manager, verbose=verbose)
+    benches.add_bench(bench)
+    benches.stop_benches()
 
 
 @app.command()
 def code(
     ctx: typer.Context,
-    sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
+    benchname: Annotated[Optional[str], typer.Argument(help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
     user: Annotated[str, typer.Option(help="Connect as this user.")] = "frappe",
     extensions: Annotated[
-        Optional[List[str]],
+        List[str],
         typer.Option(
             "--extension",
             "-e",
             help="List of extensions to install in vscode at startup.Provide extension id eg: ms-python.python",
             callback=code_command_extensions_callback,
+            show_default=False
         ),
     ] = DEFAULT_EXTENSIONS,
     force_start: Annotated[bool, typer.Option("--force-start", "-f", help="Force start the site before attaching to container.")] = False,
     debugger: Annotated[bool, typer.Option("--debugger", "-d", help="Sync vscode debugger configuration.")] = False,
     workdir: Annotated[str, typer.Option("--work-dir", "-w", help="Set working directory in vscode.")] = '/workspace/frappe-bench',
 ):
-    """Open site in vscode."""
+    """Open bench in vscode."""
 
-    sites = ctx.obj['sites']
-    sites.init(sitename)
+    services_manager = ctx.obj["services"]
+    verbose = ctx.obj['verbose']
+    bench = Bench.get_object(benchname,services_manager)
+
     if force_start:
-        sites.start_site()
-    sites.attach_to_site(user, extensions, workdir,debugger)
+        bench.start()
+
+    bench.attach_to_bench(user = user, extensions=extensions,workdir=workdir,debugger=debugger)
 
 
 @app.command()
 def logs(
     ctx: typer.Context,
-    sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
+    benchname: Annotated[Optional[str], typer.Argument(help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
     service: Annotated[Optional[SiteServicesEnum], typer.Option(help="Specify service name to show container logs.")] = None,
     follow: Annotated[bool, typer.Option("--follow", "-f", help="Follow logs.")] = False,
 ):
-    """Show frappe dev server logs or container logs for a given site."""
-    sites = ctx.obj['sites']
-    sites.init(sitename)
-    if service:
-        sites.logs(service=SiteServicesEnum(service).value, follow=follow)
-    else:
-        sites.logs(follow=follow)
+    """Show frappe dev server logs or container logs for a given bench."""
+    services_manager = ctx.obj["services"]
+    verbose = ctx.obj['verbose']
+    bench= Bench.get_object(benchname,services_manager)
+    bench.logs(follow,service)
 
 
 @app.command()
 def shell(
     ctx: typer.Context,
-    sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
+    benchname: Annotated[Optional[str], typer.Argument(help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
     user: Annotated[Optional[str], typer.Option(help="Connect as this user.")] = None,
-    service: Annotated[SiteServicesEnum, typer.Option(help="Specify Service")] = "frappe",
+    service: Annotated[SiteServicesEnum, typer.Option(help="Specify Service")] = SiteServicesEnum.frappe,
 ):
-    """Open shell for the give site."""
+    """Open shell for the give bench."""
 
-    sites = ctx.obj['sites']
-    sites.init(sitename)
-    if service:
-        sites.shell(service=SiteServicesEnum(service).value, user=user)
-    else:
-        sites.shell(user=user)
+    services_manager = ctx.obj["services"]
+    verbose = ctx.obj['verbose']
+    bench = Bench.get_object(benchname,services_manager)
+    bench.shell(SiteServicesEnum(service).value, user)
 
 
 @app.command()
 def info(
     ctx: typer.Context,
-    sitename: Annotated[Optional[str], typer.Argument(help="Name of the site.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
+    benchname: Annotated[Optional[str], typer.Argument(help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
 ):
-    """Shows information about given site."""
+    """Shows information about given bench."""
 
-    sites = ctx.obj['sites']
-    sites.init(sitename)
-    sites.info()
+    services_manager = ctx.obj["services"]
+    verbose = ctx.obj['verbose']
+    bench = Bench.get_object(benchname,services_manager)
+    bench.info()
+
+
+@app.command()
+def update(
+    ctx: typer.Context,
+    benchname: Annotated[Optional[str], typer.Argument(help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
+    ssl: Annotated[Optional[SUPPORTED_SSL_TYPES], typer.Option(help="Enable https",show_default=False)] = None
+):
+    """Shows information about given bench."""
+
+    services_manager = ctx.obj["services"]
+    bench = Bench.get_object(benchname,services_manager)
+
+    if ssl:
+        if ssl == SUPPORTED_SSL_TYPES.le:
+            richprint.stop()
+            email = Prompt.ask("Please enter [bold][green]email[/bold][/green] for Let\'s Encrypt")
+            validate_email(email,check_deliverability=False)
+            ssl_certificate = LetsencryptSSLCertificate(domain=benchname,ssl_type=ssl,email=email)
+            richprint.start('Working')
+            bench.bench_config.ssl = ssl_certificate
+            bench.create_certificate(bench.get_certificate_manager())
+            bench.save_bench_config()
+
+        elif ssl == SUPPORTED_SSL_TYPES.none:
+            bench.remove_certificate(bench.get_certificate_manager())

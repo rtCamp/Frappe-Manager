@@ -1,11 +1,8 @@
 import shutil
 from datetime import datetime
 from pathlib import Path
-import string
-
-from rich import inspect
 from frappe_manager import CLI_DIR
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 from frappe_manager.logger import log
 
@@ -15,7 +12,7 @@ random_strings = []
 class BackupData():
     src: Path
     dest: Path
-    site: Optional[str] = None
+    bench: Optional[str] = None
     allow_restore: bool = True
     _is_restored: bool = False
     prefix_timestamp = False
@@ -47,8 +44,8 @@ class BackupData():
 
         self.real_dest = self.dest.parent
 
-        if self.site:
-            self.real_dest = self.real_dest  / self.site
+        if self.bench:
+            self.real_dest = self.real_dest  / self.bench
 
         self.real_dest: Path = self.real_dest / file_name
 
@@ -69,7 +66,7 @@ class BackupManager():
         # create backup dir if not exists
         self.backup_dir.mkdir(parents=True,exist_ok=True)
 
-    def backup(self, src: Path, dest: Optional[Path] = None, site_name: Optional[str] = None, allow_restore: bool = True ):
+    def backup(self, src: Path, dest: Optional[Path] = None, bench_name: Optional[str] = None, allow_restore: bool = True ):
 
         if not src.exists():
             return None
@@ -79,11 +76,10 @@ class BackupManager():
 
         backup_data = BackupData(src, dest, allow_restore=allow_restore)
 
-        if site_name:
-            backup_data = BackupData(src, dest,site=site_name)
+        if bench_name:
+            backup_data = BackupData(src, dest,bench=bench_name)
             if not backup_data.real_dest.parent.exists():
                 backup_data.real_dest.parent.mkdir(parents=True,exist_ok=True)
-
 
         self.logger.debug(f"Backup: {backup_data.src} => {backup_data.real_dest} ")
 

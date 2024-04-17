@@ -1,4 +1,4 @@
-class MigrationExceptionInSite(Exception):
+class MigrationExceptionInBench(Exception):
     def __init__(
         self,
         error_msg: str,

@@ -1,7 +1,6 @@
 import json
 from typing import List
 from rich.text import Text
-from pathlib import Path
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.docker_wrapper.DockerClient import DockerClient
 from frappe_manager.docker_wrapper.DockerException import DockerException

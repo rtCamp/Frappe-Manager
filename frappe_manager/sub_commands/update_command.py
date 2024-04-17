@@ -17,9 +17,10 @@ def update_callback(
         ctx: typer.Context,
     ):
     if ctx.invoked_subcommand == None:
+        richprint.change_head("Checking for udpates")
         url = "https://pypi.org/pypi/frappe-manager/json"
         try:
-            update_info = requests.get(url, timeout=0.1)
+            update_info = requests.get(url, timeout=2)
             update_info = json.loads(update_info.text)
             fm_version = importlib.metadata.version("frappe-manager")
             latest_version = update_info["info"]["version"]
@@ -41,13 +42,15 @@ def update_callback(
 def images(
         ctx: typer.Context,
     ):
-    services = ctx.obj['services']
-    composefile = ComposeFile(loadfile=Path('docker-compose.yml'))
+    services_manager = ctx.obj["services"]
+    compose_file_manager = ComposeFile(loadfile=Path('docker-compose.yml'))
+
     images_list = []
     docker = DockerClient()
-    if composefile.is_template_loaded:
-        images = composefile.get_all_images()
-        images.update(services.composefile.get_all_images())
+
+    if compose_file_manager.is_template_loaded:
+        images = compose_file_manager.get_all_images()
+        images.update(services_manager.compose_project.compose_file_manager.get_all_images())
 
         for service ,image_info in images.items():
             image = f"{image_info['name']}:{image_info['tag']}"
