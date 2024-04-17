@@ -6,6 +6,7 @@ from pathlib import Path
 from frappe_manager.docker_wrapper.DockerCompose import DockerComposeWrapper
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.utils.docker import (
+    SubprocessOutput,
     is_current_user_in_group,
     parameters_to_options,
     run_command_with_exit_code,
@@ -49,18 +50,9 @@ class DockerClient:
 
         ver_cmd += parameters_to_options(parameters)
 
-        iterator = run_command_with_exit_code(self.docker_cmd + ver_cmd, quiet=False)
-
-        output: dict = {}
-
-        try:
-            for source, line in iterator:
-                if source == "stdout":
-                    output = json.loads(line.decode())
-        except Exception as e:
-            return {}
-
-        return output
+        output: SubprocessOutput = run_command_with_exit_code(self.docker_cmd + ver_cmd, stream=False)
+        version: dict = json.loads(" ".join(output.stdout))
+        return version
 
     def server_running(self) -> bool:
         """
@@ -82,20 +74,17 @@ class DockerClient:
         self,
         source: str,
         destination: str,
-        source_container: str = None,
-        destination_container: str = None,
+        source_container: Optional[str] = None,
+        destination_container: Optional[str] = None,
         archive: bool = False,
         follow_link: bool = False,
-        quiet: bool = False,
         stream: bool = False,
-        stream_only_exit_code: bool = False,
     ):
         parameters: dict = locals()
         cp_cmd: list = ["cp"]
 
         remove_parameters = [
             "stream",
-            "stream_only_exit_code",
             "source",
             "destination",
             "source_container",
@@ -114,7 +103,8 @@ class DockerClient:
         cp_cmd += [f"{destination}"]
 
         iterator = run_command_with_exit_code(
-            self.docker_cmd + cp_cmd, quiet=stream_only_exit_code, stream=stream
+            self.docker_cmd + cp_cmd,
+            stream=stream
         )
         return iterator
 
@@ -123,18 +113,18 @@ class DockerClient:
         container: str,
         signal: Optional[str] = None,
         stream: bool = False,
-        stream_only_exit_code: bool = False,
     ):
         parameters: dict = locals()
         kill_cmd: list = ["kill"]
 
-        remove_parameters = ["stream", "stream_only_exit_code", "container"]
+        remove_parameters = ["stream", "container"]
 
         kill_cmd += parameters_to_options(parameters, exclude=remove_parameters)
         kill_cmd += [f"{container}"]
 
         iterator = run_command_with_exit_code(
-            self.docker_cmd + kill_cmd, quiet=stream_only_exit_code, stream=stream
+            self.docker_cmd + kill_cmd,
+            stream=stream
         )
         return iterator
 
@@ -145,18 +135,18 @@ class DockerClient:
         link: bool = False,
         volumes: bool = False,
         stream: bool = False,
-        stream_only_exit_code: bool = False,
     ):
         parameters: dict = locals()
         rm_cmd: list = ["rm"]
 
-        remove_parameters = ["stream", "stream_only_exit_code", "container"]
+        remove_parameters = ["stream", "container"]
 
         rm_cmd += parameters_to_options(parameters, exclude=remove_parameters)
         rm_cmd += [f"{container}"]
 
         iterator = run_command_with_exit_code(
-            self.docker_cmd + rm_cmd, quiet=stream_only_exit_code, stream=stream
+            self.docker_cmd + rm_cmd,
+            stream=stream
         )
         return iterator
 
@@ -172,12 +162,11 @@ class DockerClient:
         pull: Literal["missing", "never", "always"] = "missing",
         use_shlex_split: bool = True,
         stream: bool = False,
-        stream_only_exit_code: bool = False,
     ):
         parameters: dict = locals()
         run_cmd: list = ["run"]
 
-        remove_parameters = ["stream", "stream_only_exit_code", "command", "image","use_shlex_split","env"]
+        remove_parameters = ["stream", "command", "image","use_shlex_split","env"]
 
         run_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
@@ -194,7 +183,8 @@ class DockerClient:
                 run_cmd += [command]
 
         iterator = run_command_with_exit_code(
-            self.docker_cmd + run_cmd, quiet=stream_only_exit_code, stream=stream
+            self.docker_cmd + run_cmd,
+            stream=stream
         )
         return iterator
 
@@ -203,22 +193,19 @@ class DockerClient:
         container_name: str,
         all_tags: bool = False,
         platform: Optional[str] = None,
-        quiet: bool = False,
         stream: bool = False,
-        stream_only_exit_code: bool = False,
     ):
         parameters: dict = locals()
 
         pull_cmd: list[str] = ["pull"]
 
-        remove_parameters = ["stream", "stream_only_exit_code","container_name"]
+        remove_parameters = ["stream","container_name"]
 
         pull_cmd += parameters_to_options(parameters, exclude=remove_parameters)
         pull_cmd += [container_name]
 
         iterator = run_command_with_exit_code(
             self.docker_cmd + pull_cmd,
-            quiet=stream_only_exit_code,
             stream=stream,
         )
         return iterator
