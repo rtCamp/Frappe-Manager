@@ -5,7 +5,6 @@ from rich.spinner import Spinner
 from rich.live import Live
 from rich.text import Text
 from rich.padding import Padding
-from typer import Exit
 from rich.table import Table
 
 import typer
@@ -162,11 +161,9 @@ class DisplayManager:
         stdout: bool = True,
         stderr: bool = True,
         lines: int = 4,
-        padding: tuple = (0, 0, 0, 0),
+        padding: tuple = (0, 0, 0, 2),
         stop_string: Optional[str] = None,
         log_prefix: str = "=>",
-        return_exit_code: bool = False,
-        exit_on_failure: bool = False,
     ):
         """
         Display live lines from the given data source.
@@ -180,7 +177,6 @@ class DisplayManager:
             stop_string: A string that, if found in a line, will stop the display and return 0. Default is None.
             log_prefix: The prefix to add to each displayed line. Default is "=>".
             return_exit_code: Whether to return the exit code when stop_string is found. Default is False.
-            exit_on_failure: Whether to exit the program when stop_string is found. Default is False.
         """
         max_height = lines
         displayed_lines = deque(maxlen=max_height)
@@ -189,6 +185,7 @@ class DisplayManager:
             try:
                 source, line = next(data)
                 line = line.decode()
+                # print(' --',line)
 
                 if "[==".lower() in line.lower() or 'Updating files:'.lower() in line.lower():
                     continue
@@ -200,18 +197,21 @@ class DisplayManager:
                     displayed_lines.append(line)
 
                 if stop_string and stop_string.lower() in line.lower():
-                    return 0
+                    raise StopIteration
 
                 table = Table(show_header=False, box=None)
                 table.add_column()
 
                 for linex in list(displayed_lines):
-                    table.add_row(Text(f"{log_prefix}=> {linex.strip()}", style="grey"))
+                    prefix_text = Text(log_prefix + ' ',no_wrap=True)
+                    table_line = Text.from_ansi(linex)
+                    prefix_text.append_text(table_line)
+                    table.add_row(prefix_text)
 
                 self.update_live(table, padding=padding)
                 self.live.refresh()
 
-            except KeyboardInterrupt as e:
+            except KeyboardInterrupt:
                 richprint.live.refresh()
 
             except StopIteration:
