@@ -9,14 +9,24 @@ class DockerVolumeType(str, Enum):
     bind = 'bind'
 
 class DockerVolumeMount:
-    def __init__(self, host: Union[str,Path], container: str, type: str):
+    def __init__(self, host: Union[str,Path], container: str, type: str, compose_path: Path):
         self.host = host
         self.type = type
         self.container = Path(container)
+        self.compose_path = compose_path
 
         if type == DockerVolumeType.bind:
 
             self.host = Path(self.host)
             # only join ./ paths
             if str(host).startswith('./'):
-               self.host = CLI_SERVICES_DIRECTORY.joinpath(host)
+               self.host = compose_path.parent.joinpath(host)
+
+    def __str__(self):
+        source = Path(self.host) if not isinstance(self.host, Path) else self.host
+
+        if self.type == 'bind':
+            source = str(self.host).replace(str(self.compose_path.parent), '.')
+
+        dest  = str(self.container)
+        return f'{source}:{dest}'

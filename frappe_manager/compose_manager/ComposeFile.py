@@ -1,16 +1,12 @@
 from pathlib import Path
-from rich import inspect
 from ruamel.yaml import YAML
-import platform
-from ruamel.yaml.comments import (
-    CommentedMap as OrderedDict,
-    CommentedSeq as OrderedList,
-)
-from frappe_manager.compose_manager.compose_file_exceptions import ComposeFileException, ComposeServiceNotFound
+from ruamel.yaml.comments import (CommentedMap as OrderedDict, CommentedSeq as OrderedList)
+from typing import Any, List
+from frappe_manager.compose_manager import DockerVolumeMount
+from frappe_manager.compose_manager.compose_file_exceptions import ComposeSecretNotFoundError, ComposeServiceNotFound
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.utils.site import parse_docker_volume
-from frappe_manager.utils.helpers import represent_null_empty
-import importlib.resources as pkg_resources
+from frappe_manager.utils.helpers import get_template_path, represent_null_empty
 from frappe_manager.migration_manager.version import Version
 
 yaml = YAML(typ="rt")
@@ -22,23 +18,21 @@ yaml.default_style = None
 
 
 class ComposeFile:
+    yml: dict [Any, Any]
+
     def __init__(self, loadfile: Path, template_name: str = "docker-compose.tmpl"):
         self.compose_path: Path = loadfile
         self.template_name = template_name
         self.is_template_loaded = False
-        self.yml = None
-        self.init()
 
-    def init(self):
-        """
-        Initializes the ComposeFile object.
-        """
+        # check for if the docker-compose.yml file is present if not then use template provided
         if self.exists():
             with open(self.compose_path, "r") as f:
                 self.yml = yaml.load(f)
         else:
             self.yml = self.load_template()
             self.is_template_loaded = True
+
 
     def exists(self):
         """
@@ -55,26 +49,6 @@ class ComposeFile:
         """
         return self.compose_path
 
-    def get_template(self, file_name: str):
-        """
-        Get the file path of a template.
-
-        Args:
-            file_name (str): The name of the template file.
-            template_directory (str, optional): The directory where the templates are located. Defaults to "templates".
-
-        Returns:
-            Optional[str]: The file path of the template, or None if the template is not found.
-        """
-
-        try:
-            template_path = f"templates/{file_name}"
-            return Path(
-                str(pkg_resources.files("frappe_manager").joinpath(template_path))
-            )
-        except FileNotFoundError as e:
-            richprint.error(f"{file_name} template not found.",e)
-
     def load_template(self):
         """
         Load the template file and return its contents as a YAML object.
@@ -82,11 +56,10 @@ class ComposeFile:
         Returns:
             dict: The contents of the template file as a YAML object.
         """
-        template_path = self.get_template(self.template_name)
-        if template_path:
-            with open(template_path, "r") as f:
-                yml = yaml.load(f)
-                return yml
+        template_path: Path = get_template_path(self.template_name)
+        with open(template_path, "r") as f:
+            yml  = yaml.load(f)
+            return yml
 
     def set_container_names(self, prefix):
         """
@@ -490,32 +463,22 @@ class ComposeFile:
         return volumes
 
 
-    def get_all_services_volumes(self):
+    def get_all_services_volumes(self) -> List[DockerVolumeMount]:
         """
         Get all the volume mounts.
         """
-        volumes_set = set()
+        volumes_list: List[DockerVolumeMount] = []
 
         services = self.get_services_list()
-
         for service in services:
-            try:
-                volumes_list = self.yml["services"][service]["volumes"]
-                for volume in volumes_list:
-                    volumes_set.add(volume)
-            except KeyError as e:
-                continue
-
-        volumes_list = []
-
-        for volume in volumes_set:
-            volumes_list.append((parse_docker_volume(volume,self.get_all_volumes())))
+            volumes = self.get_service_volumes(service)
+            volumes_list += volumes
 
         return volumes_list
 
-    def get_service_volumes(self, service: str):
+    def get_service_volumes(self, service: str) -> List[DockerVolumeMount]:
         """
-        Get all the volume mounts.
+        Get specific service volume mounts.
         """
         volumes_set = set()
 
@@ -529,9 +492,22 @@ class ComposeFile:
         volumes_list = []
 
         for volume in volumes_set:
-            volumes_list.append((parse_docker_volume(volume,self.get_all_volumes())))
+            volumes_list.append((parse_docker_volume(volume,self.get_all_volumes(),self.compose_path)))
 
         return volumes_list
+
+    def set_service_volumes(self, service: str, volumes: List[DockerVolumeMount]) -> None:
+        """
+        Set specific service volume mounts.
+        """
+        try:
+            # Convert DockerVolumeMount objects to strings
+            volumes_list = [str(volume) for volume in volumes]
+
+            # Set the volumes for the service
+            self.yml["services"][service]["volumes"] = volumes_list
+        except KeyError as e:
+            raise ComposeServiceNotFound(service_name=service)
 
     def set_secret_file_path(self, secret_name, file_path):
         try:
@@ -539,12 +515,12 @@ class ComposeFile:
         except KeyError:
             richprint.warning("Not able to set secrets in compose.")
 
-    def get_secret_file_path(self, secret_name):
+    def get_secret_file_path(self, secret_name) -> Path:
         try:
             file_path = self.yml["secrets"][secret_name]["file"]
-            return file_path
+            return Path(file_path)
         except KeyError:
-            richprint.warning("Not able to set secrets in compose.")
+            raise ComposeSecretNotFoundError(secret_name,str(self.compose_path.absolute()))
 
     def remove_secrets_from_container(self, container):
         try:
