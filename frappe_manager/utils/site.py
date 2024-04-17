@@ -1,10 +1,11 @@
 from rich.table import Table
 from pathlib import Path
 import re
+import json
 
 from frappe_manager.compose_manager import DockerVolumeMount, DockerVolumeType
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.site_manager.site_exceptions import SiteException
+from frappe_manager.site_manager.site_exceptions import BenchException
 
 def generate_services_table(services_status: dict):
     # running site services status
@@ -61,7 +62,7 @@ def create_service_element(service, running_status):
     )
     return service_table
 
-def parse_docker_volume(volume_string: str, root_volumes:dict):
+def parse_docker_volume(volume_string: str, root_volumes:dict, compose_path: Path):
 
     string_parts = volume_string.split(':')
 
@@ -83,7 +84,7 @@ def parse_docker_volume(volume_string: str, root_volumes:dict):
         if not is_bind_mount:
             volume_type = DockerVolumeType.volume
 
-        docker_volume = DockerVolumeMount(src,dest,volume_type)
+        docker_volume = DockerVolumeMount(src,dest,volume_type, compose_path)
 
         return docker_volume
 
@@ -118,7 +119,6 @@ def is_wildcard_fqdn(hostname: str) -> bool:
     https://en.m.wikipedia.org/wiki/Fully_qualified_domain_name
     """
     if not 1 < len(hostname) < 253:
-        print(hostname)
         return False
 
     # Remove trailing dot
@@ -149,9 +149,28 @@ def domain_level(domain):
     # Return the number of parts minus 1 (excluding the TLD)
     return len(parts) - 1
 
-def validate_sitename(sitename: str) -> bool:
+def validate_sitename(sitename: str) -> str:
     match = is_fqdn(sitename)
-    if not match:
-        richprint.error(f"The {sitename} must follow Fully Qualified Domain Name (FQDN) format.", exception=SiteException(sitename,f"Valid FQDN site name not provided."))
 
-    return True
+    if domain_level(sitename) == 0:
+        sitename = sitename + ".localhost"
+
+    if not match:
+        richprint.error(f"The {sitename} must follow Fully Qualified Domain Name (FQDN) format.", exception=BenchException(sitename,f"Valid FQDN site name not provided."))
+
+    return sitename
+
+def get_bench_db_connection_info(bench_name: str, bench_path: Path):
+    db_info = {}
+    site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / bench_name / "site_config.json"
+    if site_config_file.exists():
+        with open(site_config_file, "r") as f:
+            site_config = json.load(f)
+            db_info["name"] = site_config["db_name"]
+            db_info["user"] = site_config["db_name"]
+            db_info["password"] = site_config["db_password"]
+    else:
+        db_info["name"] = str(bench_name).replace(".", "-")
+        db_info["user"] = str(bench_name).replace(".", "-")
+        db_info["password"] = None
+    return db_info

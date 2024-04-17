@@ -1,25 +1,43 @@
 import os
-import shlex
-import shutil
-import signal
-import subprocess
-import sys
-
-from datetime import datetime, timedelta
-from importlib.metadata import version
 from pathlib import Path
 from queue import Queue
 from subprocess import PIPE, Popen, run
 from threading import Thread
-from rich import control
-
-from typing import Any, Dict, Iterable, List, Optional, Tuple, Union, overload
-
+from dataclasses import dataclass
+from typing import Dict, Iterable, List, Tuple, Union, Optional
 from frappe_manager.logger import log
 from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.display_manager.DisplayManager import richprint
 
 process_opened = []
+
+@dataclass
+class SubprocessOutput:
+    stdout: List[str]
+    stderr: List[str]
+    combined: List[str]
+    exit_code: int
+
+    @classmethod
+    def from_output(cls, output):
+        stdout = []
+        stderr = []
+        combined = []
+        exit_code = 0
+
+        for source, line in output:
+            line = line.decode()
+            if source == 'exit_code':
+                exit_code = int(line)
+            else:
+                combined.append(line)
+            if source == 'stdout':
+                stdout.append(line)
+            if source == 'stderr':
+                stderr.append(line)
+
+        data = {'stdout' : stdout,'stderr' : stderr, 'combined' : combined, 'exit_code' : exit_code}
+        return cls(**data)
 
 def reader(pipe, pipe_name, queue):
     """
@@ -39,8 +57,6 @@ def reader(pipe, pipe_name, queue):
                 queue.put((pipe_name, str(queue_line).encode()))
     finally:
         queue.put(None)
-
-
 
 def stream_stdout_and_stderr(
     full_cmd: list,
@@ -103,10 +119,10 @@ def stream_stdout_and_stderr(
 
 def run_command_with_exit_code(
     full_cmd: list,
-    env: Dict[str, str] = None,
     stream: bool = True,
-    quiet: bool = False
-):
+    capture_output: bool = True,
+    env: Optional[Dict[str, str]] = None,
+) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
     """
     Run a command and return the exit code.
 
@@ -114,25 +130,20 @@ def run_command_with_exit_code(
         full_cmd (list): The command to be executed as a list of strings.
         env (Dict[str, str], optional): Environment variables to be set for the command. Defaults to None.
         stream (bool, optional): Flag indicating whether to stream the command output. Defaults to True.
-        quiet (bool, optional): Flag indicating whether to suppress the command output. Defaults to False.
-
-    Raises:
-        DockerException: If the command execution returns a non-zero exit code.
     """
-    if stream:
-        if quiet:
-            for source ,line in stream_stdout_and_stderr(full_cmd):
-                if source == 'exit_code':
-                    exit_code: int = int(line.decode())
-                    return(exit_code)
-        else:
-            return stream_stdout_and_stderr(full_cmd)
-    else:
-        from frappe_manager.display_manager.DisplayManager import richprint
-        output = run(full_cmd)
-        exit_code = output.returncode
-        if exit_code != 0:
-            raise DockerException(full_cmd,exit_code)
+    if not stream:
+        if not capture_output:
+            run_output = run(full_cmd)
+            exit_code = run_output.returncode
+            if exit_code != 0:
+                raise DockerException(full_cmd,exit_code)
+            return
+
+        stream_output: SubprocessOutput = SubprocessOutput.from_output(stream_stdout_and_stderr(full_cmd))
+        return stream_output
+
+    output: Iterable[Tuple[str,bytes]] = stream_stdout_and_stderr(full_cmd)
+    return output
 
 def parameter_to_option(param: str) -> str:
     """Converts a parameter to an option.

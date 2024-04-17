@@ -1,4 +1,8 @@
 import importlib
+from cryptography.hazmat.backends import default_backend
+from datetime import datetime
+from cryptography import x509
+from io import StringIO
 import sys
 from typing import Optional
 import requests
@@ -8,13 +12,15 @@ import platform
 import time
 import secrets
 import grp
-
 from pathlib import Path
+import importlib.resources as pkg_resources
+from rich.console import Console
+from rich.traceback import Traceback
 from frappe_manager.utils.site import is_fqdn
 from frappe_manager.logger import log
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager import PREBAKED_SITE_APPS
-from frappe_manager import CLI_SITES_DIRECTORY
+from frappe_manager import CLI_BENCHES_DIRECTORY
 
 
 def remove_zombie_subprocess_process(process):
@@ -328,7 +334,7 @@ def install_package(package_name, version):
 
 def get_sitename_from_current_path() -> Optional[str]:
     current_path = Path().absolute()
-    sites_path = CLI_SITES_DIRECTORY.absolute()
+    sites_path = CLI_BENCHES_DIRECTORY.absolute()
 
     if not current_path.is_relative_to(sites_path):
         return None
@@ -376,3 +382,106 @@ def create_class_from_dict(class_name, attributes_dict):
     # and the third argument is a dictionary of attributes and their values.
 
     return type(class_name, (object,), attributes_dict)
+
+def create_symlink(source: Path, dest: Path):
+    """
+    Create a symbolic link pointing from dest to source.
+
+    Parameters:
+    - source (str): The source path that the symlink will point to.
+    - dest (str): The destination path where the symlink will be created.
+
+    Note: The function will overwrite the destination if a symlink already exists there.
+    """
+
+    # Convert the source and destination to Path objects
+
+    # Remove the destination symlink/file/directory if it already exists
+    if dest.exists() or dest.is_symlink():
+        dest.unlink()
+
+    # Create a symlink at the destination pointing to the source
+    dest.symlink_to(source)
+
+def change_parent(a, b, target_subpath):
+    # Convert paths to Path objects if they are not already
+    a = Path(a) if not isinstance(a, Path) else a
+    b = Path(b) if not isinstance(b, Path) else b
+
+    # Find the target subpath in both paths
+    a_target_index = next(i for i, part in enumerate(a.parts) if part + '/' + a.parts[i + 1] == target_subpath)
+    b_target_index = next(i for i, part in enumerate(b.parts) if part + '/' + b.parts[i + 1] == target_subpath)
+
+    # Reconstruct path a with the parent from path b
+    new_a = b.parents[len(b.parts) - b_target_index - 2].joinpath(*a.parts[a_target_index + 2:])
+    return new_a
+
+def get_template_path(file_name: str) -> Path:
+    """
+    Get the file path of a template.
+
+    Args:
+        file_name (str): The name of the template file.
+        template_directory (str, optional): The directory where the templates are located. Defaults to "templates".
+
+    Returns:
+        Optional[str]: The file path of the template, or None if the template is not found.
+    """
+    template_path: str = f"templates/{file_name}"
+    return get_frappe_manager_own_files(template_path)
+
+def get_frappe_manager_own_files(file_path: str):
+    return Path(str(pkg_resources.files("frappe_manager").joinpath(file_path)))
+
+def rich_traceback_to_string(traceback: Traceback) -> str:
+    """Convert a rich Traceback object to a string."""
+
+    # Initialize a 'fake' console with StringIO to capture output
+    capture_buffer = StringIO()
+
+    fake_console = Console(force_terminal=False, file=capture_buffer)
+    fake_console.print(traceback, crop=False,overflow='ignore')
+
+    captured_str = capture_buffer.getvalue()  # Retrieve the captured output as a string
+    capture_buffer.close()
+    return captured_str
+
+def capture_and_format_exception() -> str:
+    """Capture the current exception and return a formatted traceback string."""
+
+    exc_type, exc_value, exc_traceback = sys.exc_info()  # Capture current exception info
+    # Create a Traceback object with rich formatting
+    #
+    traceback = Traceback.from_exception(exc_type, exc_value, exc_traceback, show_locals=True)
+
+    # Convert the Traceback object to a formatted string
+    formatted_traceback = rich_traceback_to_string(traceback)
+
+    return formatted_traceback
+
+def pluralise(singular, count):
+    return '{} {}{}'.format(count, singular, '' if count == 1 else 's')
+
+def format_time_remaining(time_remaining):
+    day_count = time_remaining.days
+
+    seconds_per_minute = 60
+    seconds_per_hour = seconds_per_minute * 60
+    seconds_unaccounted_for = time_remaining.seconds
+
+    hours = int(seconds_unaccounted_for / seconds_per_hour)
+    seconds_unaccounted_for -= hours * seconds_per_hour
+
+    minutes = int(seconds_unaccounted_for / seconds_per_minute)
+
+    return '{} {} {}'.format(
+        pluralise('day', day_count),
+        pluralise('hour', hours),
+        pluralise('min', minutes)
+    )
+
+def get_certificate_expiry_date(fullchain_path: Path) -> datetime:
+    cert_content = fullchain_path.read_bytes()
+    cert = x509.load_pem_x509_certificate(cert_content, default_backend())
+    expiry_date:datetime = cert.not_valid_after_utc
+    return expiry_date
