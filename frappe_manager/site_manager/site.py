@@ -1,3 +1,4 @@
+import copy
 import time
 import itertools
 from datetime import datetime
@@ -21,6 +22,7 @@ from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.site_manager.site_exceptions import (
     BenchAttachTocontainerFailed,
     BenchException,
+    BenchNotRunning,
     BenchRemoveDirectoryError,
     BenchSSLCertificateAlreadyIssued,
     BenchSSLCertificateNotIssued,
@@ -855,7 +857,7 @@ class Bench:
         """
 
         if not self.compose_project.running:
-            richprint.exit(f"Bench: {self.name} is not running")
+            raise BenchNotRunning(self.name)
 
         # check if vscode is installed
         vscode_path = shutil.which("code")
@@ -875,36 +877,33 @@ class Bench:
 
         extensions.sort()
 
-        vscode_config_json = [
+        vscode_config_without_extension = [
             {
                 "remoteUser": user,
                 "remoteEnv": {"SHELL": "/bin/zsh"},
                 "customizations": {
                     "vscode": {
                         "settings": VSCODE_SETTINGS_JSON,
-                        "extensions": extensions,
                     }
                 },
             }
         ]
 
-        labels = {"devcontainer.metadata": json.dumps(vscode_config_json)}
+        vscode_config_json = copy.deepcopy(vscode_config_without_extension)
+        vscode_config_json[0]['customizations']['vscode']["extensions"] = extensions
 
-        labels_previous = self.compose_project.compose_file_manager.get_labels("frappe")
+        labels = {'devcontainer.metadata': json.dumps(vscode_config_json)}
 
-        # check if the extension are the same if they are different then only update
-        # check if customizations key available
         try:
-            extensions_previous = json.loads(labels_previous["devcontainer.metadata"])
-            extensions_previous = extensions_previous[0]["customizations"]["vscode"]["extensions"]
+            labels_previous = self.compose_project.compose_file_manager.get_labels("frappe")[0]
+            labels_previous = json.loads(labels_previous["devcontainer.metadata"])
+            extensions_previous = copy.deepcopy(labels_previous["customizations"]["vscode"]["extensions"])
 
         except KeyError:
             extensions_previous = []
 
-        extensions_previous.sort()
-
-        if not extensions_previous == extensions:
-            richprint.change_head(f"Extensions are changed, regenerating label in bench compose")
+        if not extensions_previous == extensions or not user == user:
+            richprint.change_head(f"Configuration changed, regenerating label in bench compose")
             self.compose_project.compose_file_manager.set_labels("frappe", labels)
             self.compose_project.compose_file_manager.write_to_file()
             richprint.print(f"Regenerated bench compose.")
