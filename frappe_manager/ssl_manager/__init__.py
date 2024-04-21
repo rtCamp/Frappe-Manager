@@ -1,5 +1,6 @@
 from enum import Enum
 
+
 class SUPPORTED_SSL_TYPES(str, Enum):
-    le   = 'letsencrypt'
-    none = 'none'
+    le = 'letsencrypt'
+    none = 'disable'

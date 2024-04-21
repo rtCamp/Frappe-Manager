@@ -727,6 +727,51 @@ class Bench:
         except DockerException as e:
             richprint.warning(f"Shell exited with error code: {e.return_code}")
 
+    def get_log_file_paths(self):
+        base_log_dir = self.path / "workspace" / "frappe-bench" / "logs"
+        if self.bench_config.environment_type == FMBenchEnvType.dev:
+            bench_dev_server_log_path = base_log_dir / "web.dev.log"
+            return [bench_dev_server_log_path]
+        else:
+            bench_prod_server_log_path_stdout = base_log_dir / "web.log"
+            bench_prod_server_log_path_stderr = base_log_dir / "web.error.log"
+            return [bench_prod_server_log_path_stderr, bench_prod_server_log_path_stdout]
+
+    def handle_frappe_server_file_logs(self, follow: bool):
+        log_generators = []
+
+        try:
+            # Get log file paths
+            log_file_paths = self.get_log_file_paths()
+
+            # Check how many log files are available
+            num_log_files = len(log_file_paths)
+
+            if num_log_files == 0:
+                richprint.print("[yellow]No log files found.[/yellow]")
+                return
+
+            # Open log files and create generators
+            for path in log_file_paths:
+                log_generators.append(log_file(open(path, 'r'), follow=follow))
+
+            if follow:
+                while True:
+                    try:
+                        for line in itertools.chain.from_iterable(log_generators):
+                            print(line.strip())
+                    except StopIteration:
+                        time.sleep(0.1)
+            else:
+                for lines in itertools.zip_longest(*log_generators, fillvalue=""):
+                    for line in lines:
+                        if line:
+                            print(line.strip())
+
+        finally:
+            for logfile in log_generators:
+                logfile.close()
+
     def logs(self, follow: bool, service: Optional[SiteServicesEnum] = None):
         """
         Display logs for the site or a specific service.
@@ -909,17 +954,21 @@ class Bench:
         richprint.start("Removing bench")
 
         try:
-            cert_manager = self.get_certificate_manager()
-            self.remove_certificate(cert_manager, save_bench_config=False)
+            self.remove_certificate()
         except Exception as e:
             # self.logger.exception(e)
             richprint.warning(str(e))
 
         self.remove_database_and_user()
-        self.remove()
-
-        richprint.start('Working')
+        self.remove_containers_and_dirs()
         return True
+
+    def ensure_workers_running_if_available(self):
+        if self.workers.compose_project.compose_file_manager.exists():
+            if not self.workers.compose_project.running:
+                if self.compose_project.running:
+                    self.workers.compose_project.start_service()
+
     def ensure_admin_tools_running_if_available(self):
         if self.admin_tools.compose_project.compose_file_manager.exists():
             if self.bench_config.admin_tools:

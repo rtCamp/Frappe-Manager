@@ -1,29 +1,19 @@
 from pathlib import Path
-from typing import runtime_checkable, Protocol, TYPE_CHECKING
+from typing import Tuple, runtime_checkable, Protocol, TYPE_CHECKING
+
 if TYPE_CHECKING:
-    from frappe_manager.ssl_manager.certificate import RenewableSSLCertificate
     from frappe_manager.ssl_manager.certificate import SSLCertificate
+
 
 @runtime_checkable
 class SSLCertificateService(Protocol):
     root_dir: Path
 
-    def is_certificate_exists(self, certificate: 'SSLCertificate') -> 'RenewableSSLCertificate':
+    def renew_certificate(self, certificate: 'SSLCertificate') -> bool:
         ...
 
-    def reload_proxy(self):
+    def remove_certificate(self, certificate: 'SSLCertificate') -> bool:
         ...
 
-    def needs_renewal(self, certificate: 'RenewableSSLCertificate') -> bool:
+    def generate_certificate(self, certificate: 'SSLCertificate') -> Tuple[Path, Path]:
         ...
-
-    def renew_certificate(self, certificate: 'RenewableSSLCertificate') -> bool:
-        ...
-
-    def remove_certificate(self, certificate: 'RenewableSSLCertificate') -> bool:
-        ...
-
-    def generate_certificate(self, certificate: 'SSLCertificate') -> 'RenewableSSLCertificate':
-        ...
-
-
