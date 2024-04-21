@@ -439,44 +439,105 @@ def shell(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname,services_manager)
+    bench = Bench.get_object(benchname, services_manager)
     bench.shell(SiteServicesEnum(service).value, user)
 
 
 @app.command()
 def info(
     ctx: typer.Context,
-    benchname: Annotated[Optional[str], typer.Argument(help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
+    benchname: Annotated[
+        Optional[str],
+        typer.Argument(
+            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
+        ),
+    ] = None,
 ):
     """Shows information about given bench."""
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname,services_manager)
+    bench = Bench.get_object(benchname, services_manager)
     bench.info()
 
 
 @app.command()
 def update(
     ctx: typer.Context,
-    benchname: Annotated[Optional[str], typer.Argument(help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback)] = None,
-    ssl: Annotated[Optional[SUPPORTED_SSL_TYPES], typer.Option(help="Enable https",show_default=False)] = None
+    benchname: Annotated[
+        Optional[str],
+        typer.Argument(
+            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
+        ),
+    ] = None,
+    ssl: Annotated[Optional[SUPPORTED_SSL_TYPES], typer.Option(help="Enable https", show_default=False)] = None,
+    admin_tools: Annotated[
+        Optional[AdminToolOptionEnum], typer.Option("--admin-tools", help="Enable https", show_default=False)
+    ] = None,
 ):
-    """Shows information about given bench."""
+    """Update bench."""
 
     services_manager = ctx.obj["services"]
-    bench = Bench.get_object(benchname,services_manager)
+    bench = Bench.get_object(benchname, services_manager)
+    fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
 
     if ssl:
-        if ssl == SUPPORTED_SSL_TYPES.le:
-            richprint.stop()
-            email = Prompt.ask("Please enter [bold][green]email[/bold][/green] for Let\'s Encrypt")
-            validate_email(email,check_deliverability=False)
-            ssl_certificate = LetsencryptSSLCertificate(domain=benchname,ssl_type=ssl,email=email)
-            richprint.start('Working')
-            bench.bench_config.ssl = ssl_certificate
-            bench.create_certificate(bench.get_certificate_manager())
-            bench.save_bench_config()
+        new_ssl_certificate = SSLCertificate(domain=benchname, ssl_type=SUPPORTED_SSL_TYPES.none)
 
-        elif ssl == SUPPORTED_SSL_TYPES.none:
-            bench.remove_certificate(bench.get_certificate_manager())
+        if ssl == SUPPORTED_SSL_TYPES.le:
+            if fm_config_manager.le_email == 'dummy@fm.fm':
+                email = richprint.prompt_ask(prompt='Please enter [bold][green]email[/bold][/green] for Let\'s Encrypt')
+                validate_email(email, check_deliverability=False)
+                fm_config_manager.le_email = email
+                fm_config_manager.export_to_toml()
+                richprint.print(
+                    "Let's Encrypt email saved to configuration. It will be used automatically from now on."
+                )
+            else:
+                richprint.print("Using Let's Encrypt email from configuration.")
+                email = fm_config_manager.le_email
+                fm_config_manager.export_to_toml()
+
+            new_ssl_certificate = LetsencryptSSLCertificate(domain=benchname, ssl_type=ssl, email=email)
+
+        richprint.print("Updating Certificate.")
+        bench.update_certificate(new_ssl_certificate)
+        richprint.print("Certificate Updated.")
+
+        if bench.has_certificate():
+            richprint.print(
+                f"SSL Certificate will expire in {format_ssl_certificate_time_remaining(bench.certificate_manager.get_certficate_expiry())}"
+            )
+
+    if admin_tools:
+        restart_required = False
+        if admin_tools == AdminToolOptionEnum.enable:
+            richprint.change_head("Enabling Admin-tools")
+            bench.bench_config.admin_tools = True
+            if not bench.admin_tools.compose_project.compose_file_manager.compose_path.exists():
+                restart_required = bench.sync_admin_tools_compose()
+            else:
+                restart_required = bench.admin_tools.enable()
+            bench.save_bench_config()
+            richprint.print("Enabling Admin-tools: Done")
+
+        elif admin_tools == AdminToolOptionEnum.disable:
+            if (
+                not bench.admin_tools.compose_project.compose_file_manager.compose_path.exists()
+                or not bench.bench_config.admin_tools
+            ):
+                richprint.print("Admin tools is already disabled.")
+                return
+            else:
+                bench.bench_config.admin_tools = False
+                restart_required = bench.admin_tools.disable()
+                bench.save_bench_config()
+
+        # prompt for restart frappe server
+        if restart_required:
+            should_restart = richprint.prompt_ask(
+                prompt=f"Frappe server restart is required after {admin_tools.value} of admin tools. Do you want to proceed ?",
+                choices=['yes', 'no'],
+            )
+            if should_restart == 'yes':
+                bench.restart_frappe_server()
