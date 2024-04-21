@@ -26,9 +26,9 @@ def delete(
     richprint.change_head("Removing SSL certificate")
 
     if not bench.has_certificate():
-        richprint.exit(f"{benchname} doesn't have SSL certificate.")
+        richprint.exit(f"{benchname} doesn't have SSL certificate issued.")
     bench.remove_certificate()
-    richprint.print("wemoving SSL certificate: Done")
+    richprint.print("Removed SSL certificate.")
 
 
 @ssl_root_command.command()
