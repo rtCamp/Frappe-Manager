@@ -18,6 +18,7 @@ from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager import VSCODE_LAUNCH_JSON, VSCODE_SETTINGS_JSON, VSCODE_TASKS_JSON
 from frappe_manager.site_manager.bench_config import BenchConfig
+from frappe_manager.site_manager.admin_tools import AdminTools
 from frappe_manager.site_manager.site_exceptions import (
     BenchLogFileNotFoundError,
     BenchRemoveDirectoryError,
@@ -36,6 +37,7 @@ from frappe_manager.utils.site import domain_level, generate_services_table, get
 
 class Bench:
     def __init__(self, path: Path, name: str, bench_config: BenchConfig, compose_project: ComposeProject, bench_workers: BenchWorkers, services: ServicesManager, workers_check: bool = True, verbose: bool = False  ) -> None:
+        admin_tools_check: bool = True,
         self.path = path
         self.name = name
         self.quiet = not verbose
@@ -51,9 +53,12 @@ class Bench:
                 if not self.workers.compose_project.running:
                     if self.compose_project.running:
                         self.workers.compose_project.start_service()
+        if admin_tools_check:
+            self.ensure_admin_tools_running_if_available()
 
     @classmethod
     def get_object(cls, bench_name: str, services: ServicesManager, benches_path: Path = CLI_BENCHES_DIRECTORY, bench_config_file_name: str = CLI_BENCH_CONFIG_FILE_NAME, workers_check: bool = False, verbose: bool = False) -> 'Bench':
+        admin_tools_check: bool = False,
         if domain_level(bench_name) == 0:
             bench_name = bench_name + ".localhost"
 
@@ -74,6 +79,7 @@ class Bench:
             'bench_workers': workers,
             'services': services,
             'workers_check': workers_check
+            'admin_tools_check': admin_tools_check,
         }
         return cls(**parms)
 
@@ -132,6 +138,9 @@ class Bench:
             self.remove_secrets()
             self.logger.info(f"BENCH STATUS {self.name}: WORKING")
             richprint.print(f"Started bench")
+            if self.bench_config.admin_tools:
+                self.sync_admin_tools_compose()
+                self.restart_frappe_server()
 
             self.create_certificate(self.get_certificate_manager())
             self.info()
@@ -311,6 +320,11 @@ class Bench:
         # start workers if exists
         if self.workers.exists():
             self.workers.compose_project.start_service(force_recreate=force)
+        # start admin_tools if exists
+        if self.admin_tools.compose_project.compose_file_manager.exists():
+            richprint.change_head("Starting bench admin tools services")
+            self.admin_tools.compose_project.start_service(force_recreate=force)
+            richprint.print("Started bench admin tools services.")
 
         self.frappe_logs_till_start(status_msg="Starting Bench")
         self.sync_workers_compose()
@@ -370,6 +384,11 @@ class Bench:
 
         richprint.print(f"Stopped bench")
         return True
+        # stop admin_tools if exists
+        if self.admin_tools.compose_project.compose_file_manager.exists():
+            richprint.change_head("Stopped bench admin tools services")
+            self.admin_tools.compose_project.stop_service()
+            richprint.print("Stopped bench admin tools services.")
 
     def remove(self) -> bool:
         """
@@ -386,6 +405,12 @@ class Bench:
             richprint.warning('Bench compose file not found. Skipping containers removal.')
 
         richprint.change_head(f"Removing Dirs")
+        if self.admin_tools.compose_project.compose_file_manager.exists():
+            richprint.change_head("Removing bench admin tools containers.")
+            self.admin_tools.compose_project.down_service(remove_ophans=True, volumes=True)
+            richprint.print("Removed bench admin tools containers.")
+        else:
+            richprint.warning('Bench admin tools compose file not found. Skipping containers removal.')
 
         need_chown = False
         try:
@@ -619,6 +644,16 @@ class Bench:
             "DB Password": db_pass,
             "HTTPS": f'{self.bench_config.ssl.ssl_type.value} ({self.bench_config.ssl.expiry})' if self.has_certificate() else 'Not Enabled',
         }
+
+        if not self.bench_config.admin_tools:
+            data['Admin Tools'] = 'Not Enabled'
+        else:
+            admin_tools_Table = Table(show_lines=True, show_edge=False, pad_edge=False, expand=True)
+            admin_tools_Table.add_column("Tool")
+            admin_tools_Table.add_column("URL")
+            admin_tools_Table.add_row("Mailhog", f"{protocol}://{self.name}/mailhog")
+            admin_tools_Table.add_row("Adminer", f"{protocol}://{self.name}/adminer")
+            data['Admin Tools'] = admin_tools_Table
 
         bench_info_table.add_column(no_wrap=True)
         bench_info_table.add_column(no_wrap=True)
@@ -885,3 +920,35 @@ class Bench:
 
         richprint.start('Working')
         return True
+    def ensure_admin_tools_running_if_available(self):
+        if self.admin_tools.compose_project.compose_file_manager.exists():
+            if self.bench_config.admin_tools:
+                if not self.admin_tools.compose_project.running:
+                    if self.compose_project.running:
+                        self.admin_tools.enable()
+            else:
+                atleast_one_service_running = False
+
+                running_services = self.admin_tools.compose_project.get_services_running_status()
+                for service in running_services:
+                    if service == 'running':
+                        atleast_one_service_running = True
+
+                if atleast_one_service_running:
+                    self.admin_tools.disable()
+
+    def sync_admin_tools_compose(self):
+        self.admin_tools.generate_compose(self.services.database_manager.database_server_info.host)
+        restart_required = self.admin_tools.enable(force_recreate_container=True)
+        return restart_required
+
+    def restart_frappe_server(self):
+        richprint.change_head("Restarting frappe server")
+        restart_command = 'supervisorctl -c /opt/user/supervisord.conf restart all'
+
+        try:
+            self.compose_project.docker.compose.exec('frappe', restart_command, stream=False)
+        except DockerException as e:
+            print(e)
+            raise BenchException("frappe", "Faild to restart frappe server.")
+        richprint.print("Restarted frappe server.")

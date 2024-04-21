@@ -47,3 +47,8 @@ STABLE_APP_BRANCH_MAPPING_LIST = {
     "erpnext" :'version-15',
     "hrms" :'version-15',
 }
+
+
+class AdminToolOptionEnum(str, Enum):
+    enable = 'enable'
+    disable = 'disable'

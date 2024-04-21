@@ -10,9 +10,11 @@ from frappe_manager.ssl_manager.certificate import RenewableSSLCertificate, SSLC
 from frappe_manager.ssl_manager.renewable_certificate import RenewableLetsencryptSSLCertificate
 from frappe_manager.utils.helpers import get_container_name_prefix
 
+
 class FMBenchEnvType(str, Enum):
     prod = 'prod'
     dev = 'dev'
+
 
 def ssl_certificate_to_toml_doc(cert: Union[SSLCertificate, RenewableSSLCertificate]) -> Optional[tomlkit.TOMLDocument]:
     if cert.ssl_type == SUPPORTED_SSL_TYPES.none:
@@ -28,6 +30,7 @@ def ssl_certificate_to_toml_doc(cert: Union[SSLCertificate, RenewableSSLCertific
             toml_doc[key] = value
     return toml_doc
 
+
 class BenchConfig(BaseModel):
     name: str
     userid: int
@@ -35,6 +38,7 @@ class BenchConfig(BaseModel):
     apps_list: List[str]
     frappe_branch: str
     developer_mode: bool
+    admin_tools: bool
     admin_pass: str
     mariadb_host: str
     mariadb_root_pass: str
@@ -44,15 +48,13 @@ class BenchConfig(BaseModel):
 
     @property
     def db_name(self):
-        return self.name.replace(".","-")
+        return self.name.replace(".", "-")
 
     @property
     def container_name_prefix(self):
         return get_container_name_prefix(self.name)
 
-
     def export_to_toml(self, path: Path) -> bool:
-
         ssl_toml_doc: Optional[tomlkit.TOMLDocument] = None
 
         # check if it's SSLCertificate if not then its
@@ -64,7 +66,7 @@ class BenchConfig(BaseModel):
             exclude.add('ssl')
 
         # Convert the BenchConfig instance to a dictionary
-        bench_dict = self.model_dump(exclude=exclude,exclude_none=True)
+        bench_dict = self.model_dump(exclude=exclude, exclude_none=True)
 
         if ssl_toml_doc:
             bench_dict['ssl'] = ssl_toml_doc
@@ -87,7 +89,6 @@ class BenchConfig(BaseModel):
 
     @classmethod
     def import_from_toml(cls, path: Path) -> "BenchConfig":
-
         data = tomlkit.parse(path.read_text())
 
         data['root_path'] = str(path)
@@ -102,20 +103,21 @@ class BenchConfig(BaseModel):
             else:
                 ssl_instance = SSLCertificate(**ssl_data)
         else:
-                ssl_instance = SSLCertificate(domain=data.get('name',None), ssl_type=SUPPORTED_SSL_TYPES.none)
+            ssl_instance = SSLCertificate(domain=data.get('name', None), ssl_type=SUPPORTED_SSL_TYPES.none)
 
         input_data = {
-            'name': data.get('name',None),
-            'userid': data.get('userid',None),
-            'usergroup': data.get('usergroup',None),
-            'apps_list': data.get('apps_list',[]),
-            'frappe_branch': data.get('frappe_branch',None),
-            'developer_mode': data.get('developer_mode',None),
-            'admin_pass': data.get('admin_pass',None),
-            'mariadb_host': data.get('mariadb_host',None),
-            'mariadb_root_pass': data.get('mariadb_root_pass',None),
-            'environment_type': data.get('environment_type',None),
-            'root_path': data.get('root_path',None),
+            'name': data.get('name', None),
+            'userid': data.get('userid', None),
+            'usergroup': data.get('usergroup', None),
+            'apps_list': data.get('apps_list', []),
+            'frappe_branch': data.get('frappe_branch', None),
+            'developer_mode': data.get('developer_mode', None),
+            'admin_tools': data.get('admin_tools', False),
+            'admin_pass': data.get('admin_pass', None),
+            'mariadb_host': data.get('mariadb_host', None),
+            'mariadb_root_pass': data.get('mariadb_root_pass', None),
+            'environment_type': data.get('environment_type', None),
+            'root_path': data.get('root_path', None),
             'ssl': ssl_instance,
         }
 

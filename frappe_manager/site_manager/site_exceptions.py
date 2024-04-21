@@ -93,3 +93,8 @@ class BenchConfigValidationError(Exception):
     ):
         error_msg = f"{site_name}: Bench config not valid at {path}"
         super().__init__(error_msg)
+class AdminToolsFailedToStart(BenchException):
+    def __init__(self, bench_name, message="Failed to start admin tools."):
+        self.bench_name = bench_name
+        self.message = message
+        super().__init__(self.bench_name, self.message)

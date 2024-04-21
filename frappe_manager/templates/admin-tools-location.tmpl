@@ -1,0 +1,19 @@
+# Mailhog
+location ^~ /mailhog/ {
+    chunked_transfer_encoding on;
+    proxy_set_header X-NginX-Proxy true;
+    proxy_pass http://{{ mailhog_host }}:8025/;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_http_version 1.1;
+    proxy_redirect off;
+    proxy_buffering off;
+}
+
+# Adminer
+location ^~ /adminer/ {
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Host $host;
+    proxy_pass http://{{ adminer_host }}:8080/;
+}

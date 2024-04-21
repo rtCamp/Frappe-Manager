@@ -7,6 +7,7 @@ from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.display_manager.DisplayManager import richprint
 
+
 class BenchesManager:
     def __init__(self, sitesdir: Path, services: ServicesManager, verbose: bool = False):
         self.root_path = sitesdir
@@ -48,7 +49,6 @@ class BenchesManager:
         for bench in self.benches:
             bench.remove_bench()
 
-
     def list_benches(self):
         """
         Lists all the sites and their status.
@@ -60,7 +60,9 @@ class BenchesManager:
         bench_list = self.get_all_bench()
 
         if not bench_list:
-            richprint.exit("Seems like you haven't created any sites yet. To create a bench, use the command: 'fm create <benchname>'.")
+            richprint.exit(
+                "Seems like you haven't created any sites yet. To create a bench, use the command: 'fm create <benchname>'."
+            )
 
         list_table = Table(show_lines=True, show_header=True, highlight=True)
         list_table.add_column("Site")
@@ -69,7 +71,7 @@ class BenchesManager:
 
         for bench_name in bench_list.keys():
             try:
-                bench = Bench.get_object(bench_name,self.services)
+                bench = Bench.get_object(bench_name, self.services, workers_check=False, admin_tools_check=False)
 
                 row_data = f"[link=http://{bench.name}]{bench.name}[/link]"
                 path_data = f"[link=file://{bench.path}]{bench.path}[/link]"
