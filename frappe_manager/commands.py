@@ -170,7 +170,7 @@ def create(
         ),
     ] = "admin",
     ssl: Annotated[
-        SUPPORTED_SSL_TYPES, typer.Option(help="Enable https", show_default=False)
+        SUPPORTED_SSL_TYPES, typer.Option(help="Enable https", show_default=True)
     ] = SUPPORTED_SSL_TYPES.none,
 ):
     # TODO Create markdown table for the below help
