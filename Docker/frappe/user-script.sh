@@ -5,6 +5,20 @@ source /prebake_info
 
 set -e
 
+cleanup() {
+    echo "Received signal, performing cleanup..."
+    # Add any necessary cleanup commands here
+
+    # Forward the signal to supervisord (if it's running)
+    if [ -n "$supervisord_pid" ]; then
+        kill -s SIGTERM"$supervisord_pid"
+    fi
+    exit 0
+}
+
+# Trap SIGQUIT, SIGTERM, SIGINT
+trap cleanup SIGQUIT SIGTERM SIGINT
+
 emer() {
     echo "$@"
     exit 1
@@ -25,6 +39,10 @@ if [[ ! "${MARIADB_HOST:-}" ]]; then
     MARIADB_HOST='global-db'
 fi
 
+if [[ "${DEBUG:-}" ]]; then
+    set -x
+fi
+
 if [[ ! "${MARIADB_ROOT_PASS:-}" ]]; then
     MARIADB_ROOT_PASS='root'
 fi
@@ -43,13 +61,10 @@ configure_common_site_config() {
     update_common_site_config redis_cache "redis://${CONTAINER_NAME_PREFIX}-redis-cache:6379"
     update_common_site_config redis_queue "redis://${CONTAINER_NAME_PREFIX}-redis-queue:6379"
     update_common_site_config redis_socketio "redis://${CONTAINER_NAME_PREFIX}-redis-socketio:6379"
-    update_common_site_config mail_port 1025
-    update_common_site_config mail_server 'mailhog'
-    update_common_site_config disable_mail_smtp_authentication 1
     update_common_site_config webserver_port "$WEB_PORT"
-    update_common_site_config developer_mode "$DEVELOPER_MODE"
     update_common_site_config socketio_port "$REDIS_SOCKETIO_PORT"
     update_common_site_config restart_supervisor_on_update 0
+    update_common_site_config developer_mode "$DEVELOPER_MODE"
 
     # end_time=$(date +%s.%N)
     # execution_time=$(awk "BEGIN {print $end_time - $start_time}")
@@ -101,6 +116,10 @@ if [[ ! -d "/workspace/frappe-bench/sites/$SITENAME" ]]; then
         awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--port "a); print}' /opt/user/bench-dev-server >file.tmp && mv file.tmp /opt/user/bench-dev-server.sh
     fi
 
+    if [[ "$DEVELOPER_MODE" == "true" ]]; then
+        bench setup requirements --dev
+    fi
+
     chmod +x /opt/user/bench-dev-server.sh
 
     $BENCH_COMMAND build &
@@ -119,7 +138,9 @@ if [[ ! -d "/workspace/frappe-bench/sites/$SITENAME" ]]; then
     if [[ -n "$BENCH_START_OFF" ]]; then
         tail -f /dev/null
     else
-        supervisord -c /opt/user/supervisord.conf
+        supervisord -c /opt/user/supervisord.conf &
+        supervisord_pid=$!
+        wait $supervisord_pid
     fi
 
 else
@@ -152,11 +173,11 @@ else
     if [[ "${ENVIRONMENT}" = "dev" ]]; then
         cp /opt/user/frappe-dev.conf /opt/user/conf.d/frappe-dev.conf
     else
-        if [[ -f '/opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf' ]]; then
+        if [[ -f '/workspace/frappe-bench/config/frappe-bench-frappe-web.fm.supervisor.conf' ]]; then
 
             ln -sfn /workspace/frappe-bench/config/frappe-bench-frappe-web.fm.supervisor.conf /opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf
         else
-            emer 'Not able to start the server. /opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf not found.'
+            emer 'Not able to start the server. /workspace/frappe-bench/config/frappe-bench-frappe-web.fm.supervisor.conf not found.'
         fi
     fi
 
@@ -164,7 +185,9 @@ else
         tail -f /dev/null
     else
         echo "Starting supervisor.."
-        supervisord -c /opt/user/supervisord.conf
+        supervisord -c /opt/user/supervisord.conf &
+        supervisord_pid=$!
+        wait $supervisord_pid
     fi
 
 fi
