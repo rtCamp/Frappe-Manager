@@ -60,7 +60,12 @@ class BenchConfig(BaseModel):
         # check if it's SSLCertificate if not then its
         ssl_toml_doc = ssl_certificate_to_toml_doc(self.ssl)
 
-        exclude = {'root_path', 'mariadb_root_pass'}
+        exclude = {
+            'root_path',
+            'mariadb_root_pass',
+            'userid',
+            'usergroup',
+        }
 
         if ssl_toml_doc is None:
             exclude.add('ssl')
