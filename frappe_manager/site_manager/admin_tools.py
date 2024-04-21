@@ -142,8 +142,8 @@ class AdminTools:
         return frappe_server_restart_required
 
     def disable(self) -> bool:
-        self.compose_project.stop_service()
         self.remove_nginx_location_config()
         self.nginx_proxy.reload()
+        self.compose_project.stop_service()
         frappe_server_restart_required = self.remove_mailhog_as_default_server()
         return frappe_server_restart_required
