@@ -4,7 +4,7 @@ from frappe_manager.migration_manager.migration_exections import MigrationExcept
 from frappe_manager.migration_manager.migration_helpers import MigrationBench, MigrationBenches
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.migration_manager.version import Version
-from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_DIR
+from frappe_manager import CLI_DIR
 from frappe_manager.utils.helpers import get_container_name_prefix
 
 
@@ -14,11 +14,7 @@ class MigrationV0120(MigrationBase):
     def __init__(self):
         super().init()
         self.benches_dir = CLI_DIR / "sites"
-        self.services_path = CLI_BENCHES_DIRECTORY
         self.benches_manager = MigrationBenches(self.benches_dir)
-
-    # def set_migration_executor(self, migration_executor: MigrationExecutor):
-    #     self.migration_executor = migration_executor
 
     def up(self):
         richprint.print(f"Started", prefix=f"[bold]v{str(self.version)}:[/bold] ")
@@ -46,17 +42,18 @@ class MigrationV0120(MigrationBase):
             bench = MigrationBench(name=bench_name, path=bench_path.parent)
 
             if bench.name in self.migration_executor.migrate_benches.keys():
-                bench_info =  self.migration_executor.migrate_benches[bench.name]
+                bench_info = self.migration_executor.migrate_benches[bench.name]
                 if bench_info['exception']:
                     richprint.print(f"Skipping migration for failed bench{bench.name}.")
                     main_error = True
                     continue
 
-            self.migration_executor.set_bench_data(bench,migration_version=self.version)
+            self.migration_executor.set_bench_data(bench, migration_version=self.version)
             try:
                 self.migrate_bench(bench)
             except Exception as e:
                 import traceback
+
                 traceback_str = traceback.format_exc()
                 self.logger.error(f"{bench.name} [ EXCEPTION TRACEBACK ]:\n {traceback_str}")
                 richprint.update_live()
@@ -152,18 +149,23 @@ class MigrationV0120(MigrationBase):
             for worker in workers_info.keys():
                 workers_info[worker] = self.image_info
 
-
             worker_compose_yml = bench.workers_compose_project.compose_file_manager.yml
             for service in worker_compose_yml["services"]:
                 try:
                     del worker_compose_yml["services"][service]["restart"]
                 except KeyError as e:
-                    self.logger.error(f"{bench.name} worker: Not able to delete restart: always attribute from compose file.{e}")
+                    self.logger.error(
+                        f"{bench.name} worker: Not able to delete restart: always attribute from compose file.{e}"
+                    )
                     pass
 
-            bench.workers_compose_project.compose_file_manager.set_top_networks_name("site-network", get_container_name_prefix(bench.name))
+            bench.workers_compose_project.compose_file_manager.set_top_networks_name(
+                "site-network", get_container_name_prefix(bench.name)
+            )
             bench.workers_compose_project.compose_file_manager.set_all_images(workers_info)
 
-            bench.workers_compose_project.compose_file_manager.set_container_names(get_container_name_prefix(bench.name))
+            bench.workers_compose_project.compose_file_manager.set_container_names(
+                get_container_name_prefix(bench.name)
+            )
             bench.workers_compose_project.compose_file_manager.write_to_file()
             richprint.print("Migrating workers compose: Done")

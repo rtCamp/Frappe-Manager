@@ -5,22 +5,34 @@ from datetime import datetime
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
+from frappe_manager import CLI_DIR
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.migration_manager.backup_manager import BackupData
 from frappe_manager.migration_manager.migration_base import MigrationBase
-from frappe_manager import CLI_DIR, CLI_SERVICES_DIRECTORY
 from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
-from frappe_manager.migration_manager.migration_executor import MigrationExecutor
-from frappe_manager.migration_manager.migration_helpers import MigrationBench, MigrationBenches
-from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo, DatabaseServiceManager, MariaDBManager
-from frappe_manager.services_manager.services_exceptions import DatabaseServiceException, ServicesException, ServicesNotCreated
+from frappe_manager.migration_manager.migration_helpers import (
+    MigrationBench,
+    MigrationBenches,
+    MigrationServicesManager,
+)
+from frappe_manager.services_manager.database_service_manager import (
+    DatabaseServerServiceInfo,
+    DatabaseServiceManager,
+    MariaDBManager,
+)
+from frappe_manager.services_manager.services_exceptions import (
+    DatabaseServiceException,
+    ServicesException,
+    ServicesNotCreated,
+)
 from frappe_manager.site_manager.site_exceptions import BenchDockerComposeFileNotFound
 from frappe_manager.utils.docker import host_run_cp
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.utils.helpers import get_container_name_prefix, get_unix_groups, random_password_generate
 from frappe_manager.migration_manager.version import Version
+
 
 class MigrationV0100(MigrationBase):
     version = Version("0.10.0")
@@ -28,7 +40,6 @@ class MigrationV0100(MigrationBase):
     def __init__(self):
         super().init()
         self.benches_dir = CLI_DIR / "sites"
-        self.services_path = CLI_SERVICES_DIRECTORY
         self.string_timestamp = datetime.now().strftime("%d-%b-%y--%H-%M-%S")
         self.benches_manager = MigrationBenches(self.benches_dir)
 
@@ -40,25 +51,20 @@ class MigrationV0100(MigrationBase):
         richprint.print(f"Started", prefix=f"[bold]v{str(self.version)}:[/bold] ")
         self.logger.info("-" * 40)
 
-        current_system = platform.system()
-
-        services_compose_path = self.services_path / 'docker-compose.yml'
-        compose_file_manager = ComposeFile(services_compose_path, template_name="docker-compose.services.tmpl")
-
-        if current_system == "Darwin":
-            compose_file_manager = ComposeFile(self.services_path, template_name="docker-compose.services.osx.tmpl")
-
-        self.services_compose_project = ComposeProject(compose_file_manager=compose_file_manager)
+        self.services_manager: MigrationServicesManager = MigrationServicesManager()
 
         # stop all benches
         self.benches_manager.stop_benches(timeout=20)
 
         # create services
-        self.services_create(self.services_compose_project)
-        self.services_compose_project.pull_images()
-        self.services_compose_project.start_service(force_recreate=True)
+        self.services_create(self.services_manager.compose_project)
+        self.services_manager.compose_project.pull_images()
+        self.services_manager.compose_project.start_service(force_recreate=True)
 
-        self.services_database_manager: DatabaseServiceManager = MariaDBManager(DatabaseServerServiceInfo.import_from_compose_file('global-db',self.services_compose_project),self.services_compose_project)
+        self.services_database_manager: DatabaseServiceManager = MariaDBManager(
+            DatabaseServerServiceInfo.import_from_compose_file('global-db', self.services_manager.compose_project),
+            self.services_manager.compose_project,
+        )
 
         # migrate each bench
         main_error = False
@@ -74,6 +80,7 @@ class MigrationV0100(MigrationBase):
                 self.migrate_bench(bench)
             except Exception as e:
                 import traceback
+
                 traceback_str = traceback.format_exc()
                 self.logger.error(f"[ EXCEPTION TRACEBACK ]:\n {traceback_str}")
                 richprint.update_live()
@@ -89,20 +96,14 @@ class MigrationV0100(MigrationBase):
         self.logger.info("-" * 40)
 
     def migrate_bench(self, bench: MigrationBench):
-        richprint.print(
-            f"Migrating bench {bench.name}", prefix=f"[bold]v{str(self.version)}:[/bold] "
-        )
+        richprint.print(f"Migrating bench {bench.name}", prefix=f"[bold]v{str(self.version)}:[/bold] ")
 
         # backup docker compose.yml
         self.backup_manager.backup(bench.path / "docker-compose.yml", bench_name=bench.name)
 
         # backup common_site_config.json
         self.backup_manager.backup(
-            bench.path
-            / "workspace"
-            / "frappe-bench"
-            / "sites"
-            / "common_site_config.json",
+            bench.path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json",
             bench_name=bench.name,
         )
 
@@ -118,18 +119,16 @@ class MigrationV0100(MigrationBase):
         bench_db_pass = bench_db_info["password"]
 
         self.services_database_manager.add_user(bench_db_user, bench_db_pass, force=True)
-        self.services_database_manager.grant_user_privilages(bench_db_name,bench_db_user)
+        self.services_database_manager.grant_user_privilages(bench_db_name, bench_db_user)
 
     def down(self):
-        richprint.print(
-            f"Started", prefix=f"[bold]v{str(self.version)} [ROLLBACK]:[/bold] "
-        )
+        richprint.print(f"Started", prefix=f"[bold]v{str(self.version)} [ROLLBACK]:[/bold] ")
         self.logger.info("-" * 40)
 
-        self.services_compose_project.down_service()
+        self.services_manager.compose_project.down_service()
 
-        if self.services_path.exists():
-            shutil.rmtree(self.services_path)
+        if self.services_manager.services_path.exists():
+            shutil.rmtree(self.services_manager.services_path)
 
         # undo each bench
         for bench, exception in self.migration_executor.migrate_benches.items():
@@ -139,9 +138,7 @@ class MigrationV0100(MigrationBase):
         for backup in self.backup_manager.backups:
             self.backup_manager.restore(backup, force=True)
 
-        richprint.print(
-            f"Successfull", prefix=f"[bold]v{str(self.version)} [ROLLBACK]:[/bold] "
-        )
+        richprint.print(f"Successfull", prefix=f"[bold]v{str(self.version)} [ROLLBACK]:[/bold] ")
         self.logger.info("-" * 40)
 
     def undo_bench_migrate(self, bench: MigrationBench):
@@ -163,15 +160,15 @@ class MigrationV0100(MigrationBase):
         # start each bench forcefully and add user to the bench
         try:
             bench.compose_project.start_service(['mariadb'])
-            bench_db_info = DatabaseServerServiceInfo.import_from_compose_file('mariadb',bench.compose_project)
-            bench_db_manager = MariaDBManager(bench_db_info,bench.compose_project)
+            bench_db_info = DatabaseServerServiceInfo.import_from_compose_file('mariadb', bench.compose_project)
+            bench_db_manager = MariaDBManager(bench_db_info, bench.compose_project)
             bench_db_info = bench.get_db_connection_info()
             bench_db_name = bench_db_info["name"]
             bench_db_user = bench_db_info["user"]
             bench_db_pass = bench_db_info["password"]
             try:
-                bench_db_manager.add_user(db_user=bench_db_user,db_pass=bench_db_pass,force=True)
-                bench_db_manager.grant_user_privilages(bench_db_user,bench_db_name)
+                bench_db_manager.add_user(db_user=bench_db_user, db_pass=bench_db_pass, force=True)
+                bench_db_manager.grant_user_privilages(bench_db_user, bench_db_name)
             except DatabaseServiceException as e:
                 pass
             bench.compose_project.down_service(volumes=False)
@@ -180,13 +177,12 @@ class MigrationV0100(MigrationBase):
         self.logger.info(f"Undo successfull for bench: {bench.name}")
 
     def migrate_bench_compose(self, bench: MigrationBench):
-
         richprint.change_head("Migrating database")
 
         compose_version = bench.compose_project.compose_file_manager.get_version()
 
         if not bench.compose_project.compose_file_manager.exists():
-            raise BenchDockerComposeFileNotFound(bench.name,bench.compose_project.compose_file_manager.compose_path)
+            raise BenchDockerComposeFileNotFound(bench.name, bench.compose_project.compose_file_manager.compose_path)
 
         db_backup_file = self.db_migration_export(bench)
         richprint.print("Database exported")
@@ -229,7 +225,7 @@ class MigrationV0100(MigrationBase):
 
         self.create_compose_dirs(bench)
 
-        bench.compose_project.compose_file_manager.template_name = "docker-compose.migration.tmpl"
+        bench.compose_project.compose_file_manager.template_name = "docker-compose.tmpl"
 
         # load template
         bench.compose_project.compose_file_manager.yml = bench.compose_project.compose_file_manager.load_template()
@@ -246,7 +242,9 @@ class MigrationV0100(MigrationBase):
         bench.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(bench.name))
 
         bench.compose_project.compose_file_manager.set_version(str(self.version))
-        bench.compose_project.compose_file_manager.set_top_networks_name("site-network", get_container_name_prefix(bench.name))
+        bench.compose_project.compose_file_manager.set_top_networks_name(
+            "site-network", get_container_name_prefix(bench.name)
+        )
         bench.compose_project.compose_file_manager.write_to_file()
 
         # change the node socketio port
@@ -257,7 +255,6 @@ class MigrationV0100(MigrationBase):
         return db_backup
 
     def create_compose_dirs(self, bench: MigrationBench):
-
         # directory creation
         configs_path = bench.path / "configs"
 
@@ -298,13 +295,15 @@ class MigrationV0100(MigrationBase):
         self.logger.debug("[db export] bench: %s", bench.name)
 
         # start the benc hand also handle the missing docker images
-        output = bench.compose_project.docker.compose.up(services=["mariadb", "frappe"], detach=True, pull="missing", stream=True)
+        output = bench.compose_project.docker.compose.up(
+            services=["mariadb", "frappe"], detach=True, pull="missing", stream=True
+        )
         richprint.live_lines(output, padding=(0, 0, 0, 2))
 
         self.logger.debug("[db export] checking if mariadb started")
 
-        bench_db_server_info = DatabaseServerServiceInfo.import_from_compose_file('mariadb',bench.compose_project)
-        bench_mariadb_manager = MariaDBManager(bench_db_server_info,bench.compose_project)
+        bench_db_server_info = DatabaseServerServiceInfo.import_from_compose_file('mariadb', bench.compose_project)
+        bench_mariadb_manager = MariaDBManager(bench_db_server_info, bench.compose_project)
 
         # wait till db started
         bench_mariadb_manager.wait_till_db_start()
@@ -321,8 +320,8 @@ class MigrationV0100(MigrationBase):
         bench_db_info = bench.get_db_connection_info()
         bench_db_name = bench_db_info["name"]
 
-        bench_frappe_db_manager = MariaDBManager(bench_db_server_info, bench.compose_project,'frappe')
-        bench_frappe_db_manager.db_export(bench_db_name,db_migration_file_path)
+        bench_frappe_db_manager = MariaDBManager(bench_db_server_info, bench.compose_project, 'frappe')
+        bench_frappe_db_manager.db_export(bench_db_name, db_migration_file_path)
 
         output_stop = bench.compose_project.docker.compose.stop(timeout=10, stream=False)
 
@@ -342,12 +341,12 @@ class MigrationV0100(MigrationBase):
         self.services_database_manager.wait_till_db_start()
 
         # import db if db found then remove it and add
-        self.services_database_manager.db_import(bench_db_name,db_backup_file.src,True)
+        self.services_database_manager.db_import(bench_db_name, db_backup_file.src, True)
 
         # add user if exits then remove and add
-        self.services_database_manager.add_user(bench_db_user,bench_db_pass,force=True)
+        self.services_database_manager.add_user(bench_db_user, bench_db_pass, force=True)
 
-        self.services_database_manager.grant_user_privilages(bench_db_user,bench_db_name)
+        self.services_database_manager.grant_user_privilages(bench_db_user, bench_db_name)
 
     def services_create(self, services_compose_project: ComposeProject):
         envs = {
@@ -359,16 +358,16 @@ class MigrationV0100(MigrationBase):
             }
         }
         current_system = platform.system()
-        inputs:  dict[str, Any] = {"environment": envs}
+        inputs: dict[str, Any] = {"environment": envs}
         try:
             user = {
                 "global-db": {
                     "uid": os.getuid(),
                     "gid": os.getgid(),
-                }}
+                }
+            }
 
             if not current_system == "Darwin":
-
                 user["global-nginx-proxy"] = {
                     "uid": os.getuid(),
                     "gid": get_unix_groups()["docker"],
@@ -376,10 +375,12 @@ class MigrationV0100(MigrationBase):
             inputs["user"] = user
 
         except KeyError:
-            raise ServicesException("docker group not found in system. Please add docker group to the system and current user to the docker group.")
+            raise ServicesException(
+                "docker group not found in system. Please add docker group to the system and current user to the docker group."
+            )
 
-        if self.services_path.exists():
-            shutil.rmtree(self.services_path)
+        if self.services_manager.services_path.exists():
+            shutil.rmtree(self.services_manager.services_path)
 
         # create required directories
         dirs_to_create = [
@@ -394,11 +395,11 @@ class MigrationV0100(MigrationBase):
             "nginx-proxy/logs",
             "nginx-proxy/run",
             "nginx-proxy/cache",
-            "secrets"
+            "secrets",
         ]
 
         # set secrets in compose
-        self.generate_compose(inputs,services_compose_project.compose_file_manager)
+        self.generate_compose(inputs, services_compose_project.compose_file_manager)
 
         if current_system == "Darwin":
             services_compose_project.compose_file_manager.remove_container_user('global-nginx-proxy')
@@ -408,23 +409,21 @@ class MigrationV0100(MigrationBase):
 
         # create dirs
         for folder in dirs_to_create:
-            temp_dir = self.services_path / folder
+            temp_dir = self.services_manager.services_path / folder
             try:
                 temp_dir.mkdir(parents=True, exist_ok=True)
             except Exception as e:
-                richprint.exit(
-                    f"Failed to create global services bind mount directories. Error: {e}"
-                )
+                richprint.exit(f"Failed to create global services bind mount directories. Error: {e}")
 
         # populate secrets for db
-        db_password_path = self.services_path / 'secrets'/ 'db_password.txt'
-        db_root_password_path = self.services_path / 'secrets'/ 'db_root_password.txt'
+        db_password_path = self.services_manager.services_path / 'secrets' / 'db_password.txt'
+        db_root_password_path = self.services_manager.services_path / 'secrets' / 'db_root_password.txt'
 
-        db_password_path.write_text(random_password_generate(password_length=16,symbols=True))
-        db_root_password_path.write_text(random_password_generate(password_length=24,symbols=True))
+        db_password_path.write_text(random_password_generate(password_length=16, symbols=True))
+        db_root_password_path.write_text(random_password_generate(password_length=24, symbols=True))
 
         # populate mariadb config
-        mariadb_conf = self.services_path / "mariadb/conf"
+        mariadb_conf = self.services_manager.services_path / "mariadb/conf"
         mariadb_conf = str(mariadb_conf.absolute())
         host_run_cp(
             image="mariadb:10.6",
@@ -433,11 +432,15 @@ class MigrationV0100(MigrationBase):
             docker=services_compose_project.docker,
         )
 
-        services_compose_project.compose_file_manager.set_secret_file_path('db_password',str(db_password_path.absolute()))
-        services_compose_project.compose_file_manager.set_secret_file_path('db_root_password',str(db_root_password_path.absolute()))
+        services_compose_project.compose_file_manager.set_secret_file_path(
+            'db_password', str(db_password_path.absolute())
+        )
+        services_compose_project.compose_file_manager.set_secret_file_path(
+            'db_root_password', str(db_root_password_path.absolute())
+        )
         services_compose_project.compose_file_manager.write_to_file()
 
-        services_compose_project.docker.compose.down(remove_orphans=True,timeout=1,volumes=True,stream=True)
+        services_compose_project.docker.compose.down(remove_orphans=True, timeout=1, volumes=True, stream=True)
 
     def generate_compose(self, inputs: dict, compose_file_manager: ComposeFile):
         # TODO do something about this function

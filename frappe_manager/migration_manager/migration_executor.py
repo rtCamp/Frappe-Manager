@@ -5,7 +5,7 @@ import pkgutil
 from pathlib import Path
 from rich.prompt import Prompt
 from frappe_manager import CLI_DIR, CLI_SITES_ARCHIVE
-from frappe_manager.metadata_manager import MetadataManager
+from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.migration_manager.migration_exections import (
     MigrationExceptionInBench,
 )
@@ -22,10 +22,10 @@ class MigrationExecutor:
     This class is responsible for executing migrations.
     """
 
-    def __init__(self):
-        self.metadata_manager = MetadataManager()
-        self.prev_version = self.metadata_manager.get_version()
-        self.rollback_version = self.metadata_manager.get_version()
+    def __init__(self, fm_config_manager: FMConfigManager):
+        self.fm_config_manager: FMConfigManager = fm_config_manager
+        self.prev_version = self.fm_config_manager.version
+        self.rollback_version = self.fm_config_manager.version
         self.current_version = Version(get_current_fm_version())
         self.migrations_path = Path(__file__).parent / "migrations"
         self.logger = log.get_logger()
@@ -63,7 +63,7 @@ class MigrationExecutor:
                             migration.set_migration_executor(migration_executor=self)
                             current_migration = migration
 
-                            if (migration.version > self.prev_version and migration.version <= self.current_version):
+                            if migration.version > self.prev_version and migration.version <= self.current_version:
                                 self.migrations.append(migration)
 
             except Exception as e:
@@ -109,9 +109,7 @@ class MigrationExecutor:
         try:
             # run all the migrations
             for migration in self.migrations:
-                richprint.change_head(
-                    f"Running migration introduced in v{migration.version}"
-                )
+                richprint.change_head(f"Running migration introduced in v{migration.version}")
                 self.logger.info(f"[{migration.version}] : Migration starting")
                 try:
                     self.undo_stack.append(migration)
@@ -136,9 +134,7 @@ class MigrationExecutor:
         except MigrationExceptionInBench as e:
             richprint.stop()
             if self.migrate_benches:
-                richprint.print(
-                    "[green]Migration was successfull on these sites.[/green]"
-                )
+                richprint.print("[green]Migration was successfull on these sites.[/green]")
 
                 for site, site_status in self.migrate_benches.items():
                     if not site_status["exception"]:
@@ -156,9 +152,7 @@ class MigrationExecutor:
                             f"[bold][red]EXCEPTION[/red]:[/bold] {type(site_status['exception']).__name__} - {site_status['exception']}"
                         )
 
-                richprint.print(
-                    f"More error details can be found in the log -> '{CLI_DIR}/logs/fm.log'"
-                )
+                richprint.print(f"More error details can be found in the log -> '{CLI_DIR}/logs/fm.log'")
 
                 archive_msg = (
                     f"\n[blue]yes[/blue] : Sites that have failed will be rolled back and stored in '{CLI_SITES_ARCHIVE}'."
@@ -188,16 +182,16 @@ class MigrationExecutor:
             richprint.start("Rollback")
             self.rollback()
             richprint.stop()
-            self.metadata_manager.set_version(self.rollback_version)
-            self.metadata_manager.save()
+            self.fm_config_manager.version = self.rollback_version
+            self.fm_config_manager.export_to_toml()
             richprint.print(
                 f"Installing [bold][blue]Frappe-Manager[/blue][/bold] version: v{str(self.rollback_version.version)}"
             )
             install_package("frappe-manager", str(self.rollback_version.version))
             richprint.exit("Rollback complete.")
 
-        self.metadata_manager.set_version(self.current_version)
-        self.metadata_manager.save()
+        self.fm_config_manager.version = self.current_version
+        self.fm_config_manager.export_to_toml()
         return True
 
     def set_bench_data(
@@ -228,9 +222,7 @@ class MigrationExecutor:
         # run all the migrations
         for migration in reversed(self.undo_stack):
             if migration.version > self.rollback_version:
-                richprint.change_head(
-                    f"Rolling back migration introduced in v{migration.version}"
-                )
+                richprint.change_head(f"Rolling back migration introduced in v{migration.version}")
                 self.logger.info(f"[{migration.version}] : Rollback starting")
                 try:
                     migration.down()

@@ -4,10 +4,9 @@ from frappe_manager import CLI_DIR
 from frappe_manager.migration_manager.migration_helpers import MigrationBenches
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.migration_manager.migration_executor import MigrationExecutor
+
 
 class MigrationV090(MigrationBase):
-
     version = Version("0.9.0")
 
     def __init__(self):
@@ -17,14 +16,11 @@ class MigrationV090(MigrationBase):
         if self.bences_dir.exists():
             self.skip = True
 
-    # def set_migration_executor(self, migration_executor: MigrationExecutor):
-    #     self.migration_executor = migration_executor
-
     def up(self):
         if self.skip:
             return True
 
-        richprint.print(f"Started",prefix=f"[bold]v{str(self.version)}:[/bold] ")
+        richprint.print(f"Started", prefix=f"[bold]v{str(self.version)}:[/bold] ")
         self.logger.info("-" * 40)
 
         move_directory_list = []
@@ -42,7 +38,9 @@ class MigrationV090(MigrationBase):
         benches.stop_benches()
 
         # move all the directories
-        richprint.print(f"Moving sites from {CLI_DIR} to {self.bences_dir}",prefix=f"[bold]v{str(self.version)}:[/bold] ")
+        richprint.print(
+            f"Moving sites from {CLI_DIR} to {self.bences_dir}", prefix=f"[bold]v{str(self.version)}:[/bold] "
+        )
 
         for site in move_directory_list:
             site_name = site.parts[-1]
@@ -50,7 +48,7 @@ class MigrationV090(MigrationBase):
             shutil.move(site, new_path)
             self.logger.debug(f"Moved:{site.exists()}")
 
-        richprint.print(f"Successfull",prefix=f"[bold]v{str(self.version)}:[/bold] ")
+        richprint.print(f"Successfull", prefix=f"[bold]v{str(self.version)}:[/bold] ")
         self.logger.info(f"[{self.version}] : Migration starting")
         self.logger.info("-" * 40)
 
@@ -58,15 +56,16 @@ class MigrationV090(MigrationBase):
         if self.skip:
             return True
 
-        richprint.print(f"Started",prefix=f"[bold]v{str(self.version)} [ROLLBACK]:[/bold] ")
+        richprint.print(f"Started", prefix=f"[bold]v{str(self.version)} [ROLLBACK]:[/bold] ")
         self.logger.info("-" * 40)
 
         if self.bences_dir.exists():
-            richprint.print(f"Found sites directory change.",prefix=f"[bold]v{str(self.version.version)} [ROLLBACK]:[/bold] ")
+            richprint.print(
+                f"Found sites directory change.", prefix=f"[bold]v{str(self.version.version)} [ROLLBACK]:[/bold] "
+            )
 
             move_directory_list = []
             for site_dir in self.bences_dir.iterdir():
-
                 if site_dir.is_dir():
                     docker_compose_path = site_dir / "docker-compose.yml"
 
@@ -86,5 +85,5 @@ class MigrationV090(MigrationBase):
         # delete the sitedir
         shutil.rmtree(self.bences_dir)
 
-        richprint.print(f"Successfull",prefix=f"[bold]v{str(self.version.version)} [ROLLBACK]:[/bold] ")
+        richprint.print(f"Successfull", prefix=f"[bold]v{str(self.version.version)} [ROLLBACK]:[/bold] ")
         self.logger.info("-" * 40)

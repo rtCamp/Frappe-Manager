@@ -1,0 +1,67 @@
+# v0.10.0 Migration: Base template for services creation
+version: "3.9"
+services:
+  global-db:
+    container_name: fm_global-db
+    image: mariadb:10.6
+    user: REPLACE_WITH_CURRENT_USER:REPLACE_WITH_CURRENT_USER_GROUP
+    restart: always
+    command:
+    - --character-set-server=utf8mb4
+    - --collation-server=utf8mb4_unicode_ci
+    - --skip-character-set-client-handshake
+    - --skip-innodb-read-only-compressed
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: REPLACE_WITH_DB_ROOT_PASSWORD_SECRET_FILE
+      MYSQL_DATABASE: REPLACE_WITH_DB_NAME
+      MYSQL_USER: REPLACE_WITH_DB_USER
+      MYSQL_PASSWORD_FILE: REPLACE_WITH_DB_PASSWORD_SECRET_FILE
+    volumes:
+      - ./mariadb/data:/var/lib/mysql
+      - ./mariadb/conf:/etc/mysql
+      - ./mariadb/logs:/var/log/mysql
+    networks:
+        - global-backend-network
+    secrets:
+        - db_password
+        - db_root_password
+
+  global-nginx-proxy:
+    container_name: fm_global-nginx-proxy
+    user: REPLACE_WITH_CURRENT_USER:REPLACE_WITH_CURRENT_USER_GROUP
+    image: jwilder/nginx-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: always
+    volumes:
+      - "./nginx-proxy/certs:/etc/nginx/certs"
+      - "./nginx-proxy/dhparam:/etc/nginx/dhparam"
+      - "./nginx-proxy/confd:/etc/nginx/conf.d"
+      - "./nginx-proxy/htpasswd:/etc/nginx/htpasswd"
+      - "./nginx-proxy/vhostd:/etc/nginx/vhost.d"
+      - "./nginx-proxy/html:/usr/share/nginx/html"
+      - "./nginx-proxy/logs:/var/log/nginx"
+      - "./nginx-proxy/run:/var/run"
+      - "./nginx-proxy/cache:/var/cache/nginx"
+      - "/var/run/docker.sock:/tmp/docker.sock:ro"
+    networks:
+      - global-frontend-network
+
+networks:
+  global-frontend-network:
+    name: fm-global-frontend-network
+    ipam:
+      config:
+      - subnet: '10.1.0.0/16'
+  global-backend-network:
+    name: fm-global-backend-network
+    ipam:
+      config:
+      - subnet: '10.2.0.0/16'
+
+secrets:
+   db_password:
+     file: REPLACE_ME_WITH_DB_PASSWORD_TXT_PATH
+   db_root_password:
+     file: REPLACE_ME_WITH_DB_ROOT_PASSWORD_TXT_PATH
