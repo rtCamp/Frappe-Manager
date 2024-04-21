@@ -2,9 +2,16 @@ import json
 from typing import List
 from rich.text import Text
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
+from frappe_manager.compose_project.exceptions import (
+    DockerComposeProjectFailedToRemoveError,
+    DockerComposeProjectFailedToRestartError,
+    DockerComposeProjectFailedToStartError,
+    DockerComposeProjectFailedToStopError,
+)
 from frappe_manager.docker_wrapper.DockerClient import DockerClient
 from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.display_manager.DisplayManager import richprint
+
 
 class ComposeProject:
     def __init__(self, compose_file_manager: ComposeFile, verbose: bool = False):
@@ -12,44 +19,33 @@ class ComposeProject:
         self.docker: DockerClient = DockerClient(compose_file_path=self.compose_file_manager.compose_path)
         self.quiet = not verbose
 
-    def start_service(self, services: List[str] = [], force_recreate: bool = False) -> bool:
+    def start_service(self, services: List[str] = [], force_recreate: bool = False):
         """
         Starts the specific compose service.
-
-        Returns:
-            bool: True if the containers were started successfully, False otherwise.
         """
-        status_text = f"Starting Docker Compose services {' '.join(services)}"
-        richprint.change_head(status_text)
         try:
-            output = self.docker.compose.up(services=services, detach=True, pull="never", force_recreate=force_recreate, stream=self.quiet)
+            output = self.docker.compose.up(
+                services=services, detach=True, pull="never", force_recreate=force_recreate, stream=self.quiet
+            )
             if self.quiet:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
-            richprint.print(f"{status_text}: Done")
         except DockerException as e:
-            richprint.error(f"{status_text}: Failed", exception=e)
-        return True
+            raise DockerComposeProjectFailedToStartError(self.compose_file_manager.compose_path, services)
 
-    def stop_service(self, services: List[str] = [], timeout: int = 100) -> bool:
+    def stop_service(self, services: List[str] = [], timeout: int = 100):
         """
         Stops the specific compose service.
-
-        Returns:
-            bool: True if the site is successfully stopped, False otherwise.
         """
-        status_text = "Stopping Containers"
-        richprint.change_head(status_text)
         try:
-            output = self.docker.compose.stop(services=services,timeout = timeout, stream=self.quiet)
+            output = self.docker.compose.stop(services=services, timeout=timeout, stream=self.quiet)
             if self.quiet:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
-            richprint.print(f"{status_text}: Done")
         except DockerException as e:
-            richprint.error(f"{status_text}: Failed", exception=e)
+            raise DockerComposeProjectFailedToStopError(
+                self.compose_file_manager.compose_path, self.compose_file_manager.get_services_list()
+            )
 
-        return True
-
-    def down_service(self, remove_ophans=True, volumes=True, timeout=5) -> bool:
+    def down_service(self, remove_ophans=True, volumes=True, timeout=5):
         """
         Stops and removes the containers for the site.
 
@@ -57,12 +53,7 @@ class ComposeProject:
             remove_ophans (bool, optional): Whether to remove orphan containers. Defaults to True.
             volumes (bool, optional): Whether to remove volumes. Defaults to True.
             timeout (int, optional): Timeout in seconds for stopping the containers. Defaults to 5.
-
-        Returns:
-            bool: True if the containers were successfully stopped and removed, False otherwise.
         """
-        status_text = "Removing containers"
-        richprint.change_head(status_text)
         try:
             output = self.docker.compose.down(
                 remove_orphans=remove_ophans,
@@ -71,26 +62,24 @@ class ComposeProject:
                 stream=True,
             )
             richprint.live_lines(output, padding=(0, 0, 0, 2))
-            richprint.print(f"{status_text}: Done")
         except DockerException as e:
-            richprint.error(f"{status_text}: Failed", exception=e)
+            raise DockerComposeProjectFailedToRemoveError(
+                self.compose_file_manager.compose_path, self.compose_file_manager.get_services_list()
+            )
 
     def pull_images(self):
         """
         Pull docker images.
         """
-        status_text = "Pulling images"
-        richprint.change_head(status_text)
         try:
             output = self.docker.compose.pull(stream=self.quiet)
             richprint.stdout.clear_live()
             if self.quiet:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
-            richprint.print(f"{status_text}: Done")
         except DockerException as e:
-            richprint.warning(f"{status_text}: Failed")
-            raise e
-
+            raise DockerComposeProjectFailedToRemoveError(
+                self.compose_file_manager.compose_path, self.compose_file_manager.get_services_list()
+            )
 
     def logs(self, service: str, follow: bool = False):
         """
@@ -209,12 +198,11 @@ class ComposeProject:
             return False
 
     def restart_service(self, services: List[str] = []):
-        status_text = f"Restarting service {services}"
-        richprint.change_head(status_text)
         try:
             output = self.docker.compose.restart(services=services, stream=self.quiet)
             if self.quiet:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
-            richprint.print(f"{status_text}: Done")
         except DockerException as e:
-            richprint.error(f"{status_text}: Failed", e)
+            raise DockerComposeProjectFailedToRestartError(
+                self.compose_file_manager.compose_path, self.compose_file_manager.get_services_list()
+            )

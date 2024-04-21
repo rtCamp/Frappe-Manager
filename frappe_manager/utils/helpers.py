@@ -6,7 +6,6 @@ from io import StringIO
 import sys
 from typing import Optional
 import requests
-import json
 import subprocess
 import platform
 import time
@@ -50,26 +49,6 @@ def remove_zombie_subprocess_process(process):
             except psutil.AccessDenied:
                 logger.cleanup(f"{pid} Permission denied")
         logger.cleanup("-" * 20)
-
-
-def check_update():
-    """
-    Retrieves the latest version of the frappe-manager package from PyPI and compares it with the currently installed version.
-    If a newer version is available, it displays a warning message suggesting to update the package.
-    """
-    url = "https://pypi.org/pypi/frappe-manager/json"
-    try:
-        update_info = requests.get(url, timeout=0.1)
-        update_info = json.loads(update_info.text)
-        fm_version = importlib.metadata.version("frappe-manager")
-        latest_version = update_info["info"]["version"]
-        if not fm_version == latest_version:
-            richprint.warning(
-                f"[dim]Update available v{latest_version}.[/dim]",
-                emoji_code=":arrows_counterclockwise:️",
-            )
-    except Exception as e:
-        pass
 
 
 def is_port_in_use(port):
@@ -348,23 +327,6 @@ def get_sitename_from_current_path() -> Optional[str]:
     if is_fqdn(sitename):
         return sitename
 
-def create_symlink(source: Path, destination: Path, force: bool = False):
-    if force:
-        # If the destination exists (whether it's a file, directory, or symlink), remove it
-        if destination.exists() or destination.is_symlink():
-            # This handles both files and directories, including non-empty directories
-            if destination.is_dir():
-                for item in destination.iterdir():
-                    if item.is_dir():
-                        create_symlink(item, destination / item.name)
-                    else:
-                        item.unlink()
-                destination.rmdir()
-            else:
-                destination.unlink()
-
-    # Create the symbolic link
-    destination.symlink_to(source)
 
 def create_class_from_dict(class_name, attributes_dict):
     """
@@ -377,11 +339,8 @@ def create_class_from_dict(class_name, attributes_dict):
     Returns:
     A new class with the specified properties and their default values.
     """
-    # The 'type' function is used here to create a new class.
-    # The first argument is the class name, the second is a tuple of the parent class (for inheritance, if needed),
-    # and the third argument is a dictionary of attributes and their values.
-
     return type(class_name, (object,), attributes_dict)
+
 
 def create_symlink(source: Path, dest: Path):
     """
@@ -403,20 +362,8 @@ def create_symlink(source: Path, dest: Path):
     # Create a symlink at the destination pointing to the source
     dest.symlink_to(source)
 
-def change_parent(a, b, target_subpath):
-    # Convert paths to Path objects if they are not already
-    a = Path(a) if not isinstance(a, Path) else a
-    b = Path(b) if not isinstance(b, Path) else b
 
-    # Find the target subpath in both paths
-    a_target_index = next(i for i, part in enumerate(a.parts) if part + '/' + a.parts[i + 1] == target_subpath)
-    b_target_index = next(i for i, part in enumerate(b.parts) if part + '/' + b.parts[i + 1] == target_subpath)
-
-    # Reconstruct path a with the parent from path b
-    new_a = b.parents[len(b.parts) - b_target_index - 2].joinpath(*a.parts[a_target_index + 2:])
-    return new_a
-
-def get_template_path(file_name: str) -> Path:
+def get_template_path(file_name: str, template_dir: str = 'templates') -> Path:
     """
     Get the file path of a template.
 
@@ -427,11 +374,13 @@ def get_template_path(file_name: str) -> Path:
     Returns:
         Optional[str]: The file path of the template, or None if the template is not found.
     """
-    template_path: str = f"templates/{file_name}"
+    template_path: str = f"{template_dir}/{file_name}"
     return get_frappe_manager_own_files(template_path)
+
 
 def get_frappe_manager_own_files(file_path: str):
     return Path(str(pkg_resources.files("frappe_manager").joinpath(file_path)))
+
 
 def rich_traceback_to_string(traceback: Traceback) -> str:
     """Convert a rich Traceback object to a string."""
@@ -440,11 +389,12 @@ def rich_traceback_to_string(traceback: Traceback) -> str:
     capture_buffer = StringIO()
 
     fake_console = Console(force_terminal=False, file=capture_buffer)
-    fake_console.print(traceback, crop=False,overflow='ignore')
+    fake_console.print(traceback, crop=False, overflow='ignore')
 
     captured_str = capture_buffer.getvalue()  # Retrieve the captured output as a string
     capture_buffer.close()
     return captured_str
+
 
 def capture_and_format_exception() -> str:
     """Capture the current exception and return a formatted traceback string."""
@@ -459,12 +409,15 @@ def capture_and_format_exception() -> str:
 
     return formatted_traceback
 
+
 def pluralise(singular, count):
     return '{} {}{}'.format(count, singular, '' if count == 1 else 's')
 
-def format_time_remaining(time_remaining):
-    day_count = time_remaining.days
 
+def format_ssl_certificate_time_remaining(expiry_date: datetime):
+    today_date = datetime.now(expiry_date.tzinfo)
+    time_remaining = expiry_date - today_date
+    day_count = time_remaining.days
     seconds_per_minute = 60
     seconds_per_hour = seconds_per_minute * 60
     seconds_unaccounted_for = time_remaining.seconds
@@ -474,14 +427,48 @@ def format_time_remaining(time_remaining):
 
     minutes = int(seconds_unaccounted_for / seconds_per_minute)
 
-    return '{} {} {}'.format(
-        pluralise('day', day_count),
-        pluralise('hour', hours),
-        pluralise('min', minutes)
-    )
+    return '{} {} {}'.format(pluralise('day', day_count), pluralise('hour', hours), pluralise('min', minutes))
+
 
 def get_certificate_expiry_date(fullchain_path: Path) -> datetime:
     cert_content = fullchain_path.read_bytes()
     cert = x509.load_pem_x509_certificate(cert_content, default_backend())
-    expiry_date:datetime = cert.not_valid_after_utc
+    expiry_date: datetime = cert.not_valid_after_utc
     return expiry_date
+
+
+def pull_docker_images() -> bool:
+    from frappe_manager.compose_manager.ComposeFile import ComposeFile
+    from frappe_manager.docker_wrapper.DockerClient import DockerClient
+    from frappe_manager.docker_wrapper.DockerException import DockerException
+
+    images_list = []
+    docker = DockerClient()
+    temp_bench_compose_file_manager = ComposeFile(loadfile=Path('/dev/null/docker-compose.yml'))
+    services_manager_compose_file_manager = ComposeFile(
+        loadfile=Path('/dev/null/docker-compose.yml'), template_name='docker-compose.services.tmpl'
+    )
+
+    images = temp_bench_compose_file_manager.get_all_images()
+    images.update(services_manager_compose_file_manager.get_all_images())
+
+    for service, image_info in images.items():
+        image = f"{image_info['name']}:{image_info['tag']}"
+        images_list.append(image)
+
+    # remove duplicates
+    images_list = list(dict.fromkeys(images_list))
+
+    no_error = True
+    for image in images_list:
+        status = f"[blue]Pulling image[/blue] [bold][yellow]{image}[/yellow][/bold]"
+        richprint.change_head(status, style=None)
+        try:
+            output = docker.pull(container_name=image, stream=True)
+            richprint.live_lines(output, padding=(0, 0, 0, 2))
+        except DockerException as e:
+            no_error = False
+            richprint.error(f"[bold][red]Error [/bold][/red]: Failed to pull {image}.")
+        richprint.print(f"[green]Pulled[/green] [blue]{image}[/blue].")
+
+    return no_error

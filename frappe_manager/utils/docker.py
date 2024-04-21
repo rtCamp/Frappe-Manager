@@ -11,6 +11,7 @@ from frappe_manager.display_manager.DisplayManager import richprint
 
 process_opened = []
 
+
 @dataclass
 class SubprocessOutput:
     stdout: List[str]
@@ -36,8 +37,9 @@ class SubprocessOutput:
             if source == 'stderr':
                 stderr.append(line)
 
-        data = {'stdout' : stdout,'stderr' : stderr, 'combined' : combined, 'exit_code' : exit_code}
+        data = {'stdout': stdout, 'stderr': stderr, 'combined': combined, 'exit_code': exit_code}
         return cls(**data)
+
 
 def reader(pipe, pipe_name, queue):
     """
@@ -57,6 +59,7 @@ def reader(pipe, pipe_name, queue):
                 queue.put((pipe_name, str(queue_line).encode()))
     finally:
         queue.put(None)
+
 
 def stream_stdout_and_stderr(
     full_cmd: list,
@@ -79,7 +82,7 @@ def stream_stdout_and_stderr(
         Iterable[Tuple[str, bytes]]: An iterable of tuples containing the source and output line.
     """
     logger = log.get_logger()
-    logger.debug('- -'*10)
+    logger.debug('- -' * 10)
     logger.debug(f"DOCKER COMMAND: {' '.join(full_cmd)}")
     if env is None:
         subprocess_env = None
@@ -111,11 +114,12 @@ def stream_stdout_and_stderr(
     exit_code = process.wait()
 
     logger.debug(f"RETURN CODE: {exit_code}")
-    logger.debug('- -'*10)
+    logger.debug('- -' * 10)
     if exit_code != 0:
         raise DockerException(full_cmd, exit_code, stderr=full_stderr)
 
     yield ("exit_code", str(exit_code).encode())
+
 
 def run_command_with_exit_code(
     full_cmd: list,
@@ -136,14 +140,15 @@ def run_command_with_exit_code(
             run_output = run(full_cmd)
             exit_code = run_output.returncode
             if exit_code != 0:
-                raise DockerException(full_cmd,exit_code)
+                raise DockerException(full_cmd, exit_code)
             return
 
         stream_output: SubprocessOutput = SubprocessOutput.from_output(stream_stdout_and_stderr(full_cmd))
         return stream_output
 
-    output: Iterable[Tuple[str,bytes]] = stream_stdout_and_stderr(full_cmd)
+    output: Iterable[Tuple[str, bytes]] = stream_stdout_and_stderr(full_cmd)
     return output
+
 
 def parameter_to_option(param: str) -> str:
     """Converts a parameter to an option.
@@ -156,6 +161,7 @@ def parameter_to_option(param: str) -> str:
     """
     option = "--" + param.replace("_", "-")
     return option
+
 
 def parameters_to_options(param: dict, exclude: list = []) -> list:
     """
@@ -181,7 +187,7 @@ def parameters_to_options(param: dict, exclude: list = []) -> list:
 
     for key in temp_param.keys():
         value = temp_param[key]
-        key = "--" + key.replace("_","-")
+        key = "--" + key.replace("_", "-")
         if type(value) == bool:
             if value:
                 params.append(key)
@@ -199,6 +205,7 @@ def parameters_to_options(param: dict, exclude: list = []) -> list:
 
     return params
 
+
 def is_current_user_in_group(group_name) -> bool:
     """Check if the current user is in the given group.
 
@@ -212,10 +219,12 @@ def is_current_user_in_group(group_name) -> bool:
     from frappe_manager.display_manager.DisplayManager import richprint
 
     import platform
+
     if platform.system() == 'Linux':
         import grp
         import pwd
         import os
+
         current_user = pwd.getpwuid(os.getuid()).pw_name
         try:
             docker_gid = grp.getgrnam(group_name).gr_gid
@@ -223,13 +232,18 @@ def is_current_user_in_group(group_name) -> bool:
             if current_user in docker_group_members:
                 return True
             else:
-                richprint.error(f"Your current user [blue][b] {current_user} [/b][/blue] is not in the 'docker' group. Please add it and restart your terminal.")
+                richprint.error(
+                    f"Your current user [blue][b] {current_user} [/b][/blue] is not in the 'docker' group. Please add it and restart your terminal."
+                )
                 return False
         except KeyError:
-            richprint.error(f"The group '{group_name}' does not exist. Please create it and add your current user [blue][b] {current_user} [/b][/blue] to it.")
+            richprint.error(
+                f"The group '{group_name}' does not exist. Please create it and add your current user [blue][b] {current_user} [/b][/blue] to it."
+            )
             return False
     else:
         return True
+
 
 def generate_random_text(length=50):
     """
@@ -242,10 +256,12 @@ def generate_random_text(length=50):
     str: The randomly generated text.
     """
     import random, string
+
     alphanumeric_chars = string.ascii_letters + string.digits
     return "".join(random.choice(alphanumeric_chars) for _ in range(length))
 
-def host_run_cp(image: str, source: str, destination: str, docker, verbose=False):
+
+def host_run_cp(image: str, source: str, destination: str, docker):
     """Copy files from source to destination using Docker.
 
     Args:
@@ -255,27 +271,23 @@ def host_run_cp(image: str, source: str, destination: str, docker, verbose=False
         docker: The Docker client object.
         verbose (bool, optional): Whether to display verbose output. Defaults to False.
     """
-    status_text = "Copying files"
-    richprint.change_head(f"{status_text} {source} -> {destination}")
+
     source_container_name = generate_random_text(10)
     dest_path = Path(destination)
-    errror_exception = None
+    richprint.change_head(f"Populating {dest_path.name} directory.")
 
-    failed: bool = False
-    # run the container
+    failed: Optional[int] = None
+
     try:
         output = docker.run(
             image=image,
             name=source_container_name,
             detach=True,
-            stream=not verbose,
+            stream=False,
             command="tail -f /dev/null",
         )
-        if not verbose:
-            richprint.live_lines(output, padding=(0, 0, 0, 2))
-
     except DockerException as e:
-        errror_exception = e
+        print(e)
         failed = 0
 
     if not failed:
@@ -285,35 +297,22 @@ def host_run_cp(image: str, source: str, destination: str, docker, verbose=False
                 source=source,
                 destination=destination,
                 source_container=source_container_name,
-                stream=not verbose,
+                stream=False,
             )
-            if not verbose:
-                richprint.live_lines(output, padding=(0, 0, 0, 2))
         except DockerException as e:
-            errror_exception = e
+            print(e)
             failed = 1
-
-    # # kill the container
-    # try:
-    #     output = docker.kill(container=source_container_name,stream=True)
-    #     richprint.live_lines(output, padding=(0,0,0,2))
-    # except DockerException as e:
-    #     richprint.exit(f"{status_text} failed. Error: {e}")
 
     if not failed:
         # rm the container
         try:
-            output = docker.rm(
-                container=source_container_name, force=True, stream=not verbose
-            )
-            if not verbose:
-                richprint.live_lines(output, padding=(0, 0, 0, 2))
+            output = docker.rm(container=source_container_name, force=True, stream=False)
         except DockerException as e:
-            errror_exception = e
+            print(e)
             failed = 2
 
     # check if the destination file exists
-    if not type(failed) == bool:
+    if failed:
         if failed > 1:
             if dest_path.exists():
                 import shutil
@@ -321,17 +320,13 @@ def host_run_cp(image: str, source: str, destination: str, docker, verbose=False
                 shutil.rmtree(dest_path)
         if failed == 2:
             try:
-                output = docker.rm(
-                    container=source_container_name, force=True, stream=not verbose
-                )
-                if not verbose:
-                    richprint.live_lines(output, padding=(0, 0, 0, 2))
+                output = docker.rm(container=source_container_name, force=True, stream=False)
             except DockerException as e:
                 pass
         # TODO introuduce custom exception to handle this type of cases where if the flow is not completed then it should raise exception which is handled by caller and then site creation check is done
-        richprint.exit(f"{status_text} failed.", error_msg=errror_exception)
+        raise Exception(f"Failed to copy files from {source} to {destination}.")
 
     elif not Path(destination).exists():
-        richprint.exit(f"{status_text} failed. Copied {destination} not found.")
+        raise Exception(f"{destination} not found.")
 
-
+    richprint.change_head(f"Populated {dest_path.name} directory.")

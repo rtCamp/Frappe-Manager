@@ -1,7 +1,7 @@
 from pathlib import Path
 from ruamel.yaml import YAML
-from ruamel.yaml.comments import (CommentedMap as OrderedDict, CommentedSeq as OrderedList)
-from typing import Any, List
+from ruamel.yaml.comments import CommentedMap as OrderedDict, CommentedSeq as OrderedList
+from typing import Any, List, Optional
 from frappe_manager.compose_manager import DockerVolumeMount
 from frappe_manager.compose_manager.compose_file_exceptions import ComposeSecretNotFoundError, ComposeServiceNotFound
 from frappe_manager.display_manager.DisplayManager import richprint
@@ -18,12 +18,17 @@ yaml.default_style = None
 
 
 class ComposeFile:
-    yml: dict [Any, Any]
+    yml: dict[Any, Any]
 
-    def __init__(self, loadfile: Path, template_name: str = "docker-compose.tmpl"):
+    def __init__(self, loadfile: Path, template_name: str = "docker-compose.tmpl", template_dir: Optional[str] = None):
         self.compose_path: Path = loadfile
         self.template_name = template_name
         self.is_template_loaded = False
+
+        self.template_dir = 'templates'
+
+        if template_dir:
+            self.template_dir = template_dir
 
         # check for if the docker-compose.yml file is present if not then use template provided
         if self.exists():
@@ -32,7 +37,6 @@ class ComposeFile:
         else:
             self.yml = self.load_template()
             self.is_template_loaded = True
-
 
     def exists(self):
         """
@@ -56,9 +60,9 @@ class ComposeFile:
         Returns:
             dict: The contents of the template file as a YAML object.
         """
-        template_path: Path = get_template_path(self.template_name)
+        template_path: Path = get_template_path(self.template_name, self.template_dir)
         with open(template_path, "r") as f:
-            yml  = yaml.load(f)
+            yml = yaml.load(f)
             return yml
 
     def set_container_names(self, prefix):
@@ -82,9 +86,7 @@ class ComposeFile:
         if self.exists():
             services = self.get_services_list()
             for service in services:
-                container_names[service] = self.yml["services"][service][
-                    "container_name"
-                ]
+                container_names[service] = self.yml["services"][service]["container_name"]
         return container_names
 
     def get_services_list(self) -> list:
@@ -122,7 +124,7 @@ class ComposeFile:
         try:
             self.yml["services"][service]["user"] = f"{uid}:{gid}"
         except KeyError as e:
-            richprint.error("Issue in docker template. Not able to set user.",e)
+            richprint.error("Issue in docker template. Not able to set user.", e)
 
     def get_user(self, service):
         """
@@ -172,9 +174,7 @@ class ComposeFile:
             try:
                 all_networks = self.yml["services"][service_name]["networks"]
                 if network_name in all_networks:
-                    self.yml["services"][service_name]["networks"][network_name] = {
-                        "aliases": alias
-                    }
+                    self.yml["services"][service_name]["networks"][network_name] = {"aliases": alias}
                     return True
             except KeyError as e:
                 return False
@@ -197,9 +197,7 @@ class ComposeFile:
             if not network_name in all_networks:
                 return None
 
-            aliases = self.yml["services"][service_name]["networks"][network_name][
-                "aliases"
-            ]
+            aliases = self.yml["services"][service_name]["networks"][network_name]["aliases"]
             return aliases
         except KeyError as e:
             return None
@@ -448,7 +446,7 @@ class ComposeFile:
             with open(self.compose_path, "w") as f:
                 yaml.dump(self.yml, f, transform=represent_null_empty)
         except Exception as e:
-            richprint.error(f"Error in writing compose file.",e)
+            richprint.error(f"Error in writing compose file.", e)
 
     def get_all_volumes(self):
         """
@@ -461,7 +459,6 @@ class ComposeFile:
             return {}
 
         return volumes
-
 
     def get_all_services_volumes(self) -> List[DockerVolumeMount]:
         """
@@ -492,7 +489,7 @@ class ComposeFile:
         volumes_list = []
 
         for volume in volumes_set:
-            volumes_list.append((parse_docker_volume(volume,self.get_all_volumes(),self.compose_path)))
+            volumes_list.append((parse_docker_volume(volume, self.get_all_volumes(), self.compose_path)))
 
         return volumes_list
 
@@ -520,7 +517,7 @@ class ComposeFile:
             file_path = self.yml["secrets"][secret_name]["file"]
             return Path(file_path)
         except KeyError:
-            raise ComposeSecretNotFoundError(secret_name,str(self.compose_path.absolute()))
+            raise ComposeSecretNotFoundError(secret_name, str(self.compose_path.absolute()))
 
     def remove_secrets_from_container(self, container):
         try:

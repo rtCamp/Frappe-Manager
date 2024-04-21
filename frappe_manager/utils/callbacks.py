@@ -1,7 +1,6 @@
 from typing import Optional
 import typer
 from typing import List, Optional, Set
-from frappe_manager.site_manager.SiteManager import BenchesManager
 from frappe_manager.site_manager.site_exceptions import BenchNotFoundError
 from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version, get_sitename_from_current_path
 from frappe_manager.display_manager.DisplayManager import richprint
@@ -44,7 +43,10 @@ def apps_list_validation_callback(value: List[str] | None):
 
             if len(appx) > 2:
                 richprint.stop()
-                msg = "Specify the app in the format <appname>:<branch> or <appname>." "\n<appname> can be a URL or, if it's a FrappeVerse app, simply provide it as 'erpnext' or 'hrms:develop'."
+                msg = (
+                    "Specify the app in the format <appname>:<branch> or <appname>."
+                    "\n<appname> can be a URL or, if it's a FrappeVerse app, simply provide it as 'erpnext' or 'hrms:develop'."
+                )
                 raise typer.BadParameter(msg)
 
             if len(appx) == 1:
@@ -108,13 +110,16 @@ def version_callback(version: Optional[bool] = None):
 
 
 def sites_autocompletion_callback():
-    sites = BenchesManager(CLI_BENCHES_DIRECTORY)
-    sites_list = sites.get_all_bench()
+    sites_list = []
+    for dir in CLI_BENCHES_DIRECTORY.iterdir():
+        if dir.is_dir():
+            dir = dir / "docker-compose.yml"
+            if dir.exists() and dir.is_file():
+                sites_list.append(sites_list)
     return sites_list
 
 
 def sitename_callback(sitename: Optional[str]):
-
     if not sitename:
         sitename = get_sitename_from_current_path()
 
@@ -127,7 +132,7 @@ def sitename_callback(sitename: Optional[str]):
     bench_path = CLI_BENCHES_DIRECTORY / sitename
 
     if not bench_path.exists():
-        raise BenchNotFoundError(sitename,bench_path)
+        raise BenchNotFoundError(sitename, bench_path)
 
     return sitename
 
@@ -137,6 +142,7 @@ def code_command_extensions_callback(extensions: List[str]) -> List[str]:
     unique_ext: Set = set(extx)
     unique_ext_list: List[str] = [x for x in unique_ext]
     return unique_ext_list
+
 
 def create_command_sitename_callback(sitename: str):
     # validate the site

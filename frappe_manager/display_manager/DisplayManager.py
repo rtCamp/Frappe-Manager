@@ -1,4 +1,5 @@
 from rich.console import Console, Group
+from rich.prompt import Prompt
 from rich.style import Style
 from rich.theme import Theme
 from rich.spinner import Spinner
@@ -35,10 +36,11 @@ class DisplayManager:
             None
         """
         self.current_head = self.previous_head = Text(text=text, style="bold blue")
-        self.spinner.update(text=self.current_head)
-        self.live.start()
+        self.spinner = Spinner(text=self.current_head, name="dots2", speed=1)
+        self.live.start(refresh=True)
+        self.live.update(self.spinner, refresh=True)
 
-    def error(self, text: str,exception: Optional[Exception] = None, emoji_code: str = ":x:"):
+    def error(self, text: str, exception: Optional[Exception] = None, emoji_code: str = ":x:"):
         """
         Display an error message with an optional emoji code.
 
@@ -115,11 +117,16 @@ class DisplayManager:
         self.previous_head = self.current_head
         self.current_head = text
         self.live.console.print(self.previous_head, style="blue")
-        self.spinner.update(
-            text=Text(self.current_head, style="blue bold"), style="bold blue"
-        )
+        self.spinner.update(text=Text(self.current_head, style="blue bold"), style="bold blue")
 
-    def change_head(self, text: str,style: Optional[str] = 'blue bold'):
+    def prompt_ask(self, **args):
+        self.spinner.update()
+        self.live.stop()
+        value = Prompt.ask(**args, console=self.stdout)
+        self.start('Working')
+        return value
+
+    def change_head(self, text: str, style: Optional[str] = 'blue bold'):
         """
         Change the head text and update the spinner and live display.
 
@@ -203,7 +210,7 @@ class DisplayManager:
                 table.add_column()
 
                 for linex in list(displayed_lines):
-                    prefix_text = Text(log_prefix + ' ',no_wrap=True)
+                    prefix_text = Text(log_prefix + ' ', no_wrap=True)
                     table_line = Text.from_ansi(linex)
                     prefix_text.append_text(table_line)
                     table.add_row(prefix_text)
@@ -215,6 +222,7 @@ class DisplayManager:
                 richprint.live.refresh()
 
             except StopIteration:
+                self.update_live()
                 break
 
     def stop(self):
