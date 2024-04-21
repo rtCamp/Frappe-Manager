@@ -32,8 +32,6 @@ DEFAULT_EXTENSIONS = [
 class SiteServicesEnum(str, Enum):
     frappe = "frappe"
     nginx = "nginx"
-    mailhog = "mailhog"
-    adminer = "adminer"
     mariadb = "mariadb"
     redis_queue = "redis-queue"
     redis_cache = "redis-cache"

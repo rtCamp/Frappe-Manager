@@ -412,11 +412,11 @@ def logs(
         ),
     ] = None,
     service: Annotated[
-        Optional[SiteServicesEnum], typer.Option(help="Specify service name to show container logs.")
+        Optional[SiteServicesEnum], typer.Option(help="Specify compose service name to show container logs.")
     ] = None,
     follow: Annotated[bool, typer.Option("--follow", "-f", help="Follow logs.")] = False,
 ):
-    """Show frappe dev server logs or container logs for a given bench."""
+    """Show frappe server logs or container logs for a given bench."""
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
     bench = Bench.get_object(benchname, services_manager)
@@ -432,10 +432,10 @@ def shell(
             help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
         ),
     ] = None,
-    user: Annotated[Optional[str], typer.Option(help="Connect as this user.")] = None,
+    user: Annotated[Optional[str], typer.Option(help="Connect as this user.", show_default=False)] = None,
     service: Annotated[SiteServicesEnum, typer.Option(help="Specify Service")] = SiteServicesEnum.frappe,
 ):
-    """Open shell for the give bench."""
+    """Spawn shell for the give bench."""
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
@@ -470,9 +470,9 @@ def update(
             help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
         ),
     ] = None,
-    ssl: Annotated[Optional[SUPPORTED_SSL_TYPES], typer.Option(help="Enable https", show_default=False)] = None,
+    ssl: Annotated[Optional[SUPPORTED_SSL_TYPES], typer.Option(help="Enable SSL.", show_default=False)] = None,
     admin_tools: Annotated[
-        Optional[AdminToolOptionEnum], typer.Option("--admin-tools", help="Enable https", show_default=False)
+        Optional[AdminToolOptionEnum], typer.Option("--admin-tools", help="Enable admin-tools.", show_default=False)
     ] = None,
 ):
     """Update bench."""

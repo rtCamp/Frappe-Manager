@@ -44,7 +44,7 @@ class BenchNotFoundError(BenchException):
         self,
         bench_name: str,
         path: Path,
-        message: str = 'Not found at {}. Aborting operation.',
+        message: str = 'Bench not found at {}.',
     ):
         self.bench_name = bench_name
         self.path = path

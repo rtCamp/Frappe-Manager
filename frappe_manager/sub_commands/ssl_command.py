@@ -35,7 +35,10 @@ def delete(
 def renew(
     ctx: typer.Context,
     benchname: Annotated[
-        Optional[str], typer.Argument(help="Name of the bench.", autocompletion=sites_autocompletion_callback)
+        Optional[str],
+        typer.Argument(
+            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
+        ),
     ] = None,
     all: Annotated[bool, typer.Option(help="Renew ssl cert for all benches.")] = False,
 ):
