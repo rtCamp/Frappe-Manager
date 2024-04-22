@@ -42,6 +42,7 @@ services:
       - "./nginx-proxy/html:/usr/share/nginx/html"
       - "./nginx-proxy/logs:/var/log/nginx"
       - "./nginx-proxy/run:/var/run"
+      - "./nginx-proxy/ssl:/usr/share/nginx/ssl"
       - "./nginx-proxy/cache:/var/cache/nginx"
       - "/var/run/docker.sock:/tmp/docker.sock:ro"
     networks:
