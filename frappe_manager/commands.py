@@ -1,4 +1,5 @@
 from pathlib import Path
+from frappe_manager.utils.site import pull_docker_images
 import typer
 import os
 import sys
@@ -39,7 +40,6 @@ from frappe_manager.utils.helpers import (
     format_ssl_certificate_time_remaining,
     is_cli_help_called,
     get_current_fm_version,
-    pull_docker_images,
 )
 from frappe_manager.services_manager.commands import services_root_command
 from frappe_manager.sub_commands.self_commands import self_app

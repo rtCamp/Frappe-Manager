@@ -174,3 +174,43 @@ def get_bench_db_connection_info(bench_name: str, bench_path: Path):
         db_info["user"] = str(bench_name).replace(".", "-")
         db_info["password"] = None
     return db_info
+
+def pull_docker_images() -> bool:
+    from frappe_manager.compose_manager.ComposeFile import ComposeFile
+    from frappe_manager.docker_wrapper.DockerClient import DockerClient
+    from frappe_manager.docker_wrapper.DockerException import DockerException
+
+    images_list = []
+    docker = DockerClient()
+    temp_bench_compose_file_manager = ComposeFile(loadfile=Path('/dev/null/docker-compose.yml'))
+    services_manager_compose_file_manager = ComposeFile(
+        loadfile=Path('/dev/null/docker-compose.yml'), template_name='docker-compose.services.tmpl'
+    )
+    admin_tools_manager_compose_file_manager = ComposeFile(
+        loadfile=Path('/dev/null/docker-compose.yml'), template_name='docker-compose.admin-tools.tmpl'
+    )
+
+    images = temp_bench_compose_file_manager.get_all_images()
+    images.update(services_manager_compose_file_manager.get_all_images())
+    images.update(admin_tools_manager_compose_file_manager.get_all_images())
+
+    for service, image_info in images.items():
+        image = f"{image_info['name']}:{image_info['tag']}"
+        images_list.append(image)
+
+    # remove duplicates
+    images_list = list(dict.fromkeys(images_list))
+
+    no_error = True
+    for image in images_list:
+        status = f"[blue]Pulling image[/blue] [bold][yellow]{image}[/yellow][/bold]"
+        richprint.change_head(status, style=None)
+        try:
+            output = docker.pull(container_name=image, stream=True)
+            richprint.live_lines(output, padding=(0, 0, 0, 2))
+        except DockerException as e:
+            no_error = False
+            richprint.error(f"[bold][red]Error [/bold][/red]: Failed to pull {image}.")
+        richprint.print(f"[green]Pulled[/green] [blue]{image}[/blue].")
+
+    return no_error

@@ -1,9 +1,9 @@
+from frappe_manager.utils.site import pull_docker_images
 import typer
 import requests
 import json
-from rich.prompt import Prompt
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.utils.helpers import get_current_fm_version, install_package, pull_docker_images
+from frappe_manager.utils.helpers import get_current_fm_version, install_package
 
 update_app = typer.Typer(rich_markup_mode="rich")
 
