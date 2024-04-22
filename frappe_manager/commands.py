@@ -112,10 +112,9 @@ def app_callback(
                 if not completed_status:
                     shutil.rmtree(CLI_DIR)
                     richprint.exit("Aborting. [bold][blue]fm[/blue][/bold] will not be able to work without images. 🖼️")
-
-                    current_version = Version(get_current_fm_version())
-                    fm_config_manager.version = current_version
-                    fm_config_manager.export_to_toml()
+                current_version = Version(get_current_fm_version())
+                fm_config_manager.version = current_version
+                fm_config_manager.export_to_toml()
 
         migrations = MigrationExecutor(fm_config_manager)
         migration_status = migrations.execute()
