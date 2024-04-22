@@ -46,7 +46,7 @@ class ServicesManager:
             try:
                 richprint.print(f"Creating services", emoji_code=":construction:")
                 self.path.mkdir(parents=True, exist_ok=True)
-                self.create()
+                self.create(clean_install=True)
             except Exception as e:
                 raise ServicesNotCreated(f'Error Caused: {e}')
 
