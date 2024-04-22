@@ -51,7 +51,7 @@ class FMConfigManager(BaseModel):
 
         if old_config_path.exists():
             old_data = tomlkit.parse(old_config_path.read_text())
-            input_data['version'] = old_data.get('version', Version('0.8.3'))
+            input_data['version'] = Version(old_data.get('version', '0.8.3'))
         elif path.exists():
             data = tomlkit.parse(path.read_text())
             input_data['version'] = Version(data.get('version', get_current_fm_version()))
