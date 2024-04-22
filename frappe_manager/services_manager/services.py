@@ -190,7 +190,7 @@ class ServicesManager:
 
         if clean_install:
             # remove previous contaniners and volumes
-            self.compose_project.docker.compose.down(remove_orphans=True, timeout=1, volumes=True, stream=True)
+            self.compose_project.docker.compose.down(remove_orphans=True, timeout=10, volumes=True, stream=False)
 
     def exists(self):
         return (self.path / "docker-compose.yml").exists()
