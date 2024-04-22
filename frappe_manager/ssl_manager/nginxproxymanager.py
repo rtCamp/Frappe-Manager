@@ -28,10 +28,10 @@ class NginxProxyManager:
         return dirs_class()
 
     def reload(self):
-        richprint.change_head("Reloading nginx-proxy")
+        richprint.change_head("Reloading nginx")
 
         if self.compose_project.running:
             output = self.compose_project.docker.compose.exec(
                 service=self.service_name, command='nginx -s reload', stream=False
             )
-            richprint.print("Reloaded nginx-proxy.")
+            richprint.print("Reloaded nginx.")

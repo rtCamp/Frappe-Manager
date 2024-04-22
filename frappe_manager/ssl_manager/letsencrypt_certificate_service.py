@@ -78,7 +78,7 @@ class LetsEncryptCertificateService(SSLCertificateService):
         remove_certificate_config = self._get_le_config(shlex.split(remove_certificate_command), quiet=True)
         plugins = plugins_disco.PluginsRegistry.find_all()
         remove_certificate_config.func(remove_certificate_config, plugins)
-        richprint.change_head("Removing Letsencrypt certificate : Done")
+        richprint.print("Removed Letsencrypt certificate")
 
     def generate_certificate(self, certificate: LetsencryptSSLCertificate):
         gen_command: str = self.base_command + f" certonly --webroot -w {self.webroot_dir} "
@@ -97,6 +97,7 @@ class LetsEncryptCertificateService(SSLCertificateService):
             config = self._get_le_config(shlex.split(gen_command), quiet=True)
             plugins = plugins_disco.PluginsRegistry.find_all()
             config.func(config, plugins)
+            richprint.stdout.print(self.console_output.getvalue().strip())
 
         except AuthorizationError as e:
             logger = log.get_logger()

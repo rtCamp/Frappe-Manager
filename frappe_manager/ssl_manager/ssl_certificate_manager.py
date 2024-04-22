@@ -64,7 +64,7 @@ class SSLCertificateManager:
                 path = path.readlink()
                 to_remove = Path(self.proxy_manager.dirs.ssl.container)
                 relative_path = path.relative_to(to_remove)
-                path = self.proxy_manager.dirs.ssl.host / self.certificate.ssl_type.value / relative_path
+                path = self.proxy_manager.dirs.ssl.host / relative_path
                 paths.append(path)
             return paths
         except FileNotFoundError:
@@ -99,11 +99,14 @@ class SSLCertificateManager:
             )
 
     def remove_certificate_to_domain_link(self):
-        if self.get_cert_proxy_privkey_path().is_symlink():
-            self.get_cert_proxy_privkey_path().unlink()
+        host_cert_proxy_privkey_path = self.get_cert_proxy_privkey_path()
+        host_cert_proxy_fullchain_path = self.get_cert_proxy_fullchain_path()
 
-        if self.get_cert_proxy_privkey_path().is_symlink():
-            self.get_cert_proxy_privkey_path().unlink()
+        try:
+            host_cert_proxy_fullchain_path.unlink()
+            host_cert_proxy_privkey_path.unlink()
+        except:
+            pass
 
     def remove_certificate(self):
         self.remove_certificate_to_domain_link()
@@ -124,11 +127,11 @@ class SSLCertificateManager:
     def __get_cert_container_privkey_path(self, privkey_path: Path) -> Path:
         part_to_remove = Path(self.proxy_manager.dirs.ssl.host / self.certificate.ssl_type.value)
         relative_path = privkey_path.relative_to(part_to_remove)
-        path = self.proxy_manager.dirs.ssl.container / relative_path
+        path = self.proxy_manager.dirs.ssl.container / self.certificate.ssl_type.value / relative_path
         return path
 
     def __get_cert_container_fullchain_path(self, fullchain_path: Path) -> Path:
         part_to_remove = Path(self.proxy_manager.dirs.ssl.host / self.certificate.ssl_type.value)
         relative_path = fullchain_path.relative_to(part_to_remove)
-        path = self.proxy_manager.dirs.ssl.container / relative_path
+        path = self.proxy_manager.dirs.ssl.container / self.certificate.ssl_type.value / relative_path
         return path
