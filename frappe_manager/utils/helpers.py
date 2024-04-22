@@ -5,6 +5,7 @@ from cryptography import x509
 from io import StringIO
 import sys
 from typing import Optional
+from frappe_manager.utils.docker import run_command_with_exit_code
 import requests
 import subprocess
 import platform
@@ -308,7 +309,8 @@ def get_unix_groups():
 
 
 def install_package(package_name, version):
-    subprocess.check_call([sys.executable, "-m", "pip", "install", f"{package_name}=={version}"])
+    output = run_command_with_exit_code([sys.executable, "-m", "pip", "install", f"{package_name}=={version}"], stream=True)
+    richprint.live_lines(output)
 
 
 def get_sitename_from_current_path() -> Optional[str]:

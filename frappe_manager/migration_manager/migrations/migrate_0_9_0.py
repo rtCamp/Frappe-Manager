@@ -39,7 +39,7 @@ class MigrationV090(MigrationBase):
 
         # move all the directories
         richprint.print(
-            f"Moving sites from {CLI_DIR} to {self.bences_dir}", prefix=f"[bold]v{str(self.version)}:[/bold] "
+            f"Moving benches from {CLI_DIR} to {self.bences_dir}", prefix=f"[bold]v{str(self.version)}:[/bold] "
         )
 
         for site in move_directory_list:
@@ -61,7 +61,7 @@ class MigrationV090(MigrationBase):
 
         if self.bences_dir.exists():
             richprint.print(
-                f"Found sites directory change.", prefix=f"[bold]v{str(self.version.version)} [ROLLBACK]:[/bold] "
+                f"Found benches directory change.", prefix=f"[bold]v{str(self.version.version)} [ROLLBACK]:[/bold] "
             )
 
             move_directory_list = []

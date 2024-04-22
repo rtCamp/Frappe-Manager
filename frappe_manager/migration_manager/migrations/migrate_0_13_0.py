@@ -40,7 +40,11 @@ class MigrationV0130(MigrationBase):
             self.services_manager.compose_project.compose_file_manager.compose_path / "docker-compose.yml"
         )
         # remove version from services yml
-        del self.services_manager.compose_project.compose_file_manager.yml['version']
+        try:
+            del self.services_manager.compose_project.compose_file_manager.yml['version']
+        except KeyError:
+            self.logger.warning(f"[services]: version attribute not found compose.")
+            pass
 
         # include new volume info
         services_volume_list = self.services_manager.compose_project.compose_file_manager.get_service_volumes(
@@ -181,7 +185,11 @@ class MigrationV0130(MigrationBase):
         envs["nginx"]["HSTS"] = 'off'
 
         if 'ENABLE_SSL' in envs['nginx']:
-            del envs['nginx']['ENABLE_SSL']
+            try:
+                del envs['nginx']['ENABLE_SSL']
+            except KeyError:
+                self.logger.warning(f"{bench.name}: ENABLE_SSL nginx's env not found.")
+                pass
 
         # create new html in configs/nginx/html compose directory
         html_nginx_configs_path = bench.path / 'configs' / 'nginx' / 'html'
@@ -255,10 +263,15 @@ class MigrationV0130(MigrationBase):
 
         # remove adminer and mailhog from main bench compose
         del bench.compose_project.compose_file_manager.yml['services']['adminer']
+
         del bench.compose_project.compose_file_manager.yml['services']['mailhog']
 
         # remove version from compose
-        del bench.compose_project.compose_file_manager.yml['version']
+        try:
+            del bench.compose_project.compose_file_manager.yml['version']
+        except KeyError:
+            self.logger.warning(f"{bench.name}: version attribute not found compose.")
+            pass
 
         # include new volume info
         bench_volume_list = bench.compose_project.compose_file_manager.get_service_volumes('nginx')
@@ -291,7 +304,11 @@ class MigrationV0130(MigrationBase):
             for worker in workers_image_info.keys():
                 workers_image_info[worker] = self.frappe_image_info
 
-            del bench.compose_project.compose_file_manager.yml['version']
+            try:
+                del bench.workers_compose_project.compose_file_manager.yml['version']
+            except KeyError:
+                self.logger.warning(f"{bench.name} workers: version attribute not found compose.")
+                pass
 
             bench.workers_compose_project.compose_file_manager.set_top_networks_name(
                 "site-network", get_container_name_prefix(bench.name)
@@ -314,7 +331,10 @@ class MigrationV0130(MigrationBase):
         network_compose_config = bench_compose_yml.get('networks', {})
 
         if 'global-frontend-network' in network_compose_config:
-            del network_compose_config['global-frontend-network']
+            try:
+                del network_compose_config['global-frontend-network']
+            except KeyError:
+                pass
 
         admin_tools_compose = {}
         admin_tools_compose['services'] = {

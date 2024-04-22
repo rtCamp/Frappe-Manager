@@ -1,9 +1,11 @@
 import shutil
 from typing import Optional
+from frappe_manager.migration_manager.migration_helpers import MigrationBench
+from rich.padding import Padding
+from rich.text import Text
 import importlib
 import pkgutil
 from pathlib import Path
-from rich.prompt import Prompt
 from frappe_manager import CLI_DIR, CLI_SITES_ARCHIVE
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.migration_manager.migration_exections import (
@@ -73,26 +75,25 @@ class MigrationExecutor:
         self.migrations = sorted(self.migrations, key=lambda x: x.version)
 
         if self.migrations:
-            richprint.print("Pending Migrations...")
+            richprint.print("Pending Migrations...", emoji_code=':counterclockwise_arrows_button:')
 
             for migration in self.migrations:
-                richprint.print(f"[bold]MIGRATION:[/bold] v{migration.version}")
+                richprint.print(f"[bold]v{migration.version}[/bold]",emoji_code=':package:')
 
-            richprint.print("This may take some time.", emoji_code=":light_bulb:")
+            richprint.print("This process may take a while.", emoji_code="\n:hourglass_not_done:")
 
             richprint.print(
-                "Manual migration guide -> https://github.com/rtCamp/Frappe-Manager/wiki/Migrations#manual-migration-procedure",
-                emoji_code=":light_bulb:",
+                "For a manual migration guide, visit https://github.com/rtCamp/Frappe-Manager/wiki/Migrations#manual-migration-procedure",
+                emoji_code=":blue_book:",
             )
 
-            migrate_msg = (
-                "\n[blue]yes[/blue] : Start Migration."
-                "\n[blue]no[/blue]  : Don't migrate and revert to previous fm version."
-                "\nDo you want to migrate ?"
-            )
-            # prompt
-            richprint.stop()
-            continue_migration = Prompt.ask(migrate_msg, choices=["yes", "no"])
+            migrate_msg = [
+                "\nOptions :\n",
+                "[blue]\[yes][/blue] Start Migration: Proceed with the migration process.",
+                "[blue]\[no][/blue]  Abort and Revert: Do not migrate and revert to the previous fm version.",
+                "\nDo you want to proceed with the migration ?",
+            ]
+            continue_migration = richprint.prompt_ask(prompt="\n".join(migrate_msg), choices=["yes", "no"])
 
             if continue_migration == "no":
                 install_package("frappe-manager", str(self.prev_version.version))
@@ -100,8 +101,6 @@ class MigrationExecutor:
                     f"Successfully installed [bold][blue]Frappe-Manager[/blue][/bold] version: v{str(self.prev_version.version)}",
                     emoji_code=":white_check_mark:",
                 )
-
-            richprint.start("Working")
 
         rollback = False
         archive = False
@@ -132,35 +131,49 @@ class MigrationExecutor:
                     raise e
 
         except MigrationExceptionInBench as e:
-            richprint.stop()
             if self.migrate_benches:
-                richprint.print("[green]Migration was successfull on these sites.[/green]")
+                print_head = True
+                for bench, bench_status in self.migrate_benches.items():
+                    if not bench_status["exception"]:
+                        if print_head:
+                                richprint.stdout.rule('[bold][red]Migration Passed Benches[/red][bold]',style='green')
+                                print_head = False
 
-                for site, site_status in self.migrate_benches.items():
-                    if not site_status["exception"]:
-                        richprint.print(f"[bold][green]SITE:[/green][/bold] {site}")
+                        richprint.print(f"[red]Bench[/red]: {bench}",emoji_code=':construction:')
 
-                richprint.print("[red]Migration failed on these sites[/red]")
+                if not print_head:
+                    richprint.stdout.rule(style='red')
 
-                for site, site_status in self.migrate_benches.items():
-                    if site_status["exception"]:
-                        richprint.print(f"[bold][red]SITE[/red]:[/bold] {site}")
-                        richprint.print(
-                            f"[bold][red]FAILED MIGRATION VERSION[/red]:[/bold] {site_status['last_migration_version']}"
+                print_head = True
+                for bench, bench_status in self.migrate_benches.items():
+                    if bench_status["exception"]:
+                        if print_head:
+                                richprint.stdout.rule(':police_car_light: [bold][red]Migration Failed Benches[/red][bold] :police_car_light:',style='red')
+                                print_head = False
+
+                        richprint.error(f"[red]Bench[/red]: {bench}",emoji_code=':construction:')
+
+                        richprint.error(
+                            f"[red]Failed Migration Version[/red]: {bench_status['last_migration_version']}",emoji_code=':package:'
                         )
-                        richprint.print(
-                            f"[bold][red]EXCEPTION[/red]:[/bold] {type(site_status['exception']).__name__} - {site_status['exception']}"
+
+                        richprint.error(
+                            f"[red]Exception[/red]: {type(bench_status['exception']).__name__}",emoji_code=':stop_sign:'
                         )
+                        richprint.stdout.print(Padding(Text(text=str(bench_status['exception'])),(0,0,0,3)))
 
-                richprint.print(f"More error details can be found in the log -> '{CLI_DIR}/logs/fm.log'")
+                richprint.print(f"For error specifics, refer to {CLI_DIR}/logs/fm.log", emoji_code=':page_facing_up:')
 
-                archive_msg = (
-                    f"\n[blue]yes[/blue] : Sites that have failed will be rolled back and stored in '{CLI_SITES_ARCHIVE}'."
-                    "\n[blue]no[/blue]  : Revert the entire migration to the previous fm version."
-                    "\nDo you wish to archive all sites that failed during migration?"
-                )
+                if not print_head:
+                    richprint.stdout.rule(style='red')
 
-                archive = Prompt.ask(archive_msg, choices=["yes", "no"])
+                archive_msg = [
+                    'Please select one of the available options after migrations failure :\n',
+                    f"[blue]yes[/blue] Archive failed benches : Benches that have failed will be rolled back and stored in '{CLI_SITES_ARCHIVE}'.",
+                    '[blue]no[/blue] Revert migration : Revert the entire fm enrionment to the previous fm version before migration.',
+                    '\nDo you wish to archive all benches that failed during migration ?',
+                ]
+                archive = richprint.prompt_ask(prompt="\n".join(archive_msg), choices=["yes", "no"])
 
                 if archive == "no":
                     rollback = True
@@ -171,45 +184,42 @@ class MigrationExecutor:
 
         if archive == "yes":
             self.prev_version = self.undo_stack[-1].version
-            for site, site_info in self.migrate_benches.items():
-                if site_info["exception"]:
-                    archive_site_path = CLI_SITES_ARCHIVE / site
+            for bench, bench_info in self.migrate_benches.items():
+                if bench_info["exception"]:
+                    archive_bench_path = CLI_SITES_ARCHIVE / bench
                     CLI_SITES_ARCHIVE.mkdir(exist_ok=True, parents=True)
-                    shutil.move(site_info["object"].path, archive_site_path)
-                    richprint.print(f"[bold]Archived site:[/bold] {site}")
+                    shutil.move(bench_info["object"].path, archive_bench_path)
+                    richprint.print(f"[bold]Archived bench :[/bold] [yellow]{bench}[/yellow]")
 
         if rollback:
-            richprint.start("Rollback")
             self.rollback()
-            richprint.stop()
             self.fm_config_manager.version = self.rollback_version
             self.fm_config_manager.export_to_toml()
             richprint.print(
                 f"Installing [bold][blue]Frappe-Manager[/blue][/bold] version: v{str(self.rollback_version.version)}"
             )
             install_package("frappe-manager", str(self.rollback_version.version))
-            richprint.exit("Rollback complete.")
+            richprint.exit("Rollback complete.",emoji_code=':back:')
 
         self.fm_config_manager.version = self.current_version
         self.fm_config_manager.export_to_toml()
         return True
 
     def set_bench_data(
-        self, site, exception=None, migration_version: Optional[Version] = None, traceback_str: Optional[str] = None
+        self, bench: MigrationBench, exception=None, migration_version: Optional[Version] = None, traceback_str: Optional[str] = None
     ):
-        self.migrate_benches[site.name] = {
-            "object": site,
+        self.migrate_benches[bench.name] = {
+            "object": bench,
             "exception": exception,
             "last_migration_version": migration_version,
             "traceback": traceback_str,
         }
 
-    def get_site_data(self, site_name):
+    def get_site_data(self, bench_name):
         try:
-            data = self.migrate_benches[site_name]
+            data = self.migrate_benches[bench_name]
         except KeyError as e:
             return None
-
         return data
 
     def rollback(self):
