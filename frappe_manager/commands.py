@@ -473,12 +473,23 @@ def update(
     admin_tools: Annotated[
         Optional[AdminToolOptionEnum], typer.Option("--admin-tools", help="Enable admin-tools.", show_default=False)
     ] = None,
+    environment: Annotated[
+        Optional[FMBenchEnvType],
+        typer.Option("--environment", '-e', help="Switch environment.", show_default=False),
+    ] = None,
 ):
     """Update bench."""
 
     services_manager = ctx.obj["services"]
     bench = Bench.get_object(benchname, services_manager)
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
+
+    if environment:
+        richprint.change_head(f"Switching bench environemnt to {environment.value}")
+        bench.bench_config.environment_type = environment
+        bench.switch_bench_env()
+        richprint.print(f"Switched bench environemnt to {environment.value}.")
+        bench.save_bench_config()
 
     if ssl:
         new_ssl_certificate = SSLCertificate(domain=benchname, ssl_type=SUPPORTED_SSL_TYPES.none)
@@ -518,7 +529,7 @@ def update(
             else:
                 restart_required = bench.admin_tools.enable()
             bench.save_bench_config()
-            richprint.print("Enabling Admin-tools: Done")
+            richprint.print("Enabled Admin-tools.")
 
         elif admin_tools == AdminToolOptionEnum.disable:
             if (
