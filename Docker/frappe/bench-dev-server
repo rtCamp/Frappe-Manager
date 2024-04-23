@@ -2,7 +2,6 @@
 cleanup (){
     kill -s SIGTERM -- -$$
 }
-# Trap SIGQUIT, SIGTERM, SIGINT
-trap cleanup SIGQUIT SIGTERM SIGINT
+trap cleanup SIGQUIT SIGTERM
 fuser -k 80/tcp
 bench serve --port 80

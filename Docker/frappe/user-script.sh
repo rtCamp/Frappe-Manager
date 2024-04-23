@@ -11,13 +11,13 @@ cleanup() {
 
     # Forward the signal to supervisord (if it's running)
     if [ -n "$supervisord_pid" ]; then
-        kill -s SIGTERM"$supervisord_pid"
+        kill -s SIGTERM "$supervisord_pid"
     fi
     exit 0
 }
 
 # Trap SIGQUIT, SIGTERM, SIGINT
-trap cleanup SIGQUIT SIGTERM SIGINT
+trap cleanup SIGQUIT SIGTERM
 
 emer() {
     echo "$@"
@@ -105,7 +105,7 @@ if [[ ! -d "/workspace/frappe-bench/sites/$SITENAME" ]]; then
     /scripts/divide-supervisor-conf.py config/supervisor.conf
 
     echo "Environment: ${ENVIRONMENT}"
-    echo "Configuring frappe dev server"
+    echo "Configuring frappe server"
     bench_serve_help_output=$($BENCH_COMMAND serve --help)
     host_changed=$(echo "$bench_serve_help_output" | grep -c 'host' || true)
 
@@ -161,6 +161,7 @@ else
     $BENCH_COMMAND setup supervisor --skip-redis --skip-supervisord --yes --user "$USER"
     /scripts/divide-supervisor-conf.py config/supervisor.conf
 
+    # Addresses the introduction of the --host flag in bench serve command for compatibility with Frappe version updates.
     if [[ "$host_changed" -ge 1 ]]; then
         awk -v a="$WEB_PORT" '{sub(/--port [[:digit:]]+/,"--host 0.0.0.0 --port "a); print}' /opt/user/bench-dev-server >file.tmp && mv file.tmp /opt/user/bench-dev-server.sh
     else
@@ -169,17 +170,16 @@ else
 
     chmod +x /opt/user/bench-dev-server.sh
 
-    # Addresses the introduction of the --host flag in bench serve command for compatibility with Frappe version updates.
-    if [[ "${ENVIRONMENT}" = "dev" ]]; then
-        cp /opt/user/frappe-dev.conf /opt/user/conf.d/frappe-dev.conf
-    else
-        if [[ -f '/workspace/frappe-bench/config/frappe-bench-frappe-web.fm.supervisor.conf' ]]; then
+    # if [[ "${ENVIRONMENT}" = "dev" ]]; then
+    #     cp /opt/user/frappe-dev.conf /opt/user/conf.d/frappe-dev.conf
+    # else
+    #     if [[ -f '/workspace/frappe-bench/config/frappe-bench-frappe-web.fm.supervisor.conf' ]]; then
 
-            ln -sfn /workspace/frappe-bench/config/frappe-bench-frappe-web.fm.supervisor.conf /opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf
-        else
-            emer 'Not able to start the server. /workspace/frappe-bench/config/frappe-bench-frappe-web.fm.supervisor.conf not found.'
-        fi
-    fi
+    #         ln -sfn /workspace/frappe-bench/config/frappe-bench-frappe-web.fm.supervisor.conf /opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf
+    #     else
+    #         emer 'Not able to start the server. /workspace/frappe-bench/config/frappe-bench-frappe-web.fm.supervisor.conf not found.'
+    #     fi
+    # fi
 
     if [[ -n "$BENCH_START_OFF" ]]; then
         tail -f /dev/null

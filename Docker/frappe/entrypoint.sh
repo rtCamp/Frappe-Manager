@@ -15,8 +15,7 @@ cleanup() {
     exit 0
 }
 
-# Trap SIGQUIT, SIGTERM, SIGINT
-trap cleanup SIGQUIT SIGTERM SIGINT
+trap cleanup SIGQUIT SIGTERM
 
 [[ "${USERID:-}" ]] || emer "[ERROR] Please provide USERID environment variable."
 [[ "${USERGROUP:-}" ]] || emer "[ERROR] Please provide USERGROUP environment variable."
