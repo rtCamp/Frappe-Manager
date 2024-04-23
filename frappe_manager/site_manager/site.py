@@ -17,11 +17,14 @@ from frappe_manager.logger import log
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager import VSCODE_LAUNCH_JSON, VSCODE_SETTINGS_JSON, VSCODE_TASKS_JSON
+from frappe_manager.site_manager import bench_config
 from frappe_manager.site_manager.admin_tools import AdminTools
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.site_manager.site_exceptions import (
     BenchAttachTocontainerFailed,
     BenchException,
+    BenchFailedToRemoveDevPackages,
+    BenchFrappeServiceSupervisorNotRunning,
     BenchNotRunning,
     BenchRemoveDirectoryError,
     BenchSSLCertificateAlreadyIssued,
@@ -42,7 +45,13 @@ from frappe_manager.utils.helpers import (
     get_container_name_prefix,
 )
 from frappe_manager.utils.docker import host_run_cp
-from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY, CLI_DIR, SiteServicesEnum
+from frappe_manager import (
+    CLI_BENCH_CONFIG_FILE_NAME,
+    CLI_BENCHES_DIRECTORY,
+    CLI_DIR,
+    AdminToolOptionEnum,
+    SiteServicesEnum,
+)
 from frappe_manager.utils.site import domain_level, generate_services_table, get_bench_db_connection_info
 
 
@@ -118,6 +127,35 @@ class Bench:
         }
         return cls(**parms)
 
+    def sync_bench_config_configuration(self):
+        # set developer_mode based on config
+        self.common_bench_config_set({'developer_mode': self.bench_config.developer_mode})
+
+        # dev or prod
+        self.switch_bench_env()
+
+        # ssl
+        certificate_updated = self.update_certificate(self.bench_config.ssl, raise_error=False)
+        if certificate_updated:
+            richprint.print("Certificate Updated.")
+
+        # admin tools
+        if self.bench_config.admin_tools:
+            if not self.admin_tools.compose_project.compose_file_manager.compose_path.exists():
+                self.sync_admin_tools_compose()
+            else:
+                self.admin_tools.enable()
+            richprint.print("Enabled Admin-tools.")
+
+        else:
+            if not self.admin_tools.compose_project.compose_file_manager.compose_path.exists():
+                richprint.print("Admin tools is already disabled.")
+            else:
+                self.admin_tools.disable()
+                richprint.print("Disabled Admin-tools.")
+
+        self.restart_frappe_server()
+
     def save_bench_config(self):
         richprint.change_head("Saving bench config changes")
         self.bench_config.export_to_toml(self.bench_config.root_path)
@@ -182,19 +220,19 @@ class Bench:
 
             self.logger.info(f"{self.name}: Bench site is active and responding.")
 
-            self.create_certificate()
+            # self.create_certificate()
 
-            richprint.change_head("Configuring bench admin tools.")
+            # richprint.change_head("Configuring bench admin tools.")
 
-            if self.bench_config.admin_tools:
-                self.sync_admin_tools_compose()
-                self.restart_frappe_server()
+            # if self.bench_config.admin_tools:
+            #     self.sync_admin_tools_compose()
+            #     self.restart_frappe_server()
 
-            richprint.print("Cofigured bench admin tools.")
+            # richprint.print("Cofigured bench admin tools.")
 
             self.info()
 
-            self.save_bench_config()
+            # self.save_bench_config()
 
             if not ".localhost" in self.name:
                 richprint.print(
@@ -249,6 +287,14 @@ class Bench:
 
         with open(common_bench_config_path, "w") as f:
             json.dump(common_site_config, f)
+
+    def get_common_bench_config(self):
+        common_bench_config_path = self.path / "workspace/frappe-bench/sites/common_site_config.json"
+
+        if not common_bench_config_path.exists():
+            raise BenchException(self.name, message='common_site_config.json not found.')
+
+        return json.loads(common_bench_config_path.read_text())
 
     def generate_compose(self, inputs: dict) -> None:
         """
@@ -370,6 +416,8 @@ class Bench:
 
         richprint.change_head("Starting bench services")
         self.compose_project.start_service(force_recreate=force)
+        self.sync_bench_config_configuration()
+        self.save_bench_config()
         richprint.print("Started bench services.")
 
         # start workers if exists
@@ -378,11 +426,11 @@ class Bench:
             self.workers.compose_project.start_service(force_recreate=force)
             richprint.print("Started bench workers services.")
 
-        # start admin_tools if exists
-        if self.admin_tools.compose_project.compose_file_manager.exists():
-            richprint.change_head("Starting bench admin tools services")
-            self.admin_tools.compose_project.start_service(force_recreate=force)
-            richprint.print("Started bench admin tools services.")
+        # # start admin_tools if exists
+        # if self.admin_tools.compose_project.compose_file_manager.exists():
+        #     richprint.change_head("Starting bench admin tools services")
+        #     self.admin_tools.compose_project.start_service(force_recreate=force)
+        #     richprint.print("Started bench admin tools services.")
 
         richprint.change_head('Starting frappe server')
         self.frappe_logs_till_start()
@@ -634,10 +682,11 @@ class Bench:
         self.bench_config.ssl = SSLCertificate(domain=self.name, ssl_type=SUPPORTED_SSL_TYPES.none)
         self.save_bench_config()
 
-    def update_certificate(self, certificate: SSLCertificate):
+    def update_certificate(self, certificate: SSLCertificate, raise_error: bool = True):
         if certificate.ssl_type == SUPPORTED_SSL_TYPES.le:
             if self.has_certificate():
-                raise BenchSSLCertificateAlreadyIssued(self.name)
+                if raise_error:
+                    raise BenchSSLCertificateAlreadyIssued(self.name)
 
             self.certificate_manager.set_certificate(certificate)
             self.bench_config.ssl = certificate
@@ -647,7 +696,9 @@ class Bench:
             if self.has_certificate():
                 self.remove_certificate()
             else:
-                raise BenchSSLCertificateNotIssued(self.name)
+                if raise_error:
+                    raise BenchSSLCertificateNotIssued(self.name)
+        return True
 
     def renew_certificate(self):
         if not self.compose_project.is_service_running('nginx'):
@@ -689,6 +740,7 @@ class Bench:
             "DB Name": db_user,
             "DB User": db_user,
             "DB Password": db_pass,
+            "Environment": self.bench_config.environment_type.value,
             "HTTPS": f'{self.bench_config.ssl.ssl_type.value} ({format_ssl_certificate_time_remaining(self.certificate_manager.get_certficate_expiry())})'
             if self.has_certificate()
             else 'Not Enabled',
@@ -726,6 +778,7 @@ class Bench:
 
         running_bench_services = self.compose_project.get_services_running_status()
         running_bench_workers = self.workers.compose_project.get_services_running_status()
+        running_bench_admin_tools = self.admin_tools.compose_project.get_services_running_status()
 
         if running_bench_services:
             bench_services_table = generate_services_table(running_bench_services)
@@ -734,6 +787,10 @@ class Bench:
         if running_bench_workers:
             bench_workers_table = generate_services_table(running_bench_workers)
             bench_info_table.add_row("Bench Workers", bench_workers_table)
+
+        if running_bench_admin_tools:
+            bench_admin_table = generate_services_table(running_bench_admin_tools)
+            bench_info_table.add_row("Bench Admin Tools", bench_admin_table)
 
         richprint.stdout.print(bench_info_table)
 
@@ -1045,6 +1102,116 @@ class Bench:
         try:
             self.compose_project.docker.compose.exec('frappe', restart_command, stream=False)
         except DockerException as e:
-            print(e)
             raise BenchException("frappe", "Faild to restart frappe server.")
         richprint.print("Restarted frappe server.")
+
+    def frappe_service_run_command(self, command: str):
+        try:
+            self.compose_project.docker.compose.exec('frappe', command, user='frappe', stream=False)
+        except DockerException as e:
+            raise BenchException("frappe", f"Faild to run {command} in frappe service.")
+
+    def get_apps_dev_requirements(self) -> List[str]:
+        """Parse pip requirement string to package name and version"""
+        apps_path = self.path / 'workspace' / 'frappe-bench' / 'apps'
+        apps_path = apps_path.absolute()
+
+        pattern = '**/pyproject.toml'
+
+        # Find all matching files
+        pyproject_files = list(apps_path.glob(pattern))
+
+        import tomlkit
+
+        packages_list = []
+        # Print found files
+        for pyproject_path in pyproject_files:
+            pyproject = tomlkit.parse(pyproject_path.read_text())
+            packages = pyproject.get('tool', {}).get('bench', {}).get('dev-dependencies', {})
+            for name, version in packages.items():
+                full_name = name + version
+                packages_list.append(full_name)
+
+        return packages_list
+
+    def remove_dev_packages(self):
+        richprint.change_head("Removing dev packages from env.")
+        dev_packages = self.get_apps_dev_requirements()
+        remove_command = '/workspace/frappe-bench/env/bin/python -m pip uninstall --yes ' + " ".join(dev_packages)
+        try:
+            self.compose_project.docker.compose.exec('frappe', command=remove_command, stream=False)
+        except DockerException as e:
+            raise BenchFailedToRemoveDevPackages(self.name)
+        richprint.print("Removed dev packages from env.")
+
+    def install_dev_packages(self):
+        richprint.change_head("Installing dev packages in env.")
+        dev_packages = self.get_apps_dev_requirements()
+        install_command = '/workspace/frappe-bench/env/bin/python -m pip install --quiet --upgrade ' + " ".join(
+            dev_packages
+        )
+        try:
+            self.compose_project.docker.compose.exec('frappe', command=install_command, stream=False)
+        except DockerException as e:
+            raise BenchFailedToRemoveDevPackages(self.name)
+        richprint.print("Installed dev packages in env.")
+
+    def switch_bench_env(self):
+        if not self.is_supervisord_running():
+            raise BenchFrappeServiceSupervisorNotRunning(self.name)
+
+        if self.bench_config.environment_type == FMBenchEnvType.dev:
+            self.install_dev_packages()
+            richprint.change_head(f"Configuring and starting {self.bench_config.environment_type.value} services")
+            stop_command = 'supervisorctl -c /opt/user/supervisord.conf stop all'
+            self.frappe_service_run_command(stop_command)
+
+            unlink_command = 'rm -rf /opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf'
+            self.frappe_service_run_command(unlink_command)
+
+            link_command = 'ln -sfn /opt/user/frappe-dev.conf /opt/user/conf.d/frappe-dev.conf'
+            self.frappe_service_run_command(link_command)
+
+            reread_command = 'supervisorctl -c /opt/user/supervisord.conf reread'
+            self.frappe_service_run_command(reread_command)
+
+            update_command = 'supervisorctl -c /opt/user/supervisord.conf update'
+            self.frappe_service_run_command(update_command)
+
+            start_command = 'supervisorctl -c /opt/user/supervisord.conf start all'
+            self.frappe_service_run_command(start_command)
+            richprint.print(f"Started {self.bench_config.environment_type.value} services.")
+
+        elif self.bench_config.environment_type == FMBenchEnvType.prod:
+            self.remove_dev_packages()
+            richprint.change_head(f"Configuring and starting {self.bench_config.environment_type.value} services")
+            stop_command = 'supervisorctl -c /opt/user/supervisord.conf stop all'
+
+            self.frappe_service_run_command(stop_command)
+
+            unlink_command = 'rm -rf /opt/user/conf.d/frappe-dev.conf'
+            self.frappe_service_run_command(unlink_command)
+
+            link_command = 'ln -sfn /workspace/frappe-bench/config/frappe-bench-frappe-web.fm.supervisor.conf /opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf'
+            self.frappe_service_run_command(link_command)
+
+            reread_command = 'supervisorctl -c /opt/user/supervisord.conf reread'
+            self.frappe_service_run_command(reread_command)
+
+            update_command = 'supervisorctl -c /opt/user/supervisord.conf update'
+            self.frappe_service_run_command(update_command)
+
+            start_command = 'supervisorctl -c /opt/user/supervisord.conf start all'
+            self.frappe_service_run_command(start_command)
+            richprint.print(f"Started {self.bench_config.environment_type.value} services.")
+
+    def is_supervisord_running(self, interval: int = 2, timeout: int = 30):
+        for i in range(timeout):
+            try:
+                status_command = 'supervisorctl -c /opt/user/supervisord.conf status all'
+                self.frappe_service_run_command(status_command)
+                return True
+            except BenchException:
+                time.sleep(interval)
+                continue
+        return False

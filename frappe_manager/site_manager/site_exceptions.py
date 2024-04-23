@@ -163,3 +163,17 @@ class BenchNotRunning(BenchException):
         self.bench_name = bench_name
         self.message = message
         super().__init__(self.bench_name, self.message)
+
+
+class BenchFailedToRemoveDevPackages(BenchException):
+    def __init__(self, bench_name, message="Not able pip uninstall dev packages."):
+        self.bench_name = bench_name
+        self.message = message
+        super().__init__(self.bench_name, self.message)
+
+
+class BenchFrappeServiceSupervisorNotRunning(BenchException):
+    def __init__(self, bench_name, message="Supervisorctl is not running in frappe service"):
+        self.bench_name = bench_name
+        self.message = message
+        super().__init__(self.bench_name, self.message)

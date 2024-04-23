@@ -116,7 +116,7 @@ class SSLCertificateManager:
     def generate_certificate(self):
         privkey_path, fullchain_path = self.service.generate_certificate(self.certificate)
         self.__create_certificate_to_domain_link(privkey_path, fullchain_path)
-        self.proxy_manager.reload()
+        self.proxy_manager.restart()
 
     def get_cert_proxy_fullchain_path(self) -> Path:
         return self.proxy_manager.dirs.certs.host / f"{self.certificate.domain}.crt"

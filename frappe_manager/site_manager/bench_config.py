@@ -4,6 +4,7 @@ import tomlkit
 from pathlib import Path
 from typing import Any, List, Optional
 from pydantic import BaseModel, Field, model_validator, validator
+from frappe_manager import STABLE_APP_BRANCH_MAPPING_LIST
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
@@ -32,17 +33,19 @@ def ssl_certificate_to_toml_doc(cert: SSLCertificate) -> Optional[tomlkit.TOMLDo
 
 class BenchConfig(BaseModel):
     name: str = Field(..., description="The name of the bench")
-    apps_list: List[str] = Field(..., description="List of apps")
-    frappe_branch: str = Field(..., description="The branch of Frappe to use")
     developer_mode: bool = Field(..., description="Whether developer mode is enabled")
     admin_tools: bool = Field(..., description="Whether admin tools are enabled")
-    admin_pass: str = Field(..., description="The admin password")
-    mariadb_host: str = Field(..., description="The host for MariaDB")
-    mariadb_root_pass: str = Field(default='/run/secrets/db_root_password', description="The root password for MariaDB")
     environment_type: FMBenchEnvType = Field(..., description="The type of environment")
-    root_path: Path = Field(..., description="The root path")
     ssl: SSLCertificate = Field(..., description="The SSL certificate")
 
+    frappe_branch: str = Field(
+        default=STABLE_APP_BRANCH_MAPPING_LIST['frappe'], description="The branch of Frappe to use"
+    )
+    admin_pass: str = Field('admin', description="The admin password")
+    root_path: Path = Field(..., description="The root path")
+    mariadb_host: str = Field('global-db', description="The host for MariaDB")
+    mariadb_root_pass: str = Field(default='/run/secrets/db_root_password', description="The root password for MariaDB")
+    apps_list: List[str] = Field(default=[], description="List of apps")
     userid: int = Field(default_factory=os.getuid, description="The user ID of the current process")
     usergroup: int = Field(default_factory=os.getgid, description="The group ID of the current process")
 
@@ -64,7 +67,11 @@ class BenchConfig(BaseModel):
             'root_path',
             'mariadb_root_pass',
             'userid',
+            'mariadb_host',
             'usergroup',
+            'apps_list',
+            'frappe_branch',
+            'admin_pass',
         }
 
         if ssl_toml_doc is None:
@@ -113,12 +120,8 @@ class BenchConfig(BaseModel):
 
         input_data = {
             'name': data.get('name', None),
-            'apps_list': data.get('apps_list', []),
-            'frappe_branch': data.get('frappe_branch', None),
             'developer_mode': data.get('developer_mode', None),
             'admin_tools': data.get('admin_tools', False),
-            'admin_pass': data.get('admin_pass', None),
-            'mariadb_host': data.get('mariadb_host', None),
             'environment_type': data.get('environment_type', None),
             'root_path': data.get('root_path', None),
             'ssl': ssl_instance,

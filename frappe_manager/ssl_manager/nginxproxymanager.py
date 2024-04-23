@@ -35,3 +35,10 @@ class NginxProxyManager:
                 service=self.service_name, command='nginx -s reload', stream=False
             )
             richprint.print("Reloaded nginx.")
+
+    def restart(self):
+        richprint.change_head("Restarting nginx")
+
+        if self.compose_project.running:
+            output = self.compose_project.docker.compose.restart(services=[self.service_name], stream=False)
+            richprint.print("Restarting nginx.")
