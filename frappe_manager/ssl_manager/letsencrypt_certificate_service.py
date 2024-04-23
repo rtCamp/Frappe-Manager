@@ -83,7 +83,7 @@ class LetsEncryptCertificateService(SSLCertificateService):
     def generate_certificate(self, certificate: LetsencryptSSLCertificate):
         gen_command: str = self.base_command + f" certonly --webroot -w {self.webroot_dir} "
         gen_command += f' --keep-until-expiring --expand'
-        gen_command += ' --staging'
+        # gen_command += ' --staging'
         gen_command += f' --agree-tos -m "{certificate.email}" --no-eff-email'
 
         all_domains = [f'{certificate.domain}'] + certificate.alias_domains
