@@ -14,7 +14,7 @@ from frappe_manager import (
     CLI_DIR,
     DEFAULT_EXTENSIONS,
     STABLE_APP_BRANCH_MAPPING_LIST,
-    AdminToolOptionEnum,
+    EnableDisableOptionsEnum,
     SiteServicesEnum,
     CLI_BENCHES_DIRECTORY,
 )
@@ -156,8 +156,8 @@ def create(
         FMBenchEnvType, typer.Option("--environment", "--env", help="Select bench environment type.")
     ] = FMBenchEnvType.dev,
     developer_mode: Annotated[
-        bool, typer.Option(help="Enable developer mode. Defaults to enable in dev environment.")
-    ] = False,
+        EnableDisableOptionsEnum, typer.Option(help="Toggle frappe developer mode.")
+    ] = EnableDisableOptionsEnum.disable,
     frappe_branch: Annotated[
         str, typer.Option(help="Specify the branch name for frappe app", callback=frappe_branch_validation_callback)
     ] = "version-15",
@@ -220,11 +220,16 @@ def create(
     elif ssl == SUPPORTED_SSL_TYPES.none:
         ssl_certificate = SSLCertificate(domain=benchname, ssl_type=ssl)
 
+    if developer_mode == EnableDisableOptionsEnum.enable:
+        developer_mode_status = True
+    elif developer_mode == EnableDisableOptionsEnum.disable:
+        developer_mode_status = False
+
     bench_config: BenchConfig = BenchConfig(
         name=benchname,
         apps_list=apps,
         frappe_branch=frappe_branch,
-        developer_mode=True if environment == FMBenchEnvType.dev else developer_mode,
+        developer_mode=True if environment == FMBenchEnvType.dev else developer_mode_status,
         admin_tools=True if environment == FMBenchEnvType.dev else False,
         admin_pass=admin_pass,
         # TODO get this info from services, maybe ?
@@ -432,7 +437,9 @@ def shell(
         ),
     ] = None,
     user: Annotated[Optional[str], typer.Option(help="Connect as this user.", show_default=False)] = None,
-    service: Annotated[SiteServicesEnum, typer.Option(help="Specify Service")] = SiteServicesEnum.frappe,
+    service: Annotated[
+        SiteServicesEnum, typer.Option(help="Specify compose service name for which to spawn shell.")
+    ] = SiteServicesEnum.frappe,
 ):
     """Spawn shell for the give bench."""
 
@@ -471,11 +478,16 @@ def update(
     ] = None,
     ssl: Annotated[Optional[SUPPORTED_SSL_TYPES], typer.Option(help="Enable SSL.", show_default=False)] = None,
     admin_tools: Annotated[
-        Optional[AdminToolOptionEnum], typer.Option("--admin-tools", help="Enable admin-tools.", show_default=False)
+        Optional[EnableDisableOptionsEnum],
+        typer.Option("--admin-tools", help="Toggle admin-tools.", show_default=False),
     ] = None,
     environment: Annotated[
         Optional[FMBenchEnvType],
-        typer.Option("--environment", '-e', help="Switch environment.", show_default=False),
+        typer.Option("--environment", help="Switch bench environment.", show_default=False),
+    ] = None,
+    developer_mode: Annotated[
+        Optional[EnableDisableOptionsEnum],
+        typer.Option(help="Toggle frappe developer mode.", show_default=False),
     ] = None,
 ):
     """Update bench."""
@@ -484,12 +496,30 @@ def update(
     bench = Bench.get_object(benchname, services_manager)
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
 
+    restart_required = False
+    bench_config_save = False
+
+    if developer_mode:
+        if developer_mode == EnableDisableOptionsEnum.enable:
+            bench.bench_config.developer_mode = True
+            richprint.print("Enabling frappe developer mode.")
+            bench.common_bench_config_set({'developer_mode': bench.bench_config.developer_mode})
+            richprint.print("Enabled frappe developer mode.")
+        elif developer_mode == EnableDisableOptionsEnum.disable:
+            bench.bench_config.developer_mode = False
+            richprint.print("Disabling frappe developer mode.")
+            bench.common_bench_config_set({'developer_mode': bench.bench_config.developer_mode})
+            richprint.print("Enabled frappe developer mode.")
+
+        bench_config_save = True
+        restart_required = True
+
     if environment:
         richprint.change_head(f"Switching bench environemnt to {environment.value}")
         bench.bench_config.environment_type = environment
         bench.switch_bench_env()
         richprint.print(f"Switched bench environemnt to {environment.value}.")
-        bench.save_bench_config()
+        bench_config_save = True
 
     if ssl:
         new_ssl_certificate = SSLCertificate(domain=benchname, ssl_type=SUPPORTED_SSL_TYPES.none)
@@ -521,17 +551,17 @@ def update(
 
     if admin_tools:
         restart_required = False
-        if admin_tools == AdminToolOptionEnum.enable:
+        if admin_tools == EnableDisableOptionsEnum.enable:
             richprint.change_head("Enabling Admin-tools")
             bench.bench_config.admin_tools = True
             if not bench.admin_tools.compose_project.compose_file_manager.compose_path.exists():
                 restart_required = bench.sync_admin_tools_compose()
             else:
                 restart_required = bench.admin_tools.enable()
-            bench.save_bench_config()
+            bench_config_save = True
             richprint.print("Enabled Admin-tools.")
 
-        elif admin_tools == AdminToolOptionEnum.disable:
+        elif admin_tools == EnableDisableOptionsEnum.disable:
             if (
                 not bench.admin_tools.compose_project.compose_file_manager.compose_path.exists()
                 or not bench.bench_config.admin_tools
@@ -541,13 +571,16 @@ def update(
             else:
                 bench.bench_config.admin_tools = False
                 restart_required = bench.admin_tools.disable()
-                bench.save_bench_config()
+                bench_config_save = True
 
-        # prompt for restart frappe server
-        if restart_required:
-            should_restart = richprint.prompt_ask(
-                prompt=f"Frappe server restart is required after {admin_tools.value} of admin tools. Do you want to proceed ?",
-                choices=['yes', 'no'],
-            )
-            if should_restart == 'yes':
-                bench.restart_frappe_server()
+    # prompt for restart frappe server
+    if restart_required:
+        should_restart = richprint.prompt_ask(
+            prompt=f"Frappe server restart is required after {admin_tools.value} of admin tools. Do you want to proceed ?",
+            choices=['yes', 'no'],
+        )
+        if should_restart == 'yes':
+            bench.restart_frappe_server()
+
+    if bench_config_save:
+        bench.save_bench_config()

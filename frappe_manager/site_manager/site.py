@@ -49,7 +49,7 @@ from frappe_manager import (
     CLI_BENCH_CONFIG_FILE_NAME,
     CLI_BENCHES_DIRECTORY,
     CLI_DIR,
-    AdminToolOptionEnum,
+    EnableDisableOptionsEnum,
     SiteServicesEnum,
 )
 from frappe_manager.utils.site import domain_level, generate_services_table, get_bench_db_connection_info

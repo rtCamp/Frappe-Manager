@@ -47,6 +47,6 @@ STABLE_APP_BRANCH_MAPPING_LIST = {
 }
 
 
-class AdminToolOptionEnum(str, Enum):
+class EnableDisableOptionsEnum(str, Enum):
     enable = 'enable'
     disable = 'disable'
