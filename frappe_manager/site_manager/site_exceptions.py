@@ -1,47 +1,179 @@
-from typing import List, Optional
+from pathlib import Path
 
-class SiteException(Exception):
+from pydantic import config
+
+
+class BenchException(Exception):
     def __init__(
         self,
-        site,
-        error_msg: str,
-        exception: Optional[Exception] = None
+        bench_name: str,
+        message: str,
     ):
-        error_msg = f"{site.name}: {error_msg}"
-        super().__init__(error_msg)
+        self.message = f"[blue][bold]{bench_name} :[/bold][/blue] {message}"
+        super().__init__(self.message)
 
-class SiteWorkerNotStart(Exception):
+
+class BenchDockerComposeFileNotFound(BenchException):
     def __init__(
         self,
-        error_msg: str,
+        bench_name: str,
+        path: Path,
+        message: str = 'Compose file not found at {}. Aborting operation.',
     ):
-        error_msg = f"{error_msg}"
-        super().__init__(error_msg)
+        self.bench_name = bench_name
+        self.path = path
+        self.message = message.format(self.path)
+        super().__init__(self.bench_name, self.message)
 
-class SiteDatabaseAddUserException(Exception):
+
+class BenchServiceNotRunning(BenchException):
     def __init__(
         self,
-        site_name,
-        error_msg: str,
+        bench_name: str,
+        service: str,
+        message: str = 'Service {} not running.',
     ):
-        error_msg = f"{site_name}: {error_msg}"
-        super().__init__(error_msg)
+        self.bench_name = bench_name
+        self.service = service
+        self.message = message.format(self.service)
+        super().__init__(self.bench_name, self.message)
 
 
-class SiteDatabaseStartTimeout(Exception):
+class BenchNotFoundError(BenchException):
     def __init__(
         self,
-        site_name,
-        error_msg: str,
+        bench_name: str,
+        path: Path,
+        message: str = 'Bench not found at {}.',
     ):
-        error_msg = f"{site_name}: {error_msg}"
-        super().__init__(error_msg)
+        self.bench_name = bench_name
+        self.path = path
+        self.message = message.format(self.path)
+        super().__init__(self.bench_name, self.message)
 
-class SiteDatabaseExport(Exception):
+
+class BenchRemoveDirectoryError(BenchException):
     def __init__(
         self,
-        site_name,
-        error_msg: str,
+        bench_name: str,
+        path: Path,
+        message: str = 'Remove dirs failed at {}.',
     ):
-        error_msg = f"{site_name}: {error_msg}"
-        super().__init__(error_msg)
+        self.bench_name = bench_name
+        self.path = path
+        self.message = message.format(self.path)
+        super().__init__(self.bench_name, self.message)
+
+
+class BenchLogFileNotFoundError(BenchException):
+    def __init__(
+        self,
+        bench_name: str,
+        path: Path,
+        message: str = 'Log file not found at {}.',
+    ):
+        self.bench_name = bench_name
+        self.path = path
+        self.message = message.format(self.path)
+        super().__init__(self.bench_name, self.message)
+
+
+class BenchWorkersStartError(BenchException):
+    def __init__(
+        self,
+        bench_name: str,
+        message: str = 'Workers not able to start.',
+    ):
+        self.bench_name = bench_name
+        self.message = message
+        super().__init__(self.bench_name, self.message)
+
+
+class BenchWorkersSupervisorConfigurtionGenerateError(BenchException):
+    def __init__(
+        self,
+        bench_name: str,
+        message: str = 'Failed to configure workers.',
+    ):
+        self.bench_name = bench_name
+        self.message = message
+        super().__init__(self.bench_name, self.message)
+
+
+class BenchWorkersSupervisorConfigurtionNotFoundError(BenchException):
+    def __init__(
+        self,
+        bench_name: str,
+        config_dir: str,
+        message: str = 'Superviosrd workers configuration not found in {}.',
+    ):
+        self.bench_name = bench_name
+        self.config_dir = config_dir
+        self.message = message.format(self.config_dir)
+        super().__init__(self.bench_name, self.message)
+
+
+class BenchConfigFileNotFound(BenchException):
+    def __init__(self, bench_name, config_path, message='Config file not found at {}.'):
+        self.bench_name = bench_name
+        self.config_path = config_path
+        self.message = message.format(config_path)
+        super().__init__(self.bench_name, self.message)
+
+
+class BenchConfigValidationError(BenchException):
+    def __init__(self, bench_name, config_path, message='FM bench config not valid at {}'):
+        self.bench_name = bench_name
+        self.conig_path = config_path
+        self.message = message.format(self.conig_path)
+        super().__init__(self.bench_name, self.message)
+
+
+class AdminToolsFailedToStart(BenchException):
+    def __init__(self, bench_name, message="Failed to start admin tools."):
+        self.bench_name = bench_name
+        self.message = message
+        super().__init__(self.bench_name, self.message)
+
+
+class BenchSSLCertificateAlreadyIssued(BenchException):
+    def __init__(self, bench_name, message="SSL Certificate already issued."):
+        self.bench_name = bench_name
+        self.message = message
+        super().__init__(self.bench_name, self.message)
+
+
+class BenchSSLCertificateNotIssued(BenchException):
+    def __init__(self, bench_name, message="No SSL Certificate issued."):
+        self.bench_name = bench_name
+        self.message = message
+        super().__init__(self.bench_name, self.message)
+
+
+class BenchAttachTocontainerFailed(BenchException):
+    def __init__(self, bench_name, service_name, message="Attach to {} service container failed."):
+        self.bench_name = bench_name
+        self.service_name = service_name
+        self.message = message.format(self.service_name)
+        super().__init__(self.bench_name, self.message)
+
+
+class BenchNotRunning(BenchException):
+    def __init__(self, bench_name, message="Services not running."):
+        self.bench_name = bench_name
+        self.message = message
+        super().__init__(self.bench_name, self.message)
+
+
+class BenchFailedToRemoveDevPackages(BenchException):
+    def __init__(self, bench_name, message="Not able pip uninstall dev packages."):
+        self.bench_name = bench_name
+        self.message = message
+        super().__init__(self.bench_name, self.message)
+
+
+class BenchFrappeServiceSupervisorNotRunning(BenchException):
+    def __init__(self, bench_name, message="Supervisorctl is not running in frappe service"):
+        self.bench_name = bench_name
+        self.message = message
+        super().__init__(self.bench_name, self.message)

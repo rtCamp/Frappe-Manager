@@ -1,7 +1,6 @@
-version: "3.9"
 services:
   frappe:
-    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.12.0
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.13.0
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     environment:
       ADMIN_PASS: REPLACE_me_with_frappe_web_admin_pass
@@ -29,50 +28,31 @@ services:
       - db_root_password
 
   nginx:
-    image: ghcr.io/rtcamp/frappe-manager-nginx:v0.10.0
+    image: ghcr.io/rtcamp/frappe-manager-nginx:v0.13.0
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     user: REPLACE_ME_WITH_CURRENT_USER:REPLACE_ME_WITH_CURRENT_USER_GROUP
     environment:
       # not implemented as of now
-      ENABLE_SSL: REPLACE_ME_WITH_TOGGLE_ENABLE_SSL
       SITENAME: REPLACE_ME_WITH_THE_SITE_NAME
       # for nginx-proxy
       VIRTUAL_HOST: REPLACE_ME_WITH_SITE_NAME
       VIRTUAL_PORT: 80
+      HSTS: 'off'
     volumes:
       - ./workspace:/workspace:cached
       - ./configs/nginx/conf:/etc/nginx
       - ./configs/nginx/logs:/var/log/nginx
       - ./configs/nginx/cache:/var/cache/nginx
       - ./configs/nginx/run:/var/run
+      - ./configs/nginx/html:/usr/share/nginx/html
     expose:
       - 80
     networks:
       site-network:
       global-frontend-network:
 
-  mailhog:
-    image: ghcr.io/rtcamp/frappe-manager-mailhog:v0.8.3
-    container_name: REPLACE_ME_WITH_CONTAINER_NAME
-    expose:
-      - 1025
-      - 8025
-    networks:
-      site-network:
-
-  adminer:
-    image: adminer:latest
-    container_name: REPLACE_ME_WITH_CONTAINER_NAME
-    environment:
-      ADMINER_DEFAULT_SERVER: global-db
-    expose:
-      - 8080
-    networks:
-      site-network:
-      global-backend-network:
-
   socketio:
-    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.12.0
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.13.0
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     environment:
       TIMEOUT: 60000
@@ -90,7 +70,7 @@ services:
       site-network:
 
   schedule:
-    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.12.0
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.13.0
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     environment:
       TIMEOUT: 60000

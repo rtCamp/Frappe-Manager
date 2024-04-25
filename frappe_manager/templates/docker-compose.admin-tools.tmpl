@@ -1,0 +1,27 @@
+services:
+  mailhog:
+    image: ghcr.io/rtcamp/frappe-manager-mailhog:v0.8.3
+    container_name: REPLACE_ME_WITH_CONTAINER_NAME
+    expose:
+      - 1025
+      - 8025
+    networks:
+      site-network:
+
+  adminer:
+    image: adminer:latest
+    container_name: REPLACE_ME_WITH_CONTAINER_NAME
+    environment:
+      ADMINER_DEFAULT_SERVER: global-db
+    expose:
+      - 8080
+    networks:
+      site-network:
+      global-backend-network:
+
+networks:
+  site-network:
+    name: REPLACE_ME_WITH_SITE_NAME_NETWORK
+  global-backend-network:
+    name: fm-global-backend-network
+    external: true

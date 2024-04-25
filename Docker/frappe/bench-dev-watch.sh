@@ -1,3 +1,6 @@
 #!/bin/bash
-trap "kill -- -$$" EXIT
+cleanup (){
+    kill -s SIGTERM -- -$$
+}
+trap cleanup SIGQUIT SIGTERM
 bench watch

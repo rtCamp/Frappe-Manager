@@ -1,0 +1,20 @@
+name = "example.com"
+
+# when true enables frappe developer mode
+developer_mode = false
+
+# when true enables admin tools mode
+admin_tools = false
+
+# "prod" -> for bench prod environment
+# "dev"  -> for bench dev environment
+environment_type = "prod"
+
+# enable ssl if defined
+[ssl]
+# ssl_type -> "letsencrypt" / "disable"
+ssl_type = "letsencrypt"
+# only applicable if ssl_type is "letsencrypt"
+hsts = "off"
+# only applicable if ssl_type is "letsencrypt"
+email = "exampl@example.com"
