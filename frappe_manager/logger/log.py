@@ -4,7 +4,7 @@ import os
 from frappe_manager import CLI_LOG_DIRECTORY
 import shutil
 import gzip
-from typing import Dict, Optional, Union
+from typing import Dict, Optional
 from frappe_manager.display_manager.DisplayManager import richprint
 
 # Define MESSAGE log level

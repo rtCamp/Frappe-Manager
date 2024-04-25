@@ -1,10 +1,16 @@
 #!/usr/bin/bash
+cleanup() {
+    echo "Received signal, performing cleanup..."
+    if [ -n "$nginx_pid" ]; then
+        kill -s SIGTERM "$nginx_pid"
+    fi
+    exit 0
+}
 
-# wait for all the programs to load first
-echo "Waiting for mailhog adminer to start"
-wait-for-it -t 120 mailhog:8025
-wait-for-it -t 120 adminer:8080
+trap cleanup SIGTERM
 
 /config/jinja2 -D SITENAME="$SITENAME" /config/template.conf > /etc/nginx/conf.d/default.conf
 
-nginx -g 'daemon off;'
+nginx -g 'daemon off;' &
+nginx_pid=$!
+wait $nginx_pid

@@ -1,20 +1,26 @@
 import importlib
+from cryptography.hazmat.backends import default_backend
+from datetime import datetime
+from cryptography import x509
+from io import StringIO
 import sys
 from typing import Optional
+from frappe_manager.utils.docker import run_command_with_exit_code
 import requests
-import json
 import subprocess
 import platform
 import time
 import secrets
 import grp
-
 from pathlib import Path
+import importlib.resources as pkg_resources
+from rich.console import Console
+from rich.traceback import Traceback
 from frappe_manager.utils.site import is_fqdn
 from frappe_manager.logger import log
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager import PREBAKED_SITE_APPS
-from frappe_manager import CLI_SITES_DIRECTORY
+from frappe_manager import CLI_BENCHES_DIRECTORY
 
 
 def remove_zombie_subprocess_process(process):
@@ -44,26 +50,6 @@ def remove_zombie_subprocess_process(process):
             except psutil.AccessDenied:
                 logger.cleanup(f"{pid} Permission denied")
         logger.cleanup("-" * 20)
-
-
-def check_update():
-    """
-    Retrieves the latest version of the frappe-manager package from PyPI and compares it with the currently installed version.
-    If a newer version is available, it displays a warning message suggesting to update the package.
-    """
-    url = "https://pypi.org/pypi/frappe-manager/json"
-    try:
-        update_info = requests.get(url, timeout=0.1)
-        update_info = json.loads(update_info.text)
-        fm_version = importlib.metadata.version("frappe-manager")
-        latest_version = update_info["info"]["version"]
-        if not fm_version == latest_version:
-            richprint.warning(
-                f"[dim]Update available v{latest_version}.[/dim]",
-                emoji_code=":arrows_counterclockwise:️",
-            )
-    except Exception as e:
-        pass
 
 
 def is_port_in_use(port):
@@ -165,7 +151,12 @@ def is_cli_help_called(ctx):
         bool: True if the help command is called, False otherwise.
     """
     help_called = False
-    # is called command is sub command group
+    # --help check
+
+    if '--help' in " ".join(sys.argv[1:]):
+        # is called command is sub command group
+        return True
+
     try:
         for subtyper_command in ctx.command.commands[ctx.invoked_subcommand].commands.keys():
             check_command = " ".join(sys.argv[2:])
@@ -323,12 +314,15 @@ def get_unix_groups():
 
 
 def install_package(package_name, version):
-    subprocess.check_call([sys.executable, "-m", "pip", "install", f"{package_name}=={version}"])
+    output = run_command_with_exit_code(
+        [sys.executable, "-m", "pip", "install", f"{package_name}=={version}"], stream=True
+    )
+    richprint.live_lines(output)
 
 
 def get_sitename_from_current_path() -> Optional[str]:
     current_path = Path().absolute()
-    sites_path = CLI_SITES_DIRECTORY.absolute()
+    sites_path = CLI_BENCHES_DIRECTORY.absolute()
 
     if not current_path.is_relative_to(sites_path):
         return None
@@ -341,3 +335,115 @@ def get_sitename_from_current_path() -> Optional[str]:
     sitename = sitename_list[0]
     if is_fqdn(sitename):
         return sitename
+
+
+def create_class_from_dict(class_name, attributes_dict):
+    """
+    Dynamically creates a class with properties based on the provided attributes dictionary.
+
+    Parameters:
+    class_name (str): The name of the class to be created.
+    attributes_dict (dict): A dictionary where keys are the names of the properties and values are their default values.
+
+    Returns:
+    A new class with the specified properties and their default values.
+    """
+    return type(class_name, (object,), attributes_dict)
+
+
+def create_symlink(source: Path, dest: Path):
+    """
+    Create a symbolic link pointing from dest to source.
+
+    Parameters:
+    - source (str): The source path that the symlink will point to.
+    - dest (str): The destination path where the symlink will be created.
+
+    Note: The function will overwrite the destination if a symlink already exists there.
+    """
+
+    # Convert the source and destination to Path objects
+
+    # Remove the destination symlink/file/directory if it already exists
+    if dest.exists() or dest.is_symlink():
+        dest.unlink()
+
+    # Create a symlink at the destination pointing to the source
+    dest.symlink_to(source)
+
+
+def get_template_path(file_name: str, template_dir: str = 'templates') -> Path:
+    """
+    Get the file path of a template.
+
+    Args:
+        file_name (str): The name of the template file.
+        template_directory (str, optional): The directory where the templates are located. Defaults to "templates".
+
+    Returns:
+        Optional[str]: The file path of the template, or None if the template is not found.
+    """
+    template_path: str = f"{template_dir}/{file_name}"
+    return get_frappe_manager_own_files(template_path)
+
+
+def get_frappe_manager_own_files(file_path: str):
+    return Path(str(pkg_resources.files("frappe_manager").joinpath(file_path)))
+
+
+def rich_traceback_to_string(traceback: Traceback) -> str:
+    """Convert a rich Traceback object to a string."""
+
+    # Initialize a 'fake' console with StringIO to capture output
+    capture_buffer = StringIO()
+
+    fake_console = Console(force_terminal=False, file=capture_buffer)
+    fake_console.print(traceback, crop=False, overflow='ignore')
+
+    captured_str = capture_buffer.getvalue()  # Retrieve the captured output as a string
+    capture_buffer.close()
+    return captured_str
+
+
+def capture_and_format_exception() -> str:
+    """Capture the current exception and return a formatted traceback string."""
+
+    exc_type, exc_value, exc_traceback = sys.exc_info()  # Capture current exception info
+    # Create a Traceback object with rich formatting
+    #
+    traceback = Traceback.from_exception(exc_type, exc_value, exc_traceback, show_locals=True)
+
+    # Convert the Traceback object to a formatted string
+    formatted_traceback = rich_traceback_to_string(traceback)
+
+    return formatted_traceback
+
+
+def pluralise(singular, count):
+    return '{} {}{}'.format(count, singular, '' if count == 1 else 's')
+
+
+def format_ssl_certificate_time_remaining(expiry_date: datetime):
+    today_date = datetime.now(expiry_date.tzinfo)
+    time_remaining = expiry_date - today_date
+    day_count = time_remaining.days
+    seconds_per_minute = 60
+    seconds_per_hour = seconds_per_minute * 60
+    seconds_unaccounted_for = time_remaining.seconds
+
+    hours = int(seconds_unaccounted_for / seconds_per_hour)
+    seconds_unaccounted_for -= hours * seconds_per_hour
+
+    minutes = int(seconds_unaccounted_for / seconds_per_minute)
+
+    return '{} {} {}'.format(pluralise('day', day_count), pluralise('hour', hours), pluralise('min', minutes))
+
+
+def get_certificate_expiry_date(fullchain_path: Path) -> datetime:
+    cert_content = fullchain_path.read_bytes()
+    cert = x509.load_pem_x509_certificate(cert_content, default_backend())
+    if hasattr(cert, 'not_valid_after_utc'):
+        expiry_date: datetime = cert.not_valid_after_utc
+    else:
+        expiry_date: datetime = cert.not_valid_after
+    return expiry_date
