@@ -442,5 +442,5 @@ def format_ssl_certificate_time_remaining(expiry_date: datetime):
 def get_certificate_expiry_date(fullchain_path: Path) -> datetime:
     cert_content = fullchain_path.read_bytes()
     cert = x509.load_pem_x509_certificate(cert_content, default_backend())
-    expiry_date: datetime = cert.not_valid_after_utc
+    expiry_date: datetime = cert.not_valid_after
     return expiry_date
