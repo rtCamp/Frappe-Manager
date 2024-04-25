@@ -35,7 +35,8 @@ class MigrationV0131(MigrationBase):
         fm_headers_conf_path.write_text(add_header)
 
         if self.services_manager.compose_project.is_service_running('global-nginx-proxy'):
-            self.services_manager.compose_project.docker.compose.up(services=['global-nginx-proxy'])
+            self.services_manager.compose_project.docker.compose.up(services=['global-nginx-proxy'], stream=False)
+            self.services_manager.compose_project.docker.compose.restart(services=['global-nginx-proxy'], stream=False)
 
         richprint.print("Added fm header config to nginx-proxy.")
 
