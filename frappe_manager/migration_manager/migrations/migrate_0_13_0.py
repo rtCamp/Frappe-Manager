@@ -356,4 +356,27 @@ class MigrationV0130(MigrationBase):
         admin_tools_compose_file_manager.set_version(self.version.version_string())
         admin_tools_compose_file_manager.write_to_file()
 
-        richprint.change_head("Create admin-tools: Done")
+        # create custom nginx directory for adming tool location config
+
+        nginx_conf_dir = bench.path / 'configs' / 'nginx' / 'conf'
+        if nginx_conf_dir.exists():
+            nginx_custom_dir = nginx_conf_dir / 'custom'
+            nginx_custom_dir.mkdir(parents=True, exist_ok=True)
+
+        # change mailhog config in common_site_confiig.json
+        common_bench_config_path = bench.path / "workspace/frappe-bench/sites/common_site_config.json"
+
+        current_common_site_config = json.loads(common_bench_config_path.read_text())
+
+        new_conf = {
+            "mail_port": 1025,
+            "mail_server": f"{get_container_name_prefix(bench.name)}-mailhog",
+            "disable_mail_smtp_authentication": 1,
+        }
+
+        for key, value in new_conf.items():
+            current_common_site_config[key] = value
+
+        common_bench_config_path.write_text(json.dumps(current_common_site_config))
+
+        richprint.change_head("Created Admin-tools.")
