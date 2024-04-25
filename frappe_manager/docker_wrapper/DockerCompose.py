@@ -1,6 +1,6 @@
 from subprocess import Popen, run, TimeoutExpired, CalledProcessError
 from pathlib import Path
-from typing import Iterable, Union, Literal, Optional, Tuple
+from typing import Iterable, List, Union, Literal, Optional, Tuple
 
 import shlex
 
@@ -10,6 +10,7 @@ from frappe_manager.utils.docker import (
     run_command_with_exit_code,
 )
 
+
 # Docker Compose version 2.18.1
 class DockerComposeWrapper:
     """
@@ -17,10 +18,11 @@ class DockerComposeWrapper:
     Only this args have are different use case.
 
     Args:
-        stream (bool, optional): A boolean flag indicating whether to stream the output of the command as it runs. 
-            If set to True, the output will be displayed in real-time. If set to False, the output will be 
+        stream (bool, optional): A boolean flag indicating whether to stream the output of the command as it runs.
+            If set to True, the output will be displayed in real-time. If set to False, the output will be
             displayed after the command completes. Defaults to False.
     """
+
     def __init__(self, path: Path, timeout: int = 100):
         # requires valid path directory
         # directory where docker-compose resides
@@ -46,10 +48,9 @@ class DockerComposeWrapper:
         pull: Literal["missing", "never", "always"] = "missing",
         stream: bool = False,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
-
         parameters: dict = locals()
 
-        remove_parameters = ["services","stream"]
+        remove_parameters = ["services", "stream"]
 
         up_cmd: list = ["up"]
         up_cmd += services
@@ -59,10 +60,7 @@ class DockerComposeWrapper:
         # subprocess_env = dict(os.environ)
         # subprocess_env.update(env)
 
-        iterator = run_command_with_exit_code(
-            self.docker_compose_cmd + up_cmd,
-            stream=stream
-        )
+        iterator = run_command_with_exit_code(self.docker_compose_cmd + up_cmd, stream=stream)
         return iterator
 
     def down(
@@ -74,7 +72,6 @@ class DockerComposeWrapper:
         dry_run: bool = False,
         stream: bool = False,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
-
         parameters: dict = locals()
         parameters["timeout"] = str(timeout)
 
@@ -89,10 +86,7 @@ class DockerComposeWrapper:
 
         down_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
-        iterator = run_command_with_exit_code(
-            self.docker_compose_cmd + down_cmd,
-            stream=stream
-        )
+        iterator = run_command_with_exit_code(self.docker_compose_cmd + down_cmd, stream=stream)
         return iterator
 
     def start(
@@ -101,7 +95,6 @@ class DockerComposeWrapper:
         dry_run: bool = False,
         stream: bool = False,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
-
         parameters: dict = locals()
 
         start_cmd: list[str] = ["start"]
@@ -114,10 +107,7 @@ class DockerComposeWrapper:
         if type(services) == list:
             start_cmd += services
 
-        iterator = run_command_with_exit_code(
-            self.docker_compose_cmd + start_cmd,
-            stream=stream
-        )
+        iterator = run_command_with_exit_code(self.docker_compose_cmd + start_cmd, stream=stream)
         return iterator
 
     def restart(
@@ -128,7 +118,6 @@ class DockerComposeWrapper:
         no_deps: bool = False,
         stream: bool = False,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
-
         parameters: dict = locals()
 
         parameters["timeout"] = str(timeout)
@@ -143,10 +132,7 @@ class DockerComposeWrapper:
         if type(services) == list:
             restart_cmd += services
 
-        iterator = run_command_with_exit_code(
-            self.docker_compose_cmd + restart_cmd,
-            stream=stream
-        )
+        iterator = run_command_with_exit_code(self.docker_compose_cmd + restart_cmd, stream=stream)
         return iterator
 
     def stop(
@@ -155,7 +141,6 @@ class DockerComposeWrapper:
         timeout: int = 100,
         stream: bool = False,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
-
         parameters: dict = locals()
         parameters["timeout"] = str(timeout)
 
@@ -168,10 +153,7 @@ class DockerComposeWrapper:
         if type(services) == list:
             stop_cmd.extend(services)
 
-        iterator = run_command_with_exit_code(
-            self.docker_compose_cmd + stop_cmd,
-            stream=stream
-        )
+        iterator = run_command_with_exit_code(self.docker_compose_cmd + stop_cmd, stream=stream)
         return iterator
 
     def exec(
@@ -188,7 +170,6 @@ class DockerComposeWrapper:
         capture_output: bool = True,
         use_shlex_split: bool = True,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
-
         parameters: dict = locals()
 
         exec_cmd: list[str] = ["exec"]
@@ -216,8 +197,7 @@ class DockerComposeWrapper:
             exec_cmd += [command]
 
         iterator = run_command_with_exit_code(
-            self.docker_compose_cmd + exec_cmd,
-            stream=stream, capture_output=capture_output
+            self.docker_compose_cmd + exec_cmd, stream=stream, capture_output=capture_output
         )
         return iterator
 
@@ -256,7 +236,6 @@ class DockerComposeWrapper:
         ] = None,
         stream: bool = False,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
-
         parameters: dict = locals()
 
         ps_cmd: list[str] = ["ps"]
@@ -280,9 +259,7 @@ class DockerComposeWrapper:
         if service:
             ps_cmd += service
 
-        iterator = run_command_with_exit_code(
-            self.docker_compose_cmd + ps_cmd, stream=stream
-        )
+        iterator = run_command_with_exit_code(self.docker_compose_cmd + ps_cmd, stream=stream)
         return iterator
 
     def logs(
@@ -298,7 +275,6 @@ class DockerComposeWrapper:
         timestamps: bool = False,
         stream: bool = False,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
-
         parameters: dict = locals()
 
         logs_cmd: list[str] = ["logs"]
@@ -344,7 +320,6 @@ class DockerComposeWrapper:
         include_deps: bool = False,
         stream: bool = False,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
-
         parameters: dict = locals()
 
         pull_cmd: list[str] = ["pull"]
@@ -370,11 +345,10 @@ class DockerComposeWrapper:
         use_shlex_split: bool = True,
         stream: bool = False,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
-
         parameters: dict = locals()
         run_cmd: list = ["run"]
 
-        remove_parameters = ["stream", "command", "service","use_shlex_split"]
+        remove_parameters = ["stream", "command", "service", "use_shlex_split"]
 
         run_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
@@ -386,11 +360,7 @@ class DockerComposeWrapper:
             else:
                 run_cmd += [command]
 
-
-        iterator = run_command_with_exit_code(
-            self.docker_compose_cmd + run_cmd,
-            stream=stream
-        )
+        iterator = run_command_with_exit_code(self.docker_compose_cmd + run_cmd, stream=stream)
         return iterator
 
     def cp(
@@ -403,7 +373,6 @@ class DockerComposeWrapper:
         follow_link: bool = False,
         stream: bool = False,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
-
         parameters: dict = locals()
 
         cp_cmd: list = ["cp"]
@@ -427,8 +396,5 @@ class DockerComposeWrapper:
         cp_cmd += [f"{source}"]
         cp_cmd += [f"{destination}"]
 
-        iterator = run_command_with_exit_code(
-            self.docker_compose_cmd + cp_cmd,
-            stream=stream
-        )
+        iterator = run_command_with_exit_code(self.docker_compose_cmd + cp_cmd, stream=stream)
         return iterator
