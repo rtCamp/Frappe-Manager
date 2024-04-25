@@ -1,0 +1,5 @@
+# Don't change the version no this will affect the migrations.
+version = "0.13.0" # set by fm to the current version
+
+# Email used by Let's Encrypt if set then fm will never ask email for Let's Encrypt.
+le_email = 'example@example.com'
