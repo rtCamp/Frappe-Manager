@@ -151,7 +151,12 @@ def is_cli_help_called(ctx):
         bool: True if the help command is called, False otherwise.
     """
     help_called = False
-    # is called command is sub command group
+    # --help check
+
+    if '--help' in " ".join(sys.argv[1:]):
+        # is called command is sub command group
+        return True
+
     try:
         for subtyper_command in ctx.command.commands[ctx.invoked_subcommand].commands.keys():
             check_command = " ".join(sys.argv[2:])
@@ -309,7 +314,9 @@ def get_unix_groups():
 
 
 def install_package(package_name, version):
-    output = run_command_with_exit_code([sys.executable, "-m", "pip", "install", f"{package_name}=={version}"], stream=True)
+    output = run_command_with_exit_code(
+        [sys.executable, "-m", "pip", "install", f"{package_name}=={version}"], stream=True
+    )
     richprint.live_lines(output)
 
 
