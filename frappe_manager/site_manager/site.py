@@ -144,7 +144,7 @@ class Bench:
             if not self.admin_tools.compose_project.compose_file_manager.compose_path.exists():
                 self.sync_admin_tools_compose()
             else:
-                self.admin_tools.enable()
+                self.admin_tools.enable(force_configure=True)
             richprint.print("Enabled Admin-tools.")
 
         else:
