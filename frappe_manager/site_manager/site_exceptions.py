@@ -31,7 +31,7 @@ class BenchServiceNotRunning(BenchException):
         self,
         bench_name: str,
         service: str,
-        message: str = '{} not running.',
+        message: str = 'Service {} not running.',
     ):
         self.bench_name = bench_name
         self.service = service

@@ -36,9 +36,7 @@ def renew(
     ctx: typer.Context,
     benchname: Annotated[
         Optional[str],
-        typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
-        ),
+        typer.Argument(help="Name of the bench.", autocompletion=sites_autocompletion_callback),
     ] = None,
     all: Annotated[bool, typer.Option(help="Renew ssl cert for all benches.")] = False,
 ):
@@ -57,3 +55,6 @@ def renew(
             bench.renew_certificate()
         except (BenchSSLCertificateNotIssued, SSLCertificateNotDueForRenewalError) as e:
             richprint.warning(e.message)
+
+        except Exception as e:
+            richprint.warning(str(e))

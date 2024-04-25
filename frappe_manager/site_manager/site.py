@@ -685,8 +685,9 @@ class Bench:
     def update_certificate(self, certificate: SSLCertificate, raise_error: bool = True):
         if certificate.ssl_type == SUPPORTED_SSL_TYPES.le:
             if self.has_certificate():
-                if raise_error:
-                    raise BenchSSLCertificateAlreadyIssued(self.name)
+                if not raise_error:
+                    return
+                raise BenchSSLCertificateAlreadyIssued(self.name)
 
             self.certificate_manager.set_certificate(certificate)
             self.bench_config.ssl = certificate
@@ -696,16 +697,17 @@ class Bench:
             if self.has_certificate():
                 self.remove_certificate()
             else:
-                if raise_error:
-                    raise BenchSSLCertificateNotIssued(self.name)
+                if not raise_error:
+                    return
+                raise BenchSSLCertificateNotIssued(self.name)
         return True
 
     def renew_certificate(self):
-        if not self.compose_project.is_service_running('nginx'):
-            raise BenchServiceNotRunning(self.name, 'nginx')
-
         if not self.has_certificate():
             raise BenchSSLCertificateNotIssued(self.name)
+
+        if not self.compose_project.is_service_running('nginx'):
+            raise BenchServiceNotRunning(self.name, 'nginx')
 
         self.certificate_manager.renew_certificate()
 
