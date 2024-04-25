@@ -4,6 +4,7 @@ import time
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.site_manager.site_exceptions import AdminToolsFailedToStart, BenchException
 from frappe_manager.ssl_manager.nginxproxymanager import NginxProxyManager
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version, get_template_path
@@ -126,17 +127,29 @@ class AdminTools:
         richprint.print("Removed Mailhog as default mail server.")
         return frappe_server_restart_required
 
-    def wait_till_started(self, interval=2, timeout=30):
-        for i in range(timeout):
-            if not self.compose_project.running:
-                time.sleep(interval)
-                continue
-            return
-        raise AdminToolsFailedToStart(self.bench_name)
+    def wait_till_services_started(self, interval=2, timeout=30):
+        admin_tools_services = ['mailhog:8025', 'adminer:8080']
+
+        for tool in admin_tools_services:
+            running = False
+            for i in range(timeout):
+                try:
+                    check_command = f"wait-for-it -t {interval} {get_container_name_prefix(self.bench_name)}-{tool}"
+                    self.nginx_proxy.compose_project.docker.compose.exec(
+                        service='nginx', command=check_command, stream=False
+                    )
+
+                    running = True
+                    break
+                except DockerException as e:
+                    continue
+
+            if not running:
+                raise AdminToolsFailedToStart(self.bench_name)
 
     def enable(self, force_recreate_container: bool = False, force_configure: bool = False) -> bool:
         self.compose_project.start_service(force_recreate=force_recreate_container)
-        self.wait_till_started()
+        self.wait_till_services_started()
         self.save_nginx_location_config()
         self.nginx_proxy.reload()
         frappe_server_restart_required = self.configure_mailhog_as_default_server(force=force_configure)

@@ -1,6 +1,7 @@
 import shutil
 import platform
 import os
+from jinja2 import Template
 import typer
 from datetime import datetime
 from pathlib import Path
@@ -22,6 +23,8 @@ from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.ssl_manager.nginxproxymanager import NginxProxyManager
 from frappe_manager.utils.helpers import (
+    get_current_fm_version,
+    get_template_path,
     random_password_generate,
     check_and_display_port_status,
     get_unix_groups,
@@ -83,6 +86,12 @@ class ServicesManager:
 
         self.compose_project = ComposeProject(compose_file_manager=compose_file_manager)
         self.proxy_manager: NginxProxyManager = NginxProxyManager('global-nginx-proxy', self.compose_project)
+        self.fm_headers_path: Path = self.proxy_manager.dirs.confd.host / 'fm_headers.conf'
+
+        template_path: Path = get_template_path('fm_headers.conf.tmpl')
+        template = Template(template_path.read_text())
+        output = template.render(current_version=f'v{get_current_fm_version()}')
+        self.fm_headers_path.write_text(output)
 
     def set_typer_context(self, ctx: typer.Context):
         """

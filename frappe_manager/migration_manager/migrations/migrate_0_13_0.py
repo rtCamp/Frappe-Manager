@@ -70,6 +70,9 @@ class MigrationV0130(MigrationBase):
         self.services_manager.compose_project.compose_file_manager.set_version(self.version.version_string())
         self.services_manager.compose_project.compose_file_manager.write_to_file()
 
+        if self.services_manager.compose_project.is_service_running('global-nginx-proxy'):
+            self.services_manager.compose_project.docker.compose.up(services=['global-nginx-proxy'])
+
     def up(self):
         richprint.print(f"Started", prefix=f"[bold]v{str(self.version)}:[/bold] ")
         self.logger.info("-" * 40)
