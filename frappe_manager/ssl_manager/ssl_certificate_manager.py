@@ -73,7 +73,7 @@ class SSLCertificateManager:
     def renew_certificate(self):
         if self.needs_renewal():
             self.service.renew_certificate(self.certificate)
-            self.proxy_manager.reload()
+            self.proxy_manager.restart()
         else:
             raise SSLCertificateNotDueForRenewalError(self.certificate.domain, self.get_certficate_expiry())
 
@@ -111,7 +111,7 @@ class SSLCertificateManager:
     def remove_certificate(self):
         self.remove_certificate_to_domain_link()
         self.service.remove_certificate(self.certificate)
-        self.proxy_manager.reload()
+        self.proxy_manager.restart()
 
     def generate_certificate(self):
         privkey_path, fullchain_path = self.service.generate_certificate(self.certificate)
