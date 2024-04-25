@@ -12,7 +12,7 @@ FROM nginx:latest
 RUN apt update && DEBIAN_FONTEND=noninteractive apt install -y --no-install-recommends wait-for-it gosu && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /dist/ /config/
-COPY template.conf /config/
+COPY nginx.conf.tmpl /config/
 COPY ./entrypoint.sh /
 RUN chmod +x /entrypoint.sh
 RUN mkdir -p /etc/nginx/custom
