@@ -86,12 +86,17 @@ class ServicesManager:
 
         self.compose_project = ComposeProject(compose_file_manager=compose_file_manager)
         self.proxy_manager: NginxProxyManager = NginxProxyManager('global-nginx-proxy', self.compose_project)
-        self.fm_headers_path: Path = self.proxy_manager.dirs.confd.host / 'fm_headers.conf'
 
-        template_path: Path = get_template_path('fm_headers.conf.tmpl')
-        template = Template(template_path.read_text())
-        output = template.render(current_version=f'v{get_current_fm_version()}')
-        self.fm_headers_path.write_text(output)
+        self.fm_headers_path: Path = self.proxy_manager.dirs.confd.host / 'fm_headers.conf'
+        self.set_frappe_headers_conf()
+
+
+    def set_frappe_headers_conf(self):
+        if self.fm_headers_path.parent.exists():
+            template_path: Path = get_template_path('fm_headers.conf.tmpl')
+            template = Template(template_path.read_text())
+            output = template.render(current_version=f'v{get_current_fm_version()}')
+            self.fm_headers_path.write_text(output)
 
     def set_typer_context(self, ctx: typer.Context):
         """
@@ -190,6 +195,8 @@ class ServicesManager:
             destination=mariadb_conf,
             docker=self.compose_project.docker,
         )
+
+        self.set_frappe_headers_conf()
 
         self.compose_project.compose_file_manager.set_secret_file_path('db_password', str(db_password_path.absolute()))
         self.compose_project.compose_file_manager.set_secret_file_path(
