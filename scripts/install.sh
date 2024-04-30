@@ -244,7 +244,7 @@ install_python_and_frappe_macos() {
     fi
 
     info_blue "Installing frappe-manager..."
-    pip3 install --user frappe-manager
+    pip3 install --user --upgrade frappe-manager
     info_green "$(bold 'fm' $(pip3 list | grep frappe-manager | awk '{print $2}')) installed."
 }
 
