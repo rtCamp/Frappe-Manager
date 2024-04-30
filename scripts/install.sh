@@ -282,6 +282,7 @@ handle_shell(){
 # Detect OS and call the respective functions
 OS="$(uname)"
 if [ "$OS" == "Darwin" ]; then
+    isRoot
     install_docker_macos
     install_python_and_frappe_macos
     handle_shell
