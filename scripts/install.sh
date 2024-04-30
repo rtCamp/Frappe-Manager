@@ -30,6 +30,11 @@ info_green(){
     echo "$(cyan '=>') $(green "$*")"
 }
 
+
+info_yellow(){
+    echo "$(cyan '=>') $(yellow "$*")"
+}
+
 info_red(){
     echo "$(red 'X') $(red "$*")"
 }
