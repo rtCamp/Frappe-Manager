@@ -281,8 +281,8 @@ handle_shell(){
 
 # Detect OS and call the respective functions
 OS="$(uname)"
+isRoot
 if [ "$OS" == "Darwin" ]; then
-    isRoot
     install_docker_macos
     install_python_and_frappe_macos
     handle_shell
@@ -295,7 +295,6 @@ if [ "$OS" == "Darwin" ]; then
 elif [ "$OS" == "Linux" ]; then
     . /etc/os-release
     if [ "$NAME" == "Ubuntu" ]; then
-        isRoot
         install_docker_ubuntu
         install_python_and_frappe_ubuntu
         handle_shell
