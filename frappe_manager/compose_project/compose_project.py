@@ -3,6 +3,7 @@ from typing import List
 from rich.text import Text
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.compose_project.exceptions import (
+    DockerComposeProjectFailedToPullImagesError,
     DockerComposeProjectFailedToRemoveError,
     DockerComposeProjectFailedToRestartError,
     DockerComposeProjectFailedToStartError,
@@ -77,7 +78,7 @@ class ComposeProject:
             if self.quiet:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
         except DockerException as e:
-            raise DockerComposeProjectFailedToRemoveError(
+            raise DockerComposeProjectFailedToPullImagesError(
                 self.compose_file_manager.compose_path, self.compose_file_manager.get_services_list()
             )
 

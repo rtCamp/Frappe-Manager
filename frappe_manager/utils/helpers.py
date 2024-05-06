@@ -405,13 +405,15 @@ def rich_traceback_to_string(traceback: Traceback) -> str:
     return captured_str
 
 
-def capture_and_format_exception() -> str:
+def capture_and_format_exception(traceback_max_frames: int = 100) -> str:
     """Capture the current exception and return a formatted traceback string."""
 
     exc_type, exc_value, exc_traceback = sys.exc_info()  # Capture current exception info
     # Create a Traceback object with rich formatting
     #
-    traceback = Traceback.from_exception(exc_type, exc_value, exc_traceback, show_locals=True)
+    traceback = Traceback.from_exception(
+        exc_type, exc_value, exc_traceback, show_locals=True, max_frames=traceback_max_frames
+    )
 
     # Convert the Traceback object to a formatted string
     formatted_traceback = rich_traceback_to_string(traceback)

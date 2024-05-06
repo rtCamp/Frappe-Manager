@@ -165,6 +165,11 @@ class MigrationV0130(MigrationBase):
             if backup.bench == bench.name:
                 self.backup_manager.restore(backup, force=True)
 
+        admin_tools_compose_path = bench.path / 'docker-compose.admin-tools.yml'
+
+        if admin_tools_compose_path.exists():
+            admin_tools_compose_path.unlink()
+
         self.logger.info(f"Undo successfull for bench: {bench.name}")
 
     def migrate_bench_compose(self, bench: MigrationBench):
