@@ -1,4 +1,5 @@
 from pathlib import Path
+from frappe_manager.site_manager.site_exceptions import BenchNotRunning
 from frappe_manager.utils.site import pull_docker_images
 import typer
 import os
@@ -498,6 +499,9 @@ def update(
 
     restart_required = False
     bench_config_save = False
+
+    if not bench.compose_project.running:
+        raise BenchNotRunning(bench_name=bench.name)
 
     if developer_mode:
         if developer_mode == EnableDisableOptionsEnum.enable:
