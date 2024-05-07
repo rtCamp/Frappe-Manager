@@ -183,8 +183,8 @@ class MigrationExecutor:
 
                 archive_msg = [
                     'Available options after migrations failure :',
-                    f"[blue]\[yes][/blue] Archive failed benches : Benches that have failed will be rolled back to there previous state and stored in '{CLI_SITES_ARCHIVE}'.",
-                    '[blue]\[no][/blue] Revert migration : Revert the entire FM environment to the previous FM version before migration.',
+                    f"[blue]\[yes][/blue] Archive failed benches : Benches that have failed will be rolled back to there last successfully completed migration version and stored in '{CLI_SITES_ARCHIVE}'.",
+                    '[blue]\[no][/blue] Revert migration : Restore the FM CLI and FM environment to the last successfully completed migration version for all benches.',
                     '\nDo you wish to archive all benches that failed during migration ?',
                 ]
                 archive = richprint.prompt_ask(prompt="\n".join(archive_msg), choices=["yes", "no"])
