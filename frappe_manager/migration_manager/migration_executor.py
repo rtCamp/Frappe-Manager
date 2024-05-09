@@ -78,7 +78,7 @@ class MigrationExecutor:
             richprint.print("Pending Migrations...", emoji_code=':counterclockwise_arrows_button:')
 
             for migration in self.migrations:
-                richprint.print(f"[bold]v{migration.version}[/bold]",emoji_code=':package:')
+                richprint.print(f"[bold]v{migration.version}[/bold]", emoji_code=':package:')
 
             richprint.print("This process may take a while.", emoji_code="\n:hourglass_not_done:")
 
@@ -105,8 +105,10 @@ class MigrationExecutor:
         rollback = False
         archive = False
 
+        exception_migration_in_bench_occured = False
         try:
             # run all the migrations
+            prev_migration = None
             for migration in self.migrations:
                 richprint.change_head(f"Running migration introduced in v{migration.version}")
                 self.logger.info(f"[{migration.version}] : Migration starting")
@@ -115,13 +117,16 @@ class MigrationExecutor:
 
                     migration.up()
 
-                    if not self.rollback_version > migration.version:
-                        self.rollback_version = migration.get_rollback_version()
+                    prev_migration = migration
+                    if not exception_migration_in_bench_occured:
+                        self.rollback_version = prev_migration.get_rollback_version()
 
                 except MigrationExceptionInBench as e:
-                    captured_output = capture_and_format_exception()
+                    captured_output = capture_and_format_exception(traceback_max_frames=0)
                     self.logger.error(f"[{migration.version}] : Migration Failed\n{captured_output}")
+
                     if migration.version < self.migrations[-1].version:
+                        exception_migration_in_bench_occured = True
                         continue
                     raise e
 
@@ -130,37 +135,46 @@ class MigrationExecutor:
                     self.logger.error(f"[{migration.version}] : Migration Failed\n{captured_output}")
                     raise e
 
+            if exception_migration_in_bench_occured:
+                raise MigrationExceptionInBench('')
+
         except MigrationExceptionInBench as e:
             if self.migrate_benches:
                 print_head = True
                 for bench, bench_status in self.migrate_benches.items():
                     if not bench_status["exception"]:
                         if print_head:
-                                richprint.stdout.rule('[bold][red]Migration Passed Benches[/red][bold]',style='green')
-                                print_head = False
+                            richprint.stdout.rule('[bold][red]Migration Passed Benches[/red][bold]', style='green')
+                            print_head = False
 
-                        richprint.print(f"[red]Bench[/red]: {bench}",emoji_code=':construction:')
+                        richprint.print(f"[green]Bench[/green]: {bench}", emoji_code=':construction:')
 
                 if not print_head:
                     richprint.stdout.rule(style='red')
 
                 print_head = True
+
                 for bench, bench_status in self.migrate_benches.items():
                     if bench_status["exception"]:
                         if print_head:
-                                richprint.stdout.rule(':police_car_light: [bold][red]Migration Failed Benches[/red][bold] :police_car_light:',style='red')
-                                print_head = False
+                            richprint.stdout.rule(
+                                ':police_car_light: [bold][red]Migration Failed Benches[/red][bold] :police_car_light:',
+                                style='red',
+                            )
+                            print_head = False
 
-                        richprint.error(f"[red]Bench[/red]: {bench}",emoji_code=':construction:')
+                        richprint.error(f"[red]Bench[/red]: {bench}", emoji_code=':construction:')
 
                         richprint.error(
-                            f"[red]Failed Migration Version[/red]: {bench_status['last_migration_version']}",emoji_code=':package:'
+                            f"[red]Failed Migration Version[/red]: {bench_status['last_migration_version']}",
+                            emoji_code=':package:',
                         )
 
                         richprint.error(
-                            f"[red]Exception[/red]: {type(bench_status['exception']).__name__}",emoji_code=':stop_sign:'
+                            f"[red]Exception[/red]: {type(bench_status['exception']).__name__}",
+                            emoji_code=':stop_sign:',
                         )
-                        richprint.stdout.print(Padding(Text(text=str(bench_status['exception'])),(0,0,0,3)))
+                        richprint.stdout.print(Padding(Text(text=str(bench_status['exception'])), (0, 0, 0, 3)))
 
                 richprint.print(f"For error specifics, refer to {CLI_DIR}/logs/fm.log", emoji_code=':page_facing_up:')
 
@@ -168,9 +182,9 @@ class MigrationExecutor:
                     richprint.stdout.rule(style='red')
 
                 archive_msg = [
-                    'Please select one of the available options after migrations failure :\n',
-                    f"[blue]yes[/blue] Archive failed benches : Benches that have failed will be rolled back and stored in '{CLI_SITES_ARCHIVE}'.",
-                    '[blue]no[/blue] Revert migration : Revert the entire fm enrionment to the previous fm version before migration.',
+                    'Available options after migrations failure :',
+                    f"[blue]\[yes][/blue] Archive failed benches : Benches that have failed will be rolled back to there last successfully completed migration version and stored in '{CLI_SITES_ARCHIVE}'.",
+                    '[blue]\[no][/blue] Revert migration : Restore the FM CLI and FM environment to the last successfully completed migration version for all benches.',
                     '\nDo you wish to archive all benches that failed during migration ?',
                 ]
                 archive = richprint.prompt_ask(prompt="\n".join(archive_msg), choices=["yes", "no"])
@@ -179,7 +193,7 @@ class MigrationExecutor:
                     rollback = True
 
         except Exception as e:
-            richprint.print(f"Migration failed: {e}")
+            richprint.error(f"[red]Migration failed[red] : {e}")
             rollback = True
 
         if archive == "yes":
@@ -199,14 +213,18 @@ class MigrationExecutor:
                 f"Installing [bold][blue]Frappe-Manager[/blue][/bold] version: v{str(self.rollback_version.version)}"
             )
             install_package("frappe-manager", str(self.rollback_version.version))
-            richprint.exit("Rollback complete.",emoji_code=':back:')
+            richprint.exit("Rollback complete.", emoji_code=':back:')
 
         self.fm_config_manager.version = self.current_version
         self.fm_config_manager.export_to_toml()
         return True
 
     def set_bench_data(
-        self, bench: MigrationBench, exception=None, migration_version: Optional[Version] = None, traceback_str: Optional[str] = None
+        self,
+        bench: MigrationBench,
+        exception=None,
+        migration_version: Optional[Version] = None,
+        traceback_str: Optional[str] = None,
     ):
         self.migrate_benches[bench.name] = {
             "object": bench,
