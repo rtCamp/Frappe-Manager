@@ -31,31 +31,36 @@ from frappe_manager.site_manager.site_exceptions import BenchDockerComposeFileNo
 from frappe_manager.utils.docker import host_run_cp
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.utils.helpers import get_container_name_prefix, get_unix_groups, random_password_generate
+from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.migration_manager.version import Version
 
 
 class MigrationV0100(MigrationBase):
     version = Version("0.10.0")
 
-    def __init__(self):
-        super().init()
+    def init(self):
         self.benches_dir = CLI_DIR / "sites"
+        self.backup_manager = BackupManager(str(self.version), self.benches_dir)
         self.string_timestamp = datetime.now().strftime("%d-%b-%y--%H-%M-%S")
         self.benches_manager = MigrationBenches(self.benches_dir)
+        self.services_manager: MigrationServicesManager = MigrationServicesManager()
 
     def get_rollback_version(self):
         # this was without any migrations
         return Version("0.10.1")
 
     def up(self):
-        richprint.print(f"Started", prefix=f"[bold]v{str(self.version)}:[/bold] ")
+        richprint.stdout.rule(f':package: [bold][blue]v{str(self.version)}[/blue][bold]')
+        self.logger.info(f"v{str(self.version)}: Started")
         self.logger.info("-" * 40)
 
-        self.services_manager: MigrationServicesManager = MigrationServicesManager()
+        self.init()
+        self.migrate_services()
+        self.migrate_benches()
 
-        # stop all benches
-        self.benches_manager.stop_benches(timeout=20)
+        self.logger.info("-" * 40)
 
+    def migrate_services(self):
         # create services
         self.services_create(self.services_manager.compose_project)
         self.services_manager.compose_project.pull_images()
@@ -66,46 +71,46 @@ class MigrationV0100(MigrationBase):
             self.services_manager.compose_project,
         )
 
-        # migrate each bench
+    def migrate_benches(self):
         main_error = False
 
-        benches = self.benches_manager.get_all_benches()
+        # migrate each bench
+        for bench_name, bench_path in self.benches_manager.get_all_benches().items():
+            bench = MigrationBench(name=bench_name, path=bench_path.parent)
 
-        for bench_name, bench_compose_path in benches.items():
-            bench = MigrationBench(name=bench_name, path=bench_compose_path.parent)
+            if bench.name in self.migration_executor.migrate_benches.keys():
+                bench_info = self.migration_executor.migrate_benches[bench.name]
+                if bench_info['exception']:
+                    richprint.print(f"Skipping migration for failed bench {bench.name}.")
+                    main_error = True
+                    continue
 
             self.migration_executor.set_bench_data(bench, migration_version=self.version)
-
             try:
                 self.migrate_bench(bench)
             except Exception as e:
                 import traceback
 
                 traceback_str = traceback.format_exc()
-                self.logger.error(f"[ EXCEPTION TRACEBACK ]:\n {traceback_str}")
+                self.logger.error(f"{bench.name} [ EXCEPTION TRACEBACK ]:\n {traceback_str}")
                 richprint.update_live()
                 main_error = True
                 self.migration_executor.set_bench_data(bench, e, self.version)
+
+                # restore all backup files
+                for backup in self.backup_manager.backups:
+                    if backup.bench == bench.name:
+                        self.backup_manager.restore(backup, force=True)
+
                 self.undo_bench_migrate(bench)
+                self.logger.info(f'Undo successfull for bench: {bench.name}')
                 bench.compose_project.down_service(volumes=False, timeout=5)
 
         if main_error:
-            raise MigrationExceptionInBench("")
-
-        richprint.print(f"Successfull", prefix=f"[bold]v{str(self.version)}:[/bold] ")
-        self.logger.info("-" * 40)
+            raise MigrationExceptionInBench('')
 
     def migrate_bench(self, bench: MigrationBench):
-        richprint.print(f"Migrating bench {bench.name}", prefix=f"[bold]v{str(self.version)}:[/bold] ")
-
-        # backup docker compose.yml
-        self.backup_manager.backup(bench.path / "docker-compose.yml", bench_name=bench.name)
-
-        # backup common_site_config.json
-        self.backup_manager.backup(
-            bench.path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json",
-            bench_name=bench.name,
-        )
+        richprint.change_head("Migrating bench compose")
 
         bench.compose_project.down_service(volumes=False)
 
@@ -121,31 +126,12 @@ class MigrationV0100(MigrationBase):
         self.services_database_manager.add_user(bench_db_user, bench_db_pass, force=True)
         self.services_database_manager.grant_user_privilages(bench_db_name, bench_db_user)
 
-    def down(self):
-        richprint.print(f"Started", prefix=f"[bold]v{str(self.version)} [ROLLBACK]:[/bold] ")
-        self.logger.info("-" * 40)
-
+    def undo_services_migrate(self):
         self.services_manager.compose_project.down_service()
-
         if self.services_manager.services_path.exists():
             shutil.rmtree(self.services_manager.services_path)
 
-        # undo each bench
-        for bench, exception in self.migration_executor.migrate_benches.items():
-            if not exception:
-                self.undo_bench_migrate(bench)
-
-        for backup in self.backup_manager.backups:
-            self.backup_manager.restore(backup, force=True)
-
-        richprint.print(f"Successfull", prefix=f"[bold]v{str(self.version)} [ROLLBACK]:[/bold] ")
-        self.logger.info("-" * 40)
-
     def undo_bench_migrate(self, bench: MigrationBench):
-        for backup in self.backup_manager.backups:
-            if backup.bench == bench.name:
-                self.backup_manager.restore(backup, force=True)
-
         configs_backup = bench.path / f"configs-{self.string_timestamp}.bak"
         configs_path = bench.path / "configs"
 
@@ -179,22 +165,21 @@ class MigrationV0100(MigrationBase):
     def migrate_bench_compose(self, bench: MigrationBench):
         richprint.change_head("Migrating database")
 
-        compose_version = bench.compose_project.compose_file_manager.get_version()
-
         if not bench.compose_project.compose_file_manager.exists():
             raise BenchDockerComposeFileNotFound(bench.name, bench.compose_project.compose_file_manager.compose_path)
 
         db_backup_file = self.db_migration_export(bench)
-        richprint.print("Database exported")
+
+        richprint.print(f"[blue]{bench.name}[/blue] db exported from bench mariadb service.")
 
         # backup bench db
         db_backup = self.backup_manager.backup(db_backup_file, bench_name=bench.name, allow_restore=False)
 
         self.db_migration_import(bench=bench, db_backup_file=db_backup)
-        richprint.print("Database Imported")
 
-        status_msg = "Migrating bench compose"
-        richprint.change_head(status_msg)
+        richprint.print(f"[blue]{bench.name}[/blue] db imported to global-db service.")
+
+        richprint.change_head("Migrating bench compose")
 
         # get all the payloads
         envs = bench.compose_project.compose_file_manager.get_all_envs()
@@ -250,11 +235,13 @@ class MigrationV0100(MigrationBase):
         # change the node socketio port
         bench.common_bench_config_set({"socketio_port": "80"})
 
-        richprint.print(f"{status_msg} {compose_version} -> {self.version.version}: Done")
+        richprint.print(f"Migrated [blue]{bench.name}[/blue] compose file.")
 
         return db_backup
 
     def create_compose_dirs(self, bench: MigrationBench):
+        richprint.change_head("Creating services compose dirs.")
+
         # directory creation
         configs_path = bench.path / "configs"
 
@@ -291,14 +278,15 @@ class MigrationV0100(MigrationBase):
             new_dir = nginx_dir / directory
             new_dir.mkdir(parents=True, exist_ok=True)
 
+        richprint.print("Created services compose dirs.")
+
     def db_migration_export(self, bench: MigrationBench) -> Path:
         self.logger.debug("[db export] bench: %s", bench.name)
 
         # start the benc hand also handle the missing docker images
         output = bench.compose_project.docker.compose.up(
-            services=["mariadb", "frappe"], detach=True, pull="missing", stream=True
+            services=["mariadb", "frappe"], detach=True, pull="missing", stream=False
         )
-        richprint.live_lines(output, padding=(0, 0, 0, 2))
 
         self.logger.debug("[db export] checking if mariadb started")
 
@@ -348,7 +336,11 @@ class MigrationV0100(MigrationBase):
 
         self.services_database_manager.grant_user_privilages(bench_db_user, bench_db_name)
 
+        richprint.print(f"{bench.name} db imported.")
+
     def services_create(self, services_compose_project: ComposeProject):
+        richprint.change_head("Creating services.")
+
         envs = {
             "global-db": {
                 "MYSQL_ROOT_PASSWORD_FILE": '/run/secrets/db_root_password',
@@ -442,8 +434,10 @@ class MigrationV0100(MigrationBase):
 
         services_compose_project.docker.compose.down(remove_orphans=True, timeout=1, volumes=True, stream=True)
 
+        richprint.print(f"Created services at {self.services_manager.services_path}.")
+
     def generate_compose(self, inputs: dict, compose_file_manager: ComposeFile):
-        # TODO do something about this function
+        richprint.change_head(f"Generating services compose file.")
         try:
             # handle environment
             if "environment" in inputs.keys():
@@ -462,5 +456,6 @@ class MigrationV0100(MigrationBase):
                     uid = user[container_name]["uid"]
                     gid = user[container_name]["gid"]
                     compose_file_manager.set_user(container_name, uid, gid)
+            richprint.print(f"Generated services compose file.")
         except Exception:
             raise ServicesNotCreated()

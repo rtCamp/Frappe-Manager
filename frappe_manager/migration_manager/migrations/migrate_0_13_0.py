@@ -1,6 +1,7 @@
 import json
 import os
 import copy
+from pathlib import Path
 from frappe_manager.compose_manager import DockerVolumeMount
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.migration_manager.migration_base import MigrationBase
@@ -16,18 +17,22 @@ from frappe_manager import CLI_DIR, CLI_SERVICES_DIRECTORY
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
-from frappe_manager.utils.helpers import capture_and_format_exception, get_container_name_prefix
+from frappe_manager.utils.helpers import get_container_name_prefix
 from frappe_manager.docker_wrapper.DockerClient import DockerClient
+from frappe_manager.migration_manager.backup_manager import BackupManager
 
 
 class MigrationV0130(MigrationBase):
     version = Version("0.13.0")
 
-    def __init__(self):
-        super().init()
-        self.benches_dir = CLI_DIR / "sites"
-        self.services_path = CLI_SERVICES_DIRECTORY
+    def init(self):
+        self.cli_dir: Path = Path.home() / 'frappe'
+        self.benches_dir = self.cli_dir / "sites"
+        self.backup_manager = BackupManager(str(self.version), self.benches_dir)
         self.benches_manager = MigrationBenches(self.benches_dir)
+        self.services_manager: MigrationServicesManager = MigrationServicesManager(
+            services_path=self.cli_dir / 'services'
+        )
 
     def migrate_services(self):
         # backup services compose
@@ -36,14 +41,13 @@ class MigrationV0130(MigrationBase):
                 f"Services compose at {self.services_manager.compose_project.compose_file_manager} not found."
             )
 
-        self.backup_manager.backup(
-            self.services_manager.compose_project.compose_file_manager.compose_path / "docker-compose.yml"
-        )
+        self.backup_manager.backup(self.services_manager.compose_project.compose_file_manager.compose_path)
+
         # remove version from services yml
         try:
             del self.services_manager.compose_project.compose_file_manager.yml['version']
         except KeyError:
-            self.logger.warning(f"[services]: version attribute not found compose.")
+            self.logger.warning(f"[services]: 'version' attribute not found in compose file.")
             pass
 
         # include new volume info
@@ -73,68 +77,14 @@ class MigrationV0130(MigrationBase):
         if self.services_manager.compose_project.is_service_running('global-nginx-proxy'):
             self.services_manager.compose_project.docker.compose.up(services=['global-nginx-proxy'])
 
-    def up(self):
-        richprint.print(f"Started", prefix=f"[bold]v{str(self.version)}:[/bold] ")
-        self.logger.info("-" * 40)
-
-        self.services_manager: MigrationServicesManager = MigrationServicesManager()
-
-        self.benches_manager.stop_benches()
-
-        benches = self.benches_manager.get_all_benches()
-
-        # migrate services
-        richprint.change_head("Migrating services")
-        self.migrate_services()
-        richprint.print("Migrating services: Done")
-
         # rename main config
         fm_config_path = CLI_DIR / 'fm_config.toml'
         old_fm_config_path = CLI_DIR / '.fm.toml'
         if old_fm_config_path.exists():
             old_fm_config_path.rename(fm_config_path)
 
-        # migrate each bench
-        main_error = False
-
-        # migrate each bench
-        for bench_name, bench_path in benches.items():
-            bench = MigrationBench(name=bench_name, path=bench_path.parent)
-
-            if bench.name in self.migration_executor.migrate_benches.keys():
-                bench_info = self.migration_executor.migrate_benches[bench.name]
-                if bench_info['exception']:
-                    richprint.print(f"Skipping migration for failed bench{bench.name}.")
-                    main_error = True
-                    continue
-
-            self.migration_executor.set_bench_data(bench, migration_version=self.version)
-            try:
-                self.migrate_bench(bench)
-            except Exception as e:
-                exception_str = capture_and_format_exception()
-                self.logger.error(f"{bench.name} [ EXCEPTION TRACEBACK ]:\n {exception_str}")
-                richprint.update_live()
-                main_error = True
-                self.migration_executor.set_bench_data(bench, e, self.version)
-                self.undo_bench_migrate(bench)
-                bench.compose_project.down_service(volumes=False, timeout=5)
-
-        if main_error:
-            raise MigrationExceptionInBench('')
-
-        richprint.print(f"Successfull", prefix=f"[bold]v{str(self.version)}:[/bold] ")
-        self.logger.info("-" * 40)
-
     def migrate_bench(self, bench: MigrationBench):
-        richprint.print(f"Migrating bench {bench.name}", prefix=f"[bold]v{str(self.version)}:[/bold] ")
-
-        # backup docker compose.yml
-        self.backup_manager.backup(bench.path / "docker-compose.yml", bench_name=bench.name)
-
-        # backup common_site_config.json
         bench_common_site_config = bench.path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
-        self.backup_manager.backup(bench_common_site_config, bench_name=bench.name)
         common_site_config_json = json.loads(bench_common_site_config.read_bytes())
 
         if 'mail_server' in common_site_config_json:
@@ -144,47 +94,22 @@ class MigrationV0130(MigrationBase):
         bench.compose_project.down_service(volumes=False)
         self.migrate_bench_compose(bench)
 
-    def down(self):
-        # richprint.print(f"Started",prefix=f"[ Migration v{str(self.version)} ][ROLLBACK] : ")
-        richprint.print(f"Started", prefix=f"[bold]v{str(self.version)} [ROLLBACK]:[/bold] ")
-        self.logger.info("-" * 40)
-
-        # undo each bench
-        for bench, exception in self.migration_executor.migrate_benches.items():
-            if not exception:
-                self.undo_bench_migrate(bench)
-
-        for backup in self.backup_manager.backups:
-            self.backup_manager.restore(backup, force=True)
-
-        richprint.print(f"Successfull", prefix=f"[bold]v{str(self.version)} [ROLLBACK]:[/bold] ")
-        self.logger.info("-" * 40)
-
     def undo_bench_migrate(self, bench: MigrationBench):
-        for backup in self.backup_manager.backups:
-            if backup.bench == bench.name:
-                self.backup_manager.restore(backup, force=True)
+        richprint.change_head("Removing Admin Tools compose file")
 
         admin_tools_compose_path = bench.path / 'docker-compose.admin-tools.yml'
 
         if admin_tools_compose_path.exists():
             admin_tools_compose_path.unlink()
 
-        self.logger.info(f"Undo successfull for bench: {bench.name}")
+        richprint.print("Removed Admin Tools compose file")
 
     def migrate_bench_compose(self, bench: MigrationBench):
-        status_msg = "Migrating bench compose"
-        richprint.change_head(status_msg)
-
-        compose_version = bench.compose_project.compose_file_manager.get_version()
+        richprint.change_head("Migrating bench compose")
 
         if not bench.compose_project.compose_file_manager.exists():
-            richprint.print(f"{status_msg} {compose_version} -> {self.version.version}: Failed ")
+            richprint.print(f"Failed to migrate {bench.name} compose file.")
             raise MigrationExceptionInBench(f"{bench.compose_project.compose_file_manager.compose_path} not found.")
-
-        # generate bench config for bench and save it
-        status_msg = "Migrating bench compose"
-        richprint.change_head(status_msg)
 
         # get all the payloads
         envs = bench.compose_project.compose_file_manager.get_all_envs()
@@ -196,7 +121,7 @@ class MigrationV0130(MigrationBase):
             try:
                 del envs['nginx']['ENABLE_SSL']
             except KeyError:
-                self.logger.warning(f"{bench.name}: ENABLE_SSL nginx's env not found.")
+                self.logger.warning(f"{bench.name} 'ENABLE_SSL' nginx's env not found.")
                 pass
 
         # create new html in configs/nginx/html compose directory
@@ -278,7 +203,7 @@ class MigrationV0130(MigrationBase):
         try:
             del bench.compose_project.compose_file_manager.yml['version']
         except KeyError:
-            self.logger.warning(f"{bench.name}: version attribute not found compose.")
+            self.logger.warning(f"{bench.name} 'version' attribute not found in compose file.")
             pass
 
         # include new volume info
@@ -300,9 +225,7 @@ class MigrationV0130(MigrationBase):
         bench.compose_project.compose_file_manager.set_version(str(self.version))
         bench.compose_project.compose_file_manager.write_to_file()
 
-        bench.compose_project.compose_file_manager.set_all_images(images_info)
-
-        richprint.print(f"{status_msg} {compose_version} -> {self.version.version}: Done")
+        richprint.print(f"Migrated [blue]{bench.name}[/blue] compose file.")
 
     def migrate_workers_compose(self, bench: MigrationBench):
         if bench.workers_compose_project.compose_file_manager.compose_path.exists():
@@ -315,7 +238,7 @@ class MigrationV0130(MigrationBase):
             try:
                 del bench.workers_compose_project.compose_file_manager.yml['version']
             except KeyError:
-                self.logger.warning(f"{bench.name} workers: version attribute not found compose.")
+                self.logger.warning(f"{bench.name} workers 'version' attribute not found in compose file.")
                 pass
 
             bench.workers_compose_project.compose_file_manager.set_top_networks_name(
@@ -326,10 +249,11 @@ class MigrationV0130(MigrationBase):
             )
             bench.compose_project.compose_file_manager.set_version(str(self.version))
             bench.workers_compose_project.compose_file_manager.write_to_file()
-            richprint.print("Migrating workers compose: Done")
+
+            richprint.print(f"Migrated [blue]{bench.name}[/blue] workers compose file.")
 
     def migrate_admin_tools_compose(self, bench: MigrationBench):
-        richprint.change_head("Create admin-tools")
+        richprint.change_head("Create Admin Tools")
 
         bench_compose_yml = copy.deepcopy(bench.compose_project.compose_file_manager.yml)
 
@@ -387,4 +311,4 @@ class MigrationV0130(MigrationBase):
 
         common_bench_config_path.write_text(json.dumps(current_common_site_config))
 
-        richprint.change_head("Created Admin-tools.")
+        richprint.change_head(f"Created {bench.name} Admin Tools.")
