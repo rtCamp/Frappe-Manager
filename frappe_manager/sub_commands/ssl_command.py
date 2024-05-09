@@ -21,6 +21,8 @@ def delete(
         ),
     ] = None,
 ):
+    """Delete bench ssl certficate."""
+
     services_manager = ctx.obj["services"]
     bench = Bench.get_object(benchname, services_manager)
     richprint.change_head("Removing SSL certificate")
@@ -40,6 +42,8 @@ def renew(
     ] = None,
     all: Annotated[bool, typer.Option(help="Renew ssl cert for all benches.")] = False,
 ):
+    """Renew bench ssl certficate."""
+
     services_manager = ctx.obj["services"]
     benches = BenchesManager(CLI_BENCHES_DIRECTORY, services=services_manager)
 

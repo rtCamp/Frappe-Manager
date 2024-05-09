@@ -422,6 +422,7 @@ def logs(
     follow: Annotated[bool, typer.Option("--follow", "-f", help="Follow logs.")] = False,
 ):
     """Show frappe server logs or container logs for a given bench."""
+
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
     bench = Bench.get_object(benchname, services_manager)
