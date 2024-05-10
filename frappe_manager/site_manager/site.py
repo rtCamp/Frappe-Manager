@@ -192,7 +192,11 @@ class Bench:
 
             if is_template_bench:
                 self.remove_attached_secrets()
-                richprint.exit(f"Created template bench: {self.name}", emoji_code=":white_check_mark:")
+                global_db_info = self.services.database_manager.database_server_info
+                self.sync_bench_common_site_config(global_db_info.host, global_db_info.port)
+                self.save_bench_config()
+                richprint.print(f"Created template bench: {self.name}", emoji_code=":white_check_mark:")
+                return
 
             richprint.change_head(f"Starting bench services")
             self.compose_project.start_service(force_recreate=True)
@@ -219,19 +223,7 @@ class Bench:
 
             self.logger.info(f"{self.name}: Bench site is active and responding.")
 
-            # self.create_certificate()
-
-            # richprint.change_head("Configuring bench admin tools.")
-
-            # if self.bench_config.admin_tools:
-            #     self.sync_admin_tools_compose()
-            #     self.restart_frappe_server()
-
-            # richprint.print("Cofigured bench admin tools.")
-
             self.info()
-
-            # self.save_bench_config()
 
             if not ".localhost" in self.name:
                 richprint.print(
