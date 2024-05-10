@@ -61,7 +61,8 @@ class BenchesManager:
 
         if not bench_list:
             richprint.exit(
-                "Seems like you haven't created any sites yet. To create a bench, use the command: 'fm create <benchname>'."
+                "Seems like you haven't created any sites yet. To create a bench, use the command: 'fm create <benchname>'.",
+                emoji_code=":white_check_mark:",
             )
 
         list_table = Table(show_lines=True, show_header=True, highlight=True)

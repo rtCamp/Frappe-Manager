@@ -1,4 +1,5 @@
 from pathlib import Path
+from frappe_manager.site_manager.site_exceptions import BenchNotRunning
 from frappe_manager.utils.site import pull_docker_images
 import typer
 import os
@@ -421,6 +422,7 @@ def logs(
     follow: Annotated[bool, typer.Option("--follow", "-f", help="Follow logs.")] = False,
 ):
     """Show frappe server logs or container logs for a given bench."""
+
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
     bench = Bench.get_object(benchname, services_manager)
@@ -498,6 +500,9 @@ def update(
 
     restart_required = False
     bench_config_save = False
+
+    if not bench.compose_project.running:
+        raise BenchNotRunning(bench_name=bench.name)
 
     if developer_mode:
         if developer_mode == EnableDisableOptionsEnum.enable:

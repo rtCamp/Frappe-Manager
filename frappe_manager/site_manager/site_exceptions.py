@@ -159,7 +159,7 @@ class BenchAttachTocontainerFailed(BenchException):
 
 
 class BenchNotRunning(BenchException):
-    def __init__(self, bench_name, message="Services not running."):
+    def __init__(self, bench_name, message="Bench services not running."):
         self.bench_name = bench_name
         self.message = message
         super().__init__(self.bench_name, self.message)
