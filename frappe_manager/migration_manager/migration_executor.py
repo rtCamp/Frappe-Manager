@@ -140,28 +140,26 @@ class MigrationExecutor:
 
         except MigrationExceptionInBench as e:
             if self.migrate_benches:
-                print_head = True
+                passed_print_head = True
+
                 for bench, bench_status in self.migrate_benches.items():
                     if not bench_status["exception"]:
-                        if print_head:
-                            richprint.stdout.rule('[bold][red]Migration Passed Benches[/red][bold]', style='green')
-                            print_head = False
+                        if passed_print_head:
+                            richprint.stdout.rule('[bold]Migration Passed Benches[bold]', style='green')
+                            passed_print_head = False
 
                         richprint.print(f"[green]Bench[/green]: {bench}", emoji_code=':construction:')
 
-                if not print_head:
-                    richprint.stdout.rule(style='red')
-
-                print_head = True
+                failed_print_head = True
 
                 for bench, bench_status in self.migrate_benches.items():
                     if bench_status["exception"]:
-                        if print_head:
+                        if failed_print_head:
                             richprint.stdout.rule(
                                 ':police_car_light: [bold][red]Migration Failed Benches[/red][bold] :police_car_light:',
                                 style='red',
                             )
-                            print_head = False
+                            failed_print_head = False
 
                         richprint.error(f"[red]Bench[/red]: {bench}", emoji_code=':construction:')
 
@@ -178,8 +176,11 @@ class MigrationExecutor:
 
                 richprint.print(f"For error specifics, refer to {CLI_DIR}/logs/fm.log", emoji_code=':page_facing_up:')
 
-                if not print_head:
+                if not failed_print_head:
                     richprint.stdout.rule(style='red')
+                else:
+                    if not passed_print_head:
+                        richprint.stdout.rule(style='green')
 
                 archive_msg = [
                     'Available options after migrations failure :',

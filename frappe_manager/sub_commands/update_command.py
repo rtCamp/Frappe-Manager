@@ -37,4 +37,6 @@ def update_callback(
 def images(
     ctx: typer.Context,
 ):
+    """Pull latest FM stack docker images."""
+
     pull_docker_images()

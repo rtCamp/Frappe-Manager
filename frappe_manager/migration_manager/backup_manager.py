@@ -1,21 +1,23 @@
 import shutil
 from datetime import datetime
 from pathlib import Path
-from frappe_manager import CLI_DIR
+from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_DIR
 from dataclasses import dataclass
 from typing import Optional
 from frappe_manager.logger import log
 
 random_strings = []
 
+
 @dataclass
-class BackupData():
+class BackupData:
     src: Path
     dest: Path
     bench: Optional[str] = None
+    bench_path: Optional[Path] = None
+    prefix_timestamp: bool = False
     allow_restore: bool = True
     _is_restored: bool = False
-    prefix_timestamp = False
     _prefix_length: int = 5
 
     @property
@@ -27,7 +29,6 @@ class BackupData():
         self._is_restored = v
 
     def __post_init__(self):
-
         file_name = self.dest.name
 
         if self.prefix_timestamp:
@@ -43,43 +44,49 @@ class BackupData():
                     break
 
         self.real_dest = self.dest.parent
-
-        if self.bench:
-            self.real_dest = self.real_dest  / self.bench
-
         self.real_dest: Path = self.real_dest / file_name
 
     def exists(self):
         return self.dest.exists()
 
 
-CLI_MIGARATIONS_DIR = CLI_DIR / 'migrations'/ f"{datetime.now().strftime('%d-%b-%y--%H-%M-%S')}"  / 'backups'
+current_migration_timestamp = f"{datetime.now().strftime('%d-%b-%y--%H-%M-%S')}"
+CLI_MIGARATIONS_DIR = CLI_DIR / 'backups' / 'migrations' / current_migration_timestamp
 
-class BackupManager():
 
-    def __init__(self,name, base_dir: Path = CLI_MIGARATIONS_DIR):
-        self.root_backup_dir = base_dir
-        self.backup_dir = self.root_backup_dir / name
+class BackupManager:
+    def __init__(self, name, benches_dir=CLI_BENCHES_DIRECTORY, backup_dir: Path = CLI_MIGARATIONS_DIR):
+        self.name = name
+        self.root_backup_dir: Path = backup_dir
+        self.benches_dir: Path = benches_dir
+        self.backup_dir: Path = self.root_backup_dir / self.name
+        self.bench_backup_dir: Path = Path('backups') / 'migrations' / current_migration_timestamp
         self.backups = []
         self.logger = log.get_logger()
 
         # create backup dir if not exists
-        self.backup_dir.mkdir(parents=True,exist_ok=True)
+        self.backup_dir.mkdir(parents=True, exist_ok=True)
 
-    def backup(self, src: Path, dest: Optional[Path] = None, bench_name: Optional[str] = None, allow_restore: bool = True ):
-
+    def backup(
+        self,
+        src: Path,
+        dest: Optional[Path] = None,
+        bench_name: Optional[str] = None,
+        allow_restore: bool = True,
+    ):
         if not src.exists():
             return None
 
         if not dest:
             dest = self.backup_dir / src.name
 
-        backup_data = BackupData(src, dest, allow_restore=allow_restore)
+            if bench_name:
+                dest: Path = self.benches_dir / bench_name / self.bench_backup_dir / self.name / src.name
 
-        if bench_name:
-            backup_data = BackupData(src, dest,bench=bench_name)
-            if not backup_data.real_dest.parent.exists():
-                backup_data.real_dest.parent.mkdir(parents=True,exist_ok=True)
+        backup_data = BackupData(src, dest, bench=bench_name, allow_restore=allow_restore)
+
+        if not backup_data.real_dest.parent.exists():
+            backup_data.real_dest.parent.mkdir(parents=True, exist_ok=True)
 
         self.logger.debug(f"Backup: {backup_data.src} => {backup_data.real_dest} ")
 
@@ -94,7 +101,7 @@ class BackupManager():
 
         return backup_data
 
-    def restore(self, backup_data, force = False):
+    def restore(self, backup_data, force=False):
         """
         Restore a file from a backup.
         """
