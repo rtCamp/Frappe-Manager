@@ -159,7 +159,7 @@ class MigrationBase(ABC):
         bench_db_info = bench.get_db_connection_info()
         bench_db_name = bench_db_info["name"]
 
-        richprint.change_head(f'Commencing db [blue]{bench.name}[/blue] backup')
+        richprint.change_head(f'Commencing db {bench.name} backup')
 
         mariadb_manager = MariaDBManager(server_db_info, services_manager.compose_project)
 
