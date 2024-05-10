@@ -17,7 +17,6 @@ from frappe_manager.logger import log
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager import VSCODE_LAUNCH_JSON, VSCODE_SETTINGS_JSON, VSCODE_TASKS_JSON
-from frappe_manager.site_manager import bench_config
 from frappe_manager.site_manager.admin_tools import AdminTools
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.site_manager.site_exceptions import (
@@ -415,6 +414,7 @@ class Bench:
         self.sync_bench_common_site_config(global_db_info.host, global_db_info.port)
 
         richprint.change_head("Starting bench services")
+        self.admin_tools.remove_nginx_location_config()
         self.compose_project.start_service(force_recreate=force)
         self.sync_bench_config_configuration()
         self.save_bench_config()
@@ -425,12 +425,6 @@ class Bench:
             richprint.change_head("Starting bench workers services")
             self.workers.compose_project.start_service(force_recreate=force)
             richprint.print("Started bench workers services.")
-
-        # # start admin_tools if exists
-        # if self.admin_tools.compose_project.compose_file_manager.exists():
-        #     richprint.change_head("Starting bench admin tools services")
-        #     self.admin_tools.compose_project.start_service(force_recreate=force)
-        #     richprint.print("Started bench admin tools services.")
 
         richprint.change_head('Starting frappe server')
         self.frappe_logs_till_start()
@@ -966,7 +960,7 @@ class Bench:
             self.compose_project.compose_file_manager.set_labels("frappe", labels)
             self.compose_project.compose_file_manager.write_to_file()
             richprint.print(f"Regenerated bench compose.")
-            self.start()
+            self.compose_project.start_service(['frappe'])
 
         # sync debugger files
         if debugger:
