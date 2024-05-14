@@ -67,8 +67,6 @@ def stream_stdout_and_stderr(
     process_opened.append(process.pid)
 
     q = Queue()
-    full_stderr = b""  # for the error message
-    full_stdout = b""  # for the error message
 
     # we use deamon threads to avoid hanging if the user uses ctrl+c
     th = Thread(target=reader, args=[process.stdout, "stdout", q])
@@ -83,8 +81,6 @@ def stream_stdout_and_stderr(
         for source, line in iter(q.get, None):
             output.append((source, line))
             yield source, line
-            if source == "stderr":
-                full_stderr += line
 
     exit_code = process.wait()
 
