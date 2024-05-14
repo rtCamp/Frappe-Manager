@@ -17,7 +17,7 @@ from frappe_manager.services_manager.services_exceptions import (
 from frappe_manager.display_manager.DisplayManager import richprint
 from pydantic import BaseModel
 
-from frappe_manager.utils.docker import SubprocessOutput
+from frappe_manager.docker_wrapper.subprocess_output import SubprocessOutput
 
 
 # TODO this class will be used for validation for main config

@@ -90,7 +90,6 @@ class ServicesManager:
         self.fm_headers_path: Path = self.proxy_manager.dirs.confd.host / 'fm_headers.conf'
         self.set_frappe_headers_conf()
 
-
     def set_frappe_headers_conf(self):
         if self.fm_headers_path.parent.exists():
             template_path: Path = get_template_path('fm_headers.conf.tmpl')
@@ -245,7 +244,7 @@ class ServicesManager:
             else:
                 self.compose_project.docker.compose.exec(container, command=shell_path, capture_output=False)
         except DockerException as e:
-            richprint.warning(f"Shell exited with error code: {e.return_code}")
+            richprint.warning(f"Shell exited with error code: {e.output.exit_code}")
 
     def remove_itself(self):
         shutil.rmtree(self.path)
