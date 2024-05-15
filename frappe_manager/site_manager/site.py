@@ -821,7 +821,7 @@ class Bench:
         try:
             self.compose_project.docker.compose.exec(**exec_args)
         except DockerException as e:
-            richprint.warning(f"Shell exited with error code: {e.return_code}")
+            richprint.warning(f"Shell exited with error code: {e.output.exit_code}")
 
     def get_log_file_paths(self):
         base_log_dir = self.path / "workspace" / "frappe-bench" / "logs"
@@ -1197,9 +1197,11 @@ class Bench:
         for i in range(timeout):
             try:
                 status_command = 'supervisorctl -c /opt/user/supervisord.conf status all'
-                self.frappe_service_run_command(status_command)
+                output = self.compose_project.docker.compose.exec('frappe', status_command, user='frappe', stream=False)
                 return True
-            except BenchException:
+            except DockerException as e:
+                if any('frappe-bench' in s for s in e.output.combined):
+                    return True
                 time.sleep(interval)
                 continue
         return False

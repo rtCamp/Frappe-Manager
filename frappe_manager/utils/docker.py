@@ -3,42 +3,13 @@ from pathlib import Path
 from queue import Queue
 from subprocess import PIPE, Popen, run
 from threading import Thread
-from dataclasses import dataclass
-from typing import Dict, Iterable, List, Tuple, Union, Optional
+from typing import Dict, Iterable, Tuple, Union, Optional
 from frappe_manager.logger import log
 from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.docker_wrapper.subprocess_output import SubprocessOutput
 
 process_opened = []
-
-
-@dataclass
-class SubprocessOutput:
-    stdout: List[str]
-    stderr: List[str]
-    combined: List[str]
-    exit_code: int
-
-    @classmethod
-    def from_output(cls, output):
-        stdout = []
-        stderr = []
-        combined = []
-        exit_code = 0
-
-        for source, line in output:
-            line = line.decode()
-            if source == 'exit_code':
-                exit_code = int(line)
-            else:
-                combined.append(line)
-            if source == 'stdout':
-                stdout.append(line)
-            if source == 'stderr':
-                stderr.append(line)
-
-        data = {'stdout': stdout, 'stderr': stderr, 'combined': combined, 'exit_code': exit_code}
-        return cls(**data)
 
 
 def reader(pipe, pipe_name, queue):
@@ -63,7 +34,7 @@ def reader(pipe, pipe_name, queue):
 
 def stream_stdout_and_stderr(
     full_cmd: list,
-    env: Dict[str, str] = None,
+    env: Optional[Dict[str, str]] = None,
 ) -> Iterable[Tuple[str, bytes]]:
     """
     Executes a command in Docker and streams the stdout and stderr outputs.
@@ -96,7 +67,7 @@ def stream_stdout_and_stderr(
     process_opened.append(process.pid)
 
     q = Queue()
-    full_stderr = b""  # for the error message
+
     # we use deamon threads to avoid hanging if the user uses ctrl+c
     th = Thread(target=reader, args=[process.stdout, "stdout", q])
     th.daemon = True
@@ -105,20 +76,22 @@ def stream_stdout_and_stderr(
     th.daemon = True
     th.start()
 
+    output = []
     for _ in range(2):
         for source, line in iter(q.get, None):
+            output.append((source, line))
             yield source, line
-            if source == "stderr":
-                full_stderr += line
 
     exit_code = process.wait()
 
     logger.debug(f"RETURN CODE: {exit_code}")
     logger.debug('- -' * 10)
-    if exit_code != 0:
-        raise DockerException(full_cmd, exit_code, stderr=full_stderr)
 
+    output.append(('exit_code', str(exit_code).encode()))
     yield ("exit_code", str(exit_code).encode())
+
+    if exit_code != 0:
+        raise DockerException(full_cmd, SubprocessOutput.from_output(output))
 
 
 def run_command_with_exit_code(
@@ -140,7 +113,7 @@ def run_command_with_exit_code(
             run_output = run(full_cmd)
             exit_code = run_output.returncode
             if exit_code != 0:
-                raise DockerException(full_cmd, exit_code)
+                raise DockerException(full_cmd, SubprocessOutput([], [], [], exit_code))
             return
 
         stream_output: SubprocessOutput = SubprocessOutput.from_output(stream_stdout_and_stderr(full_cmd))
