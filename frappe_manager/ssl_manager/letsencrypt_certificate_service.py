@@ -1,7 +1,7 @@
 import shlex
 from io import StringIO
 from pathlib import Path
-from typing import List, Literal, Tuple
+from typing import List, Tuple
 from certbot._internal.main import make_or_verify_needed_dirs
 from certbot._internal.plugins import disco as plugins_disco
 from certbot._internal import cli, storage
@@ -9,7 +9,7 @@ from certbot._internal.display import obj as display_obj
 from certbot import crypto_util
 from certbot.errors import AuthorizationError
 from frappe_manager.logger import log
-from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateChallengeFailed,
     SSLCertificateGenerateFailed,
@@ -25,10 +25,8 @@ class LetsEncryptCertificateService(SSLCertificateService):
         self,
         ssl_service_dir: Path,
         webroot_dir: Path,
-        preferred_challenge: Literal['http', 'dns'] = 'http',
     ):
         self.webroot_dir = webroot_dir
-        self.preferred_challenge = preferred_challenge
         self.root_dir = ssl_service_dir / SUPPORTED_SSL_TYPES.le.value
 
         # certbot dirs
@@ -37,6 +35,7 @@ class LetsEncryptCertificateService(SSLCertificateService):
         self.logs_dir: Path = self.root_dir / 'logs'
 
         self.base_command = f"--work-dir {self.work_dir} --config-dir {self.config_dir} --logs-dir {self.logs_dir}"
+        self.logger = log.get_logger()
         self.console_output = StringIO()
 
     def renew_certificate(self, certificate: LetsencryptSSLCertificate):
@@ -81,9 +80,26 @@ class LetsEncryptCertificateService(SSLCertificateService):
         richprint.print("Removed Letsencrypt certificate")
 
     def generate_certificate(self, certificate: LetsencryptSSLCertificate):
-        gen_command: str = self.base_command + f" certonly --webroot -w {self.webroot_dir} "
+        gen_command: str = self.base_command + f" certonly "
+
+        richprint.print(f"Using Let's Encrypt {certificate.preferred_challenge.value} challenge.")
+
+        import tempfile
+
+        temp_file = tempfile.NamedTemporaryFile(delete=False)
+
+        if certificate.preferred_challenge == LETSENCRYPT_PREFERRED_CHALLENGE.http01:
+            gen_command += f' --webroot -w {self.webroot_dir}'
+
+        elif certificate.preferred_challenge == LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
+            api_creds = certificate.get_cloudflare_dns_credentials()
+            temp_file.write(api_creds.encode())
+            temp_file.flush()
+
+            gen_command += f' --dns-cloudflare --dns-cloudflare-credentials {temp_file.name}'
+
         gen_command += f' --keep-until-expiring --expand'
-        # gen_command += ' --staging'
+        gen_command += ' --staging'
         gen_command += f' --agree-tos -m "{certificate.email}" --no-eff-email'
 
         all_domains = [f'{certificate.domain}'] + certificate.alias_domains
@@ -94,22 +110,27 @@ class LetsEncryptCertificateService(SSLCertificateService):
 
         try:
             richprint.change_head("Getting Letsencrypt certificate")
+            self.logger.debug(f'Certbot command: {gen_command}')
             config = self._get_le_config(shlex.split(gen_command), quiet=True)
             plugins = plugins_disco.PluginsRegistry.find_all()
             config.func(config, plugins)
-            richprint.stdout.print(self.console_output.getvalue().strip())
+            output = '\n'.join(line for line in self.console_output.getvalue().split('\n') if not line.startswith('!!'))
+            richprint.stdout.print(output)
 
         except AuthorizationError as e:
-            logger = log.get_logger()
-            logger.exception(e)
-            richprint.stdout.print(self.console_output.getvalue().strip())
-            raise SSLCertificateChallengeFailed(self.preferred_challenge)
+            self.logger.exception(e)
+            output = '\n'.join(line for line in self.console_output.getvalue().split('\n') if not line.startswith('!!'))
+            richprint.stdout.print(output)
+            raise SSLCertificateChallengeFailed(certificate.preferred_challenge)
 
         except Exception as e:
-            logger = log.get_logger()
-            logger.exception(e)
-            richprint.stdout.print(self.console_output.getvalue().strip())
+            self.logger.exception(e)
+            output = '\n'.join(line for line in self.console_output.getvalue().split('\n') if not line.startswith('!!'))
+            richprint.stdout.print(output)
             raise SSLCertificateGenerateFailed()
+
+        finally:
+            temp_file.close()
 
         richprint.print("Acquired Letsencrypt certificate: Done")
         return self.get_certificate_paths(certificate)

@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from frappe_manager import CLI_FM_CONFIG_PATH
 
 from frappe_manager.utils.helpers import format_ssl_certificate_time_remaining
 
@@ -13,11 +13,21 @@ class SSLCertificateNotFoundError(Exception):
         super().__init__(self.message)
 
 
-class SSLDNSChallengeNotImplemented(Exception):
-    """Exception raised for dns method not implemented."""
+class SSLCertificateEmailNotFoundError(Exception):
+    """Exception raised when a certificate is not found."""
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, domain, message="Please provide email using flag '"):
+        self.domain = domain
+        self.message = message.format(self.domain)
+        super().__init__(self.message)
+
+
+class SSLDNSChallengeCredentailsNotFound(Exception):
+    """Exception raised for dns method required credential not found."""
+
+    def __init__(self, message: str = f"Cloudflare dns credentials not found in {CLI_FM_CONFIG_PATH}"):
+        self.message = message
+        super().__init__(message)
 
 
 class SSLCertificateChallengeFailed(Exception):

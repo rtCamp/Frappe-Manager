@@ -7,7 +7,6 @@ from frappe_manager.ssl_manager.no_op_certificate_service import NoOpCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateNotDueForRenewalError,
     SSLCertificateNotFoundError,
-    SSLDNSChallengeNotImplemented,
 )
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.nginxproxymanager import NginxProxyManager
@@ -23,10 +22,6 @@ class SSLCertificateManager:
     proxy_manager: NginxProxyManager
 
     def __init__(self, certificate: SSLCertificate, webroot_dir: Path, proxy_manager: NginxProxyManager):
-        # Check if the domains and alias domains doesn't contain wildcards
-        if certificate.has_wildcard:
-            raise SSLDNSChallengeNotImplemented
-
         self.certificate = certificate
         self.proxy_manager = proxy_manager
         self.webroot_dir = webroot_dir

@@ -5,7 +5,8 @@ from pathlib import Path
 from typing import Any, List, Optional
 from pydantic import BaseModel, Field, model_validator, validator
 from frappe_manager import STABLE_APP_BRANCH_MAPPING_LIST
-from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
+from frappe_manager.metadata_manager import FMConfigManager, FMLetsencryptConfig
+from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.utils.helpers import get_container_name_prefix
@@ -112,7 +113,27 @@ class BenchConfig(BaseModel):
             ssl_type = ssl_data.get('ssl_type', SUPPORTED_SSL_TYPES.none)
             if ssl_type == SUPPORTED_SSL_TYPES.le:
                 email = ssl_data.get('email', None)
-                ssl_instance = LetsencryptSSLCertificate(domain=domain, ssl_type=ssl_type, email=email)
+
+                fm_config_manager = FMConfigManager.import_from_toml()
+
+                pref_challenge_data = data.get("preferred_challenge", None)
+
+                if not pref_challenge_data:
+                    if fm_config_manager.letsencrypt.exists:
+                        preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
+                    else:
+                        preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.http01
+                else:
+                    preferred_challenge = pref_challenge_data
+
+                ssl_instance = LetsencryptSSLCertificate(
+                    domain=domain,
+                    ssl_type=ssl_type,
+                    email=email,
+                    preferred_challenge=preferred_challenge,
+                    api_key=fm_config_manager.letsencrypt.api_key,
+                    api_token=fm_config_manager.letsencrypt.api_token,
+                )
             else:
                 ssl_instance = SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none)
         else:
