@@ -13,11 +13,20 @@ def stop(
 ):
     """Stops global services."""
     services_manager: ServicesManager = ctx.obj["services"]
-
-    if services_manager.compose_project.is_service_running(service_name.value):
-        services_manager.compose_project.stop_service(services=[service_name.value])
+    if service_name.value == ServicesEnum.all:
+        for service in ServicesEnum:
+            if service == ServicesEnum.all:
+                continue
+            if services_manager.compose_project.is_service_running(service.value):
+                services_manager.compose_project.stop_service(services=[service.value])
+            else:
+                richprint.warning(f"{service.value} is not running.")
+        return
     else:
-        richprint.exit(f"{service_name.value} is not running.")
+        if services_manager.compose_project.is_service_running(service_name.value):
+            services_manager.compose_project.stop_service(services=[service_name.value])
+        else:
+            richprint.exit(f"{service_name.value} is not running.")
 
 
 @services_root_command.command(no_args_is_help=True)
