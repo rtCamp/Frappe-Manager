@@ -4,7 +4,6 @@ from pydantic import BaseModel, EmailStr, Field
 import tomlkit
 from frappe_manager.migration_manager.version import Version
 from frappe_manager import CLI_FM_CONFIG_PATH
-from frappe_manager.ssl_manager import letsencrypt_certificate
 from frappe_manager.utils.helpers import get_current_fm_version
 
 
@@ -33,7 +32,6 @@ class FMLetsencryptConfig(BaseModel):
 
     @classmethod
     def import_from_toml_doc(cls, toml_doc):
-        print(toml_doc)
         config_object = cls(**toml_doc)
         return config_object
 
@@ -46,8 +44,11 @@ class FMConfigManager(BaseModel):
     def export_to_toml(self, path: Path = CLI_FM_CONFIG_PATH) -> bool:
         exclude = {'root_path'}
 
-        if self.letsencrypt.email == 'dummy@fm.fm':
+        if not self.letsencrypt.email and not self.letsencrypt.api_key and not self.letsencrypt.api_token:
             exclude.add('letsencrypt')
+        else:
+            if self.letsencrypt.email == 'dummy@fm.fm':
+                exclude.add('letsencrypt')
 
         if self.version < Version('0.13.0'):
             path = CLI_FM_CONFIG_PATH.parent / '.fm.toml'

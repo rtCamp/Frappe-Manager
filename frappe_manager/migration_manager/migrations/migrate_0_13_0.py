@@ -78,6 +78,7 @@ class MigrationV0130(MigrationBase):
         # rename main config
         fm_config_path = CLI_DIR / 'fm_config.toml'
         old_fm_config_path = CLI_DIR / '.fm.toml'
+
         if old_fm_config_path.exists():
             old_fm_config_path.rename(fm_config_path)
 

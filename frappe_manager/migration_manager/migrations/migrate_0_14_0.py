@@ -4,6 +4,7 @@ from frappe_manager.migration_manager.migration_base import MigrationBase
 from frappe_manager.migration_manager.migration_helpers import MigrationBenches, MigrationServicesManager
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.migration_manager.backup_manager import BackupManager
+from frappe_manager.display_manager.DisplayManager import richprint
 
 
 class MigrationV0140(MigrationBase):
@@ -19,15 +20,17 @@ class MigrationV0140(MigrationBase):
         )
 
     def migrate_services(self):
+        richprint.change_head("Migrating [blue]fm_config.toml[/blue] changes")
         config_path = self.cli_dir / 'fm_config.toml'
 
         if config_path.exists():
             data = tomlkit.parse(config_path.read_text())
             email = data.get('le_email', None)
-            data['letsencrypt'] = {'email': email}
 
             if email:
+                data['letsencrypt'] = {'email': email}
                 del data['le_email']
 
             with open(config_path, 'w') as f:
                 f.write(tomlkit.dumps(data))
+        richprint.print("Migrated [blue]fm_config.toml[/blue]")
