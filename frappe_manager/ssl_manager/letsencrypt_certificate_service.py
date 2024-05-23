@@ -99,7 +99,6 @@ class LetsEncryptCertificateService(SSLCertificateService):
             gen_command += f' --dns-cloudflare --dns-cloudflare-credentials {temp_file.name}'
 
         gen_command += f' --keep-until-expiring --expand'
-        gen_command += ' --staging'
         gen_command += f' --agree-tos -m "{certificate.email}" --no-eff-email'
 
         all_domains = [f'{certificate.domain}'] + certificate.alias_domains
