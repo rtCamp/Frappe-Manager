@@ -1,6 +1,5 @@
 #!/bin/bash
 
-source env/bin/activate # make sure the envirnment variable is set
 
 
 source ${PWD}/fm.sh
@@ -8,6 +7,7 @@ source ${PWD}/helpers.sh
 
 cd ~
 echo "Frappe executing $PWD"
+source env/bin/activate # make sure the envirnment variable is set
 
 main() {
     Prequisites
