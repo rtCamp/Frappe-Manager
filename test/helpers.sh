@@ -36,7 +36,7 @@ Prequisites() {
         exit 30
     fi
 
-    for n in git python docker docker-compose 'docker compose';
+    for n in git python docker docker-compose;
     do
         if ! [ -x "$(command -v $n)" ]; then
             echo "Error: $n is not installed." >&2
