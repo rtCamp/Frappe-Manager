@@ -31,7 +31,6 @@ InstallFrappe() {
 }
 
 Prequisites() {
-    cd ~ || echo "failed to move to $HOME" && exit 55
     if [ "$(id -u)" -eq 0 ]; then
         info_red "You are running as root."
         exit 30
