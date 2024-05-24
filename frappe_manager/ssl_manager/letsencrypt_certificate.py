@@ -11,7 +11,7 @@ class LetsencryptSSLCertificate(SSLCertificate):
     email: EmailStr = Field(..., description="Email used by certbot.")
     api_token: Optional[str] = Field(None, description="Cloudflare API token used by Certbot.")
     api_key: Optional[str] = Field(None, description="Cloudflare Global API Key used by Certbot.")
-    toml_exclude: Optional[set] = {'domain', 'alias_domains', 'toml_exclude', 'api_token', 'api_key'}
+    toml_exclude: Optional[set] = {'domain', 'alias_domains', 'toml_exclude'}
 
     @model_validator(mode="after")
     def validate_credentials(self) -> Self:
