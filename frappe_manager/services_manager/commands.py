@@ -36,11 +36,20 @@ def start(
 ):
     """Starts global services."""
     services_manager: ServicesManager = ctx.obj["services"]
-
-    if services_manager.compose_project.is_service_running(service_name.value):
-        services_manager.compose_project.start_service(services=[service_name.value])
+    if service_name.value == ServicesEnum.all:
+        for service in ServicesEnum:
+            if service == ServicesEnum.all:
+                continue
+            if not services_manager.compose_project.is_service_running(service.value):
+                services_manager.compose_project.start_service(services=[service.value])
+            else:
+                richprint.exit(f"{service_name.value} is already running.")
+        return
     else:
-        richprint.exit(f"{service_name.value} is already running.")
+        if not services_manager.compose_project.is_service_running(service_name.value):
+            services_manager.compose_project.start_service(services=[service_name.value])
+        else:
+            richprint.exit(f"{service_name.value} is already running.")
 
 @services_root_command.command(no_args_is_help=True)
 def restart(
@@ -49,7 +58,13 @@ def restart(
 ):
     """Restarts global services."""
     services_manager: ServicesManager = ctx.obj["services"]
-    services_manager.compose_project.restart_service(services=[service_name.value])
+    if service_name.value == ServicesEnum.all:
+        for service in ServicesEnum:
+            if service == ServicesEnum.all:
+                continue
+            services_manager.compose_project.restart_service(services=[service_name.value])
+    else:
+        services_manager.compose_project.restart_service(services=[service_name.value])
 
 
 @services_root_command.command(no_args_is_help=True)
