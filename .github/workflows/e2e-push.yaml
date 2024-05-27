@@ -1,0 +1,32 @@
+name: E2E on push event
+
+on:
+  push:
+    tags:
+      - v*
+    branches:
+      - main
+      - develop
+  workflow_dispatch:
+
+jobs:
+  e2e-current:
+    name: e2e current latest branch
+    runs-on: ubuntu-latest
+
+
+    strategy:
+      matrix:
+        python-ver: ["3.11", "3.12"]
+
+    steps:
+    - uses: actions/checkout@v4
+    - uses: actions/setup-python@v5
+      with:
+        python-version: ${{ matrix.python-ver }}
+
+    - name: test e2e simple
+      run: echo "TODO to find how to pass the current code"
+
+    - name: test e2e with migration
+      run: echo "TODO need to find how to pass the input"
