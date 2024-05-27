@@ -4,7 +4,11 @@ CreateSite() {
 	local siteName="$1"
 	local envN="$2"
 	echo "Create SiteName: $siteName, Env: $envN"
-	fm create $siteName --env $2
+	if [ ! "${envN:-}" ]; then
+	   fm create $siteName
+	else
+	   fm create $siteName --env $2
+	fi
 
 	echo "Get Request to the homepage of Site: $siteName, Env: $envN"
 	TestSiteReachability "$siteName"
@@ -13,13 +17,14 @@ CreateSite() {
 TestSiteReachability() {
 	local siteName="$1"
 	curl -f \
-	   --head -H "Host: $siteName" \
-			 http://localhost:80 || echo "Failed to curl $siteName"
+	    --head \
+	    -H "Host: $siteName" \
+	    -H "Cache-Control: no-cache,no-store" http://localhost:80 || echo "Failed to curl $siteName"
 }
 
 MigrationToLatest() {
     pip install -U frappe-manager
-    echo "yes" | fm list & sleep 10m ; kill $!
+    echo "yes" | fm list
     fm --version
 }
 
@@ -29,7 +34,6 @@ DeleteSite() {
     echo "yes" | fm delete $siteName
 }
 
-# pip install -U frappe-manager
 
 GetInfoSite() {
     local siteName="$1"

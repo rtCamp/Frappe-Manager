@@ -13,23 +13,33 @@ echo "Frappe executing $PWD"
 source env/bin/activate # make sure the envirnment variable is set
 
 oldToNew() {
-    Prequisites
+	echo "
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃      Migration Test from v0.9.0 to latest         ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+"
+	Prequisites
 	Cleanup
 	InstallFrappe "v0.9.0"
-	CreateSite "migration-site.dev.local" dev
+	CreateSite "migration-site.localhost"
 	ListSites
-	StopSite "migration-site.dev.local"
-	StartSite "migration-site.dev.local"
-	GetInfoSite "migration-site.dev.local"
+	StopSite "migration-site.localhost"
+	StartSite "migration-site.localhost"
+	GetInfoSite "migration-site.localhost"
 	MigrationToLatest
-	StartSite "migration-site.dev.local"
-	TestSiteReachability "migration-site.dev.local"
-	DeleteSite "migration-site.dev.local"
+	StartSite "migration-site.localhost"
+	TestSiteReachability "migration-site.localhost"
+	DeleteSite "migration-site.localhost"
 	RemoveDanglingDockerStuff
 }
 
 semiNewToNew() {
-    Prequisites
+	echo "
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃      Migration Test from v0.9.0 to latest         ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+"
+	Prequisites
 	Cleanup
 	InstallFrappe $(curl --silent https://api.github.com/repos/rtCamp/Frappe-Manager/tags | jq -r '.[1].name')
 	CreateSite "migration-site.dev.local" dev

@@ -12,6 +12,11 @@ echo "Frappe executing $PWD"
 source env/bin/activate # make sure the envirnment variable is set
 
 main() {
+	echo "
+┏━━━━━━━━━━━━━━━━━━━━━━━┓
+┃      E2E Test         ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━┩
+"
 	Prequisites
 	Cleanup
 	InstallFrappe "main"
@@ -26,6 +31,9 @@ main() {
 
 	StartSite "test-site.prod.local"
 	StartSite "test-site.dev.local"
+
+	TestSiteReachability "test-site.prod.local"
+	TestSiteReachability "test-site.dev.local"
 
 	GetInfoSite "test-site.prod.local"
 	GetInfoSite "test-site.dev.local"

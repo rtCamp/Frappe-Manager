@@ -2,7 +2,7 @@
 
 Cleanup() {
     python -m pip uninstall -y frappe_manager
-    rm -rf ~/frappe
+    sudo rm -rf ~/frappe
 }
 
 
@@ -30,6 +30,7 @@ InstallFrappe() {
     fm --version
 }
 
+
 Prequisites() {
     if [ "$(id -u)" -eq 0 ]; then
         info_red "You are running as root."
@@ -43,6 +44,7 @@ Prequisites() {
             exit 56
         fi
     done
+
     # TODO(alok): Check for python version
     # also also for the disk space to be more than 50% to be available
 }
