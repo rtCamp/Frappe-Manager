@@ -95,6 +95,7 @@ class LetsEncryptCertificateService(SSLCertificateService):
 
             api_creds = certificate.get_cloudflare_dns_credentials()
             dns_config_path.write_text(api_creds)
+            dns_config_path.chmod(0o600)
 
             gen_command += f' --dns-cloudflare --dns-cloudflare-credentials {dns_config_path.absolute()}'
 
