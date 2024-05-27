@@ -12,17 +12,37 @@ cd ~
 echo "Frappe executing $PWD"
 source env/bin/activate # make sure the envirnment variable is set
 
-main() {
+oldToNew() {
     Prequisites
 	Cleanup
-	InstallFrappe "v0.12.0"
+	InstallFrappe "v0.9.0"
 	CreateSite "migration-site.dev.local" dev
 	ListSites
+	StopSite "migration-site.dev.local"
+	StartSite "migration-site.dev.local"
 	GetInfoSite "migration-site.dev.local"
-	# UpgradeToLatestFm  TODO: need to add the upgrade to fm.sh
+	MigrationToLatest
+	StartSite "migration-site.dev.local"
 	TestSiteReachability "migration-site.dev.local"
 	DeleteSite "migration-site.dev.local"
 	RemoveDanglingDockerStuff
 }
 
-time main
+semiNewToNew() {
+    Prequisites
+	Cleanup
+	InstallFrappe $(curl --silent https://api.github.com/repos/rtCamp/Frappe-Manager/tags | jq -r '.[1].name')
+	CreateSite "migration-site.dev.local" dev
+	ListSites
+	StopSite "migration-site.dev.local"
+	StartSite "migration-site.dev.local"
+	GetInfoSite "migration-site.dev.local"
+	MigrationToLatest
+	StartSite "migration-site.dev.local"
+	TestSiteReachability "migration-site.dev.local"
+	DeleteSite "migration-site.dev.local"
+	RemoveDanglingDockerStuff
+}
+
+time oldToNew
+time semiNewToNew

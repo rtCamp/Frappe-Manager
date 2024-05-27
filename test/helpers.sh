@@ -26,7 +26,7 @@ InstallFrappe() {
         git checkout $tagOrBranch
     fi
     cd -
-    python -m pip install --upgrade Frappe-Manager
+    python -m pip install --upgrade ./Frappe-Manager
     fm --version
 }
 

@@ -17,11 +17,19 @@ TestSiteReachability() {
 			 http://localhost:80 || echo "Failed to curl $siteName"
 }
 
+MigrationToLatest() {
+    pip install -U frappe-manager
+    echo "yes" | fm list & sleep 10m ; kill $!
+    fm --version
+}
+
 DeleteSite() {
     local siteName="$1"
     echo "Delete SiteName: $siteName"
-    fm delete $siteName # TODO: need to add -y/--yes flag
+    echo "yes" | fm delete $siteName
 }
+
+# pip install -U frappe-manager
 
 GetInfoSite() {
     local siteName="$1"
@@ -32,4 +40,16 @@ GetInfoSite() {
 ListSites() {
     echo "List Sites"
     fm list
+}
+
+StartSite() {
+    local siteName="$1"
+    echo "Start SiteName: $siteName"
+    fm start $siteName
+}
+
+StopSite() {
+    local siteName="$1"
+    echo "Stop SiteName: $siteName"
+    fm stop $siteName
 }

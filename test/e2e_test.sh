@@ -20,9 +20,12 @@ main() {
 	CreateSite "test-site.dev.local" dev
 
 	ListSites
-	
-	# StopSites "test-site"
-	# StartSites "test-site"
+
+	StopSite "test-site.prod.local"
+	StopSite "test-site.dev.local"
+
+	StartSite "test-site.prod.local"
+	StartSite "test-site.dev.local"
 
 	GetInfoSite "test-site.prod.local"
 	GetInfoSite "test-site.dev.local"
