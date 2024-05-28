@@ -8,19 +8,8 @@ set -xe
 source ${PWD}/fm.sh
 source ${PWD}/helpers.sh
 
-cd ~
-echo "Frappe executing $PWD"
-source env/bin/activate # make sure the envirnment variable is set
-
 oldToNew() {
-	echo "
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃      Migration Test from v0.9.0 to latest         ┃
-┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-"
 	Prequisites
-	Cleanup
-	InstallFrappe "v0.9.0"
 	CreateSite "migration-site.localhost"
 	ListSites
 	StopSite "migration-site.localhost"
@@ -34,14 +23,7 @@ oldToNew() {
 }
 
 semiNewToNew() {
-	echo "
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃      Migration Test from v0.9.0 to latest         ┃
-┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-"
 	Prequisites
-	Cleanup
-	InstallFrappe $(curl --silent https://api.github.com/repos/rtCamp/Frappe-Manager/tags | jq -r '.[1].name')
 	CreateSite "migration-site.dev.local" dev
 	ListSites
 	StopSite "migration-site.dev.local"
@@ -54,5 +36,6 @@ semiNewToNew() {
 	RemoveDanglingDockerStuff
 }
 
-time oldToNew
-time semiNewToNew
+time $1
+# time oldToNew
+# time semiNewToNew

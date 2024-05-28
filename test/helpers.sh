@@ -1,9 +1,9 @@
 #!/bin/bash
 
-Cleanup() {
-    python -m pip uninstall -y frappe-manager
-    sudo rm -rf ~/frappe
-}
+# Cleanup() {
+#     python -m pip uninstall -y frappe-manager
+#     sudo rm -rf ~/frappe
+# }
 
 # InstallFrappe() {
 #     local tagOrBranch=$1
@@ -44,5 +44,5 @@ Prequisites() {
 RemoveDanglingDockerStuff() {
    docker volume rm -f $(docker volume ls -q) || echo "Failed to delete dangling docker volume"
    docker rm -f $(docker ps -aq) || echo "Failed to delete dangling docker container"
-   docker network rm -f $(docker network ls -q) || echo "Failed to dangling delete docker network"
+   docker network rm -f $(docker network ls -q) || echo "Done deleting the networks"
 }
