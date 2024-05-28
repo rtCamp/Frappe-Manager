@@ -1,0 +1,37 @@
+name: E2E on push event
+
+on:
+  push:
+    tags:
+      - v*
+    branches:
+      - main
+      - develop
+      - feat-add-e2e-test # TODO(user): remove it
+  workflow_dispatch:
+
+jobs:
+  e2e-current:
+    name: e2e current latest branch
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        python-ver: ["3.11", "3.12"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-ver }}
+
+      - name: install frappe from current commit
+        run: |
+          cd ..
+          python -m pip install --upgrade ./Frappe-Manager
+
+      - name: frappe version
+        run: fm --version
+
+

@@ -1,17 +1,9 @@
 #!/bin/bash
 
 Cleanup() {
-    python -m pip uninstall -y frappe_manager
+    python -m pip uninstall -y frappe-manager
     sudo rm -rf ~/frappe
 }
-
-
-# sudo apt update && sudo apt upgrade -y
-# sudo add-apt-repository ppa:deadsnakes/ppa
-# sudo apt update && sudo apt install python3.12 python3.12-venv -y
-# python3.12 --version
-
-# python3.12 -m venv env
 
 InstallFrappe() {
     local tagOrBranch=$1
