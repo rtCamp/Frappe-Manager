@@ -8,6 +8,7 @@ on:
       - main
       - develop
       - feat-add-e2e-test # TODO(user): remove it
+      - e2e-test # TODO(user): remove it
   workflow_dispatch:
 
 jobs:
