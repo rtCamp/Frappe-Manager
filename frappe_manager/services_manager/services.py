@@ -47,28 +47,33 @@ class ServicesManager:
     def entrypoint_checks(self, start=False):
         if not self.path.exists():
             try:
-                richprint.print(f"Creating services", emoji_code=":construction:")
+                richprint.print(f"Creating global services [blue]{', '.join(self.compose_project.compose_file_manager.get_services_list())}[/blue].", emoji_code=":construction:")
                 self.path.mkdir(parents=True, exist_ok=True)
                 self.create(clean_install=True)
+
             except Exception as e:
-                raise ServicesNotCreated(f'Error Caused: {e}')
+                raise ServicesNotCreated(f"Not able to create global services [blue]{', '.join(self.compose_project.compose_file_manager.get_services_list())}[/blue].")
 
             self.compose_project.pull_images()
 
-            richprint.print(f"Creating services: Done")
+            richprint.print(f"Created global services [blue]{', '.join(self.compose_project.compose_file_manager.get_services_list())}[/blue].")
+
             if start:
                 self.compose_project.start_service()
 
         if not self.compose_path.exists():
             raise ServicesComposeNotExist(
-                f"Seems like services has taken a down. Compose file not found at -> {self.compose_path}. Please recreate services."
+                f"Seems like global services has taken a down. No compose file found at {self.compose_path}."
             )
 
         if start:
             if not self.typer_context.invoked_subcommand == "service":
+
                 if not self.compose_project.running:
-                    richprint.warning("services are not running. Starting it")
+                    self.are_ports_free()
+                    richprint.print(f"Started non running global services [blue]{', '.join(self.compose_project.compose_file_manager.get_services_list())}[/blue].")
                     self.compose_project.start_service()
+
 
         self.database_manager: DatabaseServiceManager = MariaDBManager(
             DatabaseServerServiceInfo.import_from_compose_file('global-db', self.compose_project), self.compose_project
@@ -176,7 +181,7 @@ class ServicesManager:
             try:
                 temp_dir.mkdir(parents=True, exist_ok=True)
             except Exception as e:
-                richprint.exit(f"Failed to create global services bind mount directories. Error: {e}")
+                raise ServicesNotCreated(f"Failed to create global services required dir {temp_dir.absolute()}.")
 
         # populate secrets for db
         db_password_path = self.path / 'secrets' / 'db_password.txt'
@@ -233,7 +238,7 @@ class ServicesManager:
 
         # TODO do something about this exception
         except Exception as e:
-            richprint.exit(f"Not able to generate global site compose. Error: {e}")
+            raise ServicesNotCreated(f"Not able to generate global services compose file.")
 
     def shell(self, container: str, user: str | None = None):
         richprint.stop()
@@ -250,5 +255,8 @@ class ServicesManager:
         shutil.rmtree(self.path)
 
     def are_ports_free(self):
+        ports = [80, 443]
+        richprint.change_head(f"Verifying ports {', '.join(map(str, ports))} availability.")
         docker_used_ports = self.compose_project.get_host_port_binds()
-        check_and_display_port_status([80, 443], exclude=docker_used_ports)
+        check_and_display_port_status(ports, exclude=docker_used_ports)
+        richprint.print(f"Global services will utilize ports {', '.join(map(str, ports))}.")

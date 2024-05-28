@@ -110,7 +110,6 @@ def check_and_display_port_status(ports_to_check: list, exclude=[]):
         ports_to_check (list): List of ports to check.
         exclude (list, optional): List of ports to exclude from checking. Defaults to [].
     """
-    richprint.change_head("Checking Ports")
     if exclude:
         # Removing elements present in remove_array from original_array
         ports_to_check = [x for x in exclude if x not in ports_to_check]
@@ -119,10 +118,8 @@ def check_and_display_port_status(ports_to_check: list, exclude=[]):
         already_binded = check_ports(ports_to_check)
         if already_binded:
             richprint.exit(
-                f"Whoa there! Looks like the {' '.join([ str(x) for x in already_binded ])} { 'ports are' if len(already_binded) > 1 else 'port is' } having a party already! Can you do us a solid and free up those ports?"
+                f"Ports {', '.join(map(str, already_binded))} {'are' if len(already_binded) > 1 else 'is'} currently in use. Please free up these ports."
             )
-    richprint.print("Ports Check : Passed")
-
 
 def generate_random_text(length=50):
     """

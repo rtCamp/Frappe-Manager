@@ -105,34 +105,37 @@ def app_callback(
 
         fm_config_manager: FMConfigManager = FMConfigManager.import_from_toml()
 
+
         # docker pull
         if first_time_install:
             if not fm_config_manager.root_path.exists():
-                richprint.print('🔍 It seems like the first installation. Pulling images... 🖼️')
+                richprint.print("It seems like the first installation. Pulling docker images...️", "🔍")
+
                 completed_status = pull_docker_images()
                 if not completed_status:
                     shutil.rmtree(CLI_DIR)
                     richprint.exit("Aborting. [bold][blue]fm[/blue][/bold] will not be able to work without images. 🖼️")
+
                 current_version = Version(get_current_fm_version())
                 fm_config_manager.version = current_version
                 fm_config_manager.export_to_toml()
 
         migrations = MigrationExecutor(fm_config_manager)
         migration_status = migrations.execute()
+
         if not migration_status:
             richprint.exit(f"Rollbacked to previous version of fm {migrations.prev_version}.")
 
         services_manager: ServicesManager = ServicesManager(verbose=verbose)
+        services_manager.set_typer_context(ctx)
+
         services_manager.init()
+
         try:
-            services_manager.entrypoint_checks()
+            services_manager.entrypoint_checks(start=True)
         except ServicesNotCreated as e:
             services_manager.remove_itself()
             richprint.exit(f"Not able to create services. {e}")
-
-        if not services_manager.compose_project.running:
-            services_manager.are_ports_free()
-            services_manager.compose_project.start_service()
 
         ctx.obj["services"] = services_manager
         ctx.obj["verbose"] = verbose
