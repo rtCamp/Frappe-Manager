@@ -8,8 +8,8 @@ source ${PWD}/fm.sh
 source ${PWD}/helpers.sh
 
 cd ~
-echo "Frappe executing $PWD"
-source env/bin/activate # make sure the envirnment variable is set
+# echo "Frappe executing $PWD"
+# source env/bin/activate # make sure the envirnment variable is set
 
 main() {
 	echo "
@@ -18,8 +18,8 @@ main() {
 ┡━━━━━━━━━━━━━━━━━━━━━━━┩
 "
 	Prequisites
-	Cleanup
-	InstallFrappe "main"
+	#Cleanup
+	#InstallFrappe "main"
 
 	CreateSite "test-site.prod.local" prod
 	CreateSite "test-site.dev.local" dev

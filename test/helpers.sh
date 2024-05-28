@@ -5,22 +5,22 @@ Cleanup() {
     sudo rm -rf ~/frappe
 }
 
-InstallFrappe() {
-    local tagOrBranch=$1
-    if [ -d ~/Frappe-Manager ]; then
-        echo "Frappe git is already there already installed. Skipping. clone"
-    else
-        git clone https://github.com/rtCamp/Frappe-Manager.git
-    fi
-    cd ~/Frappe-Manager
-    git fetch --all
-    if [ -n "$tagOrBranch" ]; then
-        git checkout $tagOrBranch
-    fi
-    cd -
-    python -m pip install --upgrade ./Frappe-Manager
-    fm --version
-}
+# InstallFrappe() {
+#     local tagOrBranch=$1
+#     if [ -d ~/Frappe-Manager ]; then
+#         echo "Frappe git is already there already installed. Skipping. clone"
+#     else
+#         git clone https://github.com/rtCamp/Frappe-Manager.git
+#     fi
+#     cd ~/Frappe-Manager
+#     git fetch --all
+#     if [ -n "$tagOrBranch" ]; then
+#         git checkout $tagOrBranch
+#     fi
+#     cd -
+#     python -m pip install --upgrade ./Frappe-Manager
+#     fm --version
+# }
 
 
 Prequisites() {

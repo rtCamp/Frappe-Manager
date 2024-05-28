@@ -1,4 +1,4 @@
-name: E2E on push event
+name: E2E migration testing
 
 on:
   push:
@@ -33,4 +33,17 @@ jobs:
 
       - name: frappe version
         run: fm --version
+
+      # - name: e2e run
+      #   timeout-minutes: 20
+      #   working-directory: test
+      #   run: |
+      #     ./e2e-test.sh
+
+
+      - name: cleanup
+        if: always()
+        run: |
+          python -m pip uninstall -y frappe-manager
+          sudo rm -rf ~/frappe
 
