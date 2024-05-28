@@ -54,17 +54,22 @@ def start(
 @services_root_command.command(no_args_is_help=True)
 def restart(
     ctx: typer.Context,
-    service_name: Annotated[ServicesEnum, typer.Argument(help="Name of the services_manager.")],
+    service_name: Annotated[ServicesEnum, typer.Argument(help="Name of the service.")],
 ):
     """Restarts global services."""
     services_manager: ServicesManager = ctx.obj["services"]
+
     if service_name.value == ServicesEnum.all:
+
         for service in ServicesEnum:
             if service == ServicesEnum.all:
                 continue
-            services_manager.compose_project.restart_service(services=[service_name.value])
+
+            services_manager.compose_project.restart_service(services=[service.value])
+            richprint.print(f"Restarted service {service.value}.")
     else:
         services_manager.compose_project.restart_service(services=[service_name.value])
+        richprint.print(f"Restarted service {service_name.value}.")
 
 
 @services_root_command.command(no_args_is_help=True)
