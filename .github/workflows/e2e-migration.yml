@@ -27,9 +27,9 @@ jobs:
 
       - name: header
         run: |
-          echo -e "\e[1;33m┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\e[0m
+          echo -e "\e[1;33m┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\e[0m
           \e[1;33m┃\e[0m \e[1;36m Migration from v0.9.0 to latest \e[0m \e[1;33m┃\e[0m
-          \e[1;33m┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\e[0m"
+          \e[1;33m┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\e[0m"
 
       - name: install frappe from v0.9.0
         run: |
@@ -71,9 +71,9 @@ jobs:
           sudo apt install -y jq curl
       - name: header
         run: |
-          echo -e "\e[1;33m┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\e[0m
+          echo -e "\e[1;33m┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\e[0m
           \e[1;33m┃\e[0m \e[1;36m Migration from latest~1 to latest \e[0m \e[1;33m┃\e[0m
-          \e[1;33m┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\e[0m"
+          \e[1;33m┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\e[0m"
 
       - name: install frappe previous the latest release
         run: |

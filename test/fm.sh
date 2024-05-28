@@ -16,32 +16,12 @@ CreateSite() {
 
 TestSiteReachability() {
 	local siteName="$1"
-	local max_retries=9
-	local retry_delay=2
-	local attempt=0
-
-	while (( attempt < max_retries ))
-	do
-	    attempt=$(( attempt + 1 ))
-	    echo "Attempt $attempt of $max_retries..."
-	    
-	    curl -f \
-		--head \
-		-H "Host: $siteName" \
-		-H "Cache-Control: no-cache,no-store" \
-		http://localhost:80
-	    
-	    if [ $? -eq 0 ]; then
-		echo "Curl succeeded for $siteName"
-		return
-	    else
-		echo "Failed to curl $siteName. Retrying in $retry_delay seconds..."
-		sleep $retry_delay
-	    fi
-	done
-
-	echo "Curl failed after $max_retries attempts."
-	exit 255
+	curl -f \
+	    --retry 18 --retry-max-time 600 \
+	    --head \
+	    -H "Host: $siteName" \
+	    -H "Cache-Control: no-cache,no-store" \
+	    http://localhost:80
 }
 
 MigrationToLatest() {
