@@ -33,6 +33,7 @@ class LetsEncryptCertificateService(SSLCertificateService):
         self.config_dir: Path = self.root_dir / "config"
         self.work_dir: Path = self.root_dir / 'work'
         self.logs_dir: Path = self.root_dir / 'logs'
+        self.dns_config_dir = self.root_dir / 'dns_configs'
 
         self.base_command = f"--work-dir {self.work_dir} --config-dir {self.config_dir} --logs-dir {self.logs_dir}"
         self.logger = log.get_logger()
@@ -84,19 +85,19 @@ class LetsEncryptCertificateService(SSLCertificateService):
 
         richprint.print(f"Using Let's Encrypt {certificate.preferred_challenge.value} challenge.")
 
-        import tempfile
-
-        temp_file = tempfile.NamedTemporaryFile(delete=False)
+        dns_config_path = self.dns_config_dir / f'{certificate.domain}.txt'
 
         if certificate.preferred_challenge == LETSENCRYPT_PREFERRED_CHALLENGE.http01:
             gen_command += f' --webroot -w {self.webroot_dir}'
 
         elif certificate.preferred_challenge == LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
-            api_creds = certificate.get_cloudflare_dns_credentials()
-            temp_file.write(api_creds.encode())
-            temp_file.flush()
+            self.dns_config_dir.mkdir(parents=True, exist_ok=True)
 
-            gen_command += f' --dns-cloudflare --dns-cloudflare-credentials {temp_file.name}'
+            api_creds = certificate.get_cloudflare_dns_credentials()
+            dns_config_path.write_text(api_creds)
+            dns_config_path.chmod(0o600)
+
+            gen_command += f' --dns-cloudflare --dns-cloudflare-credentials {dns_config_path.absolute()}'
 
         gen_command += f' --keep-until-expiring --expand'
         gen_command += f' --agree-tos -m "{certificate.email}" --no-eff-email'
@@ -120,16 +121,15 @@ class LetsEncryptCertificateService(SSLCertificateService):
             self.logger.exception(e)
             output = '\n'.join(line for line in self.console_output.getvalue().split('\n') if not line.startswith('!!'))
             richprint.stdout.print(output)
+            dns_config_path.unlink()
             raise SSLCertificateChallengeFailed(certificate.preferred_challenge)
 
         except Exception as e:
             self.logger.exception(e)
             output = '\n'.join(line for line in self.console_output.getvalue().split('\n') if not line.startswith('!!'))
             richprint.stdout.print(output)
+            dns_config_path.unlink()
             raise SSLCertificateGenerateFailed()
-
-        finally:
-            temp_file.close()
 
         richprint.print("Acquired Letsencrypt certificate: Done")
         return self.get_certificate_paths(certificate)

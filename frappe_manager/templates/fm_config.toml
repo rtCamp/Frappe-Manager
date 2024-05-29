@@ -1,5 +1,15 @@
-# Don't change the version no this will affect the migrations.
-version = "0.13.0" # set by fm to the current version
+# Denotes the current version of fm.
+# Should not be edited by user.
+version = "0.14.0"
 
-# Email used by Let's Encrypt if set then fm will never ask email for Let's Encrypt.
-le_email = 'example@example.com'
+[letsencrypt]
+# The email address associated with Let's Encrypt.
+# This is used for notifications, recovery, and is used with api_key for the Global API key of Cloudflare.
+# For more information, see [this documentation](https://certbot-dns-cloudflare.readthedocs.io/en/stable/#certbot-cloudflare-key-ini).
+email = 'cloudflare@example.co'
+
+# Cloudflare API token for Let's Encrypt DNS01 Challenge.
+api_key = '0123456789abcdef0123456789abcdef01234'
+
+# Cloudflare Global API Key for Let's Encrypt DNS01 Challenge.
+api_token = '0123456789abcdef0123456789abcdef01234567'

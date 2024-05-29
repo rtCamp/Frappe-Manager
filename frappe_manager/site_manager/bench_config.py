@@ -106,17 +106,28 @@ class BenchConfig(BaseModel):
 
         data['root_path'] = str(path)
 
-        # Extract SSL data and remove it from the main data dictionary
         ssl_data = data.get('ssl', None)
+
         if ssl_data:
             domain: str = data.get('name', None)  # Set domain from main data if necessary
             ssl_type = ssl_data.get('ssl_type', SUPPORTED_SSL_TYPES.none)
+
             if ssl_type == SUPPORTED_SSL_TYPES.le:
                 email = ssl_data.get('email', None)
 
                 fm_config_manager = FMConfigManager.import_from_toml()
 
-                pref_challenge_data = data.get("preferred_challenge", None)
+                pref_challenge_data = ssl_data.get("preferred_challenge", None)
+
+                api_token = ssl_data.get('api_token', None)
+
+                if not api_token:
+                    api_token = fm_config_manager.letsencrypt.api_token
+
+                api_key = ssl_data.get('api_key', None)
+
+                if not api_key:
+                    api_key = fm_config_manager.letsencrypt.api_key
 
                 if not pref_challenge_data:
                     if fm_config_manager.letsencrypt.exists:
@@ -131,8 +142,8 @@ class BenchConfig(BaseModel):
                     ssl_type=ssl_type,
                     email=email,
                     preferred_challenge=preferred_challenge,
-                    api_key=fm_config_manager.letsencrypt.api_key,
-                    api_token=fm_config_manager.letsencrypt.api_token,
+                    api_key=api_key,
+                    api_token=api_token,
                 )
             else:
                 ssl_instance = SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none)
