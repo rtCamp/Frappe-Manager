@@ -141,7 +141,6 @@ def app_callback(
         ctx.obj["verbose"] = verbose
         ctx.obj['fm_config_manager'] = fm_config_manager
 
-
 @app.command(no_args_is_help=True)
 def create(
     ctx: typer.Context,
@@ -187,22 +186,6 @@ def create(
     # TODO Create markdown table for the below help
     """
     Create a new bench.
-
-    Frappe\[version-15] will be installed by default.
-
-    [bold white on black]Examples:[/bold white on black]
-
-    [bold]# Install frappe\[version-15][/bold]
-    $ [blue]fm create example[/blue]
-
-    [bold]# Install frappe\[develop][/bold]
-    $ [blue]fm create example --frappe-branch develop[/blue]
-
-    [bold]# Install frappe\[version-15], erpnext\[version-15] and hrms\[version-15][/bold]
-    $ [blue]fm create example --apps erpnext:version-15 --apps hrms:version-15[/blue]
-
-    [bold]# Install frappe\[version-15], erpnext\[version-14] and hrms\[version-14][/bold]
-    $ [blue]fm create example --frappe-branch version-14 --apps erpnext:version-14 --apps hrms:version-14[/blue]
     """
 
     services_manager: ServicesManager = ctx.obj["services"]

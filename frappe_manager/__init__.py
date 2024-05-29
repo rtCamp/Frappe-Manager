@@ -1,5 +1,28 @@
 from pathlib import Path
 from enum import Enum
+import rich
+from typer.core import TyperCommand
+from frappe_manager.utils.cli_examples import get_examples_from_toml
+import typer.rich_utils as ut
+from rich.panel import Panel
+
+# patch rich_format_help to display examples Panel
+rich_format_help_original = ut.rich_format_help
+def print_fm_examples(*,obj, ctx, markup_mode):
+    rich_format_help_original(obj=obj,ctx=ctx,markup_mode=markup_mode)
+    new_doc = get_examples_from_toml(obj.name, frappe_version=STABLE_APP_BRANCH_MAPPING_LIST['frappe'])
+    from rich import inspect
+    inspect(obj)
+    if isinstance(obj,TyperCommand):
+        rich.print(Panel(
+            new_doc,
+            padding=ut.STYLE_OPTIONS_TABLE_PADDING,
+            border_style=ut.STYLE_OPTIONS_PANEL_BORDER,
+            title='Examples',
+            title_align=ut.ALIGN_OPTIONS_PANEL,
+    ))
+
+ut.rich_format_help = print_fm_examples
 
 # TODO configure this using config
 # sites_dir = Path().home() / __name__.split(".")[0]
