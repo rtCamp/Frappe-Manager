@@ -32,7 +32,7 @@ from frappe_manager.site_manager.site_exceptions import (
     BenchWorkersSupervisorConfigurtionGenerateError,
 )
 from frappe_manager.site_manager.workers_manager.SiteWorker import BenchWorkers
-from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.nginxproxymanager import NginxProxyManager
 from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
@@ -671,13 +671,12 @@ class Bench:
     def update_certificate(self, certificate: SSLCertificate, raise_error: bool = True):
         if certificate.ssl_type == SUPPORTED_SSL_TYPES.le:
             if self.has_certificate():
-                if not raise_error:
-                    return
-                raise BenchSSLCertificateAlreadyIssued(self.name)
-
-            self.certificate_manager.set_certificate(certificate)
-            self.bench_config.ssl = certificate
-            self.create_certificate()
+                if raise_error:
+                    raise BenchSSLCertificateAlreadyIssued(self.name)
+            else:
+                self.certificate_manager.set_certificate(certificate)
+                self.bench_config.ssl = certificate
+                self.create_certificate()
 
         elif certificate.ssl_type == SUPPORTED_SSL_TYPES.none:
             if self.has_certificate():
@@ -686,6 +685,7 @@ class Bench:
                 if not raise_error:
                     return
                 raise BenchSSLCertificateNotIssued(self.name)
+
         return True
 
     def renew_certificate(self):
@@ -717,6 +717,13 @@ class Bench:
 
         protocol = 'https' if self.has_certificate() else 'http'
 
+        ssl_service_type = f'{self.bench_config.ssl.ssl_type.value}'
+
+        if self.bench_config.ssl.ssl_type == SUPPORTED_SSL_TYPES.le:
+            ssl_service_type = (
+                f'[{self.bench_config.ssl.preferred_challenge.value}] {self.bench_config.ssl.ssl_type.value}'
+            )
+
         data = {
             "Bench Url": f"{protocol}://{self.name}",
             "Bench Root": f"[link=file://{self.path.absolute()}]{self.path.absolute()}[/link]",
@@ -729,7 +736,7 @@ class Bench:
             "DB User": db_user,
             "DB Password": db_pass,
             "Environment": self.bench_config.environment_type.value,
-            "HTTPS": f'{self.bench_config.ssl.ssl_type.value} ({format_ssl_certificate_time_remaining(self.certificate_manager.get_certficate_expiry())})'
+            "HTTPS": f'{ssl_service_type.upper()} ({format_ssl_certificate_time_remaining(self.certificate_manager.get_certficate_expiry())})'
             if self.has_certificate()
             else 'Not Enabled',
         }

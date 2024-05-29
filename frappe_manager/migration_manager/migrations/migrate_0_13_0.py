@@ -2,6 +2,7 @@ import json
 import os
 import copy
 from pathlib import Path
+import tomlkit
 from frappe_manager.compose_manager import DockerVolumeMount
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.migration_manager.migration_base import MigrationBase
@@ -14,9 +15,6 @@ from frappe_manager.migration_manager.migration_helpers import (
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.migration_manager.version import Version
 from frappe_manager import CLI_DIR, CLI_SERVICES_DIRECTORY
-from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
-from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
-from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.utils.helpers import get_container_name_prefix
 from frappe_manager.docker_wrapper.DockerClient import DockerClient
 from frappe_manager.migration_manager.backup_manager import BackupManager
@@ -80,6 +78,7 @@ class MigrationV0130(MigrationBase):
         # rename main config
         fm_config_path = CLI_DIR / 'fm_config.toml'
         old_fm_config_path = CLI_DIR / '.fm.toml'
+
         if old_fm_config_path.exists():
             old_fm_config_path.rename(fm_config_path)
 
@@ -133,9 +132,6 @@ class MigrationV0130(MigrationBase):
         # create bench config
         frappe = envs.get('frappe', {})
 
-        userid = frappe.get('USERID', os.getuid())
-        usergroup = frappe.get('USERGROUP', os.getgid())
-
         apps_list = frappe.get('APPS_LIST', None)
 
         if apps_list:
@@ -143,33 +139,18 @@ class MigrationV0130(MigrationBase):
         else:
             apps_list = []
 
-        frappe_branch = frappe.get('FRAPPE_BRANCH', 'version-15')
         developer_mode = frappe.get('DEVELOPER_MODE', True)
-        admin_pass = frappe.get('ADMIN_PASS', 'admin')
         name = frappe.get('SITENAME', bench.name)
-        mariadb_host = frappe.get('MARIADB_HOST', 'global-db')
-        mariadb_root_pass = frappe.get('MARIADB_ROOT_PASS', '/run/secrets/db_root_password')
-        environment_type = frappe.get('ENVIRONMENT', FMBenchEnvType.dev)
-        ssl_certificate = SSLCertificate(domain=bench.name, ssl_type=SUPPORTED_SSL_TYPES.none)
 
-        # TODO Handle admin tools compose change
-        bench_config = BenchConfig(
-            name=name,
-            userid=userid,
-            usergroup=usergroup,
-            apps_list=apps_list,
-            frappe_branch=frappe_branch,
-            developer_mode=developer_mode,
-            admin_tools=True,
-            admin_pass=admin_pass,
-            mariadb_host=mariadb_host,
-            mariadb_root_pass=mariadb_root_pass,
-            environment_type=environment_type,
-            root_path=bench_config_path,
-            ssl=ssl_certificate,
-        )
+        bench_config = tomlkit.document()
 
-        bench_config.export_to_toml(bench_config_path)
+        bench_config['name'] = name
+        bench_config['developer_mode'] = developer_mode
+        bench_config['admin_tools'] = True
+        bench_config['environment_type'] = 'dev'
+
+        with open(bench_config_path, 'w') as f:
+            f.write(tomlkit.dumps(bench_config))
 
         images_info = bench.compose_project.compose_file_manager.get_all_images()
 

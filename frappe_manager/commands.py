@@ -25,7 +25,7 @@ from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.site_manager.workers_manager.SiteWorker import BenchWorkers
-from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.utils.callbacks import (
@@ -105,34 +105,37 @@ def app_callback(
 
         fm_config_manager: FMConfigManager = FMConfigManager.import_from_toml()
 
+
         # docker pull
         if first_time_install:
             if not fm_config_manager.root_path.exists():
-                richprint.print('🔍 It seems like the first installation. Pulling images... 🖼️')
+                richprint.print("It seems like the first installation. Pulling docker images...️", "🔍")
+
                 completed_status = pull_docker_images()
                 if not completed_status:
                     shutil.rmtree(CLI_DIR)
                     richprint.exit("Aborting. [bold][blue]fm[/blue][/bold] will not be able to work without images. 🖼️")
+
                 current_version = Version(get_current_fm_version())
                 fm_config_manager.version = current_version
                 fm_config_manager.export_to_toml()
 
         migrations = MigrationExecutor(fm_config_manager)
         migration_status = migrations.execute()
+
         if not migration_status:
             richprint.exit(f"Rollbacked to previous version of fm {migrations.prev_version}.")
 
         services_manager: ServicesManager = ServicesManager(verbose=verbose)
+        services_manager.set_typer_context(ctx)
+
         services_manager.init()
+
         try:
-            services_manager.entrypoint_checks()
+            services_manager.entrypoint_checks(start=True)
         except ServicesNotCreated as e:
             services_manager.remove_itself()
             richprint.exit(f"Not able to create services. {e}")
-
-        if not services_manager.compose_project.running:
-            services_manager.are_ports_free()
-            services_manager.compose_project.start_service()
 
         ctx.obj["services"] = services_manager
         ctx.obj["verbose"] = verbose
@@ -156,6 +159,14 @@ def create(
     environment: Annotated[
         FMBenchEnvType, typer.Option("--environment", "--env", help="Select bench environment type.")
     ] = FMBenchEnvType.dev,
+    letsencrypt_preferred_challenge: Annotated[
+        Optional[LETSENCRYPT_PREFERRED_CHALLENGE],
+        typer.Option(help="Select preferred letsencrypt challenge.", show_default=False),
+    ] = None,
+    letsencrypt_email: Annotated[
+        Optional[str],
+        typer.Option(help="Specify email for letsencrypt", show_default=False),
+    ] = None,
     developer_mode: Annotated[
         EnableDisableOptionsEnum, typer.Option(help="Toggle frappe developer mode.")
     ] = EnableDisableOptionsEnum.disable,
@@ -205,18 +216,36 @@ def create(
     bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
 
     if ssl == SUPPORTED_SSL_TYPES.le:
-        if fm_config_manager.le_email == 'dummy@fm.fm':
-            email = richprint.prompt_ask(prompt='Please enter [bold][green]email[/bold][/green] for Let\'s Encrypt')
-            validate_email(email, check_deliverability=False)
-            fm_config_manager.le_email = email
-            fm_config_manager.export_to_toml()
-            richprint.print("Let's Encrypt email saved to configuration. It will be used automatically from now on.")
-        else:
-            richprint.print("Using Let's Encrypt email from configuration.")
-            email = fm_config_manager.le_email
-            fm_config_manager.export_to_toml()
+        if not letsencrypt_preferred_challenge:
+            if fm_config_manager.letsencrypt.exists:
+                if letsencrypt_preferred_challenge is None:
+                    letsencrypt_preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
 
-        ssl_certificate = LetsencryptSSLCertificate(domain=benchname, ssl_type=ssl, email=email)
+            if not letsencrypt_preferred_challenge:
+                letsencrypt_preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.http01
+
+        if fm_config_manager.letsencrypt.email == 'dummy@fm.fm' or fm_config_manager.letsencrypt.email is None:
+            if not letsencrypt_email:
+                richprint.stop()
+                raise typer.BadParameter("No email provided, required by certbot.", param_hint='--letsencrypt-email')
+            else:
+                email = letsencrypt_email
+
+            validate_email(email, check_deliverability=False)
+        else:
+            richprint.print(
+                "Defaulting to Let's Encrypt email from [blue]fm_config.toml[/blue] since [blue]'--letsencrypt-email'[/blue] is not given."
+            )
+            email = fm_config_manager.letsencrypt.email
+
+        ssl_certificate = LetsencryptSSLCertificate(
+            domain=benchname,
+            ssl_type=ssl,
+            email=email,
+            preferred_challenge=letsencrypt_preferred_challenge,
+            api_key=fm_config_manager.letsencrypt.api_key,
+            api_token=fm_config_manager.letsencrypt.api_token,
+        )
 
     elif ssl == SUPPORTED_SSL_TYPES.none:
         ssl_certificate = SSLCertificate(domain=benchname, ssl_type=ssl)
@@ -483,9 +512,17 @@ def update(
         Optional[EnableDisableOptionsEnum],
         typer.Option("--admin-tools", help="Toggle admin-tools.", show_default=False),
     ] = None,
+    letsencrypt_preferred_challenge: Annotated[
+        Optional[LETSENCRYPT_PREFERRED_CHALLENGE],
+        typer.Option(help="Select preferred letsencrypt challenge.", show_default=False),
+    ] = None,
+    letsencrypt_email: Annotated[
+        Optional[str],
+        typer.Option(help="Specify email for letsencrypt", show_default=False),
+    ] = None,
     environment: Annotated[
         Optional[FMBenchEnvType],
-        typer.Option("--environment", help="Switch bench environment.", show_default=False),
+        typer.Option("--environment", "--env", help="Switch bench environment.", show_default=False),
     ] = None,
     developer_mode: Annotated[
         Optional[EnableDisableOptionsEnum],
@@ -530,20 +567,38 @@ def update(
         new_ssl_certificate = SSLCertificate(domain=benchname, ssl_type=SUPPORTED_SSL_TYPES.none)
 
         if ssl == SUPPORTED_SSL_TYPES.le:
-            if fm_config_manager.le_email == 'dummy@fm.fm':
-                email = richprint.prompt_ask(prompt='Please enter [bold][green]email[/bold][/green] for Let\'s Encrypt')
-                validate_email(email, check_deliverability=False)
-                fm_config_manager.le_email = email
-                fm_config_manager.export_to_toml()
-                richprint.print(
-                    "Let's Encrypt email saved to configuration. It will be used automatically from now on."
-                )
-            else:
-                richprint.print("Using Let's Encrypt email from configuration.")
-                email = fm_config_manager.le_email
-                fm_config_manager.export_to_toml()
+            if not letsencrypt_preferred_challenge:
+                if fm_config_manager.letsencrypt.exists:
+                    if letsencrypt_preferred_challenge is None:
+                        letsencrypt_preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
 
-            new_ssl_certificate = LetsencryptSSLCertificate(domain=benchname, ssl_type=ssl, email=email)
+                if not letsencrypt_preferred_challenge:
+                    letsencrypt_preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.http01
+
+            if fm_config_manager.letsencrypt.email == 'dummy@fm.fm' or fm_config_manager.letsencrypt.email is None:
+                if not letsencrypt_email:
+                    richprint.stop()
+                    raise typer.BadParameter(
+                        "No email provided, required by certbot.", param_hint='--letsencrypt-email'
+                    )
+                else:
+                    email = letsencrypt_email
+
+                validate_email(email, check_deliverability=False)
+            else:
+                richprint.print(
+                    "Defaulting to Let's Encrypt email from [blue]fm_config.toml[/blue] since [blue]'--letsencrypt-email'[/blue] is not given."
+                )
+                email = fm_config_manager.letsencrypt.email
+
+            new_ssl_certificate = LetsencryptSSLCertificate(
+                domain=benchname,
+                ssl_type=ssl,
+                email=email,
+                preferred_challenge=letsencrypt_preferred_challenge,
+                api_key=fm_config_manager.letsencrypt.api_key,
+                api_token=fm_config_manager.letsencrypt.api_token,
+            )
 
         richprint.print("Updating Certificate.")
         bench.update_certificate(new_ssl_certificate)
