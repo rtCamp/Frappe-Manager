@@ -15,35 +15,21 @@ def print_fm_examples(*, obj, ctx, markup_mode):
     # utilising the original saved function
     rich_format_help_original(obj=obj, ctx=ctx, markup_mode=markup_mode)
 
-    print(ctx.command_path.split(' '))
-    if not hasattr(ctx.parent, 'info_name'):
-        return
+    commands_stack = ctx.command_path.split(' ')[1:]
 
-    command = ctx.parent.info_name
-
-    sub_command: Optional[str] = None
-
-    if command == 'fm':
-        command = ctx.info_name
-    else:
-        sub_command = ctx.info_name
-
-
-    new_doc = get_examples_from_toml(command=command, frappe_version=STABLE_APP_BRANCH_MAPPING_LIST["frappe"], sub_command=sub_command)
+    new_doc = get_examples_from_toml(commands_stack=commands_stack, frappe_version=STABLE_APP_BRANCH_MAPPING_LIST["frappe"])
 
     if new_doc:
-        if isinstance(obj, TyperCommand):
-            # printing the examples at the end of the help
-            import rich
-            rich.print(
-                Panel(
-                    new_doc,
-                    padding=ut.STYLE_OPTIONS_TABLE_PADDING,
-                    border_style=ut.STYLE_OPTIONS_PANEL_BORDER,
-                    title="Examples",
-                    title_align=ut.ALIGN_OPTIONS_PANEL,
-                )
+        import rich
+        rich.print(
+            Panel(
+                new_doc,
+                padding=ut.STYLE_OPTIONS_TABLE_PADDING,
+                border_style=ut.STYLE_OPTIONS_PANEL_BORDER,
+                title="Examples",
+                title_align=ut.ALIGN_OPTIONS_PANEL,
             )
+        )
 
 ut.rich_format_help = print_fm_examples
 
