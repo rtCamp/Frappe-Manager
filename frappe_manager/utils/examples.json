@@ -1,154 +1,264 @@
 {
-  "create": [
-    {
-      "desc": "Install Frappe with the stable {default_version} branch.",
-      "code": "fm {current_command} {benchname}"
+  "create": {
+    "examples": [
+      {
+        "desc": "Install Frappe with the stable {default_version} branch.",
+        "code": ""
+      },
+      {
+        "desc": "Install Frappe with the develop branch.",
+        "code": " --frappe-branch develop"
+      },
+      {
+        "desc": "Install Frappe, ERPNext, and HRMS with the stable {default_version} branch.",
+        "code": " --apps erpnext --apps hrms"
+      },
+      {
+        "desc": "Install Frappe[{default_version}], ERPNext[{default_version}], and HRMS[develop].", "code": " --apps erpnext --apps hrms:develop"
+      },
+      {
+        "desc": "Use Frappe production mode based bench.",
+        "code": " --env prod"
+      },
+      {
+        "desc": "Enable Admin Tools.",
+        "code": " --admin-tools enable"
+      },
+      {
+        "desc": "Enable HTTPS using HTTP01 Let's Encrypt challenge certificate.",
+        "code": " --ssl letsencrypt --letsencrypt-preferred-challenge http01 --letsencrypt-email cloudflare@example.com"
+      },
+      {
+        "desc": "Enable HTTPS using DNS01 Let's Encrypt challenge certificate.",
+        "code": " --ssl letsencrypt --letsencrypt-preferred-challenge dns01"
+      }
+    ]
+  },
+  "delete": {
+    "examples": [
+      {
+        "desc": "Delete bench {benchname}",
+        "code": ""
+      }
+    ]
+  },
+  "stop": {
+    "examples": [
+      {
+        "desc": "Stop bench {benchname}",
+        "code": ""
+      }
+    ]
+  },
+  "info": {
+    "examples": [
+      {
+        "desc": "Show information about bench {benchname}",
+        "code": ""
+      }
+    ]
+  },
+  "list": {
+    "examples": [
+      {
+        "desc": "List all available benches",
+        "code": "fm {current_command}"
+      }
+    ]
+  },
+  "code": {
+    "examples": [
+      {
+        "desc": "Open the bench {benchname} in VSCode",
+        "code": ""
+      },
+      {
+        "desc": "Open the bench {benchname} with force start",
+        "code": " -f"
+      },
+      {
+        "desc": "Add custom extension other than default available",
+        "code": " -e vscodevim.vim"
+      },
+      {
+        "desc": "Sync vscode frapep debugger configuration",
+        "code": " -d"
+      },
+      {
+        "desc": "Use different workdir in vscode",
+        "code": " -w /workspace"
+      }
+    ]
+  },
+  "logs": {
+    "examples": [
+      {
+        "desc": "Show logs of Frappe server",
+        "code": ""
+      },
+      {
+        "desc": "Show logs of Frappe server and follow",
+        "code": " --follow"
+      },
+      {
+        "desc": "Show logs of NGINX container and follow",
+        "code": " --service nginx --follow"
+      }
+    ]
+  },
+  "shell": {
+    "examples": [
+      {
+        "desc": "Spawn shell for bench {benchname}, user - 'frappe', service - 'frappe'",
+        "code": ""
+      },
+      {
+        "desc": "Spawn shell for bench {benchname}, user - 'root', service - 'frappe'",
+        "code": " --user root"
+      },
+      {
+        "desc": "Spawn shell for bench {benchname}, user - 'root', service - 'nginx'",
+        "code": " --service nginx --user nginx"
+      }
+    ]
+  },
+  "start": {
+    "examples": [
+      {
+        "desc": "Start bench {benchname}",
+        "code": ""
+      }
+    ]
+  },
+  "update": {
+    "examples": [
+      {
+        "desc": "Enable SSL.",
+        "code": " --ssl letsencrypt"
+      },
+      {
+        "desc": "Enable HTTPS using HTTP01 Let's Encrypt challenge certificate.",
+        "code": " --ssl letsencrypt --letsencrypt-preferred-challenge http01 --letsencrypt-email cloudflare@example.com"
+      },
+      {
+        "desc": "Enable HTTPS using DNS01 Let's Encrypt challenge certificate.",
+        "code": " --ssl letsencrypt --letsencrypt-preferred-challenge dns01"
+      },
+      {
+        "desc": "Toggle admin-tools enable.",
+        "code": " --admin-tools enable"
+      },
+      {
+        "desc": "Toggle admin-tools disable.",
+        "code": " --admin-tools disable"
+      },
+      {
+        "desc": "Switch to frappe production environment.",
+        "code": " --env prod"
+      },
+      {
+        "desc": "Switch to frappe development environment.",
+        "code": " --environment dev"
+      },
+      {
+        "desc": "Enable frappe developer mode.",
+        "code": " --developer-mode enable"
+      },
+      {
+        "desc": "Disable frappe developer mode.",
+        "code": " --developer-mode disable"
+      }
+    ]
+  },
+  "services": {
+    "start": {
+      "examples": [
+        {
+          "desc": "Start global-db only.",
+          "code": " global-db"
+        },
+        {
+          "desc": "Start all global services",
+          "code": " all"
+        }
+      ]
     },
-    {
-      "desc": "Install Frappe with the develop branch.",
-      "code": "fm {current_command} {benchname} --frappe-branch develop"
+    "restart": {
+      "examples": [
+        {
+          "desc": "Restart global-db only.",
+          "code": " global-db"
+        },
+        {
+          "desc": "Restart all global services",
+          "code": " all"
+        }
+      ]
     },
-    {
-      "desc": "Install Frappe, ERPNext, and HRMS with the stable {default_version} branch.",
-      "code": "fm {current_command} {benchname} --apps erpnext --apps hrms"
+    "shell": {
+      "examples": [
+        {
+          "desc": "Shell global-db",
+          "code": " global-db"
+        },
+        {
+          "desc": "Shell global-nginx-proxy",
+          "code": " global-nginx-proxy"
+        }
+      ]
     },
-    {
-      "desc": "Install Frappe[{default_version}], ERPNext[{default_version}], and HRMS[develop].",
-      "code": "fm {current_command} {benchname} --apps erpnext --apps hrms:develop"
-    },
-    {
-      "desc": "Use Frappe production mode based bench.",
-      "code": "fm {current_command} {benchname} --env prod"
-    },
-    {
-      "desc": "Enable Admin Tools.",
-      "code": "fm {current_command} {benchname} --admin-tools enable"
-    },
-    {
-      "desc": "Enable HTTPS using HTTP01 Let's Encrypt challenge certificate.",
-      "code": "fm {current_command} {benchname} --ssl letsencrypt --letsencrypt-preferred-challenge http01 --letsencrypt-email cloudflare@example.com"
-    },
-    {
-      "desc": "Enable HTTPS using DNS01 Let's Encrypt challenge certificate.",
-      "code": "fm {current_command} {benchname} --ssl letsencrypt --letsencrypt-preferred-challenge dns01"
+    "stop": {
+      "examples": [
+        {
+          "desc": "Stop global-db",
+          "code": " global-db"
+        },
+        {
+          "desc": "Stop all services.",
+          "code": " all"
+        }
+      ]
     }
-  ],
-  "delete": [
-    {
-      "desc": "Delete bench {benchname}",
-      "code": "fm {current_command} {benchname}"
+  },
+  "ssl": {
+    "delete": {
+      "examples": [
+        {
+          "desc": "Delete {benchname}'s ssl certificate.",
+          "code": ""
+        }
+      ]
+    },
+    "renew": {
+      "examples": [
+        {
+          "desc": "Renew all certificates.",
+          "code": " --all",
+          "benchname": ""
+        },
+        {
+          "desc": "Renew specific {benchname} ssl certificate.",
+          "code": ""
+        }
+      ]
     }
-  ],
-  "stop": [
-    {
-      "desc": "Stop bench {benchname}",
-      "code": "fm {current_command} {benchname}"
+  },
+  "self": {
+    "update": {
+      "examples": [
+        {
+          "desc": "Update fm to the latest version available on pypi",
+          "code": ""
+        }
+      ],
+      "images": {
+        "examples": [
+          {
+            "desc": "Update all frappe required docker images.",
+            "code": ""
+          }
+        ]
+      }
     }
-  ],
-  "info": [
-    {
-      "desc": "Show information about bench {benchname}",
-      "code": "fm {current_command} {benchname}"
-    }
-  ],
-  "list": [
-    {
-      "desc": "List all available benches",
-      "code": "fm {current_command}"
-    }
-  ],
-  "code": [
-    {
-      "desc": "Open the bench {benchname} in VSCode",
-      "code": "fm {current_command} {benchname}"
-    },
-    {
-      "desc": "Open the bench {benchname} with force start",
-      "code": "fm {current_command} {benchname} -f"
-    },
-    {
-      "desc": "Add custom extension other than default available",
-      "code": "fm {current_command} {benchname} -e vscodevim.vim"
-    },
-    {
-      "desc": "Sync vscode frapep debugger configuration",
-      "code": "fm {current_command} {benchname} -d"
-    },
-    {
-      "desc": "Use different workdir in vscode",
-      "code": "fm {current_command} {benchname} -w /workspace"
-    }
-  ],
-  "logs": [
-    {
-      "desc": "Show logs of Frappe server",
-      "code": "fm {current_command} {benchname}"
-    },
-    {
-      "desc": "Show logs of Frappe server and follow",
-      "code": "fm {current_command} {benchname} --follow"
-    },
-    {
-      "desc": "Show logs of NGINX container and follow",
-      "code": "fm {current_command} {benchname} --service nginx --follow"
-    }
-  ],
-  "shell": [
-    {
-      "desc": "Spawn shell for bench {benchname}, user - 'frappe', service - 'frappe'",
-      "code": "fm {current_command} {benchname}"
-    },
-    {
-      "desc": "Spawn shell for bench {benchname}, user - 'root', service - 'frappe'",
-      "code": "fm {current_command} {benchname} --user root"
-    },
-    {
-      "desc": "Spawn shell for bench {benchname}, user - 'root', service - 'nginx'",
-      "code": "fm {current_command} {benchname} --service nginx --user nginx"
-    }
-  ],
-  "start": [
-    {
-      "desc": "Start bench {benchname}",
-      "code": "fm {current_command} {benchname}"
-    }
-  ],
-  "update": [
-    {
-      "desc": "Enable SSL.",
-      "code": "fm update {benchname} --ssl letsencrypt"
-    },
-    {
-      "desc": "Enable HTTPS using HTTP01 Let's Encrypt challenge certificate.",
-      "code": "fm {current_command} {benchname} --ssl letsencrypt --letsencrypt-preferred-challenge http01 --letsencrypt-email cloudflare@example.com"
-    },
-    {
-      "desc": "Enable HTTPS using DNS01 Let's Encrypt challenge certificate.",
-      "code": "fm {current_command} {benchname} --ssl letsencrypt --letsencrypt-preferred-challenge dns01"
-    },
-    {
-      "desc": "Toggle admin-tools enable.",
-      "code": "fm {current_command} {benchname} --admin-tools enable"
-    },
-    {
-      "desc": "Toggle admin-tools disable.",
-      "code": "fm {current_command} {benchname} --admin-tools disable"
-    },
-    {
-      "desc": "Switch to frappe production environment.",
-      "code": "fm {current_command} {benchname} --env prod"
-    },
-    {
-      "desc": "Switch to frappe development environment.",
-      "code": "fm {current_command} {benchname} --environment dev"
-    },
-    {
-      "desc": "Enable frappe developer mode.",
-      "code": "fm {current_command} {benchname} --developer-mode enable"
-    },
-    {
-      "desc": "Disable frappe developer mode.",
-      "code": "fm {current_command} {benchname} --developer-mode disable"
-    }
-  ]
+  }
 }

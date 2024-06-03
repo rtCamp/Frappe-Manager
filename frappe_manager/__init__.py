@@ -1,26 +1,49 @@
 from pathlib import Path
 from enum import Enum
-import rich
+from typing import Optional
 from typer.core import TyperCommand
 from frappe_manager.utils.cli_examples import get_examples_from_toml
 import typer.rich_utils as ut
 from rich.panel import Panel
 
 # patch rich_format_help to display examples Panel
+# save the function so that recurssion doesn't occur
 rich_format_help_original = ut.rich_format_help
-def print_fm_examples(*,obj, ctx, markup_mode):
-    rich_format_help_original(obj=obj,ctx=ctx,markup_mode=markup_mode)
-    new_doc = get_examples_from_toml(obj.name, frappe_version=STABLE_APP_BRANCH_MAPPING_LIST['frappe'])
-    from rich import inspect
-    inspect(obj)
-    if isinstance(obj,TyperCommand):
-        rich.print(Panel(
-            new_doc,
-            padding=ut.STYLE_OPTIONS_TABLE_PADDING,
-            border_style=ut.STYLE_OPTIONS_PANEL_BORDER,
-            title='Examples',
-            title_align=ut.ALIGN_OPTIONS_PANEL,
-    ))
+
+
+def print_fm_examples(*, obj, ctx, markup_mode):
+    # utilising the original saved function
+    rich_format_help_original(obj=obj, ctx=ctx, markup_mode=markup_mode)
+
+    print(ctx.command_path.split(' '))
+    if not hasattr(ctx.parent, 'info_name'):
+        return
+
+    command = ctx.parent.info_name
+
+    sub_command: Optional[str] = None
+
+    if command == 'fm':
+        command = ctx.info_name
+    else:
+        sub_command = ctx.info_name
+
+
+    new_doc = get_examples_from_toml(command=command, frappe_version=STABLE_APP_BRANCH_MAPPING_LIST["frappe"], sub_command=sub_command)
+
+    if new_doc:
+        if isinstance(obj, TyperCommand):
+            # printing the examples at the end of the help
+            import rich
+            rich.print(
+                Panel(
+                    new_doc,
+                    padding=ut.STYLE_OPTIONS_TABLE_PADDING,
+                    border_style=ut.STYLE_OPTIONS_PANEL_BORDER,
+                    title="Examples",
+                    title_align=ut.ALIGN_OPTIONS_PANEL,
+                )
+            )
 
 ut.rich_format_help = print_fm_examples
 
@@ -29,14 +52,14 @@ ut.rich_format_help = print_fm_examples
 CLI_DIR = Path.home() / "frappe"
 CLI_FM_CONFIG_PATH = CLI_DIR / "fm_config.toml"
 CLI_SITES_ARCHIVE = CLI_DIR / "archived"
-CLI_LOG_DIRECTORY = CLI_DIR / 'logs'
-CLI_BENCHES_DIRECTORY = CLI_DIR / 'sites'
-CLI_SERVICES_DIRECTORY = CLI_DIR / 'services'
+CLI_LOG_DIRECTORY = CLI_DIR / "logs"
+CLI_BENCHES_DIRECTORY = CLI_DIR / "sites"
+CLI_SERVICES_DIRECTORY = CLI_DIR / "services"
 
-CLI_SERVICES_NGINX_PROXY_DIR = CLI_SERVICES_DIRECTORY / 'nginx-proxy'
-CLI_SERVICES_NGINX_PROXY_SSL_DIR = CLI_SERVICES_NGINX_PROXY_DIR / 'ssl'
+CLI_SERVICES_NGINX_PROXY_DIR = CLI_SERVICES_DIRECTORY / "nginx-proxy"
+CLI_SERVICES_NGINX_PROXY_SSL_DIR = CLI_SERVICES_NGINX_PROXY_DIR / "ssl"
 
-CLI_BENCH_CONFIG_FILE_NAME = 'bench_config.toml'
+CLI_BENCH_CONFIG_FILE_NAME = "bench_config.toml"
 SSL_RENEW_BEFORE_DAYS = 30
 
 
@@ -64,12 +87,12 @@ class SiteServicesEnum(str, Enum):
 
 
 STABLE_APP_BRANCH_MAPPING_LIST = {
-    "frappe": 'version-15',
-    "erpnext": 'version-15',
-    "hrms": 'version-15',
+    "frappe": "version-15",
+    "erpnext": "version-15",
+    "hrms": "version-15",
 }
 
 
 class EnableDisableOptionsEnum(str, Enum):
-    enable = 'enable'
-    disable = 'disable'
+    enable = "enable"
+    disable = "disable"
