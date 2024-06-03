@@ -248,14 +248,16 @@
       "examples": [
         {
           "desc": "Update fm to the latest version available on pypi",
-          "code": ""
+          "code": "",
+          "benchname": ""
         }
       ],
       "images": {
         "examples": [
           {
             "desc": "Update all frappe required docker images.",
-            "code": ""
+            "code": "",
+            "benchname": ""
           }
         ]
       }
