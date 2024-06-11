@@ -246,19 +246,16 @@ def create(
         admin_tools=True if environment == FMBenchEnvType.dev else False,
         admin_pass=admin_pass,
         # TODO get this info from services, maybe ?
-        mariadb_host=services_manager.database_manager.database_server_info.host,
-        mariadb_root_pass='/run/secrets/db_root_password',
         environment_type=environment,
         root_path=bench_config_path,
         ssl=ssl_certificate,
     )
 
     compose_path = bench_path / 'docker-compose.yml'
-    bench_workers = BenchWorkers(benchname, bench_path)
     compose_file_manager = ComposeFile(compose_path)
     compose_project = ComposeProject(compose_file_manager, verbose)
 
-    bench: Bench = Bench(bench_path, benchname, bench_config, compose_project, bench_workers, services_manager)
+    bench: Bench = Bench(bench_path, benchname, bench_config, compose_project, services_manager)
     benches.add_bench(bench)
     benches.create_benches(is_template_bench=template)
 
@@ -286,7 +283,6 @@ def delete(
         bench_compose_path = bench_path / 'docker-compose.yml'
         compose_file_manager = ComposeFile(bench_compose_path)
         bench_compose_project = ComposeProject(compose_file_manager)
-        bench_workers = BenchWorkers(benchname, bench_path)
 
         bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
         # try using bench object if not then create bench
@@ -306,24 +302,26 @@ def delete(
                 # TODO do something about this forcefully delete maybe
                 admin_tools=False,
                 admin_pass='pass',
-                mariadb_host='global-db',
-                mariadb_root_pass="/run/secrets/db_root_password",
                 environment_type=FMBenchEnvType.dev,
                 ssl=SSLCertificate(domain=benchname, ssl_type=SUPPORTED_SSL_TYPES.none),
                 root_path=bench_config_path,
             )
+
             bench = Bench(
                 bench_path,
                 benchname,
                 fake_config,
                 bench_compose_project,
-                bench_workers,
                 services=services_manager,
                 workers_check=False,
             )
 
         else:
-            bench = Bench.get_object(benchname, services_manager, workers_check=False, admin_tools_check=False)
+            bench = Bench.get_object(
+                benchname,
+                services=services_manager,
+                workers_check=False,
+                admin_tools_check=False)
 
         benches.add_bench(bench)
         benches.remove_benches()
@@ -627,3 +625,37 @@ def update(
 
     if bench_config_save:
         bench.save_bench_config()
+
+@app.command()
+def test(
+    ctx: typer.Context,
+    benchname: Annotated[
+        Optional[str],
+        typer.Argument(
+            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
+        ),
+    ] = None,
+    apps: Annotated[
+        List[str],
+        typer.Option(
+            "--apps",
+            "-a",
+            help="FrappeVerse apps to install. App should be specified in format <appname>:<branch> or <appname>.",
+            callback=apps_list_validation_callback,
+            show_default=False,
+        ),
+    ] = [],
+):
+    """Shows information about given bench."""
+
+    services_manager = ctx.obj["services"]
+    verbose = ctx.obj['verbose']
+    bench = Bench.get_object(benchname, services_manager)
+    from frappe_manager.site_manager.bench_site_manager import BenchOperations
+
+    print(STABLE_APP_BRANCH_MAPPING_LIST.keys())
+    # benchops = BenchOperations(bench)
+    # benchops.bench_install_app_env('crmxx')
+
+    # benchops.is_required_services_available()
+    # benchops.change_frappeverse_prebaked_app_branch('frappe', 'version-14')

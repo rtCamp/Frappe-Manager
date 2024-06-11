@@ -3,18 +3,8 @@ services:
     image: ghcr.io/rtcamp/frappe-manager-frappe:v0.13.0
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     environment:
-      ADMIN_PASS: REPLACE_me_with_frappe_web_admin_pass
-      # apps are defined as <app-name>:<branch-name>, if branch name not given then default github branch will be used.
-      APPS_LIST: REPLACE_ME_APPS_LIST
-      DB_NAME: REPLACE_ME_WITH_DB_NAME_TO_CREATE
-      # DEVERLOPER_MODE bool -> true/false
-      DEVELOPER_MODE: REPLACE_ME_WITH_DEVELOPER_MODE_TOGGLE
-      FRAPPE_BRANCH: REPLACE_ME_WITH_BRANCH_OF_FRAPPE
-      MARIADB_ROOT_PASS: REPLACE_ME_WITH_DB_ROOT_PASSWORD
-      SITENAME: REPLACE_ME_WITH_THE_SITE_NAME
-      USERGROUP: REPLACE_ME_WITH_CURRENT_USER_GROUP
       USERID: REPLACE_ME_WITH_CURRENT_USER
-      MARIADB_HOST: REPLACE_ME_WITH_DB_HOST
+      USERGROUP: REPLACE_ME_WITH_CURRENT_USER_GROUP
     volumes:
       - ./workspace:/workspace:cached
     expose:
@@ -24,8 +14,6 @@ services:
     networks:
       site-network:
       global-backend-network:
-    secrets:
-      - db_root_password
 
   nginx:
     image: ghcr.io/rtcamp/frappe-manager-nginx:v0.13.0

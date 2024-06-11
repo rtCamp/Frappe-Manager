@@ -1,8 +1,9 @@
 from enum import Enum
 import os
+from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo
 import tomlkit
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field, model_validator, validator
 from frappe_manager import STABLE_APP_BRANCH_MAPPING_LIST
 from frappe_manager.metadata_manager import FMConfigManager, FMLetsencryptConfig
@@ -44,9 +45,7 @@ class BenchConfig(BaseModel):
     )
     admin_pass: str = Field('admin', description="The admin password")
     root_path: Path = Field(..., description="The root path")
-    mariadb_host: str = Field('global-db', description="The host for MariaDB")
-    mariadb_root_pass: str = Field(default='/run/secrets/db_root_password', description="The root password for MariaDB")
-    apps_list: List[str] = Field(default=[], description="List of apps")
+    apps_list: List[Dict[str,Optional[str]]] = Field(default=[], description="List of apps")
     userid: int = Field(default_factory=os.getuid, description="The user ID of the current process")
     usergroup: int = Field(default_factory=os.getgid, description="The group ID of the current process")
 
@@ -163,21 +162,27 @@ class BenchConfig(BaseModel):
 
         return bench_config_instance
 
+    def get_commmon_site_config_data(self, db_server_info: DatabaseServerServiceInfo) -> Dict[str, Any]:
+        common_site_config_data = {
+            "install_apps": [],
+            "db_host" : db_server_info.host,
+            "db_port" : db_server_info.port,
+            "redis_cache" : f"redis://{self.container_name_prefix}-redis-cache:6379",
+            "redis_queue" : f"redis://{self.container_name_prefix}-redis-queue:6379",
+            "redis_socketio" : f"redis://{self.container_name_prefix}-redis-socketio:6379",
+            "webserver_port" : 80,
+            "socketio_port" : 80,
+            "restart_supervisor_on_update" : 0,
+            "developer_mode" : self.developer_mode,
+        }
+
+        return common_site_config_data
+
     def export_to_compose_inputs(self):
         environment = {
             "frappe": {
                 "USERID": self.userid,
                 "USERGROUP": self.usergroup,
-                "APPS_LIST": ",".join(self.apps_list) if self.apps_list else None,
-                "FRAPPE_BRANCH": self.frappe_branch,
-                "DEVELOPER_MODE": self.developer_mode,
-                "ADMIN_PASS": self.admin_pass,
-                "DB_NAME": self.db_name,
-                "SITENAME": self.name,
-                "MARIADB_HOST": self.mariadb_host,
-                "MARIADB_ROOT_PASS": self.mariadb_root_pass,
-                "CONTAINER_NAME_PREFIX": self.container_name_prefix,
-                "ENVIRONMENT": self.environment_type.value,
             },
             "nginx": {
                 "SITENAME": self.name,

@@ -31,6 +31,7 @@ def apps_list_validation_callback(value: List[str] | None):
                 raise typer.BadParameter("'frappe' should not be included here.")
 
             if "https:" in app or "http:" in app:
+
                 temp_appx = appx
                 appx = [":".join(appx[:2])]
 
@@ -70,7 +71,10 @@ def apps_list_validation_callback(value: List[str] | None):
                     richprint.stop()
                     raise typer.BadParameter(f"Invaid branch '{appx[1]}' for '{appx[0]}'.")
 
-            appx = ":".join(appx)
+            appx = {
+                'app' : appx[0],
+                'branch' : appx[1] if len(appx) > 1 else None ,
+            }
             apps_list.append(appx)
     return apps_list
 

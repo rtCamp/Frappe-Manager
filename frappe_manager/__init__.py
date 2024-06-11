@@ -10,7 +10,6 @@ from rich.panel import Panel
 # save the function so that recurssion doesn't occur
 rich_format_help_original = ut.rich_format_help
 
-
 def print_fm_examples(*, obj, ctx, markup_mode):
     # utilising the original saved function
     rich_format_help_original(obj=obj, ctx=ctx, markup_mode=markup_mode)

@@ -1,10 +1,12 @@
 import json
 import shlex
+from sys import exception
 
 from typing import Literal, Optional, List
 from pathlib import Path
 from frappe_manager.docker_wrapper.DockerCompose import DockerComposeWrapper
 from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.utils.docker import (
     SubprocessOutput,
     is_current_user_in_group,
@@ -50,9 +52,14 @@ class DockerClient:
 
         ver_cmd += parameters_to_options(parameters)
 
-        output: SubprocessOutput = run_command_with_exit_code(self.docker_cmd + ver_cmd, stream=False)
-        version: dict = json.loads(" ".join(output.stdout))
-        return version
+        try:
+            output: SubprocessOutput = run_command_with_exit_code(self.docker_cmd + ver_cmd, stream=False)
+            version: dict = json.loads(" ".join(output.stdout))
+            return version
+        except DockerException as e:
+            version: dict = json.loads(" ".join(e.output.stdout))
+            return version
+
 
     def server_running(self) -> bool:
         """
@@ -62,12 +69,15 @@ class DockerClient:
             bool: True if the Docker server is running, False otherwise.
         """
         docker_info = self.version()
+
         if "Server" in docker_info:
-            return True
+            if docker_info['Server']:
+                return True
+            else:
+                return False
         else:
             # check if the current user in the docker group and notify the user
             is_current_user_in_group("docker")
-
             return False
 
     def cp(
