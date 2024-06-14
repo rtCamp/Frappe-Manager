@@ -62,7 +62,7 @@
     "examples": [
       {
         "desc": "List all available benches",
-        "code": "fm {current_command}"
+        "code": ""
       }
     ]
   },
