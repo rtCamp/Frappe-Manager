@@ -557,6 +557,7 @@ class Bench:
 
     def sync_workers_compose(self, force_recreate: bool = False):
         workers_backup_manager = self.backup_workers_supervisor_conf()
+
         try:
             self.benchops.setup_supervisor(force=True)
         except BenchOperationException as e:
@@ -568,7 +569,6 @@ class Bench:
             richprint.print("Workers configuration remains unchanged.")
             return
 
-        self.backup_workers_supervisor_conf()
         self.workers.generate_compose()
         self.workers.compose_project.start_service(force_recreate=force_recreate)
 
