@@ -28,6 +28,8 @@ services:
     container_name: fm_global-nginx-proxy
     user: REPLACE_WITH_CURRENT_USER:REPLACE_WITH_CURRENT_USER_GROUP
     image: jwilder/nginx-proxy
+    environment:
+      ACME_HTTP_CHALLENGE_LOCATION: false
     ports:
       - "80:80"
       - "443:443"
