@@ -622,38 +622,3 @@ def update(
 
     if bench_config_save:
         bench.save_bench_config()
-
-
-@app.command()
-def test(
-    ctx: typer.Context,
-    benchname: Annotated[
-        Optional[str],
-        typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
-        ),
-    ] = None,
-    apps: Annotated[
-        List[str],
-        typer.Option(
-            "--apps",
-            "-a",
-            help="FrappeVerse apps to install. App should be specified in format <appname>:<branch> or <appname>.",
-            callback=apps_list_validation_callback,
-            show_default=False,
-        ),
-    ] = [],
-):
-    """Shows information about given bench."""
-
-    services_manager = ctx.obj["services"]
-    verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
-    from frappe_manager.site_manager.bench_site_manager import BenchOperations
-
-    print(STABLE_APP_BRANCH_MAPPING_LIST.keys())
-    # benchops = BenchOperations(bench)
-    # benchops.bench_install_app_env('crmxx')
-
-    # benchops.is_required_services_available()
-    # benchops.change_frappeverse_prebaked_app_branch('frappe', 'version-14')
