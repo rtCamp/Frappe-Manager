@@ -325,3 +325,33 @@ class BenchOperations:
             ),
             capture_output=True,
         )
+
+    def check_required_docker_images_available(self):
+        richprint.change_head("Checking required docker images availability")
+        fm_images = get_all_docker_images()
+        system_available_images = self.bench.compose_project.docker.images()
+
+        not_available_images = []
+
+        for key, value in fm_images.items():
+            name = value['name']
+            tag = value['tag']
+
+            found = False
+
+            for item in system_available_images:
+                if item.get('Repository') == name and item.get('Tag') == tag:
+                    found = True
+                    break
+
+            if not found:
+                image = f"{name}:{tag}"
+                not_available_images.append(image)
+
+        # remove duplicates
+        not_available_images = list(dict.fromkeys(not_available_images))
+
+        if not_available_images:
+            for image in not_available_images:
+                richprint.error(f"Docker image '{image}' is not available locally")
+            raise BenchOperationRequiredDockerImagesNotAvailable(self.bench.name, 'fm self update images')

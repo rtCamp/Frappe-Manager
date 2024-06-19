@@ -180,6 +180,8 @@ class Bench:
         Returns:
             None
         """
+        self.benchops.check_required_docker_images_available()
+
         try:
             richprint.change_head("Creating Bench Directory")
             self.path.mkdir(parents=True, exist_ok=True)
@@ -393,6 +395,8 @@ class Bench:
         """
         Starts the bench.
         """
+
+        self.benchops.check_required_docker_images_available()
 
         # Should be done in site manager ?
         global_db_info = self.services.database_manager.database_server_info

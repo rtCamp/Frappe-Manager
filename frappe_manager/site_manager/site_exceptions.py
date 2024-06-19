@@ -256,6 +256,18 @@ class BenchOperationFrappeBranchChangeFailed(BenchException):
         super().__init__(self.bench_name, self.message)
 
 
+class BenchOperationRequiredDockerImagesNotAvailable(BenchException):
+    def __init__(
+        self,
+        bench_name,
+        pull_command,
+        message: str = "Required docker images not available. Pull all required images using command '{}'.",
+    ):
+        self.bench_name = bench_name
+        self.message = message.format(pull_command)
+        super().__init__(self.bench_name, self.message)
+
+
 class BenchOperationWaitForRequiredServiceFailed(BenchOperationException):
     def __init__(
         self,

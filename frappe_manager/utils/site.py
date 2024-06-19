@@ -182,13 +182,10 @@ def get_bench_db_connection_info(bench_name: str, bench_path: Path):
         db_info["password"] = None
     return db_info
 
-def pull_docker_images() -> bool:
-    from frappe_manager.compose_manager.ComposeFile import ComposeFile
-    from frappe_manager.docker_wrapper.DockerClient import DockerClient
-    from frappe_manager.docker_wrapper.DockerException import DockerException
 
-    images_list = []
-    docker = DockerClient()
+def get_all_docker_images():
+    from frappe_manager.compose_manager.ComposeFile import ComposeFile
+
     temp_bench_compose_file_manager = ComposeFile(loadfile=Path('/dev/null/docker-compose.yml'))
     services_manager_compose_file_manager = ComposeFile(
         loadfile=Path('/dev/null/docker-compose.yml'), template_name='docker-compose.services.tmpl'
@@ -200,6 +197,16 @@ def pull_docker_images() -> bool:
     images = temp_bench_compose_file_manager.get_all_images()
     images.update(services_manager_compose_file_manager.get_all_images())
     images.update(admin_tools_manager_compose_file_manager.get_all_images())
+    return images
+
+
+def pull_docker_images() -> bool:
+    from frappe_manager.docker_wrapper.DockerException import DockerException
+    from frappe_manager.docker_wrapper.DockerClient import DockerClient
+
+    docker = DockerClient()
+    images = get_all_docker_images()
+    images_list = []
 
     for service, image_info in images.items():
         image = f"{image_info['name']}:{image_info['tag']}"

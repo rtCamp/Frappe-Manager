@@ -20,10 +20,10 @@ class DockerClient:
     This class provide one to one mapping to the docker command.
 
     Only this args have are different use case.
-        stream (bool, optional): A boolean flag indicating whether to stream the output of the command as it runs. 
-            If set to True, the output will be displayed in real-time. If set to False, the output will be 
+        stream (bool, optional): A boolean flag indicating whether to stream the output of the command as it runs.
+            If set to True, the output will be displayed in real-time. If set to False, the output will be
             displayed after the command completes. Defaults to False.
-        stream_only_exit_code (bool, optional): A boolean flag indicating whether to only stream the exit code of the 
+        stream_only_exit_code (bool, optional): A boolean flag indicating whether to only stream the exit code of the
             command. Defaults to False.
     """
 
@@ -59,7 +59,6 @@ class DockerClient:
         except DockerException as e:
             version: dict = json.loads(" ".join(e.output.stdout))
             return version
-
 
     def server_running(self) -> bool:
         """
@@ -112,10 +111,7 @@ class DockerClient:
         cp_cmd += [f"{source}"]
         cp_cmd += [f"{destination}"]
 
-        iterator = run_command_with_exit_code(
-            self.docker_cmd + cp_cmd,
-            stream=stream
-        )
+        iterator = run_command_with_exit_code(self.docker_cmd + cp_cmd, stream=stream)
         return iterator
 
     def kill(
@@ -132,10 +128,7 @@ class DockerClient:
         kill_cmd += parameters_to_options(parameters, exclude=remove_parameters)
         kill_cmd += [f"{container}"]
 
-        iterator = run_command_with_exit_code(
-            self.docker_cmd + kill_cmd,
-            stream=stream
-        )
+        iterator = run_command_with_exit_code(self.docker_cmd + kill_cmd, stream=stream)
         return iterator
 
     def rm(
@@ -154,10 +147,7 @@ class DockerClient:
         rm_cmd += parameters_to_options(parameters, exclude=remove_parameters)
         rm_cmd += [f"{container}"]
 
-        iterator = run_command_with_exit_code(
-            self.docker_cmd + rm_cmd,
-            stream=stream
-        )
+        iterator = run_command_with_exit_code(self.docker_cmd + rm_cmd, stream=stream)
         return iterator
 
     def run(
@@ -176,13 +166,13 @@ class DockerClient:
         parameters: dict = locals()
         run_cmd: list = ["run"]
 
-        remove_parameters = ["stream", "command", "image","use_shlex_split","env"]
+        remove_parameters = ["stream", "command", "image", "use_shlex_split", "env"]
 
         run_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
-        if type(env) == list:
+        if isinstance(env, list):
             for i in env:
-                run_cmd+= ["--env", i]
+                run_cmd += ["--env", i]
 
         run_cmd += [f"{image}"]
 
@@ -192,10 +182,7 @@ class DockerClient:
             else:
                 run_cmd += [command]
 
-        iterator = run_command_with_exit_code(
-            self.docker_cmd + run_cmd,
-            stream=stream
-        )
+        iterator = run_command_with_exit_code(self.docker_cmd + run_cmd, stream=stream)
         return iterator
 
     def pull(
@@ -209,7 +196,7 @@ class DockerClient:
 
         pull_cmd: list[str] = ["pull"]
 
-        remove_parameters = ["stream","container_name"]
+        remove_parameters = ["stream", "container_name"]
 
         pull_cmd += parameters_to_options(parameters, exclude=remove_parameters)
         pull_cmd += [container_name]
@@ -219,3 +206,27 @@ class DockerClient:
             stream=stream,
         )
         return iterator
+
+    def images(
+        self,
+        format: Literal['json'] = 'json',
+    ):
+        parameters: dict = locals()
+
+        images_cmd: list[str] = ["images"]
+        remove_parameters = []
+
+        images_cmd += parameters_to_options(parameters, exclude=remove_parameters)
+
+        output: SubprocessOutput = run_command_with_exit_code(
+            self.docker_cmd + images_cmd,
+            stream=False,
+        )
+
+        images = []
+
+        if output.stdout:
+            for image in output.stdout:
+                images.append(json.loads(image))
+
+        return images
