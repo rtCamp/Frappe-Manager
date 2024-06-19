@@ -1,4 +1,5 @@
 from pathlib import Path
+from frappe_manager.site_manager import bench_operations
 from frappe_manager.site_manager.site_exceptions import BenchNotRunning
 from frappe_manager.utils.site import pull_docker_images
 import typer
@@ -24,7 +25,6 @@ from frappe_manager.logger import log
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.site_manager.site import Bench
-from frappe_manager.site_manager.workers_manager.SiteWorker import BenchWorkers
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
@@ -75,7 +75,7 @@ def app_callback(
     if not help_called:
         first_time_install = False
 
-        richprint.start(f"Working")
+        richprint.start("Working")
 
         if not CLI_DIR.exists():
             # creating the sites dir
@@ -104,7 +104,6 @@ def app_callback(
             richprint.exit("Docker daemon not running. Please start docker service.")
 
         fm_config_manager: FMConfigManager = FMConfigManager.import_from_toml()
-
 
         # docker pull
         if first_time_install:
@@ -140,6 +139,7 @@ def app_callback(
         ctx.obj["services"] = services_manager
         ctx.obj["verbose"] = verbose
         ctx.obj['fm_config_manager'] = fm_config_manager
+
 
 @app.command(no_args_is_help=True)
 def create(
@@ -317,11 +317,7 @@ def delete(
             )
 
         else:
-            bench = Bench.get_object(
-                benchname,
-                services=services_manager,
-                workers_check=False,
-                admin_tools_check=False)
+            bench = Bench.get_object(benchname, services=services_manager, workers_check=False, admin_tools_check=False)
 
         benches.add_bench(bench)
         benches.remove_benches()
@@ -625,6 +621,7 @@ def update(
 
     if bench_config_save:
         bench.save_bench_config()
+
 
 @app.command()
 def test(

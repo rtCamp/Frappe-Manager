@@ -186,7 +186,14 @@ class BenchFrappeServiceSupervisorNotRunning(BenchException):
 
 
 class BenchOperationException(BenchException):
-    def __init__(self, bench_name, message: str, print_combined: bool = True, print_stdout: bool = False, print_stderr: bool = False):
+    def __init__(
+        self,
+        bench_name,
+        message: str,
+        print_combined: bool = True,
+        print_stdout: bool = False,
+        print_stderr: bool = False,
+    ):
         self.bench_name = bench_name
         self.message = message
         self.print_stdout = print_stdout
@@ -199,11 +206,10 @@ class BenchOperationException(BenchException):
         self.output = output
         from rich.panel import Panel
 
-        import typer.rich_utils as ut
-
         to_print = []
 
         box: Box = Box("╭   \n" "    \n" " ── \n" "│   \n" "    \n" "    \n" " |  \n" "    \n", ascii=True)
+
         if self.print_stdout:
             panel = Panel.fit(
                 "\n".join(self.output.stdout),

@@ -12,10 +12,12 @@ from frappe_manager.site_manager.site_exceptions import (
     BenchOperationBenchSiteCreateFailed,
     BenchOperationException,
     BenchOperationFrappeBranchChangeFailed,
+    BenchOperationRequiredDockerImagesNotAvailable,
     BenchOperationWaitForRequiredServiceFailed,
 )
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.utils.docker import parameters_to_options
+from frappe_manager.utils.site import get_all_docker_images
 
 
 class BenchOperations:
@@ -25,6 +27,7 @@ class BenchOperations:
         self.frappe_bench_dir = self.bench.path / "workspace" / "frappe-bench"
 
     def create_fm_bench(self):
+
         richprint.change_head("Configuring common_site_config.json")
         common_site_config_data = self.bench.bench_config.get_commmon_site_config_data(
             self.bench.services.database_manager.database_server_info
@@ -94,7 +97,7 @@ class BenchOperations:
             f"{self.bench.bench_config.container_name_prefix}-redis-socketio": 6379,
         }
         for service, port in required_services.items():
-            output = self.wait_for_required_service(host=service, port=port)
+            output: SubprocessOutput = self.wait_for_required_service(host=service, port=port)
             if output.combined:
                 richprint.print(output.combined[-1].replace('wait-for-it: ', ''))
 
@@ -168,7 +171,7 @@ class BenchOperations:
         config.read_string(supervisor_conf_path.read_text())
 
         for section_name in config.sections():
-            if not "group:" in section_name:
+            if "group:" not in section_name:
                 section_config = configparser.ConfigParser(interpolation=None)
                 section_config.add_section(section_name)
                 for key, value in config.items(section_name):

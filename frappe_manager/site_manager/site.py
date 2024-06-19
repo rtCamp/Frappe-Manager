@@ -8,7 +8,7 @@ import json
 import subprocess
 from typing import Any, Dict, List, Optional
 from pathlib import Path
-from frappe_manager.site_manager.bench_site_manager import BenchOperations
+from frappe_manager.site_manager.bench_operations import BenchOperations
 from rich.table import Table
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.docker_wrapper.DockerException import DockerException
@@ -31,10 +31,9 @@ from frappe_manager.site_manager.site_exceptions import (
     BenchSSLCertificateAlreadyIssued,
     BenchSSLCertificateNotIssued,
     BenchServiceNotRunning,
-    BenchWorkersSupervisorConfigurtionGenerateError,
 )
 from frappe_manager.site_manager.workers_manager.SiteWorker import BenchWorkers
-from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.nginxproxymanager import NginxProxyManager
 from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
@@ -50,7 +49,6 @@ from frappe_manager import (
     CLI_BENCH_CONFIG_FILE_NAME,
     CLI_BENCHES_DIRECTORY,
     CLI_DIR,
-    EnableDisableOptionsEnum,
     SiteServicesEnum,
 )
 from frappe_manager.utils.site import domain_level, generate_services_table, get_bench_db_connection_info
@@ -183,10 +181,10 @@ class Bench:
             None
         """
         try:
-            richprint.change_head(f"Creating Bench Directory")
+            richprint.change_head("Creating Bench Directory")
             self.path.mkdir(parents=True, exist_ok=True)
 
-            richprint.change_head(f"Generating bench compose")
+            richprint.change_head("Generating bench compose")
             self.generate_compose(self.bench_config.export_to_compose_inputs())
             self.create_compose_dirs()
 
@@ -197,9 +195,9 @@ class Bench:
                 richprint.print(f"Created template bench: {self.name}", emoji_code=":white_check_mark:")
                 return
 
-            richprint.change_head(f"Starting bench services")
+            richprint.change_head("Starting bench services")
             self.compose_project.start_service(force_recreate=True)
-            richprint.print(f"Started bench services.")
+            richprint.print("Started bench services.")
 
             richprint.change_head("Creating bench and bench site.")
             self.benchops.create_fm_bench()
@@ -212,7 +210,7 @@ class Bench:
 
             self.save_bench_config()
 
-            richprint.change_head(f"Commencing site status check")
+            richprint.change_head("Commencing site status check")
 
             # check if bench is created
             if not self.is_bench_created():
@@ -224,9 +222,9 @@ class Bench:
 
             self.info()
 
-            if not ".localhost" in self.name:
+            if ".localhost" not in self.name:
                 richprint.print(
-                    f"Please note that You will have to add a host entry to your system's hosts file to access the bench locally."
+                    "Please note that You will have to add a host entry to your system's hosts file to access the bench locally."
                 )
 
         except Exception as e:
@@ -313,10 +311,6 @@ class Bench:
 
         self.compose_project.compose_file_manager.set_network_alias("nginx", "site-network", [self.name])
         self.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(self.name))
-        self.compose_project.compose_file_manager.set_secret_file_path(
-            "db_root_password", str(self.services.database_manager.database_server_info.secret_path.absolute())
-        )
-
         self.compose_project.compose_file_manager.set_version(get_current_fm_version())
         self.compose_project.compose_file_manager.set_top_networks_name(
             "site-network", get_container_name_prefix(self.name)
@@ -464,9 +458,9 @@ class Bench:
         Returns:
             bool: True if the site is successfully stopped, False otherwise.
         """
-        richprint.change_head(f"Stopping bench services")
+        richprint.change_head("Stopping bench services")
         self.compose_project.stop_service()
-        richprint.print(f"Stopped bench services.")
+        richprint.print("Stopped bench services.")
 
         if self.workers.compose_project.compose_file_manager.exists():
             richprint.change_head("Starting bench workers services")
@@ -509,7 +503,7 @@ class Bench:
         else:
             richprint.warning('Bench admin tools compose file not found. Skipping containers removal.')
 
-        richprint.change_head(f"Removing all bench files and directories.")
+        richprint.change_head("Removing all bench files and directories.")
         try:
             shutil.rmtree(self.path)
         except PermissionError:
@@ -529,7 +523,7 @@ class Bench:
             except Exception:
                 raise BenchRemoveDirectoryError(self.name, self.path)
 
-        richprint.print(f"Removed all bench files and directories.")
+        richprint.print("Removed all bench files and directories.")
 
     def is_bench_created(self, retry=60, interval=1) -> bool:
         curl_command = 'curl -I --max-time {retry} --connect-timeout {retry} {headers} {url}'
@@ -591,7 +585,6 @@ class Bench:
                     continue
                 if file_path_abs.endswith(".fm.supervisor.conf"):
                     from_path = file_path
-                    to_path = file_path.parent / f"{file_path.name}.bak"
                     backup_workers_manager.backup(from_path)
                     file_path.unlink()
         return backup_workers_manager
@@ -662,7 +655,7 @@ class Bench:
         this information using the richprint library.
         """
 
-        richprint.change_head(f"Getting bench info")
+        richprint.change_head("Getting bench info")
         bench_db_info = self.get_db_connection_info()
 
         db_user = bench_db_info["name"]
@@ -692,9 +685,11 @@ class Bench:
             "DB User": db_user,
             "DB Password": db_pass,
             "Environment": self.bench_config.environment_type.value,
-            "HTTPS": f'{ssl_service_type.upper()} ({format_ssl_certificate_time_remaining(self.certificate_manager.get_certficate_expiry())})'
-            if self.has_certificate()
-            else 'Not Enabled',
+            "HTTPS": (
+                f'{ssl_service_type.upper()} ({format_ssl_certificate_time_remaining(self.certificate_manager.get_certficate_expiry())})'
+                if self.has_certificate()
+                else 'Not Enabled'
+            ),
         }
 
         if not self.bench_config.admin_tools:
@@ -754,12 +749,7 @@ class Bench:
             user (str | None): The name of the user. If None, defaults to "frappe".
 
         """
-        richprint.change_head(f"Spawning shell")
-
-        import sys
-
-        if sys.stdin.isatty() is False:
-            print('stdin ', sys.stdin.readlines())
+        richprint.change_head("Spawning shell")
 
         if compose_service == "frappe" and not user:
             user = "frappe"
@@ -788,6 +778,7 @@ class Bench:
 
         try:
             self.compose_project.docker.compose.exec(**exec_args)
+
         except DockerException as e:
             richprint.warning(f"Shell exited with error code: {e.output.exit_code}")
 
@@ -844,7 +835,7 @@ class Bench:
             follow (bool): Whether to continuously follow the logs or not.
             service (str, optional): The name of the service to display logs for. If not provided, logs for the entire site will be displayed.
         """
-        richprint.change_head(f"Showing logs")
+        richprint.change_head("Showing logs")
         try:
             if not service:
                 self.handle_frappe_server_file_logs(follow=follow)
@@ -916,10 +907,10 @@ class Bench:
             extensions_previous = []
 
         if not extensions_previous == extensions or not user == user:
-            richprint.change_head(f"Configuration changed, regenerating label in bench compose")
+            richprint.change_head("Configuration changed, regenerating label in bench compose")
             self.compose_project.compose_file_manager.set_labels("frappe", labels)
             self.compose_project.compose_file_manager.write_to_file()
-            richprint.print(f"Regenerated bench compose.")
+            richprint.print("Regenerated bench compose.")
             self.compose_project.start_service(['frappe'])
 
         # sync debugger files
@@ -972,7 +963,7 @@ class Bench:
         if output.returncode != 0:
             raise BenchAttachTocontainerFailed(self.name, 'frappe')
 
-        richprint.print(f"Attached to frappe service container.")
+        richprint.print("Attached to frappe service container.")
 
     def remove_database_and_user(self):
         """

@@ -4,9 +4,9 @@ from frappe_manager.services_manager.database_service_manager import DatabaseSer
 import tomlkit
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field, model_validator, validator
+from pydantic import BaseModel, Field
 from frappe_manager import STABLE_APP_BRANCH_MAPPING_LIST
-from frappe_manager.metadata_manager import FMConfigManager, FMLetsencryptConfig
+from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
@@ -45,7 +45,7 @@ class BenchConfig(BaseModel):
     )
     admin_pass: str = Field('admin', description="The admin password")
     root_path: Path = Field(..., description="The root path")
-    apps_list: List[Dict[str,Optional[str]]] = Field(default=[], description="List of apps")
+    apps_list: List[Dict[str, Optional[str]]] = Field(default=[], description="List of apps")
     userid: int = Field(default_factory=os.getuid, description="The user ID of the current process")
     usergroup: int = Field(default_factory=os.getgid, description="The group ID of the current process")
 
@@ -165,15 +165,15 @@ class BenchConfig(BaseModel):
     def get_commmon_site_config_data(self, db_server_info: DatabaseServerServiceInfo) -> Dict[str, Any]:
         common_site_config_data = {
             "install_apps": [],
-            "db_host" : db_server_info.host,
-            "db_port" : db_server_info.port,
-            "redis_cache" : f"redis://{self.container_name_prefix}-redis-cache:6379",
-            "redis_queue" : f"redis://{self.container_name_prefix}-redis-queue:6379",
-            "redis_socketio" : f"redis://{self.container_name_prefix}-redis-socketio:6379",
-            "webserver_port" : 80,
-            "socketio_port" : 80,
-            "restart_supervisor_on_update" : 0,
-            "developer_mode" : self.developer_mode,
+            "db_host": db_server_info.host,
+            "db_port": db_server_info.port,
+            "redis_cache": f"redis://{self.container_name_prefix}-redis-cache:6379",
+            "redis_queue": f"redis://{self.container_name_prefix}-redis-queue:6379",
+            "redis_socketio": f"redis://{self.container_name_prefix}-redis-socketio:6379",
+            "webserver_port": 80,
+            "socketio_port": 80,
+            "restart_supervisor_on_update": 0,
+            "developer_mode": self.developer_mode,
         }
 
         return common_site_config_data
