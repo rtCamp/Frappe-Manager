@@ -34,6 +34,7 @@ echo "Time taken for chown /opt : $execution_time seconds"
 
 if [[ ! -d "/workspace/.oh-my-zsh" ]]; then
    cp -pr /opt/user/.oh-my-zsh /workspace/
+   cp -p /opt/user/fm.zsh-theme /workspace/.oh-my-zsh/custom/themes/
 fi
 
 if [[ ! -f "/workspace/.zshrc" ]]; then

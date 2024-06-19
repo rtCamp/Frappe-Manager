@@ -120,6 +120,7 @@ RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master
 RUN unset ZSH
 
 COPY --chown=frappe:frappe ./zshrc /opt/user/.zshrc
+COPY --chown=frappe:frappe ./fm.zsh-theme /opt/user/fm.zsh-theme
 
 RUN git clone --depth 1 https://github.com/pyenv/pyenv.git .pyenv \
     && pyenv install $PYTHON_VERSION \
