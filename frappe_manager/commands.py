@@ -111,9 +111,10 @@ def app_callback(
                 richprint.print("It seems like the first installation. Pulling docker images...️", "🔍")
 
                 completed_status = pull_docker_images()
+
                 if not completed_status:
                     shutil.rmtree(CLI_DIR)
-                    richprint.exit("Aborting. [bold][blue]fm[/blue][/bold] will not be able to work without images. 🖼️")
+                    richprint.exit("Aborting. Not able to pull all required Docker images.")
 
                 current_version = Version(get_current_fm_version())
                 fm_config_manager.version = current_version

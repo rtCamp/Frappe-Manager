@@ -232,7 +232,7 @@ class Bench:
         except Exception as e:
             richprint.stop()
 
-            richprint.error(f"[red][bold]Error Occured : {e}[/bold][/red]")
+            richprint.error(f"[red][bold]Error Occured: [/bold][/red]{e}")
 
             exception_traceback_str = capture_and_format_exception()
 
@@ -417,8 +417,6 @@ class Bench:
             richprint.change_head("Starting bench workers services")
             self.workers.compose_project.start_service(force_recreate=force)
             richprint.print("Started bench workers services.")
-
-        richprint.print('Started frappe server.')
 
     def frappe_logs_till_start(self):
         """
@@ -1134,7 +1132,8 @@ class Bench:
 
             start_command = 'supervisorctl -c /opt/user/supervisord.conf start all'
             self.frappe_service_run_command(start_command)
-            richprint.print(f"Started {self.bench_config.environment_type.value} services.")
+
+            richprint.print(f"Configured and Started {self.bench_config.environment_type.value} services.")
 
         elif self.bench_config.environment_type == FMBenchEnvType.prod:
             self.remove_dev_packages()
@@ -1157,7 +1156,8 @@ class Bench:
 
             start_command = 'supervisorctl -c /opt/user/supervisord.conf start all'
             self.frappe_service_run_command(start_command)
-            richprint.print(f"Started {self.bench_config.environment_type.value} services.")
+
+            richprint.print(f"Configured and Started {self.bench_config.environment_type.value} services.")
 
     def is_supervisord_running(self, interval: int = 2, timeout: int = 30):
         for i in range(timeout):

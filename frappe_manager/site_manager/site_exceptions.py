@@ -14,8 +14,13 @@ class BenchException(Exception):
         self,
         bench_name: str,
         message: str,
+        prefix_bench_name: bool = True,
     ):
-        self.message = f"[blue][bold]{bench_name} :[/bold][/blue] {message}"
+        self.message = message
+
+        if prefix_bench_name:
+            self.message = f"[blue][bold]{bench_name} :[/bold][/blue] {message}"
+
         super().__init__(self.message)
 
 
@@ -244,7 +249,8 @@ class BenchOperationException(BenchException):
             to_print.append(helpers.rich_object_to_string(panel))
 
         self.message = self.message + "\n" + "\n".join(to_print)
-        super().__init__(self.bench_name, self.message)
+
+        super().__init__(self.bench_name, self.message, prefix_bench_name=False)
 
 
 class BenchOperationFrappeBranchChangeFailed(BenchException):

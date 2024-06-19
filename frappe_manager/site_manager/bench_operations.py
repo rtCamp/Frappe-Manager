@@ -99,7 +99,7 @@ class BenchOperations:
         for service, port in required_services.items():
             output: SubprocessOutput = self.wait_for_required_service(host=service, port=port)
             if output.combined:
-                richprint.print(output.combined[-1].replace('wait-for-it: ', ''))
+                richprint.print(output.combined[-1].replace('wait-for-it: ', ''), highlight=False)
 
     def frappe_container_run(
         self,
