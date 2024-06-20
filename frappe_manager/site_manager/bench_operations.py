@@ -151,17 +151,19 @@ class BenchOperations:
 
         richprint.change_head("Checking supervisor configuration")
         if not supervisor_conf_path.exists() or force:
-            richprint.change_head("Setting up supervisor configs")
+            richprint.change_head("Configuring supervisor configs")
 
             bench_setup_supervisor_command = self.bench_cli_cmd + [
                 "setup supervisor --skip-redis --skip-supervisord --yes --user frappe"
             ]
 
             bench_setup_supervisor_command = " ".join(bench_setup_supervisor_command)
-            bench_setup_supervisor_exception = BenchOperationException(self.bench.name, "Failed to setup supervisor.")
+            bench_setup_supervisor_exception = BenchOperationException(
+                self.bench.name, "Failed to configure supervisor."
+            )
             self.frappe_container_run(bench_setup_supervisor_command, bench_setup_supervisor_exception)
             self.split_supervisor_config()
-            richprint.print("Setuped supervisor configs")
+            richprint.print("Configured supervisor configs")
 
     def split_supervisor_config(self):
         import configparser
@@ -222,7 +224,7 @@ class BenchOperations:
             if app not in to_install_apps:
                 richprint.change_head(f"Removing prebaked app {app} from python env.")
                 self.bench_rm_app_env(app)
-                richprint.print(f"Remove prebaked app {app}")
+                richprint.print(f"Removed prebaked app {app}")
 
         for app_info in apps_lists:
             app = app_info["app"]

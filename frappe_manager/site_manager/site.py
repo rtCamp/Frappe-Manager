@@ -206,7 +206,7 @@ class Bench:
             self.sync_bench_config_configuration()
 
             richprint.change_head("Configuring bench workers.")
-            self.sync_workers_compose(force_recreate=True)
+            self.sync_workers_compose(force_recreate=True, setup_supervisor=False)
             richprint.change_head("Configuring bench workers.")
             richprint.update_live()
 
@@ -551,13 +551,13 @@ class Bench:
                 time.sleep(interval)
         return False
 
-    def sync_workers_compose(self, force_recreate: bool = False):
-        workers_backup_manager = self.backup_workers_supervisor_conf()
-
-        try:
-            self.benchops.setup_supervisor(force=True)
-        except BenchOperationException as e:
-            self.backup_restore_workers_supervisor(workers_backup_manager)
+    def sync_workers_compose(self, force_recreate: bool = False, setup_supervisor: bool = True):
+        if setup_supervisor:
+            workers_backup_manager = self.backup_workers_supervisor_conf()
+            try:
+                self.benchops.setup_supervisor(force=True)
+            except BenchOperationException as e:
+                self.backup_restore_workers_supervisor(workers_backup_manager)
 
         are_workers_not_changed = self.workers.is_new_workers_added()
 
