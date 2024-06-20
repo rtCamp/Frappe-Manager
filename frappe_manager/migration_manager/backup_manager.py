@@ -51,7 +51,7 @@ class BackupData:
 
 
 current_migration_timestamp = f"{datetime.now().strftime('%d-%b-%y--%H-%M-%S')}"
-CLI_MIGARATIONS_DIR = CLI_DIR / 'backups' / 'migrations'
+CLI_MIGARATIONS_DIR = CLI_DIR / 'backups'
 
 
 class BackupManager:

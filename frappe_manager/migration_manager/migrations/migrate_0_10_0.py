@@ -40,7 +40,7 @@ class MigrationV0100(MigrationBase):
 
     def init(self):
         self.benches_dir = CLI_DIR / "sites"
-        self.backup_manager = BackupManager(str(self.version), self.benches_dir)
+        self.backup_manager = BackupManager(name=str(self.version), benches_dir=self.benches_dir)
         self.string_timestamp = datetime.now().strftime("%d-%b-%y--%H-%M-%S")
         self.benches_manager = MigrationBenches(self.benches_dir)
         self.services_manager: MigrationServicesManager = MigrationServicesManager()
