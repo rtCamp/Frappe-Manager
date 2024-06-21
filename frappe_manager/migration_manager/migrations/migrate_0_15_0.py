@@ -39,6 +39,8 @@ class MigrationV0150(MigrationBase):
         richprint.live_lines(output, padding=(0, 0, 0, 2))
         richprint.print(f"Image pulled [blue]{pull_image}[/blue]")
 
+        richprint.change_head("Migrating services compose")
+
         # add ACME_HTTP_CHALLENGE_LOCATION: false env
         envs = self.services_manager.compose_project.compose_file_manager.get_all_envs()
         envs['global-nginx-proxy'] = {'ACME_HTTP_CHALLENGE_LOCATION': False}
@@ -46,6 +48,7 @@ class MigrationV0150(MigrationBase):
         self.services_manager.compose_project.compose_file_manager.set_all_envs(envs)
         self.services_manager.compose_project.compose_file_manager.set_version(str(self.version))
         self.services_manager.compose_project.compose_file_manager.write_to_file()
+        richprint.print("Migrated services compose")
 
     def migrate_bench(self, bench: MigrationBench):
         bench.compose_project.down_service(volumes=True)
@@ -91,7 +94,7 @@ class MigrationV0150(MigrationBase):
 
     def migrate_workers_compose(self, bench: MigrationBench):
         if bench.workers_compose_project.compose_file_manager.compose_path.exists():
-            richprint.print("Migrating workers compose")
+            richprint.change_head("Migrating workers compose")
             workers_image_info = bench.workers_compose_project.compose_file_manager.get_all_images()
 
             for worker in workers_image_info.keys():
@@ -114,7 +117,7 @@ class MigrationV0150(MigrationBase):
             admin_tool_compose_file_manager = ComposeFile(admin_tool_compose_file, 'docker-compose.admin-tools.tmpl')
             admin_tool_compose_project = ComposeProject(admin_tool_compose_file_manager)
 
-            richprint.print("Migrating admin-tools compose")
+            richprint.change_head("Migrating admin-tools compose")
 
             admin_tools_image_info = admin_tool_compose_project.compose_file_manager.get_all_images()
             admin_tools_image_info['adminer']['tag'] = '4'
