@@ -163,7 +163,6 @@ COPY --chown=frappe:frappe --chmod=0755 ./bench-wrapper.sh /opt/user/.bin/bench
 
 COPY --chmod=0755 ./prebake.sh /scripts/
 COPY --chmod=0755 ./helper-function.sh /scripts/
-COPY --chmod=0755 ./divide-supervisor-conf.py /scripts/
 
 RUN ls -lah /workspace && /scripts/prebake.sh && mv /workspace/frappe-bench/apps/* /workspace/
 
@@ -183,7 +182,6 @@ RUN mkdir -p /scripts
 COPY --chmod=0755 ./entrypoint.sh /
 COPY --chmod=0755 ./user-script.sh /scripts/
 COPY --chmod=0755 ./launch.sh /scripts/
-COPY --chmod=0755 ./divide-supervisor-conf.py /scripts/
 COPY --chmod=0755 ./helper-function.sh /scripts/
 
 RUN rm -rf /opt && mkdir -p /workspace /opt
