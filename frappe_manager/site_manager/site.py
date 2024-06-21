@@ -402,12 +402,11 @@ class Bench:
         global_db_info = self.services.database_manager.database_server_info
         self.sync_bench_common_site_config(global_db_info.host, global_db_info.port)
 
-        self.sync_workers_compose()
-
         richprint.change_head("Starting bench services")
         self.admin_tools.remove_nginx_location_config()
         self.compose_project.start_service(force_recreate=force)
         self.benchops.is_required_services_available()
+        self.sync_workers_compose()
         self.sync_bench_config_configuration()
         self.save_bench_config()
         richprint.print("Started bench services.")
