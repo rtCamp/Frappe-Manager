@@ -46,11 +46,11 @@ if [[ ! -f "/workspace/.profile" ]]; then
 fi
 
 
-start_time=$(date +%s.%N)
-chown -R "$USERID":"$USERGROUP" /workspace
-end_time=$(date +%s.%N)
-execution_time=$(awk "BEGIN {print $end_time - $start_time}")
-echo "Time taken for chown /workspace : $execution_time seconds"
+# start_time=$(date +%s.%N)
+# chown -R "$USERID":"$USERGROUP" /workspace
+# end_time=$(date +%s.%N)
+# execution_time=$(awk "BEGIN {print $end_time - $start_time}")
+# echo "Time taken for chown /workspace : $execution_time seconds"
 
 if [ "$#" -gt 0 ]; then
     gosu "$USERID":"$USERGROUP" "/scripts/$@" &
