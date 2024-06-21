@@ -1,9 +1,9 @@
 #!/bin/bash
 restart_command() {
-      supervisorctl -c /opt/user/supervisord.conf restart frappe-bench-dev:
+      supervisorctl -c /opt/user/supervisord.conf restart all
 }
 status_command() {
-      supervisorctl -c /opt/user/supervisord.conf status frappe-bench-dev:
+      supervisorctl -c /opt/user/supervisord.conf status all
 }
 
 if [[ "$@" =~ ^restart[[:space:]]* ]]; then
