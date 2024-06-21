@@ -7,6 +7,7 @@ from frappe_manager.compose_manager import DockerVolumeMount, DockerVolumeType
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager.site_exceptions import BenchException
 
+
 def generate_services_table(services_status: dict):
     # running site services status
     services_table = Table(
@@ -18,14 +19,10 @@ def generate_services_table(services_status: dict):
         box=None,
     )
 
-    services_table.add_column(
-        "Service Status", ratio=1, no_wrap=True, width=None, min_width=20
-    )
-    services_table.add_column(
-        "Service Status", ratio=1, no_wrap=True, width=None, min_width=20
-    )
+    services_table.add_column("Service Status", ratio=1, no_wrap=True, width=None, min_width=20)
+    services_table.add_column("Service Status", ratio=1, no_wrap=True, width=None, min_width=20)
 
-    for index in range(0,len(services_status),2):
+    for index in range(0, len(services_status), 2):
         first_service_table = None
         second_service_table = None
 
@@ -36,7 +33,7 @@ def generate_services_table(services_status: dict):
             pass
 
         try:
-            second_service = list(services_status.keys())[index+1]
+            second_service = list(services_status.keys())[index + 1]
             second_service_table = create_service_element(second_service, services_status[second_service])
         except IndexError:
             pass
@@ -44,6 +41,7 @@ def generate_services_table(services_status: dict):
         services_table.add_row(first_service_table, second_service_table)
 
     return services_table
+
 
 def create_service_element(service, running_status):
     service_table = Table(
@@ -62,7 +60,8 @@ def create_service_element(service, running_status):
     )
     return service_table
 
-def parse_docker_volume(volume_string: str, root_volumes:dict, compose_path: Path):
+
+def parse_docker_volume(volume_string: str, root_volumes: dict, compose_path: Path):
 
     string_parts = volume_string.split(':')
 
@@ -84,9 +83,10 @@ def parse_docker_volume(volume_string: str, root_volumes:dict, compose_path: Pat
         if not is_bind_mount:
             volume_type = DockerVolumeType.volume
 
-        docker_volume = DockerVolumeMount(src,dest,volume_type, compose_path)
+        docker_volume = DockerVolumeMount(src, dest, volume_type, compose_path)
 
         return docker_volume
+
 
 def is_fqdn(hostname: str) -> bool:
     """
@@ -110,6 +110,7 @@ def is_fqdn(hostname: str) -> bool:
 
     # Check that all labels match that pattern.
     return all(fqdn.match(label) for label in labels)
+
 
 def is_wildcard_fqdn(hostname: str) -> bool:
     """
@@ -142,12 +143,14 @@ def is_wildcard_fqdn(hostname: str) -> bool:
     # Check the first label for wildcard pattern, then check all labels for standard pattern
     return status
 
+
 def domain_level(domain):
     # Split the domain name into individual parts
     parts = domain.split('.')
 
     # Return the number of parts minus 1 (excluding the TLD)
     return len(parts) - 1
+
 
 def validate_sitename(sitename: str) -> str:
     match = is_fqdn(sitename)
@@ -156,9 +159,13 @@ def validate_sitename(sitename: str) -> str:
         sitename = sitename + ".localhost"
 
     if not match:
-        richprint.error(f"The {sitename} must follow Fully Qualified Domain Name (FQDN) format.", exception=BenchException(sitename,f"Valid FQDN site name not provided."))
+        richprint.error(
+            f"The {sitename} must follow Fully Qualified Domain Name (FQDN) format.",
+            exception=BenchException(sitename, f"Valid FQDN site name not provided."),
+        )
 
     return sitename
+
 
 def get_bench_db_connection_info(bench_name: str, bench_path: Path):
     db_info = {}
@@ -175,13 +182,10 @@ def get_bench_db_connection_info(bench_name: str, bench_path: Path):
         db_info["password"] = None
     return db_info
 
-def pull_docker_images() -> bool:
-    from frappe_manager.compose_manager.ComposeFile import ComposeFile
-    from frappe_manager.docker_wrapper.DockerClient import DockerClient
-    from frappe_manager.docker_wrapper.DockerException import DockerException
 
-    images_list = []
-    docker = DockerClient()
+def get_all_docker_images():
+    from frappe_manager.compose_manager.ComposeFile import ComposeFile
+
     temp_bench_compose_file_manager = ComposeFile(loadfile=Path('/dev/null/docker-compose.yml'))
     services_manager_compose_file_manager = ComposeFile(
         loadfile=Path('/dev/null/docker-compose.yml'), template_name='docker-compose.services.tmpl'
@@ -193,6 +197,16 @@ def pull_docker_images() -> bool:
     images = temp_bench_compose_file_manager.get_all_images()
     images.update(services_manager_compose_file_manager.get_all_images())
     images.update(admin_tools_manager_compose_file_manager.get_all_images())
+    return images
+
+
+def pull_docker_images() -> bool:
+    from frappe_manager.docker_wrapper.DockerException import DockerException
+    from frappe_manager.docker_wrapper.DockerClient import DockerClient
+
+    docker = DockerClient()
+    images = get_all_docker_images()
+    images_list = []
 
     for service, image_info in images.items():
         image = f"{image_info['name']}:{image_info['tag']}"

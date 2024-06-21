@@ -1,5 +1,5 @@
 from typing import Optional, List, Self
-from pydantic import EmailStr, Field, model_validator, validator
+from pydantic import EmailStr, Field, model_validator
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import SSLDNSChallengeCredentailsNotFound

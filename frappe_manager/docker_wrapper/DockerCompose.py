@@ -181,6 +181,7 @@ class DockerComposeWrapper:
             "env",
             "use_shlex_split",
             "capture_output",
+            "no_tty"
         ]
 
         exec_cmd += parameters_to_options(parameters, exclude=remove_parameters)

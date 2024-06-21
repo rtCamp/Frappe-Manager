@@ -1,4 +1,5 @@
 from pathlib import Path
+from frappe_manager.site_manager import bench_operations
 from frappe_manager.site_manager.site_exceptions import BenchNotRunning
 from frappe_manager.utils.site import pull_docker_images
 import typer
@@ -24,7 +25,6 @@ from frappe_manager.logger import log
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.site_manager.site import Bench
-from frappe_manager.site_manager.workers_manager.SiteWorker import BenchWorkers
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
@@ -75,7 +75,7 @@ def app_callback(
     if not help_called:
         first_time_install = False
 
-        richprint.start(f"Working")
+        richprint.start("Working")
 
         if not CLI_DIR.exists():
             # creating the sites dir
@@ -105,16 +105,16 @@ def app_callback(
 
         fm_config_manager: FMConfigManager = FMConfigManager.import_from_toml()
 
-
         # docker pull
         if first_time_install:
             if not fm_config_manager.root_path.exists():
                 richprint.print("It seems like the first installation. Pulling docker images...️", "🔍")
 
                 completed_status = pull_docker_images()
+
                 if not completed_status:
                     shutil.rmtree(CLI_DIR)
-                    richprint.exit("Aborting. [bold][blue]fm[/blue][/bold] will not be able to work without images. 🖼️")
+                    richprint.exit("Aborting. Not able to pull all required Docker images.")
 
                 current_version = Version(get_current_fm_version())
                 fm_config_manager.version = current_version
@@ -140,6 +140,7 @@ def app_callback(
         ctx.obj["services"] = services_manager
         ctx.obj["verbose"] = verbose
         ctx.obj['fm_config_manager'] = fm_config_manager
+
 
 @app.command(no_args_is_help=True)
 def create(
@@ -246,19 +247,16 @@ def create(
         admin_tools=True if environment == FMBenchEnvType.dev else False,
         admin_pass=admin_pass,
         # TODO get this info from services, maybe ?
-        mariadb_host=services_manager.database_manager.database_server_info.host,
-        mariadb_root_pass='/run/secrets/db_root_password',
         environment_type=environment,
         root_path=bench_config_path,
         ssl=ssl_certificate,
     )
 
     compose_path = bench_path / 'docker-compose.yml'
-    bench_workers = BenchWorkers(benchname, bench_path)
     compose_file_manager = ComposeFile(compose_path)
     compose_project = ComposeProject(compose_file_manager, verbose)
 
-    bench: Bench = Bench(bench_path, benchname, bench_config, compose_project, bench_workers, services_manager)
+    bench: Bench = Bench(bench_path, benchname, bench_config, compose_project, services_manager)
     benches.add_bench(bench)
     benches.create_benches(is_template_bench=template)
 
@@ -286,7 +284,6 @@ def delete(
         bench_compose_path = bench_path / 'docker-compose.yml'
         compose_file_manager = ComposeFile(bench_compose_path)
         bench_compose_project = ComposeProject(compose_file_manager)
-        bench_workers = BenchWorkers(benchname, bench_path)
 
         bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
         # try using bench object if not then create bench
@@ -306,24 +303,22 @@ def delete(
                 # TODO do something about this forcefully delete maybe
                 admin_tools=False,
                 admin_pass='pass',
-                mariadb_host='global-db',
-                mariadb_root_pass="/run/secrets/db_root_password",
                 environment_type=FMBenchEnvType.dev,
                 ssl=SSLCertificate(domain=benchname, ssl_type=SUPPORTED_SSL_TYPES.none),
                 root_path=bench_config_path,
             )
+
             bench = Bench(
                 bench_path,
                 benchname,
                 fake_config,
                 bench_compose_project,
-                bench_workers,
                 services=services_manager,
                 workers_check=False,
             )
 
         else:
-            bench = Bench.get_object(benchname, services_manager, workers_check=False, admin_tools_check=False)
+            bench = Bench.get_object(benchname, services=services_manager, workers_check=False, admin_tools_check=False)
 
         benches.add_bench(bench)
         benches.remove_benches()

@@ -26,7 +26,11 @@ update_uid_gid "${USERID}" "${USERGROUP}" "frappe" "frappe"
 
 mkdir -p /opt/user/conf.d
 
+start_time=$(date +%s.%N)
 chown -R "$USERID":"$USERGROUP" /opt
+end_time=$(date +%s.%N)
+execution_time=$(awk "BEGIN {print $end_time - $start_time}")
+echo "Time taken for chown /opt : $execution_time seconds"
 
 if [[ ! -d "/workspace/.oh-my-zsh" ]]; then
    cp -pr /opt/user/.oh-my-zsh /workspace/
@@ -40,9 +44,12 @@ if [[ ! -f "/workspace/.profile" ]]; then
    cp -p /opt/user/.profile  /workspace/
 fi
 
-chown "$USERID":"$USERGROUP" /workspace /workspace/frappe-bench
 
-ls -pA /workspace | xargs -I{} chown -R "$USERID":"$USERGROUP" /workspace/{} &
+start_time=$(date +%s.%N)
+chown -R "$USERID":"$USERGROUP" /workspace
+end_time=$(date +%s.%N)
+execution_time=$(awk "BEGIN {print $end_time - $start_time}")
+echo "Time taken for chown /workspace : $execution_time seconds"
 
 if [ "$#" -gt 0 ]; then
     gosu "$USERID":"$USERGROUP" "/scripts/$@" &
