@@ -12,6 +12,11 @@ from frappe_manager.migration_manager.migration_helpers import (
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.services_manager.database_service_manager import (
+    DatabaseServerServiceInfo,
+    DatabaseServiceManager,
+    MariaDBManager,
+)
 from frappe_manager.utils.helpers import get_container_name_prefix
 
 
@@ -49,6 +54,17 @@ class MigrationV0150(MigrationBase):
         self.services_manager.compose_project.compose_file_manager.set_version(str(self.version))
         self.services_manager.compose_project.compose_file_manager.write_to_file()
         richprint.print("Migrated services compose")
+        richprint.change_head("Restarting services")
+        self.services_manager.compose_project.start_service(force_recreate=True)
+
+        services_database_manager: DatabaseServiceManager = MariaDBManager(
+            DatabaseServerServiceInfo.import_from_compose_file('global-db', self.services_manager.compose_project),
+            self.services_manager.compose_project,
+        )
+        # wait till db starts
+        services_database_manager.wait_till_db_start()
+
+        richprint.print("Restarted services")
 
     def migrate_bench(self, bench: MigrationBench):
         bench.compose_project.down_service(volumes=True)
