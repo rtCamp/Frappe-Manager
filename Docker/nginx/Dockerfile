@@ -15,6 +15,6 @@ COPY --from=builder /dist/ /config/
 COPY template.conf /config/
 COPY ./entrypoint.sh /
 RUN chmod +x /entrypoint.sh
-RUN mkdir -p /etc/nginx/custom
+RUN mkdir -p /etc/nginx/custom && rm -rf /etc/nginx/conf.d/default.conf
 
 ENTRYPOINT ["/bin/bash","/entrypoint.sh"]
