@@ -14,11 +14,12 @@
         "code": " --apps erpnext --apps hrms"
       },
       {
-        "desc": "Install Frappe[{default_version}], ERPNext[{default_version}], and HRMS[develop].", "code": " --apps erpnext --apps hrms:develop"
+        "desc": "Install Frappe[{default_version}], ERPNext[{default_version}], and HRMS[develop].",
+        "code": " --apps erpnext --apps hrms:develop"
       },
       {
         "desc": "Use Frappe production mode based bench.",
-        "code": " --env prod"
+        "code": " -e prod"
       },
       {
         "desc": "Enable Admin Tools.",
@@ -154,7 +155,7 @@
       },
       {
         "desc": "Switch to frappe production environment.",
-        "code": " --env prod"
+        "code": " -e prod"
       },
       {
         "desc": "Switch to frappe development environment.",
