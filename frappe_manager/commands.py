@@ -157,7 +157,7 @@ def create(
         ),
     ] = [],
     environment: Annotated[
-        FMBenchEnvType, typer.Option("--environment", "--env", help="Select bench environment type.")
+        FMBenchEnvType, typer.Option("--environment", "-e", help="Select bench environment type.")
     ] = FMBenchEnvType.dev,
     letsencrypt_preferred_challenge: Annotated[
         Optional[LETSENCRYPT_PREFERRED_CHALLENGE],
@@ -500,7 +500,7 @@ def update(
     ] = None,
     environment: Annotated[
         Optional[FMBenchEnvType],
-        typer.Option("--environment", "--env", help="Switch bench environment.", show_default=False),
+        typer.Option("--environment", "-e", help="Switch bench environment.", show_default=False),
     ] = None,
     developer_mode: Annotated[
         Optional[EnableDisableOptionsEnum],
