@@ -257,6 +257,7 @@ def host_run_cp(image: str, source: str, destination: str, docker):
             name=source_container_name,
             detach=True,
             stream=False,
+            entrypoint='bash',
             command="tail -f /dev/null",
         )
     except DockerException as e:

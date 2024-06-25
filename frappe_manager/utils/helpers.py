@@ -388,14 +388,14 @@ def get_frappe_manager_own_files(file_path: str):
     return Path(str(pkg_resources.files("frappe_manager").joinpath(file_path)))
 
 
-def rich_traceback_to_string(traceback: Traceback) -> str:
+def rich_object_to_string(obj) -> str:
     """Convert a rich Traceback object to a string."""
 
     # Initialize a 'fake' console with StringIO to capture output
     capture_buffer = StringIO()
 
     fake_console = Console(force_terminal=False, file=capture_buffer)
-    fake_console.print(traceback, crop=False, overflow='ignore')
+    fake_console.print(obj, crop=False, overflow='ignore')
 
     captured_str = capture_buffer.getvalue()  # Retrieve the captured output as a string
     capture_buffer.close()
@@ -413,7 +413,7 @@ def capture_and_format_exception(traceback_max_frames: int = 100) -> str:
     )
 
     # Convert the Traceback object to a formatted string
-    formatted_traceback = rich_traceback_to_string(traceback)
+    formatted_traceback = rich_object_to_string(traceback)
 
     return formatted_traceback
 

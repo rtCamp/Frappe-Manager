@@ -51,16 +51,23 @@ class BackupData:
 
 
 current_migration_timestamp = f"{datetime.now().strftime('%d-%b-%y--%H-%M-%S')}"
-CLI_MIGARATIONS_DIR = CLI_DIR / 'backups' / 'migrations' / current_migration_timestamp
+CLI_MIGARATIONS_DIR = CLI_DIR / 'backups'
 
 
 class BackupManager:
-    def __init__(self, name, benches_dir=CLI_BENCHES_DIRECTORY, backup_dir: Path = CLI_MIGARATIONS_DIR):
+    def __init__(
+        self,
+        name: str,
+        backup_group_name: str = 'migrations',
+        benches_dir: Path = CLI_BENCHES_DIRECTORY,
+        backup_dir: Path = CLI_MIGARATIONS_DIR,
+    ):
         self.name = name
-        self.root_backup_dir: Path = backup_dir
+        self.backup_group_name = backup_group_name
+        self.root_backup_dir: Path = backup_dir / backup_group_name / current_migration_timestamp
         self.benches_dir: Path = benches_dir
         self.backup_dir: Path = self.root_backup_dir / self.name
-        self.bench_backup_dir: Path = Path('backups') / 'migrations' / current_migration_timestamp
+        self.bench_backup_dir: Path = Path('backups') / backup_group_name / current_migration_timestamp
         self.backups = []
         self.logger = log.get_logger()
 
@@ -82,6 +89,9 @@ class BackupManager:
 
             if bench_name:
                 dest: Path = self.benches_dir / bench_name / self.bench_backup_dir / self.name / src.name
+
+                if self.name == self.backup_group_name:
+                    dest: Path = self.benches_dir / bench_name / self.bench_backup_dir / src.name
 
         backup_data = BackupData(src, dest, bench=bench_name, allow_restore=allow_restore)
 

@@ -13,7 +13,7 @@ class MigrationV0140(MigrationBase):
     def init(self):
         self.cli_dir: Path = Path.home() / 'frappe'
         self.benches_dir = self.cli_dir / "sites"
-        self.backup_manager = BackupManager(str(self.version), self.benches_dir)
+        self.backup_manager = BackupManager(name=str(self.version), benches_dir=self.benches_dir)
         self.benches_manager = MigrationBenches(self.benches_dir)
         self.services_manager: MigrationServicesManager = MigrationServicesManager(
             services_path=self.cli_dir / 'services'

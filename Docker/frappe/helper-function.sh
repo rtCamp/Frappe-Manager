@@ -1,5 +1,31 @@
 #!/usr/bin/bash
 
+# Function: chown directory and files
+# Parameters:
+# - user
+# - group
+chown_directory_and_files(){
+    local user; user="$1"
+    local group; group="$2"
+    local dir; dir="$3"
+
+    user_not_owned_files=$(find "$dir" ! -user "$user" -type f -exec realpath {} + | sort -u)
+    group_not_owned_files=$(find "$dir" ! -group "$group" -type f -exec realpath {} + | sort -u)
+
+    user_not_owned_dirs=$(find "$dir" ! -user "$user" -type d -exec realpath {} + | sort -u)
+    group_not_owned_dirs=$(find "$dir" ! -group "$group" -type d -exec realpath {} + | sort -u)
+
+    # Concatenate both lists, sort, and remove duplicates
+    not_owned_files=$(echo -e "$user_not_owned_files\n$group_not_owned_files" | sort -u)
+    not_owned_dirs=$(echo -e "$user_not_owned_dirs\n$group_not_owned_dirs" | sort -u)
+
+    cpu_cores=$(nproc)
+
+    echo "$not_owned_files" | xargs -P "$cpu_cores" -I{} bash -c "if [ -f {} ]; then chown ${user}:${group} {};fi"
+
+    echo "$not_owned_dirs" | xargs -P "$cpu_cores" -I{} bash -c "if [ -d {} ]; then chown -R ${user}:${group} {};fi"
+}
+
 # Function: update_common_site_config
 # Description: Updates the common site config file with the provided key-value pair.
 # Parameters:

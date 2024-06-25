@@ -26,26 +26,18 @@ class MigrationV0130(MigrationBase):
     def init(self):
         self.cli_dir: Path = Path.home() / 'frappe'
         self.benches_dir = self.cli_dir / "sites"
-        self.backup_manager = BackupManager(str(self.version), self.benches_dir)
+        self.backup_manager = BackupManager(name=str(self.version), benches_dir=self.benches_dir)
         self.benches_manager = MigrationBenches(self.benches_dir)
         self.services_manager: MigrationServicesManager = MigrationServicesManager(
             services_path=self.cli_dir / 'services'
         )
 
     def migrate_services(self):
-        # backup services compose
-        if not self.services_manager.compose_project.compose_file_manager.exists():
-            raise MigrationExceptionInBench(
-                f"Services compose at {self.services_manager.compose_project.compose_file_manager} not found."
-            )
-
-        self.backup_manager.backup(self.services_manager.compose_project.compose_file_manager.compose_path)
-
         # remove version from services yml
         try:
             del self.services_manager.compose_project.compose_file_manager.yml['version']
         except KeyError:
-            self.logger.warning(f"[services]: 'version' attribute not found in compose file.")
+            self.logger.warning("[services]: 'version' attribute not found in compose file.")
             pass
 
         # include new volume info
@@ -207,6 +199,7 @@ class MigrationV0130(MigrationBase):
         bench.compose_project.compose_file_manager.write_to_file()
 
         richprint.print(f"Migrated [blue]{bench.name}[/blue] compose file.")
+        self.migrate_workers_compose(bench)
 
     def migrate_workers_compose(self, bench: MigrationBench):
         if bench.workers_compose_project.compose_file_manager.compose_path.exists():

@@ -12,7 +12,7 @@ class MigrationV090(MigrationBase):
 
     def init(self):
         self.benches_dir = CLI_DIR / "sites"
-        self.backup_manager = BackupManager(str(self.version))
+        self.backup_manager = BackupManager(name=str(self.version), benches_dir=self.benches_dir)
 
         if self.benches_dir.exists():
             self.skip = True

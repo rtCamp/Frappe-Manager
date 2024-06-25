@@ -25,7 +25,7 @@ class MigrationBase(ABC):
     logger: Logger = log.get_logger()
 
     def init(self):
-        self.backup_manager = BackupManager(str(self.version), self.benches_dir)
+        self.backup_manager = BackupManager(name=str(self.version), benches_dir=self.benches_dir)
         self.benches_manager = MigrationBenches(self.benches_dir)
         self.services_manager: MigrationServicesManager = MigrationServicesManager(services_path=CLI_DIR / 'services')
 

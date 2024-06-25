@@ -73,6 +73,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
     gosu \
     fonts-powerline \
     zsh \
+    file \
     && rm -rf /var/lib/apt/lists/*
 
 RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
@@ -119,6 +120,7 @@ RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master
 RUN unset ZSH
 
 COPY --chown=frappe:frappe ./zshrc /opt/user/.zshrc
+COPY --chown=frappe:frappe ./fm.zsh-theme /opt/user/fm.zsh-theme
 
 RUN git clone --depth 1 https://github.com/pyenv/pyenv.git .pyenv \
     && pyenv install $PYTHON_VERSION \
@@ -161,7 +163,6 @@ COPY --chown=frappe:frappe --chmod=0755 ./bench-wrapper.sh /opt/user/.bin/bench
 
 COPY --chmod=0755 ./prebake.sh /scripts/
 COPY --chmod=0755 ./helper-function.sh /scripts/
-COPY --chmod=0755 ./divide-supervisor-conf.py /scripts/
 
 RUN ls -lah /workspace && /scripts/prebake.sh && mv /workspace/frappe-bench/apps/* /workspace/
 
@@ -181,7 +182,6 @@ RUN mkdir -p /scripts
 COPY --chmod=0755 ./entrypoint.sh /
 COPY --chmod=0755 ./user-script.sh /scripts/
 COPY --chmod=0755 ./launch.sh /scripts/
-COPY --chmod=0755 ./divide-supervisor-conf.py /scripts/
 COPY --chmod=0755 ./helper-function.sh /scripts/
 
 RUN rm -rf /opt && mkdir -p /workspace /opt
