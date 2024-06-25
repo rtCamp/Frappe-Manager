@@ -9,7 +9,9 @@ cleanup() {
 
 trap cleanup SIGTERM
 
-/config/jinja2 -D SITENAME="$SITENAME" /config/template.conf > /etc/nginx/conf.d/default.conf
+if ! [[ -f "/etc/nginx/conf.d/default.conf" ]]; then
+    /config/jinja2 -D SITENAME="$SITENAME" /config/template.conf > /etc/nginx/conf.d/default.conf
+fi
 
 nginx -g 'daemon off;' &
 nginx_pid=$!

@@ -82,6 +82,12 @@ class MigrationV0150(MigrationBase):
         redis_image_info = images_info['redis-cache']
         redis_image_info['tag'] = '6.2-alpine'
 
+        nginx_image_info = images_info['nginx']
+        nginx_image_info['tag'] = self.version.version_string()
+
+        # change image nginx
+        images_info['nginx'] = nginx_image_info
+
         # change image frappe, socketio, schedule
         images_info['frappe'] = frappe_image_info
         images_info['socketio'] = frappe_image_info
@@ -92,7 +98,13 @@ class MigrationV0150(MigrationBase):
         images_info['redis-queue'] = redis_image_info
         images_info['redis-socketio'] = redis_image_info
 
-        for image in [frappe_image_info, redis_image_info]:
+        # remove default.conf file from nginx
+        nginx_default_conf_path = bench.path / 'configs' / 'nginx' / 'conf' / 'conf.d' / 'default.conf'
+
+        if nginx_default_conf_path.exists():
+            nginx_default_conf_path.unlink()
+
+        for image in [frappe_image_info, redis_image_info, nginx_image_info]:
             pull_image = f"{image['name']}:{image['tag']}"
             if pull_image not in self.pulled_images_list:
                 richprint.change_head(f"Pulling Image {pull_image}")
