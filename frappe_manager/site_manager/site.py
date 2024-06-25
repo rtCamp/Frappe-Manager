@@ -573,10 +573,7 @@ class Bench:
             backup_manager.restore(backup, force=True)
 
     def backup_workers_supervisor_conf(self):
-        # TODO this can be given to woker class ?
         backup_workers_manager = BackupManager(name='workers', backup_group_name='workers')
-        # TODO use backup manager
-        # take backup
         backup_workers_manager.backup(self.workers.supervisor_config_path, bench_name=self.name)
 
         if self.workers.supervisor_config_path.exists():
@@ -586,7 +583,7 @@ class Bench:
                     continue
                 if file_path_abs.endswith(".fm.supervisor.conf"):
                     from_path = file_path
-                    backup_workers_manager.backup(from_path)
+                    backup_workers_manager.backup(from_path, bench_name=self.name)
                     file_path.unlink()
         return backup_workers_manager
 
