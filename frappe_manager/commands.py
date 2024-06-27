@@ -635,7 +635,7 @@ def reset(
         typer.Option(help="Password for the 'Administrator' User."),
     ] = None,
 ):
-    """Reset bench db and reinstall apps from the apps directory to the bench site."""
+    """Reset bench site and reinstall all installed apps."""
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
