@@ -1210,3 +1210,40 @@ class Bench:
         self.set_bench_site_config({'admin_password': admin_pass})
 
         richprint.print(f"Reset bench site {self.name}")
+
+    def restart_web_services_containers(self):
+        """Restarts frappe server and socketio containers"""
+
+        # restart frappe server and socketio
+        web_services = [
+            SiteServicesEnum.frappe.value,
+            SiteServicesEnum.socketio.value,
+        ]
+        richprint.change_head(f"Restarting web services - {' '.join(web_services)}")
+        self.compose_project.restart_service(services=web_services)
+        richprint.print(f"Restarted web services - {' '.join(web_services)}")
+
+    def restart_redis_services_containers(self):
+        """Restarts redis containers"""
+
+        redis_services = [
+            SiteServicesEnum.redis_cache.value,
+            SiteServicesEnum.redis_queue.value,
+            SiteServicesEnum.redis_socketio.value,
+        ]
+        richprint.change_head(f"Restarting redis services - {' '.join(redis_services)}")
+        self.compose_project.restart_service(services=redis_services)
+        richprint.print(f"Restarted redis services - {' '.join(redis_services)}")
+
+    def restart_workers_services_containers(self):
+        """Restarts workers and schedule containers"""
+
+        # restart schduler
+        richprint.change_head(f"Restarting {SiteServicesEnum.schedule.value} service")
+        self.compose_project.restart_service([SiteServicesEnum.schedule.value])
+        richprint.print(f"Restarted {SiteServicesEnum.schedule.value} service")
+
+        # restart workers
+        richprint.change_head("Restarting worker services")
+        self.workers.compose_project.restart_service()
+        richprint.print("Restarted worker services")
