@@ -271,5 +271,17 @@
         "code": ""
       }
     ]
+  },
+  "restart": {
+    "examples": [
+      {
+        "desc": "Restart web services only",
+        "code": "--web"
+      },
+      {
+        "desc": "Restart workers and web services",
+        "code": "--web --workers"
+      }
+    ]
   }
 }
