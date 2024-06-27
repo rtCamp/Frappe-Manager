@@ -1,5 +1,4 @@
 from pathlib import Path
-from frappe_manager.site_manager import bench_operations
 from frappe_manager.site_manager.site_exceptions import BenchNotRunning
 from frappe_manager.utils.site import pull_docker_images
 import typer
@@ -176,9 +175,7 @@ def create(
     template: Annotated[bool, typer.Option(help="Create template bench.")] = False,
     admin_pass: Annotated[
         str,
-        typer.Option(
-            help="Default Password for the standard 'Administrator' User. This will be used as the password for the Administrator User for all new bench."
-        ),
+        typer.Option(help="Password for the 'Administrator' User."),
     ] = "admin",
     ssl: Annotated[
         SUPPORTED_SSL_TYPES, typer.Option(help="Enable https", show_default=True)
@@ -523,12 +520,12 @@ def update(
         if developer_mode == EnableDisableOptionsEnum.enable:
             bench.bench_config.developer_mode = True
             richprint.print("Enabling frappe developer mode.")
-            bench.common_bench_config_set({'developer_mode': bench.bench_config.developer_mode})
+            bench.set_common_bench_config({'developer_mode': bench.bench_config.developer_mode})
             richprint.print("Enabled frappe developer mode.")
         elif developer_mode == EnableDisableOptionsEnum.disable:
             bench.bench_config.developer_mode = False
             richprint.print("Disabling frappe developer mode.")
-            bench.common_bench_config_set({'developer_mode': bench.bench_config.developer_mode})
+            bench.set_common_bench_config({'developer_mode': bench.bench_config.developer_mode})
             richprint.print("Enabled frappe developer mode.")
 
         bench_config_save = True
@@ -622,3 +619,25 @@ def update(
 
     if bench_config_save:
         bench.save_bench_config()
+
+
+@app.command()
+def reset(
+    ctx: typer.Context,
+    benchname: Annotated[
+        Optional[str],
+        typer.Argument(
+            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
+        ),
+    ] = None,
+    admin_pass: Annotated[
+        Optional[str],
+        typer.Option(help="Password for the 'Administrator' User."),
+    ] = None,
+):
+    """Reset bench db and reinstall apps from the apps directory to the bench site."""
+
+    services_manager = ctx.obj["services"]
+    verbose = ctx.obj['verbose']
+    bench = Bench.get_object(benchname, services_manager)
+    bench.reset(admin_pass)
