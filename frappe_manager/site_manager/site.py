@@ -43,6 +43,7 @@ from frappe_manager.utils.helpers import (
     get_current_fm_version,
     log_file,
     get_container_name_prefix,
+    save_dict_to_file,
 )
 from frappe_manager.utils.docker import host_run_cp
 from frappe_manager import (
@@ -126,7 +127,7 @@ class Bench:
 
     def sync_bench_config_configuration(self):
         # set developer_mode based on config
-        self.common_bench_config_set({'developer_mode': self.bench_config.developer_mode})
+        self.set_common_bench_config({'developer_mode': self.bench_config.developer_mode})
 
         # dev or prod
         self.switch_bench_env()
@@ -151,7 +152,9 @@ class Bench:
                 self.admin_tools.disable()
                 richprint.print("Disabled Admin-tools.")
 
-        self.restart_frappe_server()
+        richprint.change_head("Restarting frappe server")
+        self.restart_supervisor_service('frappe')
+        richprint.print("Restarted frappe server")
 
     def save_bench_config(self):
         richprint.change_head("Saving bench config changes")
@@ -161,14 +164,6 @@ class Bench:
     @property
     def exists(self):
         return self.path.exists()
-
-    @property
-    def frappe_container_name_as_hex(self) -> str:
-        """
-        Returns the hexadecimal representation of the frappe container name.
-        """
-        container_name = self.compose_project.compose_file_manager.get_container_names()
-        return container_name["frappe"].encode().hex()
 
     def create(self, is_template_bench: bool = False):
         """
@@ -255,36 +250,42 @@ class Bench:
                 if not remove_status:
                     self.info()
 
-    def common_bench_config_set(self, config: dict):
+    def set_common_bench_config(self, config: dict):
         """
         Sets the values in the common_site_config.json file.
 
         Args:
-            config (dict): A dictionary containing the key-value pairs to be set in the common_site_config.json file.
+            config (dict): A dictionary containing the key-value pairs
         """
         common_bench_config_path = self.path / "workspace/frappe-bench/sites/common_site_config.json"
-
         if not common_bench_config_path.exists():
-            raise BenchException(self.name, message='common_site_config.json not found.')
+            raise BenchException(self.name, message=f'File not found {common_bench_config_path.name}.')
 
-        common_site_config = {}
+        save_dict_to_file(config, common_bench_config_path)
 
-        with open(common_bench_config_path, "r") as f:
-            common_site_config = json.load(f)
+    def set_bench_site_config(self, config: dict):
+        """
+        Sets the values in the bench's site site_config.json file.
 
-        for key, value in config.items():
-            common_site_config[key] = value
-
-        with open(common_bench_config_path, "w") as f:
-            json.dump(common_site_config, f)
+        Args:
+            config (dict): A dictionary containing the key-value pairs
+        """
+        site_config_path = self.path / "workspace/frappe-bench/sites" / self.name / "site_config.json"
+        if not site_config_path.exists():
+            raise BenchException(self.name, message=f'File not found {site_config_path.name}.')
+        save_dict_to_file(config, site_config_path)
 
     def get_common_bench_config(self):
         common_bench_config_path = self.path / "workspace/frappe-bench/sites/common_site_config.json"
-
         if not common_bench_config_path.exists():
             raise BenchException(self.name, message='common_site_config.json not found.')
-
         return json.loads(common_bench_config_path.read_text())
+
+    def get_bench_site_config(self):
+        site_config_path = self.path / "workspace/frappe-bench/sites" / self.name / "site_config.json"
+        if not site_config_path.exists():
+            raise BenchException(self.name, message='site_config.json not found.')
+        return json.loads(site_config_path.read_text())
 
     def generate_compose(self, inputs: dict) -> None:
         """
@@ -337,7 +338,7 @@ class Bench:
             "redis_queue": f"redis://{container_prefix}-redis-queue:6379",
             "redis_socketio": f"redis://{container_prefix}-redis-cache:6379",
         }
-        self.common_bench_config_set(common_site_config_data)
+        self.set_common_bench_config(common_site_config_data)
 
     def create_compose_dirs(self) -> bool:
         """
@@ -664,6 +665,14 @@ class Bench:
 
         protocol = 'https' if self.has_certificate() else 'http'
 
+        # get admin pass from site_config.json if available use that
+        admin_pass = self.bench_config.admin_pass + " (default)"
+
+        site_config = self.get_bench_site_config()
+
+        if 'admin_password' in site_config:
+            admin_pass = site_config['admin_password']
+
         ssl_service_type = f'{self.bench_config.ssl.ssl_type.value}'
 
         if self.bench_config.ssl.ssl_type == SUPPORTED_SSL_TYPES.le:
@@ -675,7 +684,7 @@ class Bench:
             "Bench Url": f"{protocol}://{self.name}",
             "Bench Root": f"[link=file://{self.path.absolute()}]{self.path.absolute()}[/link]",
             "Frappe Username": "administrator",
-            "Frappe Password": self.bench_config.admin_pass,
+            "Frappe Password": admin_pass,
             "Root DB User": services_db_info.user,
             "Root DB Password": services_db_info.password,
             "Root DB Host": services_db_info.host,
@@ -846,8 +855,6 @@ class Bench:
 
         except KeyboardInterrupt:
             richprint.stdout.print("Detected CTRL+C. Exiting..")
-            # for log_file in log_files:
-            #     log_file.close()
 
     def attach_to_bench(self, user: str, extensions: List[str], workdir: str, debugger: bool = False):
         """
@@ -868,7 +875,8 @@ class Bench:
             # TODO todo this should be exception
             richprint.exit("Visual Studio Code binary i.e 'code' is not accessible via cli.")
 
-        container_hex = self.frappe_container_name_as_hex
+        container_name = self.compose_project.compose_file_manager.get_container_names()
+        container_hex = container_name["frappe"].encode().hex()
 
         vscode_cmd = shlex.join(
             [
@@ -910,6 +918,7 @@ class Bench:
             self.compose_project.compose_file_manager.write_to_file()
             richprint.print("Regenerated bench compose.")
             self.compose_project.start_service(['frappe'])
+            self.switch_bench_env()
 
         # sync debugger files
         if debugger:
@@ -1043,16 +1052,6 @@ class Bench:
         restart_required = self.admin_tools.enable(force_recreate_container=True)
         return restart_required
 
-    def restart_frappe_server(self):
-        richprint.change_head("Restarting frappe server")
-        restart_command = 'supervisorctl -c /opt/user/supervisord.conf restart all'
-
-        try:
-            self.compose_project.docker.compose.exec('frappe', restart_command, user='frappe', stream=False)
-        except DockerException as e:
-            raise BenchException("frappe", "Faild to restart frappe server.")
-        richprint.print("Restarted frappe server.")
-
     def frappe_service_run_command(self, command: str):
         try:
             self.compose_project.docker.compose.exec('frappe', command, user='frappe', stream=False)
@@ -1167,3 +1166,98 @@ class Bench:
                 time.sleep(interval)
                 continue
         return False
+
+    def reset(self, admin_password: Optional[str] = None):
+        admin_pass = None
+
+        if admin_password:
+            admin_pass = admin_password
+        else:
+            if not admin_pass:
+                site_config = self.get_bench_site_config()
+                if 'admin_password' in site_config:
+                    admin_pass = site_config['admin_password']
+                    richprint.print("Using admin_password defined in site_config.json")
+
+            if not admin_pass:
+                common_site_config = self.get_common_bench_config()
+                if 'admin_password' in common_site_config:
+                    admin_pass = common_site_config['admin_password']
+                    richprint.print("Using admin_password defined in common_site_config.json")
+
+        if not admin_pass:
+            admin_pass = richprint.prompt_ask(prompt=f"Please enter admin password for site {self.name}")
+
+        richprint.change_head(f"Resetting bench site {self.name}")
+
+        self.benchops.reset_bench_site(admin_pass)
+        self.set_bench_site_config({'admin_password': admin_pass})
+
+        richprint.print(f"Reset bench site {self.name}")
+
+    def restart_supervisor_service(self, service: str, compose_project_obj: Optional[ComposeProject] = None):
+        restart_supervisor_command = 'supervisorctl -c /opt/user/supervisord.conf restart all'
+        exception = BenchOperationException(self.name, message=f'Failed to restart supervisor for {service} service')
+
+        if not compose_project_obj:
+            compose_project_obj = self.compose_project
+
+        if not compose_project_obj.is_service_running(service):
+            richprint.error(text=f'Service [blue]{service}[/blue] not running.')
+            return False
+
+        self.benchops.container_run(
+            command=restart_supervisor_command,
+            raise_exception_obj=exception,
+            service=service,
+            compose_project_obj=compose_project_obj,
+        )
+        return True
+
+    def restart_web_containers_services(self):
+        """Restarts frappe server and socketio containers"""
+
+        # restart frappe server and socketio
+        web_services = [
+            SiteServicesEnum.frappe.value,
+            SiteServicesEnum.socketio.value,
+        ]
+
+        restart_supervisor_command = 'supervisorctl -c /opt/user/supervisord.conf restart all'
+
+        for service in web_services:
+            richprint.change_head(f"Restarting web services - {service}")
+            is_restarted = self.restart_supervisor_service(service)
+            if is_restarted:
+                richprint.print(f"Restarted web services - {service}")
+
+    def restart_redis_services_containers(self):
+        """Restarts redis containers"""
+
+        redis_services = [
+            SiteServicesEnum.redis_cache.value,
+            SiteServicesEnum.redis_queue.value,
+            SiteServicesEnum.redis_socketio.value,
+        ]
+        richprint.change_head(f"Restarting redis services - {' '.join(redis_services)}")
+        self.compose_project.restart_service(services=redis_services)
+        richprint.print(f"Restarted redis services - {' '.join(redis_services)}")
+
+    def restart_workers_containers_services(self):
+        """Restarts workers and schedule containers"""
+
+        # restart schduler
+        worker_services = [SiteServicesEnum.schedule.value]
+
+        for service in worker_services:
+            richprint.change_head(f"Restarting worker service - {service}")
+            is_restarted = self.restart_supervisor_service(service)
+            if is_restarted:
+                richprint.print(f"Restarted worker services - {service}")
+
+        worker_services = self.workers.compose_project.compose_file_manager.get_services_list()
+        for service in worker_services:
+            richprint.change_head(f"Restarting worker service - {service}")
+            is_restarted = self.restart_supervisor_service(service, compose_project_obj=self.workers.compose_project)
+            if is_restarted:
+                richprint.print(f"Restarted worker services - {service}")

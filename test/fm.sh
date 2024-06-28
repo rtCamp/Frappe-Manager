@@ -7,7 +7,7 @@ CreateSite() {
 	if [ ! "${envN:-}" ]; then
 	   fm create $siteName
 	else
-	   fm create $siteName --env $2
+	   fm create $siteName --environment $2
 	fi
 
 	echo "Get Request to the homepage of Site: $siteName, Env: $envN"

@@ -1,10 +1,12 @@
 import importlib
+import json
 from cryptography.hazmat.backends import default_backend
 from datetime import datetime
 from cryptography import x509
 from io import StringIO
 import sys
 from typing import Optional
+from frappe_manager.site_manager.site_exceptions import BenchException
 from frappe_manager.utils.docker import run_command_with_exit_code
 import requests
 import subprocess
@@ -120,6 +122,7 @@ def check_and_display_port_status(ports_to_check: list, exclude=[]):
             richprint.exit(
                 f"Ports {', '.join(map(str, already_binded))} {'are' if len(already_binded) > 1 else 'is'} currently in use. Please free up these ports."
             )
+
 
 def generate_random_text(length=50):
     """
@@ -446,3 +449,20 @@ def get_certificate_expiry_date(fullchain_path: Path) -> datetime:
     else:
         expiry_date: datetime = cert.not_valid_after
     return expiry_date
+
+
+def save_dict_to_file(config: dict, json_file_path: Path):
+    """
+    Sets the config value in the json_file_path file.
+
+    Args:
+        config (dict): A dictionary containing the key-value pairs.
+    """
+
+    final_config = {}
+    with open(json_file_path, "r") as f:
+        final_config = json.load(f)
+    for key, value in config.items():
+        final_config[key] = value
+    with open(json_file_path, "w") as f:
+        json.dump(final_config, f)
