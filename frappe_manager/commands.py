@@ -615,7 +615,10 @@ def update(
             choices=['yes', 'no'],
         )
         if should_restart == 'yes':
-            bench.restart_frappe_server()
+            # bench.restart_frappe_server()
+            richprint.change_head("Restarting frappe server")
+            bench.restart_supervisor_service('frappe')
+            richprint.print("Restarted frappe server")
 
     if bench_config_save:
         bench.save_bench_config()
@@ -670,11 +673,12 @@ def restart(
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
     bench = Bench.get_object(benchname, services_manager)
+
     if web:
-        bench.restart_web_services_containers()
+        bench.restart_web_containers_services()
 
     if workers:
-        bench.restart_redis_services_containers()
+        bench.restart_workers_containers_services()
 
     if redis:
-        bench.restart_workers_services_containers()
+        bench.restart_redis_services_containers()

@@ -152,7 +152,9 @@ class Bench:
                 self.admin_tools.disable()
                 richprint.print("Disabled Admin-tools.")
 
-        self.restart_frappe_server()
+        richprint.change_head("Restarting frappe server")
+        self.restart_supervisor_service('frappe')
+        richprint.print("Restarted frappe server")
 
     def save_bench_config(self):
         richprint.change_head("Saving bench config changes")
@@ -162,14 +164,6 @@ class Bench:
     @property
     def exists(self):
         return self.path.exists()
-
-    @property
-    def frappe_container_name_as_hex(self) -> str:
-        """
-        Returns the hexadecimal representation of the frappe container name.
-        """
-        container_name = self.compose_project.compose_file_manager.get_container_names()
-        return container_name["frappe"].encode().hex()
 
     def create(self, is_template_bench: bool = False):
         """
@@ -861,8 +855,6 @@ class Bench:
 
         except KeyboardInterrupt:
             richprint.stdout.print("Detected CTRL+C. Exiting..")
-            # for log_file in log_files:
-            #     log_file.close()
 
     def attach_to_bench(self, user: str, extensions: List[str], workdir: str, debugger: bool = False):
         """
@@ -883,7 +875,8 @@ class Bench:
             # TODO todo this should be exception
             richprint.exit("Visual Studio Code binary i.e 'code' is not accessible via cli.")
 
-        container_hex = self.frappe_container_name_as_hex
+        container_name = self.compose_project.compose_file_manager.get_container_names()
+        container_hex = container_name["frappe"].encode().hex()
 
         vscode_cmd = shlex.join(
             [
@@ -1058,16 +1051,6 @@ class Bench:
         restart_required = self.admin_tools.enable(force_recreate_container=True)
         return restart_required
 
-    def restart_frappe_server(self):
-        richprint.change_head("Restarting frappe server")
-        restart_command = 'supervisorctl -c /opt/user/supervisord.conf restart all'
-
-        try:
-            self.compose_project.docker.compose.exec('frappe', restart_command, user='frappe', stream=False)
-        except DockerException as e:
-            raise BenchException("frappe", "Faild to restart frappe server.")
-        richprint.print("Restarted frappe server.")
-
     def frappe_service_run_command(self, command: str):
         try:
             self.compose_project.docker.compose.exec('frappe', command, user='frappe', stream=False)
@@ -1211,7 +1194,26 @@ class Bench:
 
         richprint.print(f"Reset bench site {self.name}")
 
-    def restart_web_services_containers(self):
+    def restart_supervisor_service(self, service: str, compose_project_obj: Optional[ComposeProject] = None):
+        restart_supervisor_command = 'supervisorctl -c /opt/user/supervisord.conf restart all'
+        exception = BenchOperationException(self.name, message=f'Failed to restart supervisor for {service} service')
+
+        if not compose_project_obj:
+            compose_project_obj = self.compose_project
+
+        if not compose_project_obj.is_service_running(service):
+            richprint.error(text=f'Service [blue]{service}[/blue] not running.')
+            return False
+
+        self.benchops.container_run(
+            command=restart_supervisor_command,
+            raise_exception_obj=exception,
+            service=service,
+            compose_project_obj=compose_project_obj,
+        )
+        return True
+
+    def restart_web_containers_services(self):
         """Restarts frappe server and socketio containers"""
 
         # restart frappe server and socketio
@@ -1219,9 +1221,14 @@ class Bench:
             SiteServicesEnum.frappe.value,
             SiteServicesEnum.socketio.value,
         ]
-        richprint.change_head(f"Restarting web services - {' '.join(web_services)}")
-        self.compose_project.restart_service(services=web_services)
-        richprint.print(f"Restarted web services - {' '.join(web_services)}")
+
+        restart_supervisor_command = 'supervisorctl -c /opt/user/supervisord.conf restart all'
+
+        for service in web_services:
+            richprint.change_head(f"Restarting web services - {service}")
+            is_restarted = self.restart_supervisor_service(service)
+            if is_restarted:
+                richprint.print(f"Restarted web services - {service}")
 
     def restart_redis_services_containers(self):
         """Restarts redis containers"""
@@ -1235,15 +1242,21 @@ class Bench:
         self.compose_project.restart_service(services=redis_services)
         richprint.print(f"Restarted redis services - {' '.join(redis_services)}")
 
-    def restart_workers_services_containers(self):
+    def restart_workers_containers_services(self):
         """Restarts workers and schedule containers"""
 
         # restart schduler
-        richprint.change_head(f"Restarting {SiteServicesEnum.schedule.value} service")
-        self.compose_project.restart_service([SiteServicesEnum.schedule.value])
-        richprint.print(f"Restarted {SiteServicesEnum.schedule.value} service")
+        worker_services = [SiteServicesEnum.schedule.value]
 
-        # restart workers
-        richprint.change_head("Restarting worker services")
-        self.workers.compose_project.restart_service()
-        richprint.print("Restarted worker services")
+        for service in worker_services:
+            richprint.change_head(f"Restarting worker service - {service}")
+            is_restarted = self.restart_supervisor_service(service)
+            if is_restarted:
+                richprint.print(f"Restarted worker services - {service}")
+
+        worker_services = self.workers.compose_project.compose_file_manager.get_services_list()
+        for service in worker_services:
+            richprint.change_head(f"Restarting worker service - {service}")
+            is_restarted = self.restart_supervisor_service(service, compose_project_obj=self.workers.compose_project)
+            if is_restarted:
+                richprint.print(f"Restarted worker services - {service}")
