@@ -2,6 +2,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from frappe_manager import STABLE_APP_BRANCH_MAPPING_LIST
+from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.docker_wrapper.subprocess_output import SubprocessOutput
 from frappe_manager.site_manager.site_exceptions import (
@@ -47,7 +48,7 @@ class BenchOperations:
 
         self.bench_install_apps(self.bench.bench_config.apps_list)
 
-        self.frappe_container_run(
+        self.container_run(
             "rm -rf /workspace/frappe-bench/archived",
             BenchOperationException(self.bench.name, "Failed to remove /workspace/frappe-bench/archived directory."),
         )
@@ -72,18 +73,16 @@ class BenchOperations:
 
         new_site_command = " ".join(new_site_command)
 
-        self.frappe_container_run(
-            new_site_command, raise_exception_obj=BenchOperationBenchSiteCreateFailed(self.bench.name)
-        )
+        self.container_run(new_site_command, raise_exception_obj=BenchOperationBenchSiteCreateFailed(self.bench.name))
 
-        self.frappe_container_run(
+        self.container_run(
             " ".join(self.bench_cli_cmd + [f"use {self.bench.name}"]),
             raise_exception_obj=BenchOperationException(
                 self.bench.name, f"Failed to set {self.bench.name} as default site."
             ),
         )
 
-        self.frappe_container_run(
+        self.container_run(
             " ".join(self.bench_cli_cmd + [f"--site {self.bench.name} scheduler enable"]),
             raise_exception_obj=BenchOperationException(
                 self.bench.name, f"Failed to enable {self.bench.name}'s scheduler."
@@ -103,23 +102,31 @@ class BenchOperations:
             if output.combined:
                 richprint.print(output.combined[-1].replace('wait-for-it: ', ''), highlight=False)
 
-    def frappe_container_run(
+    def container_run(
         self,
         command: str,
         raise_exception_obj: Optional[BenchOperationException] = None,
         capture_output: bool = False,
         user: str = "frappe",
         workdir="/workspace/frappe-bench",
+        service: str = 'frappe',
+        compose_project_obj: Optional[ComposeProject] = None,
     ):
+
+        if compose_project_obj:
+            compose_project: ComposeProject = compose_project_obj
+        else:
+            compose_project: ComposeProject = self.bench.compose_project
+
         try:
             if capture_output:
-                output: SubprocessOutput = self.bench.compose_project.docker.compose.exec(
-                    service="frappe", command=command, user=user, workdir=workdir, stream=not capture_output
+                output: SubprocessOutput = compose_project.docker.compose.exec(
+                    service=service, command=command, user=user, workdir=workdir, stream=not capture_output
                 )
                 return output
             else:
-                output: Iterable[Tuple[str, bytes]] = self.bench.compose_project.docker.compose.exec(
-                    service="frappe", command=command, workdir=workdir, user=user, stream=not capture_output
+                output: Iterable[Tuple[str, bytes]] = compose_project.docker.compose.exec(
+                    service=service, command=command, workdir=workdir, user=user, stream=not capture_output
                 )
                 richprint.live_lines(output)
 
@@ -143,7 +150,7 @@ class BenchOperations:
                 bench_name=self.bench.name, app=app, branch=self.bench.bench_config.frappe_branch
             )
 
-            self.frappe_container_run(command=change_frappe_branch_command, raise_exception_obj=exception)
+            self.container_run(command=change_frappe_branch_command, raise_exception_obj=exception)
 
         richprint.print(f"Configured {app} app's branch -> {self.bench.bench_config.frappe_branch}")
 
@@ -163,7 +170,7 @@ class BenchOperations:
             bench_setup_supervisor_exception = BenchOperationException(
                 self.bench.name, "Failed to configure supervisor."
             )
-            self.frappe_container_run(bench_setup_supervisor_command, bench_setup_supervisor_exception)
+            self.container_run(bench_setup_supervisor_command, bench_setup_supervisor_exception)
             self.split_supervisor_config()
             richprint.print("Configured supervisor configs")
 
@@ -196,12 +203,10 @@ class BenchOperations:
                 self.bench.logger.info(f"Split supervisor conf {section_name} => {file_name}")
 
     def setup_frappe_server_config(self):
-        bench_serve_help_output: Optional[SubprocessOutput] = self.frappe_container_run(
+        bench_serve_help_output: Optional[SubprocessOutput] = self.container_run(
             " ".join(self.bench_cli_cmd + ["serve --help"]), capture_output=True
         )
-        bench_dev_server_script_output = self.frappe_container_run(
-            "cat /opt/user/bench-dev-server", capture_output=True
-        )
+        bench_dev_server_script_output = self.container_run("cat /opt/user/bench-dev-server", capture_output=True)
         import re
 
         if "host" in " ".join(bench_serve_help_output.combined):
@@ -213,8 +218,8 @@ class BenchOperations:
                 r"--port \d+", "--port 80", " ".join(bench_dev_server_script_output.combined)
             )
 
-        self.frappe_container_run(f'echo "{new_bench_dev_server_script}" > /opt/user/bench-dev-server.sh')
-        self.frappe_container_run("chmod +x /opt/user/bench-dev-server.sh", user='root')
+        self.container_run(f'echo "{new_bench_dev_server_script}" > /opt/user/bench-dev-server.sh')
+        self.container_run("chmod +x /opt/user/bench-dev-server.sh", user='root')
 
     def bench_install_apps(self, apps_lists, already_installed_apps: Dict = STABLE_APP_BRANCH_MAPPING_LIST):
         to_install_apps = [x["app"] for x in apps_lists]
@@ -274,7 +279,7 @@ class BenchOperations:
         build_exception = BenchOperationBenchBuildFailed(bench_name=self.bench.name, apps=app_list)
 
         build_cmd = " ".join(build_cmd)
-        self.frappe_container_run(build_cmd, build_exception)
+        self.container_run(build_cmd, build_exception)
 
     def bench_install_app_env(
         self, app: str, branch: Optional[str] = None, overwrite: bool = True, skip_assets: bool = False
@@ -289,7 +294,7 @@ class BenchOperations:
         app_install_env_command = " ".join(app_install_env_command)
         app_install_exception = BenchOperationBenchInstallAppInPythonEnvFailed(bench_name=self.bench.name, app_name=app)
 
-        self.frappe_container_run(
+        self.container_run(
             app_install_env_command,
             raise_exception_obj=app_install_exception,
         )
@@ -304,7 +309,7 @@ class BenchOperations:
 
         app_rm_env_command = " ".join(app_rm_env_command)
 
-        self.frappe_container_run(
+        self.container_run(
             app_rm_env_command,
             raise_exception_obj=BenchOperationBenchRemoveAppFromPythonEnvFailed(
                 bench_name=self.bench.name, app_name=app
@@ -316,7 +321,7 @@ class BenchOperations:
         app_install_site_command += ["install-app", app]
         app_install_site_command = " ".join(app_install_site_command)
 
-        self.frappe_container_run(
+        self.container_run(
             app_install_site_command,
             raise_exception_obj=BenchOperationBenchAppInSiteFailed(bench_name=self.bench.name, app_name=app),
         )
@@ -326,7 +331,7 @@ class BenchOperations:
         return site_path.exists()
 
     def wait_for_required_service(self, host: str, port: int, timeout: int = 120):
-        return self.frappe_container_run(
+        return self.container_run(
             f"wait-for-it -t {timeout} {host}:{port}",
             raise_exception_obj=BenchOperationWaitForRequiredServiceFailed(
                 bench_name=self.bench.name, host=host, port=port, timeout=timeout
@@ -375,7 +380,7 @@ class BenchOperations:
 
         reset_bench_site_command = " ".join(reset_bench_site_command)
 
-        self.frappe_container_run(
+        self.container_run(
             reset_bench_site_command,
             raise_exception_obj=BenchOperationException(
                 bench_name=self.bench.name, message=f'Failed to reset bench site {self.bench.name}.'

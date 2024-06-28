@@ -40,7 +40,7 @@ class DockerComposeProjectFailedToPullImagesError(Exception):
 
 class DockerComposeProjectFailedToRestartError(Exception):
     def __init__(
-        self, compose_path: Path, services: List[str], message='Failed to pull compose services {} images.'
+        self, compose_path: Path, services: List[str], message='Failed to restart compose services {} images.'
     ) -> None:
         self.compose_path = compose_path
         self.services = services
