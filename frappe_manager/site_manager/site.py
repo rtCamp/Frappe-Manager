@@ -43,6 +43,7 @@ from frappe_manager.utils.helpers import (
     get_current_fm_version,
     log_file,
     get_container_name_prefix,
+    save_dict_to_file,
 )
 from frappe_manager.utils.docker import host_run_cp
 from frappe_manager import (
@@ -126,7 +127,7 @@ class Bench:
 
     def sync_bench_config_configuration(self):
         # set developer_mode based on config
-        self.common_bench_config_set({'developer_mode': self.bench_config.developer_mode})
+        self.set_common_bench_config({'developer_mode': self.bench_config.developer_mode})
 
         # dev or prod
         self.switch_bench_env()
@@ -255,36 +256,42 @@ class Bench:
                 if not remove_status:
                     self.info()
 
-    def common_bench_config_set(self, config: dict):
+    def set_common_bench_config(self, config: dict):
         """
         Sets the values in the common_site_config.json file.
 
         Args:
-            config (dict): A dictionary containing the key-value pairs to be set in the common_site_config.json file.
+            config (dict): A dictionary containing the key-value pairs
         """
         common_bench_config_path = self.path / "workspace/frappe-bench/sites/common_site_config.json"
-
         if not common_bench_config_path.exists():
-            raise BenchException(self.name, message='common_site_config.json not found.')
+            raise BenchException(self.name, message=f'File not found {common_bench_config_path.name}.')
 
-        common_site_config = {}
+        save_dict_to_file(config, common_bench_config_path)
 
-        with open(common_bench_config_path, "r") as f:
-            common_site_config = json.load(f)
+    def set_bench_site_config(self, config: dict):
+        """
+        Sets the values in the bench's site site_config.json file.
 
-        for key, value in config.items():
-            common_site_config[key] = value
-
-        with open(common_bench_config_path, "w") as f:
-            json.dump(common_site_config, f)
+        Args:
+            config (dict): A dictionary containing the key-value pairs
+        """
+        site_config_path = self.path / "workspace/frappe-bench/sites" / self.name / "site_config.json"
+        if not site_config_path.exists():
+            raise BenchException(self.name, message=f'File not found {site_config_path.name}.')
+        save_dict_to_file(config, site_config_path)
 
     def get_common_bench_config(self):
         common_bench_config_path = self.path / "workspace/frappe-bench/sites/common_site_config.json"
-
         if not common_bench_config_path.exists():
             raise BenchException(self.name, message='common_site_config.json not found.')
-
         return json.loads(common_bench_config_path.read_text())
+
+    def get_bench_site_config(self):
+        site_config_path = self.path / "workspace/frappe-bench/sites" / self.name / "site_config.json"
+        if not site_config_path.exists():
+            raise BenchException(self.name, message='site_config.json not found.')
+        return json.loads(site_config_path.read_text())
 
     def generate_compose(self, inputs: dict) -> None:
         """
@@ -337,7 +344,7 @@ class Bench:
             "redis_queue": f"redis://{container_prefix}-redis-queue:6379",
             "redis_socketio": f"redis://{container_prefix}-redis-cache:6379",
         }
-        self.common_bench_config_set(common_site_config_data)
+        self.set_common_bench_config(common_site_config_data)
 
     def create_compose_dirs(self) -> bool:
         """
@@ -664,6 +671,14 @@ class Bench:
 
         protocol = 'https' if self.has_certificate() else 'http'
 
+        # get admin pass from site_config.json if available use that
+        admin_pass = self.bench_config.admin_pass + " (default)"
+
+        site_config = self.get_bench_site_config()
+
+        if 'admin_password' in site_config:
+            admin_pass = site_config['admin_password']
+
         ssl_service_type = f'{self.bench_config.ssl.ssl_type.value}'
 
         if self.bench_config.ssl.ssl_type == SUPPORTED_SSL_TYPES.le:
@@ -675,7 +690,7 @@ class Bench:
             "Bench Url": f"{protocol}://{self.name}",
             "Bench Root": f"[link=file://{self.path.absolute()}]{self.path.absolute()}[/link]",
             "Frappe Username": "administrator",
-            "Frappe Password": self.bench_config.admin_pass,
+            "Frappe Password": admin_pass,
             "Root DB User": services_db_info.user,
             "Root DB Password": services_db_info.password,
             "Root DB Host": services_db_info.host,
@@ -1167,3 +1182,31 @@ class Bench:
                 time.sleep(interval)
                 continue
         return False
+
+    def reset(self, admin_password: Optional[str] = None):
+        admin_pass = None
+
+        if admin_password:
+            admin_pass = admin_password
+        else:
+            if not admin_pass:
+                site_config = self.get_bench_site_config()
+                if 'admin_password' in site_config:
+                    admin_pass = site_config['admin_password']
+                    richprint.print("Using admin_password defined in site_config.json")
+
+            if not admin_pass:
+                common_site_config = self.get_common_bench_config()
+                if 'admin_password' in common_site_config:
+                    admin_pass = common_site_config['admin_password']
+                    richprint.print("Using admin_password defined in common_site_config.json")
+
+        if not admin_pass:
+            admin_pass = richprint.prompt_ask(prompt=f"Please enter admin password for site {self.name}")
+
+        richprint.change_head(f"Resetting bench site {self.name}")
+
+        self.benchops.reset_bench_site(admin_pass)
+        self.set_bench_site_config({'admin_password': admin_pass})
+
+        richprint.print(f"Reset bench site {self.name}")

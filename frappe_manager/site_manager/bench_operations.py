@@ -32,7 +32,7 @@ class BenchOperations:
         common_site_config_data = self.bench.bench_config.get_commmon_site_config_data(
             self.bench.services.database_manager.database_server_info
         )
-        self.bench.common_bench_config_set(common_site_config_data)
+        self.bench.set_common_bench_config(common_site_config_data)
         richprint.print("Configured common_site_config.json")
 
         richprint.change_head("Configuring frappe server")
@@ -57,6 +57,8 @@ class BenchOperations:
         richprint.print(f"Created bench site {self.bench.name}")
 
         self.bench_install_apps_site()
+
+        self.bench.set_bench_site_config({'admin_password': self.bench.bench_config.admin_pass})
 
     def create_bench_site(self):
         new_site_command = self.bench_cli_cmd + ["new-site"]
@@ -249,11 +251,15 @@ class BenchOperations:
 
             richprint.print(f"Builded and Installed app [blue]{app}{' -> ' + branch if branch else ''}[/blue] in env.")
 
-    def bench_install_apps_site(self):
+    def get_current_apps_list(self):
+        """Return apps which are available in apps directory"""
+
         apps_dir = self.frappe_bench_dir / 'apps'
         apps_dirs: List[Path] = [item for item in apps_dir.iterdir() if item.is_dir()]
+        return apps_dirs
 
-        for app in apps_dirs:
+    def bench_install_apps_site(self):
+        for app in self.get_current_apps_list():
             richprint.change_head(f"Installing app {app.name} in site.")
             self.bench_install_app_site(app.name)
             richprint.print(f"Installed app {app.name} in site.")
@@ -357,3 +363,21 @@ class BenchOperations:
             for image in not_available_images:
                 richprint.error(f"Docker image '{image}' is not available locally")
             raise BenchOperationRequiredDockerImagesNotAvailable(self.bench.name, 'fm self update images')
+
+    def reset_bench_site(self, admin_password: str):
+
+        global_db_info = self.bench.services.database_manager.database_server_info
+        reset_bench_site_command = self.bench_cli_cmd + ["--site", self.bench.name]
+        reset_bench_site_command += ['reinstall', '--admin-password', admin_password]
+        reset_bench_site_command += ['--db-root-username', global_db_info.user]
+        reset_bench_site_command += ['--db-root-password', global_db_info.password]
+        reset_bench_site_command += ['--yes']
+
+        reset_bench_site_command = " ".join(reset_bench_site_command)
+
+        self.frappe_container_run(
+            reset_bench_site_command,
+            raise_exception_obj=BenchOperationException(
+                bench_name=self.bench.name, message=f'Failed to reset bench site {self.bench.name}.'
+            ),
+        )

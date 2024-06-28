@@ -263,5 +263,13 @@
         ]
       }
     }
+  },
+  "reset": {
+    "examples": [
+      {
+        "desc": "Reset bench {benchname}",
+        "code": ""
+      }
+    ]
   }
 }
