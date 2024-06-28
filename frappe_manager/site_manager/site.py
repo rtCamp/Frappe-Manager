@@ -918,6 +918,7 @@ class Bench:
             self.compose_project.compose_file_manager.write_to_file()
             richprint.print("Regenerated bench compose.")
             self.compose_project.start_service(['frappe'])
+            self.switch_bench_env()
 
         # sync debugger files
         if debugger:
