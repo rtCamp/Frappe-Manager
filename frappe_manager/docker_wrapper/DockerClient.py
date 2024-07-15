@@ -1,11 +1,9 @@
 import json
 import shlex
-from sys import exception
 
 from typing import Literal, Optional, List
 from pathlib import Path
 from frappe_manager.docker_wrapper.DockerCompose import DockerComposeWrapper
-from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.utils.docker import (
     SubprocessOutput,
