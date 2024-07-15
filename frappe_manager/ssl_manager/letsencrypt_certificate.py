@@ -1,4 +1,4 @@
-from typing import Optional, List, Self
+from typing import Optional, List
 from pydantic import EmailStr, Field, model_validator
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
 from frappe_manager.ssl_manager.certificate import SSLCertificate
@@ -14,13 +14,12 @@ class LetsencryptSSLCertificate(SSLCertificate):
     toml_exclude: Optional[set] = {'domain', 'alias_domains', 'toml_exclude'}
 
     @model_validator(mode="after")
-    def validate_credentials(self) -> Self:
+    def validate_credentials(self):
         if self.preferred_challenge == LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
             if self.api_key or self.api_token:
                 return self
             else:
                 raise SSLDNSChallengeCredentailsNotFound()
-
         return self
 
     def get_cloudflare_dns_credentials(self) -> str:
