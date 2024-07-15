@@ -2,9 +2,7 @@
 PS4='+\[\033[0;33m\](\[\033[0;36m\]${BASH_SOURCE##*/}:${LINENO}\[\033[0;33m\])\[\033[0m\] '
 LOGFILE="fm-install-$(date +"%Y%m%d_%H%M%S").log"
 
-# Enable debugging and redirect to a separate debug log file
 exec {BASH_XTRACEFD}>>"$LOGFILE"
-
 set -xe
 
 print_in_color() {
@@ -52,12 +50,11 @@ isRoot() {
 
 install_fm(){
     info_blue "Installing frappe-manager..."
-    pip3 install --user --upgrade --break-system-packages. frappe-manager
+    pip3 install --user --upgrade --break-system-packages frappe-manager
     info_green "$(bold 'fm' $(pip3 list | grep frappe-manager | awk '{print $2}')) installed."
 }
 
 has_docker_compose(){
-    declare desc="return 0 if we have docker compose command"
     if [[ "$(dockexr compose version 2>&1 || true)" = *"docker: 'compose' is not a docker command."* ]]; then
         return 1
     else
@@ -66,7 +63,6 @@ has_docker_compose(){
 }
 
 has_pyenv(){
-    declare desc="return 0 if we have docker compose command"
     if [[ "$(pyenv --version 2>&1 || true)" = *"pyenv: command not found"* ]]; then
         return 1
     else
@@ -75,13 +71,13 @@ has_pyenv(){
 }
 
 has_tty() {
-    declare desc="return 0 if we have a tty"
     if [[ "$(/usr/bin/tty || true)" == "not a tty" ]]; then
         return 1
     else
         return 0
     fi
 }
+
 if has_tty; then
     if ! [[ "${INTERACTIVE:-}" ]]; then
         export DEBIAN_FRONTEND=noninteractive
@@ -136,11 +132,8 @@ install_docker_ubuntu() {
             "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
             $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
             sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-            
             sudo DEBIAN_FRONTEND=noninteractive apt-get update
-
             sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin
-
             info_green "Docker Engine installed"
     fi
 
