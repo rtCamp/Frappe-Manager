@@ -1,5 +1,9 @@
 #!/bin/bash
 PS4='+\[\033[0;33m\](\[\033[0;36m\]${BASH_SOURCE##*/}:${LINENO}\[\033[0;33m\])\[\033[0m\] '
+LOGFILE="fm-install-$(date +"%Y%m%d_%H%M%S").log"
+
+# Enable debugging and redirect to a separate debug log file
+exec {BASH_XTRACEFD}>>"$LOGFILE"
 
 set -xe
 
@@ -41,9 +45,15 @@ info_red(){
 
 isRoot() {
     if [ "$(id -u)" -eq 0 ]; then
-        info_red "You are running as root."
-        exit 69
+        info_red "This script is being run as the root user. Frappe-Manager supports installation only as a non-root user. Please switch to a non-root user and re-run this script."
+        exit 1
     fi
+}
+
+install_fm(){
+    info_blue "Installing frappe-manager..."
+    pip3 install --user --upgrade --break-system-packages. frappe-manager
+    info_green "$(bold 'fm' $(pip3 list | grep frappe-manager | awk '{print $2}')) installed."
 }
 
 has_docker_compose(){
@@ -215,9 +225,7 @@ install_python_and_frappe_ubuntu() {
         install_pyenv_python
     fi
 
-    info_blue "Installing frappe-manager..."
-    pip3 install --user --upgrade frappe-manager
-    info_green "$(bold 'fm' $(pip3 list | grep frappe-manager | awk '{print $2}')) installed."
+    install_fm
 }
 
 # Function to install Python and frappe-manager on macOS
@@ -232,7 +240,7 @@ install_python_and_frappe_macos() {
         fi
 
         if ! type pip3 > /dev/null 2>&1; then
-            info_blue "Using $(yellow 'brew') for installing pip3..."
+            info_blue "Installing pip3"
             python -m ensurepip --upgrade
             info_green "Installed pip3"
         else
@@ -243,9 +251,7 @@ install_python_and_frappe_macos() {
         install_pyenv_python
     fi
 
-    info_blue "Installing frappe-manager..."
-    pip3 install --user --upgrade frappe-manager
-    info_green "$(bold 'fm' $(pip3 list | grep frappe-manager | awk '{print $2}')) installed."
+    install_fm
 }
 
 handle_shell(){
