@@ -6,7 +6,6 @@ from cryptography import x509
 from io import StringIO
 import sys
 from typing import Optional
-from frappe_manager.site_manager.site_exceptions import BenchException
 from frappe_manager.utils.docker import run_command_with_exit_code
 import requests
 import subprocess
