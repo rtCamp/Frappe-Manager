@@ -1,3 +1,4 @@
+from logging import Logger
 import os
 from pathlib import Path
 from queue import Queue
@@ -34,6 +35,8 @@ def reader(pipe, pipe_name, queue):
 
 def stream_stdout_and_stderr(
     full_cmd: list,
+    cwd: Optional[str] = None,
+    logger: Optional[Logger] =  None,
     env: Optional[Dict[str, str]] = None,
 ) -> Iterable[Tuple[str, bytes]]:
     """
@@ -54,7 +57,8 @@ def stream_stdout_and_stderr(
     """
     logger = log.get_logger()
     logger.debug('- -' * 10)
-    logger.debug(f"DOCKER COMMAND: {' '.join(full_cmd)}")
+    logger.debug(f"COMMAND: {' '.join(full_cmd)}")
+
     if env is None:
         subprocess_env = None
     else:
@@ -62,7 +66,7 @@ def stream_stdout_and_stderr(
         subprocess_env.update(env)
 
     full_cmd = list(map(str, full_cmd))
-    process = Popen(full_cmd, stdout=PIPE, stderr=PIPE, env=subprocess_env)
+    process = Popen(full_cmd, stdout=PIPE, stderr=PIPE, env=subprocess_env, cwd=cwd)
 
     process_opened.append(process.pid)
 
@@ -99,6 +103,7 @@ def run_command_with_exit_code(
     stream: bool = True,
     capture_output: bool = True,
     env: Optional[Dict[str, str]] = None,
+    cwd: Optional[str] = None,
 ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
     """
     Run a command and return the exit code.
@@ -110,16 +115,24 @@ def run_command_with_exit_code(
     """
     if not stream:
         if not capture_output:
-            run_output = run(full_cmd)
+            logger = log.get_logger()
+            logger.debug('- -' * 10)
+            logger.debug(f"COMMAND: {' '.join(full_cmd)}")
+
+            run_output = run(full_cmd,cwd=cwd)
             exit_code = run_output.returncode
+
+            logger.debug(f"RETURN CODE: {exit_code}")
+            logger.debug('- -' * 10)
+
             if exit_code != 0:
                 raise DockerException(full_cmd, SubprocessOutput([], [], [], exit_code))
             return
 
-        stream_output: SubprocessOutput = SubprocessOutput.from_output(stream_stdout_and_stderr(full_cmd))
+        stream_output: SubprocessOutput = SubprocessOutput.from_output(stream_stdout_and_stderr(full_cmd,cwd=cwd))
         return stream_output
 
-    output: Iterable[Tuple[str, bytes]] = stream_stdout_and_stderr(full_cmd)
+    output: Iterable[Tuple[str, bytes]] = stream_stdout_and_stderr(full_cmd,cwd=cwd)
     return output
 
 

@@ -3,6 +3,8 @@ from pathlib import Path
 import re
 import json
 
+from typing import Optional
+from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.compose_manager import DockerVolumeMount, DockerVolumeType
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager.site_exceptions import BenchException
@@ -170,6 +172,14 @@ def validate_sitename(sitename: str) -> str:
 def get_bench_db_connection_info(bench_name: str, bench_path: Path):
     db_info = {}
     site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / bench_name / "site_config.json"
+    common_site_config_file = bench_path/ "workspace" / "frappe-bench" / "sites" / 'common_site_config.json'
+
+    if common_site_config_file.exists():
+        with open(common_site_config_file, "r") as f:
+            common_site_config = json.load(f)
+            db_info["host"] = common_site_config.get("db_host")
+            db_info["port"] = common_site_config.get("db_port")
+
     if site_config_file.exists():
         with open(site_config_file, "r") as f:
             site_config = json.load(f)
@@ -180,6 +190,7 @@ def get_bench_db_connection_info(bench_name: str, bench_path: Path):
         db_info["name"] = str(bench_name).replace(".", "-")
         db_info["user"] = str(bench_name).replace(".", "-")
         db_info["password"] = None
+
     return db_info
 
 
@@ -228,3 +239,20 @@ def pull_docker_images() -> bool:
         richprint.print(f"[green]Pulled[/green] [blue]{image}[/blue].")
 
     return no_error
+
+
+def get_sitename_from_current_path() -> Optional[str]:
+    current_path = Path().absolute()
+    sites_path = CLI_BENCHES_DIRECTORY.absolute()
+
+    if not current_path.is_relative_to(sites_path):
+        return None
+
+    sitename_list = list(current_path.relative_to(sites_path).parts)
+
+    if not sitename_list:
+        return None
+
+    sitename = sitename_list[0]
+    if is_fqdn(sitename):
+        return sitename

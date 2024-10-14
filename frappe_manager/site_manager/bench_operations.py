@@ -25,7 +25,7 @@ class BenchOperations:
     def __init__(self, bench) -> None:
         self.bench = bench
         self.bench_cli_cmd = ["/opt/.pyenv/shims/bench"]
-        self.frappe_bench_dir = self.bench.path / "workspace" / "frappe-bench"
+        self.frappe_bench_dir: Path = self.bench.path / "workspace" / "frappe-bench"
 
     def create_fm_bench(self):
 
@@ -181,21 +181,49 @@ class BenchOperations:
         config = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
         config.read_string(supervisor_conf_path.read_text())
 
+
+        handle_symlink_frappe_dir = False
+
+        if self.frappe_bench_dir.is_symlink():
+            handle_symlink_frappe_dir = True
+
         for section_name in config.sections():
             if "group:" not in section_name:
                 section_config = configparser.ConfigParser(interpolation=None)
                 section_config.add_section(section_name)
                 for key, value in config.items(section_name):
-                    if "frappe-bench-frappe-web" in section_name:
+
+                    if handle_symlink_frappe_dir:
+                        to_replace = str(self.frappe_bench_dir.readlink())
+                        print(f'to:{to_replace} ---->>> {value}')
+
+                        if to_replace in value:
+                            value = value.replace(to_replace, self.frappe_bench_dir.name)
+                            print('==> '+value)
+
+                    if "frappe-web" in section_name:
                         if key == "command":
                             value = value.replace("127.0.0.1:80", "0.0.0.0:80")
                     section_config.set(section_name, key, value)
+
+                section_name_delimeter = '-frappe-'
+
+                if '-node-' in section_name:
+                    section_name_delimeter = '-node-'
+
+                file_name_prefix = section_name.split(section_name_delimeter)
+
+                print(file_name_prefix)
+                print(section_config)
+                file_name_prefix = file_name_prefix[-1]
+                file_name = file_name_prefix + ".fm.supervisor.conf"
+
                 if "worker" in section_name:
-                    file_name = f"{section_name.replace('program:','')}.workers.fm.supervisor.conf"
-                else:
-                    file_name = f"{section_name.replace('program:','')}.fm.supervisor.conf"
+                    file_name = file_name_prefix + ".workers.fm.supervisor.conf"
 
                 new_file: Path = supervisor_conf_path.parent / file_name
+
+                print(new_file)
 
                 with open(new_file, "w") as section_file:
                     section_config.write(section_file)

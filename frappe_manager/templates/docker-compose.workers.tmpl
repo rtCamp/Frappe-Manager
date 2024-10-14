@@ -4,10 +4,9 @@ services:
     environment:
       TIMEOUT: 6000
       CHANGE_DIR: /workspace/frappe-bench
-      WAIT_FOR: /workspace/frappe-bench/config/frappe-bench-frappe-{worker-name}.workers.fm.supervisor.conf
-      # here worker-name will be replace with the worker name
+      WAIT_FOR: /workspace/frappe-bench/config/{worker-name}.workers.fm.supervisor.conf
       COMMAND: |
-        ln -sfn /workspace/frappe-bench/config/frappe-bench-frappe-{worker-name}.workers.fm.supervisor.conf /opt/user/conf.d/frappe-bench-frappe-{worker-name}.workers.fm.supervisor.conf
+        ln -sfn /workspace/frappe-bench/config/{worker-name}.workers.fm.supervisor.conf /opt/user/conf.d/{worker-name}.workers.fm.supervisor.conf
         supervisord -c /opt/user/supervisord.conf
     command: launch.sh
     volumes:

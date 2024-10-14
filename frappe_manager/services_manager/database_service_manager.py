@@ -252,8 +252,10 @@ class MariaDBManager(DatabaseServiceManager):
 
         container_db_file_name = host_db_file_path.name
         source = str(host_db_file_path.absolute())
+
         destination = f"{self.run_on_compose_service}:/tmp/{container_db_file_name}"
         db_import_command = self.base_command + f" {db_name} -e 'source /tmp/{container_db_file_name}'"
+
         try:
             output = self.compose_project.docker.compose.cp(source, destination, stream=False)
             output = self.compose_project.docker.compose.exec(

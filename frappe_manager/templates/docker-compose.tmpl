@@ -45,9 +45,9 @@ services:
     environment:
       TIMEOUT: 60000
       CHANGE_DIR: /workspace/frappe-bench/logs
-      WAIT_FOR: '/workspace/frappe-bench/config/frappe-bench-node-socketio.fm.supervisor.conf'
+      WAIT_FOR: '/workspace/frappe-bench/config/socketio.fm.supervisor.conf'
       COMMAND: |
-        ln -sfn /workspace/frappe-bench/config/frappe-bench-node-socketio.fm.supervisor.conf /opt/user/conf.d/frappe-bench-node-socketio.fm.supervisor.conf
+        ln -sfn /workspace/frappe-bench/config/socketio.fm.supervisor.conf /opt/user/conf.d/socketio.fm.supervisor.conf
         supervisord -c /opt/user/supervisord.conf
     expose:
       - 80
@@ -63,9 +63,9 @@ services:
     environment:
       TIMEOUT: 60000
       CHANGE_DIR: /workspace/frappe-bench
-      WAIT_FOR: '/workspace/frappe-bench/config/frappe-bench-frappe-schedule.fm.supervisor.conf'
+      WAIT_FOR: '/workspace/frappe-bench/config/schedule.fm.supervisor.conf'
       COMMAND: |
-        ln -sfn /workspace/frappe-bench/config/frappe-bench-frappe-schedule.fm.supervisor.conf /opt/user/conf.d/frappe-bench-frappe-schedule.fm.supervisor.conf
+        ln -sfn /workspace/frappe-bench/config/schedule.fm.supervisor.conf /opt/user/conf.d/schedule.fm.supervisor.conf
         supervisord -c /opt/user/supervisord.conf
     command: launch.sh
     volumes:
