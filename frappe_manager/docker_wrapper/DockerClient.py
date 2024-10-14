@@ -1,6 +1,5 @@
 import json
 import shlex
-from sys import exception
 
 from typing import Literal, Optional, List
 from pathlib import Path
