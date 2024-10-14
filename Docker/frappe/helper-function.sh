@@ -246,3 +246,8 @@ get_app_name(){
         APP_NAME=${app##*/}
     fi
 }
+
+emer() {
+   echo "$1"
+   exit 1
+}

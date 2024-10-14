@@ -1,16 +1,11 @@
 services:
   worker-name:
-    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.15.0
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.16.1
     environment:
-      TIMEOUT: 6000
-      CHANGE_DIR: /workspace/frappe-bench
-      WAIT_FOR: /workspace/frappe-bench/config/{worker-name}.workers.fm.supervisor.conf
-      COMMAND: |
-        ln -sfn /workspace/frappe-bench/config/{worker-name}.workers.fm.supervisor.conf /opt/user/conf.d/{worker-name}.workers.fm.supervisor.conf
-        supervisord -c /opt/user/supervisord.conf
-    command: launch.sh
+      SUPERVISOR_SERVICE_CONFIG_FILE_NAME: '{worker-name}.workers.fm.supervisor.conf'
+    command: launch_supervisor_service.sh
     volumes:
-      - ./workspace:/workspace:cached
+      - ./workspace:/workspace
     networks:
       site-network:
       global-backend-network:

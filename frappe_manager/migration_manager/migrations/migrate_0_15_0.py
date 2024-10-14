@@ -128,7 +128,7 @@ class MigrationV0150(MigrationBase):
             for worker in workers_image_info.keys():
                 workers_image_info[worker]['tag'] = self.version.version_string()
 
-            bench.workers_compose_project.compose_file_manager.set_top_networks_name(
+            bench.workers_compose_project.compose_file_manager.set_root_networks_name(
                 "site-network", get_container_name_prefix(bench.name)
             )
             bench.workers_compose_project.compose_file_manager.set_container_names(
@@ -160,7 +160,7 @@ class MigrationV0150(MigrationBase):
                     richprint.print(f"Image pulled [blue]{pull_image}[/blue]")
                     self.pulled_images_list.append(pull_image)
 
-            admin_tool_compose_project.compose_file_manager.set_top_networks_name(
+            admin_tool_compose_project.compose_file_manager.set_root_networks_name(
                 "site-network", get_container_name_prefix(bench.name)
             )
             admin_tool_compose_project.compose_file_manager.set_all_images(admin_tools_image_info)

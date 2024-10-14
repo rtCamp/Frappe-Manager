@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 import time
+from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.display_manager.DisplayManager import richprint
@@ -28,9 +29,10 @@ class AdminTools:
 
         self.compose_project.compose_file_manager.yml = self.compose_project.compose_file_manager.load_template()
         self.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(self.bench_name))
-        self.compose_project.compose_file_manager.yml["networks"]["site-network"]["name"] = (
-            self.bench_name.replace(".", "") + f"-network"
-        )
+        self.compose_project.compose_file_manager.set_root_networks_name('site-network', get_container_name_prefix(self.bench_name))
+        # self.compose_project.compose_file_manager.yml["networks"]["site-network"]["name"] = (
+        #     get_container_name_prefix(self.bench_name) + f"-network"
+        # )
         self.compose_project.compose_file_manager.set_version(get_current_fm_version())
         self.compose_project.compose_file_manager.write_to_file()
 
@@ -41,8 +43,8 @@ class AdminTools:
 
     def save_nginx_location_config(self):
         data = {
-            "mailhog_host": f"{get_container_name_prefix(self.bench_name)}-mailhog",
-            "adminer_host": f"{get_container_name_prefix(self.bench_name)}-adminer",
+            "mailhog_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailhog",
+            "adminer_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}adminer",
         }
         from jinja2 import Template
 
@@ -134,7 +136,7 @@ class AdminTools:
             running = False
             for i in range(timeout):
                 try:
-                    check_command = f"wait-for-it -t {interval} {get_container_name_prefix(self.bench_name)}-{tool}"
+                    check_command = f"wait-for-it -t {interval} {get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}{tool}"
                     self.nginx_proxy.compose_project.docker.compose.exec(
                         service='nginx', command=check_command, stream=False
                     )

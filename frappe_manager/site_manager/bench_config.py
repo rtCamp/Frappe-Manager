@@ -5,7 +5,7 @@ import tomlkit
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
-from frappe_manager import STABLE_APP_BRANCH_MAPPING_LIST
+from frappe_manager import CLI_DEFAULT_DELIMETER, STABLE_APP_BRANCH_MAPPING_LIST
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
@@ -167,9 +167,9 @@ class BenchConfig(BaseModel):
             "install_apps": [],
             "db_host": db_server_info.host,
             "db_port": db_server_info.port,
-            "redis_cache": f"redis://{self.container_name_prefix}-redis-cache:6379",
-            "redis_queue": f"redis://{self.container_name_prefix}-redis-queue:6379",
-            "redis_socketio": f"redis://{self.container_name_prefix}-redis-socketio:6379",
+            "redis_cache": f"redis://{self.container_name_prefix}{CLI_DEFAULT_DELIMETER}redis-cache:6379",
+            "redis_queue": f"redis://{self.container_name_prefix}{CLI_DEFAULT_DELIMETER}redis-queue:6379",
+            "redis_socketio": f"redis://{self.container_name_prefix}{CLI_DEFAULT_DELIMETER}redis-socketio:6379",
             "webserver_port": 80,
             "socketio_port": 80,
             "restart_supervisor_on_update": 0,

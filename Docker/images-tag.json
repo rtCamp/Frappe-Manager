@@ -1,5 +1,5 @@
 {
-  "frappe": "v0.15.0",
-  "nginx": "v0.15.0",
-  "mailhog": "v0.8.3"
+"frappe": "v0.16.1",
+"nginx": "v0.15.0",
+"mailhog": "v0.8.3"
 }

@@ -93,7 +93,7 @@ class MigrationV0120(MigrationBase):
                     )
                     pass
 
-            bench.workers_compose_project.compose_file_manager.set_top_networks_name(
+            bench.workers_compose_project.compose_file_manager.set_root_networks_name(
                 "site-network", get_container_name_prefix(bench.name)
             )
             bench.workers_compose_project.compose_file_manager.set_all_images(workers_info)

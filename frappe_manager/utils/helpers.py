@@ -20,7 +20,7 @@ from rich.traceback import Traceback
 from frappe_manager.logger import log
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager import PREBAKED_SITE_APPS
-from frappe_manager import CLI_BENCHES_DIRECTORY
+from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_DEFAULT_DELIMETER, CLI_SITE_NAME_DELIMETER
 
 
 def remove_zombie_subprocess_process(process):
@@ -282,7 +282,7 @@ def get_container_name_prefix(site_name):
     Returns:
         str: The container name prefix.
     """
-    return site_name.replace(".", "")
+    return 'fm' + CLI_DEFAULT_DELIMETER + site_name.replace(".", CLI_SITE_NAME_DELIMETER)
 
 
 def random_password_generate(password_length=13, symbols=False):

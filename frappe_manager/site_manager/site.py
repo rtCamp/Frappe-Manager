@@ -49,6 +49,7 @@ from frappe_manager.utils.docker import host_run_cp
 from frappe_manager import (
     CLI_BENCH_CONFIG_FILE_NAME,
     CLI_BENCHES_DIRECTORY,
+    CLI_DEFAULT_DELIMETER,
     CLI_DIR,
     SiteServicesEnum,
 )
@@ -314,8 +315,9 @@ class Bench:
 
         self.compose_project.compose_file_manager.set_network_alias("nginx", "site-network", [self.name])
         self.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(self.name))
+        self.compose_project.compose_file_manager.set_root_volumes_name(get_container_name_prefix(self.name))
         self.compose_project.compose_file_manager.set_version(get_current_fm_version())
-        self.compose_project.compose_file_manager.set_top_networks_name(
+        self.compose_project.compose_file_manager.set_root_networks_name(
             "site-network", get_container_name_prefix(self.name)
         )
         self.compose_project.compose_file_manager.write_to_file()
@@ -334,9 +336,9 @@ class Bench:
             "socketio_port": "80",
             "db_host": services_db_host,
             "db_port": services_db_port,
-            "redis_cache": f"redis://{container_prefix}-redis-cache:6379",
-            "redis_queue": f"redis://{container_prefix}-redis-queue:6379",
-            "redis_socketio": f"redis://{container_prefix}-redis-cache:6379",
+            "redis_cache": f"redis://{container_prefix}{CLI_DEFAULT_DELIMETER}redis-cache:6379",
+            "redis_queue": f"redis://{container_prefix}{CLI_DEFAULT_DELIMETER}redis-queue:6379",
+            "redis_socketio": f"redis://{container_prefix}{CLI_DEFAULT_DELIMETER}redis-cache:6379",
         }
         self.set_common_bench_config(common_site_config_data)
 

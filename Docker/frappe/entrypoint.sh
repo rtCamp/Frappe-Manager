@@ -2,20 +2,15 @@
 
 source /scripts/helper-function.sh
 
-emer() {
-   echo "$1"
-   exit 1
-}
 cleanup() {
-    echo "Received signal, stopping..."
-    # Insert cleanup code here (e.g., stop services, clean temp files)
+    echo "Received signal SIGTERM, stopping..."
     if [ -n "$running_script_pid" ]; then
         kill -s SIGTERM "$running_script_pid"
     fi
     exit 0
 }
 
-trap cleanup SIGQUIT SIGTERM
+trap cleanup SIGTERM
 
 [[ "${USERID:-}" ]] || emer "[ERROR] Please provide USERID environment variable."
 [[ "${USERGROUP:-}" ]] || emer "[ERROR] Please provide USERGROUP environment variable."
@@ -44,7 +39,6 @@ fi
 if [[ ! -f "/workspace/.profile" ]]; then
    cp -p /opt/user/.profile  /workspace/
 fi
-
 
 # start_time=$(date +%s.%N)
 # chown -R "$USERID":"$USERGROUP" /workspace

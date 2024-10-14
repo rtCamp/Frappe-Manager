@@ -215,7 +215,7 @@ class MigrationV0130(MigrationBase):
                 self.logger.warning(f"{bench.name} workers 'version' attribute not found in compose file.")
                 pass
 
-            bench.workers_compose_project.compose_file_manager.set_top_networks_name(
+            bench.workers_compose_project.compose_file_manager.set_root_networks_name(
                 "site-network", get_container_name_prefix(bench.name)
             )
             bench.workers_compose_project.compose_file_manager.set_container_names(

@@ -1,7 +1,7 @@
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from frappe_manager import STABLE_APP_BRANCH_MAPPING_LIST
+from frappe_manager import CLI_DEFAULT_DELIMETER, STABLE_APP_BRANCH_MAPPING_LIST
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.docker_wrapper.subprocess_output import SubprocessOutput
@@ -93,14 +93,18 @@ class BenchOperations:
         richprint.change_head("Checking if required services are available.")
         required_services = {
             self.bench.services.database_manager.database_server_info.host: self.bench.services.database_manager.database_server_info.port,
-            f"{self.bench.bench_config.container_name_prefix}-redis-cache": 6379,
-            f"{self.bench.bench_config.container_name_prefix}-redis-queue": 6379,
-            f"{self.bench.bench_config.container_name_prefix}-redis-socketio": 6379,
+            f"{self.bench.bench_config.container_name_prefix}{CLI_DEFAULT_DELIMETER}redis-cache": 6379,
+            f"{self.bench.bench_config.container_name_prefix}{CLI_DEFAULT_DELIMETER}redis-queue": 6379,
+            f"{self.bench.bench_config.container_name_prefix}{CLI_DEFAULT_DELIMETER}redis-socketio": 6379,
         }
         for service, port in required_services.items():
             output: SubprocessOutput = self.wait_for_required_service(host=service, port=port)
             if output.combined:
-                richprint.print(output.combined[-1].replace('wait-for-it: ', ''), highlight=False)
+                command_output = output.combined[-1].replace('wait-for-it: ', '')
+                service_name = command_output.split(' ')[0]
+                simplfied_service_name = service_name.split(":")[0]
+                simplfied_service_name = simplfied_service_name.split(CLI_DEFAULT_DELIMETER)[-1]
+                richprint.print(command_output.replace(service_name, simplfied_service_name), highlight=False)
 
     def container_run(
         self,
@@ -181,7 +185,6 @@ class BenchOperations:
         config = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
         config.read_string(supervisor_conf_path.read_text())
 
-
         handle_symlink_frappe_dir = False
 
         if self.frappe_bench_dir.is_symlink():
@@ -195,11 +198,9 @@ class BenchOperations:
 
                     if handle_symlink_frappe_dir:
                         to_replace = str(self.frappe_bench_dir.readlink())
-                        print(f'to:{to_replace} ---->>> {value}')
 
                         if to_replace in value:
                             value = value.replace(to_replace, self.frappe_bench_dir.name)
-                            print('==> '+value)
 
                     if "frappe-web" in section_name:
                         if key == "command":
@@ -213,8 +214,6 @@ class BenchOperations:
 
                 file_name_prefix = section_name.split(section_name_delimeter)
 
-                print(file_name_prefix)
-                print(section_config)
                 file_name_prefix = file_name_prefix[-1]
                 file_name = file_name_prefix + ".fm.supervisor.conf"
 
@@ -222,8 +221,6 @@ class BenchOperations:
                     file_name = file_name_prefix + ".workers.fm.supervisor.conf"
 
                 new_file: Path = supervisor_conf_path.parent / file_name
-
-                print(new_file)
 
                 with open(new_file, "w") as section_file:
                     section_config.write(section_file)

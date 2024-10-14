@@ -2,6 +2,7 @@ from pathlib import Path
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap as OrderedDict, CommentedSeq as OrderedList
 from typing import Any, List, Optional
+from frappe_manager import CLI_DEFAULT_DELIMETER, CLI_SITE_NAME_DELIMETER
 from frappe_manager.compose_manager import DockerVolumeMount
 from frappe_manager.compose_manager.compose_file_exceptions import ComposeSecretNotFoundError, ComposeServiceNotFound
 from frappe_manager.display_manager.DisplayManager import richprint
@@ -73,7 +74,7 @@ class ComposeFile:
             prefix (str): The prefix to be added to the container names.
         """
         for service in self.yml["services"].keys():
-            self.yml["services"][service]["container_name"] = prefix + f"-{service}"
+            self.yml["services"][service]["container_name"] = prefix + CLI_DEFAULT_DELIMETER + service
 
     def get_container_names(self) -> dict:
         """
@@ -145,7 +146,7 @@ class ComposeFile:
             return None
         return user
 
-    def set_top_networks_name(self, networks_name, prefix):
+    def set_root_networks_name(self, networks_name, prefix):
         """
         Sets the name of the top-level network in the Compose file.
 
@@ -154,9 +155,9 @@ class ComposeFile:
             prefix (str): The prefix to be added to the network name.
         """
         if not self.yml["networks"][networks_name]:
-            self.yml["networks"][networks_name] = {"name": prefix + f"-network"}
+            self.yml["networks"][networks_name] = {"name": prefix + f"{CLI_DEFAULT_DELIMETER}network"}
         else:
-            self.yml["networks"][networks_name]["name"] = prefix + f"-network"
+            self.yml["networks"][networks_name]["name"] = prefix + f"{CLI_DEFAULT_DELIMETER}network"
 
     def set_network_alias(self, service_name, network_name, alias: list = []):
         """
@@ -257,7 +258,7 @@ class ComposeFile:
         for service in users.keys():
             self.set_user(service, users[service]["uid"], users[service]["gid"])
 
-    def get_all_envs(self):
+    def get_all_envs(self) -> dict[Any,Any]:
         """
         Retrieves all the environment variables for each service in the Compose file.
 
@@ -265,12 +266,14 @@ class ComposeFile:
             dict: A dictionary containing the service names as keys and their respective environment variables as values.
         """
         envs = {}
+
         for service in self.yml["services"].keys():
             try:
                 env = self.yml["services"][service]["environment"]
                 envs[service] = env
             except KeyError:
                 pass
+
         return envs
 
     def set_all_envs(self, environments: dict):
@@ -503,6 +506,22 @@ class ComposeFile:
 
             # Set the volumes for the service
             self.yml["services"][service]["volumes"] = volumes_list
+        except KeyError as e:
+            raise ComposeServiceNotFound(service_name=service)
+
+    def set_root_volumes_name(self, volume_prefix: str) -> None:
+        """
+        Set specific service volume mounts.
+        """
+        try:
+            # Convert DockerVolumeMount objects to strings
+            volumes_list = [str(volume) for volume in self.yml.get('volumes',[])]
+
+            if volumes_list:
+                for volume in volumes_list:
+                    volume_name = volume.replace('-',CLI_SITE_NAME_DELIMETER)
+                    # Set the volumes for the service
+                    self.yml["volumes"][volume]['name'] = volume_prefix + CLI_DEFAULT_DELIMETER + volume_name
         except KeyError as e:
             raise ComposeServiceNotFound(service_name=service)
 
