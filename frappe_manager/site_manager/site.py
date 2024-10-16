@@ -1115,7 +1115,7 @@ class Bench:
             stop_command = 'supervisorctl -c /opt/user/supervisord.conf stop all'
             self.frappe_service_run_command(stop_command)
 
-            unlink_command = 'rm -rf /opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf'
+            unlink_command = 'rm -rf /opt/user/conf.d/web.fm.supervisor.conf'
             self.frappe_service_run_command(unlink_command)
 
             link_command = 'ln -sfn /opt/user/frappe-dev.conf /opt/user/conf.d/frappe-dev.conf'
@@ -1142,7 +1142,7 @@ class Bench:
             unlink_command = 'rm -rf /opt/user/conf.d/frappe-dev.conf'
             self.frappe_service_run_command(unlink_command)
 
-            link_command = 'ln -sfn /workspace/frappe-bench/config/frappe-bench-frappe-web.fm.supervisor.conf /opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf'
+            link_command = 'ln -sfn /workspace/frappe-bench/config/web.fm.supervisor.conf /opt/user/conf.d/web.fm.supervisor.conf'
             self.frappe_service_run_command(link_command)
 
             reread_command = 'supervisorctl -c /opt/user/supervisord.conf reread'
