@@ -112,7 +112,7 @@ class AdminTools:
 
         new_conf = {
             "mail_port": 1025,
-            "mail_server": f"{get_container_name_prefix(self.bench_name)}-mailhog",
+            "mail_server": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailhog",
             "disable_mail_smtp_authentication": 1,
         }
 
