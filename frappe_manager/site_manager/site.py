@@ -950,19 +950,19 @@ class Bench:
                     richprint.print(f"Backup previous '{file_name}' : {backup_tasks_path}")
 
                 with open(real_file_path, "w+") as f:
-                    f.write(json.dumps(dot_vscode_config[file_path]))
+                    f.write(json.dumps(dot_vscode_config[file_path], indent=4, sort_keys=True))
 
-            # install black in env
+            # install ruff in env
             try:
                 self.compose_project.docker.compose.exec(
                     service="frappe",
-                    command="/workspace/frappe-bench/env/bin/pip install black",
+                    command="/workspace/frappe-bench/env/bin/pip install ruff",
                     user='frappe',
                     stream=True,
                 )
             except DockerException as e:
-                self.logger.error(f"black installation exception: {capture_and_format_exception()}")
-                richprint.warning("Not able to install black in env.")
+                self.logger.error(f"ruff installation exception: {capture_and_format_exception()}")
+                richprint.warning("Not able to install ruff in env.")
 
             richprint.print("Synced vscode debugger configuration.")
 

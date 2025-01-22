@@ -51,14 +51,24 @@ CLI_SITE_NAME_DELIMETER = '_'
 
 
 DEFAULT_EXTENSIONS = [
+    # Debugger
+    "ms-python.debugpy",
+    "rioj7.command-variable"
+
+    # Python
+    "ms-python.python",
+    "charliermarsh.ruff",
+
+    # JavaScript/Web
     "dbaeumer.vscode-eslint",
     "esbenp.prettier-vscode",
-    "ms-python.python",
-    "ms-python.debugpy",
-    "ms-python.flake8",
-    "ms-python.black-formatter",
+    
+    # General Development
+    "eamodio.gitlens",
+    "MS-vsliveshare.vsliveshare",
     "visualstudioexptteam.vscodeintellicode",
-    "VisualStudioExptTeam.intellicode-api-usage-examples",
+    "christian-kohler.path-intellisense",
+    "streetsidesoftware.code-spell-checker"
 ]
 
 
