@@ -119,7 +119,7 @@ def run_command_with_exit_code(
             logger.debug('- -' * 10)
             logger.debug(f"COMMAND: {' '.join(full_cmd)}")
 
-            run_output = run(full_cmd,cwd=cwd)
+            run_output = run(full_cmd, cwd=cwd, env=env)
             exit_code = run_output.returncode
 
             logger.debug(f"RETURN CODE: {exit_code}")
@@ -129,10 +129,12 @@ def run_command_with_exit_code(
                 raise DockerException(full_cmd, SubprocessOutput([], [], [], exit_code))
             return
 
-        stream_output: SubprocessOutput = SubprocessOutput.from_output(stream_stdout_and_stderr(full_cmd,cwd=cwd))
+        stream_output: SubprocessOutput = SubprocessOutput.from_output(
+            stream_stdout_and_stderr(full_cmd, cwd=cwd, env=env)
+        )
         return stream_output
 
-    output: Iterable[Tuple[str, bytes]] = stream_stdout_and_stderr(full_cmd,cwd=cwd)
+    output: Iterable[Tuple[str, bytes]] = stream_stdout_and_stderr(full_cmd, cwd=cwd, env=env)
     return output
 
 
