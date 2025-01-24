@@ -394,23 +394,43 @@ class Bench:
 
         return True
 
-    def start(self, force: bool = False):
+    def start(self, force: bool = False, sync_bench_config_changes: bool = False, reconfigure_workers: bool = False, reconfigure_supervisord: bool = False , reconfigure_common_site_config: bool = False ):
         """
         Starts the bench.
         """
 
         self.benchops.check_required_docker_images_available()
 
-        # Should be done in site manager ?
-        global_db_info = self.services.database_manager.database_server_info
-        self.sync_bench_common_site_config(global_db_info.host, global_db_info.port)
+        # Reconfigure common_site_config.json if required
+        if reconfigure_common_site_config:
+            richprint.print("Reconfiguring common_site_config with defaults")
+            global_db_info = self.services.database_manager.database_server_info
+            self.sync_bench_common_site_config(global_db_info.host, global_db_info.port)
 
         richprint.change_head("Starting bench services")
-        self.admin_tools.remove_nginx_location_config()
+
         self.compose_project.start_service(force_recreate=force)
+
         self.benchops.is_required_services_available()
-        self.sync_workers_compose()
-        self.sync_bench_config_configuration()
+
+        # Reconfigure workers if requested
+        if reconfigure_workers:
+            richprint.print("Reconfiguring workers")
+            self.sync_workers_compose()
+
+        # Sync bench config changes if requested
+        if sync_bench_config_changes:
+            richprint.print("Syncing bench configuration changes")
+            self.sync_bench_config_configuration()
+
+        # Reconfigure supervisord if requested
+        if reconfigure_supervisord:
+            richprint.print("Reconfiguring supervisord")
+            self.benchops.setup_supervisor(force=True)
+
+        if force:
+            self.switch_bench_env()
+
         self.save_bench_config()
         richprint.print("Started bench services.")
 

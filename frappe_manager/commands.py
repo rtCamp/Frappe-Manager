@@ -343,14 +343,44 @@ def start(
         ),
     ] = None,
     force: Annotated[bool, typer.Option("--force", "-f", help="Force recreate bench containers")] = False,
+    sync_bench_config_changes: Annotated[
+        bool, 
+        typer.Option(
+            "--sync-config", 
+            help="Sync bench configuration changes"
+        )
+    ] = False,
+    reconfigure_supervisord: Annotated[
+        bool,
+        typer.Option(
+            "--reconfigure-supervisord",
+            help="Reconfigure supervisord configuration"
+        )
+    ] = False,
+    reconfigure_common_site_config: Annotated[
+        bool,
+        typer.Option(
+            "--reconfigure-common-site-config",
+            help="Reconfigure common_site_config.json"
+        )
+    ] = False,
+    reconfigure_workers: Annotated[
+        bool,
+        typer.Option(
+            "--reconfigure-workers",
+            help="Reconfigure workers configuration"
+        )
+    ] = False,
 ):
     """Start a bench."""
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
     bench = Bench.get_object(benchname, services_manager)
-    bench.start(force=force)
-
+    
+    # Start bench with force recreate if specified
+    bench.start(force=force,sync_bench_config_changes=sync_bench_config_changes,reconfigure_workers=reconfigure_workers, reconfigure_common_site_config=reconfigure_common_site_config)
+    
 
 @app.command()
 def stop(
