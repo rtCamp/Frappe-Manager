@@ -593,9 +593,9 @@ def update(
             bench.bench_config.admin_tools = True
 
             if not bench.admin_tools.compose_project.compose_file_manager.compose_path.exists():
-                restart_required = bench.sync_admin_tools_compose()
+                bench.sync_admin_tools_compose()
             else:
-                restart_required = bench.admin_tools.enable(force_configure=mailhog_as_default_mail_server)
+                bench.admin_tools.enable(force_configure=mailhog_as_default_mail_server)
 
             bench_config_save = True
             richprint.print("Enabled Admin-tools.")
@@ -609,21 +609,8 @@ def update(
                 return
             else:
                 bench.bench_config.admin_tools = False
-                restart_required = bench.admin_tools.disable()
+                bench.admin_tools.disable()
                 bench_config_save = True
-
-    # # prompt for restart frappe server
-    # if restart_required:
-    #     should_restart = richprint.prompt_ask(
-    #         prompt=f"Frappe server restart is required after {admin_tools.value} of admin tools. Do you want to proceed ?",
-    #         choices=['yes', 'no'],
-    #     )
-    #     if should_restart == 'yes':
-    #         # bench.restart_frappe_server()
-    #         richprint.change_head("Restarting frappe server")
-    #         bench.restart_supervisor_service('frappe')
-    #         richprint.print("Restarted frappe server")
-
 
     if bench_config_save:
         bench.save_bench_config()
