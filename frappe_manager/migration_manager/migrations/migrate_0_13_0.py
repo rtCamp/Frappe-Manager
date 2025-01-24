@@ -276,7 +276,7 @@ class MigrationV0130(MigrationBase):
 
         new_conf = {
             "mail_port": 1025,
-            "mail_server": f"{get_container_name_prefix(bench.name)}-mailhog",
+            "mail_server": f"{get_container_name_prefix(bench.name)}__mailhog",
             "disable_mail_smtp_authentication": 1,
         }
 
