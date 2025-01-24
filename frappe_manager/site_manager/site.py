@@ -77,7 +77,7 @@ class Bench:
         self.compose_project: ComposeProject = compose_project
         self.logger = log.get_logger()
         self.proxy_manager: NginxProxyManager = NginxProxyManager('nginx', self.compose_project)
-        self.admin_tools: AdminTools = AdminTools(self.name, self.path, self.proxy_manager)
+        self.admin_tools: AdminTools = AdminTools(self, self.proxy_manager)
 
         self.certificate_manager = SSLCertificateManager(
             certificate=self.bench_config.ssl,
@@ -704,12 +704,35 @@ class Bench:
         if not self.bench_config.admin_tools:
             data['Admin Tools'] = 'Not Enabled'
         else:
-            admin_tools_Table = Table(show_lines=True, show_edge=False, pad_edge=False, expand=True)
-            admin_tools_Table.add_column("Tool")
-            admin_tools_Table.add_column("URL")
-            admin_tools_Table.add_row("Mailhog", f"{protocol}://{self.name}/mailhog")
-            admin_tools_Table.add_row("Adminer", f"{protocol}://{self.name}/adminer")
-            data['Admin Tools'] = admin_tools_Table
+            # Create main admin tools table
+            admin_tools_Table = Table(
+                show_lines=False,
+                show_edge=False,
+                pad_edge=False,
+                expand=True
+            )
+            admin_tools_Table.add_column("Service", style="cyan")
+            admin_tools_Table.add_column("URL", style="blue")
+
+            # Get auth credentials
+            username = self.bench_config.admin_tools_username or "admin"
+            password = self.bench_config.admin_tools_password or "protected"
+            
+            # Create auth info section
+            auth_info = f"\nAuthentication Required:\n  Username: [cyan]{username}[/cyan]\n  Password: [green]{password}[/green]"
+
+            admin_tools_Table.add_row(
+                "Mailhog",
+                f"{protocol}://{self.name}/mailhog"
+            )
+            admin_tools_Table.add_row(
+                "Adminer",
+                f"{protocol}://{self.name}/adminer"
+            )
+            
+            # Combine table and auth info
+            from rich.console import Group
+            data['Admin Tools'] = Group(admin_tools_Table, auth_info)
 
         bench_info_table.add_column(no_wrap=True)
         bench_info_table.add_column(no_wrap=True)

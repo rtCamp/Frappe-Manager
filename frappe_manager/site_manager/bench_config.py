@@ -48,6 +48,8 @@ class BenchConfig(BaseModel):
     apps_list: List[Dict[str, Optional[str]]] = Field(default=[], description="List of apps")
     userid: int = Field(default_factory=os.getuid, description="The user ID of the current process")
     usergroup: int = Field(default_factory=os.getgid, description="The group ID of the current process")
+    admin_tools_username: Optional[str] = Field(None, description="Username for admin tools basic auth")
+    admin_tools_password: Optional[str] = Field(None, description="Password for admin tools basic auth")
 
     @property
     def db_name(self):
@@ -156,6 +158,8 @@ class BenchConfig(BaseModel):
             'environment_type': data.get('environment_type', None),
             'root_path': data.get('root_path', None),
             'ssl': ssl_instance,
+            'admin_tools_username': data.get('admin_tools_username', None),
+            'admin_tools_password': data.get('admin_tools_password', None),
         }
 
         bench_config_instance = cls(**input_data)

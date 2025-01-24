@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-import time
 from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject
@@ -12,15 +11,17 @@ from frappe_manager.utils.helpers import get_container_name_prefix, get_current_
 
 
 class AdminTools:
-    def __init__(self, bench_name: str, bench_path: Path, nginx_proxy: NginxProxyManager, verbose: bool = True):
-        self.compose_path = bench_path / "docker-compose.admin-tools.yml"
-        self.bench_name = bench_name
+    def __init__(self, bench: 'Bench', nginx_proxy: NginxProxyManager, verbose: bool = True):
+        self.bench = bench
+        self.compose_path = bench.path / "docker-compose.admin-tools.yml"
+        self.bench_name = bench.name
         self.quiet = not verbose
         self.compose_project = ComposeProject(
             ComposeFile(self.compose_path, template_name='docker-compose.admin-tools.tmpl')
         )
         self.nginx_proxy: NginxProxyManager = nginx_proxy
         self.nginx_config_location_path: Path = self.nginx_proxy.dirs.conf.host / 'custom' / 'admin-tools.conf'
+        self.http_auth_path: Path = self.nginx_proxy.dirs.conf.host / 'http_auth'
 
     def generate_compose(self, db_host: str):
         # env set db_host for ADMINER_DEFAULT_SERVER
@@ -30,9 +31,6 @@ class AdminTools:
         self.compose_project.compose_file_manager.yml = self.compose_project.compose_file_manager.load_template()
         self.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(self.bench_name))
         self.compose_project.compose_file_manager.set_root_networks_name('site-network', get_container_name_prefix(self.bench_name))
-        # self.compose_project.compose_file_manager.yml["networks"]["site-network"]["name"] = (
-        #     get_container_name_prefix(self.bench_name) + f"-network"
-        # )
         self.compose_project.compose_file_manager.set_version(get_current_fm_version())
         self.compose_project.compose_file_manager.write_to_file()
 
@@ -41,10 +39,44 @@ class AdminTools:
         self.generate_compose(db_host)
         richprint.print("Generating admin tools configuration: Done")
 
+    def generate_htpasswd(self) -> str:
+        """Generate htpasswd entry for basic auth"""
+        import secrets
+        import crypt
+        
+        # Use existing credentials from bench config or generate new ones
+        username = self.bench.bench_config.admin_tools_username or "admin"
+        password = self.bench.bench_config.admin_tools_password
+        
+        if not password:
+            password = secrets.token_urlsafe(16)
+            # Store new credentials in bench config
+            self.bench.bench_config.admin_tools_username = username
+            self.bench.bench_config.admin_tools_password = password
+            self.bench.save_bench_config()
+        
+        salt = crypt.mksalt()
+        hashed = crypt.crypt(password, salt)
+        return f"{username}:{hashed}"
+
     def save_nginx_location_config(self):
+        # Ensure http auth directory exists
+        self.http_auth_path.mkdir(exist_ok=True)
+
+        # Generate and save htpasswd file
+        auth_file = self.http_auth_path / f'{self.bench_name}-admin-tools.htpasswd'
+
+
+        if not self.http_auth_path.exists():
+            self.http_auth_path.mkdir(exist_ok=True)
+
+        htpasswd_content = self.generate_htpasswd()
+        auth_file.write_text(htpasswd_content)
+
         data = {
             "mailhog_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailhog",
             "adminer_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}adminer",
+            "auth_file": f"/etc/nginx/http_auth/{auth_file.name}",
         }
         from jinja2 import Template
 
@@ -61,6 +93,11 @@ class AdminTools:
     def remove_nginx_location_config(self):
         if self.nginx_config_location_path.exists():
             self.nginx_config_location_path.unlink()
+
+        # Remove htpasswd file if exists
+        auth_file = self.http_auth_path / f'{self.bench_name}-admin-tools.htpasswd'
+        if auth_file.exists():
+            auth_file.unlink()
 
     def get_common_site_config(self, common_bench_config_path: Path):
         if not common_bench_config_path.exists():

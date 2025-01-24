@@ -1,5 +1,8 @@
 # Mailhog
 location ^~ /mailhog/ {
+    auth_basic "Admin Tools";
+    auth_basic_user_file {{ auth_file }};
+    
     chunked_transfer_encoding on;
     proxy_set_header X-NginX-Proxy true;
     proxy_pass http://{{ mailhog_host }}:8025/;
@@ -12,6 +15,9 @@ location ^~ /mailhog/ {
 
 # Adminer
 location ^~ /adminer/ {
+    auth_basic "Admin Tools";
+    auth_basic_user_file {{ auth_file }};
+    
     proxy_set_header X-Forwarded-For $remote_addr;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header Host $host;
