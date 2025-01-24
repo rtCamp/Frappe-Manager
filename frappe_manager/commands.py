@@ -371,14 +371,20 @@ def start(
             help="Reconfigure workers configuration"
         )
     ] = False,
+    sync_dev_packages: Annotated[
+        bool,
+        typer.Option(
+            "--sync-dev-packages",
+            help="Sync dev packages"
+        )
+    ] = False,
 ):
     """Start a bench."""
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
     bench = Bench.get_object(benchname, services_manager)
-    
-    # Start bench with force recreate if specified
+
     bench.start(force=force,sync_bench_config_changes=sync_bench_config_changes,reconfigure_workers=reconfigure_workers, reconfigure_common_site_config=reconfigure_common_site_config)
     
 

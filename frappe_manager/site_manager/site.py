@@ -394,7 +394,14 @@ class Bench:
 
         return True
 
-    def start(self, force: bool = False, sync_bench_config_changes: bool = False, reconfigure_workers: bool = False, reconfigure_supervisord: bool = False , reconfigure_common_site_config: bool = False ):
+    def start(self,
+         force: bool = False,
+         sync_bench_config_changes: bool = False,
+         reconfigure_workers: bool = False,
+         reconfigure_supervisord: bool = False ,
+         reconfigure_common_site_config: bool = False,
+         sync_dev_packages: bool = False,
+        ):
         """
         Starts the bench.
         """
@@ -428,8 +435,15 @@ class Bench:
             richprint.print("Reconfiguring supervisord")
             self.benchops.setup_supervisor(force=True)
 
-        if force:
-            self.switch_bench_env()
+        # Sync dev packages if requested
+        if sync_dev_packages:
+            richprint.print("Syncing dev packages")
+            if self.bench_config.environment_type == FMBenchEnvType.dev:
+                self.install_dev_packages()
+            else:
+                self.remove_dev_packages()
+
+        self.switch_bench_env()
 
         self.save_bench_config()
         richprint.print("Started bench services.")
@@ -1153,7 +1167,7 @@ class Bench:
             raise BenchFrappeServiceSupervisorNotRunning(self.name)
 
         if self.bench_config.environment_type == FMBenchEnvType.dev:
-            self.install_dev_packages()
+
             richprint.change_head(f"Configuring and starting {self.bench_config.environment_type.value} services")
             stop_command = 'supervisorctl -c /opt/user/supervisord.conf stop all'
             self.frappe_service_run_command(stop_command)
@@ -1176,7 +1190,7 @@ class Bench:
             richprint.print(f"Configured and Started {self.bench_config.environment_type.value} services.")
 
         elif self.bench_config.environment_type == FMBenchEnvType.prod:
-            self.remove_dev_packages()
+
             richprint.change_head(f"Configuring and starting {self.bench_config.environment_type.value} services")
             stop_command = 'supervisorctl -c /opt/user/supervisord.conf stop all'
 
