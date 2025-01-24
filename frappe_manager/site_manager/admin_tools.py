@@ -98,6 +98,11 @@ class AdminTools:
         auth_file = self.http_auth_path / f'{self.bench_name}-admin-tools.htpasswd'
         if auth_file.exists():
             auth_file.unlink()
+            
+        # Remove credentials from bench config
+        self.bench.bench_config.admin_tools_username = None 
+        self.bench.bench_config.admin_tools_password = None
+        self.bench.save_bench_config()
 
     def get_common_site_config(self, common_bench_config_path: Path):
         if not common_bench_config_path.exists():
