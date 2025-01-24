@@ -112,7 +112,7 @@ class AdminTools:
 
         return current_common_site_config
 
-    def configure_mailhog_as_default_server(self, force: bool = False):
+    def configure_mailhog_as_default_server(self):
         richprint.change_head("Configuring Mailhog as default mail server.")
         common_bench_config_path = self.compose_path.parent / "workspace/frappe-bench/sites/common_site_config.json"
 
@@ -124,28 +124,15 @@ class AdminTools:
             "disable_mail_smtp_authentication": 1,
         }
 
-        if not force:
-            if 'mail_server' in current_common_site_config:
-                if not current_common_site_config['mail_server'] == new_conf['mail_server']:
-                    raise BenchException(
-                        self.bench_name,
-                        'Failed to set MailHog as the default mail server because another mail server is currently configured as the default.',
-                    )
-
-        frappe_server_restart_required = False
-
         for key, value in new_conf.items():
             if key not in current_common_site_config:
                 current_common_site_config[key] = value
-                frappe_server_restart_required = True
 
             elif not current_common_site_config[key] == value:
                 current_common_site_config[key] = value
-                frappe_server_restart_required = True
 
         common_bench_config_path.write_text(json.dumps(current_common_site_config))
         richprint.print("Configured Mailhog as default mail server.")
-        return frappe_server_restart_required
 
     def remove_mailhog_as_default_server(self):
         richprint.change_head("Removing Mailhog as default mail server.")
@@ -158,18 +145,17 @@ class AdminTools:
             "disable_mail_smtp_authentication": 1,
         }
 
-        frappe_server_restart_required = False
         for key, value in new_conf.items():
             if not key in current_common_site_config:
                 continue
+
             if not current_common_site_config[key] == value:
                 continue
+
             del current_common_site_config[key]
-            frappe_server_restart_required = True
 
         common_bench_config_path.write_text(json.dumps(current_common_site_config))
         richprint.print("Removed Mailhog as default mail server.")
-        return frappe_server_restart_required
 
     def wait_till_services_started(self, interval=2, timeout=30):
         admin_tools_services = ['mailhog:8025', 'adminer:8080']
@@ -191,17 +177,18 @@ class AdminTools:
             if not running:
                 raise AdminToolsFailedToStart(self.bench_name)
 
-    def enable(self, force_recreate_container: bool = False, force_configure: bool = False) -> bool:
+    def enable(self, force_recreate_container: bool = False, force_configure: bool = False):
         self.compose_project.start_service(force_recreate=force_recreate_container)
         self.wait_till_services_started()
         self.save_nginx_location_config()
         self.nginx_proxy.reload()
-        frappe_server_restart_required = self.configure_mailhog_as_default_server(force=force_configure)
-        return frappe_server_restart_required
 
-    def disable(self) -> bool:
+        if force_configure:
+            self.configure_mailhog_as_default_server()
+
+    def disable(self):
         self.compose_project.stop_service()
         self.remove_nginx_location_config()
         self.nginx_proxy.reload()
-        frappe_server_restart_required = self.remove_mailhog_as_default_server()
-        return frappe_server_restart_required
+
+        self.remove_mailhog_as_default_server()
