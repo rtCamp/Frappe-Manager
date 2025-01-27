@@ -350,10 +350,10 @@ def start(
             help="Sync bench configuration changes"
         )
     ] = False,
-    reconfigure_supervisord: Annotated[
+    reconfigure_supervisor: Annotated[
         bool,
         typer.Option(
-            "--reconfigure-supervisord",
+            "--reconfigure-supervisor",
             help="Reconfigure supervisord configuration"
         )
     ] = False,
@@ -385,7 +385,7 @@ def start(
     verbose = ctx.obj['verbose']
     bench = Bench.get_object(benchname, services_manager)
 
-    bench.start(force=force,sync_bench_config_changes=sync_bench_config_changes,reconfigure_workers=reconfigure_workers, reconfigure_common_site_config=reconfigure_common_site_config)
+    bench.start(force=force,sync_bench_config_changes=sync_bench_config_changes,reconfigure_workers=reconfigure_workers, reconfigure_common_site_config=reconfigure_common_site_config, reconfigure_supervisor=reconfigure_supervisor, sync_dev_packages=sync_dev_packages)
     
 
 @app.command()

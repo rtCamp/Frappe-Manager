@@ -187,6 +187,7 @@ class BenchConfig(BaseModel):
             "frappe": {
                 "USERID": self.userid,
                 "USERGROUP": self.usergroup,
+                "SERVICE_NAME": "frappe",
             },
             "nginx": {
                 "SITENAME": self.name,
@@ -201,10 +202,12 @@ class BenchConfig(BaseModel):
             "schedule": {
                 "USERID": self.userid,
                 "USERGROUP": self.usergroup,
+                "SERVICE_NAME": "schedule",
             },
             "socketio": {
                 "USERID": self.userid,
                 "USERGROUP": self.usergroup,
+                "SERVICE_NAME": "socketio",
             },
         }
 

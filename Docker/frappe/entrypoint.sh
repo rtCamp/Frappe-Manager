@@ -14,12 +14,24 @@ trap cleanup SIGTERM
 
 [[ "${USERID:-}" ]] || emer "[ERROR] Please provide USERID environment variable."
 [[ "${USERGROUP:-}" ]] || emer "[ERROR] Please provide USERGROUP environment variable."
+[[ "${SERVICE_NAME:-}" ]] || emer "[ERROR] Please provide SERVICE_NAME environment variable."
 
 echo "Setting up user"
 
 update_uid_gid "${USERID}" "${USERGROUP}" "frappe" "frappe"
 
 mkdir -p /opt/user/conf.d
+
+#change supervisord socket location
+SOCK_DIR='/workspace/frappe-bench/config/fm-supervisord-sockets'
+
+echo "Setting supervisord sock directory to $SOCK_DIR/$SERVICE_NAME.sock"
+
+mkdir -p $SOCK_DIR
+chown "$USERID:$USERGROUP" $SOCK_DIR
+
+sed -i "s/\opt\/user\/supervisor\.sock/workspace\/frappe-bench\/config\/fm-supervisord-sockets\/${SERVICE_NAME}\.sock/g" /opt/user/supervisord.conf
+echo "$?  supervisord sed done"
 
 start_time=$(date +%s.%N)
 chown -R "$USERID":"$USERGROUP" /opt

@@ -89,8 +89,8 @@ class MigrationExecutor:
 
             migrate_msg = [
                 "\nOptions :\n",
-                "[blue]\[yes][/blue] Start Migration: Proceed with the migration process.",
-                "[blue]\[no][/blue]  Abort and Revert: Do not migrate and revert to the previous fm version.",
+                r"[blue][yes][/blue] Start Migration: Proceed with the migration process.",
+                r"[blue][no][/blue]  Abort and Revert: Do not migrate and revert to the previous fm version.",
                 "\nDo you want to proceed with the migration ?",
             ]
             continue_migration = richprint.prompt_ask(prompt="\n".join(migrate_msg), choices=["yes", "no"])
@@ -184,8 +184,8 @@ class MigrationExecutor:
 
                 archive_msg = [
                     'Available options after migrations failure :',
-                    f"[blue]\[yes][/blue] Archive failed benches : Benches that have failed will be rolled back to there last successfully completed migration version and stored in '{CLI_SITES_ARCHIVE}'.",
-                    '[blue]\[no][/blue] Revert migration : Restore the FM CLI and FM environment to the last successfully completed migration version for all benches.',
+                    fr"[blue][yes][/blue] Archive failed benches : Benches that have failed will be rolled back to there last successfully completed migration version and stored in '{CLI_SITES_ARCHIVE}'.",
+                    r'[blue][no][/blue] Revert migration : Restore the FM CLI and FM environment to the last successfully completed migration version for all benches.',
                     '\nDo you wish to archive all benches that failed during migration ?',
                 ]
                 archive = richprint.prompt_ask(prompt="\n".join(archive_msg), choices=["yes", "no"])

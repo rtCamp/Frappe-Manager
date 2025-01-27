@@ -130,9 +130,6 @@ class Bench:
         # set developer_mode based on config
         self.set_common_bench_config({'developer_mode': self.bench_config.developer_mode})
 
-        # dev or prod
-        self.switch_bench_env()
-
         # ssl
         certificate_updated = self.update_certificate(self.bench_config.ssl, raise_error=False)
         if certificate_updated:
@@ -200,6 +197,8 @@ class Bench:
             richprint.change_head("Creating bench and bench site.")
             self.benchops.create_fm_bench()
             self.sync_bench_config_configuration()
+
+            self.switch_bench_env()
 
             richprint.change_head("Configuring bench workers.")
             self.sync_workers_compose(force_recreate=True, setup_supervisor=False)
@@ -351,7 +350,8 @@ class Bench:
         """
         richprint.change_head("Creating required directories")
 
-        frappe_image = self.compose_project.compose_file_manager.yml["services"]["frappe"]["image"]
+        frappe_image: str = self.compose_project.compose_file_manager.yml["services"]["frappe"]["image"]
+        frappe_image = frappe_image.replace('-frappe','-prebake')
 
         workspace_path = self.path / "workspace"
         workspace_path_abs = str(workspace_path.absolute())
@@ -398,7 +398,7 @@ class Bench:
          force: bool = False,
          sync_bench_config_changes: bool = False,
          reconfigure_workers: bool = False,
-         reconfigure_supervisord: bool = False ,
+         reconfigure_supervisor: bool = False ,
          reconfigure_common_site_config: bool = False,
          sync_dev_packages: bool = False,
         ):
@@ -407,6 +407,12 @@ class Bench:
         """
 
         self.benchops.check_required_docker_images_available()
+
+        # start admin-tools if exists
+        if self.workers.compose_project.compose_file_manager.exists():
+            richprint.change_head("Starting admin tools services")
+            self.admin_tools.compose_project.start_service(force_recreate=force)
+            richprint.print("Started admin tools services.")
 
         # Reconfigure common_site_config.json if required
         if reconfigure_common_site_config:
@@ -425,13 +431,8 @@ class Bench:
             richprint.print("Reconfiguring workers")
             self.sync_workers_compose()
 
-        # Sync bench config changes if requested
-        if sync_bench_config_changes:
-            richprint.print("Syncing bench configuration changes")
-            self.sync_bench_config_configuration()
-
         # Reconfigure supervisord if requested
-        if reconfigure_supervisord:
+        if reconfigure_supervisor:
             richprint.print("Reconfiguring supervisord")
             self.benchops.setup_supervisor(force=True)
 
@@ -445,14 +446,19 @@ class Bench:
 
         self.switch_bench_env()
 
-        self.save_bench_config()
-        richprint.print("Started bench services.")
+        # Sync bench config changes if requested
+        if sync_bench_config_changes:
+            richprint.print("Syncing bench configuration changes")
+            self.sync_bench_config_configuration()
 
         # start workers if exists
         if self.workers.compose_project.compose_file_manager.exists():
             richprint.change_head("Starting bench workers services")
             self.workers.compose_project.start_service(force_recreate=force)
             richprint.print("Started bench workers services.")
+
+        self.save_bench_config()
+        richprint.print("Started bench services.")
 
     def frappe_logs_till_start(self):
         """
@@ -1254,7 +1260,20 @@ class Bench:
 
         richprint.print(f"Reset bench site {self.name}")
 
-    def restart_supervisor_service(self, service: str, compose_project_obj: Optional[ComposeProject] = None):
+    def restart_supervisor_service(self, service: str, compose_project_obj: Optional[ComposeProject] = None, timeout: int = 30, interval: int = 1):
+        supervisor_socket_location = self.path / "workspace/frappe-bench/config/fm-supervisord-sockets" / f"{service}.sock"
+
+        # Wait for supervisor socket file to be created
+        for _ in range(timeout):
+            if supervisor_socket_location.exists():
+                break
+            time.sleep(interval)
+        else:
+            raise BenchOperationException(
+                self.name,
+                message=f'Supervisor socket for {service} service not created after {timeout} seconds'
+            )
+
         restart_supervisor_command = 'supervisorctl -c /opt/user/supervisord.conf restart all'
         exception = BenchOperationException(self.name, message=f'Failed to restart supervisor for {service} service')
 

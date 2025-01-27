@@ -1,9 +1,9 @@
-FROM ubuntu:22.04 as bench
+FROM ubuntu:22.04 AS bench
 
 LABEL author=rtCamp
 LABEL org.opencontainers.image.source=https://github.com/rtcamp/Frappe-Manager
 
-ARG PYTHON_VERSION=3.11.0
+ARG PYTHON_VERSION=3.12.0
 ARG PREBAKE_APPS='erpnext:version-15,hrms:version-15'
 ARG PREBAKE_FRAPPE_BRANCH='version-15'
 
@@ -95,11 +95,11 @@ ENV PATH $PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH
 ENV PATH /opt/user/.bin:${PATH}
 
 # for nvm
-ENV NODE_VERSION=18.17.0
+ENV NODE_VERSION=20.9.0
 ENV NVM_DIR /opt/.nvm
 ENV PATH ${NVM_DIR}/versions/node/v${NODE_VERSION}/bin/:${PATH}
 
-From bench as prebake
+FROM bench AS prebake
 
 RUN chown -R frappe:frappe /opt
 
@@ -166,7 +166,16 @@ COPY --chmod=0755 ./helper-function.sh /scripts/
 
 RUN ls -lah /workspace && /scripts/prebake.sh && mv /workspace/frappe-bench/apps/* /workspace/
 
-FROM bench as fm_image
+FROM ubuntu:22.04 AS prebake_image
+
+WORKDIR /workspace
+
+COPY --from=prebake --chown=frappe:frappe /workspace/frappe-bench /workspace/frappe-bench
+COPY --from=prebake --chown=frappe:frappe /workspace/frappe /workspace/frappe-bench/apps/frappe
+COPY --from=prebake --chown=frappe:frappe /workspace/erpnext /workspace/frappe-bench/apps/erpnext
+COPY --from=prebake --chown=frappe:frappe /workspace/hrms /workspace/frappe-bench/apps/hrms
+
+FROM bench AS fm_image
 
 # Detect arch and install wkhtmltopdf
 ENV WKHTMLTOPDF_VERSION 0.12.6.1-3
@@ -188,10 +197,6 @@ RUN rm -rf /opt && mkdir -p /workspace /opt
 
 WORKDIR /workspace
 
-COPY --from=prebake --chown=frappe:frappe /workspace/frappe-bench /workspace/frappe-bench
-COPY --from=prebake --chown=frappe:frappe /workspace/frappe /workspace/frappe-bench/apps/frappe
-COPY --from=prebake --chown=frappe:frappe /workspace/erpnext /workspace/frappe-bench/apps/erpnext
-COPY --from=prebake --chown=frappe:frappe /workspace/hrms /workspace/frappe-bench/apps/hrms
 COPY --from=prebake --chown=frappe:frappe /opt/.pyenv /opt/.pyenv
 COPY --from=prebake --chown=frappe:frappe /opt/.nvm /opt/.nvm
 COPY --from=prebake --chown=frappe:frappe /opt/user /opt/user

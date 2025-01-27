@@ -92,6 +92,7 @@ class BenchWorkers:
             )
             worker_config["environment"]["USERID"] = os.getuid()
             worker_config["environment"]["USERGROUP"] = os.getgid()
+            worker_config["environment"]["SERVICE_NAME"] = worker
 
             self.compose_project.compose_file_manager.yml["services"][worker] = worker_config
 

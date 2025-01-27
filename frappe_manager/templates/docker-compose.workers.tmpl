@@ -1,6 +1,6 @@
 services:
   worker-name:
-    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.16.1
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.16.7
     environment:
       SUPERVISOR_SERVICE_CONFIG_FILE_NAME: '{worker-name}.workers.fm.supervisor.conf'
     command: launch_supervisor_service.sh
