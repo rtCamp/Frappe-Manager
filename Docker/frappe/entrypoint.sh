@@ -20,43 +20,20 @@ echo "Setting up user"
 
 update_uid_gid "${USERID}" "${USERGROUP}" "frappe" "frappe"
 
-mkdir -p /opt/user/conf.d
 
-#change supervisord socket location
+
+
 SOCK_DIR='/workspace/frappe-bench/config/fm-supervisord-sockets'
+SOCK_SERVICE_PATH="$SOCK_DIR/$SERVICE_NAME.sock"
 
-echo "Setting supervisord sock directory to $SOCK_DIR/$SERVICE_NAME.sock"
+echo "Setting supervisord sock directory to $SOCK_SERVICE_PATH"
 
-mkdir -p $SOCK_DIR
-chown "$USERID:$USERGROUP" $SOCK_DIR
+mkdir -p /opt/user/conf.d $SOCK_DIR
+chown "$USERID:$USERGROUP" $SOCK_DIR /opt/user/conf.d
+rm -rf "$SOCK_SERVICE_PATH"
 
 sed -i "s/\opt\/user\/supervisor\.sock/workspace\/frappe-bench\/config\/fm-supervisord-sockets\/${SERVICE_NAME}\.sock/g" /opt/user/supervisord.conf
-echo "$?  supervisord sed done"
-
-start_time=$(date +%s.%N)
-chown -R "$USERID":"$USERGROUP" /opt
-end_time=$(date +%s.%N)
-execution_time=$(awk "BEGIN {print $end_time - $start_time}")
-echo "Time taken for chown /opt : $execution_time seconds"
-
-if [[ ! -d "/workspace/.oh-my-zsh" ]]; then
-   cp -pr /opt/user/.oh-my-zsh /workspace/
-   cp -p /opt/user/fm.zsh-theme /workspace/.oh-my-zsh/custom/themes/
-fi
-
-if [[ ! -f "/workspace/.zshrc" ]]; then
-   cp -p /opt/user/.zshrc  /workspace/
-fi
-
-if [[ ! -f "/workspace/.profile" ]]; then
-   cp -p /opt/user/.profile  /workspace/
-fi
-
-# start_time=$(date +%s.%N)
-# chown -R "$USERID":"$USERGROUP" /workspace
-# end_time=$(date +%s.%N)
-# execution_time=$(awk "BEGIN {print $end_time - $start_time}")
-# echo "Time taken for chown /workspace : $execution_time seconds"
+echo "supervisord configured $?"
 
 if [ "$#" -gt 0 ]; then
     gosu "$USERID":"$USERGROUP" "/scripts/$@" &
@@ -65,5 +42,7 @@ else
     gosu "${USERID}":"${USERGROUP}" /scripts/user-script.sh &
     running_script_pid=$!
 fi
+
+configure_workspace
 
 wait $running_script_pid

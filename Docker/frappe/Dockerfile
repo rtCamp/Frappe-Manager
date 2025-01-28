@@ -201,4 +201,16 @@ COPY --from=prebake --chown=frappe:frappe /opt/.pyenv /opt/.pyenv
 COPY --from=prebake --chown=frappe:frappe /opt/.nvm /opt/.nvm
 COPY --from=prebake --chown=frappe:frappe /opt/user /opt/user
 
+COPY --chown=frappe:frappe ./fm_helper.py /opt/user/
+
+RUN $PYENV_ROOT/versions/$PYTHON_VERSION/bin/python -m venv /opt/venv && \
+    mkdir -p /opt/build && \
+    cd /opt/build && \
+    . /opt/venv/bin/activate && \
+    pip install --no-cache-dir rich pyinstaller supervisor typer && \
+    pyinstaller --onefile --hidden-import __future__ --name fm-helper --distpath /opt/user/.bin /opt/user/fm_helper.py && \
+    deactivate && \
+    rm -rf /opt/user/fm_helper.py && \
+    rm -rf /opt/venv build /opt/build
+
 ENTRYPOINT ["/bin/bash","/entrypoint.sh"]

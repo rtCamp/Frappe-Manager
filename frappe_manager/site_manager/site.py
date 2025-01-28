@@ -1168,14 +1168,31 @@ class Bench:
             raise BenchFailedToRemoveDevPackages(self.name)
         richprint.print("Installed dev packages in env.")
 
-    def switch_bench_env(self):
+    def switch_bench_env(self, timeout: int = 30, interval: int = 1):
         if not self.is_supervisord_running():
             raise BenchFrappeServiceSupervisorNotRunning(self.name)
+
+        frappe_workspace_path: str  = "workspace/frappe-bench/config/fm-supervisord-sockets/frappe.sock"
+        frappe_supervisor_socket_location = self.path / frappe_workspace_path
+
+        supervisorctl_command = f"supervisorctl -s unix:///{frappe_workspace_path} "
+
+        # Wait for supervisor socket file to be created
+        for _ in range(timeout):
+            if frappe_supervisor_socket_location.exists():
+                break
+            time.sleep(interval)
+        else:
+            raise BenchOperationException(
+                self.name,
+                message=f'Supervisor socket for frappe service not available after waiting {timeout} seconds'
+            )
 
         if self.bench_config.environment_type == FMBenchEnvType.dev:
 
             richprint.change_head(f"Configuring and starting {self.bench_config.environment_type.value} services")
-            stop_command = 'supervisorctl -c /opt/user/supervisord.conf stop all'
+
+            stop_command = supervisorctl_command + "stop all"
             self.frappe_service_run_command(stop_command)
 
             unlink_command = 'rm -rf /opt/user/conf.d/web.fm.supervisor.conf'
@@ -1184,13 +1201,13 @@ class Bench:
             link_command = 'ln -sfn /opt/user/frappe-dev.conf /opt/user/conf.d/frappe-dev.conf'
             self.frappe_service_run_command(link_command)
 
-            reread_command = 'supervisorctl -c /opt/user/supervisord.conf reread'
+            reread_command = supervisorctl_command + "reread"
             self.frappe_service_run_command(reread_command)
 
-            update_command = 'supervisorctl -c /opt/user/supervisord.conf update'
+            update_command = supervisorctl_command +  "update"
             self.frappe_service_run_command(update_command)
 
-            start_command = 'supervisorctl -c /opt/user/supervisord.conf start all'
+            start_command = supervisorctl_command + "start all"
             self.frappe_service_run_command(start_command)
 
             richprint.print(f"Configured and Started {self.bench_config.environment_type.value} services.")
@@ -1198,8 +1215,8 @@ class Bench:
         elif self.bench_config.environment_type == FMBenchEnvType.prod:
 
             richprint.change_head(f"Configuring and starting {self.bench_config.environment_type.value} services")
-            stop_command = 'supervisorctl -c /opt/user/supervisord.conf stop all'
 
+            stop_command = supervisorctl_command + "stop all"
             self.frappe_service_run_command(stop_command)
 
             unlink_command = 'rm -rf /opt/user/conf.d/frappe-dev.conf'
@@ -1208,13 +1225,13 @@ class Bench:
             link_command = 'ln -sfn /workspace/frappe-bench/config/web.fm.supervisor.conf /opt/user/conf.d/web.fm.supervisor.conf'
             self.frappe_service_run_command(link_command)
 
-            reread_command = 'supervisorctl -c /opt/user/supervisord.conf reread'
+            reread_command = supervisorctl_command + "reread"
             self.frappe_service_run_command(reread_command)
 
-            update_command = 'supervisorctl -c /opt/user/supervisord.conf update'
+            update_command = supervisorctl_command +  "update"
             self.frappe_service_run_command(update_command)
 
-            start_command = 'supervisorctl -c /opt/user/supervisord.conf start all'
+            start_command = supervisorctl_command + "start all"
             self.frappe_service_run_command(start_command)
 
             richprint.print(f"Configured and Started {self.bench_config.environment_type.value} services.")
