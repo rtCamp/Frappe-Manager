@@ -90,27 +90,29 @@ def stop_service(service_name, process_name_list=[]):
         return
     conn = get_xml_connection(service_name)
     try:
-        processes_info = conn.supervisor.getAllProcessInfo()
         if process_name_list:
             for process in process_name_list:
-                process_group = next(
-                    (
-                        info["group"]
-                        for info in processes_info
-                        if info["name"] == process
-                    ),
-                    None,
-                )
-                if process_group:
-                    conn.supervisor.stopProcess(f"{process_group}:{process}")
-                else:
-                    print(
-                        f"The provided process {process} is not available in supervisord."
-                    )
-            print(f"Stopped [b green]{service_name} - {process_name_list}")
+                try:
+                    # Try stopping the process directly with its name
+                    conn.supervisor.stopProcess(process)
+                    print(f"Stopped process [b green]{process}[/b green] in {service_name}")
+                except Fault as e:
+                    if "BAD_NAME" in e.faultString:
+                        # If that fails, try with group:name format
+                        processes_info = conn.supervisor.getAllProcessInfo()
+                        process_info = next(
+                            (info for info in processes_info if info["name"] == process),
+                            None
+                        )
+                        if process_info:
+                            full_name = f"{process_info['group']}:{process}"
+                            conn.supervisor.stopProcess(full_name)
+                            print(f"Stopped process [b green]{process}[/b green] in {service_name}")
+                    else:
+                        raise
         else:
             conn.supervisor.stopAllProcesses()
-            print(f"Stopped [b green]{service_name}")
+            print(f"Stopped all processes in [b green]{service_name}[/b green]")
     except Fault as e:
         handle_fault(e)
 
@@ -143,31 +145,38 @@ def get_service_info(service_name):
     try:
         processes = conn.supervisor.getAllProcessInfo()
         for process in processes:
-            status_table = Table(
+            # Create a subtree for each process
+            process_name = process.get('name')
+            state = process.get('statename', 'UNKNOWN')
+            state_color = 'green' if state == 'RUNNING' else 'red'
+            
+            process_tree = root.add(f"[b cyan]Process:[/b cyan] [b]{process_name}[/b] ([{state_color}]{state}[/{state_color}])")
+            
+            # Add process details as children
+            details_table = Table(
                 show_lines=False,
                 show_edge=False,
                 pad_edge=False,
                 show_header=False,
                 box=None,
             )
-            status_table.add_column(style="bold")
-            status_table.add_column()
+            details_table.add_column(style="bold")
+            details_table.add_column()
 
             fields = [
-                ("name", "name"),
-                ("statename", "state"),
-                ("stdout_logfile", "stdout"),
-                ("stderr_logfile", "stderr"),
-                ("description", "status"),
+                ("group", "Group"),
+                ("pid", "PID"),
+                ("stdout_logfile", "Stdout"),
+                ("stderr_logfile", "Stderr"),
+                ("description", "Description"),
             ]
+            
             for field, label in fields:
                 value = process.get(field)
                 if value:
-                    status_table.add_row(
-                        label, f"[bold]{value}[/bold]" if label == "name" else value
-                    )
-
-            root.add(status_table)
+                    details_table.add_row(label, str(value))
+            
+            process_tree.add(details_table)
     except Fault as e:
         root.add(f"Supervisord encountered an error: '{e.faultString}'. Please retry.")
     return root
@@ -193,9 +202,6 @@ def stop(
 ):
     """Stop Frappe-Manager managed services. If no services specified, stops all."""
     services_to_stop = get_service_names() if service_names is None else [s.value for s in service_names]
-    
-    if service_names is None:
-        rich.print(" Process names will not be considered when stopping all services.")
     
     max_workers = min(len(services_to_stop), os.cpu_count() or 1)
     

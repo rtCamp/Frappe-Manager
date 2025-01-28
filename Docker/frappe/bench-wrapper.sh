@@ -1,9 +1,10 @@
 #!/bin/bash
 restart_command() {
-      supervisorctl -c /opt/user/supervisord.conf restart all
+      fm-helper restart
 }
+
 status_command() {
-      supervisorctl -c /opt/user/supervisord.conf status all
+      fm-helper status
 }
 
 if [[ "$@" =~ ^restart[[:space:]]* ]]; then
