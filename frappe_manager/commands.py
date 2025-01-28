@@ -92,7 +92,7 @@ def app_callback(
         global logger
         logger = log.get_logger()
         logger.info("")
-        logger.info(f"{':'*20}FM Invoked{':'*20}")
+        logger.info(f"{':' * 20}FM Invoked{':' * 20}")
         logger.info("")
 
         # logging command provided by user
@@ -344,40 +344,18 @@ def start(
     ] = None,
     force: Annotated[bool, typer.Option("--force", "-f", help="Force recreate bench containers")] = False,
     sync_bench_config_changes: Annotated[
-        bool, 
-        typer.Option(
-            "--sync-config", 
-            help="Sync bench configuration changes"
-        )
+        bool, typer.Option("--sync-config", help="Sync bench configuration changes")
     ] = False,
     reconfigure_supervisor: Annotated[
-        bool,
-        typer.Option(
-            "--reconfigure-supervisor",
-            help="Reconfigure supervisord configuration"
-        )
+        bool, typer.Option("--reconfigure-supervisor", help="Reconfigure supervisord configuration")
     ] = False,
     reconfigure_common_site_config: Annotated[
-        bool,
-        typer.Option(
-            "--reconfigure-common-site-config",
-            help="Reconfigure common_site_config.json"
-        )
+        bool, typer.Option("--reconfigure-common-site-config", help="Reconfigure common_site_config.json")
     ] = False,
     reconfigure_workers: Annotated[
-        bool,
-        typer.Option(
-            "--reconfigure-workers",
-            help="Reconfigure workers configuration"
-        )
+        bool, typer.Option("--reconfigure-workers", help="Reconfigure workers configuration")
     ] = False,
-    sync_dev_packages: Annotated[
-        bool,
-        typer.Option(
-            "--sync-dev-packages",
-            help="Sync dev packages"
-        )
-    ] = False,
+    sync_dev_packages: Annotated[bool, typer.Option("--sync-dev-packages", help="Sync dev packages")] = False,
 ):
     """Start a bench."""
 
@@ -385,8 +363,15 @@ def start(
     verbose = ctx.obj['verbose']
     bench = Bench.get_object(benchname, services_manager)
 
-    bench.start(force=force,sync_bench_config_changes=sync_bench_config_changes,reconfigure_workers=reconfigure_workers, reconfigure_common_site_config=reconfigure_common_site_config, reconfigure_supervisor=reconfigure_supervisor, sync_dev_packages=sync_dev_packages)
-    
+    bench.start(
+        force=force,
+        sync_bench_config_changes=sync_bench_config_changes,
+        reconfigure_workers=reconfigure_workers,
+        reconfigure_common_site_config=reconfigure_common_site_config,
+        reconfigure_supervisor=reconfigure_supervisor,
+        sync_dev_packages=sync_dev_packages,
+    )
+
 
 @app.command()
 def stop(
@@ -542,7 +527,9 @@ def update(
     ] = None,
     mailhog_as_default_mail_server: Annotated[
         bool,
-        typer.Option("--mailhog-as-default-mail-server", help="Configure Mailhog as default mail server", show_default=False),
+        typer.Option(
+            "--mailhog-as-default-mail-server", help="Configure Mailhog as default mail server", show_default=False
+        ),
     ] = False,
 ):
     """Update bench."""
@@ -737,14 +724,16 @@ def ngrok(
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
 
     richprint.start("Setting up ngrok tunnel")
-    
+
     # Use token from config if available and no token provided
     if not auth_token and fm_config_manager.ngrok_auth_token:
         auth_token = fm_config_manager.ngrok_auth_token
         richprint.print("Using ngrok auth token from config file", emoji_code=":key:")
     elif not auth_token:
-        richprint.exit("Ngrok auth token is required. Please provide it with --auth-token or set NGROK_AUTHTOKEN environment variable.")
-    
+        richprint.exit(
+            "Ngrok auth token is required. Please provide it with --auth-token or set NGROK_AUTHTOKEN environment variable."
+        )
+
     # If token provided and not in config, ask to save
     if auth_token and not fm_config_manager.ngrok_auth_token:
         richprint.print("New auth token provided", emoji_code=":new:")

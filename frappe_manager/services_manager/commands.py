@@ -6,6 +6,7 @@ from frappe_manager.services_manager import ServicesEnum
 
 services_root_command = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
 
+
 @services_root_command.command(no_args_is_help=True)
 def stop(
     ctx: typer.Context,
@@ -40,7 +41,6 @@ def start(
     services_manager: ServicesManager = ctx.obj["services"]
 
     if service_name.value == ServicesEnum.all:
-
         for service in ServicesEnum:
             if service == ServicesEnum.all:
                 continue
@@ -57,6 +57,7 @@ def start(
         else:
             richprint.print(f"Skipping already running service {service_name.value}.")
 
+
 @services_root_command.command(no_args_is_help=True)
 def restart(
     ctx: typer.Context,
@@ -66,7 +67,6 @@ def restart(
     services_manager: ServicesManager = ctx.obj["services"]
 
     if service_name.value == ServicesEnum.all:
-
         for service in ServicesEnum:
             if service == ServicesEnum.all:
                 continue

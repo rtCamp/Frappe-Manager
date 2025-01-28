@@ -213,7 +213,7 @@ class BenchOperationException(BenchException):
 
         to_print = []
 
-        box: Box = Box("╭   \n" "    \n" " ── \n" "│   \n" "    \n" "    \n" " |  \n" "    \n", ascii=True)
+        box: Box = Box("╭   \n    \n ── \n│   \n    \n    \n |  \n    \n", ascii=True)
 
         if self.print_stdout:
             panel = Panel.fit(

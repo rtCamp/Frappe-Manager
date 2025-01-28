@@ -21,14 +21,14 @@ class DockerException(Exception):
 
         if self.output.stdout:
             stdout_output = "\n".join(self.output.stdout)
-            error_msg += f"The content of stdout is \n{'--'*10}\n'{stdout_output}'\n"
+            error_msg += f"The content of stdout is \n{'--' * 10}\n'{stdout_output}'\n"
         else:
-            error_msg += "The content of stdout can be found above the " "stacktrace (it wasn't captured).\n"
+            error_msg += "The content of stdout can be found above the stacktrace (it wasn't captured).\n"
 
         if self.output.stderr:
             stderr_output = "\n".join(self.output.stderr)
-            error_msg += f"The content of stderr is \n{'--'*10}\n'{stderr_output}'\n"
+            error_msg += f"The content of stderr is \n{'--' * 10}\n'{stderr_output}'\n"
         else:
-            error_msg += "The content of stderr can be found above the " "stacktrace (it wasn't captured)."
+            error_msg += "The content of stderr can be found above the stacktrace (it wasn't captured)."
 
         super().__init__(error_msg)

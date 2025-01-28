@@ -258,7 +258,7 @@ class ComposeFile:
         for service in users.keys():
             self.set_user(service, users[service]["uid"], users[service]["gid"])
 
-    def get_all_envs(self) -> dict[Any,Any]:
+    def get_all_envs(self) -> dict[Any, Any]:
         """
         Retrieves all the environment variables for each service in the Compose file.
 
@@ -515,11 +515,11 @@ class ComposeFile:
         """
         try:
             # Convert DockerVolumeMount objects to strings
-            volumes_list = [str(volume) for volume in self.yml.get('volumes',[])]
+            volumes_list = [str(volume) for volume in self.yml.get('volumes', [])]
 
             if volumes_list:
                 for volume in volumes_list:
-                    volume_name = volume.replace('-',CLI_SITE_NAME_DELIMETER)
+                    volume_name = volume.replace('-', CLI_SITE_NAME_DELIMETER)
                     # Set the volumes for the service
                     self.yml["volumes"][volume]['name'] = volume_prefix + CLI_DEFAULT_DELIMETER + volume_name
         except KeyError as e:

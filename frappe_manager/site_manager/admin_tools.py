@@ -30,7 +30,9 @@ class AdminTools:
 
         self.compose_project.compose_file_manager.yml = self.compose_project.compose_file_manager.load_template()
         self.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(self.bench_name))
-        self.compose_project.compose_file_manager.set_root_networks_name('site-network', get_container_name_prefix(self.bench_name))
+        self.compose_project.compose_file_manager.set_root_networks_name(
+            'site-network', get_container_name_prefix(self.bench_name)
+        )
         self.compose_project.compose_file_manager.set_version(get_current_fm_version())
         self.compose_project.compose_file_manager.write_to_file()
 
@@ -43,18 +45,18 @@ class AdminTools:
         """Generate htpasswd entry for basic auth"""
         import secrets
         import crypt
-        
+
         # Use existing credentials from bench config or generate new ones
         username = self.bench.bench_config.admin_tools_username or "admin"
         password = self.bench.bench_config.admin_tools_password
-        
+
         if not password:
             password = secrets.token_urlsafe(16)
             # Store new credentials in bench config
             self.bench.bench_config.admin_tools_username = username
             self.bench.bench_config.admin_tools_password = password
             self.bench.save_bench_config()
-        
+
         salt = crypt.mksalt()
         hashed = crypt.crypt(password, salt)
         return f"{username}:{hashed}"
@@ -65,7 +67,6 @@ class AdminTools:
 
         # Generate and save htpasswd file
         auth_file = self.http_auth_path / f'{self.bench_name}-admin-tools.htpasswd'
-
 
         if not self.http_auth_path.exists():
             self.http_auth_path.mkdir(exist_ok=True)
@@ -98,9 +99,9 @@ class AdminTools:
         auth_file = self.http_auth_path / f'{self.bench_name}-admin-tools.htpasswd'
         if auth_file.exists():
             auth_file.unlink()
-            
+
         # Remove credentials from bench config
-        self.bench.bench_config.admin_tools_username = None 
+        self.bench.bench_config.admin_tools_username = None
         self.bench.bench_config.admin_tools_password = None
         self.bench.save_bench_config()
 

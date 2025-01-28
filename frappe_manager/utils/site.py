@@ -64,11 +64,9 @@ def create_service_element(service, running_status):
 
 
 def parse_docker_volume(volume_string: str, root_volumes: dict, compose_path: Path):
-
     string_parts = volume_string.split(':')
 
     if len(string_parts) > 1:
-
         src = string_parts[0]
         dest = string_parts[0]
 
@@ -172,7 +170,7 @@ def validate_sitename(sitename: str) -> str:
 def get_bench_db_connection_info(bench_name: str, bench_path: Path):
     db_info = {}
     site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / bench_name / "site_config.json"
-    common_site_config_file = bench_path/ "workspace" / "frappe-bench" / "sites" / 'common_site_config.json'
+    common_site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / 'common_site_config.json'
 
     if common_site_config_file.exists():
         with open(common_site_config_file, "r") as f:

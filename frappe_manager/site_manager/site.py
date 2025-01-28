@@ -351,7 +351,7 @@ class Bench:
         richprint.change_head("Creating required directories")
 
         frappe_image: str = self.compose_project.compose_file_manager.yml["services"]["frappe"]["image"]
-        frappe_image = frappe_image.replace('-frappe','-prebake')
+        frappe_image = frappe_image.replace('-frappe', '-prebake')
 
         workspace_path = self.path / "workspace"
         workspace_path_abs = str(workspace_path.absolute())
@@ -394,14 +394,15 @@ class Bench:
 
         return True
 
-    def start(self,
-         force: bool = False,
-         sync_bench_config_changes: bool = False,
-         reconfigure_workers: bool = False,
-         reconfigure_supervisor: bool = False ,
-         reconfigure_common_site_config: bool = False,
-         sync_dev_packages: bool = False,
-        ):
+    def start(
+        self,
+        force: bool = False,
+        sync_bench_config_changes: bool = False,
+        reconfigure_workers: bool = False,
+        reconfigure_supervisor: bool = False,
+        reconfigure_common_site_config: bool = False,
+        sync_dev_packages: bool = False,
+    ):
         """
         Starts the bench.
         """
@@ -745,33 +746,23 @@ class Bench:
             data['Admin Tools'] = 'Not Enabled'
         else:
             # Create main admin tools table
-            admin_tools_Table = Table(
-                show_lines=False,
-                show_edge=False,
-                pad_edge=False,
-                expand=True
-            )
+            admin_tools_Table = Table(show_lines=False, show_edge=False, pad_edge=False, expand=True)
             admin_tools_Table.add_column("Service", style="cyan")
             admin_tools_Table.add_column("URL", style="blue")
 
             # Get auth credentials
             username = self.bench_config.admin_tools_username or "admin"
             password = self.bench_config.admin_tools_password or "protected"
-            
+
             # Create auth info section
             auth_info = f"\nAuthentication Required:\n  Username: [cyan]{username}[/cyan]\n  Password: [green]{password}[/green]"
 
-            admin_tools_Table.add_row(
-                "Mailhog",
-                f"{protocol}://{self.name}/mailhog"
-            )
-            admin_tools_Table.add_row(
-                "Adminer",
-                f"{protocol}://{self.name}/adminer"
-            )
-            
+            admin_tools_Table.add_row("Mailhog", f"{protocol}://{self.name}/mailhog")
+            admin_tools_Table.add_row("Adminer", f"{protocol}://{self.name}/adminer")
+
             # Combine table and auth info
             from rich.console import Group
+
             data['Admin Tools'] = Group(admin_tools_Table, auth_info)
 
         bench_info_table.add_column(no_wrap=True)
@@ -1172,7 +1163,7 @@ class Bench:
         if not self.is_supervisord_running():
             raise BenchFrappeServiceSupervisorNotRunning(self.name)
 
-        frappe_workspace_path: str  = "workspace/frappe-bench/config/fm-supervisord-sockets/frappe.sock"
+        frappe_workspace_path: str = "workspace/frappe-bench/config/fm-supervisord-sockets/frappe.sock"
         frappe_supervisor_socket_location = self.path / frappe_workspace_path
 
         supervisorctl_command = f"supervisorctl -s unix:///{frappe_workspace_path} "
@@ -1184,12 +1175,10 @@ class Bench:
             time.sleep(interval)
         else:
             raise BenchOperationException(
-                self.name,
-                message=f'Supervisor socket for frappe service not available after waiting {timeout} seconds'
+                self.name, message=f'Supervisor socket for frappe service not available after waiting {timeout} seconds'
             )
 
         if self.bench_config.environment_type == FMBenchEnvType.dev:
-
             richprint.change_head(f"Configuring and starting {self.bench_config.environment_type.value} services")
 
             stop_command = supervisorctl_command + "stop all"
@@ -1204,7 +1193,7 @@ class Bench:
             reread_command = supervisorctl_command + "reread"
             self.frappe_service_run_command(reread_command)
 
-            update_command = supervisorctl_command +  "update"
+            update_command = supervisorctl_command + "update"
             self.frappe_service_run_command(update_command)
 
             start_command = supervisorctl_command + "start all"
@@ -1213,7 +1202,6 @@ class Bench:
             richprint.print(f"Configured and Started {self.bench_config.environment_type.value} services.")
 
         elif self.bench_config.environment_type == FMBenchEnvType.prod:
-
             richprint.change_head(f"Configuring and starting {self.bench_config.environment_type.value} services")
 
             stop_command = supervisorctl_command + "stop all"
@@ -1222,13 +1210,15 @@ class Bench:
             unlink_command = 'rm -rf /opt/user/conf.d/frappe-dev.conf'
             self.frappe_service_run_command(unlink_command)
 
-            link_command = 'ln -sfn /workspace/frappe-bench/config/web.fm.supervisor.conf /opt/user/conf.d/web.fm.supervisor.conf'
+            link_command = (
+                'ln -sfn /workspace/frappe-bench/config/web.fm.supervisor.conf /opt/user/conf.d/web.fm.supervisor.conf'
+            )
             self.frappe_service_run_command(link_command)
 
             reread_command = supervisorctl_command + "reread"
             self.frappe_service_run_command(reread_command)
 
-            update_command = supervisorctl_command +  "update"
+            update_command = supervisorctl_command + "update"
             self.frappe_service_run_command(update_command)
 
             start_command = supervisorctl_command + "start all"
@@ -1277,8 +1267,12 @@ class Bench:
 
         richprint.print(f"Reset bench site {self.name}")
 
-    def restart_supervisor_service(self, service: str, compose_project_obj: Optional[ComposeProject] = None, timeout: int = 30, interval: int = 1):
-        supervisor_socket_location = self.path / "workspace/frappe-bench/config/fm-supervisord-sockets" / f"{service}.sock"
+    def restart_supervisor_service(
+        self, service: str, compose_project_obj: Optional[ComposeProject] = None, timeout: int = 30, interval: int = 1
+    ):
+        supervisor_socket_location = (
+            self.path / "workspace/frappe-bench/config/fm-supervisord-sockets" / f"{service}.sock"
+        )
 
         # Wait for supervisor socket file to be created
         for _ in range(timeout):
@@ -1287,8 +1281,7 @@ class Bench:
             time.sleep(interval)
         else:
             raise BenchOperationException(
-                self.name,
-                message=f'Supervisor socket for {service} service not created after {timeout} seconds'
+                self.name, message=f'Supervisor socket for {service} service not created after {timeout} seconds'
             )
 
         restart_supervisor_command = 'supervisorctl -c /opt/user/supervisord.conf restart all'

@@ -47,16 +47,23 @@ class ServicesManager:
     def entrypoint_checks(self, start=False):
         if not self.path.exists():
             try:
-                richprint.print(f"Creating global services [blue]{', '.join(self.compose_project.compose_file_manager.get_services_list())}[/blue].", emoji_code=":construction:")
+                richprint.print(
+                    f"Creating global services [blue]{', '.join(self.compose_project.compose_file_manager.get_services_list())}[/blue].",
+                    emoji_code=":construction:",
+                )
                 self.path.mkdir(parents=True, exist_ok=True)
                 self.create(clean_install=True)
 
             except Exception as e:
-                raise ServicesNotCreated(f"Not able to create global services [blue]{', '.join(self.compose_project.compose_file_manager.get_services_list())}[/blue].")
+                raise ServicesNotCreated(
+                    f"Not able to create global services [blue]{', '.join(self.compose_project.compose_file_manager.get_services_list())}[/blue]."
+                )
 
             self.compose_project.pull_images()
 
-            richprint.print(f"Created global services [blue]{', '.join(self.compose_project.compose_file_manager.get_services_list())}[/blue].")
+            richprint.print(
+                f"Created global services [blue]{', '.join(self.compose_project.compose_file_manager.get_services_list())}[/blue]."
+            )
 
             if start:
                 self.compose_project.start_service()
@@ -68,12 +75,12 @@ class ServicesManager:
 
         if start:
             if not self.typer_context.invoked_subcommand == "service":
-
                 if not self.compose_project.running:
                     self.are_ports_free()
-                    richprint.print(f"Started non running global services [blue]{', '.join(self.compose_project.compose_file_manager.get_services_list())}[/blue].")
+                    richprint.print(
+                        f"Started non running global services [blue]{', '.join(self.compose_project.compose_file_manager.get_services_list())}[/blue]."
+                    )
                     self.compose_project.start_service()
-
 
         self.database_manager: DatabaseServiceManager = MariaDBManager(
             DatabaseServerServiceInfo.import_from_compose_file('global-db', self.compose_project), self.compose_project

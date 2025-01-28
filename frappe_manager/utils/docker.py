@@ -36,7 +36,7 @@ def reader(pipe, pipe_name, queue):
 def stream_stdout_and_stderr(
     full_cmd: list,
     cwd: Optional[str] = None,
-    logger: Optional[Logger] =  None,
+    logger: Optional[Logger] = None,
     env: Optional[Dict[str, str]] = None,
 ) -> Iterable[Tuple[str, bytes]]:
     """

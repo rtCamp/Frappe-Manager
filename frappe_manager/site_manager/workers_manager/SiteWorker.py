@@ -87,9 +87,9 @@ class BenchWorkers:
             worker_config = deepcopy(template_worker_config)
 
             # setting environments
-            worker_config["environment"]["SUPERVISOR_SERVICE_CONFIG_FILE_NAME"] = str(worker_config["environment"]["SUPERVISOR_SERVICE_CONFIG_FILE_NAME"]).replace(
-                "{worker-name}", worker
-            )
+            worker_config["environment"]["SUPERVISOR_SERVICE_CONFIG_FILE_NAME"] = str(
+                worker_config["environment"]["SUPERVISOR_SERVICE_CONFIG_FILE_NAME"]
+            ).replace("{worker-name}", worker)
             worker_config["environment"]["USERID"] = os.getuid()
             worker_config["environment"]["USERGROUP"] = os.getgid()
             worker_config["environment"]["SERVICE_NAME"] = worker
@@ -99,7 +99,9 @@ class BenchWorkers:
         self.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(self.bench.name))
 
         self.compose_project.compose_file_manager.set_version(get_current_fm_version())
-        self.compose_project.compose_file_manager.set_root_networks_name('site-network', get_container_name_prefix(self.bench.name))
+        self.compose_project.compose_file_manager.set_root_networks_name(
+            'site-network', get_container_name_prefix(self.bench.name)
+        )
         # self.compose_project.compose_file_manager.yml["networks"]["site-network"]["name"] = (
         #     get_container_name_prefix(self.bench.name) + f"-network"
         # )

@@ -28,7 +28,6 @@ class BenchOperations:
         self.frappe_bench_dir: Path = self.bench.path / "workspace" / "frappe-bench"
 
     def create_fm_bench(self):
-
         richprint.change_head("Configuring common_site_config.json")
         common_site_config_data = self.bench.bench_config.get_commmon_site_config_data(
             self.bench.services.database_manager.database_server_info
@@ -116,7 +115,6 @@ class BenchOperations:
         service: str = 'frappe',
         compose_project_obj: Optional[ComposeProject] = None,
     ):
-
         if compose_project_obj:
             compose_project: ComposeProject = compose_project_obj
         else:
@@ -195,7 +193,6 @@ class BenchOperations:
                 section_config = configparser.ConfigParser(interpolation=None)
                 section_config.add_section(section_name)
                 for key, value in config.items(section_name):
-
                     if handle_symlink_frappe_dir:
                         to_replace = str(self.frappe_bench_dir.readlink())
 
@@ -395,7 +392,6 @@ class BenchOperations:
             raise BenchOperationRequiredDockerImagesNotAvailable(self.bench.name, 'fm self update images')
 
     def reset_bench_site(self, admin_password: str):
-
         global_db_info = self.bench.services.database_manager.database_server_info
         reset_bench_site_command = self.bench_cli_cmd + ["--site", self.bench.name]
         reset_bench_site_command += ['reinstall', '--admin-password', admin_password]

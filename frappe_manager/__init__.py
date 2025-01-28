@@ -10,16 +10,20 @@ from rich.panel import Panel
 # save the function so that recurssion doesn't occur
 rich_format_help_original = ut.rich_format_help
 
+
 def print_fm_examples(*, obj, ctx, markup_mode):
     # utilising the original saved function
     rich_format_help_original(obj=obj, ctx=ctx, markup_mode=markup_mode)
 
     commands_stack = ctx.command_path.split(' ')[1:]
 
-    new_doc = get_examples_from_toml(commands_stack=commands_stack, frappe_version=STABLE_APP_BRANCH_MAPPING_LIST["frappe"])
+    new_doc = get_examples_from_toml(
+        commands_stack=commands_stack, frappe_version=STABLE_APP_BRANCH_MAPPING_LIST["frappe"]
+    )
 
     if new_doc:
         import rich
+
         rich.print(
             Panel(
                 new_doc,
@@ -29,6 +33,7 @@ def print_fm_examples(*, obj, ctx, markup_mode):
                 title_align=ut.ALIGN_OPTIONS_PANEL,
             )
         )
+
 
 ut.rich_format_help = print_fm_examples
 
@@ -54,21 +59,18 @@ DEFAULT_EXTENSIONS = [
     # Debugger
     "ms-python.debugpy",
     "rioj7.command-variable"
-
     # Python
     "ms-python.python",
     "charliermarsh.ruff",
-
     # JavaScript/Web
     "dbaeumer.vscode-eslint",
     "esbenp.prettier-vscode",
-    
     # General Development
     "eamodio.gitlens",
     "MS-vsliveshare.vsliveshare",
     "visualstudioexptteam.vscodeintellicode",
     "christian-kohler.path-intellisense",
-    "streetsidesoftware.code-spell-checker"
+    "streetsidesoftware.code-spell-checker",
 ]
 
 
