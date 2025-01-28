@@ -84,58 +84,62 @@ def handle_fault(e):
         print(f"Supervisord encountered an error: '{e.faultString}'. Please retry.")
 
 
-def stop_service(service_name, process_name_list=[]):
+def execute_supervisor_command(service_name, action, process_names=None, force=False):
+    """Execute supervisor commands with proper error handling"""
     if not is_supervisord_running(service_name):
         print(f"[red]Error:[/red] Supervisord not running for {service_name}")
-        return
+        return None
+        
     conn = get_xml_connection(service_name)
     try:
-        if process_name_list:
-            for process in process_name_list:
-                try:
-                    # Try stopping the process directly with its name
-                    conn.supervisor.stopProcess(process)
-                    print(f"Stopped process [b green]{process}[/b green] in {service_name}")
-                except Fault as e:
-                    if "BAD_NAME" in e.faultString:
-                        # If that fails, try with group:name format
-                        processes_info = conn.supervisor.getAllProcessInfo()
-                        process_info = next(
-                            (info for info in processes_info if info["name"] == process),
-                            None
-                        )
-                        if process_info:
-                            full_name = f"{process_info['group']}:{process}"
-                            conn.supervisor.stopProcess(full_name)
-                            print(f"Stopped process [b green]{process}[/b green] in {service_name}")
-                    else:
-                        raise
-        else:
-            conn.supervisor.stopAllProcesses()
-            print(f"Stopped all processes in [b green]{service_name}[/b green]")
+        if action == "stop":
+            if process_names:
+                for process in process_names:
+                    try:
+                        conn.supervisor.stopProcess(process)
+                        print(f"Stopped process [b green]{process}[/b green] in {service_name}")
+                    except Fault as e:
+                        if "BAD_NAME" in e.faultString:
+                            processes_info = conn.supervisor.getAllProcessInfo()
+                            process_info = next(
+                                (info for info in processes_info if info["name"] == process),
+                                None
+                            )
+                            if process_info:
+                                full_name = f"{process_info['group']}:{process}"
+                                conn.supervisor.stopProcess(full_name)
+                                print(f"Stopped process [b green]{process}[/b green] in {service_name}")
+            else:
+                conn.supervisor.stopAllProcesses()
+                print(f"Stopped all processes in [b green]{service_name}[/b green]")
+        
+        elif action == "restart":
+            if force:
+                if conn.supervisor.restart():
+                    print(f"Restarted [b green]{service_name}")
+                else:
+                    print("Supervisord encountered an error during restart. Please retry.")
+            else:
+                rich.print(f"[b blue]{service_name}[/b blue] - Stopping all processes")
+                conn.supervisor.stopAllProcesses()
+                rich.print(f"[b blue]{service_name}[/b blue] - Starting all processes")
+                conn.supervisor.startAllProcesses()
+        
+        elif action == "info":
+            return conn.supervisor.getAllProcessInfo()
+            
     except Fault as e:
         handle_fault(e)
+    except Exception as e:
+        print(f"[red]Error executing {action} on {service_name}: {str(e)}[/red]")
+    
+    return None
 
+def stop_service(service_name, process_name_list=[]):
+    execute_supervisor_command(service_name, "stop", process_names=process_name_list)
 
 def restart_service(service_name, force=False):
-    if not is_supervisord_running(service_name):
-        print(f"[red]Error:[/red] Supervisord not running for {service_name}")
-        return
-    conn = get_xml_connection(service_name)
-    try:
-        if force:
-            if conn.supervisor.restart():
-                print(f"Restarted [b green]{service_name}")
-            else:
-                print("Supervisord encountered an error during restart. Please retry.")
-        else:
-            rich.print(f"[b blue]{service_name}[/b blue] - Stopping all processes")
-            conn.supervisor.stopAllProcesses()
-            rich.print(f"[b blue]{service_name}[/b blue] - Starting all processes")
-            conn.supervisor.startAllProcesses()
-    except Fault as e:
-        handle_fault(e)
-
+    execute_supervisor_command(service_name, "restart", force=force)
 
 def get_service_info(service_name):
     if not is_supervisord_running(service_name):
@@ -185,6 +189,26 @@ def get_service_info(service_name):
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
 
 
+def execute_parallel_command(services, command_func, **kwargs):
+    """Execute a command in parallel across multiple services"""
+    max_workers = min(len(services), os.cpu_count() or 1)
+    
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_service = {
+            executor.submit(command_func, service, **kwargs): service 
+            for service in services
+        }
+        
+        for future in as_completed(future_to_service):
+            service = future_to_service[future]
+            try:
+                result = future.result()
+                if result is not None:  # For status command
+                    print(result)
+                    print()
+            except Exception as e:
+                print(f"[red]Error processing {service}: {str(e)}[/red]")
+
 @app.command()
 def stop(
     service_names: Annotated[
@@ -201,23 +225,8 @@ def stop(
     ] = [],
 ):
     """Stop Frappe-Manager managed services. If no services specified, stops all."""
-    services_to_stop = get_service_names() if service_names is None else [s.value for s in service_names]
-    
-    max_workers = min(len(services_to_stop), os.cpu_count() or 1)
-    
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        future_to_service = {
-            executor.submit(stop_service, service, process_name): service 
-            for service in services_to_stop
-        }
-        
-        for future in as_completed(future_to_service):
-            service = future_to_service[future]
-            try:
-                future.result()
-            except Exception as e:
-                print(f"[red]Error stopping {service}: {str(e)}[/red]")
-
+    services = get_service_names() if service_names is None else [s.value for s in service_names]
+    execute_parallel_command(services, stop_service, process_name_list=process_name)
 
 @app.command()
 def restart(
@@ -233,27 +242,8 @@ def restart(
     ] = False,
 ):
     """Restart or Start Frappe-Manager managed services. If no services specified, restarts all."""
-    services_to_restart = get_service_names() if service_names is None else [s.value for s in service_names]
-    
-    # Dynamically set max_workers based on number of services
-    # Use min to avoid creating too many threads
-    max_workers = min(len(services_to_restart), os.cpu_count() or 1)
-    
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all restart tasks
-        future_to_service = {
-            executor.submit(restart_service, service, force): service 
-            for service in services_to_restart
-        }
-        
-        # Process results as they complete
-        for future in as_completed(future_to_service):
-            service = future_to_service[future]
-            try:
-                future.result()  # This will raise any exceptions that occurred
-            except Exception as e:
-                print(f"[red]Error restarting {service}: {str(e)}[/red]")
-
+    services = get_service_names() if service_names is None else [s.value for s in service_names]
+    execute_parallel_command(services, restart_service, force=force)
 
 @app.command()
 def status(
@@ -263,26 +253,8 @@ def status(
     ] = None,
 ):
     """Shows Frappe-Manager managed services status. If no service specified, shows all."""
-    services_to_check = [service_name.value] if service_name is not None else get_service_names()
-    
-    max_workers = min(len(services_to_check), os.cpu_count() or 1)
-    
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        # Submit all status check tasks
-        future_to_service = {
-            executor.submit(get_service_info, service): service 
-            for service in services_to_check
-        }
-        
-        # Process and print results as they complete
-        for future in as_completed(future_to_service):
-            service = future_to_service[future]
-            try:
-                result = future.result()
-                print(result)
-                print()
-            except Exception as e:
-                print(f"[red]Error getting status for {service}: {str(e)}[/red]")
+    services = [service_name.value] if service_name is not None else get_service_names()
+    execute_parallel_command(services, get_service_info)
 
 
 if __name__ == "__main__":
