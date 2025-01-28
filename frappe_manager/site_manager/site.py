@@ -496,7 +496,7 @@ class Bench:
                     if "INFO supervisord started with pid".lower() in line.lower():
                         break
 
-    def stop(self) -> bool:
+    def stop(self):
         """
         Stop the site by stopping the containers.
 
@@ -976,10 +976,13 @@ class Bench:
             self.compose_project.start_service(['frappe'])
             self.switch_bench_env()
 
+        # Clean workdir path
+        workdir = workdir.strip('/')
+
         # sync debugger files
-        if debugger:
+        if debugger and workdir.startswith('workspace'):
             richprint.change_head("Sync vscode debugger configuration")
-            dot_vscode_dir = self.path / "workspace" / "frappe-bench" / ".vscode"
+            dot_vscode_dir = self.path / workdir / ".vscode"
             tasks_json_path = dot_vscode_dir / "tasks"
             launch_json_path = dot_vscode_dir / "launch"
             setting_json_path = dot_vscode_dir / "settings"
@@ -1005,6 +1008,8 @@ class Bench:
 
                 with open(real_file_path, "w+") as f:
                     f.write(json.dumps(dot_vscode_config[file_path], indent=4, sort_keys=True))
+        elif debugger:
+            richprint.warning("Debugger configuration is only supported for workspace directory")
 
             # install ruff in env
             try:

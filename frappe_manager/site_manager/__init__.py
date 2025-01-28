@@ -70,7 +70,7 @@ VSCODE_TASKS_JSON = {
             "label": "fm-kill-port",
             "type": "shell",
             "command": "/bin/bash",
-            "args": ["-c", "supervisorctl -c /opt/user/supervisord.conf stop all && sleep 2"],
+            "args": ["-c", "fm-helper stop frappe && sleep 2"],
             "presentation": {"reveal": "never", "panel": "dedicated"},
             "options": {"ignoreExitCode": True},
             "problemMatcher": [],
