@@ -1,27 +1,51 @@
-# Frappe Manager
+<div align="center">
+
+# 🚀 Frappe Manager
+
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Docker](https://img.shields.io/badge/docker-%230db7ed.svg?logo=docker&logoColor=white)](https://www.docker.com/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![PyPI version](https://badge.fury.io/py/frappe-manager.svg)](https://badge.fury.io/py/frappe-manager)
 
 A powerful CLI tool that simplifies managing Frappe-based applications using Docker. Designed for developers and system administrators, Frappe Manager (FM) streamlines the entire lifecycle of Frappe applications from development to deployment.
 
+</div>
+
 ![Frappe-Manager-Create-Site.svg](https://user-images.githubusercontent.com/28294795/283108791-0237d05a-2562-48be-987b-037a200d71a3.svg)
 
-## Features
+## ✨ Features
 
-- **Easy Setup**: Get a new Frappe environment running in minutes
-- **Docker-Based**: Consistent environments across all platforms
-- **Multi-Site Support**: Manage multiple Frappe sites from one interface
-- **Development Tools**:
-  - VSCode integration with debugger support
-  - Hot-reload for rapid development
-  - Automatic environment switching between dev/prod
-- **SSL Management**: Built-in Let's Encrypt integration
-- **Admin Tools**:
-  - Mailpit for email testing
-  - Redis Queue Dashboard
-  - Database management interface
-- **Process Management**: 
-  - Supervisor integration for process control
-  - Easy service restarts and monitoring
-- **Extensible**: Support for custom apps and configurations
+🔥 **Easy Setup**
+- Get a new Frappe environment running in minutes
+- Zero configuration needed
+
+🐳 **Docker-Based**
+- Consistent environments across all platforms
+- Isolated development environments
+
+🌐 **Multi-Bench Support**
+- Manage multiple Frappe benches from one server
+
+👨‍💻 **Development Tools**
+- VSCode integration with debugger support
+- Automatic environment switching between dev/prod
+
+🔒 **SSL Management**
+- Built-in Let's Encrypt integration
+- Automatic certificate renewal
+
+🛠️ **Admin Tools**
+- Mailpit for email testing
+- Redis Queue Dashboard
+- Database management interface
+
+⚙️ **Process Management**
+- Supervisor integration for process control
+- Easy service restarts and monitoring
+
+🔌 **Extensible**
+- Support for custom apps and configurations
+- Plugin architecture
 
 ## Requirements
 
@@ -81,10 +105,6 @@ Visit our [Wiki](https://github.com/rtCamp/Frappe-Manager/wiki) for:
 - Configuration guides
 - Best practices
 - Troubleshooting
-
-## Contributing
-
-We welcome contributions! See our [Contributing Guide](CONTRIBUTING.md) for details.
 
 ## Credits
 
