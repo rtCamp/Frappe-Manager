@@ -39,6 +39,10 @@ jobs:
           fi
           echo "Checkout $latest_tag"
           git checkout "$latest_tag"
+          tag=$( cat "$GITHUB_WORKSPACE/Docker/images-tag.json" | jq -rc .${{ matrix.service_name }})
+
+          echo "Image tag $tag"
+          echo "image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -56,12 +60,7 @@ jobs:
         if: matrix.service_name == 'frappe'
         run: |
           owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
-
-
           tag=$( cat "$GITHUB_WORKSPACE/Docker/images-tag.json" | jq -rc .${{ matrix.service_name }})
-
-          echo "Image tag $tag"
-          echo "image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
           echo "prebake_image_name=ghcr.io/${owner}/frappe-manager-prebake:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
           echo "fm_image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
 
@@ -122,6 +121,10 @@ jobs:
           fi
           echo "Checkout $latest_tag"
           git checkout "$latest_tag"
+          tag=$( cat "$GITHUB_WORKSPACE/Docker/images-tag.json" | jq -rc .${{ matrix.service_name }})
+
+          echo "Image tag $tag"
+          echo "image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
