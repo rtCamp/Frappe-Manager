@@ -23,8 +23,10 @@ from frappe_manager.services_manager.database_service_manager import (
     MariaDBManager,
 )
 
+
 def get_container_name_prefix(site_name):
     return 'fm' + "__" + site_name.replace(".", "_")
+
 
 def get_new_envrionment_for_service(service_name: str):
     envs = {
@@ -33,6 +35,7 @@ def get_new_envrionment_for_service(service_name: str):
         "SUPERVISOR_SERVICE_CONFIG_FILE_NAME": f"{service_name}.fm.supervisor.conf",
     }
     return envs
+
 
 class MigrationV0167(MigrationBase):
     version = Version("0.16.7")
@@ -115,7 +118,12 @@ class MigrationV0167(MigrationBase):
         if nginx_default_conf_path.exists():
             nginx_default_conf_path.unlink()
 
-        for image in [frappe_image_info, redis_image_info, nginx_image_info]:
+        for image in [
+            frappe_image_info,
+            redis_image_info,
+            nginx_image_info,
+            {'name': f'ghcr.io/rtcamp/frappe-manager-prebake', 'tag': self.version.version_string()},
+        ]:
             pull_image = f"{image['name']}:{image['tag']}"
             if pull_image not in self.pulled_images_list:
                 richprint.change_head(f"Pulling Image {pull_image}")
@@ -158,7 +166,7 @@ class MigrationV0167(MigrationBase):
 
             # site network
             bench.workers_compose_project.compose_file_manager.set_root_networks_name(
-                "site-network", get_container_name_prefix(bench.name), external= True
+                "site-network", get_container_name_prefix(bench.name), external=True
             )
 
             # container names
@@ -168,7 +176,7 @@ class MigrationV0167(MigrationBase):
             bench.workers_compose_project.compose_file_manager.set_all_images(workers_image_info)
             bench.workers_compose_project.compose_file_manager.set_version(str(self.version))
 
-            bench.workers_compose_project.compose_file_manager.set_all_envs(envs,append=False)
+            bench.workers_compose_project.compose_file_manager.set_all_envs(envs, append=False)
 
             bench.workers_compose_project.compose_file_manager.write_to_file()
 
@@ -181,7 +189,6 @@ class MigrationV0167(MigrationBase):
             admin_tool_compose_project = ComposeProject(admin_tool_compose_file_manager)
 
             richprint.change_head("Migrating admin-tools compose")
-
 
             # remove mailhog
             if 'mailhog' in admin_tool_compose_project.compose_file_manager.yml['services']:
@@ -200,17 +207,19 @@ class MigrationV0167(MigrationBase):
                     "MP_MAX_MESSAGES": "5000",
                     "MP_DATABASE": "/data/mailpit.db",
                     "MP_SMTP_AUTH_ACCEPT_ANY": "1",
-                    "MP_SMTP_AUTH_ALLOW_INSECURE": "1"
+                    "MP_SMTP_AUTH_ALLOW_INSECURE": "1",
                 },
-                "networks": {"site-network": None}
+                "networks": {"site-network": None},
             }
 
             # Add rqdash configuration
             admin_tool_compose_project.compose_file_manager.yml['services']['rqdash'] = {
                 "image": f"ghcr.io/rtcamp/frappe-manager-rqdash:{self.version.version_string()}",
                 "expose": ['9181'],
-                "envrionment": {"RQ_DASHBOARD_REDIS_URL": f"redis://{get_container_name_prefix(bench.name)}__redis-queue:6379"},
-                "networks": {"site_network": None}
+                "envrionment": {
+                    "RQ_DASHBOARD_REDIS_URL": f"redis://{get_container_name_prefix(bench.name)}__redis-queue:6379"
+                },
+                "networks": {"site_network": None},
             }
 
             admin_tool_compose_project.compose_file_manager.set_service_command("rqdash", "--url-prefix /rqdash")
@@ -228,7 +237,7 @@ class MigrationV0167(MigrationBase):
                     self.pulled_images_list.append(pull_image)
 
             admin_tool_compose_project.compose_file_manager.set_root_networks_name(
-                "site-network", get_container_name_prefix(bench.name), external= True
+                "site-network", get_container_name_prefix(bench.name), external=True
             )
             admin_tool_compose_project.compose_file_manager.set_all_images(admin_tools_image_info)
             admin_tool_compose_project.compose_file_manager.set_container_names(get_container_name_prefix(bench.name))
