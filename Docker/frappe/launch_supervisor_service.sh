@@ -14,7 +14,19 @@ cleanup() {
 
 trap cleanup SIGTERM
 
-[[ "${SUPERVISOR_SERVICE_CONFIG_FILE_NAME:-}" ]] || emer "The SUPERVISOR_SERVICE_CONFIG_FILE_NAME env is not given."
+if [[ -n "${SUPERVISOR_SERVICE_CONFIG_FILE_NAME:-}" ]]; then
+    # Use the provided config file name
+    CONFIG_FILE_NAME="${SUPERVISOR_SERVICE_CONFIG_FILE_NAME}"
+elif [[ -n "${SERVICE_NAME:-}" ]]; then
+    # Generate config file name from SERVICE_NAME
+    CONFIG_FILE_NAME="${SERVICE_NAME}.fm.supervisor.conf"
+else
+    # Neither variable is set, error out
+    emer "Either SUPERVISOR_SERVICE_CONFIG_FILE_NAME or SERVICE_NAME env must be given."
+fi
+
+# Set SUPERVISOR_SERVICE_CONFIG_FILE_NAME for use in rest of the script
+SUPERVISOR_SERVICE_CONFIG_FILE_NAME="${CONFIG_FILE_NAME}"
 
 if [[ ! "${TIMEOUT:-}" ]]; then
     TIMEOUT=300
