@@ -1,19 +1,22 @@
-from pathlib import Path
 import os
+from pathlib import Path
+
 from frappe_manager import site_manager
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject
+from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker_wrapper.DockerClient import DockerClient
+from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.migration_manager.migration_base import MigrationBase
-from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
+from frappe_manager.migration_manager.migration_exections import (
+    MigrationExceptionInBench,
+)
 from frappe_manager.migration_manager.migration_helpers import (
     MigrationBench,
     MigrationBenches,
     MigrationServicesManager,
 )
 from frappe_manager.migration_manager.version import Version
-from frappe_manager.migration_manager.backup_manager import BackupManager
-from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.services_manager.database_service_manager import (
     DatabaseServerServiceInfo,
     DatabaseServiceManager,
@@ -23,7 +26,6 @@ from frappe_manager.services_manager.database_service_manager import (
 def get_container_name_prefix(site_name):
     return 'fm' + "__" + site_name.replace(".", "_")
 
-
 def get_new_envrionment_for_service(service_name: str):
     envs = {
         "USERID": os.getuid(),
@@ -31,7 +33,6 @@ def get_new_envrionment_for_service(service_name: str):
         "SUPERVISOR_SERVICE_CONFIG_FILE_NAME": f"{service_name}.fm.supervisor.conf",
     }
     return envs
-
 
 class MigrationV0167(MigrationBase):
     version = Version("0.16.7")
@@ -126,7 +127,6 @@ class MigrationV0167(MigrationBase):
         bench.compose_project.compose_file_manager.set_all_images(images_info)
         bench.compose_project.compose_file_manager.set_all_envs(envs, append=False)
         bench.compose_project.compose_file_manager.set_version(str(self.version))
-
         bench.compose_project.compose_file_manager.write_to_file()
 
         self.migrate_workers_compose(bench)
