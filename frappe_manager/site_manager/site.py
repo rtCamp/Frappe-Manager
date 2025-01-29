@@ -409,12 +409,6 @@ class Bench:
 
         self.benchops.check_required_docker_images_available()
 
-        # start admin-tools if exists
-        if self.admin_tools.compose_project.compose_file_manager.compose_path.exists():
-            richprint.change_head("Starting admin tools services")
-            self.admin_tools.compose_project.start_service(force_recreate=force)
-            richprint.print("Started admin tools services.")
-
         # Reconfigure common_site_config.json if required
         if reconfigure_common_site_config:
             richprint.print("Reconfiguring common_site_config with defaults")
@@ -424,6 +418,16 @@ class Bench:
         richprint.change_head("Starting bench services")
 
         self.compose_project.start_service(force_recreate=force)
+
+        # start admin-tools if exists
+        if self.admin_tools.compose_project.compose_file_manager.compose_path.exists():
+            richprint.change_head("Starting admin tools services")
+            self.admin_tools.compose_project.start_service(force_recreate=force)
+            richprint.print("Started admin tools services.")
+
+            # Check if nginx service is stopped and restart if needed
+            if not self.compose_project.is_service_running('nginx'):
+                self.compose_project.start_service(['nginx'])
 
         self.benchops.is_required_services_available()
 
