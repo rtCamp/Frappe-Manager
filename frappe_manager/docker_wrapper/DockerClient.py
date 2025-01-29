@@ -155,7 +155,7 @@ class DockerClient:
         command: Optional[str] = None,
         env: Optional[List[str]] = None,
         name: Optional[str] = None,
-        volume: Optional[str] = None,
+        volume: Optional[List[str]] = None,
         detach: bool = False,
         entrypoint: Optional[str] = None,
         pull: Literal["missing", "never", "always"] = "missing",
