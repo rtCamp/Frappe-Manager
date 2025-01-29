@@ -146,7 +146,7 @@ class ComposeFile:
             return None
         return user
 
-    def set_root_networks_name(self, networks_name, prefix):
+    def set_root_networks_name(self, networks_name, prefix, external: bool = False):
         """
         Sets the name of the top-level network in the Compose file.
 
@@ -158,6 +158,7 @@ class ComposeFile:
             self.yml["networks"][networks_name] = {"name": prefix + f"{CLI_DEFAULT_DELIMETER}network"}
         else:
             self.yml["networks"][networks_name]["name"] = prefix + f"{CLI_DEFAULT_DELIMETER}network"
+            self.yml["networks"][networks_name]["external"] = external
 
     def set_network_alias(self, service_name, network_name, alias: list = []):
         """
