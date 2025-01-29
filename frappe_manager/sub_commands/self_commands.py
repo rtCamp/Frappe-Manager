@@ -1,12 +1,12 @@
-import typer
-from frappe_manager.sub_commands.update_command import update_app
-
-from frappe_manager.utils.site import pull_docker_images
-import typer
-import requests
 import json
+
+import requests
+import typer
+import typer
+
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.utils.helpers import get_current_fm_version, install_package
+from frappe_manager.utils.site import pull_docker_images
 
 self_app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
 
