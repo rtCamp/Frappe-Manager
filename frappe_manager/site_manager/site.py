@@ -337,7 +337,7 @@ class Bench:
             "db_port": services_db_port,
             "redis_cache": f"redis://{container_prefix}{CLI_DEFAULT_DELIMETER}redis-cache:6379",
             "redis_queue": f"redis://{container_prefix}{CLI_DEFAULT_DELIMETER}redis-queue:6379",
-            "redis_socketio": f"redis://{container_prefix}{CLI_DEFAULT_DELIMETER}redis-cache:6379",
+            "redis_socketio": f"redis://{container_prefix}{CLI_DEFAULT_DELIMETER}redis-socketio:6379",
         }
         self.set_common_bench_config(common_site_config_data)
 

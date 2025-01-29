@@ -53,16 +53,18 @@ class BenchWorkers:
             prev_workers = self.compose_project.compose_file_manager.get_services_list()
             prev_workers.sort()
             expected_workers = self.get_expected_workers()
-            # get custom workers from common_site_config.json
-            # common_site_config_data = self.bench.get_common_bench_config()
 
-            # if 'workers' in common_site_config_data:
-            #     custom_workers: List[str] = common_site_config_data['workers'].keys()
-            #     for worker in custom_workers:
-            #         worker = f'{worker}-worker'
-            #         if worker not in prev_workers:
-            #             return False
+            # get custom workers from common_site_config.json
+            common_site_config_data = self.bench.get_common_bench_config()
+
+            if 'workers' in common_site_config_data:
+                custom_workers: List[str] = common_site_config_data['workers'].keys()
+                for worker in custom_workers:
+                    worker = f'{worker}-worker'
+                    if worker not in prev_workers:
+                        return False
             return prev_workers == expected_workers
+
         else:
             return False
 
@@ -89,7 +91,7 @@ class BenchWorkers:
             # setting environments
             worker_config["environment"]["USERID"] = os.getuid()
             worker_config["environment"]["USERGROUP"] = os.getgid()
-            worker_config["environment"]["SERVICE_NAME"] = worker
+            worker_config["environment"]["WORKER_NAME"] = worker
 
             self.compose_project.compose_file_manager.yml["services"][worker] = worker_config
 

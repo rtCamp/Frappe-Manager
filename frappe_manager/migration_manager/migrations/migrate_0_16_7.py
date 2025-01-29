@@ -158,7 +158,7 @@ class MigrationV0167(MigrationBase):
                 bench.workers_compose_project.compose_file_manager.set_service_command(
                     service_name, 'launch_supervisor_service.sh'
                 )
-                envs[service_name]["SERVICE_NAME"] = service_name
+                envs[service_name]["WORKER_NAME"] = service_name
 
             # volume remove :cached
             volumes = bench.workers_compose_project.compose_file_manager.get_all_services_volumes()
@@ -188,6 +188,11 @@ class MigrationV0167(MigrationBase):
             admin_tool_compose_project = ComposeProject(admin_tool_compose_file_manager)
 
             richprint.change_head("Migrating admin-tools compose")
+
+            ### change the redis releated hosts in common_site_config
+            ### change the mailhog releated hosts in common_site_config
+            ### remove admin-tools.conf from nginx/custom
+            ### supervisord config not avaible after migration
 
             # remove mailhog
             if 'mailhog' in admin_tool_compose_project.compose_file_manager.yml['services']:
