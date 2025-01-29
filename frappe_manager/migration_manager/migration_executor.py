@@ -89,8 +89,8 @@ class MigrationExecutor:
 
             migrate_msg = [
                 "\nOptions :\n",
-                r"[blue][yes][/blue] Start Migration: Proceed with the migration process.",
-                r"[blue][no][/blue]  Abort and Revert: Do not migrate and revert to the previous fm version.",
+                r"[blue]\[yes][/blue] Start Migration: Proceed with the migration process.",
+                r"[blue]\[no][/blue]  Abort and Revert: Do not migrate and revert to the previous fm version.",
                 "\nDo you want to proceed with the migration ?",
             ]
             continue_migration = richprint.prompt_ask(prompt="\n".join(migrate_msg), choices=["yes", "no"])

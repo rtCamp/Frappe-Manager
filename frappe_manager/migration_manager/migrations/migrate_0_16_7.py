@@ -155,6 +155,8 @@ class MigrationV0167(MigrationBase):
         bench.compose_project.compose_file_manager.set_version(str(self.version))
         bench.compose_project.compose_file_manager.write_to_file()
 
+        self.split_supervisor_config(bench)
+
         self.migrate_workers_compose(bench)
         self.migrate_admin_tools_compose(bench)
 
@@ -265,7 +267,7 @@ class MigrationV0167(MigrationBase):
                 "environment": {
                     "RQ_DASHBOARD_REDIS_URL": f"redis://{get_container_name_prefix(bench.name)}__redis-queue:6379"
                 },
-                "networks": {"site_network": None},
+                "networks": {"site-network": None},
             }
 
             admin_tool_compose_project.compose_file_manager.set_service_command("rqdash", "--url-prefix /rqdash")
@@ -274,7 +276,6 @@ class MigrationV0167(MigrationBase):
 
             for image in [admin_tools_image_info["rqdash"],admin_tools_image_info["mailpit"]]:
                 pull_image = f"{image['name']}:{image['tag']}"
-
                 if pull_image not in self.pulled_images_list:
                     richprint.change_head(f"Pulling Image {pull_image}")
                     output = DockerClient().pull(container_name=pull_image, stream=True)
@@ -292,6 +293,55 @@ class MigrationV0167(MigrationBase):
 
             richprint.print(f"Migrated [blue]{bench.name}[/blue] admin-tools compose file.")
 
+    def split_supervisor_config(self, bench: MigrationBench):
+        import configparser
+
+        frappe_bench_dir = bench.path / 'workspace' / 'frappe-bench'
+        supervisor_conf_path: Path =  frappe_bench_dir / "config" / "supervisor.conf"
+        config = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
+        config.read_string(supervisor_conf_path.read_text())
+
+        handle_symlink_frappe_dir = False
+
+        if frappe_bench_dir.is_symlink():
+            handle_symlink_frappe_dir = True
+
+        for section_name in config.sections():
+            if "group:" not in section_name:
+                section_config = configparser.ConfigParser(interpolation=None)
+                section_config.add_section(section_name)
+                for key, value in config.items(section_name):
+                    if handle_symlink_frappe_dir:
+                        to_replace = str(frappe_bench_dir.readlink())
+
+                        if to_replace in value:
+                            value = value.replace(to_replace, frappe_bench_dir.name)
+
+                    if "frappe-web" in section_name:
+                        if key == "command":
+                            value = value.replace("127.0.0.1:80", "0.0.0.0:80")
+                    section_config.set(section_name, key, value)
+
+                section_name_delimeter = '-frappe-'
+
+                if '-node-' in section_name:
+                    section_name_delimeter = '-node-'
+
+                file_name_prefix = section_name.split(section_name_delimeter)
+
+                file_name_prefix = file_name_prefix[-1]
+                file_name = file_name_prefix + ".fm.supervisor.conf"
+
+                if "worker" in section_name:
+                    file_name = file_name_prefix + ".workers.fm.supervisor.conf"
+
+                new_file: Path = supervisor_conf_path.parent / file_name
+
+                with open(new_file, "w") as section_file:
+                    section_config.write(section_file)
+
+                richprint.print(f"Migrated supervisor conf {section_name} => {file_name}")
+
 ADMIN_TOOLS_TEMPLATE = '''
 # Mailpit
 location ^~ /mailpit/ {
@@ -300,6 +350,9 @@ location ^~ /mailpit/ {
 
     chunked_transfer_encoding on;
     proxy_set_header X-NginX-Proxy true;
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 60s;
+    proxy_read_timeout 60s;
     proxy_pass http://{{ mailpit_host }}:8025/mailpit/;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
@@ -316,6 +369,9 @@ location ^~ /adminer/ {
     proxy_set_header X-Forwarded-For $remote_addr;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header Host $host;
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 60s;
+    proxy_read_timeout 60s;
     proxy_pass http://{{ adminer_host }}:8080/;
 }
 
@@ -327,6 +383,9 @@ location ^~ /rqdash/ {
     proxy_set_header X-Forwarded-For $remote_addr;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header Host $host;
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 60s;
+    proxy_read_timeout 60s;
     proxy_pass http://{{ rqdash_host }}:9181/rqdash/;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;

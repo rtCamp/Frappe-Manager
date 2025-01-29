@@ -83,6 +83,7 @@ class AdminTools:
             "adminer_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}adminer",
             "auth_file": f"/etc/nginx/http_auth/{auth_file.name}",
         }
+
         from jinja2 import Template
 
         template_path: Path = get_template_path('admin-tools-location.tmpl')
