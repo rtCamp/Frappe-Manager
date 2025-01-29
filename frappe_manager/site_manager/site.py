@@ -757,7 +757,7 @@ class Bench:
             # Create auth info section
             auth_info = f"\nAuthentication Required:\n  Username: [cyan]{username}[/cyan]\n  Password: [green]{password}[/green]"
 
-            admin_tools_Table.add_row("Mailhog", f"{protocol}://{self.name}/mailhog")
+            admin_tools_Table.add_row("Mailpit", f"{protocol}://{self.name}/mailpit")
             admin_tools_Table.add_row("Adminer", f"{protocol}://{self.name}/adminer")
 
             # Combine table and auth info

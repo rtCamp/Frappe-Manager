@@ -1,16 +1,17 @@
 services:
   worker-name:
     image: ghcr.io/rtcamp/frappe-manager-frappe:v0.16.7
+    container_name: REPLACE_ME_WITH_CONTAINER_NAME
+    command: launch_supervisor_service.sh
+    networks:
+      site-network:
+      global-backend-network:
+    volumes:
+      - ./workspace:/workspace
     environment:
       USERID: REPLACE_ME_WITH_CURRENT_USER
       USERGROUP: REPLACE_ME_WITH_CURRENT_USER_GROUP
       SERVICE_NAME: worker-name
-    command: launch_supervisor_service.sh
-    volumes:
-      - ./workspace:/workspace
-    networks:
-      site-network:
-      global-backend-network:
 
 networks:
   site-network:

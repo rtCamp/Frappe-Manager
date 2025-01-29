@@ -1,11 +1,11 @@
-# Mailhog
-location ^~ /mailhog/ {
-    auth_basic "Admin Tools";
+# Mailpit
+location ^~ /mailpit/ {
+    auth_basic "Frappe-Manager Admin Tools";
     auth_basic_user_file {{ auth_file }};
     
     chunked_transfer_encoding on;
     proxy_set_header X-NginX-Proxy true;
-    proxy_pass http://{{ mailhog_host }}:8025/;
+    proxy_pass http://{{ mailpit_host }}:8025/;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
     proxy_http_version 1.1;
@@ -15,7 +15,7 @@ location ^~ /mailhog/ {
 
 # Adminer
 location ^~ /adminer/ {
-    auth_basic "Admin Tools";
+    auth_basic "Frappe-Manager Admin Tools";
     auth_basic_user_file {{ auth_file }};
     
     proxy_set_header X-Forwarded-For $remote_addr;

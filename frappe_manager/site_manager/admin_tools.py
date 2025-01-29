@@ -38,6 +38,9 @@ class AdminTools:
 
     def create(self, db_host: str):
         richprint.change_head("Generating admin tools configuration")
+        mailpit_dir: Path = self.bench.path / 'configs' / 'mailpit' / 'data'
+        mailpit_dir.mkdir(parents=True, exist_ok=True)
+
         self.generate_compose(db_host)
         richprint.print("Generating admin tools configuration: Done")
 
@@ -75,7 +78,7 @@ class AdminTools:
         auth_file.write_text(htpasswd_content)
 
         data = {
-            "mailhog_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailhog",
+            "mailpit_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailpit",
             "adminer_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}adminer",
             "auth_file": f"/etc/nginx/http_auth/{auth_file.name}",
         }
@@ -105,23 +108,25 @@ class AdminTools:
         self.bench.bench_config.admin_tools_password = None
         self.bench.save_bench_config()
 
-    def get_common_site_config(self, common_bench_config_path: Path):
-        if not common_bench_config_path.exists():
+    def _get_common_site_config_path(self) -> Path:
+        return self.compose_path.parent / "workspace/frappe-bench/sites/common_site_config.json"
+
+    def _get_common_site_config(self) -> dict:
+        config_path = self._get_common_site_config_path()
+        if not config_path.exists():
             raise BenchException(self.bench_name, message='common_site_config.json not found.')
+        return json.loads(config_path.read_bytes())
 
-        current_common_site_config = json.loads(common_bench_config_path.read_bytes())
+    def _save_common_site_config(self, config: dict):
+        self._get_common_site_config_path().write_text(json.dumps(config))
 
-        return current_common_site_config
-
-    def configure_mailhog_as_default_server(self):
-        richprint.change_head("Configuring Mailhog as default mail server.")
-        common_bench_config_path = self.compose_path.parent / "workspace/frappe-bench/sites/common_site_config.json"
-
-        current_common_site_config = self.get_common_site_config(common_bench_config_path)
+    def configure_mailpit_as_default_server(self):
+        richprint.change_head("Configuring Mailpit as default mail server.")
+        current_common_site_config = self._get_common_site_config()
 
         new_conf = {
             "mail_port": 1025,
-            "mail_server": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailhog",
+            "mail_server": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailpit",
             "disable_mail_smtp_authentication": 1,
         }
 
@@ -132,17 +137,16 @@ class AdminTools:
             elif not current_common_site_config[key] == value:
                 current_common_site_config[key] = value
 
-        common_bench_config_path.write_text(json.dumps(current_common_site_config))
-        richprint.print("Configured Mailhog as default mail server.")
+        self._save_common_site_config(current_common_site_config)
+        richprint.print("Configured Mailpit as default mail server.")
 
-    def remove_mailhog_as_default_server(self):
-        richprint.change_head("Removing Mailhog as default mail server.")
-        common_bench_config_path = self.compose_path.parent / "workspace/frappe-bench/sites/common_site_config.json"
-        current_common_site_config = self.get_common_site_config(common_bench_config_path)
+    def remove_mailpit_as_default_server(self):
+        richprint.change_head("Removing Mailpit as default mail server.")
+        current_common_site_config = self._get_common_site_config()
 
         new_conf = {
             "mail_port": 1025,
-            "mail_server": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailhog",
+            "mail_server": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailpit",
             "disable_mail_smtp_authentication": 1,
         }
 
@@ -155,11 +159,11 @@ class AdminTools:
 
             del current_common_site_config[key]
 
-        common_bench_config_path.write_text(json.dumps(current_common_site_config))
-        richprint.print("Removed Mailhog as default mail server.")
+        self._save_common_site_config(current_common_site_config)
+        richprint.print("Removed Mailpit as default mail server.")
 
     def wait_till_services_started(self, interval=2, timeout=30):
-        admin_tools_services = ['mailhog:8025', 'adminer:8080']
+        admin_tools_services = ['mailpit:8025', 'adminer:8080']
 
         for tool in admin_tools_services:
             running = False
@@ -185,11 +189,11 @@ class AdminTools:
         self.nginx_proxy.reload()
 
         if force_configure:
-            self.configure_mailhog_as_default_server()
+            self.configure_mailpit_as_default_server()
 
     def disable(self):
         self.compose_project.stop_service()
         self.remove_nginx_location_config()
         self.nginx_proxy.reload()
 
-        self.remove_mailhog_as_default_server()
+        self.remove_mailpit_as_default_server()

@@ -525,10 +525,10 @@ def update(
         Optional[EnableDisableOptionsEnum],
         typer.Option(help="Toggle frappe developer mode.", show_default=False),
     ] = None,
-    mailhog_as_default_mail_server: Annotated[
+    mailpit_as_default_mail_server: Annotated[
         bool,
         typer.Option(
-            "--mailhog-as-default-mail-server", help="Configure Mailhog as default mail server", show_default=False
+            "--mailpit-as-default-mail-server", help="Configure Mailpit as default mail server", show_default=False
         ),
     ] = False,
 ):
@@ -618,7 +618,7 @@ def update(
             if not bench.admin_tools.compose_project.compose_file_manager.compose_path.exists():
                 bench.sync_admin_tools_compose()
             else:
-                bench.admin_tools.enable(force_configure=mailhog_as_default_mail_server)
+                bench.admin_tools.enable(force_configure=mailpit_as_default_mail_server)
 
             bench_config_save = True
             richprint.print("Enabled Admin-tools.")
