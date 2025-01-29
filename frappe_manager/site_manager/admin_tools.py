@@ -32,6 +32,7 @@ class AdminTools:
         self.compose_project.compose_file_manager.set_envs('rqdash', {"RQ_DASHBOARD_REDIS_URL": f"redis://{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}redis-queue:6379"})
 
         self.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(self.bench_name))
+        self.compose_project.compose_file_manager.set_root_volumes_names(get_container_name_prefix(self.bench_name))
         self.compose_project.compose_file_manager.set_root_networks_name(
             'site-network', get_container_name_prefix(self.bench_name)
         )
@@ -40,9 +41,6 @@ class AdminTools:
 
     def create(self, db_host: str):
         richprint.change_head("Generating admin tools configuration")
-        mailpit_dir: Path = self.bench.path / 'configs' / 'mailpit' / 'data'
-        mailpit_dir.mkdir(parents=True, exist_ok=True)
-
         self.generate_compose(db_host)
         richprint.print("Generating admin tools configuration: Done")
 

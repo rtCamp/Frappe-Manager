@@ -3,7 +3,7 @@ services:
     image: axllent/mailpit:v1.22
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     volumes:
-      - ./configs/mailpit/data:/data
+      - mailpit-data:/data
     expose:
       - 1025
       - 8025
@@ -37,6 +37,10 @@ services:
       global-backend-network:
     environment:
       ADMINER_DEFAULT_SERVER: global-db
+
+volumes:
+  mailpit-data:
+    name: fm__SITE_NAME_PREFIX__mailpit-data
 
 networks:
   site-network:

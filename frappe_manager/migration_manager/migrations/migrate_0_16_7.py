@@ -177,7 +177,6 @@ class MigrationV0167(MigrationBase):
             bench.workers_compose_project.compose_file_manager.set_version(str(self.version))
 
             bench.workers_compose_project.compose_file_manager.set_all_envs(envs, append=False)
-
             bench.workers_compose_project.compose_file_manager.write_to_file()
 
             richprint.print(f"Migrated [blue]{bench.name}[/blue] workers compose file.")
@@ -200,7 +199,7 @@ class MigrationV0167(MigrationBase):
 
             admin_tool_compose_project.compose_file_manager.yml['services']['mailpit'] = {
                 "image": "axllent/mailpit:v1.22",
-                "volumes": ["./configs/mailpit/data:/data"],
+                "volumes": ["mailpit-data:/data"],
                 "expose": ['1025', '8025'],
                 "environment": {
                     "MP_WEBROOT": "mailpit",
@@ -210,6 +209,11 @@ class MigrationV0167(MigrationBase):
                     "MP_SMTP_AUTH_ALLOW_INSECURE": "1",
                 },
                 "networks": {"site-network": None},
+            }
+
+            # add root volumes
+            admin_tool_compose_project.compose_file_manager.yml['volumes'] = {
+                "mailpit-data": {"name": f"{get_container_name_prefix(bench.name)}__mailpit-data"}
             }
 
             # Add rqdash configuration
@@ -242,7 +246,6 @@ class MigrationV0167(MigrationBase):
             admin_tool_compose_project.compose_file_manager.set_all_images(admin_tools_image_info)
             admin_tool_compose_project.compose_file_manager.set_container_names(get_container_name_prefix(bench.name))
             admin_tool_compose_project.compose_file_manager.set_version(str(self.version))
-
             admin_tool_compose_project.compose_file_manager.write_to_file()
 
             richprint.print(f"Migrated [blue]{bench.name}[/blue] admin-tools compose file.")
