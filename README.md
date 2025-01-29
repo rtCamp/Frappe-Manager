@@ -1,7 +1,6 @@
 # Frappe-Manager
 
-A CLI tool based on Docker Compose to easily manage Frappe based projects. As of now, only suitable for development in local machines running on Mac and Linux based OS.
-
+A CLI tool based on Docker Compose to easily manage Frappe based projects. Supports macOS and Linux operating systems.
 
 ![Frappe-Manager-Create-Site.svg](https://user-images.githubusercontent.com/28294795/283108791-0237d05a-2562-48be-987b-037a200d71a3.svg)
 
