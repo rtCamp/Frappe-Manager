@@ -20,9 +20,6 @@ echo "Setting up user"
 
 update_uid_gid "${USERID}" "${USERGROUP}" "frappe" "frappe"
 
-
-
-
 SOCK_DIR='/workspace/frappe-bench/config/fm-supervisord-sockets'
 SOCK_SERVICE_PATH="$SOCK_DIR/$SERVICE_NAME.sock"
 
