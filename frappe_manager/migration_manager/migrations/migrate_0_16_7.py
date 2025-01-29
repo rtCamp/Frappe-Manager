@@ -193,10 +193,6 @@ class MigrationV0167(MigrationBase):
             if 'mailhog' in admin_tool_compose_project.compose_file_manager.yml['services']:
                 del admin_tool_compose_project.compose_file_manager.yml['services']['mailhog']
 
-            # configure mailpit
-            mailpit_dir = bench.path / 'configs' / 'mailpit' / 'data'
-            mailpit_dir.mkdir(parents=True, exist_ok=True)
-
             admin_tool_compose_project.compose_file_manager.yml['services']['mailpit'] = {
                 "image": "axllent/mailpit:v1.22",
                 "volumes": ["mailpit-data:/data"],
