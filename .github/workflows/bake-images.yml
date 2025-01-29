@@ -56,13 +56,44 @@ jobs:
           username: ${{ secrets.GHCR_USER }}
           password: ${{ secrets.GHCR_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Set image names
+        if: matrix.service_name == 'frappe'
+        run: |
+          owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
+          tag=$( cat "$GITHUB_WORKSPACE/Docker/images-tag.json" | jq -rc .${{ matrix.service_name }})
+          echo "prebake_image_name=ghcr.io/${owner}/frappe-manager-prebake:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
+          echo "fm_image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
+
+      - name: Build and push Docker image (non-frappe)
+        if: matrix.service_name != 'frappe'
         uses: docker/build-push-action@v4
         with:
           context: Docker/${{ matrix.service_name }}/.
           push: true
           platforms: ${{ matrix.platform }}
           tags: ${{ env.image_name }}
+          provenance: false
+
+      - name: Build and push prebake image
+        if: matrix.service_name == 'frappe'
+        uses: docker/build-push-action@v4
+        with:
+          context: Docker/${{ matrix.service_name }}/.
+          push: true
+          platforms: ${{ matrix.platform }}
+          tags: ${{ env.prebake_image_name }}
+          target: prebake_image
+          provenance: false
+
+      - name: Build and push fm image
+        if: matrix.service_name == 'frappe'
+        uses: docker/build-push-action@v4
+        with:
+          context: Docker/${{ matrix.service_name }}/.
+          push: true
+          platforms: ${{ matrix.platform }}
+          tags: ${{ env.fm_image_name }}
+          target: fm_image
           provenance: false
 
   combine:
