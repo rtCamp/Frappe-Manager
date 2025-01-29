@@ -2,7 +2,9 @@ services:
   worker-name:
     image: ghcr.io/rtcamp/frappe-manager-frappe:v0.16.7
     environment:
-      SUPERVISOR_SERVICE_CONFIG_FILE_NAME: '{worker-name}.workers.fm.supervisor.conf'
+      USERID: REPLACE_ME_WITH_CURRENT_USER
+      USERGROUP: REPLACE_ME_WITH_CURRENT_USER_GROUP
+      SERVICE_NAME: worker-name
     command: launch_supervisor_service.sh
     volumes:
       - ./workspace:/workspace
@@ -12,7 +14,7 @@ services:
 
 networks:
   site-network:
-    name: REPLACE_ME_WITH_SITE_NAME_NETWORK
+    name: fm__SITE_NAME_PREFIX__site-network
     external: true
   global-backend-network:
     name: fm-global-backend-network

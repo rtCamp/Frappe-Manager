@@ -5,6 +5,7 @@ services:
     environment:
       USERID: REPLACE_ME_WITH_CURRENT_USER
       USERGROUP: REPLACE_ME_WITH_CURRENT_USER_GROUP
+      SERVICE_NAME: frappe
     volumes:
       - ./workspace:/workspace
     expose:
@@ -41,7 +42,9 @@ services:
     image: ghcr.io/rtcamp/frappe-manager-frappe:v0.16.7
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     environment:
-      SUPERVISOR_SERVICE_CONFIG_FILE_NAME: socketio.fm.supervisor.conf
+      USERID: REPLACE_ME_WITH_CURRENT_USER
+      USERGROUP: REPLACE_ME_WITH_CURRENT_USER_GROUP
+      SERVICE_NAME: socketio
     expose:
       - 80
     command: launch_supervisor_service.sh
@@ -54,7 +57,9 @@ services:
     image: ghcr.io/rtcamp/frappe-manager-frappe:v0.16.7
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     environment:
-      SUPERVISOR_SERVICE_CONFIG_FILE_NAME: schedule.fm.supervisor.conf
+      USERID: REPLACE_ME_WITH_CURRENT_USER
+      USERGROUP: REPLACE_ME_WITH_CURRENT_USER_GROUP
+      SERVICE_NAME: schedule
     command: launch_supervisor_service.sh
     volumes:
       - ./workspace:/workspace
@@ -94,15 +99,15 @@ services:
 
 volumes:
   redis-socketio-data:
-    name: VOLUMES_PREFIX__redis_socketio_data
+    name: fm__SITE_NAME_PREFIX__redis-socketio-data
   redis-queue-data:
-    name: VOLUMES_PREFIX__redis_queue_data
+    name: fm__SITE_NAME_PREFIX__redis-queue-data
   redis-cache-data:
-    name: VOLUMES_PREFIX__redis_cache_data
+    name: fm__SITE_NAME_PREFIX__redis-cache-data
 
 networks:
   site-network:
-    name: REPLACE_ME_WITH_SITE_NAME_NETWORK
+    name: fm__SITE_NAME_PREFIX__site-network
   global-frontend-network:
     name: fm-global-frontend-network
     external: true
