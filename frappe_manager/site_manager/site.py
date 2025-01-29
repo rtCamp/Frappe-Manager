@@ -727,9 +727,14 @@ class Bench:
                 f'[{self.bench_config.ssl.preferred_challenge.value}] {self.bench_config.ssl.ssl_type.value}'
             )
 
+        status = "Active" if self.compose_project.running else "Inactive"
+        status_color = "green" if self.compose_project.running else "red"
+        status_display = f"[{status_color}]{status}[/{status_color}]"
+
         data = {
             "Bench Url": f"{protocol}://{self.name}",
             "Bench Root": f"[link=file://{self.path.absolute()}]{self.path.absolute()}[/link]",
+            "Status": status_display,
             "Frappe Username": "administrator",
             "Frappe Password": admin_pass,
             "Root DB User": services_db_info.user,
