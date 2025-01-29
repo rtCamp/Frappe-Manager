@@ -1,7 +1,7 @@
 import os
+import json
 from pathlib import Path
 
-from frappe_manager import site_manager
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.display_manager.DisplayManager import richprint
@@ -17,12 +17,6 @@ from frappe_manager.migration_manager.migration_helpers import (
     MigrationServicesManager,
 )
 from frappe_manager.migration_manager.version import Version
-from frappe_manager.services_manager.database_service_manager import (
-    DatabaseServerServiceInfo,
-    DatabaseServiceManager,
-    MariaDBManager,
-)
-
 
 def get_container_name_prefix(site_name):
     return 'fm' + "__" + site_name.replace(".", "_")
@@ -57,6 +51,30 @@ class MigrationV0167(MigrationBase):
         if not bench.compose_project.compose_file_manager.exists():
             richprint.error(f"Failed to migrate {bench.name} compose file.")
             raise MigrationExceptionInBench(f"{bench.compose_project.compose_file_manager.compose_path} not found.")
+
+        common_site_config_json = bench.path / 'workspace' / 'frappe-bench' / 'sites' / 'common_site_config.json'
+
+        common_site_config_data = {
+            "redis_cache": f"redis://{get_container_name_prefix(bench.name)}__redis-cache:6379",
+            "redis_queue": f"redis://{get_container_name_prefix(bench.name)}__redis-queue:6379",
+            "redis_socketio": f"redis://{get_container_name_prefix(bench.name)}__redis-socketio:6379",
+        }
+
+        # Modify the common site config to update mail server if present
+        if common_site_config_json.exists():
+            with open(common_site_config_json) as f:
+                config_data = json.load(f)
+                
+            if 'mail_server' in config_data:
+                config_data['mail_server'] = f"{get_container_name_prefix(bench.name)}__mailpit"
+                
+            # Update the existing redis configuration
+            config_data.update(common_site_config_data)
+            
+            with open(common_site_config_json, 'w') as f:
+                json.dump(config_data, f, indent=1)
+
+        ### supervisord config not avaible after migration
 
         # envs and command
         envs = bench.compose_project.compose_file_manager.get_all_envs()
@@ -189,10 +207,33 @@ class MigrationV0167(MigrationBase):
 
             richprint.change_head("Migrating admin-tools compose")
 
-            ### change the redis releated hosts in common_site_config
-            ### change the mailhog releated hosts in common_site_config
-            ### remove admin-tools.conf from nginx/custom
-            ### supervisord config not avaible after migration
+            # remove prev admin-tools.conf from nginx/custom and insert new one
+            admin_tools_conf_path = bench.path / 'configs' / 'nginx' / 'conf' / 'custom' / 'admin-tools.conf'
+
+            if admin_tools_conf_path.exists():
+
+                # Generate and save htpasswd file
+                auth_file = bench.path / 'configs' / 'nginx' / 'conf' / 'http_auth'/ f'{bench.name}-admin-tools.htpasswd'
+
+                if not auth_file.parent.exists():
+                    auth_file.parent.mkdir(exist_ok=True)
+
+                data = {
+                    "mailpit_host": f"{get_container_name_prefix(bench.name)}__mailpit",
+                    "rqdash_host": f"{get_container_name_prefix(bench.name)}__rqdash",
+                    "adminer_host": f"{get_container_name_prefix(bench.name)}__adminer",
+                    "auth_file": f"/etc/nginx/http_auth/{auth_file.name}",
+                }
+
+                from jinja2 import Template
+
+                template = Template(ADMIN_TOOLS_TEMPLATE)
+                output = template.render(data)
+
+                if admin_tools_conf_path.exists():
+                    admin_tools_conf_path.unlink()
+
+                admin_tools_conf_path.write_text(output)
 
             # remove mailhog
             if 'mailhog' in admin_tool_compose_project.compose_file_manager.yml['services']:
@@ -231,7 +272,7 @@ class MigrationV0167(MigrationBase):
 
             admin_tools_image_info = admin_tool_compose_project.compose_file_manager.get_all_images()
 
-            for image in [admin_tools_image_info["rqdash"]]:
+            for image in [admin_tools_image_info["rqdash"],admin_tools_image_info["mailpit"]]:
                 pull_image = f"{image['name']}:{image['tag']}"
 
                 if pull_image not in self.pulled_images_list:
@@ -250,3 +291,45 @@ class MigrationV0167(MigrationBase):
             admin_tool_compose_project.compose_file_manager.write_to_file()
 
             richprint.print(f"Migrated [blue]{bench.name}[/blue] admin-tools compose file.")
+
+ADMIN_TOOLS_TEMPLATE = '''
+# Mailpit
+location ^~ /mailpit/ {
+    auth_basic "Frappe-Manager Admin Tools";
+    auth_basic_user_file {{ auth_file }};
+
+    chunked_transfer_encoding on;
+    proxy_set_header X-NginX-Proxy true;
+    proxy_pass http://{{ mailpit_host }}:8025/mailpit/;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+    proxy_http_version 1.1;
+    proxy_redirect off;
+    proxy_buffering off;
+}
+
+# Adminer
+location ^~ /adminer/ {
+    auth_basic "Frappe-Manager Admin Tools";
+    auth_basic_user_file {{ auth_file }};
+
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Host $host;
+    proxy_pass http://{{ adminer_host }}:8080/;
+}
+
+# RQ Dashboard
+location ^~ /rqdash/ {
+    auth_basic "Frappe-Manager Admin Tools";
+    auth_basic_user_file {{ auth_file }};
+
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header Host $host;
+    proxy_pass http://{{ rqdash_host }}:9181/rqdash/;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+}
+'''
