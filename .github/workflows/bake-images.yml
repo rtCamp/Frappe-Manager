@@ -15,7 +15,7 @@ jobs:
       matrix:
         os: [self-hosted-arm64,ubuntu-latest]
         platform: [linux/amd64, linux/arm64]
-        service_name: [frappe, mailhog, nginx]
+        service_name: [frappe, rqdash, nginx]
         exclude:
           - os: ubuntu-latest
             platform: linux/arm64
@@ -71,7 +71,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest]
-        service_name: [frappe, mailhog, nginx]
+        service_name: [frappe, rqdash, nginx]
 
     runs-on: ${{ matrix.os }}
     steps:
