@@ -56,7 +56,7 @@ jobs:
         if: matrix.service_name != 'frappe'
         run: |
           owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
-          tag=$( cat "$GITHUB_WORKSPACE/frappe-manager/images-tag.json" | jq -rc .${{ matrix.service_name }})
+          tag=$( cat "$GITHUB_WORKSPACE/frappe_manager/images-tag.json" | jq -rc .${{ matrix.service_name }})
           echo "Image tag $tag"
           echo "image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
 
@@ -64,7 +64,7 @@ jobs:
         if: matrix.service_name == 'frappe'
         run: |
           owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
-          tag=$( cat "$GITHUB_WORKSPACE/frappe-manager/images-tag.json" | jq -rc .${{ matrix.service_name }})
+          tag=$( cat "$GITHUB_WORKSPACE/frappe_manager/images-tag.json" | jq -rc .${{ matrix.service_name }})
           echo "prebake_image_name=ghcr.io/${owner}/frappe-manager-prebake:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
           echo "fm_image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
 
@@ -135,7 +135,7 @@ jobs:
 
       - name: Combine manifest and push
         run: |
-          tag=$( cat "$GITHUB_WORKSPACE/frappe-manager/images-tag.json" | jq -rc .${{ matrix.service_name }})
+          tag=$( cat "$GITHUB_WORKSPACE/frappe_manager/images-tag.json" | jq -rc .${{ matrix.service_name }})
           owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
           
           if [[ "${{ matrix.service_name }}" == "frappe" ]]; then
