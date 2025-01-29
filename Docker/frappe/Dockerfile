@@ -123,7 +123,7 @@ COPY --chown=frappe:frappe ./zshrc /opt/user/.zshrc
 COPY --chown=frappe:frappe ./fm.zsh-theme /opt/user/fm.zsh-theme
 
 RUN git clone --depth 1 https://github.com/pyenv/pyenv.git .pyenv \
-    && pyenv install $PYTHON_VERSION \
+    && pyenv install $PYTHON_VERSION 3.11 \ # support previous version
     && PYENV_VERSION=$PYTHON_VERSION pip install --no-cache-dir virtualenv \
     && pyenv global $PYTHON_VERSION \
     && echo 'export PYENV_ROOT="/opt/.pyenv"' >> "$USERZSHRC" \
@@ -138,6 +138,7 @@ RUN pip install frappe-bench
 RUN mkdir -p /opt/.nvm \
     && wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash \
     && . ${NVM_DIR}/nvm.sh \
+    && nvm install 18.17.0 \ # support previous version
     && nvm install ${NODE_VERSION} \
     && nvm use v${NODE_VERSION} \
     && npm install -g yarn \
