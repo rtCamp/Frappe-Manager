@@ -410,7 +410,7 @@ class Bench:
         self.benchops.check_required_docker_images_available()
 
         # start admin-tools if exists
-        if self.workers.compose_project.compose_file_manager.exists():
+        if self.admin_tools.compose_project.compose_file_manager.compose_path.exists():
             richprint.change_head("Starting admin tools services")
             self.admin_tools.compose_project.start_service(force_recreate=force)
             richprint.print("Started admin tools services.")
