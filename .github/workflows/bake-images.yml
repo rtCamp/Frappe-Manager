@@ -27,22 +27,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with:
-          ref: main
           fetch-depth: 0
 
-      - name: Set up tag
+      - name: Checkout latest tag when job is schedule or push
+        if: github.event_name == 'schedule' || github.event_name == 'push'
         id: set-tag
         run: |
           latest_tag=$(git describe --abbrev=0 --tags)
           if [[ "${{ github.ref == 'refs/tags/v*' }}" == 'true' ]]; then
               latest-tag=${GITHUB_REF/refs\/tags\//}
           fi
-          owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
           echo "Checkout $latest_tag"
           git checkout "$latest_tag"
-          tag=$( cat "$GITHUB_WORKSPACE/Docker/images-tag.json" | jq -rc .${{ matrix.service_name }})
-          echo "Image tag $tag"
-          echo "image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -60,7 +56,12 @@ jobs:
         if: matrix.service_name == 'frappe'
         run: |
           owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
+
+
           tag=$( cat "$GITHUB_WORKSPACE/Docker/images-tag.json" | jq -rc .${{ matrix.service_name }})
+
+          echo "Image tag $tag"
+          echo "image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
           echo "prebake_image_name=ghcr.io/${owner}/frappe-manager-prebake:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
           echo "fm_image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
 
@@ -109,16 +110,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
         with:
-          ref: main
           fetch-depth: 0
 
-      - name: Set up tag
+      - name: Checkout latest tag when job is schedule or push
+        if: github.event_name == 'schedule' || github.event_name == 'push'
         id: set-tag
         run: |
           latest_tag=$(git describe --abbrev=0 --tags)
           if [[ "${{ github.ref == 'refs/tags/v*' }}" == 'true' ]]; then
               latest-tag=${GITHUB_REF/refs\/tags\//}
           fi
+          echo "Checkout $latest_tag"
           git checkout "$latest_tag"
 
       - name: Login to GitHub Container Registry
@@ -132,14 +134,38 @@ jobs:
         run: |
           tag=$( cat "$GITHUB_WORKSPACE/Docker/images-tag.json" | jq -rc .${{ matrix.service_name }})
           owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
-          img="ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}"
-          rm -rf ~/.docker/manifests
-          docker pull "$img:amd64-${tag}"
-          docker pull "$img:arm64-${tag}"
-          docker manifest create "$img":"${tag}" \
-          --amend "$img":amd64-${tag} \
-          --amend "$img":arm64-${tag}
-          docker manifest push "$img:${tag}"
+          
+          if [[ "${{ matrix.service_name }}" == "frappe" ]]; then
+            # Handle prebake image
+            prebake_img="ghcr.io/${owner}/frappe-manager-prebake"
+            rm -rf ~/.docker/manifests
+            docker pull "$prebake_img:amd64-${tag}"
+            docker pull "$prebake_img:arm64-${tag}"
+            docker manifest create "$prebake_img":"${tag}" \
+              --amend "$prebake_img":amd64-${tag} \
+              --amend "$prebake_img":arm64-${tag}
+            docker manifest push "$prebake_img:${tag}"
+            
+            # Handle fm image
+            fm_img="ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}"
+            rm -rf ~/.docker/manifests
+            docker pull "$fm_img:amd64-${tag}"
+            docker pull "$fm_img:arm64-${tag}"
+            docker manifest create "$fm_img":"${tag}" \
+              --amend "$fm_img":amd64-${tag} \
+              --amend "$fm_img":arm64-${tag}
+            docker manifest push "$fm_img:${tag}"
+          else
+            # Handle other services normally
+            img="ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}"
+            rm -rf ~/.docker/manifests
+            docker pull "$img:amd64-${tag}"
+            docker pull "$img:arm64-${tag}"
+            docker manifest create "$img":"${tag}" \
+              --amend "$img":amd64-${tag} \
+              --amend "$img":arm64-${tag}
+            docker manifest push "$img:${tag}"
+          fi
 
       - name: Cleanup
         run: |
