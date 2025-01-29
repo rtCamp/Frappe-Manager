@@ -314,7 +314,7 @@ class Bench:
 
         self.compose_project.compose_file_manager.set_network_alias("nginx", "site-network", [self.name])
         self.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(self.name))
-        self.compose_project.compose_file_manager.set_root_volumes_name(get_container_name_prefix(self.name))
+        self.compose_project.compose_file_manager.set_root_volumes_names(get_container_name_prefix(self.name))
         self.compose_project.compose_file_manager.set_version(get_current_fm_version())
         self.compose_project.compose_file_manager.set_root_networks_name(
             "site-network", get_container_name_prefix(self.name)

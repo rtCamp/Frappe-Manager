@@ -276,7 +276,7 @@ class ComposeFile:
 
         return envs
 
-    def set_all_envs(self, environments: dict):
+    def set_all_envs(self, environments: dict, append: bool = True):
         """
         Sets environment variables for all containers in the Compose file.
 
@@ -285,7 +285,7 @@ class ComposeFile:
 
         """
         for container_name in environments.keys():
-            self.set_envs(container_name, environments[container_name], append=True)
+            self.set_envs(container_name, environments[container_name], append=append)
 
     def get_all_labels(self):
         """
@@ -463,18 +463,33 @@ class ComposeFile:
 
         return volumes
 
-    def get_all_services_volumes(self) -> List[DockerVolumeMount]:
+    def get_all_services_volumes(self) -> dict[str, List[DockerVolumeMount]]:
         """
-        Get all the volume mounts.
+        Get all the volume mounts mapped by service name.
+
+        Returns:
+            dict[str, List[DockerVolumeMount]]: Dictionary mapping service names to their volume mounts
         """
-        volumes_list: List[DockerVolumeMount] = []
+        volumes_map: dict[str, List[DockerVolumeMount]] = {}
 
         services = self.get_services_list()
         for service in services:
             volumes = self.get_service_volumes(service)
-            volumes_list += volumes
+            volumes_map[service] = volumes
 
-        return volumes_list
+        return volumes_map
+
+    def set_all_services_volumes(self, volumes_map: dict[str, List[DockerVolumeMount]]) -> None:
+        """
+        Set volume mounts for all services.
+
+        Args:
+            volumes_map (dict[str, List[DockerVolumeMount]]): Dictionary mapping service names to their volume mounts
+        """
+        services = self.get_services_list()
+        for service in services:
+            if service in volumes_map:
+                self.set_service_volumes(service, volumes_map[service])
 
     def get_service_volumes(self, service: str) -> List[DockerVolumeMount]:
         """
@@ -509,21 +524,29 @@ class ComposeFile:
         except KeyError as e:
             raise ComposeServiceNotFound(service_name=service)
 
-    def set_root_volumes_name(self, volume_prefix: str) -> None:
+    def set_root_volumes_names(self, volume_prefix: str) -> None:
         """
-        Set specific service volume mounts.
+        Set names for root level volumes in the compose file with the given prefix.
+        
+        Args:
+            volume_prefix (str): Prefix to add to volume names
         """
         try:
-            # Convert DockerVolumeMount objects to strings
-            volumes_list = [str(volume) for volume in self.yml.get('volumes', [])]
-
-            if volumes_list:
-                for volume in volumes_list:
-                    volume_name = volume.replace('-', CLI_SITE_NAME_DELIMETER)
-                    # Set the volumes for the service
-                    self.yml["volumes"][volume]['name'] = volume_prefix + CLI_DEFAULT_DELIMETER + volume_name
+            volumes = self.yml.get('volumes', {})
+            if volumes:
+                for volume_name in volumes:
+                    # Initialize the volume config if it's None
+                    if volumes[volume_name] is None:
+                        volumes[volume_name] = {}
+                        
+                    # Replace hyphens in volume name with the site name delimiter
+                    formatted_name = volume_name.replace('-', CLI_SITE_NAME_DELIMETER)
+                    
+                    # Set the volume name with prefix
+                    volumes[volume_name]['name'] = volume_prefix + CLI_DEFAULT_DELIMETER + formatted_name
+                    
         except KeyError as e:
-            raise ComposeServiceNotFound(service_name=service)
+            richprint.warning(f"Error setting volume names: {str(e)}")
 
     def set_secret_file_path(self, secret_name, file_path):
         try:
@@ -584,3 +607,34 @@ class ComposeFile:
             image = f'{image_info["name"]}:{image_info["tag"]}'
             if service in self.yml["services"]:
                 self.yml["services"][service]["image"] = image
+
+    def set_service_command(self, service: str, command: str) -> None:
+        """
+        Set the command for a specific service in the compose file.
+
+        Args:
+            service (str): The name of the service
+            command (str): The command to set for the service
+        """
+        if service not in self.yml['services']:
+            raise KeyError(f"Service {service} not found in compose file")
+
+        self.yml['services'][service]['command'] = command
+
+    def get_service_command(self, service: str) -> str:
+        """
+        Get the command for a specific service from the compose file.
+
+        Args:
+            service (str): The name of the service
+
+        Returns:
+            str: The command configured for the service, or empty string if not set
+
+        Raises:
+            KeyError: If the service doesn't exist in the compose file
+        """
+        if service not in self.yml['services']:
+            raise KeyError(f"Service {service} not found in compose file")
+
+        return self.yml['services'][service].get('command', '')
