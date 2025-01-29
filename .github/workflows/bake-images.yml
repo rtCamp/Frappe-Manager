@@ -55,6 +55,7 @@ jobs:
       - name: Set image names (non-frappe)
         if: matrix.service_name != 'frappe'
         run: |
+          owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
           tag=$( cat "$GITHUB_WORKSPACE/Docker/images-tag.json" | jq -rc .${{ matrix.service_name }})
           echo "Image tag $tag"
           echo "image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
