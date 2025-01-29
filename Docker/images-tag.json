@@ -2,5 +2,5 @@
 "frappe": "v0.16.7",
 "prebake": "v0.16.7",
 "nginx": "v0.16.1",
-"mailhog": "v0.8.3"
+"rqdash": "v0.16.7"
 }
