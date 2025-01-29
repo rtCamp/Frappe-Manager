@@ -216,7 +216,7 @@ class MigrationV0167(MigrationBase):
             admin_tool_compose_project.compose_file_manager.yml['services']['rqdash'] = {
                 "image": f"ghcr.io/rtcamp/frappe-manager-rqdash:{self.version.version_string()}",
                 "expose": ['9181'],
-                "envrionment": {
+                "environment": {
                     "RQ_DASHBOARD_REDIS_URL": f"redis://{get_container_name_prefix(bench.name)}__redis-queue:6379"
                 },
                 "networks": {"site_network": None},
