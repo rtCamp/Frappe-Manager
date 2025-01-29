@@ -170,26 +170,31 @@ def parameters_to_options(param: dict, exclude: list = []) -> list:
     for key in exclude:
         del temp_param[key]
 
-    # remove all parameters which are not booleans
     params: list = []
 
     for key in temp_param.keys():
         value = temp_param[key]
         key = "--" + key.replace("_", "-")
+
         if type(value) == bool:
             if value:
                 params.append(key)
-        if type(value) == int:
+
+        elif type(value) == int:
             params.append(key)
             params.append(value)
-        if type(value) == str:
+
+        elif type(value) == str:
             if value:
                 params.append(key)
                 params.append(value)
-        if type(value) == list:
+
+        elif type(value) == list:
             if value:
-                params.append(key)
-                params += value
+                # For each item in the list, add the key and value separately
+                for item in value:
+                    params.append(key)
+                    params.append(item)
 
     return params
 
