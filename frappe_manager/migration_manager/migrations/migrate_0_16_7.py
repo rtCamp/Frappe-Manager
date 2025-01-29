@@ -97,7 +97,7 @@ class MigrationV0167(MigrationBase):
         redis_image_info["tag"] = "6.2-alpine"
 
         nginx_image_info = images_info["nginx"]
-        nginx_image_info["tag"] = self.version.version_string()
+        nginx_image_info["tag"] = 'v0.16.1'
 
         # change image nginx
         images_info["nginx"] = nginx_image_info
