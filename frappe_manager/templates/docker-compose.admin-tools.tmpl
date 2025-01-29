@@ -10,6 +10,7 @@ services:
     networks:
       site-network:
     environment:
+      MP_WEBROOT: mailpit
       MP_MAX_MESSAGES: 5000
       MP_DATABASE: /data/mailpit.db
       MP_SMTP_AUTH_ACCEPT_ANY: 1
