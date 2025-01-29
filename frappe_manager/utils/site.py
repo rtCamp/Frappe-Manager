@@ -2,6 +2,7 @@ from rich.table import Table
 from pathlib import Path
 import re
 import json
+from frappe_manager.utils.helpers import get_frappe_manager_own_files
 
 from typing import Optional
 from frappe_manager import CLI_BENCHES_DIRECTORY
@@ -204,8 +205,19 @@ def get_all_docker_images():
     )
 
     images = temp_bench_compose_file_manager.get_all_images()
+
+    with open(get_frappe_manager_own_files('../Docker/images-tag.json')) as f:
+        image_tags = json.load(f)
+        prebake_tag = image_tags.get('prebake')
+        images.update({
+            'prebake': {
+                'name': 'ghcr.io/rtcamp/frappe-manager-prebake',
+                'tag': prebake_tag
+            }
+        })
     images.update(services_manager_compose_file_manager.get_all_images())
     images.update(admin_tools_manager_compose_file_manager.get_all_images())
+
     return images
 
 
@@ -217,9 +229,10 @@ def pull_docker_images() -> bool:
     images = get_all_docker_images()
     images_list = []
 
-    for service, image_info in images.items():
+    for _service, image_info in images.items():
         image = f"{image_info['name']}:{image_info['tag']}"
         images_list.append(image)
+
 
     # remove duplicates
     images_list = list(dict.fromkeys(images_list))

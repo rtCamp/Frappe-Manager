@@ -1,4 +1,5 @@
 import json
+import os
 from pathlib import Path
 from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
@@ -25,6 +26,7 @@ class AdminTools:
 
     def generate_compose(self, db_host: str):
         self.compose_project.compose_file_manager.yml = self.compose_project.compose_file_manager.load_template()
+        self.compose_project.compose_file_manager.set_user('rqdash',os.getuid(), os.getgid())
 
         self.compose_project.compose_file_manager.set_envs('adminer', {"ADMINER_DEFAULT_SERVER": db_host})
         self.compose_project.compose_file_manager.set_envs('rqdash', {"RQ_DASHBOARD_REDIS_URL": f"redis://{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}redis-queue:6379"})
@@ -193,7 +195,7 @@ class AdminTools:
             self.configure_mailpit_as_default_server()
 
     def disable(self):
-        self.compose_project.stop_service()
+        self.compose_project.stop_service(timeout=2)
         self.remove_nginx_location_config()
         self.nginx_proxy.reload()
 
