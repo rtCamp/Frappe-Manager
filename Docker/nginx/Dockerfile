@@ -1,4 +1,4 @@
-FROM python:3.11 as builder
+FROM python:3.11 AS builder
 
 LABEL author=rtCamp
 LABEL org.opencontainers.image.source=https://github.com/rtcamp/Frappe-Manager
@@ -18,3 +18,4 @@ RUN chmod +x /entrypoint.sh
 RUN mkdir -p /etc/nginx/custom && rm -rf /etc/nginx/conf.d/default.conf
 
 ENTRYPOINT ["/bin/bash","/entrypoint.sh"]
+
