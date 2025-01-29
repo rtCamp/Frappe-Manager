@@ -24,11 +24,11 @@ class AdminTools:
         self.http_auth_path: Path = self.nginx_proxy.dirs.conf.host / 'http_auth'
 
     def generate_compose(self, db_host: str):
-        # env set db_host for ADMINER_DEFAULT_SERVER
-        env = {"ADMINER_DEFAULT_SERVER": db_host}
-        self.compose_project.compose_file_manager.set_envs('adminer', env)
-
         self.compose_project.compose_file_manager.yml = self.compose_project.compose_file_manager.load_template()
+
+        self.compose_project.compose_file_manager.set_envs('adminer', {"ADMINER_DEFAULT_SERVER": db_host})
+        self.compose_project.compose_file_manager.set_envs('rqdash', {"RQ_DASHBOARD_REDIS_URL": f"redis://{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}redis-queue:6379"})
+
         self.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(self.bench_name))
         self.compose_project.compose_file_manager.set_root_networks_name(
             'site-network', get_container_name_prefix(self.bench_name)
@@ -79,6 +79,7 @@ class AdminTools:
 
         data = {
             "mailpit_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailpit",
+            "rqdash_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}rqdash",
             "adminer_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}adminer",
             "auth_file": f"/etc/nginx/http_auth/{auth_file.name}",
         }
