@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PyPI version](https://badge.fury.io/py/frappe-manager.svg)](https://badge.fury.io/py/frappe-manager)
 
-A powerful CLI tool that simplifies managing Frappe-based applications using Docker. Designed for developers and system administrators, Frappe Manager (FM) streamlines the entire lifecycle of Frappe applications from development to deployment.
+A powerful CLI tool that simplifies managing Frappe-based applications using Docker. Streamlines the entire lifecycle of Frappe applications from development to deployment.
 
 </div>
 
