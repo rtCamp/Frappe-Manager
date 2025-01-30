@@ -3,6 +3,7 @@ import re
 import json
 from pathlib import Path
 
+from frappe_manager.compose_manager import DockerVolumeMount, DockerVolumeType
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.display_manager.DisplayManager import richprint
@@ -18,6 +19,7 @@ from frappe_manager.migration_manager.migration_helpers import (
     MigrationServicesManager,
 )
 from frappe_manager.migration_manager.version import Version
+
 
 def get_container_name_prefix(site_name):
     return 'fm' + "__" + site_name.replace(".", "_")
@@ -65,13 +67,13 @@ class MigrationV0167(MigrationBase):
         if common_site_config_json.exists():
             with open(common_site_config_json) as f:
                 config_data = json.load(f)
-                
+
             if 'mail_server' in config_data:
                 config_data['mail_server'] = f"{get_container_name_prefix(bench.name)}__mailpit"
-                
+
             # Update the existing redis configuration
             config_data.update(common_site_config_data)
-            
+
             with open(common_site_config_json, 'w') as f:
                 json.dump(config_data, f, indent=1)
 
@@ -94,13 +96,25 @@ class MigrationV0167(MigrationBase):
         images_info = bench.compose_project.compose_file_manager.get_all_images()
 
         # volume remove :cached
-        volumes = bench.compose_project.compose_file_manager.get_all_services_volumes()
+        volumes: dict[str, list[DockerVolumeMount]] = (
+            bench.compose_project.compose_file_manager.get_all_services_volumes()
+        )
+        add_volume_in_services = ['frappe', 'socketio', 'schedule']
+        fm_sockets_volume_mount = DockerVolumeMount(
+            host='fm-sockets',
+            type='volume',
+            container='/fm-sockets',
+            compose_path=bench.compose_project.compose_file_manager.compose_path,
+        )
+        for service in add_volume_in_services:
+            volumes[service].append(fm_sockets_volume_mount)
         bench.compose_project.compose_file_manager.set_all_services_volumes(volumes)
 
         # container names
         bench.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(bench.name))
 
         # root volumes name
+        bench.compose_project.compose_file_manager.yml['volumes']['fm-sockets'] = {}
         bench.compose_project.compose_file_manager.set_root_volumes_names(get_container_name_prefix(bench.name))
 
         # root network names
@@ -180,11 +194,25 @@ class MigrationV0167(MigrationBase):
                     service_name, 'launch_supervisor_service.sh'
                 )
                 envs[service_name]["WORKER_NAME"] = service_name
-                del(envs[service_name]['SUPERVISOR_SERVICE_CONFIG_FILE_NAME'])
+                del envs[service_name]['SUPERVISOR_SERVICE_CONFIG_FILE_NAME']
 
             # volume remove :cached
             volumes = bench.workers_compose_project.compose_file_manager.get_all_services_volumes()
+            fm_sockets_volume_mount = DockerVolumeMount(
+                host='fm-sockets',
+                type='volume',
+                container='/fm-sockets',
+                compose_path=bench.workers_compose_project.compose_file_manager.compose_path,
+            )
+            for service, _ in volumes.items():
+                volumes[service].append(fm_sockets_volume_mount)
             bench.workers_compose_project.compose_file_manager.set_all_services_volumes(volumes)
+
+            # root volumes name
+            bench.workers_compose_project.compose_file_manager.yml['volumes'] = {'fm-sockets': {"external": True}}
+            bench.workers_compose_project.compose_file_manager.set_root_volumes_names(
+                get_container_name_prefix(bench.name)
+            )
 
             # site network
             bench.workers_compose_project.compose_file_manager.set_root_networks_name(
@@ -215,21 +243,22 @@ class MigrationV0167(MigrationBase):
             admin_tools_conf_path = bench.path / 'configs' / 'nginx' / 'conf' / 'custom' / 'admin-tools.conf'
 
             if admin_tools_conf_path.exists():
-
                 # Generate and save htpasswd file
-                auth_file: Path = bench.path / 'configs' / 'nginx' / 'conf' / 'http_auth'/ f'{bench.name}-admin-tools.htpasswd'
+                auth_file: Path = (
+                    bench.path / 'configs' / 'nginx' / 'conf' / 'http_auth' / f'{bench.name}-admin-tools.htpasswd'
+                )
 
                 import secrets
                 import crypt
 
-
                 username = 'admin'
                 password = secrets.token_urlsafe(16)
-                
+
                 # Get current bench config and add admin tools credentials
                 bench_config_path = bench.path / 'bench_config.toml'
                 if bench_config_path.exists():
                     import tomlkit
+
                     bench_config = tomlkit.loads(bench_config_path.read_text())
                     bench_config['admin_tools_username'] = username
                     bench_config['admin_tools_password'] = password
@@ -298,7 +327,7 @@ class MigrationV0167(MigrationBase):
 
             admin_tools_image_info = admin_tool_compose_project.compose_file_manager.get_all_images()
 
-            for image in [admin_tools_image_info["rqdash"],admin_tools_image_info["mailpit"]]:
+            for image in [admin_tools_image_info["rqdash"], admin_tools_image_info["mailpit"]]:
                 pull_image = f"{image['name']}:{image['tag']}"
                 if pull_image not in self.pulled_images_list:
                     richprint.change_head(f"Pulling Image {pull_image}")
@@ -321,7 +350,7 @@ class MigrationV0167(MigrationBase):
         import configparser
 
         frappe_bench_dir = bench.path / 'workspace' / 'frappe-bench'
-        supervisor_conf_path: Path =  frappe_bench_dir / "config" / "supervisor.conf"
+        supervisor_conf_path: Path = frappe_bench_dir / "config" / "supervisor.conf"
         config = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
         config.read_string(supervisor_conf_path.read_text())
 
@@ -369,6 +398,7 @@ class MigrationV0167(MigrationBase):
                     section_config.write(section_file)
 
                 richprint.print(f"Migrated supervisor conf {section_name} => {file_name}")
+
 
 ADMIN_TOOLS_TEMPLATE = '''
 # Mailpit

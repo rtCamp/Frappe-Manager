@@ -1178,20 +1178,24 @@ class Bench:
         if not self.is_supervisord_running():
             raise BenchFrappeServiceSupervisorNotRunning(self.name)
 
-        frappe_workspace_path: str = "/fm-sockets/frappe.sock"
-        frappe_supervisor_socket_location = self.path / frappe_workspace_path
+        socket_path = f"/fm-sockets/frappe.sock"
 
-        supervisorctl_command = f"supervisorctl -s unix:///{frappe_workspace_path} "
-
-        # Wait for supervisor socket file to be created
+        # Wait for supervisor socket file to be created in container
         for _ in range(timeout):
-            if frappe_supervisor_socket_location.exists():
+            try:
+                self.frappe_service_run_command(f"test -e {socket_path}")
                 break
-            time.sleep(interval)
+            except DockerException as e:
+                print('--->')
+                print(e)
+                time.sleep(interval)
         else:
             raise BenchOperationException(
-                self.name, message=f'Supervisor socket for frappe service not available after waiting {timeout} seconds'
+                self.name,
+                message=f'Supervisor socket for frappe service not created after {timeout} seconds'
             )
+
+        supervisorctl_command = f"supervisorctl -s unix:///{socket_path} "
 
         if self.bench_config.environment_type == FMBenchEnvType.dev:
             richprint.change_head(f"Configuring and starting {self.bench_config.environment_type.value} services")
@@ -1290,9 +1294,9 @@ class Bench:
         # Wait for supervisor socket file to be created in container
         for _ in range(timeout):
             try:
-                # Use ls command to check if file exists in container
                 self.compose_project.docker.compose.exec(
                     service=service,
+                    user='frappe',
                     command=f"test -e {socket_path}",
                     stream=False
                 )
