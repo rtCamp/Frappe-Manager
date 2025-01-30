@@ -8,7 +8,7 @@ set -e
 # Cleanup function
 cleanup() {
     local exit_code=$?
-    rm -f "$LOGFILE"
+    #rm -f "$LOGFILE"
     exit $exit_code
 }
 
@@ -53,10 +53,50 @@ info_red(){
     echo "$(red 'X') $(red "$*")"
 }
 
-isRoot() {
+create_user() {
+    local username=${1:-frappe}
+    
+    # Check if user already exists
+    if id "$username" >/dev/null 2>&1; then
+        info_yellow "User $username already exists"
+        return
+    fi
+
+    info_blue "Creating user $username..."
+    useradd -m -s /bin/bash "$username"
+    usermod -aG sudo "$username"
+    
+    # Set a random password
+    local password='frappemanager'
+    #local password=$(openssl rand -base64 12)
+    echo "$username:$password" | chpasswd
+    
+    info_green "Created user $username with password: $password"
+    info_yellow "Please change this password after installation!"
+}
+
+handle_root() {
     if [ "$(id -u)" -eq 0 ]; then
-        info_red "This script is being run as the root user. Frappe-Manager supports installation only as a non-root user. Please switch to a non-root user and re-run this script."
-        exit 1
+        local username=${1:-frappe}
+        info_blue "Running as root, creating user $username..."
+        
+        create_user "$username"
+        
+        # Copy the script to the new user's home
+        local script_path="/home/$username/install.sh"
+        cp "$0" "$script_path"
+        chown "$username:$username" "$script_path"
+        chmod +x "$script_path"
+        
+        # Set up environment for non-interactive run
+        export SUDO_ASKPASS="/bin/false"  # Prevent graphical password prompts
+        export DEBIAN_FRONTEND=noninteractive
+        
+        # Re-run the script as the new user with the known password
+        info_blue "Re-running script as user $username..."
+        echo "frappemanager" | script -qec "su - $username -c '$script_path'" /dev/null
+        
+        exit $?
     fi
 }
 
@@ -133,20 +173,35 @@ install_docker_ubuntu() {
     else
         info_blue "Installing Docker Engine for Ubuntu..."
 
+        # Store password for sudo operations
+        local password
+        if [ -t 0 ]; then
+            # Interactive - ask for password once
+            echo -n "Please enter sudo password: "
+            read -s password
+            echo  # New line after password input
+        else
+            # Non-interactive - use predefined password from create_user
+            password="frappemanager"
+        fi
+
+        # Function to run sudo commands with stored password
+        run_sudo() {
+            echo "$password" | sudo -S "$@"
+        }
+
         # Add Docker's official GPG key:
-        sudo DEBIAN_FRONTEND=noninteractive apt-get update
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl
-        sudo DEBIAN_FRONTEND=noninteractive install -m 0755 -d /etc/apt/keyrings
-        sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-        sudo DEBIAN_FRONTEND=noninteractive chmod a+r /etc/apt/keyrings/docker.asc
+        run_sudo apt-get update
+        run_sudo apt-get install -y ca-certificates curl
+        run_sudo install -m 0755 -d /etc/apt/keyrings
+        run_sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+        run_sudo chmod a+r /etc/apt/keyrings/docker.asc
 
         # Add the repository to Apt sources:
-        echo \
-            "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-            $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-            sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-            sudo DEBIAN_FRONTEND=noninteractive apt-get update
-            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin
+        REPO_CONTENT="deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable"
+        echo "$password" | sudo -S bash -c "echo \"$REPO_CONTENT\" > /etc/apt/sources.list.d/docker.list"
+        run_sudo apt-get update
+        run_sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin
             info_green "Docker Engine installed"
     fi
 
@@ -300,9 +355,12 @@ handle_shell(){
 }
 
 
+# Parse command line arguments
+USERNAME=${1:-frappe}
+
 # Detect OS and call the respective functions
 OS="$(uname)"
-isRoot
+handle_root "$USERNAME"
 if [ "$OS" == "Darwin" ]; then
     install_docker_macos
     install_python_and_frappe_macos
