@@ -1,4 +1,5 @@
 import os
+import re
 import json
 from pathlib import Path
 
@@ -179,6 +180,7 @@ class MigrationV0167(MigrationBase):
                     service_name, 'launch_supervisor_service.sh'
                 )
                 envs[service_name]["WORKER_NAME"] = service_name
+                del(envs[service_name]['SUPERVISOR_SERVICE_CONFIG_FILE_NAME'])
 
             # volume remove :cached
             volumes = bench.workers_compose_project.compose_file_manager.get_all_services_volumes()
@@ -215,10 +217,32 @@ class MigrationV0167(MigrationBase):
             if admin_tools_conf_path.exists():
 
                 # Generate and save htpasswd file
-                auth_file = bench.path / 'configs' / 'nginx' / 'conf' / 'http_auth'/ f'{bench.name}-admin-tools.htpasswd'
+                auth_file: Path = bench.path / 'configs' / 'nginx' / 'conf' / 'http_auth'/ f'{bench.name}-admin-tools.htpasswd'
+
+                import secrets
+                import crypt
+
+
+                username = 'admin'
+                password = secrets.token_urlsafe(16)
+                
+                # Get current bench config and add admin tools credentials
+                bench_config_path = bench.path / 'bench_config.toml'
+                if bench_config_path.exists():
+                    import tomlkit
+                    bench_config = tomlkit.loads(bench_config_path.read_text())
+                    bench_config['admin_tools_username'] = username
+                    bench_config['admin_tools_password'] = password
+                    bench_config_path.write_text(tomlkit.dumps(bench_config))
+                    richprint.print("Added admin tools credentials to bench config")
+
+                salt = crypt.mksalt()
+                hashed = crypt.crypt(password, salt)
 
                 if not auth_file.parent.exists():
                     auth_file.parent.mkdir(exist_ok=True)
+
+                auth_file.write_text(f"{username}:{hashed}")
 
                 data = {
                     "mailpit_host": f"{get_container_name_prefix(bench.name)}__mailpit",
@@ -317,9 +341,13 @@ class MigrationV0167(MigrationBase):
                         if to_replace in value:
                             value = value.replace(to_replace, frappe_bench_dir.name)
 
+                    if key == "command":
+                        value = re.sub(r'/(?:opt|usr)(?:/.*?)?/(?:bin|shims)/bench', 'bench', value)
+
                     if "frappe-web" in section_name:
                         if key == "command":
                             value = value.replace("127.0.0.1:80", "0.0.0.0:80")
+
                     section_config.set(section_name, key, value)
 
                 section_name_delimeter = '-frappe-'
