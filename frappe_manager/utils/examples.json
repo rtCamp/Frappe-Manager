@@ -138,8 +138,8 @@
         "code": " --sync-config"
       },
       {
-        "desc": "Reconfigure supervisord configuration",
-        "code": " --reconfigure-supervisord"
+        "desc": "Reconfigure supervisor configuration",
+        "code": " --reconfigure-supervisor"
       },
       {
         "desc": "Reconfigure common_site_config.json",
