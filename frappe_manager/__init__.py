@@ -58,13 +58,16 @@ CLI_SITE_NAME_DELIMETER = '_'
 DEFAULT_EXTENSIONS = [
     # Debugger
     "ms-python.debugpy",
-    "rioj7.command-variable"
+    "rioj7.command-variable",
+
     # Python
     "ms-python.python",
     "charliermarsh.ruff",
+
     # JavaScript/Web
     "dbaeumer.vscode-eslint",
     "esbenp.prettier-vscode",
+
     # General Development
     "eamodio.gitlens",
     "MS-vsliveshare.vsliveshare",
