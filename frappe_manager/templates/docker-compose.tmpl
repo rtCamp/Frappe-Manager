@@ -7,6 +7,7 @@ services:
       USERGROUP: REPLACE_ME_WITH_CURRENT_USER_GROUP
       SERVICE_NAME: frappe
     volumes:
+      - fm-sockets:/fm-sockets
       - ./workspace:/workspace
     expose:
       - 80
@@ -49,6 +50,7 @@ services:
       - 80
     command: launch_supervisor_service.sh
     volumes:
+      - fm-sockets:/fm-sockets
       - ./workspace:/workspace
     networks:
       site-network:
@@ -62,6 +64,7 @@ services:
       SERVICE_NAME: schedule
     command: launch_supervisor_service.sh
     volumes:
+      - fm-sockets:/fm-sockets
       - ./workspace:/workspace
     networks:
       site-network:
@@ -98,6 +101,8 @@ services:
       site-network:
 
 volumes:
+  fm-sockets:
+    name: fm__SITE_NAME_PREFIX__fm-sockets
   redis-socketio-data:
     name: fm__SITE_NAME_PREFIX__redis-socketio-data
   redis-queue-data:

@@ -19,7 +19,7 @@ import typer
 
 FM_SUPERVISOR_SOCKETS_DIR = Path(
     os.environ.get(
-        "SUPERVISOR_SOCKET_DIR", "/workspace/frappe-bench/config/fm-supervisord-sockets"
+        "SUPERVISOR_SOCKET_DIR", "/fm-sockets"
     )
 )
 

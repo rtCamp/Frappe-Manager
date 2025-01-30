@@ -7,11 +7,16 @@ services:
       site-network:
       global-backend-network:
     volumes:
+      - fm-sockets:/fm-sockets
       - ./workspace:/workspace
     environment:
       USERID: REPLACE_ME_WITH_CURRENT_USER
       USERGROUP: REPLACE_ME_WITH_CURRENT_USER_GROUP
       SERVICE_NAME: worker-name
+
+volumes:
+  fm-sockets:
+    name: fm__SITE_NAME_PREFIX__fm-sockets
 
 networks:
   site-network:

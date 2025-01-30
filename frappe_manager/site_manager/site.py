@@ -1178,7 +1178,7 @@ class Bench:
         if not self.is_supervisord_running():
             raise BenchFrappeServiceSupervisorNotRunning(self.name)
 
-        frappe_workspace_path: str = "workspace/frappe-bench/config/fm-supervisord-sockets/frappe.sock"
+        frappe_workspace_path: str = "/fm-sockets/frappe.sock"
         frappe_supervisor_socket_location = self.path / frappe_workspace_path
 
         supervisorctl_command = f"supervisorctl -s unix:///{frappe_workspace_path} "
@@ -1285,18 +1285,24 @@ class Bench:
     def restart_supervisor_service(
         self, service: str, compose_project_obj: Optional[ComposeProject] = None, timeout: int = 30, interval: int = 1
     ):
-        supervisor_socket_location = (
-            self.path / "workspace/frappe-bench/config/fm-supervisord-sockets" / f"{service}.sock"
-        )
+        socket_path = f"/fm-sockets/{service}.sock"
 
-        # Wait for supervisor socket file to be created
+        # Wait for supervisor socket file to be created in container
         for _ in range(timeout):
-            if supervisor_socket_location.exists():
+            try:
+                # Use ls command to check if file exists in container
+                self.compose_project.docker.compose.exec(
+                    service=service,
+                    command=f"test -e {socket_path}",
+                    stream=False
+                )
                 break
-            time.sleep(interval)
+            except DockerException:
+                time.sleep(interval)
         else:
             raise BenchOperationException(
-                self.name, message=f'Supervisor socket for {service} service not created after {timeout} seconds'
+                self.name, 
+                message=f'Supervisor socket for {service} service not created after {timeout} seconds'
             )
 
         restart_supervisor_command = 'supervisorctl -c /opt/user/supervisord.conf restart all'
@@ -1325,8 +1331,6 @@ class Bench:
             SiteServicesEnum.frappe.value,
             SiteServicesEnum.socketio.value,
         ]
-
-        restart_supervisor_command = 'supervisorctl -c /opt/user/supervisord.conf restart all'
 
         for service in web_services:
             richprint.change_head(f"Restarting web services - {service}")

@@ -540,11 +540,8 @@ class ComposeFile:
                     if volumes[volume_name] is None:
                         volumes[volume_name] = {}
                         
-                    # Replace hyphens in volume name with the site name delimiter
-                    formatted_name = volume_name.replace('-', CLI_SITE_NAME_DELIMETER)
-                    
                     # Set the volume name with prefix
-                    volumes[volume_name]['name'] = volume_prefix + CLI_DEFAULT_DELIMETER + formatted_name
+                    volumes[volume_name]['name'] = volume_prefix + CLI_DEFAULT_DELIMETER + volume_name
                     
         except KeyError as e:
             richprint.warning(f"Error setting volume names: {str(e)}")
