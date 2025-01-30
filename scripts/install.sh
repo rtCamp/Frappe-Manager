@@ -3,7 +3,19 @@ PS4='+\[\033[0;33m\](\[\033[0;36m\]${BASH_SOURCE##*/}:${LINENO}\[\033[0;33m\])\[
 LOGFILE="fm-install-$(date +"%Y%m%d_%H%M%S").log"
 
 exec {BASH_XTRACEFD}>>"$LOGFILE"
-set -xe
+set -e
+
+# Cleanup function
+cleanup() {
+    local exit_code=$?
+    rm -f "$LOGFILE"
+    exit $exit_code
+}
+
+# Register cleanup function
+trap cleanup EXIT
+
+set -x
 
 print_in_color() {
     local color="$1"
@@ -55,11 +67,12 @@ install_fm(){
 }
 
 has_docker_compose(){
-    if [[ "$(dockexr compose version 2>&1 || true)" = *"docker: 'compose' is not a docker command."* ]]; then
-        return 1
-    else
-        return 0
+    if command -v docker &> /dev/null; then
+        if docker compose version &> /dev/null; then
+            return 0
+        fi
     fi
+    return 1
 }
 
 has_pyenv(){
@@ -93,7 +106,7 @@ fi
 # Function to install Homebrew on macOS
 install_homebrew() {
     if ! type brew > /dev/null 2>&1; then
-        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"    else
+        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     else
         info_green "brew is already installed."
     fi
@@ -166,7 +179,7 @@ install_docker_ubuntu() {
 
 install_pyenv_python(){
 
-    if ! type python3 > /dev/null 2>&1 || ! python3 -c 'import sys; assert sys.version_info >= (3,10)' 2>/dev/null; then
+    if ! type python3 > /dev/null 2>&1 || ! python3 -c 'import sys; exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
         LATEST_PYTHON=$(pyenv install --list | grep -v - | grep -v b | grep -v a | grep -v rc | grep -E '^\s*3' | tail -1 | tr -d '[:space:]')
         if [ -z "$LATEST_PYTHON" ]; then
             info_red "Could not find the latest Python version."
@@ -250,31 +263,40 @@ install_python_and_frappe_macos() {
 handle_shell(){
     local shellrc
 
-    if ! has_pyenv; then
-        if [[ "${SHELL:-}" =  *"bash"* ]]; then
-            shellrc="${HOME}/.bashrc"
-        elif [[ "${SHELL:-}" =  *"zsh"* ]]; then
-            shellrc="${HOME}/.zshrc"
-        fi
+    # Detect shell more reliably
+    if [ -n "$BASH_VERSION" ]; then
+        shellrc="${HOME}/.bashrc"
+    elif [ -n "$ZSH_VERSION" ]; then
+        shellrc="${HOME}/.zshrc"
+    else
+        # Default to bashrc if shell detection fails
+        shellrc="${HOME}/.bashrc"
+    fi
 
+    if ! has_pyenv; then
         if [[ "${shellrc:-}" ]]; then
             info_blue "Checking default pip3 dir in PATH"
-            if ! [[ "$PATH" = *"$HOME/.local/bin"* ]];then
-                export PATH="$HOME/.local/bin:$PATH"
+            if ! grep -q "$HOME/.local/bin" "$shellrc" 2>/dev/null; then
                 echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$shellrc"
+                export PATH="$HOME/.local/bin:$PATH"
                 info_green "Added $HOME/.local/bin to PATH using $shellrc file."
             else
                 info_green "$HOME/.local/bin already in PATH."
             fi
         fi
-        info_blue "Installing fm shell completion."
-        $HOME/.local/bin/fm --install-completion
+        
+        # Ensure fm is in PATH before running completion
+        if [ -x "$HOME/.local/bin/fm" ]; then
+            info_blue "Installing fm shell completion."
+            $HOME/.local/bin/fm --install-completion || true
+        else
+            info_yellow "Warning: fm not found in $HOME/.local/bin"
+        fi
     else
         info_blue "Installing fm shell completion."
         export PATH="$(pyenv root)/shims:$PATH"
-        fm --install-completion
+        command -v fm >/dev/null 2>&1 && fm --install-completion || true
     fi
-
 }
 
 
