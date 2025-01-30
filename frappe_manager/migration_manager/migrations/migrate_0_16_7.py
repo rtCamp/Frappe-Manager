@@ -378,9 +378,6 @@ location ^~ /mailpit/ {
 
     chunked_transfer_encoding on;
     proxy_set_header X-NginX-Proxy true;
-    proxy_connect_timeout 60s;
-    proxy_send_timeout 60s;
-    proxy_read_timeout 60s;
     proxy_pass http://{{ mailpit_host }}:8025/mailpit/;
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
@@ -397,9 +394,6 @@ location ^~ /adminer/ {
     proxy_set_header X-Forwarded-For $remote_addr;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header Host $host;
-    proxy_connect_timeout 60s;
-    proxy_send_timeout 60s;
-    proxy_read_timeout 60s;
     proxy_pass http://{{ adminer_host }}:8080/;
 }
 
@@ -411,9 +405,6 @@ location ^~ /rqdash/ {
     proxy_set_header X-Forwarded-For $remote_addr;
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header Host $host;
-    proxy_connect_timeout 60s;
-    proxy_send_timeout 60s;
-    proxy_read_timeout 60s;
     proxy_pass http://{{ rqdash_host }}:9181/rqdash/;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
