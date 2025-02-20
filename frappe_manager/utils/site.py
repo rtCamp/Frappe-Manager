@@ -267,3 +267,13 @@ def get_sitename_from_current_path() -> Optional[str]:
     sitename = sitename_list[0]
     if is_fqdn(sitename):
         return sitename
+
+
+def is_default_worker(worker_name:str) -> bool:
+    default_workers = ['long-worker', 'short-worker']
+
+    for dw in default_workers:
+        if dw == worker_name:
+            return True
+
+    return False

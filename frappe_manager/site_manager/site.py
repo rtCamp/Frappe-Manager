@@ -399,6 +399,7 @@ class Bench:
         force: bool = False,
         sync_bench_config_changes: bool = False,
         reconfigure_workers: bool = False,
+        include_default_workers=False,
         reconfigure_supervisor: bool = False,
         reconfigure_common_site_config: bool = False,
         sync_dev_packages: bool = False,
@@ -434,7 +435,7 @@ class Bench:
         # Reconfigure workers if requested
         if reconfigure_workers:
             richprint.print("Reconfiguring workers")
-            self.sync_workers_compose()
+            self.sync_workers_compose(include_default_workers=include_default_workers)
 
         # Reconfigure supervisord if requested
         if reconfigure_supervisor:
@@ -598,7 +599,7 @@ class Bench:
                 time.sleep(interval)
         return False
 
-    def sync_workers_compose(self, force_recreate: bool = False, setup_supervisor: bool = True):
+    def sync_workers_compose(self, force_recreate: bool = False, setup_supervisor: bool = True, include_default_workers: bool = True):
         if setup_supervisor:
             workers_backup_manager = self.backup_workers_supervisor_conf()
             try:
@@ -606,14 +607,16 @@ class Bench:
             except BenchOperationException as e:
                 self.backup_restore_workers_supervisor(workers_backup_manager)
 
-        are_workers_not_changed = self.workers.is_new_workers_added()
+        are_workers_not_changed = self.workers.is_new_workers_added(include_default_workers=include_default_workers)
 
         if are_workers_not_changed:
             richprint.print("Workers configuration remains unchanged.")
             return
 
-        self.workers.generate_compose()
-        self.workers.compose_project.start_service(force_recreate=force_recreate)
+        start_required = self.workers.generate_compose(include_default_workers=include_default_workers)
+
+        if start_required:
+            self.workers.compose_project.start_service(force_recreate=force_recreate)
 
     def backup_restore_workers_supervisor(self, backup_manager: BackupManager):
         richprint.print("Rolling back to previous workers configuration.")
