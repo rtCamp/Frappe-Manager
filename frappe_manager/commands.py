@@ -355,12 +355,8 @@ def start(
     reconfigure_workers: Annotated[
         bool, typer.Option("--reconfigure-workers", help="Reconfigure workers configuration")
     ] = False,
-    include_default_workers: Annotated[
-        bool, typer.Option(help="Include default worker configuration")
-    ] = True,
-    include_custom_workers: Annotated[
-        bool, typer.Option(help="Include custom worker configuration")
-    ] = True,
+    include_default_workers: Annotated[bool, typer.Option(help="Include default worker configuration")] = True,
+    include_custom_workers: Annotated[bool, typer.Option(help="Include custom worker configuration")] = True,
     sync_dev_packages: Annotated[bool, typer.Option("--sync-dev-packages", help="Sync dev packages")] = False,
 ):
     """Start a bench."""

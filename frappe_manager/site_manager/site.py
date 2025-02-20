@@ -400,7 +400,7 @@ class Bench:
         sync_bench_config_changes: bool = False,
         reconfigure_workers: bool = False,
         include_default_workers=False,
-        include_custom_workers=False,
+        include_custom_workers = False,
         reconfigure_supervisor: bool = False,
         reconfigure_common_site_config: bool = False,
         sync_dev_packages: bool = False,
@@ -433,15 +433,15 @@ class Bench:
 
         self.benchops.is_required_services_available()
 
-        # Reconfigure workers if requested
-        if reconfigure_workers:
-            richprint.print("Reconfiguring workers")
-            self.sync_workers_compose(include_default_workers=include_default_workers)
-
         # Reconfigure supervisord if requested
         if reconfigure_supervisor:
             richprint.print("Reconfiguring supervisord")
             self.benchops.setup_supervisor(force=True)
+
+        # Reconfigure workers if requested
+        if reconfigure_workers:
+            richprint.print("Reconfiguring workers")
+            self.sync_workers_compose(include_default_workers=include_default_workers, include_custom_workers=include_custom_workers)
 
         # Sync dev packages if requested
         if sync_dev_packages:

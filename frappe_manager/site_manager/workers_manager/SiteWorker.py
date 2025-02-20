@@ -44,11 +44,12 @@ class BenchWorkers:
             worker_name = worker_name.replace("frappe-bench-frappe-", "")
             worker_name = worker_name.replace(".workers.fm.supervisor.conf", "")
 
-            if not include_default_workers and is_default_worker(worker_name):
-                continue
-
-            if not include_custom_workers and not is_default_worker(worker_name):
-                workers_expected_service_names.append(worker_name)
+            if is_default_worker(worker_name):
+                if include_default_workers:
+                    workers_expected_service_names.append(worker_name)
+            else:
+                if include_custom_workers:
+                    workers_expected_service_names.append(worker_name)
 
         workers_expected_service_names.sort()
 
