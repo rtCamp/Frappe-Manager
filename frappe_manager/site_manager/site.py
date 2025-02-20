@@ -400,6 +400,7 @@ class Bench:
         sync_bench_config_changes: bool = False,
         reconfigure_workers: bool = False,
         include_default_workers=False,
+        include_custom_workers=False,
         reconfigure_supervisor: bool = False,
         reconfigure_common_site_config: bool = False,
         sync_dev_packages: bool = False,
@@ -599,7 +600,7 @@ class Bench:
                 time.sleep(interval)
         return False
 
-    def sync_workers_compose(self, force_recreate: bool = False, setup_supervisor: bool = True, include_default_workers: bool = True):
+    def sync_workers_compose(self, force_recreate: bool = False, setup_supervisor: bool = True, include_default_workers: bool = True, include_custom_workers: bool = True):
         if setup_supervisor:
             workers_backup_manager = self.backup_workers_supervisor_conf()
             try:
@@ -613,7 +614,7 @@ class Bench:
             richprint.print("Workers configuration remains unchanged.")
             return
 
-        start_required = self.workers.generate_compose(include_default_workers=include_default_workers)
+        start_required = self.workers.generate_compose(include_default_workers=include_default_workers, include_custom_workers=include_custom_workers)
 
         if start_required:
             self.workers.compose_project.start_service(force_recreate=force_recreate)

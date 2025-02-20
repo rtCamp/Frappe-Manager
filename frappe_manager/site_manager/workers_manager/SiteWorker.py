@@ -23,7 +23,7 @@ class BenchWorkers:
             ComposeFile(self.compose_path, template_name='docker-compose.workers.tmpl')
         )
 
-    def get_expected_workers(self, include_default_workers: bool = True) -> List[str]:
+    def get_expected_workers(self, include_default_workers: bool = True, include_custom_workers: bool = True) -> List[str]:
         richprint.change_head("Checking workers info.")
 
         workers_supervisor_conf_paths = []
@@ -43,10 +43,12 @@ class BenchWorkers:
             worker_name = worker_name.name
             worker_name = worker_name.replace("frappe-bench-frappe-", "")
             worker_name = worker_name.replace(".workers.fm.supervisor.conf", "")
+
             if not include_default_workers and is_default_worker(worker_name):
                 continue
 
-            workers_expected_service_names.append(worker_name)
+            if not include_custom_workers and not is_default_worker(worker_name):
+                workers_expected_service_names.append(worker_name)
 
         workers_expected_service_names.sort()
 
@@ -72,7 +74,7 @@ class BenchWorkers:
         else:
             return False
 
-    def generate_compose(self, include_default_workers: bool = True) -> bool:
+    def generate_compose(self, include_default_workers: bool = True, include_custom_workers: bool = True) -> bool:
         richprint.change_head("Generating workers compose configuration")
 
         if not self.compose_path.exists():
@@ -87,7 +89,7 @@ class BenchWorkers:
         template_worker_config = self.compose_project.compose_file_manager.yml["services"]["worker-name"]
         del self.compose_project.compose_file_manager.yml["services"]["worker-name"]
 
-        workers_expected_service_names = self.get_expected_workers(include_default_workers=include_default_workers)
+        workers_expected_service_names = self.get_expected_workers(include_default_workers=include_default_workers, include_custom_workers=include_custom_workers)
 
         if len(workers_expected_service_names) > 0:
             richprint.print(f"Configuring {len(workers_expected_service_names)} workers")
