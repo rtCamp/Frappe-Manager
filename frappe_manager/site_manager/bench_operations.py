@@ -389,7 +389,7 @@ class BenchOperations:
         if not_available_images:
             for image in not_available_images:
                 richprint.error(f"Docker image '{image}' is not available locally")
-            raise BenchOperationRequiredDockerImagesNotAvailable(self.bench.name, 'fm self update images')
+            raise BenchOperationRequiredDockerImagesNotAvailable(self.bench.name, 'fm self update-images')
 
     def reset_bench_site(self, admin_password: str):
         global_db_info = self.bench.services.database_manager.database_server_info
