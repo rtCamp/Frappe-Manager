@@ -8,6 +8,9 @@ from frappe_manager.utils.callbacks import (
     code_command_extensions_callback
 )
 
+from frappe_manager.commands import app
+
+@app.command()
 def code(
     ctx: typer.Context,
     benchname: Annotated[

@@ -1,11 +1,7 @@
 import typer
 from typing import Annotated, Optional
-from frappe_manager import (
-    SUPPORTED_SSL_TYPES,
-    LETSENCRYPT_PREFERRED_CHALLENGE,
-    FMBenchEnvType,
-    EnableDisableOptionsEnum
-)
+from frappe_manager import EnableDisableOptionsEnum
+from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES, LETSENCRYPT_PREFERRED_CHALLENGE
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.site_manager.site_exceptions import BenchNotRunning
 from frappe_manager.ssl_manager.certificate import SSLCertificate
@@ -14,7 +10,11 @@ from frappe_manager.utils.callbacks import sites_autocompletion_callback, sitena
 from frappe_manager.utils.helpers import format_ssl_certificate_time_remaining
 from frappe_manager.display_manager.DisplayManager import richprint
 from email_validator import validate_email
+from frappe_manager.site_manager.bench_config import FMBenchEnvType
 
+from frappe_manager.commands import app
+
+@app.command()
 def update(
     ctx: typer.Context,
     benchname: Annotated[

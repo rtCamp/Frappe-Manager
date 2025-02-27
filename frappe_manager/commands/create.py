@@ -1,19 +1,22 @@
-import typer
 from typing import Annotated, List, Optional
+
 from email_validator import validate_email
+import typer
+
 from frappe_manager import (
     CLI_BENCHES_DIRECTORY,
     CLI_BENCH_CONFIG_FILE_NAME,
-    STABLE_APP_BRANCH_MAPPING_LIST,
-    FMBenchEnvType,
-    SUPPORTED_SSL_TYPES,
-    LETSENCRYPT_PREFERRED_CHALLENGE,
+    EnableDisableOptionsEnum,
 )
-from frappe_manager.site_manager.SiteManager import BenchesManager
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject
-from frappe_manager.site_manager.bench_config import BenchConfig
+from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.metadata_manager import FMConfigManager
+from frappe_manager.services_manager.services import ServicesManager
+from frappe_manager.site_manager.SiteManager import BenchesManager
+from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.site_manager.site import Bench
+from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.utils.callbacks import (
@@ -21,8 +24,10 @@ from frappe_manager.utils.callbacks import (
     create_command_sitename_callback,
     frappe_branch_validation_callback,
 )
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.commands import app
 
+
+@app.command()
 def create(
     ctx: typer.Context,
     benchname: Annotated[str, typer.Argument(help="Name of the bench", callback=create_command_sitename_callback)],
