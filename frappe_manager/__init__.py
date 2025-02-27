@@ -1,7 +1,5 @@
 from pathlib import Path
 from enum import Enum
-from typing import Optional
-from typer.core import TyperCommand
 from frappe_manager.utils.cli_examples import get_examples_from_toml
 import typer.rich_utils as ut
 from rich.panel import Panel
