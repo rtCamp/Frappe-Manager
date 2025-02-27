@@ -11,6 +11,7 @@ from pathlib import Path
 from frappe_manager.site_manager.bench_operations import BenchOperations
 from rich.table import Table
 from frappe_manager.compose_project.compose_project import ComposeProject
+from frappe_manager.site_manager.bench_factory import BenchFactory
 from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.display_manager.DisplayManager import richprint
@@ -105,27 +106,16 @@ class Bench:
         admin_tools_check: bool = False,
         verbose: bool = False,
     ) -> 'Bench':
-        if domain_level(bench_name) == 0:
-            bench_name = bench_name + ".localhost"
-
-        bench_path = benches_path / bench_name
-        bench_config_path: Path = bench_path / bench_config_file_name
-
-        compose_file_manager = ComposeFile(bench_path / "docker-compose.yml")
-        compose_project: ComposeProject = ComposeProject(compose_file_manager, verbose=verbose)
-
-        bench_config: BenchConfig = BenchConfig.import_from_toml(bench_config_path)
-
-        parms: Dict[str, Any] = {
-            'name': bench_name,
-            'path': bench_path,
-            'bench_config': bench_config,
-            'compose_project': compose_project,
-            'services': services,
-            'workers_check': workers_check,
-            'admin_tools_check': admin_tools_check,
-        }
-        return cls(**parms)
+        """Factory method for creating Bench instances"""
+        return BenchFactory.create_bench(
+            bench_name=bench_name,
+            services=services, 
+            benches_path=benches_path,
+            bench_config_file_name=bench_config_file_name,
+            workers_check=workers_check,
+            admin_tools_check=admin_tools_check,
+            verbose=verbose
+        )
 
     def sync_bench_config_configuration(self):
         # set developer_mode based on config
@@ -166,11 +156,11 @@ class Bench:
 
     def create(self, is_template_bench: bool = False):
         """
-        Creates a new bench using the provided template inputs.
+        Creates a new bench using BenchFactory.
 
         Args:
-            template_inputs (dict): A dictionary containing the template inputs.
-
+            is_template_bench (bool): Whether this is a template bench.
+            
         Returns:
             None
         """
