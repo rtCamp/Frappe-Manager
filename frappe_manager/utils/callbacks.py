@@ -114,7 +114,6 @@ def version_callback(version: Optional[bool] = None):
         raise typer.Exit()
 
 
-
 def sites_autocompletion_callback() -> list[Path]:
     sites_list = []
     for dir in CLI_BENCHES_DIRECTORY.iterdir():
