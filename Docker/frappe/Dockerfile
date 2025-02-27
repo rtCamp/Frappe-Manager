@@ -194,6 +194,7 @@ RUN mkdir -p /scripts
 COPY --chmod=0755 ./entrypoint.sh /
 COPY --chmod=0755 ./user-script.sh /scripts/
 COPY --chmod=0755 ./launch_supervisor_service.sh /scripts/
+COPY --chmod=0755 ./launch_rqdash.sh /scripts/
 COPY --chmod=0755 ./helper-function.sh /scripts/
 
 RUN rm -rf /opt && mkdir -p /workspace /opt
