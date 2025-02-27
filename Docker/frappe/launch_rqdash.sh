@@ -16,8 +16,11 @@ while [ ! -d "$env_dir" ]; do
     timeout=$((timeout - interval))
 done
 
-# Install rq-dashboard
-$env_dir/bin/pip install --quiet git+https://github.com/Parallels/rq-dashboard.git@v0.8.2
+# Install rq-dashboard if not already installed
+if ! $env_dir/bin/pip show rq-dashboard >/dev/null 2>&1; then
+    echo "Installing rq-dashboard..."
+    $env_dir/bin/pip install --quiet git+https://github.com/Parallels/rq-dashboard.git@v0.8.2
+fi
 
 # Get Redis queue URL from common site config
 REDIS_QUEUE_URL=$(jq -r '.redis_queue' /workspace/frappe-bench/sites/common_site_config.json)
