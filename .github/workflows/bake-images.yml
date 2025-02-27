@@ -71,7 +71,8 @@ jobs:
         run: |
           owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
           tag=$( cat "$GITHUB_WORKSPACE/frappe_manager/images-tag.json" | jq -rc .${{ matrix.service_name }})
-          echo "prebake_image_name=ghcr.io/${owner}/frappe-manager-prebake:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
+          prebake_tag=$( cat "$GITHUB_WORKSPACE/frappe_manager/images-tag.json" | jq -rc .prebake)
+          echo "prebake_image_name=ghcr.io/${owner}/frappe-manager-prebake:$(basename ${{ matrix.platform }})-${prebake_tag}" >> $GITHUB_ENV
           echo "fm_image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
 
       - name: Build and push Docker image (non-frappe)
@@ -149,17 +150,18 @@ jobs:
         run: |
           tag=$( cat "$GITHUB_WORKSPACE/frappe_manager/images-tag.json" | jq -rc .${{ matrix.service_name }})
           owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
-          
+
           if [[ "${{ matrix.service_name }}" == "frappe" ]]; then
             # Handle prebake image
+            prebake_tag=$( cat "$GITHUB_WORKSPACE/frappe_manager/images-tag.json" | jq -rc .prebake)
             prebake_img="ghcr.io/${owner}/frappe-manager-prebake"
             rm -rf ~/.docker/manifests
-            docker pull "$prebake_img:amd64-${tag}"
-            docker pull "$prebake_img:arm64-${tag}"
-            docker manifest create "$prebake_img":"${tag}" \
-              --amend "$prebake_img":amd64-${tag} \
-              --amend "$prebake_img":arm64-${tag}
-            docker manifest push "$prebake_img:${tag}"
+            docker pull "$prebake_img:amd64-${prebake_tag}"
+            docker pull "$prebake_img:arm64-${prebake_tag}"
+            docker manifest create "$prebake_img":"${prebake_tag}" \
+              --amend "$prebake_img":amd64-${prebake_tag} \
+              --amend "$prebake_img":arm64-${prebake_tag}
+            docker manifest push "$prebake_img:${prebake_tag}"
             
             # Handle fm image
             fm_img="ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}"
