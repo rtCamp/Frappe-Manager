@@ -80,13 +80,13 @@ class BenchesManager:
 
     def _collect_bench_data(self, bench_list):
         """
-        Collect data about each bench
+        Collect data about each bench and sort by status (Active first)
         
         Args:
             bench_list: Dictionary of bench names and their paths
         
         Returns:
-            list: List of dictionaries containing bench data
+            list: List of dictionaries containing bench data, sorted with Active benches first
         """
         bench_data = []
         for bench_name in bench_list.keys():
@@ -105,7 +105,18 @@ class BenchesManager:
                     "status": "Error",
                     "error": "Config not found"
                 })
-        return bench_data
+
+        # Sort bench_data: Active first, then Inactive, then Error
+        return sorted(
+            bench_data,
+            key=lambda x: (
+                # Create a tuple for sorting priority:
+                # First element: 0 for Active, 1 for Inactive, 2 for Error
+                0 if x["status"] == "Active" else (1 if x["status"] == "Inactive" else 2),
+                # Second element: bench name for consistent ordering within same status
+                x["name"]
+            )
+        )
 
     def _output_json(self, bench_data):
         """

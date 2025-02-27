@@ -20,18 +20,54 @@ class ComposeProject:
         self.docker: DockerClient = DockerClient(compose_file_path=self.compose_file_manager.compose_path)
         self.quiet = not verbose
 
-    def start_service(self, services: List[str] = [], force_recreate: bool = False):
+    def start_service(self, services: List[str] = [], force_recreate: bool = False, recreate_on_network_not_found: bool = False):
         """
-        Starts the specific compose service.
+        Starts the specified compose services.
+        
+        Args:
+            services: List of service names to start. If empty, starts all services.
+            force_recreate: Whether to force recreation of containers.
+            recreate_on_network_not_found: Whether to attempt recreation if network is missing.
+        
+        Raises:
+            DockerComposeProjectFailedToStartError: If services fail to start.
         """
-        try:
+        def _start_containers(force_recreate: bool = False) -> None:
+            """Internal helper to start containers with given parameters"""
             output = self.docker.compose.up(
-                services=services, detach=True, pull="never", force_recreate=force_recreate, stream=self.quiet
+                services=services,
+                detach=True,
+                pull="never",
+                force_recreate=force_recreate,
+                stream=self.quiet
             )
             if self.quiet:
                 richprint.live_lines(output, padding=(0, 0, 0, 2))
+
+        try:
+            _start_containers(force_recreate)
         except DockerException as e:
-            raise DockerComposeProjectFailedToStartError(self.compose_file_manager.compose_path, services)
+            # Only handle network errors if configured to do so
+            if not recreate_on_network_not_found:
+                raise DockerComposeProjectFailedToStartError(
+                    self.compose_file_manager.compose_path,
+                    services,
+                    e.output
+                )
+
+            # Check if error is due to missing network
+            import re
+            network_error_pattern = r"Error response from daemon: network [a-f0-9]+ not found"
+            if any(re.search(network_error_pattern, line) for line in e.output.combined):
+                richprint.warning("Network not found. Attempting to recreate network...")
+                _start_containers(force_recreate)
+            else:
+                # Re-raise with original error if not a network issue
+                raise DockerComposeProjectFailedToStartError(
+                    self.compose_file_manager.compose_path,
+                    services,
+                    e.output
+                )
 
     def stop_service(self, services: List[str] = [], timeout: int = 100):
         """

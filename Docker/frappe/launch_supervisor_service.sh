@@ -14,6 +14,24 @@ cleanup() {
 
 trap cleanup SIGTERM
 
+if [[ -n "${WORKER_NAME:-}" ]]; then
+    SERVICE_NAME="${WORKER_NAME}"
+fi
+
+[[ "${SERVICE_NAME:-}" ]] || emer "[ERROR] Please provide SERVICE_NAME environment variable."
+
+SOCK_DIR='/fm-sockets'
+SOCK_SERVICE_PATH="$SOCK_DIR/$SERVICE_NAME.sock"
+
+echo "Setting supervisord sock directory to $SOCK_SERVICE_PATH"
+
+mkdir -p /opt/user/conf.d $SOCK_DIR
+chown "$USERID:$USERGROUP" $SOCK_DIR /opt/user/conf.d
+rm -rf "$SOCK_SERVICE_PATH"
+
+sed -i "s/\opt\/user\/supervisor\.sock/fm-sockets\/${SERVICE_NAME}\.sock/g" /opt/user/supervisord.conf
+echo "supervisord configured $?"
+
 if [[ -n "${SUPERVISOR_SERVICE_CONFIG_FILE_NAME:-}" ]]; then
     # Use the provided config file name
     CONFIG_FILE_NAME="${SUPERVISOR_SERVICE_CONFIG_FILE_NAME}"

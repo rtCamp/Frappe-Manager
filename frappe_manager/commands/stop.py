@@ -5,6 +5,9 @@ from frappe_manager.site_manager.SiteManager import BenchesManager
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import sites_autocompletion_callback, sitename_callback
 
+from frappe_manager.commands import app
+
+@app.command()
 def stop(
     ctx: typer.Context,
     benchname: Annotated[
@@ -15,6 +18,7 @@ def stop(
     ] = None,
 ):
     """Stop a bench."""
+
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']

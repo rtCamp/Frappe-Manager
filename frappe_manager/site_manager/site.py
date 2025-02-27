@@ -54,6 +54,7 @@ from frappe_manager import (
     SiteServicesEnum,
 )
 from frappe_manager.utils.site import domain_level, generate_services_table, get_bench_db_connection_info
+from frappe_manager.compose_project.exceptions import DockerComposeProjectFailedToStartError
 
 
 class Bench:
@@ -419,12 +420,12 @@ class Bench:
 
         richprint.change_head("Starting bench services")
 
-        self.compose_project.start_service(force_recreate=force)
+        self.compose_project.start_service(force_recreate=force,recreate_on_network_not_found=True)
 
         # start admin-tools if exists
         if self.admin_tools.compose_project.compose_file_manager.compose_path.exists():
             richprint.change_head("Starting admin tools services")
-            self.admin_tools.compose_project.start_service(force_recreate=force)
+            self.admin_tools.compose_project.start_service(force_recreate=force,recreate_on_network_not_found=True)
             richprint.print("Started admin tools services.")
 
             # Check if nginx service is stopped and restart if needed
@@ -441,7 +442,7 @@ class Bench:
         # Reconfigure workers if requested
         if reconfigure_workers:
             richprint.print("Reconfiguring workers")
-            self.sync_workers_compose(include_default_workers=include_default_workers, include_custom_workers=include_custom_workers)
+            self.sync_workers_compose(include_default_workers=include_default_workers, include_custom_workers=include_custom_workers, recreate_on_network_not_found=True)
 
         # Sync dev packages if requested
         if sync_dev_packages:
@@ -461,7 +462,7 @@ class Bench:
         # start workers if exists
         if self.workers.compose_project.compose_file_manager.exists():
             richprint.change_head("Starting bench workers services")
-            self.workers.compose_project.start_service(force_recreate=force)
+            self.workers.compose_project.start_service(force_recreate=force, recreate_on_network_not_found=True)
             richprint.print("Started bench workers services.")
 
         self.save_bench_config()
@@ -600,7 +601,7 @@ class Bench:
                 time.sleep(interval)
         return False
 
-    def sync_workers_compose(self, force_recreate: bool = False, setup_supervisor: bool = True, include_default_workers: bool = True, include_custom_workers: bool = True):
+    def sync_workers_compose(self, force_recreate: bool = False, setup_supervisor: bool = True, include_default_workers: bool = True, include_custom_workers: bool = True, recreate_on_network_not_found: bool = False):
         if setup_supervisor:
             workers_backup_manager = self.backup_workers_supervisor_conf()
             try:
@@ -617,7 +618,7 @@ class Bench:
         start_required = self.workers.generate_compose(include_default_workers=include_default_workers, include_custom_workers=include_custom_workers)
 
         if start_required:
-            self.workers.compose_project.start_service(force_recreate=force_recreate)
+            self.workers.compose_project.start_service(force_recreate=force_recreate,recreate_on_network_not_found=recreate_on_network_not_found)
 
     def backup_restore_workers_supervisor(self, backup_manager: BackupManager):
         richprint.print("Rolling back to previous workers configuration.")

@@ -12,7 +12,6 @@ from frappe_manager.logger import log
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.migration_manager.version import Version
-from frappe_manager.services_manager.commands import services_root_command
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.services_manager.services_exceptions import ServicesNotCreated
 from frappe_manager.utils.callbacks import version_callback
@@ -20,7 +19,6 @@ from frappe_manager.utils.helpers import get_current_fm_version, is_cli_help_cal
 from frappe_manager.utils.site import pull_docker_images
 
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
-
 
 def _initialize_directories() -> bool:
     """Initialize FM directories if they don't exist"""

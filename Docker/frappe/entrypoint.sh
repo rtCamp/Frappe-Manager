@@ -12,17 +12,18 @@ cleanup() {
 
 trap cleanup SIGTERM
 
-if [[ -n "${WORKER_NAME:-}" ]]; then
-    SERVICE_NAME="${WORKER_NAME}"
-fi
-
 [[ "${USERID:-}" ]] || emer "[ERROR] Please provide USERID environment variable."
 [[ "${USERGROUP:-}" ]] || emer "[ERROR] Please provide USERGROUP environment variable."
-[[ "${SERVICE_NAME:-}" ]] || emer "[ERROR] Please provide SERVICE_NAME environment variable."
 
 echo "Setting up user"
 
 update_uid_gid "${USERID}" "${USERGROUP}" "frappe" "frappe"
+
+if [[ -n "${WORKER_NAME:-}" ]]; then
+    SERVICE_NAME="${WORKER_NAME}"
+fi
+
+[[ "${SERVICE_NAME:-}" ]] || emer "[ERROR] Please provide SERVICE_NAME environment variable."
 
 SOCK_DIR='/fm-sockets'
 SOCK_SERVICE_PATH="$SOCK_DIR/$SERVICE_NAME.sock"

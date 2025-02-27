@@ -114,7 +114,6 @@ def version_callback(version: Optional[bool] = None):
         raise typer.Exit()
 
 
-
 def sites_autocompletion_callback() -> list[Path]:
     sites_list = []
     for dir in CLI_BENCHES_DIRECTORY.iterdir():
@@ -135,15 +134,11 @@ def sitename_callback(sitename: Optional[str]):
     if not sitename:
         from InquirerPy import inquirer
 
-        # Get basic sites list
         sites_list = [site_name.parent.name for site_name in sites_autocompletion_callback()]
         
         if sites_list:
             richprint.stop()
-
-            # Sort with recently used sites first
             sorted_sites = get_sorted_sites_list(sites_list)
-            
             sitename = inquirer.fuzzy(
                 message="Select bench (↑↓ navigate, type to search)",
                 vi_mode=True,
@@ -152,8 +147,6 @@ def sitename_callback(sitename: Optional[str]):
                 qmark='🤔',
                 amark='🤔'
             ).execute()
-            
-            # Update cache with selected site
             if sitename:
                 update_sites_cache(sitename)
 
@@ -163,10 +156,7 @@ def sitename_callback(sitename: Optional[str]):
         richprint.exit("Invalid selection. Must match existing sites")
 
     sitename = validate_sitename(sitename)
-
-    # check if bench not exists
     bench_path = CLI_BENCHES_DIRECTORY / sitename
-
     if not bench_path.exists():
         raise BenchNotFoundError(sitename, bench_path)
 
