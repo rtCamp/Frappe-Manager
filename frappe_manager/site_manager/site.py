@@ -941,8 +941,6 @@ class Bench:
             BenchAttachTocontainerFailed: If attaching to container fails
         """
 
-        print(workdir)
-
         self._verify_bench_running()
 
         if debugger:
