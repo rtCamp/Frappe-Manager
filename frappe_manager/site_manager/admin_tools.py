@@ -1,7 +1,12 @@
 import json
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
 from frappe_manager import CLI_DEFAULT_DELIMETER
+
+if TYPE_CHECKING:
+    from frappe_manager.site_manager.site import Bench
+
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.display_manager.DisplayManager import richprint
@@ -13,7 +18,7 @@ from frappe_manager.utils.helpers import get_container_name_prefix, get_current_
 
 class AdminTools:
     def __init__(self, bench: 'Bench', nginx_proxy: NginxProxyManager, verbose: bool = True):
-        self.bench = bench
+        self.bench: Bench = bench
         self.compose_path = bench.path / "docker-compose.admin-tools.yml"
         self.bench_name = bench.name
         self.quiet = not verbose
@@ -26,10 +31,16 @@ class AdminTools:
 
     def generate_compose(self, db_host: str):
         self.compose_project.compose_file_manager.yml = self.compose_project.compose_file_manager.load_template()
-        self.compose_project.compose_file_manager.set_user('rqdash',os.getuid(), os.getgid())
+        self.compose_project.compose_file_manager.set_user('rqdash', self.bench.bench_config.userid, self.bench.bench_config.usergroup)
 
         self.compose_project.compose_file_manager.set_envs('adminer', {"ADMINER_DEFAULT_SERVER": db_host})
-        self.compose_project.compose_file_manager.set_envs('rqdash', {"RQ_DASHBOARD_REDIS_URL": f"redis://{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}redis-queue:6379"})
+        self.compose_project.compose_file_manager.set_envs(
+            'rqdash',
+            {
+                "USERID": str(self.bench.bench_config.userid),
+                "USERGROUP": str(self.bench.bench_config.usergroup),
+            },
+        )
 
         self.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(self.bench_name))
         self.compose_project.compose_file_manager.set_root_volumes_names(get_container_name_prefix(self.bench_name))

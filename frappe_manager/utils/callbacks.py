@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Optional
 import typer
 from typing import List, Optional, Set
@@ -112,13 +113,13 @@ def version_callback(version: Optional[bool] = None):
         raise typer.Exit()
 
 
-def sites_autocompletion_callback():
+def sites_autocompletion_callback() -> list[Path]:
     sites_list = []
     for dir in CLI_BENCHES_DIRECTORY.iterdir():
         if dir.is_dir():
             dir = dir / "docker-compose.yml"
             if dir.exists() and dir.is_file():
-                sites_list.append(sites_list)
+                sites_list.append(dir)
     return sites_list
 
 
@@ -127,7 +128,15 @@ def sitename_callback(sitename: Optional[str]):
         sitename = get_sitename_from_current_path()
 
     if not sitename:
-        raise typer.BadParameter(message="Missing Argument")
+        richprint.stop()
+        from InquirerPy import inquirer
+        sites_list = [site_name.parent.name for site_name in sites_autocompletion_callback()]
+        sitename = inquirer.fuzzy(
+            message="Please select a bench (use arrows/type to search)",
+            vi_mode=True,
+            choices=sites_list
+        ).execute()
+        richprint.start("working")
 
     sitename = validate_sitename(sitename)
 

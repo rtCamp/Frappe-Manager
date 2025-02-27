@@ -17,13 +17,16 @@ services:
       MP_SMTP_AUTH_ALLOW_INSECURE: 1
 
   rqdash:
-    image: ghcr.io/rtcamp/frappe-manager-rqdash:v0.16.7
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.16.7
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
-    command: --url-prefix /rqdash
+    environment:
+      USERID: REPLACE_ME_WITH_CURRENT_USER
+      USERGROUP: REPLACE_ME_WITH_CURRENT_USER_GROUP
+    command: launch_rqdash.sh
     expose:
       - 9181
-    environment:
-      RQ_DASHBOARD_REDIS_URL: REPLACE_ME_WITH_REDIS_QUEUE_CONTAINER_NAME
+    volumes:
+      - ./workspace:/workspace
     networks:
       site-network:
 

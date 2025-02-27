@@ -1,11 +1,18 @@
 from pathlib import Path
-from typing import List
+from typing import Any, List
 
 
 class DockerComposeProjectFailedToStartError(Exception):
-    def __init__(self, compose_path: Path, services: List[str], message='Failed to start compose services {}.') -> None:
+    def __init__(
+        self, 
+        compose_path: Path, 
+        services: List[str], 
+        output: Any = None,
+        message: str = 'Failed to start compose services {}.'
+    ) -> None:
         self.compose_path = compose_path
         self.services = services
+        self.output = output
         self.message = message.format(self.services)
         super().__init__(self.message)
 
