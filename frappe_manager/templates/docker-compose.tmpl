@@ -1,6 +1,6 @@
 services:
   frappe:
-    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.16.7
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.16.9
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     environment:
       USERID: REPLACE_ME_WITH_CURRENT_USER
@@ -40,7 +40,7 @@ services:
       global-frontend-network:
 
   socketio:
-    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.16.7
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.16.9
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     environment:
       USERID: REPLACE_ME_WITH_CURRENT_USER
@@ -56,7 +56,7 @@ services:
       site-network:
 
   schedule:
-    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.16.7
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.16.9
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     environment:
       USERID: REPLACE_ME_WITH_CURRENT_USER
