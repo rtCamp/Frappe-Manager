@@ -926,119 +926,159 @@ class Bench:
         except KeyboardInterrupt:
             richprint.stdout.print("Detected CTRL+C. Exiting..")
 
-    def attach_to_bench(self, user: str, extensions: List[str], workdir: str, debugger: bool = False):
+    def attach_to_bench(self, user: str, extensions: List[str], workdir: str, debugger: bool = False) -> None:
         """
-        Attaches to a running site's container using Visual Studio Code Remote Containers extension.
+        Attaches to a running bench's container using Visual Studio Code Remote Containers extension.
 
         Args:
-            user (str): The username to be used in the container.
-            extensions (List[str]): List of extensions to be installed in the container.
+            user: Username to be used in the container
+            extensions: List of VS Code extensions to install 
+            workdir: Working directory path inside container
+            debugger: Whether to setup debugging configuration
+
+        Raises:
+            BenchNotRunning: If the bench container is not running
+            BenchAttachTocontainerFailed: If attaching to container fails
         """
 
+        print(workdir)
+
+        self._verify_bench_running()
+
+        if debugger:
+            self._setup_debugger_config(workdir)
+
+        self._verify_vscode_installed()
+        
+        container_name = self._get_frappe_container_name()
+        vscode_cmd = self._build_vscode_command(container_name, workdir)
+        
+        self._update_container_config(user, sorted(extensions))
+        self._attach_to_container(vscode_cmd)
+
+    def _verify_bench_running(self) -> None:
+        """Verify bench container is running"""
         if not self.compose_project.running:
             raise BenchNotRunning(self.name)
 
-        # check if vscode is installed
+    def _verify_vscode_installed(self) -> None:
+        """Verify VS Code is installed and accessible"""
         vscode_path = shutil.which("code")
-
         if not vscode_path:
-            # TODO todo this should be exception
             richprint.exit("Visual Studio Code binary i.e 'code' is not accessible via cli.")
 
+    def _get_frappe_container_name(self) -> str:
+        """Get the frappe container name and encode it"""
         container_name = self.compose_project.compose_file_manager.get_container_names()
-        container_hex = container_name["frappe"].encode().hex()
+        return container_name["frappe"].encode().hex()
 
-        vscode_cmd = shlex.join(
-            [
-                vscode_path,
-                f"--folder-uri=vscode-remote://attached-container+{container_hex}+{workdir}",
-            ]
-        )
+    def _build_vscode_command(self, container_hex: str, workdir: str) -> str:
+        """Build the VS Code remote container command"""
+        vscode_path = shutil.which("code")
+        return shlex.join([
+            vscode_path,
+            f"--folder-uri=vscode-remote://attached-container+{container_hex}+{workdir}"
+        ])
 
-        extensions.sort()
-
-        vscode_config_without_extension = [
-            {
-                "remoteUser": user,
-                "remoteEnv": {"SHELL": "/bin/zsh"},
-                "customizations": {
-                    "vscode": {
-                        "settings": VSCODE_SETTINGS_JSON,
-                    }
-                },
+    def _update_container_config(self, user: str, extensions: List[str]) -> None:
+        """Update container configuration with user and extensions"""
+        base_config = [{
+            "remoteUser": user,
+            "remoteEnv": {"SHELL": "/bin/zsh"},
+            "customizations": {
+                "vscode": {
+                    "settings": VSCODE_SETTINGS_JSON,
+                }
             }
-        ]
+        }]
 
-        vscode_config_json = copy.deepcopy(vscode_config_without_extension)
-        vscode_config_json[0]['customizations']['vscode']["extensions"] = extensions
+        config_with_extensions = copy.deepcopy(base_config)
+        config_with_extensions[0]['customizations']['vscode']["extensions"] = extensions
 
-        labels = {'devcontainer.metadata': json.dumps(vscode_config_json)}
+        labels = {'devcontainer.metadata': json.dumps(config_with_extensions)}
 
+        previous_config = self._get_previous_container_config()
+        
+        if self._config_needs_update(previous_config, extensions, user):
+            self._apply_new_config(labels)
+
+    def _get_previous_container_config(self) -> List[str]:
+        """Get previous container extension configuration"""
         try:
-            labels_previous = self.compose_project.compose_file_manager.get_labels("frappe")[0]
-            labels_previous = json.loads(labels_previous["devcontainer.metadata"])
-            extensions_previous = copy.deepcopy(labels_previous["customizations"]["vscode"]["extensions"])
-
+            labels = self.compose_project.compose_file_manager.get_labels("frappe")[0]
+            config = json.loads(labels["devcontainer.metadata"])
+            return config["customizations"]["vscode"]["extensions"]
         except KeyError:
-            extensions_previous = []
+            return []
 
-        if not extensions_previous == extensions or not user == user:
-            richprint.change_head("Configuration changed, regenerating label in bench compose")
-            self.compose_project.compose_file_manager.set_labels("frappe", labels)
-            self.compose_project.compose_file_manager.write_to_file()
-            richprint.print("Regenerated bench compose.")
-            self.compose_project.start_service(['frappe'])
-            self.switch_bench_env()
+    def _config_needs_update(self, previous_extensions: List[str], new_extensions: List[str], user: str) -> bool:
+        """Check if container config needs updating"""
+        return not previous_extensions == new_extensions or not user == user
 
-        # Clean workdir path
+    def _apply_new_config(self, labels: dict) -> None:
+        """Apply new container configuration"""
+        richprint.change_head("Configuration changed, regenerating label in bench compose")
+        self.compose_project.compose_file_manager.set_labels("frappe", labels)
+        self.compose_project.compose_file_manager.write_to_file()
+        richprint.print("Regenerated bench compose.")
+        self.compose_project.start_service(['frappe'])
+        self.switch_bench_env()
+
+    def _setup_debugger_config(self, workdir: str) -> None:
+        """Setup debugger configuration if workdir is in workspace"""
         workdir = workdir.strip('/')
+        if not workdir.startswith('workspace'):
+            richprint.warning("Debugger configuration is only supported for workspace directory") 
+            return
 
-        # sync debugger files
-        if debugger and workdir.startswith('workspace'):
-            richprint.change_head("Sync vscode debugger configuration")
-            dot_vscode_dir = self.path / workdir / ".vscode"
-            tasks_json_path = dot_vscode_dir / "tasks"
-            launch_json_path = dot_vscode_dir / "launch"
-            setting_json_path = dot_vscode_dir / "settings"
+        self._sync_vscode_config_files(workdir)
+        self._install_ruff()
+        richprint.print("Synced vscode debugger configuration.")
 
-            dot_vscode_config = {
-                tasks_json_path: VSCODE_TASKS_JSON,
-                launch_json_path: VSCODE_LAUNCH_JSON,
-                setting_json_path: VSCODE_SETTINGS_JSON,
-            }
+    def _sync_vscode_config_files(self, workdir: str) -> None:
+        """Sync VS Code configuration files"""
+        workdir = workdir.strip('/')
+        vscode_dir = self.path / workdir / ".vscode"
+        vscode_dir.mkdir(exist_ok=True, parents=True)
 
-            if not dot_vscode_dir.exists():
-                dot_vscode_dir.mkdir(exist_ok=True, parents=True)
+        config_files = {
+            "tasks": VSCODE_TASKS_JSON,
+            "launch": VSCODE_LAUNCH_JSON,
+            "settings": VSCODE_SETTINGS_JSON
+        }
 
-            for file_path in [launch_json_path, tasks_json_path, setting_json_path]:
-                file_name = f"{file_path.name}.json"
-                real_file_path = file_path.parent / file_name
-                if real_file_path.exists():
-                    backup_tasks_path = (
-                        file_path.parent / f"{file_path.name}.{datetime.now().strftime('%d-%b-%y--%H-%M-%S')}.json"
-                    )
-                    shutil.copy2(real_file_path, backup_tasks_path)
-                    richprint.print(f"Backup previous '{file_name}' : {backup_tasks_path}")
+        for filename, content in config_files.items():
+            file_path = vscode_dir / f"{filename}.json"
+            if file_path.exists():
+                self._backup_config_file(file_path)
+            self._write_config_file(file_path, content)
 
-                with open(real_file_path, "w+") as f:
-                    f.write(json.dumps(dot_vscode_config[file_path], indent=4, sort_keys=True))
-        elif debugger:
-            richprint.warning("Debugger configuration is only supported for workspace directory")
+    def _backup_config_file(self, file_path: Path) -> None:
+        """Backup existing config file"""
+        backup_path = file_path.parent / f"{file_path.stem}.{datetime.now().strftime('%d-%b-%y--%H-%M-%S')}.json"
+        shutil.copy2(file_path, backup_path)
+        richprint.print(f"Backup previous '{file_path.name}' : {backup_path}")
 
-            # install ruff in env
-            try:
-                self.compose_project.docker.compose.exec(
-                    service="frappe",
-                    command="/workspace/frappe-bench/env/bin/pip install ruff",
-                    user='frappe',
-                    stream=True,
-                )
-            except DockerException as e:
-                self.logger.error(f"ruff installation exception: {capture_and_format_exception()}")
-                richprint.warning("Not able to install ruff in env.")
+    def _write_config_file(self, file_path: Path, content: dict) -> None:
+        """Write new config file"""
+        with open(file_path, "w+") as f:
+            f.write(json.dumps(content, indent=4, sort_keys=True))
 
-            richprint.print("Synced vscode debugger configuration.")
+    def _install_ruff(self) -> None:
+        """Install ruff in the container environment"""
+        try:
+            self.compose_project.docker.compose.exec(
+                service="frappe",
+                command="/workspace/frappe-bench/env/bin/pip install ruff",
+                user='frappe',
+                stream=True,
+            )
+        except DockerException as e:
+            self.logger.error(f"ruff installation exception: {capture_and_format_exception()}")
+            richprint.warning("Not able to install ruff in env.")
 
+    def _attach_to_container(self, vscode_cmd: str) -> None:
+        """Attach to the container using VS Code"""
         richprint.change_head("Attaching to Container")
         output = subprocess.run(vscode_cmd, shell=True)
 
