@@ -1,6 +1,7 @@
 import typer
 from frappe_manager.logger import log
-from typing import List, Optional
+import json
+from typing import List
 from pathlib import Path
 from rich.table import Table
 from frappe_manager.services_manager.services import ServicesManager
@@ -49,49 +50,120 @@ class BenchesManager:
         for bench in self.benches:
             bench.remove_bench()
 
-    def list_benches(self):
+    def list_benches(self, output_format: str = "table"):
         """
         Lists all the sites and their status.
+        
+        Args:
+            output_format: Format to output the list in ('table' or 'json')
         """
-
-        # TODO entrypoint check can be changed
         richprint.change_head("Generating bench list")
-
         bench_list = self.get_all_bench()
 
         if not bench_list:
-            richprint.exit(
-                "Seems like you haven't created any sites yet. To create a bench, use the command: 'fm create <benchname>'.",
-                emoji_code=":white_check_mark:",
-            )
+            self._handle_empty_bench_list()
+            return
 
-        list_table = Table(show_lines=True, show_header=True, highlight=True)
-        list_table.add_column("Site")
-        list_table.add_column("Status", vertical="middle")
-        list_table.add_column("Path")
+        bench_data = self._collect_bench_data(bench_list)
+        
+        if output_format == "json":
+            self._output_json(bench_data)
+        else:
+            self._output_table(bench_data)
 
+    def _handle_empty_bench_list(self):
+        """Handle case when no benches are found"""
+        richprint.exit(
+            "Seems like you haven't created any sites yet. To create a bench, use the command: 'fm create <benchname>'.",
+            emoji_code=":white_check_mark:",
+        )
+
+    def _collect_bench_data(self, bench_list):
+        """
+        Collect data about each bench
+        
+        Args:
+            bench_list: Dictionary of bench names and their paths
+        
+        Returns:
+            list: List of dictionaries containing bench data
+        """
+        bench_data = []
         for bench_name in bench_list.keys():
             try:
                 bench = Bench.get_object(bench_name, self.services, workers_check=False, admin_tools_check=False)
-
-                row_data = f"[link=http://{bench.name}]{bench.name}[/link]"
-                path_data = f"[link=file://{bench.path}]{bench.path}[/link]"
-
-                status_color = "white"
-                status_msg = "Inactive"
-
-                if bench.compose_project.running:
-                    status_color = "green"
-                    status_msg = "Active"
-
-                status_data = f"[{status_color}]{status_msg}[/{status_color}]"
-
-                list_table.add_row(row_data, status_data, path_data, style=f"{status_color}")
-                richprint.update_live(list_table, padding=(0, 0, 0, 0))
+                bench_data.append({
+                    "name": bench.name,
+                    "path": str(bench.path),
+                    "status": "Active" if bench.compose_project.running else "Inactive",
+                    "error": None
+                })
             except FileNotFoundError as e:
-                richprint.warning(f'[red][bold]{bench_name}[/bold][/red] : Bench config not found at {e.filename}')
+                bench_data.append({
+                    "name": bench_name,
+                    "path": str(e.filename),
+                    "status": "Error",
+                    "error": "Config not found"
+                })
+        return bench_data
+
+    def _output_json(self, bench_data):
+        """
+        Output bench data in JSON format
+        
+        Args:
+            bench_data: List of dictionaries containing bench data
+        """
+        richprint.stdout.print(json.dumps(bench_data, indent=2))
+
+    def _output_table(self, bench_data):
+        """
+        Output bench data in table format
+        
+        Args:
+            bench_data: List of dictionaries containing bench data
+        """
+        list_table = self._create_table()
+        
+        for bench in bench_data:
+            if bench["error"]:
+                self._handle_error_row(bench)
+                continue
+                
+            self._add_table_row(list_table, bench)
+            richprint.update_live(list_table, padding=(0, 0, 0, 0))
 
         richprint.stop()
 
         if list_table.row_count:
             richprint.stdout.print(list_table)
+
+    def _create_table(self):
+        """Create and return a formatted Rich table"""
+        table = Table(show_lines=True, show_header=True, highlight=True)
+        table.add_column("Site")
+        table.add_column("Status", vertical="middle")
+        table.add_column("Path")
+        return table
+
+    def _handle_error_row(self, bench):
+        """Handle displaying error rows"""
+        richprint.warning(
+            f'[red][bold]{bench["name"]}[/bold][/red] : Bench config not found at {bench["path"]}'
+        )
+
+    def _add_table_row(self, table, bench):
+        """
+        Add a row to the table for a bench
+        
+        Args:
+            table: Rich Table object
+            bench: Dictionary containing bench data
+        """
+        row_data = f"[link=http://{bench['name']}]{bench['name']}[/link]"
+        path_data = f"[link=file://{bench['path']}]{bench['path']}[/link]"
+        
+        status_color = "green" if bench["status"] == "Active" else "white"
+        status_data = f"[{status_color}]{bench['status']}[/{status_color}]"
+        
+        table.add_row(row_data, status_data, path_data, style=status_color)
