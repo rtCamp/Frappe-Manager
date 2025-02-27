@@ -148,6 +148,7 @@ jobs:
 
       - name: Combine manifest and push
         run: |
+          set -x
           tag=$( cat "$GITHUB_WORKSPACE/frappe_manager/images-tag.json" | jq -rc .${{ matrix.service_name }})
           owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
 
