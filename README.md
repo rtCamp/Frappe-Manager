@@ -7,7 +7,11 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PyPI version](https://badge.fury.io/py/frappe-manager.svg)](https://badge.fury.io/py/frappe-manager)
 
-A powerful CLI tool that simplifies managing Frappe-based applications using Docker. Streamlines the entire lifecycle of Frappe applications from development to deployment.
+### Simplify Your Frappe Development & Deployment Workflow
+
+*A powerful CLI tool that streamlines the entire lifecycle of Frappe applications using Docker - from development to deployment.*
+
+[Quick Start](#quick-start) • [Documentation](https://github.com/rtCamp/Frappe-Manager/wiki) • [Examples](#examples) • [Support](#support)
 
 </div>
 
@@ -15,7 +19,7 @@ A powerful CLI tool that simplifies managing Frappe-based applications using Doc
 
 ## ✨ Features
 
-<table>
+<table border="0" cellspacing="0" cellpadding="0">
 <tr>
 <td>
 <h3>🔥 Easy Setup</h3>
@@ -67,69 +71,70 @@ A powerful CLI tool that simplifies managing Frappe-based applications using Doc
 </tr>
 </table>
 
-## Requirements
+## 🛠️ Requirements
 
-- Python 3.11+
+- Python 3.11 or higher
 - Docker
 - VSCode (optional, for development features)
 
-## Quick Start
-
-1. **Installation**:
-   ```bash
-   pip install frappe-manager
-   ```
-
-2. **Setup Shell Completion**:
-   ```bash
-   fm --install-completion
-   ```
-   Restart your shell after installation
-
-3. **Create Your First Site**:
-   ```bash
-   # Basic site with Frappe v15
-   fm create mysite
-
-   # Development site with specific apps
-   fm create devsite --apps erpnext:version-15 --apps hrms:version-15 --environment dev
-   
-   # Production site with SSL
-   fm create prodsite --environment prod --ssl le --letsencrypt-email admin@example.com
-   ```
-
-## Common Commands
+## 🚀 Quick Start
 
 ```bash
-# Start/Stop sites
-fm start mysite
-fm stop mysite
+# Install Frappe Manager
+pip install frappe-manager
 
-# Access development shell
-fm shell mysite
+# Setup shell completion
+fm --install-completion
 
-# View logs
-fm logs mysite --follow
-
-# Open in VSCode with debugger
-fm code mysite --debugger
-
-# Manage SSL certificates
-fm ssl update mysite
+# Create your first site
+fm create mysite
 ```
 
-## Documentation
+## 📚 Examples
+
+### Development Setup
+```bash
+# Create a dev environment with ERPNext
+fm create devsite --apps erpnext:version-15 --environment dev
+
+# Start coding
+fm code devsite --debugger
+```
+
+### Production Deploy
+```bash
+# Create production site with SSL
+fm create prodsite --environment prod --ssl le \
+    --letsencrypt-email admin@example.com
+```
+
+### Daily Operations
+```bash
+# Common commands
+fm start mysite      # Start site
+fm stop mysite       # Stop site
+fm logs mysite -f    # View logs
+fm shell mysite      # Access shell
+```
+
+## 📖 Documentation
 
 Visit our [Wiki](https://github.com/rtCamp/Frappe-Manager/wiki) for:
-- Detailed usage examples
-- Configuration guides
-- Best practices
-- Troubleshooting
+- 📋 Detailed guides
+- ⚙️ Configuration options
+- 💡 Best practices
+- ❓ Troubleshooting
 
-## Credits
+## 🤝 Support
+
+- 🐛 [Report issues](https://github.com/rtCamp/Frappe-Manager/issues)
+- 💬 [Discussions](https://github.com/rtCamp/Frappe-Manager/discussions)
+- 🌟 Star us on GitHub!
+
+## 👏 Credits
 
 Based on official [Frappe Docker](https://github.com/frappe/frappe_docker) images.
 
-## License
+## 📄 License
 
-MIT License - see LICENSE file for details
+MIT License - see [LICENSE](LICENSE) file for details
