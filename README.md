@@ -11,7 +11,7 @@
 
 *A powerful CLI tool that streamlines the entire lifecycle of Frappe applications using Docker - from development to deployment.*
 
-[Quick Start](#quick-start) • [Documentation](https://github.com/rtCamp/Frappe-Manager/wiki) • [Examples](#examples) • [Support](#support)
+[Quick Start](#quick-start) • [Documentation](https://github.com/rtCamp/Frappe-Manager/wiki) • [Examples](#-examples) • [Support](#-support)
 
 </div>
 
@@ -87,11 +87,17 @@ fm create devsite --apps erpnext:version-15 --environment dev
 fm code devsite --debugger
 ```
 
-### Production Deploy
+### Production Setup
+
 ```bash
-# Create production site with SSL
-fm create prodsite --environment prod --ssl le \
-    --letsencrypt-email admin@example.com
+# Create Production Site
+fm create example.com --environment prod
+
+# Create production site with SSL using HTTP01 challenge
+fm create example.com --environment prod --ssl letsencrypt --letsencrypt-preferred-challenge http01 --letsencrypt-email admin@example.com
+
+# Create production site with SSL using DNS01 challenge 
+fm create example.com --environment prod --ssl letsencrypt --letsencrypt-preferred-challenge dns01 --letsencrypt-email admin@example.com
 ```
 
 ### Daily Operations
