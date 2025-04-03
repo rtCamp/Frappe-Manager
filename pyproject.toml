@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "frappe-manager"
-version = "0.16.0"
+version = "0.16.7"
 license = "MIT"
 repository = "https://github.com/rtcamp/frappe-manager"
 description = "A CLI tool based on Docker Compose to easily manage Frappe based projects. As of now, only suitable for development in local machines running on Mac and Linux based OS."
@@ -9,12 +9,32 @@ maintainers = ["Alok Singh <alok.singh@rtcamp.com>"]
 documentation = "https://github.com/rtcamp/frappe-manager/wiki"
 readme = "README.md"
 
-[tool.black]
-line-length = 120
-skip-string-normalization = true
-
 [tool.ruff]
-ignore = ["F841"]
+line-length = 120
+indent-width = 4
+target-version = "py310"
+
+[tool.ruff.lint]
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+select = ["E", "F", "I", "B", "C", "W", "UP", "N", "YTT", "S", "BLE", "FBT", "A", "COM", "C4", "DTZ", "T10", "EM", "EXE", "ISC", "ICN", "G", "INP", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "RUF"]
+ignore = [
+    "F841",    # Unused variables
+    "E501",    # Line too long (handled by formatter)
+    "C901",    # Function is too complex
+    "PLR0913", # Too many arguments to function call
+]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.format]
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+quote-style = "preserve"
+
+[tool.ruff.lint.isort]
+force-single-line = false
+known-first-party = ["frappe_manager"]
 
 [tool.poetry.urls]
 "Bug Tracker" = "https://github.com/rtcamp/frappe-manager/issues"
@@ -34,10 +54,10 @@ pydantic = "^2.6.4"
 email-validator = "^2.1.1"
 jinja2 = "^3.1.3"
 certbot-dns-cloudflare = "^2.10.0"
+ngrok = "^1.4.0"
 
 [tool.pyright]
 reportOptionalMemberAccess = false
-
 
 [build-system]
 requires = ["poetry-core"]

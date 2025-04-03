@@ -1,9 +1,9 @@
-FROM ubuntu:22.04 as bench
+FROM ubuntu:22.04 AS bench
 
 LABEL author=rtCamp
 LABEL org.opencontainers.image.source=https://github.com/rtcamp/Frappe-Manager
 
-ARG PYTHON_VERSION=3.11.0
+ARG PYTHON_VERSION=3.12.0
 ARG PREBAKE_APPS='erpnext:version-15,hrms:version-15'
 ARG PREBAKE_FRAPPE_BRANCH='version-15'
 
@@ -95,11 +95,11 @@ ENV PATH $PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH
 ENV PATH /opt/user/.bin:${PATH}
 
 # for nvm
-ENV NODE_VERSION=18.17.0
+ENV NODE_VERSION=20.9.0
 ENV NVM_DIR /opt/.nvm
 ENV PATH ${NVM_DIR}/versions/node/v${NODE_VERSION}/bin/:${PATH}
 
-From bench as prebake
+FROM bench AS prebake
 
 RUN chown -R frappe:frappe /opt
 
@@ -123,7 +123,8 @@ COPY --chown=frappe:frappe ./zshrc /opt/user/.zshrc
 COPY --chown=frappe:frappe ./fm.zsh-theme /opt/user/fm.zsh-theme
 
 RUN git clone --depth 1 https://github.com/pyenv/pyenv.git .pyenv \
-    && pyenv install $PYTHON_VERSION \
+    # support previous version
+    && pyenv install $PYTHON_VERSION 3.11.0 \
     && PYENV_VERSION=$PYTHON_VERSION pip install --no-cache-dir virtualenv \
     && pyenv global $PYTHON_VERSION \
     && echo 'export PYENV_ROOT="/opt/.pyenv"' >> "$USERZSHRC" \
@@ -138,6 +139,8 @@ RUN pip install frappe-bench
 RUN mkdir -p /opt/.nvm \
     && wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash \
     && . ${NVM_DIR}/nvm.sh \
+    # support previous version
+    && nvm install 18.17.0 \
     && nvm install ${NODE_VERSION} \
     && nvm use v${NODE_VERSION} \
     && npm install -g yarn \
@@ -166,7 +169,16 @@ COPY --chmod=0755 ./helper-function.sh /scripts/
 
 RUN ls -lah /workspace && /scripts/prebake.sh && mv /workspace/frappe-bench/apps/* /workspace/
 
-FROM bench as fm_image
+FROM ubuntu:22.04 AS prebake_image
+
+WORKDIR /workspace
+
+COPY --from=prebake --chown=frappe:frappe /workspace/frappe-bench /workspace/frappe-bench
+COPY --from=prebake --chown=frappe:frappe /workspace/frappe /workspace/frappe-bench/apps/frappe
+COPY --from=prebake --chown=frappe:frappe /workspace/erpnext /workspace/frappe-bench/apps/erpnext
+COPY --from=prebake --chown=frappe:frappe /workspace/hrms /workspace/frappe-bench/apps/hrms
+
+FROM bench AS fm_image
 
 # Detect arch and install wkhtmltopdf
 ENV WKHTMLTOPDF_VERSION 0.12.6.1-3
@@ -181,19 +193,27 @@ RUN mkdir -p /scripts
 
 COPY --chmod=0755 ./entrypoint.sh /
 COPY --chmod=0755 ./user-script.sh /scripts/
-COPY --chmod=0755 ./launch.sh /scripts/
+COPY --chmod=0755 ./launch_supervisor_service.sh /scripts/
 COPY --chmod=0755 ./helper-function.sh /scripts/
 
 RUN rm -rf /opt && mkdir -p /workspace /opt
 
 WORKDIR /workspace
 
-COPY --from=prebake --chown=frappe:frappe /workspace/frappe-bench /workspace/frappe-bench
-COPY --from=prebake --chown=frappe:frappe /workspace/frappe /workspace/frappe-bench/apps/frappe
-COPY --from=prebake --chown=frappe:frappe /workspace/erpnext /workspace/frappe-bench/apps/erpnext
-COPY --from=prebake --chown=frappe:frappe /workspace/hrms /workspace/frappe-bench/apps/hrms
 COPY --from=prebake --chown=frappe:frappe /opt/.pyenv /opt/.pyenv
 COPY --from=prebake --chown=frappe:frappe /opt/.nvm /opt/.nvm
 COPY --from=prebake --chown=frappe:frappe /opt/user /opt/user
+
+COPY --chown=frappe:frappe ./fm_helper.py /opt/user/
+
+RUN $PYENV_ROOT/versions/$PYTHON_VERSION/bin/python -m venv /opt/venv && \
+    mkdir -p /opt/build && \
+    cd /opt/build && \
+    . /opt/venv/bin/activate && \
+    pip install --no-cache-dir rich pyinstaller supervisor typer && \
+    pyinstaller --onefile --hidden-import __future__ --name fm-helper --distpath /opt/user/.bin /opt/user/fm_helper.py && \
+    deactivate && \
+    rm -rf /opt/user/fm_helper.py && \
+    rm -rf /opt/venv build /opt/build
 
 ENTRYPOINT ["/bin/bash","/entrypoint.sh"]

@@ -6,7 +6,6 @@ from cryptography import x509
 from io import StringIO
 import sys
 from typing import Optional
-from frappe_manager.site_manager.site_exceptions import BenchException
 from frappe_manager.utils.docker import run_command_with_exit_code
 import requests
 import subprocess
@@ -18,11 +17,10 @@ from pathlib import Path
 import importlib.resources as pkg_resources
 from rich.console import Console
 from rich.traceback import Traceback
-from frappe_manager.utils.site import is_fqdn
 from frappe_manager.logger import log
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager import PREBAKED_SITE_APPS
-from frappe_manager import CLI_BENCHES_DIRECTORY
+from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_DEFAULT_DELIMETER, CLI_SITE_NAME_DELIMETER
 
 
 def remove_zombie_subprocess_process(process):
@@ -284,7 +282,7 @@ def get_container_name_prefix(site_name):
     Returns:
         str: The container name prefix.
     """
-    return site_name.replace(".", "")
+    return 'fm' + CLI_DEFAULT_DELIMETER + site_name.replace(".", CLI_SITE_NAME_DELIMETER)
 
 
 def random_password_generate(password_length=13, symbols=False):
@@ -318,23 +316,6 @@ def install_package(package_name, version):
         [sys.executable, "-m", "pip", "install", f"{package_name}=={version}"], stream=True
     )
     richprint.live_lines(output)
-
-
-def get_sitename_from_current_path() -> Optional[str]:
-    current_path = Path().absolute()
-    sites_path = CLI_BENCHES_DIRECTORY.absolute()
-
-    if not current_path.is_relative_to(sites_path):
-        return None
-
-    sitename_list = list(current_path.relative_to(sites_path).parts)
-
-    if not sitename_list:
-        return None
-
-    sitename = sitename_list[0]
-    if is_fqdn(sitename):
-        return sitename
 
 
 def create_class_from_dict(class_name, attributes_dict):

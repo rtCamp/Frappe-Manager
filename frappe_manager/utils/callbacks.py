@@ -2,10 +2,10 @@ from typing import Optional
 import typer
 from typing import List, Optional, Set
 from frappe_manager.site_manager.site_exceptions import BenchNotFoundError
-from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version, get_sitename_from_current_path
+from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager import CLI_BENCHES_DIRECTORY, STABLE_APP_BRANCH_MAPPING_LIST, DEFAULT_EXTENSIONS
-from frappe_manager.utils.site import validate_sitename
+from frappe_manager.utils.site import get_sitename_from_current_path, validate_sitename
 
 
 def apps_list_validation_callback(value: List[str] | None):
@@ -31,7 +31,6 @@ def apps_list_validation_callback(value: List[str] | None):
                 raise typer.BadParameter("'frappe' should not be included here.")
 
             if "https:" in app or "http:" in app:
-
                 temp_appx = appx
                 appx = [":".join(appx[:2])]
 
@@ -72,8 +71,8 @@ def apps_list_validation_callback(value: List[str] | None):
                     raise typer.BadParameter(f"Invaid branch '{appx[1]}' for '{appx[0]}'.")
 
             appx = {
-                'app' : appx[0],
-                'branch' : appx[1] if len(appx) > 1 else None ,
+                'app': appx[0],
+                'branch': appx[1] if len(appx) > 1 else None,
             }
             apps_list.append(appx)
     return apps_list

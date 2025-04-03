@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 from functools import total_ordering
 
+
 @total_ordering
 @dataclass
 class Version:

@@ -1,7 +1,7 @@
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
-from frappe_manager import STABLE_APP_BRANCH_MAPPING_LIST
+from frappe_manager import CLI_DEFAULT_DELIMETER, STABLE_APP_BRANCH_MAPPING_LIST
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.docker_wrapper.subprocess_output import SubprocessOutput
@@ -25,10 +25,9 @@ class BenchOperations:
     def __init__(self, bench) -> None:
         self.bench = bench
         self.bench_cli_cmd = ["/opt/.pyenv/shims/bench"]
-        self.frappe_bench_dir = self.bench.path / "workspace" / "frappe-bench"
+        self.frappe_bench_dir: Path = self.bench.path / "workspace" / "frappe-bench"
 
     def create_fm_bench(self):
-
         richprint.change_head("Configuring common_site_config.json")
         common_site_config_data = self.bench.bench_config.get_commmon_site_config_data(
             self.bench.services.database_manager.database_server_info
@@ -93,14 +92,18 @@ class BenchOperations:
         richprint.change_head("Checking if required services are available.")
         required_services = {
             self.bench.services.database_manager.database_server_info.host: self.bench.services.database_manager.database_server_info.port,
-            f"{self.bench.bench_config.container_name_prefix}-redis-cache": 6379,
-            f"{self.bench.bench_config.container_name_prefix}-redis-queue": 6379,
-            f"{self.bench.bench_config.container_name_prefix}-redis-socketio": 6379,
+            f"{self.bench.bench_config.container_name_prefix}{CLI_DEFAULT_DELIMETER}redis-cache": 6379,
+            f"{self.bench.bench_config.container_name_prefix}{CLI_DEFAULT_DELIMETER}redis-queue": 6379,
+            f"{self.bench.bench_config.container_name_prefix}{CLI_DEFAULT_DELIMETER}redis-socketio": 6379,
         }
         for service, port in required_services.items():
             output: SubprocessOutput = self.wait_for_required_service(host=service, port=port)
             if output.combined:
-                richprint.print(output.combined[-1].replace('wait-for-it: ', ''), highlight=False)
+                command_output = output.combined[-1].replace('wait-for-it: ', '')
+                service_name = command_output.split(' ')[0]
+                simplfied_service_name = service_name.split(":")[0]
+                simplfied_service_name = simplfied_service_name.split(CLI_DEFAULT_DELIMETER)[-1]
+                richprint.print(command_output.replace(service_name, simplfied_service_name), highlight=False)
 
     def container_run(
         self,
@@ -112,7 +115,6 @@ class BenchOperations:
         service: str = 'frappe',
         compose_project_obj: Optional[ComposeProject] = None,
     ):
-
         if compose_project_obj:
             compose_project: ComposeProject = compose_project_obj
         else:
@@ -181,19 +183,39 @@ class BenchOperations:
         config = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
         config.read_string(supervisor_conf_path.read_text())
 
+        handle_symlink_frappe_dir = False
+
+        if self.frappe_bench_dir.is_symlink():
+            handle_symlink_frappe_dir = True
+
         for section_name in config.sections():
             if "group:" not in section_name:
                 section_config = configparser.ConfigParser(interpolation=None)
                 section_config.add_section(section_name)
                 for key, value in config.items(section_name):
-                    if "frappe-bench-frappe-web" in section_name:
+                    if handle_symlink_frappe_dir:
+                        to_replace = str(self.frappe_bench_dir.readlink())
+
+                        if to_replace in value:
+                            value = value.replace(to_replace, self.frappe_bench_dir.name)
+
+                    if "frappe-web" in section_name:
                         if key == "command":
                             value = value.replace("127.0.0.1:80", "0.0.0.0:80")
                     section_config.set(section_name, key, value)
+
+                section_name_delimeter = '-frappe-'
+
+                if '-node-' in section_name:
+                    section_name_delimeter = '-node-'
+
+                file_name_prefix = section_name.split(section_name_delimeter)
+
+                file_name_prefix = file_name_prefix[-1]
+                file_name = file_name_prefix + ".fm.supervisor.conf"
+
                 if "worker" in section_name:
-                    file_name = f"{section_name.replace('program:','')}.workers.fm.supervisor.conf"
-                else:
-                    file_name = f"{section_name.replace('program:','')}.fm.supervisor.conf"
+                    file_name = file_name_prefix + ".workers.fm.supervisor.conf"
 
                 new_file: Path = supervisor_conf_path.parent / file_name
 
@@ -370,7 +392,6 @@ class BenchOperations:
             raise BenchOperationRequiredDockerImagesNotAvailable(self.bench.name, 'fm self update images')
 
     def reset_bench_site(self, admin_password: str):
-
         global_db_info = self.bench.services.database_manager.database_server_info
         reset_bench_site_command = self.bench_cli_cmd + ["--site", self.bench.name]
         reset_bench_site_command += ['reinstall', '--admin-password', admin_password]

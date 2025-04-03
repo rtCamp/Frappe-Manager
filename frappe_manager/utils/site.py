@@ -2,7 +2,10 @@ from rich.table import Table
 from pathlib import Path
 import re
 import json
+from frappe_manager.utils.helpers import get_frappe_manager_own_files
 
+from typing import Optional
+from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.compose_manager import DockerVolumeMount, DockerVolumeType
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager.site_exceptions import BenchException
@@ -62,11 +65,9 @@ def create_service_element(service, running_status):
 
 
 def parse_docker_volume(volume_string: str, root_volumes: dict, compose_path: Path):
-
     string_parts = volume_string.split(':')
 
     if len(string_parts) > 1:
-
         src = string_parts[0]
         dest = string_parts[0]
 
@@ -170,6 +171,14 @@ def validate_sitename(sitename: str) -> str:
 def get_bench_db_connection_info(bench_name: str, bench_path: Path):
     db_info = {}
     site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / bench_name / "site_config.json"
+    common_site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / 'common_site_config.json'
+
+    if common_site_config_file.exists():
+        with open(common_site_config_file, "r") as f:
+            common_site_config = json.load(f)
+            db_info["host"] = common_site_config.get("db_host")
+            db_info["port"] = common_site_config.get("db_port")
+
     if site_config_file.exists():
         with open(site_config_file, "r") as f:
             site_config = json.load(f)
@@ -180,6 +189,7 @@ def get_bench_db_connection_info(bench_name: str, bench_path: Path):
         db_info["name"] = str(bench_name).replace(".", "-")
         db_info["user"] = str(bench_name).replace(".", "-")
         db_info["password"] = None
+
     return db_info
 
 
@@ -195,8 +205,19 @@ def get_all_docker_images():
     )
 
     images = temp_bench_compose_file_manager.get_all_images()
+
+    with open(get_frappe_manager_own_files('images-tag.json')) as f:
+        image_tags = json.load(f)
+        prebake_tag = image_tags.get('prebake')
+        images.update({
+            'prebake': {
+                'name': 'ghcr.io/rtcamp/frappe-manager-prebake',
+                'tag': prebake_tag
+            }
+        })
     images.update(services_manager_compose_file_manager.get_all_images())
     images.update(admin_tools_manager_compose_file_manager.get_all_images())
+
     return images
 
 
@@ -208,9 +229,10 @@ def pull_docker_images() -> bool:
     images = get_all_docker_images()
     images_list = []
 
-    for service, image_info in images.items():
+    for _service, image_info in images.items():
         image = f"{image_info['name']}:{image_info['tag']}"
         images_list.append(image)
+
 
     # remove duplicates
     images_list = list(dict.fromkeys(images_list))
@@ -228,3 +250,30 @@ def pull_docker_images() -> bool:
         richprint.print(f"[green]Pulled[/green] [blue]{image}[/blue].")
 
     return no_error
+
+
+def get_sitename_from_current_path() -> Optional[str]:
+    current_path = Path().absolute()
+    sites_path = CLI_BENCHES_DIRECTORY.absolute()
+
+    if not current_path.is_relative_to(sites_path):
+        return None
+
+    sitename_list = list(current_path.relative_to(sites_path).parts)
+
+    if not sitename_list:
+        return None
+
+    sitename = sitename_list[0]
+    if is_fqdn(sitename):
+        return sitename
+
+
+def is_default_worker(worker_name:str) -> bool:
+    default_workers = ['long-worker', 'short-worker']
+
+    for dw in default_workers:
+        if dw == worker_name:
+            return True
+
+    return False

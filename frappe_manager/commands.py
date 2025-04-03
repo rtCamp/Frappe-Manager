@@ -7,6 +7,7 @@ import sys
 import shutil
 from typing import Annotated, List, Optional
 from frappe_manager.compose_project.compose_project import ComposeProject
+from frappe_manager.ngrok import create_tunnel
 from frappe_manager.services_manager.services_exceptions import ServicesNotCreated
 from frappe_manager.site_manager.SiteManager import BenchesManager
 from frappe_manager.display_manager.DisplayManager import richprint
@@ -91,7 +92,7 @@ def app_callback(
         global logger
         logger = log.get_logger()
         logger.info("")
-        logger.info(f"{':'*20}FM Invoked{':'*20}")
+        logger.info(f"{':' * 20}FM Invoked{':' * 20}")
         logger.info("")
 
         # logging command provided by user
@@ -342,13 +343,38 @@ def start(
         ),
     ] = None,
     force: Annotated[bool, typer.Option("--force", "-f", help="Force recreate bench containers")] = False,
+    sync_bench_config_changes: Annotated[
+        bool, typer.Option("--sync-config", help="Sync bench configuration changes")
+    ] = False,
+    reconfigure_supervisor: Annotated[
+        bool, typer.Option("--reconfigure-supervisor", help="Reconfigure supervisord configuration")
+    ] = False,
+    reconfigure_common_site_config: Annotated[
+        bool, typer.Option("--reconfigure-common-site-config", help="Reconfigure common_site_config.json")
+    ] = False,
+    reconfigure_workers: Annotated[
+        bool, typer.Option("--reconfigure-workers", help="Reconfigure workers configuration")
+    ] = False,
+    include_default_workers: Annotated[bool, typer.Option(help="Include default worker configuration")] = True,
+    include_custom_workers: Annotated[bool, typer.Option(help="Include custom worker configuration")] = True,
+    sync_dev_packages: Annotated[bool, typer.Option("--sync-dev-packages", help="Sync dev packages")] = False,
 ):
     """Start a bench."""
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
     bench = Bench.get_object(benchname, services_manager)
-    bench.start(force=force)
+
+    bench.start(
+        force=force,
+        sync_bench_config_changes=sync_bench_config_changes,
+        reconfigure_workers=reconfigure_workers,
+        include_default_workers=include_default_workers,
+        include_custom_workers=include_custom_workers,
+        reconfigure_common_site_config=reconfigure_common_site_config,
+        reconfigure_supervisor=reconfigure_supervisor,
+        sync_dev_packages=sync_dev_packages,
+    )
 
 
 @app.command()
@@ -503,6 +529,12 @@ def update(
         Optional[EnableDisableOptionsEnum],
         typer.Option(help="Toggle frappe developer mode.", show_default=False),
     ] = None,
+    mailpit_as_default_mail_server: Annotated[
+        bool,
+        typer.Option(
+            "--mailpit-as-default-mail-server", help="Configure Mailpit as default mail server", show_default=False
+        ),
+    ] = False,
 ):
     """Update bench."""
 
@@ -510,7 +542,6 @@ def update(
     bench = Bench.get_object(benchname, services_manager)
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
 
-    restart_required = False
     bench_config_save = False
 
     if not bench.compose_project.running:
@@ -529,7 +560,6 @@ def update(
             richprint.print("Enabled frappe developer mode.")
 
         bench_config_save = True
-        restart_required = True
 
     if environment:
         richprint.change_head(f"Switching bench environemnt to {environment.value}")
@@ -585,14 +615,15 @@ def update(
             )
 
     if admin_tools:
-        restart_required = False
         if admin_tools == EnableDisableOptionsEnum.enable:
             richprint.change_head("Enabling Admin-tools")
             bench.bench_config.admin_tools = True
+
             if not bench.admin_tools.compose_project.compose_file_manager.compose_path.exists():
-                restart_required = bench.sync_admin_tools_compose()
+                bench.sync_admin_tools_compose()
             else:
-                restart_required = bench.admin_tools.enable()
+                bench.admin_tools.enable(force_configure=mailpit_as_default_mail_server)
+
             bench_config_save = True
             richprint.print("Enabled Admin-tools.")
 
@@ -605,20 +636,8 @@ def update(
                 return
             else:
                 bench.bench_config.admin_tools = False
-                restart_required = bench.admin_tools.disable()
+                bench.admin_tools.disable()
                 bench_config_save = True
-
-    # prompt for restart frappe server
-    if restart_required:
-        should_restart = richprint.prompt_ask(
-            prompt=f"Frappe server restart is required after {admin_tools.value} of admin tools. Do you want to proceed ?",
-            choices=['yes', 'no'],
-        )
-        if should_restart == 'yes':
-            # bench.restart_frappe_server()
-            richprint.change_head("Restarting frappe server")
-            bench.restart_supervisor_service('frappe')
-            richprint.print("Restarted frappe server")
 
     if bench_config_save:
         bench.save_bench_config()
@@ -682,3 +701,60 @@ def restart(
 
     if redis:
         bench.restart_redis_services_containers()
+
+
+@app.command()
+def ngrok(
+    ctx: typer.Context,
+    benchname: Annotated[
+        Optional[str],
+        typer.Argument(
+            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
+        ),
+    ] = None,
+    auth_token: Annotated[
+        Optional[str],
+        typer.Option("--auth-token", "-t", help="Ngrok authentication token", envvar="NGROK_AUTHTOKEN"),
+    ] = None,
+):
+    """Create ngrok tunnel for the bench."""
+    services_manager = ctx.obj["services"]
+    verbose = ctx.obj['verbose']
+    bench = Bench.get_object(benchname, services_manager)
+
+    if not bench.compose_project.running:
+        raise BenchNotRunning(bench_name=bench.name)
+
+    fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
+
+    richprint.start("Setting up ngrok tunnel")
+
+    # Use token from config if available and no token provided
+    if not auth_token and fm_config_manager.ngrok_auth_token:
+        auth_token = fm_config_manager.ngrok_auth_token
+        richprint.print("Using ngrok auth token from config file", emoji_code=":key:")
+    elif not auth_token:
+        richprint.exit(
+            "Ngrok auth token is required. Please provide it with --auth-token or set NGROK_AUTHTOKEN environment variable."
+        )
+
+    # If token provided and not in config, ask to save
+    if auth_token and not fm_config_manager.ngrok_auth_token:
+        richprint.print("New auth token provided", emoji_code=":new:")
+        should_save = richprint.prompt_ask(
+            prompt="Do you want to save the ngrok auth token in config for future use?",
+            choices=['yes', 'no'],
+        )
+        if should_save == 'yes':
+            richprint.print("Saving auth token to config...", emoji_code=":floppy_disk:")
+            fm_config_manager.ngrok_auth_token = auth_token
+            fm_config_manager.export_to_toml()
+            richprint.print("Saved ngrok auth token to config", emoji_code=":white_check_mark:")
+
+    richprint.print(f"Creating ngrok tunnel for {bench.name}", emoji_code=":link:")
+
+    try:
+        create_tunnel(bench.name, auth_token)
+    except Exception as e:
+        richprint.error(f"Failed to create tunnel: {str(e)}")
+        raise

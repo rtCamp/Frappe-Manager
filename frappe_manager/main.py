@@ -15,7 +15,7 @@ def cli_entrypoint():
         logger = log.get_logger()
 
         richprint.error(f'[red]Error Occured[/red]  {str(e).strip()}')
-        richprint.error(f"More info about error is logged in {CLI_LOG_DIRECTORY/'fm.log'}", emoji_code=':mag:')
+        richprint.error(f"More info about error is logged in {CLI_LOG_DIRECTORY / 'fm.log'}", emoji_code=':mag:')
         richprint.stop()
 
         exception_traceback: str = capture_and_format_exception()

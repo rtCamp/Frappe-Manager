@@ -1,7 +1,21 @@
 #!/bin/bash
 PS4='+\[\033[0;33m\](\[\033[0;36m\]${BASH_SOURCE##*/}:${LINENO}\[\033[0;33m\])\[\033[0m\] '
+LOGFILE="fm-install-$(date +"%Y%m%d_%H%M%S").log"
 
-set -xe
+exec {BASH_XTRACEFD}>>"$LOGFILE"
+set -e
+
+# Cleanup function
+cleanup() {
+    local exit_code=$?
+    #rm -f "$LOGFILE"
+    exit $exit_code
+}
+
+# Register cleanup function
+trap cleanup EXIT
+
+set -x
 
 print_in_color() {
     local color="$1"
@@ -39,24 +53,69 @@ info_red(){
     echo "$(red 'X') $(red "$*")"
 }
 
-isRoot() {
-    if [ "$(id -u)" -eq 0 ]; then
-        info_red "You are running as root."
-        exit 69
+create_user() {
+    local username=${1:-frappe}
+    
+    # Check if user already exists
+    if id "$username" >/dev/null 2>&1; then
+        info_yellow "User $username already exists"
+        return
     fi
+
+    info_blue "Creating user $username..."
+    useradd -m -s /bin/bash "$username"
+    usermod -aG sudo "$username"
+    
+    # Set a random password
+    local password='frappemanager'
+    #local password=$(openssl rand -base64 12)
+    echo "$username:$password" | chpasswd
+    
+    info_green "Created user $username with password: $password"
+    info_yellow "Please change this password after installation!"
+}
+
+handle_root() {
+    if [ "$(id -u)" -eq 0 ]; then
+        local username=${1:-frappe}
+        info_blue "Running as root, creating user $username..."
+        
+        create_user "$username"
+        
+        # Copy the script to the new user's home
+        local script_path="/home/$username/install.sh"
+        cp "$0" "$script_path"
+        chown "$username:$username" "$script_path"
+        chmod +x "$script_path"
+        
+        # Set up environment for non-interactive run
+        export SUDO_ASKPASS="/bin/false"  # Prevent graphical password prompts
+        export DEBIAN_FRONTEND=noninteractive
+        
+        # Re-run the script as the new user with the known password
+        info_blue "Re-running script as user $username..."
+        echo "frappemanager" | script -qec "su - $username -c '$script_path'" /dev/null
+        
+        exit $?
+    fi
+}
+
+install_fm(){
+    info_blue "Installing frappe-manager..."
+    pip3 install --user --upgrade --break-system-packages frappe-manager
+    info_green "$(bold 'fm' $(pip3 list | grep frappe-manager | awk '{print $2}')) installed."
 }
 
 has_docker_compose(){
-    declare desc="return 0 if we have docker compose command"
-    if [[ "$(dockexr compose version 2>&1 || true)" = *"docker: 'compose' is not a docker command."* ]]; then
-        return 1
-    else
-        return 0
+    if command -v docker &> /dev/null; then
+        if docker compose version &> /dev/null; then
+            return 0
+        fi
     fi
+    return 1
 }
 
 has_pyenv(){
-    declare desc="return 0 if we have docker compose command"
     if [[ "$(pyenv --version 2>&1 || true)" = *"pyenv: command not found"* ]]; then
         return 1
     else
@@ -65,13 +124,13 @@ has_pyenv(){
 }
 
 has_tty() {
-    declare desc="return 0 if we have a tty"
     if [[ "$(/usr/bin/tty || true)" == "not a tty" ]]; then
         return 1
     else
         return 0
     fi
 }
+
 if has_tty; then
     if ! [[ "${INTERACTIVE:-}" ]]; then
         export DEBIAN_FRONTEND=noninteractive
@@ -87,7 +146,7 @@ fi
 # Function to install Homebrew on macOS
 install_homebrew() {
     if ! type brew > /dev/null 2>&1; then
-        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"    else
+        NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     else
         info_green "brew is already installed."
     fi
@@ -114,23 +173,35 @@ install_docker_ubuntu() {
     else
         info_blue "Installing Docker Engine for Ubuntu..."
 
+        # Store password for sudo operations
+        local password
+        if [ -t 0 ]; then
+            # Interactive - ask for password once
+            echo -n "Please enter sudo password: "
+            read -s password
+            echo  # New line after password input
+        else
+            # Non-interactive - use predefined password from create_user
+            password="frappemanager"
+        fi
+
+        # Function to run sudo commands with stored password
+        run_sudo() {
+            echo "$password" | sudo -S "$@"
+        }
+
         # Add Docker's official GPG key:
-        sudo DEBIAN_FRONTEND=noninteractive apt-get update
-        sudo DEBIAN_FRONTEND=noninteractive apt-get install -y ca-certificates curl
-        sudo DEBIAN_FRONTEND=noninteractive install -m 0755 -d /etc/apt/keyrings
-        sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
-        sudo DEBIAN_FRONTEND=noninteractive chmod a+r /etc/apt/keyrings/docker.asc
+        run_sudo apt-get update
+        run_sudo apt-get install -y ca-certificates curl
+        run_sudo install -m 0755 -d /etc/apt/keyrings
+        run_sudo curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+        run_sudo chmod a+r /etc/apt/keyrings/docker.asc
 
         # Add the repository to Apt sources:
-        echo \
-            "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu \
-            $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-            sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
-            
-            sudo DEBIAN_FRONTEND=noninteractive apt-get update
-
-            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin
-
+        REPO_CONTENT="deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable"
+        echo "$password" | sudo -S bash -c "echo \"$REPO_CONTENT\" > /etc/apt/sources.list.d/docker.list"
+        run_sudo apt-get update
+        run_sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin
             info_green "Docker Engine installed"
     fi
 
@@ -163,7 +234,7 @@ install_docker_ubuntu() {
 
 install_pyenv_python(){
 
-    if ! type python3 > /dev/null 2>&1 || ! python3 -c 'import sys; assert sys.version_info >= (3,10)' 2>/dev/null; then
+    if ! type python3 > /dev/null 2>&1 || ! python3 -c 'import sys; exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
         LATEST_PYTHON=$(pyenv install --list | grep -v - | grep -v b | grep -v a | grep -v rc | grep -E '^\s*3' | tail -1 | tr -d '[:space:]')
         if [ -z "$LATEST_PYTHON" ]; then
             info_red "Could not find the latest Python version."
@@ -215,9 +286,7 @@ install_python_and_frappe_ubuntu() {
         install_pyenv_python
     fi
 
-    info_blue "Installing frappe-manager..."
-    pip3 install --user --upgrade frappe-manager
-    info_green "$(bold 'fm' $(pip3 list | grep frappe-manager | awk '{print $2}')) installed."
+    install_fm
 }
 
 # Function to install Python and frappe-manager on macOS
@@ -232,7 +301,7 @@ install_python_and_frappe_macos() {
         fi
 
         if ! type pip3 > /dev/null 2>&1; then
-            info_blue "Using $(yellow 'brew') for installing pip3..."
+            info_blue "Installing pip3"
             python -m ensurepip --upgrade
             info_green "Installed pip3"
         else
@@ -243,45 +312,55 @@ install_python_and_frappe_macos() {
         install_pyenv_python
     fi
 
-    info_blue "Installing frappe-manager..."
-    pip3 install --user --upgrade frappe-manager
-    info_green "$(bold 'fm' $(pip3 list | grep frappe-manager | awk '{print $2}')) installed."
+    install_fm
 }
 
 handle_shell(){
     local shellrc
 
-    if ! has_pyenv; then
-        if [[ "${SHELL:-}" =  *"bash"* ]]; then
-            shellrc="${HOME}/.bashrc"
-        elif [[ "${SHELL:-}" =  *"zsh"* ]]; then
-            shellrc="${HOME}/.zshrc"
-        fi
+    # Detect shell more reliably
+    if [ -n "$BASH_VERSION" ]; then
+        shellrc="${HOME}/.bashrc"
+    elif [ -n "$ZSH_VERSION" ]; then
+        shellrc="${HOME}/.zshrc"
+    else
+        # Default to bashrc if shell detection fails
+        shellrc="${HOME}/.bashrc"
+    fi
 
+    if ! has_pyenv; then
         if [[ "${shellrc:-}" ]]; then
             info_blue "Checking default pip3 dir in PATH"
-            if ! [[ "$PATH" = *"$HOME/.local/bin"* ]];then
-                export PATH="$HOME/.local/bin:$PATH"
+            if ! grep -q "$HOME/.local/bin" "$shellrc" 2>/dev/null; then
                 echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$shellrc"
+                export PATH="$HOME/.local/bin:$PATH"
                 info_green "Added $HOME/.local/bin to PATH using $shellrc file."
             else
                 info_green "$HOME/.local/bin already in PATH."
             fi
         fi
-        info_blue "Installing fm shell completion."
-        $HOME/.local/bin/fm --install-completion
+        
+        # Ensure fm is in PATH before running completion
+        if [ -x "$HOME/.local/bin/fm" ]; then
+            info_blue "Installing fm shell completion."
+            $HOME/.local/bin/fm --install-completion || true
+        else
+            info_yellow "Warning: fm not found in $HOME/.local/bin"
+        fi
     else
         info_blue "Installing fm shell completion."
         export PATH="$(pyenv root)/shims:$PATH"
-        fm --install-completion
+        command -v fm >/dev/null 2>&1 && fm --install-completion || true
     fi
-
 }
 
 
+# Parse command line arguments
+USERNAME=${1:-frappe}
+
 # Detect OS and call the respective functions
 OS="$(uname)"
-isRoot
+handle_root "$USERNAME"
 if [ "$OS" == "Darwin" ]; then
     install_docker_macos
     install_python_and_frappe_macos
