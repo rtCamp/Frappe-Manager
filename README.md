@@ -52,21 +52,10 @@
 <h3>🛠️ Admin Tools</h3>
 • Mailpit for email testing<br>
 • Redis Queue Dashboard<br>
-• Database management interface
+• Adminer for db management 
 </td>
 </tr>
-
 <tr>
-<td>
-<h3>⚙️ Process Management</h3>
-• Supervisor integration for process control<br>
-• Easy service restarts and monitoring
-</td>
-<td>
-<h3>🔌 Extensible</h3>
-• Support for custom apps and configurations<br>
-• Plugin architecture
-</td>
 <td></td>
 </tr>
 </table>
