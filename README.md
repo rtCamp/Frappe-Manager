@@ -15,37 +15,73 @@ A powerful CLI tool that simplifies managing Frappe-based applications using Doc
 
 ## ✨ Features
 
-🔥 **Easy Setup**
-- Get a new Frappe environment running in minutes
-- Zero configuration needed
+<div class="features-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin: 20px 0;">
 
-🐳 **Docker-Based**
-- Consistent environments across all platforms
-- Isolated development environments
+<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; background-color: #f8f9fa;">
+<h3>🔥 Easy Setup</h3>
+<ul>
+<li>Get a new Frappe environment running in minutes</li>
+<li>Zero configuration needed</li>
+</ul>
+</div>
 
-🌐 **Multi-Bench Support**
-- Manage multiple Frappe benches from one server
+<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; background-color: #f8f9fa;">
+<h3>🐳 Docker-Based</h3>
+<ul>
+<li>Consistent environments across all platforms</li>
+<li>Isolated development environments</li>
+</ul>
+</div>
 
-👨‍💻 **Development Tools**
-- VSCode integration with debugger support
-- Automatic environment switching between dev/prod
+<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; background-color: #f8f9fa;">
+<h3>🌐 Multi-Bench Support</h3>
+<ul>
+<li>Manage multiple Frappe benches from one server</li>
+</ul>
+</div>
 
-🔒 **SSL Management**
-- Built-in Let's Encrypt integration
-- Automatic certificate renewal
+<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; background-color: #f8f9fa;">
+<h3>👨‍💻 Development Tools</h3>
+<ul>
+<li>VSCode integration with debugger support</li>
+<li>Automatic environment switching between dev/prod</li>
+</ul>
+</div>
 
-🛠️ **Admin Tools**
-- Mailpit for email testing
-- Redis Queue Dashboard
-- Database management interface
+<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; background-color: #f8f9fa;">
+<h3>🔒 SSL Management</h3>
+<ul>
+<li>Built-in Let's Encrypt integration</li>
+<li>Automatic certificate renewal</li>
+</ul>
+</div>
 
-⚙️ **Process Management**
-- Supervisor integration for process control
-- Easy service restarts and monitoring
+<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; background-color: #f8f9fa;">
+<h3>🛠️ Admin Tools</h3>
+<ul>
+<li>Mailpit for email testing</li>
+<li>Redis Queue Dashboard</li>
+<li>Database management interface</li>
+</ul>
+</div>
 
-🔌 **Extensible**
-- Support for custom apps and configurations
-- Plugin architecture
+<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; background-color: #f8f9fa;">
+<h3>⚙️ Process Management</h3>
+<ul>
+<li>Supervisor integration for process control</li>
+<li>Easy service restarts and monitoring</li>
+</ul>
+</div>
+
+<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; background-color: #f8f9fa;">
+<h3>🔌 Extensible</h3>
+<ul>
+<li>Support for custom apps and configurations</li>
+<li>Plugin architecture</li>
+</ul>
+</div>
+
+</div>
 
 ## Requirements
 
