@@ -1,5 +1,3 @@
-## Scripts
-
 ### Install
 
 The install script automatically sets up all dependencies needed for Frappe Manager (fm), including:
