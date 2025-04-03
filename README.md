@@ -19,36 +19,36 @@
 
 ## ✨ Features
 
-<table border="0" cellspacing="0" cellpadding="0">
-<tr>
-<td>
+<table style="border: none;" cellspacing="20" cellpadding="10">
+<tr style="border: none;">
+<td style="border: none; vertical-align: top; width: 33%;">
 <h3>🔥 Easy Setup</h3>
 • Get a new Frappe environment running in minutes<br>
 • Zero configuration needed
 </td>
-<td>
+<td style="border: none; vertical-align: top; width: 33%;">
 <h3>🐳 Docker-Based</h3>
 • Consistent environments across all platforms<br>
 • Isolated development environments
 </td>
-<td>
+<td style="border: none; vertical-align: top; width: 33%;">
 <h3>🌐 Multi-Bench Support</h3>
 • Manage multiple Frappe benches from one server
 </td>
 </tr>
 
-<tr>
-<td>
+<tr style="border: none;">
+<td style="border: none; vertical-align: top;">
 <h3>👨‍💻 Development Tools</h3>
 • VSCode integration with debugger support<br>
 • Automatic environment switching between dev/prod
 </td>
-<td>
+<td style="border: none; vertical-align: top;">
 <h3>🔒 SSL Management</h3>
 • Built-in Let's Encrypt integration<br>
 • Automatic certificate renewal
 </td>
-<td>
+<td style="border: none; vertical-align: top;">
 <h3>🛠️ Admin Tools</h3>
 • Mailpit for email testing<br>
 • Redis Queue Dashboard<br>
