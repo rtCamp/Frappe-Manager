@@ -83,7 +83,7 @@ fm create mysite
 # Create a dev environment with ERPNext
 fm create devsite --apps erpnext:version-15 --environment dev
 
-# Start coding
+# Start coding (in VSCode)
 fm code devsite --debugger
 ```
 
@@ -94,10 +94,14 @@ fm code devsite --debugger
 fm create example.com --environment prod
 
 # Create production site with SSL using HTTP01 challenge
-fm create example.com --environment prod --ssl letsencrypt --letsencrypt-preferred-challenge http01 --letsencrypt-email admin@example.com
+fm create example.com --environment prod \
+  --ssl letsencrypt --letsencrypt-preferred-challenge http01 \
+  --letsencrypt-email admin@example.com
 
 # Create production site with SSL using DNS01 challenge 
-fm create example.com --environment prod --ssl letsencrypt --letsencrypt-preferred-challenge dns01 --letsencrypt-email admin@example.com
+fm create example.com --environment prod \
+  --ssl letsencrypt --letsencrypt-preferred-challenge dns01 \
+  --letsencrypt-email admin@example.com
 ```
 
 ### Daily Operations
