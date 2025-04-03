@@ -55,9 +55,6 @@
 • Adminer for db management 
 </td>
 </tr>
-<tr>
-<td></td>
-</tr>
 </table>
 
 ## 🛠️ Requirements
