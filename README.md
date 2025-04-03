@@ -15,73 +15,57 @@ A powerful CLI tool that simplifies managing Frappe-based applications using Doc
 
 ## ✨ Features
 
-<div class="features-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; margin: 20px 0;">
-
-<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; background-color: #f8f9fa;">
+<table>
+<tr>
+<td>
 <h3>🔥 Easy Setup</h3>
-<ul>
-<li>Get a new Frappe environment running in minutes</li>
-<li>Zero configuration needed</li>
-</ul>
-</div>
-
-<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; background-color: #f8f9fa;">
+• Get a new Frappe environment running in minutes<br>
+• Zero configuration needed
+</td>
+<td>
 <h3>🐳 Docker-Based</h3>
-<ul>
-<li>Consistent environments across all platforms</li>
-<li>Isolated development environments</li>
-</ul>
-</div>
-
-<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; background-color: #f8f9fa;">
+• Consistent environments across all platforms<br>
+• Isolated development environments
+</td>
+<td>
 <h3>🌐 Multi-Bench Support</h3>
-<ul>
-<li>Manage multiple Frappe benches from one server</li>
-</ul>
-</div>
+• Manage multiple Frappe benches from one server
+</td>
+</tr>
 
-<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; background-color: #f8f9fa;">
+<tr>
+<td>
 <h3>👨‍💻 Development Tools</h3>
-<ul>
-<li>VSCode integration with debugger support</li>
-<li>Automatic environment switching between dev/prod</li>
-</ul>
-</div>
-
-<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; background-color: #f8f9fa;">
+• VSCode integration with debugger support<br>
+• Automatic environment switching between dev/prod
+</td>
+<td>
 <h3>🔒 SSL Management</h3>
-<ul>
-<li>Built-in Let's Encrypt integration</li>
-<li>Automatic certificate renewal</li>
-</ul>
-</div>
-
-<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; background-color: #f8f9fa;">
+• Built-in Let's Encrypt integration<br>
+• Automatic certificate renewal
+</td>
+<td>
 <h3>🛠️ Admin Tools</h3>
-<ul>
-<li>Mailpit for email testing</li>
-<li>Redis Queue Dashboard</li>
-<li>Database management interface</li>
-</ul>
-</div>
+• Mailpit for email testing<br>
+• Redis Queue Dashboard<br>
+• Database management interface
+</td>
+</tr>
 
-<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; background-color: #f8f9fa;">
+<tr>
+<td>
 <h3>⚙️ Process Management</h3>
-<ul>
-<li>Supervisor integration for process control</li>
-<li>Easy service restarts and monitoring</li>
-</ul>
-</div>
-
-<div style="border: 1px solid #ddd; border-radius: 8px; padding: 15px; background-color: #f8f9fa;">
+• Supervisor integration for process control<br>
+• Easy service restarts and monitoring
+</td>
+<td>
 <h3>🔌 Extensible</h3>
-<ul>
-<li>Support for custom apps and configurations</li>
-<li>Plugin architecture</li>
-</ul>
-</div>
-
-</div>
+• Support for custom apps and configurations<br>
+• Plugin architecture
+</td>
+<td></td>
+</tr>
+</table>
 
 ## Requirements
 
