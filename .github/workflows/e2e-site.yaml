@@ -23,6 +23,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Setup Docker caching
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Cache Docker images
+        uses: actions/cache@v3
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ hashFiles('Docker/images-tag.json') }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: Load cached Docker images
+        if: steps.cache-docker.outputs.cache-hit == 'true'
+        run: |
+          docker load < /tmp/.buildx-cache/images.tar || true
+
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-ver }}
@@ -46,6 +63,21 @@ jobs:
         working-directory: test
         run: |
           ./e2e_test.sh
+
+      - name: Upload FM logs
+        if: always()  # Upload logs whether the test succeeds or fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: fm-logs-${{ matrix.python-ver }}
+          path: ~/frappe/logs/fm.log
+          retention-days: 2
+
+      # Save Docker images before cleanup
+      - name: Save Docker images
+        if: always()
+        run: |
+          mkdir -p /tmp/.buildx-cache
+          docker save $(docker images -q) > /tmp/.buildx-cache/images.tar || true
 
       - name: cleanup
         if: always()
