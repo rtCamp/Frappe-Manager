@@ -29,7 +29,7 @@ jobs:
 
     - name: Determine App Version
       run: |
-        python ../.github/scripts/get_version.py
+        python .github/scripts/get_version.py
 
     - name: Setup PyAPP and build
       env:
