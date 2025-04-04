@@ -86,11 +86,11 @@ jobs:
         continue-on-error: true
 
       - name: Setup tmate session
-        if: |
-          failure() && 
-          steps.e2e_test.conclusion == 'failure' && 
-          github.event.inputs.debug_enabled == 'true' &&
-          github.actor == 'xieyt'
+        # if: |
+        #   failure() &&
+        #   steps.e2e_test.conclusion == 'failure' &&
+        #   github.event.inputs.debug_enabled == 'true' &&
+        #   github.actor == 'xieyt'
         uses: mxschmitt/action-tmate@v3
         with:
           limit-access-to-actor: true
