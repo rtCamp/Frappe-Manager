@@ -8,12 +8,6 @@ on:
       - main
       - develop
   workflow_dispatch:
-    inputs:
-      debug_enabled:
-        description: 'Enable debug mode with tmate'
-        required: false
-        default: false
-        type: boolean
 
 jobs:
   check-permissions:
