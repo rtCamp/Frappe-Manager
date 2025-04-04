@@ -8,9 +8,29 @@ on:
       - main
       - develop
   workflow_dispatch:
+    inputs:
+      debug_enabled:
+        description: 'Enable debug mode with tmate'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
+  check-permissions:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Check user permission
+        if: github.actor != 'xieyt'
+        run: |
+          echo "Only xieyt can trigger this workflow manually"
+          exit 1
+
   e2e-current:
+    needs: check-permissions
+    if: |
+      always() &&
+      (needs.check-permissions.result == 'success' || needs.check-permissions.result == 'skipped')
     name: e2e current latest branch
     runs-on: ${{ matrix.os }}
 
@@ -18,7 +38,6 @@ jobs:
       matrix:
         python-ver: ["3.11", "3.12"]
         os: [ubuntu-latest]
-        # os: [self-hosted-arm64, ubuntu-latest]
 
     steps:
       - uses: actions/checkout@v4
@@ -59,10 +78,23 @@ jobs:
         run: fm --version
 
       - name: e2e run
+        id: e2e_test
         timeout-minutes: 20
         working-directory: test
         run: |
           ./e2e_test.sh
+        continue-on-error: true
+
+      - name: Setup tmate session
+        if: |
+          failure() && 
+          steps.e2e_test.conclusion == 'failure' && 
+          github.event.inputs.debug_enabled == 'true' &&
+          github.actor == 'xieyt'
+        uses: mxschmitt/action-tmate@v3
+        with:
+          limit-access-to-actor: true
+          timeout-minutes: 30
 
       - name: Upload FM logs
         if: always()  # Upload logs whether the test succeeds or fails
