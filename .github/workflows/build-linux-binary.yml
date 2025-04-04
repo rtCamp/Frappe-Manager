@@ -47,15 +47,14 @@ jobs:
         mv pyapp-v* pyapp-latest
         cd pyapp-latest
         cargo build --release
-        mv target/release/pyapp ../../fm && chmod +x ../../fm
-        cp ../README.md ../../README.md
+        mv target/release/pyapp ../fm && chmod +x ../fm
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: frappe_manager-${{ env.PYAPP_PROJECT_VERSION }}-linux-amd64
         path: |
-          frappe_manager
+          fm
           LICENSE
           README.md
         retention-days: 5
