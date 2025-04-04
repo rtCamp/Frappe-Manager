@@ -67,7 +67,7 @@ class BenchOperations:
         new_site_command += ["--db-host", self.bench.services.database_manager.database_server_info.host]
         new_site_command += ["--admin-password", self.bench.bench_config.admin_pass]
         new_site_command += ["--db-port", str(self.bench.services.database_manager.database_server_info.port)]
-        new_site_command += ["--verbose", "--no-mariadb-socket"]
+        new_site_command += ["--verbose", "--mariadb-user-host-login-scope","%"]
         new_site_command += [self.bench.name]
 
         new_site_command = " ".join(new_site_command)
