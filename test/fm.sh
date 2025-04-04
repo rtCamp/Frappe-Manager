@@ -37,7 +37,12 @@ TestSiteReachability() {
 }
 
 MigrationToLatest() {
-    pip install -U frappe-manager
+    if [ -n "${GITHUB_REF_TYPE}" ] && [ -n "${GITHUB_REF_NAME}" ]; then
+            pip install -U "git+https://github.com/rtCamp/Frappe-Manager.git@${GITHUB_REF_NAME}"
+    else
+        # Fallback for local testing
+        pip install -U frappe-manager
+    fi
     echo "yes" | fm list
     fm --version
 }

@@ -7,13 +7,6 @@ on:
     branches:
       - main
       - develop
-  workflow_dispatch:
-    inputs:
-      debug_enabled:
-        description: 'Enable debug mode with tmate'
-        required: false
-        default: false
-        type: boolean
 
 jobs:
   check-permissions:
@@ -42,23 +35,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Setup Docker caching
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Cache Docker images
-        id: docker-cache
+        id: cache-docker-images
         uses: actions/cache@v3
         with:
-          path: /tmp/.buildx-cache
-          key: docker-${{ runner.os }}-${{ hashFiles('Docker/images-tag.json') }}
+          path: /tmp/docker-images
+          key: docker-images-${{ runner.os }}-${{ hashFiles('Docker/images-tag.json') }}
           restore-keys: |
-            docker-${{ runner.os }}-
+            docker-images-${{ runner.os }}-
 
       - name: Load cached Docker images
-        if: steps.docker-cache.outputs.cache-hit == 'true'
+        if: steps.cache-docker-images.outputs.cache-hit == 'true'
         run: |
-          docker load < /tmp/.buildx-cache/images.tar || true
+          mkdir -p /tmp/docker-images
+          if [ -f /tmp/docker-images/images.tar ]; then
+            docker load < /tmp/docker-images/images.tar
+          fi
 
       - uses: actions/setup-python@v5
         with:
@@ -84,18 +76,6 @@ jobs:
         working-directory: test
         run: |
           ./e2e_test.sh
-        continue-on-error: true
-
-      - name: Setup tmate session
-        # if: |
-        #   failure() &&
-        #   steps.e2e_test.conclusion == 'failure' &&
-        #   github.event.inputs.debug_enabled == 'true' &&
-        #   github.actor == 'xieyt'
-        uses: mxschmitt/action-tmate@v3
-        with:
-          limit-access-to-actor: true
-          timeout-minutes: 30
 
       - name: Upload FM logs
         if: always()  # Upload logs whether the test succeeds or fails
@@ -105,13 +85,13 @@ jobs:
           path: ~/frappe/logs/fm.log
           retention-days: 2
 
-      # Save Docker images before cleanup
       - name: Save Docker images
-        if: always() && steps.docker-cache.outputs.cache-hit != 'true'
+        if: always() && steps.cache-docker-images.outputs.cache-hit != 'true'
         run: |
-          mkdir -p /tmp/.buildx-cache
-          docker images  # Debug: show what images we have
-          docker save $(docker images -q) > /tmp/.buildx-cache/images.tar || true
+          mkdir -p /tmp/docker-images
+          if [ "$(docker images -q | wc -l)" -gt 0 ]; then
+            docker save $(docker images -q) > /tmp/docker-images/images.tar
+          fi
 
       - name: cleanup
         if: always()
