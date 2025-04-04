@@ -262,15 +262,15 @@ configure_workspace()
     echo "Time taken for chown /opt : $execution_time seconds"
 
     if [[ ! -d "/workspace/.oh-my-zsh" ]]; then
-    cp -pr /opt/user/.oh-my-zsh /workspace/
-    cp -p /opt/user/fm.zsh-theme /workspace/.oh-my-zsh/custom/themes/
+        cp -fpr /opt/user/.oh-my-zsh /workspace/
+        cp -fp /opt/user/fm.zsh-theme /workspace/.oh-my-zsh/custom/themes/
     fi
 
     if [[ ! -f "/workspace/.zshrc" ]]; then
-    cp -p /opt/user/.zshrc  /workspace/
+        cp -p /opt/user/.zshrc  /workspace/
     fi
 
     if [[ ! -f "/workspace/.profile" ]]; then
-    cp -p /opt/user/.profile  /workspace/
+        cp -p /opt/user/.profile  /workspace/
     fi
 }
