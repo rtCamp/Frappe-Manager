@@ -69,60 +69,51 @@
         }
       }
     },
-    "python@3.10": {
-      "last_modified": "2024-09-12T02:28:40Z",
-      "plugin_version": "0.0.4",
-      "resolved": "github:NixOS/nixpkgs/111ed8812c10d7dc3017de46cbf509600c93f551#python310",
+    "vscode@latest": {
+      "last_modified": "2025-03-16T16:17:41Z",
+      "resolved": "github:NixOS/nixpkgs/8f76cf16b17c51ae0cc8e55488069593f6dab645#vscode",
       "source": "devbox-search",
-      "version": "3.10.15",
+      "version": "1.98.2",
       "systems": {
         "aarch64-darwin": {
           "outputs": [
             {
               "name": "out",
-              "path": "/nix/store/r26gjy09nhlai4xwxk24v19987mamgvx-python3-3.10.15",
+              "path": "/nix/store/47babdfsakdq3yiisl8wlp9xba38jv78-vscode-1.98.2",
               "default": true
             }
           ],
-          "store_path": "/nix/store/r26gjy09nhlai4xwxk24v19987mamgvx-python3-3.10.15"
+          "store_path": "/nix/store/47babdfsakdq3yiisl8wlp9xba38jv78-vscode-1.98.2"
         },
         "aarch64-linux": {
           "outputs": [
             {
               "name": "out",
-              "path": "/nix/store/gff35lhwxp2szvq25anxjysgvpsbccks-python3-3.10.15",
+              "path": "/nix/store/hibsjy02nxv203smncr0p1fclg3lf06c-vscode-1.98.2",
               "default": true
-            },
-            {
-              "name": "debug",
-              "path": "/nix/store/kiv3idpk051f04lqi5f5cwgg6gk1dkni-python3-3.10.15-debug"
             }
           ],
-          "store_path": "/nix/store/gff35lhwxp2szvq25anxjysgvpsbccks-python3-3.10.15"
+          "store_path": "/nix/store/hibsjy02nxv203smncr0p1fclg3lf06c-vscode-1.98.2"
         },
         "x86_64-darwin": {
           "outputs": [
             {
               "name": "out",
-              "path": "/nix/store/vixfzsfryg9qfk7ni7sjp142qx4ynwyp-python3-3.10.15",
+              "path": "/nix/store/f192nilhhvrx62yb0xlgl748d5zdlizw-vscode-1.98.2",
               "default": true
             }
           ],
-          "store_path": "/nix/store/vixfzsfryg9qfk7ni7sjp142qx4ynwyp-python3-3.10.15"
+          "store_path": "/nix/store/f192nilhhvrx62yb0xlgl748d5zdlizw-vscode-1.98.2"
         },
         "x86_64-linux": {
           "outputs": [
             {
               "name": "out",
-              "path": "/nix/store/9k4c0sawwdw6q920y1ndj4jrd0ay3gsa-python3-3.10.15",
+              "path": "/nix/store/qsq8pyvxvwfwsvhsq6xqw1276hxzvv50-vscode-1.98.2",
               "default": true
-            },
-            {
-              "name": "debug",
-              "path": "/nix/store/7ajzmmcc9avk5np7kijwg52d8dzwhbkf-python3-3.10.15-debug"
             }
           ],
-          "store_path": "/nix/store/9k4c0sawwdw6q920y1ndj4jrd0ay3gsa-python3-3.10.15"
+          "store_path": "/nix/store/qsq8pyvxvwfwsvhsq6xqw1276hxzvv50-vscode-1.98.2"
         }
       }
     }
