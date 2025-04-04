@@ -3,7 +3,7 @@ PS4='+\[\033[0;33m\](\[\033[0;36m\]${BASH_SOURCE##*/}:${LINENO}\[\033[0;33m\])\[
 LOGFILE="fm-install-$(date +"%Y%m%d_%H%M%S").log"
 
 exec {BASH_XTRACEFD}>>"$LOGFILE"
-set -e
+set -ex
 
 print_in_color() {
     local color="$1"
@@ -24,36 +24,41 @@ cyan() { print_in_color "\e[36m" "$*"; }
 bold() { print_in_color "\e[1m" "$*"; }
 underlined() { print_in_color "\e[4m" "$*"; }
 
-info_blue(){
+info_blue() {
     echo -e $'\U0001F6A7' "$(blue "$*")"
 }
 
-info_green(){
+info_green() {
     echo "$(cyan '=>') $(green "$*")"
 }
 
-info_yellow(){
+info_yellow() {
     echo "$(cyan '=>') $(yellow "$*")"
 }
 
-info_red(){
+info_red() {
     echo "$(red 'X') $(red "$*")"
+}
+
+# Function to run sudo commands consistently
+run_sudo() {
+    echo "frappemanager" | sudo -S "$@"
 }
 
 # Cleanup function
 cleanup() {
     local exit_code=$?
-    #rm -f "$LOGFILE"
+    if [ "$OS" == "Linux" ] && [ "$NAME" == "Ubuntu" ]; then
+        info_green "Please log out and log back from the current shell for linux group changes to take effect."
+    fi
     exit $exit_code
 }
 
 # Register cleanup function
 trap cleanup EXIT
 
-set -x
-
 show_help() {
-    cat << EOF
+    cat <<EOF
 Frappe Manager Installation Script
 
 USAGE:
@@ -61,7 +66,7 @@ USAGE:
     As non-root: $(basename "$0") [--dev] [--force] [--help]
 
 DESCRIPTION:
-    Installs Frappe Manager (fm) and all required dependencies including Docker, 
+    Installs Frappe Manager (fm) and all required dependencies including Docker,
     Docker Compose, Python 3.10+, and Pip.
 
 ARGUMENTS:
@@ -97,7 +102,7 @@ EOF
 
 create_user() {
     local username=${1:-frappe}
-    
+
     # Check if user already exists
     if id "$username" >/dev/null 2>&1; then
         info_yellow "User $username already exists"
@@ -105,14 +110,14 @@ create_user() {
     fi
 
     info_blue "Creating user $username..."
-    useradd -m -s /bin/bash "$username"
-    usermod -aG sudo "$username"
-    
+    run_sudo useradd -m -s /bin/bash "$username"
+    run_sudo usermod -aG sudo "$username"
+
     # Set a random password
     local password='frappemanager'
     #local password=$(openssl rand -base64 12)
-    echo "$username:$password" | chpasswd
-    
+    echo "$username:$password" | run_sudo chpasswd
+
     info_green "Created user $username with password: $password"
     info_yellow "Please change this password after installation!"
 }
@@ -127,71 +132,79 @@ handle_root() {
     if [ "$(id -u)" -eq 0 ] && [ -z "$SUDO_USER" ]; then
         local username=${1:-frappe}
         info_blue "Running as root, creating user $username..."
-        
+
         create_user "$username"
-        
+
         # Create a temporary script with a unique name
         local script_path
-        script_path=$(sudo -u "$username" mktemp "/home/$username/fm-install.XXXXXX")
+        script_path=$(run_sudo -u "$username" mktemp "/home/$username/fm-install.XXXXXX") || {
+            info_red "Failed to create temporary file"
+            exit 1
+        }
         cp -f "$0" "$script_path"
         chown "$username:$username" "$script_path"
         chmod +x "$script_path"
-        
+
         # Store the temp file path to ensure cleanup
         local temp_files=("$script_path")
-        
+
         # Add cleanup for the temporary file
         trap 'rm -f "${temp_files[@]}"' EXIT
-        
+
         # Set up environment for non-interactive run
-        export SUDO_ASKPASS="/bin/false"  # Prevent graphical password prompts
+        export SUDO_ASKPASS="/bin/false" # Prevent graphical password prompts
         export DEBIAN_FRONTEND=noninteractive
-        
+
         # Pass the current flags to the new session
         local flags=""
         [ "$DEVELOPMENT" = true ] && flags="$flags --dev"
         [ "$FORCE" = true ] && flags="$flags --force"
-        
-        # Re-run the script as the new user with the known password
+
+        # Re-run the script as the new user with proper environment
         info_blue "Re-running script as user $username..."
-        FM_INSTALL_AS_USER=1 sudo -E -u "$username" bash -c "FM_INSTALL_AS_USER=1 $script_path $flags"
-        
+        echo "frappemanager" | FM_INSTALL_AS_USER=1 sudo -S -E -H -u "$username" \
+            env HOME="/home/$username" \
+            USER="$username" \
+            bash -c "FM_INSTALL_AS_USER=1 $script_path $flags"
+
         exit $?
     fi
 }
 
-install_fm_dev(){
+install_fm_dev() {
     info_blue "Installing frappe-manager from development branch..."
     pip3 install --user --upgrade --force-reinstall --break-system-packages git+https://github.com/rtCamp/Frappe-Manager.git@develop
     info_green "$(bold 'fm' $(pip3 list | grep frappe-manager | awk '{print $2}')) (development) installed."
 }
 
-install_fm(){
+install_fm() {
     local dev=${1:-false}
+
+    # Check if we need to install/update
     if check_fm_version; then
-        info_green "Frappe Manager is already installed at the correct version."
+        info_green "Frappe Manager $(bold $(pip3 list | grep frappe-manager | awk '{print $2}')) is already at latest version."
         return 0
     fi
-    
+
     if [ "$dev" = true ]; then
         install_fm_dev
     else
         info_blue "Installing frappe-manager..."
-        pip3 install --user --upgrade --force-reinstall --break-system-packages frappe-manager
+        pip3 install --user --upgrade --break-system-packages frappe-manager
         info_green "$(bold 'fm' $(pip3 list | grep frappe-manager | awk '{print $2}')) installed."
     fi
 }
 
-has_docker_compose(){
-    if command -v docker &> /dev/null; then
-        if docker compose version &> /dev/null; then
+has_docker_compose() {
+    if command -v docker &>/dev/null; then
+        if docker compose version &>/dev/null; then
             return 0
         fi
     fi
     return 1
 }
 
-has_pyenv(){
+has_pyenv() {
     if [[ "$(pyenv --version 2>&1 || true)" = *"pyenv: command not found"* ]]; then
         return 1
     else
@@ -203,7 +216,7 @@ check_docker_version() {
     if [ "$FORCE" = true ]; then
         return 1
     fi
-    
+
     local required_version="20.10.0"
     if command -v docker >/dev/null 2>&1; then
         local current_version=$(docker version --format '{{.Server.Version}}' 2>/dev/null)
@@ -218,17 +231,23 @@ check_fm_version() {
     if [ "$FORCE" = true ]; then
         return 1
     fi
-    
+
+    # If development version is requested, always reinstall
+    if [ "$DEVELOPMENT" = true ]; then
+        return 1
+
+    fi
+
     local current_version=$(pip3 list | grep frappe-manager | awk '{print $2}')
     if [ -n "$current_version" ]; then
-        if [ "$DEVELOPMENT" = true ]; then
-            # For dev version, always reinstall to get latest
-            return 1
+        # Check if it's the latest version from PyPI
+        local latest_version=$(pip3 index versions frappe-manager | grep frappe-manager | cut -d'(' -f2 | cut -d')' -f1 | head -1)
+        if [ "$current_version" = "$latest_version" ]; then
+            return 0 # Already at latest version
         fi
-        # For stable version, check if installed
-        return 0
+        return 1 # Needs update
     fi
-    return 1
+    return 1 # Not installed
 }
 
 check_path_entry() {
@@ -244,14 +263,14 @@ check_shell_completion() {
     local shell_type="${SHELL##*/}"
     local completion_file
     case "$shell_type" in
-        bash)
-            completion_file="$HOME/.bash_completion.d/fm.completion"
-            ;;
-        zsh)
-            completion_file="$HOME/.zsh/completion/_fm"
-            ;;
+    bash)
+        completion_file="$HOME/.bash_completion.d/fm.completion"
+        ;;
+    zsh)
+        completion_file="$HOME/.zsh/completion/_fm"
+        ;;
     esac
-    
+
     if [ -f "$completion_file" ]; then
         return 0
     fi
@@ -280,7 +299,7 @@ fi
 
 # Function to install Homebrew on macOS
 install_homebrew() {
-    if ! type brew > /dev/null 2>&1; then
+    if ! type brew >/dev/null 2>&1; then
         NONINTERACTIVE=1 /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
     else
         info_green "brew is already installed."
@@ -289,7 +308,7 @@ install_homebrew() {
 
 # Function to check and install Docker Desktop on macOS
 install_docker_macos() {
-    if ! type docker > /dev/null 2>&1; then
+    if ! type docker >/dev/null 2>&1; then
         info_blue "Installing Docker Desktop for macOS..."
         install_homebrew
         brew install --cask docker
@@ -302,7 +321,7 @@ install_docker_macos() {
 
 # Function to check and install Docker Engine and Docker Compose on Ubuntu
 install_docker_ubuntu() {
-    ARCH=$(dpkg --print-architecture)  # Detects the architecture (amd64, arm64, etc.)
+    ARCH=$(dpkg --print-architecture) # Detects the architecture (amd64, arm64, etc.)
     if check_docker_version; then
         info_green "Docker $(docker version --format '{{.Server.Version}}') is already installed."
     else
@@ -310,7 +329,7 @@ install_docker_ubuntu() {
 
         # Use SUDO_ASKPASS for non-interactive password input
         export SUDO_ASKPASS="/bin/echo"
-        
+
         # Function to run sudo commands
         run_sudo() {
             echo "frappemanager" | sudo -S "$@"
@@ -325,16 +344,16 @@ install_docker_ubuntu() {
 
         # Add the repository to Apt sources:
         REPO_CONTENT="deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo "$VERSION_CODENAME") stable"
-        echo "$password" | sudo -S bash -c "echo \"$REPO_CONTENT\" > /etc/apt/sources.list.d/docker.list"
+        echo "frappemanager" | sudo -S bash -c "echo \"$REPO_CONTENT\" > /etc/apt/sources.list.d/docker.list"
         run_sudo apt-get update
         run_sudo apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin
-            info_green "Docker Engine installed"
+        info_green "Docker Engine installed"
     fi
 
     # Check if the docker group exists, create it if not
-    if ! getent group docker > /dev/null; then
+    if ! getent group docker >/dev/null; then
         info_green "Docker group does not exist. Creating docker group..."
-        sudo groupadd docker
+        run_sudo groupadd docker
     fi
 
     # Check if $USER is in the docker group
@@ -342,7 +361,7 @@ install_docker_ubuntu() {
         info_green "$USER is already a member of the docker group."
     else
         info_blue "$USER is not a member of the docker group. Adding $USER to the docker group..."
-        sudo usermod -aG docker "$USER"
+        run_sudo usermod -aG docker "$USER"
         info_green "$USER has been added to the docker group."
     fi
 
@@ -354,13 +373,20 @@ install_docker_ubuntu() {
         info_green "Docker Compose is already installed."
     fi
 
-    sudo systemctl enable docker.service
-    sudo systemctl start docker.service
+    # Check Docker service status before enabling/starting
+    if ! systemctl is-active --quiet docker.service; then
+        info_blue "Docker service is not running. Starting docker service..."
+        run_sudo systemctl enable docker.service
+        run_sudo systemctl start docker.service
+        info_green "Docker service started and enabled."
+    else
+        info_green "Docker service is already running."
+    fi
 }
 
-install_pyenv_python(){
+install_pyenv_python() {
 
-    if ! type python3 > /dev/null 2>&1 || ! python3 -c 'import sys; exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
+    if ! type python3 >/dev/null 2>&1 || ! python3 -c 'import sys; exit(0 if sys.version_info >= (3,10) else 1)' 2>/dev/null; then
         LATEST_PYTHON=$(pyenv install --list | grep -v - | grep -v b | grep -v a | grep -v rc | grep -E '^\s*3' | tail -1 | tr -d '[:space:]')
         if [ -z "$LATEST_PYTHON" ]; then
             info_red "Could not find the latest Python version."
@@ -380,7 +406,7 @@ install_pyenv_python(){
         fi
     fi
 
-    if ! type pip3 > /dev/null 2>&1; then
+    if ! type pip3 >/dev/null 2>&1; then
         info_blue "Installing pip3..."
         python -m ensurepip --upgrade
         info_green "Installed pip3"
@@ -390,19 +416,19 @@ install_pyenv_python(){
 # Function to install Python and frappe-manager on Ubuntu
 install_python_and_frappe_ubuntu() {
     if ! has_pyenv; then
-        if ! type python3 > /dev/null 2>&1 || ! python3 -c 'import sys; assert sys.version_info >= (3,10)' 2>/dev/null; then
+        if ! type python3 >/dev/null 2>&1 || ! python3 -c 'import sys; assert sys.version_info >= (3,10)' 2>/dev/null; then
             # is pyenv installed
             info_blue "Using $(yellow 'apt') for installing python3..."
-            sudo DEBIAN_FRONTEND=noninteractive apt-get update
-            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3
+            run_sudo DEBIAN_FRONTEND=noninteractive apt-get update
+            run_sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3
             info_green "Installed python3"
         else
             info_green "python 3.10 or higher is already installed."
         fi
 
-        if ! type pip3 > /dev/null 2>&1; then
+        if ! type pip3 >/dev/null 2>&1; then
             info_blue "Using $(yellow 'apt') for installing pip3..."
-            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip
+            run_sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip
             info_green "Installed pip3"
         else
             info_green "pip3 already installed."
@@ -418,7 +444,7 @@ install_python_and_frappe_ubuntu() {
 # Function to install Python and frappe-manager on macOS
 install_python_and_frappe_macos() {
     if ! has_pyenv; then
-        if ! type python3 > /dev/null 2>&1 || ! python3 -c 'import sys; assert sys.version_info >= (3,10)' 2>/dev/null; then
+        if ! type python3 >/dev/null 2>&1 || ! python3 -c 'import sys; assert sys.version_info >= (3,10)' 2>/dev/null; then
             info_blue "Using $(yellow 'brew') for installing python..."
             brew install python
             info_green "$(python3 -V) installed"
@@ -426,7 +452,7 @@ install_python_and_frappe_macos() {
             info_green "python 3.10 or higher is already installed."
         fi
 
-        if ! type pip3 > /dev/null 2>&1; then
+        if ! type pip3 >/dev/null 2>&1; then
             info_blue "Installing pip3"
             python -m ensurepip --upgrade
             info_green "Installed pip3"
@@ -441,7 +467,7 @@ install_python_and_frappe_macos() {
     install_fm "$DEVELOPMENT"
 }
 
-handle_shell(){
+handle_shell() {
     local shellrc
 
     # Detect shell more reliably
@@ -457,14 +483,14 @@ handle_shell(){
         if [[ "${shellrc:-}" ]]; then
             info_blue "Checking default pip3 dir in PATH"
             if ! check_path_entry "$HOME/.local/bin" "$shellrc"; then
-                echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$shellrc"
+                echo 'export PATH="$HOME/.local/bin:$PATH"' >>"$shellrc"
                 export PATH="$HOME/.local/bin:$PATH"
                 info_green "Added $HOME/.local/bin to PATH using $shellrc file."
             else
                 info_green "$HOME/.local/bin already in PATH."
             fi
         fi
-        
+
         if [ -x "$HOME/.local/bin/fm" ] && ! check_shell_completion; then
             info_blue "Installing fm shell completion."
             $HOME/.local/bin/fm --install-completion || true
@@ -482,7 +508,6 @@ handle_shell(){
     fi
 }
 
-
 # Initialize default values
 USERNAME="frappe"
 DEVELOPMENT=false
@@ -491,18 +516,18 @@ FORCE=false
 # Parse arguments in any order
 for arg in "$@"; do
     case "$arg" in
-        --help|-h)
-            show_help
-            ;;
-        --dev)
-            DEVELOPMENT=true
-            ;;
-        --force|-f)
-            FORCE=true
-            ;;
-        *)
-            USERNAME="$arg"
-            ;;
+    --help | -h)
+        show_help
+        ;;
+    --dev)
+        DEVELOPMENT=true
+        ;;
+    --force | -f)
+        FORCE=true
+        ;;
+    *)
+        USERNAME="$arg"
+        ;;
     esac
 done
 
@@ -534,7 +559,6 @@ elif [ "$OS" == "Linux" ]; then
         trap remind_logout EXIT
 
         info_green "Script execution completed."
-        sudo su - "$USER"
     else
         info_red "Unsupported Linux distribution. This script supports macOS and Ubuntu."
         exit 1
