@@ -144,8 +144,10 @@ def restart_service(service_name, force=False):
 def get_service_info(service_name):
     if not is_supervisord_running(service_name):
         return Tree(f"📄 [b red]{service_name} - Supervisord not running[/b red]", highlight=True)
+
     conn = get_xml_connection(service_name)
     root = Tree(f"📄 [b magenta]{service_name}[/b magenta]", highlight=True)
+
     try:
         processes = conn.supervisor.getAllProcessInfo()
         for process in processes:

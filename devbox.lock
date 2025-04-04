@@ -70,50 +70,89 @@
       }
     },
     "vscode@latest": {
+<<<<<<< HEAD
       "last_modified": "2025-08-11T16:06:55Z",
       "resolved": "github:NixOS/nixpkgs/4e942f9ef5b35526597c354d1ded817d1c285ef1#vscode",
       "source": "devbox-search",
       "version": "1.103.0",
+=======
+      "last_modified": "2025-03-16T16:17:41Z",
+      "resolved": "github:NixOS/nixpkgs/8f76cf16b17c51ae0cc8e55488069593f6dab645#vscode",
+      "source": "devbox-search",
+      "version": "1.98.2",
+>>>>>>> ede882d (build: Refine Docker setup and update devbox lock)
       "systems": {
         "aarch64-darwin": {
           "outputs": [
             {
               "name": "out",
+<<<<<<< HEAD
               "path": "/nix/store/c9d477q7yhlfifq4msl974q41gsqlnqy-vscode-1.103.0",
               "default": true
             }
           ],
           "store_path": "/nix/store/c9d477q7yhlfifq4msl974q41gsqlnqy-vscode-1.103.0"
+=======
+              "path": "/nix/store/47babdfsakdq3yiisl8wlp9xba38jv78-vscode-1.98.2",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/47babdfsakdq3yiisl8wlp9xba38jv78-vscode-1.98.2"
+>>>>>>> ede882d (build: Refine Docker setup and update devbox lock)
         },
         "aarch64-linux": {
           "outputs": [
             {
               "name": "out",
+<<<<<<< HEAD
               "path": "/nix/store/2cipx1kbibl58kgp760s7xlnjzlfkwax-vscode-1.103.0",
               "default": true
             }
           ],
           "store_path": "/nix/store/2cipx1kbibl58kgp760s7xlnjzlfkwax-vscode-1.103.0"
+=======
+              "path": "/nix/store/hibsjy02nxv203smncr0p1fclg3lf06c-vscode-1.98.2",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/hibsjy02nxv203smncr0p1fclg3lf06c-vscode-1.98.2"
+>>>>>>> ede882d (build: Refine Docker setup and update devbox lock)
         },
         "x86_64-darwin": {
           "outputs": [
             {
               "name": "out",
+<<<<<<< HEAD
               "path": "/nix/store/b34fiaglk212nk7cgzwqvgc0n168g285-vscode-1.103.0",
               "default": true
             }
           ],
           "store_path": "/nix/store/b34fiaglk212nk7cgzwqvgc0n168g285-vscode-1.103.0"
+=======
+              "path": "/nix/store/f192nilhhvrx62yb0xlgl748d5zdlizw-vscode-1.98.2",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/f192nilhhvrx62yb0xlgl748d5zdlizw-vscode-1.98.2"
+>>>>>>> ede882d (build: Refine Docker setup and update devbox lock)
         },
         "x86_64-linux": {
           "outputs": [
             {
               "name": "out",
+<<<<<<< HEAD
               "path": "/nix/store/ygc96lzwkkkv49avqzlmy2gafg2yzqps-vscode-1.103.0",
               "default": true
             }
           ],
           "store_path": "/nix/store/ygc96lzwkkkv49avqzlmy2gafg2yzqps-vscode-1.103.0"
+=======
+              "path": "/nix/store/qsq8pyvxvwfwsvhsq6xqw1276hxzvv50-vscode-1.98.2",
+              "default": true
+            }
+          ],
+          "store_path": "/nix/store/qsq8pyvxvwfwsvhsq6xqw1276hxzvv50-vscode-1.98.2"
+>>>>>>> ede882d (build: Refine Docker setup and update devbox lock)
         }
       }
     }
