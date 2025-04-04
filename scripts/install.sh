@@ -5,18 +5,6 @@ LOGFILE="fm-install-$(date +"%Y%m%d_%H%M%S").log"
 exec {BASH_XTRACEFD}>>"$LOGFILE"
 set -e
 
-# Cleanup function
-cleanup() {
-    local exit_code=$?
-    #rm -f "$LOGFILE"
-    exit $exit_code
-}
-
-# Register cleanup function
-trap cleanup EXIT
-
-set -x
-
 print_in_color() {
     local color="$1"
     shift
@@ -36,13 +24,41 @@ cyan() { print_in_color "\e[36m" "$*"; }
 bold() { print_in_color "\e[1m" "$*"; }
 underlined() { print_in_color "\e[4m" "$*"; }
 
+info_blue(){
+    echo -e $'\U0001F6A7' "$(blue "$*")"
+}
+
+info_green(){
+    echo "$(cyan '=>') $(green "$*")"
+}
+
+info_yellow(){
+    echo "$(cyan '=>') $(yellow "$*")"
+}
+
+info_red(){
+    echo "$(red 'X') $(red "$*")"
+}
+
+# Cleanup function
+cleanup() {
+    local exit_code=$?
+    #rm -f "$LOGFILE"
+    exit $exit_code
+}
+
+# Register cleanup function
+trap cleanup EXIT
+
+set -x
+
 show_help() {
     cat << EOF
 Frappe Manager Installation Script
 
 USAGE:
-    As root: $(basename "$0") [username] [--dev] [--help]
-    As non-root: $(basename "$0") [--dev] [--help]
+    As root: $(basename "$0") [username] [--dev] [--force] [--help]
+    As non-root: $(basename "$0") [--dev] [--force] [--help]
 
 DESCRIPTION:
     Installs Frappe Manager (fm) and all required dependencies including Docker, 
@@ -54,6 +70,7 @@ ARGUMENTS:
 
 OPTIONS:
     --dev      Install development version from 'develop' branch
+    --force    Force all installations and updates, ignoring existing versions
     --help     Show this help message
 
 NOTES:
@@ -76,23 +93,6 @@ EXAMPLES:
     $(basename "$0")
 EOF
     exit 0
-}
-
-info_blue(){
-    echo -e $'\U0001F6A7' "$(blue "$*")"
-}
-
-info_green(){
-    echo "$(cyan '=>') $(green "$*")"
-}
-
-
-info_yellow(){
-    echo "$(cyan '=>') $(yellow "$*")"
-}
-
-info_red(){
-    echo "$(red 'X') $(red "$*")"
 }
 
 create_user() {
@@ -144,17 +144,22 @@ handle_root() {
 
 install_fm_dev(){
     info_blue "Installing frappe-manager from development branch..."
-    pip3 install --user --upgrade --break-system-packages git+https://github.com/rtCamp/Frappe-Manager.git@develop
+    pip3 install --user --upgrade --force-reinstall --break-system-packages git+https://github.com/rtCamp/Frappe-Manager.git@develop
     info_green "$(bold 'fm' $(pip3 list | grep frappe-manager | awk '{print $2}')) (development) installed."
 }
 
 install_fm(){
     local dev=${1:-false}
+    if check_fm_version; then
+        info_green "Frappe Manager is already installed at the correct version."
+        return 0
+    fi
+    
     if [ "$dev" = true ]; then
         install_fm_dev
     else
         info_blue "Installing frappe-manager..."
-        pip3 install --user --upgrade --break-system-packages frappe-manager
+        pip3 install --user --upgrade --force-reinstall --break-system-packages frappe-manager
         info_green "$(bold 'fm' $(pip3 list | grep frappe-manager | awk '{print $2}')) installed."
     fi
 }
@@ -174,6 +179,65 @@ has_pyenv(){
     else
         return 0
     fi
+}
+
+check_docker_version() {
+    if [ "$FORCE" = true ]; then
+        return 1
+    fi
+    
+    local required_version="20.10.0"
+    if command -v docker >/dev/null 2>&1; then
+        local current_version=$(docker version --format '{{.Server.Version}}' 2>/dev/null)
+        if [ $? -eq 0 ] && [ "$(printf '%s\n' "$required_version" "$current_version" | sort -V | head -n1)" = "$required_version" ]; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
+check_fm_version() {
+    if [ "$FORCE" = true ]; then
+        return 1
+    fi
+    
+    local current_version=$(pip3 list | grep frappe-manager | awk '{print $2}')
+    if [ -n "$current_version" ]; then
+        if [ "$DEVELOPMENT" = true ]; then
+            # For dev version, always reinstall to get latest
+            return 1
+        fi
+        # For stable version, check if installed
+        return 0
+    fi
+    return 1
+}
+
+check_path_entry() {
+    local entry="$1"
+    local shellrc="$2"
+    if grep -q "^export PATH=.*$entry" "$shellrc" 2>/dev/null; then
+        return 0
+    fi
+    return 1
+}
+
+check_shell_completion() {
+    local shell_type="${SHELL##*/}"
+    local completion_file
+    case "$shell_type" in
+        bash)
+            completion_file="$HOME/.bash_completion.d/fm.completion"
+            ;;
+        zsh)
+            completion_file="$HOME/.zsh/completion/_fm"
+            ;;
+    esac
+    
+    if [ -f "$completion_file" ]; then
+        return 0
+    fi
+    return 1
 }
 
 has_tty() {
@@ -221,8 +285,8 @@ install_docker_macos() {
 # Function to check and install Docker Engine and Docker Compose on Ubuntu
 install_docker_ubuntu() {
     ARCH=$(dpkg --print-architecture)  # Detects the architecture (amd64, arm64, etc.)
-    if command -v docker > /dev/null; then
-        info_green "Docker is already installed."
+    if check_docker_version; then
+        info_green "Docker $(docker version --format '{{.Server.Version}}') is already installed."
     else
         info_blue "Installing Docker Engine for Ubuntu..."
 
@@ -377,14 +441,13 @@ handle_shell(){
     elif [ -n "$ZSH_VERSION" ]; then
         shellrc="${HOME}/.zshrc"
     else
-        # Default to bashrc if shell detection fails
         shellrc="${HOME}/.bashrc"
     fi
 
     if ! has_pyenv; then
         if [[ "${shellrc:-}" ]]; then
             info_blue "Checking default pip3 dir in PATH"
-            if ! grep -q "$HOME/.local/bin" "$shellrc" 2>/dev/null; then
+            if ! check_path_entry "$HOME/.local/bin" "$shellrc"; then
                 echo 'export PATH="$HOME/.local/bin:$PATH"' >> "$shellrc"
                 export PATH="$HOME/.local/bin:$PATH"
                 info_green "Added $HOME/.local/bin to PATH using $shellrc file."
@@ -393,17 +456,20 @@ handle_shell(){
             fi
         fi
         
-        # Ensure fm is in PATH before running completion
-        if [ -x "$HOME/.local/bin/fm" ]; then
+        if [ -x "$HOME/.local/bin/fm" ] && ! check_shell_completion; then
             info_blue "Installing fm shell completion."
             $HOME/.local/bin/fm --install-completion || true
         else
-            info_yellow "Warning: fm not found in $HOME/.local/bin"
+            info_green "FM shell completion already installed."
         fi
     else
-        info_blue "Installing fm shell completion."
-        export PATH="$(pyenv root)/shims:$PATH"
-        command -v fm >/dev/null 2>&1 && fm --install-completion || true
+        if ! check_shell_completion; then
+            info_blue "Installing fm shell completion."
+            export PATH="$(pyenv root)/shims:$PATH"
+            command -v fm >/dev/null 2>&1 && fm --install-completion || true
+        else
+            info_green "FM shell completion already installed."
+        fi
     fi
 }
 
@@ -411,6 +477,7 @@ handle_shell(){
 # Initialize default values
 USERNAME="frappe"
 DEVELOPMENT=false
+FORCE=false
 
 # Parse arguments in any order
 for arg in "$@"; do
@@ -420,6 +487,9 @@ for arg in "$@"; do
             ;;
         --dev)
             DEVELOPMENT=true
+            ;;
+        --force|-f)
+            FORCE=true
             ;;
         *)
             USERNAME="$arg"

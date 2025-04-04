@@ -1,4 +1,7 @@
-### Install
+# Frappe Manager Installation Script 
+
+Tested On:
+- Ubuntu 24.04
 
 The install script automatically sets up all dependencies needed for Frappe Manager (fm), including:
 - Docker & Docker Compose 
@@ -65,6 +68,7 @@ zsh <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/sc
 #### Command Line Arguments:
 - `[username]`: Optional. Sets custom username when running as root (default: 'frappe')
 - `--dev`: Optional. Installs development version from 'develop' branch
+- `--force`: Optional. Force all installations and updates, ignoring existing versions
 - `--help`: Optional. Show help message and usage information
 - Arguments can be provided in any order
 
@@ -73,14 +77,22 @@ Examples:
 # Show help message
 bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) --help
 
+# Force install stable version
+bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) --force
+
+# Force install development version
+bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) --dev --force
+
 # Install stable version as root with custom username
 bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) myuser
 
+# Force install as root with custom username 
+bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) myuser --force
+
 # Install development version as root with custom username
 bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) myuser --dev
-bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) --dev myuser
 
-# Install development version as non-root user
-bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) --dev
+# Force install development version as root with custom username
+bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) myuser --dev --force
 ```
 
