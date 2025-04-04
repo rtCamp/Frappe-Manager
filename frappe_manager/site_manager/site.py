@@ -1146,6 +1146,7 @@ class Bench:
 
     def ensure_admin_tools_running_if_available(self):
         if self.admin_tools.compose_project.compose_file_manager.exists():
+
             if self.bench_config.admin_tools:
                 if not self.admin_tools.compose_project.running:
                     if self.compose_project.running:

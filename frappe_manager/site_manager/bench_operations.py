@@ -24,7 +24,7 @@ from frappe_manager.utils.site import get_all_docker_images
 class BenchOperations:
     def __init__(self, bench) -> None:
         self.bench = bench
-        self.bench_cli_cmd = ["/opt/.pyenv/shims/bench"]
+        self.bench_cli_cmd = ["/usr/local/bin/bench"]
         self.frappe_bench_dir: Path = self.bench.path / "workspace" / "frappe-bench"
 
     def create_fm_bench(self):

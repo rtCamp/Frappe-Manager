@@ -3,17 +3,24 @@ FROM ubuntu:22.04 AS bench
 LABEL author=rtCamp
 LABEL org.opencontainers.image.source=https://github.com/rtcamp/Frappe-Manager
 
-ARG PYTHON_VERSION=3.12.0
+ARG PYTHON_VERSION=3.12
 ARG PREBAKE_APPS='erpnext:version-15,hrms:version-15'
 ARG PREBAKE_FRAPPE_BRANCH='version-15'
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
+    # For SSL certificates
+    ca-certificates \
     # For frappe framework
     git \
     mariadb-client \
+    python3-dev \
+    python3-setuptools \
+    python3-wheel \
     postgresql-client \
     gettext-base \
     wget \
+    curl \
+    rsync \
     # for PDF
     xfonts-75dpi \
     xfonts-base \
@@ -22,18 +29,17 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
     libpangocairo-1.0-0 \
     # to work inside the container
     locales \
-    build-essential \
     cron \
-    curl \
     vim \
-    sudo \
-    iputils-ping \
     watch \
     tree \
-    nano \
+    iputils-ping \
     less \
-    software-properties-common \
     bash-completion \
+    build-essential \
+    # sudo \
+    # nano \
+    # software-properties-common \
     # For psycopg2
     libpq-dev \
     # Other
@@ -52,7 +58,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
     net-tools \
     # For pyenv build dependencies
     # https://github.com/frappe/frappe_docker/issues/840#issuecomment-1185206895
-    make \
+    #make \
     # For pandas
     libbz2-dev \
     # For bench execute
@@ -76,8 +82,13 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
     file \
     && rm -rf /var/lib/apt/lists/*
 
-RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
-    && dpkg-reconfigure --frontend=noninteractive locales
+RUN set -eux \
+    && echo "en_US.UTF-8 UTF-8" > /etc/locale.gen \
+    && dpkg-reconfigure --frontend=noninteractive locales \
+    && update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+
+ENV LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8
 
 # setup user
 RUN export NAME='frappe' && \
@@ -88,9 +99,6 @@ RUN export NAME='frappe' && \
 
 RUN echo PREBAKE_APPS="$PREBAKE_APPS" >> /prebake_info && echo PREBAKE_FRAPPE_BRANCH="$PREBAKE_FRAPPE_BRANCH" >> /prebake_info
 
-ENV PYENV_ROOT /opt/.pyenv
-ENV PATH $PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH
-
 # for bench wrapper
 ENV PATH /opt/user/.bin:${PATH}
 
@@ -98,6 +106,25 @@ ENV PATH /opt/user/.bin:${PATH}
 ENV NODE_VERSION=20.9.0
 ENV NVM_DIR /opt/.nvm
 ENV PATH ${NVM_DIR}/versions/node/v${NODE_VERSION}/bin/:${PATH}
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | UV_UNMANAGED_INSTALL=/usr/local/bin sh \
+    && UV_PYTHON_INSTALL_DIR=/opt/user/uv uv python install $PYTHON_VERSION 3.11 \
+    && UV_TOOL_BIN_DIR=/usr/local/bin UV_TOOL_DIR=/opt/user/uv-tools uv tool install frappe-bench && chmod 0755 /usr/local/bin/bench /opt/user/uv-tools \
+    && rm -rf /root/.cargo /root/.cache/uv /root/.cache/pip \
+    && mkdir -p /opt/user/.bin
+
+
+COPY --chmod=0755 ./python_wrapper.sh /opt/user/.bin/python3
+
+RUN uv_cpython_name="$(/bin/ls -1 /opt/user/uv)" && \
+    uv_python_path="/opt/user/uv/$uv_cpython_name/bin" && \
+    echo "UV_PYTHON_PATH=$uv_python_path" >> /etc/environment
+
+ENV UV_PYTHON_PATH=${UV_PYTHON_PATH}
+ENV UV_NATIVE_DEPS=1
+ENV PATH=/opt/user/.bin:${UV_PYTHON_PATH}:${PATH}
+RUN echo 'export PATH="/opt/user/.bin:${UV_PYTHON_PATH}:$PATH"' > /etc/profile.d/custom-path.sh && \
+    chmod 0755 /etc/profile.d/custom-path.sh
 
 FROM bench AS prebake
 
@@ -122,20 +149,6 @@ RUN unset ZSH
 COPY --chown=frappe:frappe ./zshrc /opt/user/.zshrc
 COPY --chown=frappe:frappe ./fm.zsh-theme /opt/user/fm.zsh-theme
 
-RUN git clone --depth 1 https://github.com/pyenv/pyenv.git .pyenv \
-    # support previous version
-    && pyenv install $PYTHON_VERSION 3.11.0 \
-    && PYENV_VERSION=$PYTHON_VERSION pip install --no-cache-dir virtualenv \
-    && pyenv global $PYTHON_VERSION \
-    && echo 'export PYENV_ROOT="/opt/.pyenv"' >> "$USERZSHRC" \
-    && echo 'command -v pyenv >/dev/null || export PATH="$PYENV_ROOT/bin:$PATH"' >> "$USERZSHRC" \
-    && echo 'eval "$(pyenv init --path)"' >>"$USERZSHRC" \
-    # remove *.pyc and *.pyo as used here in official docker image to reduce size
-    # https://github.com/docker-library/python/blob/789d789e4a8db71d3d393667971c49b845ffdc3f/3.11/alpine3.19/Dockerfile#L106-L111
-    && find /opt/.pyenv/versions -depth \( \( -type d -a \( -name test -o -name tests -o -name idle_test \) \) -o \( -type f -a \( -name '*.pyc' -o -name '*.pyo' -o -name 'libpython*.a' \) \) \) -exec rm -rf '{}' + ;
-
-RUN pip install frappe-bench
-
 RUN mkdir -p /opt/.nvm \
     && wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash \
     && . ${NVM_DIR}/nvm.sh \
@@ -154,10 +167,6 @@ RUN mkdir -p /workspace
 
 WORKDIR /workspace
 
-RUN mkdir -p /opt/user/.bin
-
-RUN echo 'export PATH="/opt/user/.bin:$PATH"' >> "$USERZSHRC"
-
 COPY --chown=frappe:frappe ./supervisord.conf /opt/user/
 COPY --chown=frappe:frappe ./frappe-dev.conf /opt/user/
 COPY --chown=frappe:frappe --chmod=0755 ./bench-dev-watch.sh /opt/user/
@@ -167,7 +176,7 @@ COPY --chown=frappe:frappe --chmod=0755 ./bench-wrapper.sh /opt/user/.bin/bench
 COPY --chmod=0755 ./prebake.sh /scripts/
 COPY --chmod=0755 ./helper-function.sh /scripts/
 
-RUN ls -lah /workspace && /scripts/prebake.sh && mv /workspace/frappe-bench/apps/* /workspace/
+RUN ls -lah /workspace && (ls -lah /usr/local/bin | grep bench) && /scripts/prebake.sh && mv /workspace/frappe-bench/apps/* /workspace/
 
 FROM ubuntu:22.04 AS prebake_image
 
@@ -201,20 +210,19 @@ RUN rm -rf /opt && mkdir -p /workspace /opt
 
 WORKDIR /workspace
 
-COPY --from=prebake --chown=frappe:frappe /opt/.pyenv /opt/.pyenv
 COPY --from=prebake --chown=frappe:frappe /opt/.nvm /opt/.nvm
 COPY --from=prebake --chown=frappe:frappe /opt/user /opt/user
 
 COPY --chown=frappe:frappe ./fm_helper.py /opt/user/
 
-RUN $PYENV_ROOT/versions/$PYTHON_VERSION/bin/python -m venv /opt/venv && \
+RUN /usr/local/bin/uv venv /opt/venv && \
     mkdir -p /opt/build && \
     cd /opt/build && \
     . /opt/venv/bin/activate && \
-    pip install --no-cache-dir rich pyinstaller supervisor typer && \
+    uv pip install --no-cache rich pyinstaller supervisor typer && \
     pyinstaller --onefile --hidden-import __future__ --name fm-helper --distpath /opt/user/.bin /opt/user/fm_helper.py && \
     deactivate && \
     rm -rf /opt/user/fm_helper.py && \
-    rm -rf /opt/venv build /opt/build
+    rm -rf /opt/venv build /opt/build /root/.cache/uv /root/.cache/pip
 
 ENTRYPOINT ["/bin/bash","/entrypoint.sh"]

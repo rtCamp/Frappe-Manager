@@ -18,31 +18,19 @@ if [[ -n "${WORKER_NAME:-}" ]]; then
     SERVICE_NAME="${WORKER_NAME}"
 fi
 
-[[ "${SERVICE_NAME:-}" ]] || emer "[ERROR] Please provide SERVICE_NAME environment variable."
-
-SOCK_DIR='/fm-sockets'
-SOCK_SERVICE_PATH="$SOCK_DIR/$SERVICE_NAME.sock"
-
-echo "Setting supervisord sock directory to $SOCK_SERVICE_PATH"
-
-mkdir -p /opt/user/conf.d $SOCK_DIR
-chown "$USERID:$USERGROUP" $SOCK_DIR /opt/user/conf.d
-rm -rf "$SOCK_SERVICE_PATH"
-
-sed -i "s/\opt\/user\/supervisor\.sock/fm-sockets\/${SERVICE_NAME}\.sock/g" /opt/user/supervisord.conf
-echo "supervisord configured $?"
-
-if [[ -n "${SUPERVISOR_SERVICE_CONFIG_FILE_NAME:-}" ]]; then
-    # Use the provided config file name
-    CONFIG_FILE_NAME="${SUPERVISOR_SERVICE_CONFIG_FILE_NAME}"
-elif [[ -n "${WORKER_NAME:-}" ]]; then
-    CONFIG_FILE_NAME="${WORKER_NAME}.workers.fm.supervisor.conf"
-elif [[ -n "${SERVICE_NAME:-}" ]]; then
-    # Generate config file name from SERVICE_NAME
-    CONFIG_FILE_NAME="${SERVICE_NAME}.fm.supervisor.conf"
-else
-    # Neither variable is set, error out
-    emer "Either SUPERVISOR_SERVICE_CONFIG_FILE_NAME or WORKER_NAME or SERVICE_NAME env must be given."
+if [[ "${SERVICE_NAME:-}" ]]; then
+    if [[ -n "${SUPERVISOR_SERVICE_CONFIG_FILE_NAME:-}" ]]; then
+        # Use the provided config file name
+        CONFIG_FILE_NAME="${SUPERVISOR_SERVICE_CONFIG_FILE_NAME}"
+    elif [[ -n "${WORKER_NAME:-}" ]]; then
+        CONFIG_FILE_NAME="${WORKER_NAME}.workers.fm.supervisor.conf"
+    elif [[ -n "${SERVICE_NAME:-}" ]]; then
+        # Generate config file name from SERVICE_NAME
+        CONFIG_FILE_NAME="${SERVICE_NAME}.fm.supervisor.conf"
+    else
+        # Neither variable is set, error out
+        emer "Either SUPERVISOR_SERVICE_CONFIG_FILE_NAME or WORKER_NAME or SERVICE_NAME env must be given."
+    fi
 fi
 
 # Set SUPERVISOR_SERVICE_CONFIG_FILE_NAME for use in rest of the script

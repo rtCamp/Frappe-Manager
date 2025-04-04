@@ -32,8 +32,8 @@ elif [[ "$@" =~ ^status[[:space:]]* ]]; then
 elif [[ "$@" =~ ^stop[[:space:]]* ]]; then
     stop_command
 elif [[ -z "$@" ]]; then
-    /opt/.pyenv/shims/bench "$@"
+    /usr/local/bin/bench "$@"
     show_fm_helper_commands
 else
-    /opt/.pyenv/shims/bench "$@"
+    /usr/local/bin/bench "$@"
 fi

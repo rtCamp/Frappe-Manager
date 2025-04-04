@@ -11,7 +11,7 @@ emer() {
     exit 1
 }
 
-BENCH_COMMAND='/opt/.pyenv/shims/bench'
+BENCH_COMMAND=/usr/local/bin/bench
 
 configure_common_site_config(){
     $BENCH_COMMAND config dns_multitenant on
