@@ -118,17 +118,30 @@ create_user() {
 }
 
 handle_root() {
-    if [ "$(id -u)" -eq 0 ]; then
+    # Add a flag to prevent recursive execution
+    if [ -n "$FM_INSTALL_AS_USER" ]; then
+        return 0
+    fi
+
+    # Check if running as real root (not just sudo)
+    if [ "$(id -u)" -eq 0 ] && [ -z "$SUDO_USER" ]; then
         local username=${1:-frappe}
         info_blue "Running as root, creating user $username..."
         
         create_user "$username"
         
-        # Copy the script to the new user's home
-        local script_path="/home/$username/install.sh"
-        cp "$0" "$script_path"
+        # Create a temporary script with a unique name
+        local script_path
+        script_path=$(sudo -u "$username" mktemp "/home/$username/fm-install.XXXXXX")
+        cp -f "$0" "$script_path"
         chown "$username:$username" "$script_path"
         chmod +x "$script_path"
+        
+        # Store the temp file path to ensure cleanup
+        local temp_files=("$script_path")
+        
+        # Add cleanup for the temporary file
+        trap 'rm -f "${temp_files[@]}"' EXIT
         
         # Set up environment for non-interactive run
         export SUDO_ASKPASS="/bin/false"  # Prevent graphical password prompts
@@ -141,7 +154,7 @@ handle_root() {
         
         # Re-run the script as the new user with the known password
         info_blue "Re-running script as user $username..."
-        echo "frappemanager" | sudo -S -u "$username" SUDO_ASKPASS=/bin/echo bash -c "echo frappemanager | sudo -S $script_path $flags"
+        FM_INSTALL_AS_USER=1 sudo -E -u "$username" bash -c "FM_INSTALL_AS_USER=1 $script_path $flags"
         
         exit $?
     fi
