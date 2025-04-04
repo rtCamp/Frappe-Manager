@@ -13,9 +13,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
     # For frappe framework
     git \
     mariadb-client \
-    python3-dev \
-    python3-setuptools \
-    python3-wheel \
     postgresql-client \
     gettext-base \
     wget \
@@ -111,9 +108,20 @@ ENV NODE_VERSION=20.9.0
 ENV NVM_DIR=/opt/.nvm
 ENV PATH=${NVM_DIR}/versions/node/v${NODE_VERSION}/bin/:${PATH}
 
-RUN curl -LsSf https://astral.sh/uv/install.sh | UV_UNMANAGED_INSTALL=/usr/local/bin sh \
-    && UV_PYTHON_INSTALL_DIR=/opt/user/uv uv python install $PYTHON_VERSION 3.11 \
-    && UV_TOOL_BIN_DIR=/usr/local/bin UV_TOOL_DIR=/opt/user/uv-tools uv tool install frappe-bench && chmod 0755 /usr/local/bin/bench /opt/user/uv-tools \
+# UV installation and configuration
+ENV UV_UNMANAGED_INSTALL=/usr/local/bin
+ENV UV_PYTHON_INSTALL_DIR=/opt/user/uv
+ENV UV_TOOL_BIN_DIR=/usr/local/bin
+ENV UV_TOOL_DIR=/opt/user/uv-tools
+ENV UV_NATIVE_DEPS=1
+ENV UV_BUILD_NATIVE=1
+ENV UV_SYSTEM_PYTHON=0
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && uv python install $PYTHON_VERSION 3.11 \
+    && uv tool install frappe-bench && chmod 0755 $UV_TOOL_BIN_DIR/bench $UV_TOOL_DIR \
+    && uv tool run 'git+https://github.com/bluss/sysconfigpatcher' ${UV_PYTHON_INSTALL_DIR}/cpython-3.11* \
+    && uv tool run 'git+https://github.com/bluss/sysconfigpatcher' ${UV_PYTHON_INSTALL_DIR}/cpython-3.12* \
     && rm -rf /root/.cargo /root/.cache/uv /root/.cache/pip \
     && mkdir -p /opt/user/.bin
 
