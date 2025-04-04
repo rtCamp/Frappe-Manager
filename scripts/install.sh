@@ -134,9 +134,14 @@ handle_root() {
         export SUDO_ASKPASS="/bin/false"  # Prevent graphical password prompts
         export DEBIAN_FRONTEND=noninteractive
         
+        # Pass the current flags to the new session
+        local flags=""
+        [ "$DEVELOPMENT" = true ] && flags="$flags --dev"
+        [ "$FORCE" = true ] && flags="$flags --force"
+        
         # Re-run the script as the new user with the known password
         info_blue "Re-running script as user $username..."
-        echo "frappemanager" | script -qec "su - $username -c '$script_path'" /dev/null
+        echo "frappemanager" | sudo -S -u "$username" SUDO_ASKPASS=/bin/echo bash -c "echo frappemanager | sudo -S $script_path $flags"
         
         exit $?
     fi
@@ -290,21 +295,12 @@ install_docker_ubuntu() {
     else
         info_blue "Installing Docker Engine for Ubuntu..."
 
-        # Store password for sudo operations
-        local password
-        if [ -t 0 ]; then
-            # Interactive - ask for password once
-            echo -n "Please enter sudo password: "
-            read -s password
-            echo  # New line after password input
-        else
-            # Non-interactive - use predefined password from create_user
-            password="frappemanager"
-        fi
-
-        # Function to run sudo commands with stored password
+        # Use SUDO_ASKPASS for non-interactive password input
+        export SUDO_ASKPASS="/bin/echo"
+        
+        # Function to run sudo commands
         run_sudo() {
-            echo "$password" | sudo -S "$@"
+            echo "frappemanager" | sudo -S "$@"
         }
 
         # Add Docker's official GPG key:
