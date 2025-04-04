@@ -1,14 +1,14 @@
 #!/bin/bash
 restart_command() {
-      fm-helper restart
+      fm-helper restart "$@"
 }
 
 status_command() {
-      fm-helper status
+      fm-helper status "$@"
 }
 
 stop_command() {
-      fm-helper stop
+      fm-helper stop "$@"
 }
 
 show_fm_helper_commands() {
@@ -25,12 +25,15 @@ show_fm_helper_commands() {
     echo -e "\nNote: Both methods provide the same functionality. bench integration is provided for convenience.\n"
 }
 
-if [[ "$@" =~ ^restart[[:space:]]* ]]; then
-    restart_command
-elif [[ "$@" =~ ^status[[:space:]]* ]]; then
-    status_command
-elif [[ "$@" =~ ^stop[[:space:]]* ]]; then
-    stop_command
+if [[ "$1" == "restart" ]]; then
+    shift
+    restart_command "$@"
+elif [[ "$1" == "status" ]]; then
+    shift
+    status_command "$@"
+elif [[ "$1" == "stop" ]]; then
+    shift
+    stop_command "$@"
 elif [[ -z "$@" ]]; then
     /usr/local/bin/bench "$@"
     show_fm_helper_commands
