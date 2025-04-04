@@ -17,13 +17,12 @@ trap cleanup SIGTERM
 
 echo "Setting up user"
 
+
+# configure uv
+# mkdir -p /workspace/.local/share/uv
+# rsync -av --ignore-existing --info=progress2 --partial --owner /opt/user/uv/ /workspace/.local/share/uv/
+
 update_uid_gid "${USERID}" "${USERGROUP}" "frappe" "frappe"
-
-if [[ -n "${WORKER_NAME:-}" ]]; then
-    SERVICE_NAME="${WORKER_NAME}"
-fi
-
-[[ "${SERVICE_NAME:-}" ]] || emer "[ERROR] Please provide SERVICE_NAME environment variable."
 
 SOCK_DIR='/fm-sockets'
 SOCK_SERVICE_PATH="$SOCK_DIR/$SERVICE_NAME.sock"

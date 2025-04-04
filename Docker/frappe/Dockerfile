@@ -22,12 +22,19 @@ ENV NVM_DIR=${NVM_DIR}
 ENV BENCH_USE_UV=true
 
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
+    # For SSL certificates
+    ca-certificates \
     # For frappe framework
     git \
     mariadb-client \
+    python3-dev \
+    python3-setuptools \
+    python3-wheel \
     postgresql-client \
     gettext-base \
     wget \
+    curl \
+    rsync \
     # for PDF
     xfonts-75dpi \
     xfonts-base \
@@ -36,18 +43,17 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
     libpangocairo-1.0-0 \
     # to work inside the container
     locales \
-    build-essential \
     cron \
-    curl \
     vim \
-    sudo \
-    iputils-ping \
     watch \
     tree \
-    nano \
+    iputils-ping \
     less \
-    software-properties-common \
     bash-completion \
+    build-essential \
+    # sudo \
+    # nano \
+    # software-properties-common \
     # For psycopg2
     libpq-dev \
     # Other
@@ -66,7 +72,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
     net-tools \
     # For pyenv build dependencies
     # https://github.com/frappe/frappe_docker/issues/840#issuecomment-1185206895
-    make \
+    #make \
     # For pandas
     libbz2-dev \
     # For bench execute
@@ -90,8 +96,13 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
     file \
     && rm -rf /var/lib/apt/lists/*
 
-RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
-    && dpkg-reconfigure --frontend=noninteractive locales
+RUN set -eux \
+    && echo "en_US.UTF-8 UTF-8" > /etc/locale.gen \
+    && dpkg-reconfigure --frontend=noninteractive locales \
+    && update-locale LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
+
+ENV LANG=en_US.UTF-8 \
+    LC_ALL=en_US.UTF-8
 
 # setup user
 RUN export NAME='frappe' && \
@@ -111,6 +122,25 @@ ENV PATH=/opt/user/.bin:${PATH}
 # ENV PATH=${NVM_DIR}/versions/node/v${NODE_VERSION}/bin/:${PATH}
 
 COPY --chmod=0755 ./helper-function.sh /scripts/
+
+RUN curl -LsSf https://astral.sh/uv/install.sh | UV_UNMANAGED_INSTALL=/usr/local/bin sh \
+    && UV_PYTHON_INSTALL_DIR=/opt/user/uv uv python install $PYTHON_VERSION 3.11 \
+    && UV_TOOL_BIN_DIR=/usr/local/bin UV_TOOL_DIR=/opt/user/uv-tools uv tool install frappe-bench && chmod 0755 /usr/local/bin/bench /opt/user/uv-tools \
+    && rm -rf /root/.cargo /root/.cache/uv /root/.cache/pip \
+    && mkdir -p /opt/user/.bin
+
+
+COPY --chmod=0755 ./python_wrapper.sh /opt/user/.bin/python3
+
+RUN uv_cpython_name="$(/bin/ls -1 /opt/user/uv)" && \
+    uv_python_path="/opt/user/uv/$uv_cpython_name/bin" && \
+    echo "UV_PYTHON_PATH=$uv_python_path" >> /etc/environment
+
+ENV UV_PYTHON_PATH=${UV_PYTHON_PATH}
+ENV UV_NATIVE_DEPS=1
+ENV PATH=/opt/user/.bin:${UV_PYTHON_PATH}:${PATH}
+RUN echo 'export PATH="/opt/user/.bin:${UV_PYTHON_PATH}:$PATH"' > /etc/profile.d/custom-path.sh && \
+    chmod 0755 /etc/profile.d/custom-path.sh
 
 FROM bench AS prebake
 
@@ -170,7 +200,7 @@ COPY --chown=frappe:frappe --chmod=0755 ./bench-wrapper.sh /opt/user/.bin/bench
 
 COPY --chmod=0755 ./prebake.sh /scripts/
 
-RUN ls -lah /workspace && /scripts/prebake.sh && mv /workspace/frappe-bench/apps/* /workspace/
+RUN ls -lah /workspace && (ls -lah /usr/local/bin | grep bench) && /scripts/prebake.sh && mv /workspace/frappe-bench/apps/* /workspace/
 
 FROM ubuntu:22.04 AS prebake_image
 

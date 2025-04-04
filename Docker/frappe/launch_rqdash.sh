@@ -5,6 +5,7 @@ set -e
 timeout=300
 interval=10
 env_dir="/workspace/frappe-bench/env"
+url_prefix=${URL_PREFIX:-\/rqdash}
 
 while [ ! -d "$env_dir" ]; do
     if [ "$timeout" -le 0 ]; then
@@ -31,4 +32,4 @@ if [ -z "$REDIS_QUEUE_URL" ]; then
 fi
 
 # Launch RQ dashboard
-exec $env_dir/bin/python -m rq_dashboard --redis-url "$REDIS_QUEUE_URL" --port 9181 --bind 0.0.0.0
+exec $env_dir/bin/python -m rq_dashboard --url-prefix  "$url_prefix" --redis-url "$REDIS_QUEUE_URL" --port 9181 --bind 0.0.0.0
