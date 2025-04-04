@@ -249,7 +249,7 @@ class MigrationV0167(MigrationBase):
                 )
 
                 import secrets
-                import crypt
+                from passlib.apache import HtpasswdFile
 
                 username = 'admin'
                 password = secrets.token_urlsafe(16)
@@ -265,13 +265,12 @@ class MigrationV0167(MigrationBase):
                     bench_config_path.write_text(tomlkit.dumps(bench_config))
                     richprint.print("Added admin tools credentials to bench config")
 
-                salt = crypt.mksalt()
-                hashed = crypt.crypt(password, salt)
-
                 if not auth_file.parent.exists():
                     auth_file.parent.mkdir(exist_ok=True)
 
-                auth_file.write_text(f"{username}:{hashed}")
+                ht = HtpasswdFile(str(auth_file), new=True)
+                ht.set_password(username, password)
+                ht.save()
 
                 data = {
                     "mailpit_host": f"{get_container_name_prefix(bench.name)}__mailpit",

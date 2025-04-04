@@ -44,11 +44,10 @@ class AdminTools:
         self.generate_compose(db_host)
         richprint.print("Generating admin tools configuration: Done")
 
-    def generate_htpasswd(self) -> str:
-        """Generate htpasswd entry for basic auth"""
+    def _generate_credentials(self) -> tuple[str, str]:
+        """Generate or retrieve admin credentials"""
         import secrets
-        import crypt
-
+        
         # Use existing credentials from bench config or generate new ones
         username = self.bench.bench_config.admin_tools_username or "admin"
         password = self.bench.bench_config.admin_tools_password
@@ -60,22 +59,23 @@ class AdminTools:
             self.bench.bench_config.admin_tools_password = password
             self.bench.save_bench_config()
 
-        salt = crypt.mksalt()
-        hashed = crypt.crypt(password, salt)
-        return f"{username}:{hashed}"
+        return username, password
 
     def save_nginx_location_config(self):
         # Ensure http auth directory exists
         self.http_auth_path.mkdir(exist_ok=True)
 
         # Generate and save htpasswd file
+        from passlib.apache import HtpasswdFile
         auth_file = self.http_auth_path / f'{self.bench_name}-admin-tools.htpasswd'
 
         if not self.http_auth_path.exists():
             self.http_auth_path.mkdir(exist_ok=True)
 
-        htpasswd_content = self.generate_htpasswd()
-        auth_file.write_text(htpasswd_content)
+        username, password = self._generate_credentials()
+        ht = HtpasswdFile(str(auth_file), new=True)
+        ht.set_password(username, password)
+        ht.save()
 
         data = {
             "mailpit_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailpit",

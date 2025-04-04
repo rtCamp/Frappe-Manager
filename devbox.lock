@@ -1,6 +1,9 @@
 {
   "lockfile_version": "1",
   "packages": {
+    "github:NixOS/nixpkgs/nixpkgs-unstable": {
+      "resolved": "github:NixOS/nixpkgs/2bfc080955153be0be56724be6fa5477b4eefabb?lastModified=1743689281&narHash=sha256-y7Hg5lwWhEOgflEHRfzSH96BOt26LaYfrYWzZ%2BVoVdg%3D"
+    },
     "poetry@latest": {
       "last_modified": "2024-09-23T10:58:17Z",
       "plugin_version": "0.0.4",
@@ -68,7 +71,7 @@
     },
     "python@3.10": {
       "last_modified": "2024-09-12T02:28:40Z",
-      "plugin_version": "0.0.3",
+      "plugin_version": "0.0.4",
       "resolved": "github:NixOS/nixpkgs/111ed8812c10d7dc3017de46cbf509600c93f551#python310",
       "source": "devbox-search",
       "version": "3.10.15",

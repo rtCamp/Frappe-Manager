@@ -38,7 +38,7 @@ jobs:
         PYAPP_FULL_ISOLATION: 1
         PYAPP_PROJECT_NAME: fm
         PYAPP_EXEC_SPEC: frappe_manager.main:cli_entrypoint
-        PYAPP_PIP_EXTRA_ARGS: typer[all] requests psutil ruamel-yaml tomlkit certbot pydantic email-validator jinja2 certbot-dns-cloudflare ngrok
+        PYAPP_PIP_EXTRA_ARGS: typer[all] requests psutil ruamel-yaml tomlkit certbot pydantic email-validator jinja2 certbot-dns-cloudflare ngrok passlib
         PYAPP_DISTRIBUTION_EMBED: 1
       run: |
         poetry build
