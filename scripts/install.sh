@@ -36,6 +36,48 @@ cyan() { print_in_color "\e[36m" "$*"; }
 bold() { print_in_color "\e[1m" "$*"; }
 underlined() { print_in_color "\e[4m" "$*"; }
 
+show_help() {
+    cat << EOF
+Frappe Manager Installation Script
+
+USAGE:
+    As root: $(basename "$0") [username] [--dev] [--help]
+    As non-root: $(basename "$0") [--dev] [--help]
+
+DESCRIPTION:
+    Installs Frappe Manager (fm) and all required dependencies including Docker, 
+    Docker Compose, Python 3.10+, and Pip.
+
+ARGUMENTS:
+    username    Optional. Sets custom username when running as root (default: 'frappe')
+               Only valid when running as root user.
+
+OPTIONS:
+    --dev      Install development version from 'develop' branch
+    --help     Show this help message
+
+NOTES:
+    - For Ubuntu: You'll need to log out and log back in for Docker group changes to take effect
+    - For macOS: You'll need to complete Docker Desktop setup before using fm
+    - Creates log file 'fm-install-<timestamp>.log' in current directory
+
+EXAMPLES:
+    # Install stable version as root with custom username
+    $(basename "$0") myuser
+
+    # Install development version as root with custom username
+    $(basename "$0") myuser --dev
+    $(basename "$0") --dev myuser
+
+    # Install development version as non-root user
+    $(basename "$0") --dev
+
+    # Install stable version as non-root user
+    $(basename "$0")
+EOF
+    exit 0
+}
+
 info_blue(){
     echo -e $'\U0001F6A7' "$(blue "$*")"
 }
@@ -100,10 +142,21 @@ handle_root() {
     fi
 }
 
+install_fm_dev(){
+    info_blue "Installing frappe-manager from development branch..."
+    pip3 install --user --upgrade --break-system-packages git+https://github.com/rtCamp/Frappe-Manager.git@develop
+    info_green "$(bold 'fm' $(pip3 list | grep frappe-manager | awk '{print $2}')) (development) installed."
+}
+
 install_fm(){
-    info_blue "Installing frappe-manager..."
-    pip3 install --user --upgrade --break-system-packages frappe-manager
-    info_green "$(bold 'fm' $(pip3 list | grep frappe-manager | awk '{print $2}')) installed."
+    local dev=${1:-false}
+    if [ "$dev" = true ]; then
+        install_fm_dev
+    else
+        info_blue "Installing frappe-manager..."
+        pip3 install --user --upgrade --break-system-packages frappe-manager
+        info_green "$(bold 'fm' $(pip3 list | grep frappe-manager | awk '{print $2}')) installed."
+    fi
 }
 
 has_docker_compose(){
@@ -286,7 +339,7 @@ install_python_and_frappe_ubuntu() {
         install_pyenv_python
     fi
 
-    install_fm
+    install_fm "$DEVELOPMENT"
 }
 
 # Function to install Python and frappe-manager on macOS
@@ -312,7 +365,7 @@ install_python_and_frappe_macos() {
         install_pyenv_python
     fi
 
-    install_fm
+    install_fm "$DEVELOPMENT"
 }
 
 handle_shell(){
@@ -355,8 +408,24 @@ handle_shell(){
 }
 
 
-# Parse command line arguments
-USERNAME=${1:-frappe}
+# Initialize default values
+USERNAME="frappe"
+DEVELOPMENT=false
+
+# Parse arguments in any order
+for arg in "$@"; do
+    case "$arg" in
+        --help|-h)
+            show_help
+            ;;
+        --dev)
+            DEVELOPMENT=true
+            ;;
+        *)
+            USERNAME="$arg"
+            ;;
+    esac
+done
 
 # Detect OS and call the respective functions
 OS="$(uname)"
