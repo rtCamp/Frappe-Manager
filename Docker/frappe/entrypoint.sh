@@ -28,10 +28,11 @@ if [[ -n "${WORKER_NAME:-}" ]]; then
     SERVICE_NAME="${WORKER_NAME}"
 fi
 
-SOCK_DIR='/fm-sockets'
-SOCK_SERVICE_PATH="$SOCK_DIR/$SERVICE_NAME.sock"
+if [[ -n "${WORKER_NAME:-}" || -n "${SERVER_NAME:-}" ]]; then
+    SOCK_DIR='/fm-sockets'
+    SOCK_SERVICE_PATH="$SOCK_DIR/$SERVICE_NAME.sock"
 
-echo "Setting supervisord sock directory to $SOCK_SERVICE_PATH"
+    echo "Setting supervisord sock directory to $SOCK_SERVICE_PATH"
 
 mkdir -p $SOCK_DIR
 # mkdir -p /opt/user/conf.d $SOCK_DIR
@@ -39,8 +40,9 @@ chown "$USERID:$USERGROUP" $SOCK_DIR /opt/user /opt/user/conf.d
 
 rm -rf "$SOCK_SERVICE_PATH"
 
-sed -i "s/\opt\/user\/supervisor\.sock/fm-sockets\/${SERVICE_NAME}\.sock/g" /opt/user/supervisord.conf
-echo "supervisord configured $?"
+    sed -i "s/\opt\/user\/supervisor\.sock/fm-sockets\/${SERVICE_NAME}\.sock/g" /opt/user/supervisord.conf
+    echo "supervisord configured $?"
+fi
 
 if [ "$#" -gt 0 ]; then
     gosu "$USERID":"$USERGROUP" "/scripts/$@" &
