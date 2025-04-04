@@ -30,7 +30,7 @@ SOCK_SERVICE_PATH="$SOCK_DIR/$SERVICE_NAME.sock"
 echo "Setting supervisord sock directory to $SOCK_SERVICE_PATH"
 
 mkdir -p /opt/user/conf.d $SOCK_DIR
-chown "$USERID:$USERGROUP" $SOCK_DIR /opt/user/conf.d
+chown "$USERID:$USERGROUP" $SOCK_DIR /opt/user
 rm -rf "$SOCK_SERVICE_PATH"
 
 sed -i "s/\opt\/user\/supervisor\.sock/fm-sockets\/${SERVICE_NAME}\.sock/g" /opt/user/supervisord.conf
