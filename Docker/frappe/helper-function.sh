@@ -1,4 +1,50 @@
 #!/usr/bin/bash
+# Function: create_apps_txt
+# Description: Creates apps.txt file containing list of installed Frappe apps
+# Parameters: None
+# Returns:
+#   - Path to temporary file containing app names
+# Notes:
+#   - Lists apps from /workspace/frappe-bench/apps directory
+#   - Uses get_app_name to get proper app names from hooks.py
+#   - Creates apps.txt in sites directory
+#   - Returns path to temporary file for use by create_apps_json
+create_apps_txt() {
+    local apps_txt
+    local apps_list
+
+    apps_txt=$(mktemp)
+    apps_list=$(ls -1 apps || exit 0)
+
+    for app_name in $(echo "$apps_list"); do
+        get_app_name "$app_name"
+        echo "$APP_NAME" >> "$apps_txt"
+    done
+
+    cp "$apps_txt" sites/apps.txt
+    echo "$apps_txt"
+}
+
+# Function: create_apps_json
+# Description: Creates JSON array of installed apps and updates common site config
+# Parameters:
+#   - apps_txt: Path to temporary file containing app names
+# Returns: None
+# Notes:
+#   - Excludes 'frappe' from the apps list
+#   - Creates JSON array of remaining app names
+#   - Updates common_site_config.json with install_apps key
+create_apps_json() {
+    local apps_txt="$1"
+    local apps_json='[]'
+
+    for app_name in $(cat "$apps_txt" | grep -v 'frappe' || exit 0); do
+        apps_json=$(echo "$apps_json" | jq -rc --arg app_name "${app_name}" '.+ [$app_name]')
+    done
+
+    update_common_site_config install_apps "$apps_json" 'true'
+}
+
 
 # Function: chown directory and files
 # Parameters:
@@ -84,6 +130,32 @@ get_common_site_config() {
 # Parameters:
 #   - apps_lists: comma-separated list of apps to install
 #   - already_installed_apps: comma-separated list of apps already installed
+install_app() {
+    local app_name="$1"
+    local branch_name="$2"
+    local app_path="/workspace/frappe-bench/apps/${app_name}"
+
+    # Remove existing directory if it exists
+    if [ -d "$app_path" ]; then
+        echo "Removing existing app directory: $app_path"
+        rm -rf "$app_path"
+    fi
+
+    # Clone the repository
+    echo "Cloning $app_name from branch $branch_name"
+    if ! git clone --depth 1 "https://github.com/frappe/${app_name}" "$app_path" --branch "${branch_name:-develop}"; then
+        echo "Failed to clone $app_name"
+        return 1
+    fi
+
+    # Install dependencies using uv directly
+    echo "Installing dependencies for $app_name"
+    if ! /usr/local/bin/uv pip install --python /workspace/frappe-bench/env/bin/python -U -e "$app_path"; then
+        echo "Failed to install dependencies for $app_name"
+        return 1
+    fi
+}
+
 install_apps() {
     local apps_lists
     local already_installed_apps
@@ -122,16 +194,15 @@ install_apps() {
             if [[ "${ALREADY_PREBAKED}" -gt 0 ]]; then
                 echo "${app} already prebaked and installed."
                 echo "${app}" >> "$keep_prebaked_apps"
-                # apps_json=$(echo "$apps_json" | jq -rc --arg app_name "${app_name}" '.+ [$app_name]')
                 continue
             fi
 
             if [[ "${branch_name:-}" ]]; then
                 echo "Installing app $app_name -> $branch_name"
-                $BENCH_COMMAND get-app --overwrite --skip-assets --branch "${branch_name}" "${app_name}"
+                install_app "$app_name" "$branch_name"
             else
                 echo "Installing app $app_name"
-                $BENCH_COMMAND get-app --overwrite --skip-assets "${app_name}"
+                install_app "$app_name" "develop"
             fi
         done
     else
@@ -152,26 +223,19 @@ install_apps() {
         fi
     done
 
-    # create apps_txt
-    local apps_list
+    # Create apps.txt and apps.json
+    apps_txt=$(create_apps_txt)
+    create_apps_json "$apps_txt"
 
-    apps_txt=$(mktemp)
+    # Run bench build
+    echo "Install node deps"
+    bench setup requirements --node
 
-    apps_list=$(ls -1 apps || exit 0)
-
-    for app_name in $(echo "$apps_list"); do
-        get_app_name  "$app_name"
-        echo "$APP_NAME" >> "$apps_txt"
-    done
-
-    cp "$apps_txt" sites/apps.txt
-
-    # create apps_json
-    for app_name in $(cat "$apps_txt" | grep -v 'frappe' || exit 0); do
-        apps_json=$(echo "$apps_json" | jq -rc --arg app_name "${app_name}" '.+ [$app_name]')
-    done
-
-    update_common_site_config install_apps "$apps_json" 'true'
+    echo "Building apps"
+    if ! bench build --verbose; then
+        echo "Failed to build apps"
+        return 1
+    fi
 }
 
 

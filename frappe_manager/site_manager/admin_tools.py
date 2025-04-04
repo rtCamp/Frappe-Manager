@@ -31,7 +31,6 @@ class AdminTools:
 
     def generate_compose(self, db_host: str):
         self.compose_project.compose_file_manager.yml = self.compose_project.compose_file_manager.load_template()
-        self.compose_project.compose_file_manager.set_user('rqdash', self.bench.bench_config.userid, self.bench.bench_config.usergroup)
 
         self.compose_project.compose_file_manager.set_envs('adminer', {"ADMINER_DEFAULT_SERVER": db_host})
         self.compose_project.compose_file_manager.set_envs(
@@ -175,7 +174,7 @@ class AdminTools:
         richprint.print("Removed Mailpit as default mail server.")
 
     def wait_till_services_started(self, interval=2, timeout=30):
-        admin_tools_services = ['mailpit:8025', 'adminer:8080']
+        admin_tools_services = ['mailpit:8025', 'adminer:8080', 'rqdash:9181']
 
         for tool in admin_tools_services:
             running = False

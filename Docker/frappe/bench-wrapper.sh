@@ -38,10 +38,16 @@ elif [[ "$@" =~ ^stop[[:space:]]* ]]; then
     args="${@#stop}"
     stop_command $args
 elif [[ -z "$@" ]]; then
-    # Run bench without exec to allow show_fm_helper_commands afterwards
-    /opt/.pyenv/shims/bench "$@"
+
+# REFACTOR: Fix this
+#     # Run bench without exec to allow show_fm_helper_commands afterwards
+#     /opt/.pyenv/shims/bench "$@"
+#     show_fm_helper_commands
+# else
+#     # Use exec to pass signals directly to the bench command
+#     exec /opt/.pyenv/shims/bench "$@"
+    /usr/local/bin/bench "$@"
     show_fm_helper_commands
 else
-    # Use exec to pass signals directly to the bench command
-    exec /opt/.pyenv/shims/bench "$@"
+    /usr/local/bin/bench "$@"
 fi
