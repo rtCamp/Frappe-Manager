@@ -28,7 +28,7 @@ if [[ -n "${WORKER_NAME:-}" ]]; then
     SERVICE_NAME="${WORKER_NAME}"
 fi
 
-if [[ -n "${WORKER_NAME:-}" || -n "${SERVER_NAME:-}" ]]; then
+if [[ -n "${WORKER_NAME:-}" || -n "${SERVICE_NAME:-}" ]]; then
     SOCK_DIR='/fm-sockets'
     SOCK_SERVICE_PATH="$SOCK_DIR/$SERVICE_NAME.sock"
 
