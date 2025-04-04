@@ -63,7 +63,7 @@ zsh <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/sc
 #### Notes:
 - For Ubuntu: After installation, you'll need to log out and log back in for Docker group changes to take effect
 - For macOS: You'll need to complete Docker Desktop setup before using fm
-- The script creates a log file named `fm-install-<timestamp>.log` in the current directory
+- Creates log file in ~/.cache/fm/logs/install-<timestamp>.log
 
 #### Command Line Arguments:
 - `[username]`: Optional. Sets custom username when running as root (default: 'frappe')

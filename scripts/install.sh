@@ -1,6 +1,29 @@
 #!/bin/bash
 PS4='+\[\033[0;33m\](\[\033[0;36m\]${BASH_SOURCE##*/}:${LINENO}\[\033[0;33m\])\[\033[0m\] '
-LOGFILE="fm-install-$(date +"%Y%m%d_%H%M%S").log"
+
+# Function to setup log file with proper permissions
+setup_logfile() {
+    local cache_dir
+    if [ -n "$FM_INSTALL_AS_USER" ]; then
+        cache_dir="$HOME/.cache/fm"
+    else
+        cache_dir="/root/.cache/fm"
+    fi
+    
+    mkdir -p "$cache_dir/logs"
+    # Use fm-install as the consistent prefix
+    local logname="$cache_dir/logs/fm-install-$(date +"%Y%m%d_%H%M%S").log"
+    touch "$logname"
+    
+    if [ -n "$FM_INSTALL_AS_USER" ]; then
+        chown "$(id -u):$(id -g)" "$logname" 
+    fi
+    chmod 644 "$logname"
+    
+    echo "$logname"
+}
+
+LOGFILE=$(setup_logfile)
 
 exec {BASH_XTRACEFD}>>"$LOGFILE"
 set -ex
@@ -135,21 +158,21 @@ handle_root() {
 
         create_user "$username"
 
-        # Create a temporary script with a unique name
-        local script_path
-        script_path=$(run_sudo -u "$username" mktemp "/home/$username/fm-install.XXXXXX") || {
-            info_red "Failed to create temporary file"
-            exit 1
-        }
+        # Create cache directories with correct ownership from the start
+        local cache_dir="/home/$username/.cache/fm"
+        local logs_dir="$cache_dir/logs"
+        mkdir -p "$logs_dir"
+        chown -R "$username:$username" "$cache_dir"
+        
+        # Create unique script name with timestamp
+        local timestamp=$(date +"%Y%m%d_%H%M%S")
+        local script_name="fm-install-${timestamp}.sh"
+        local script_path="$logs_dir/$script_name"
+        
+        # Copy script directly to logs directory
         cp -f "$0" "$script_path"
-        chown "$username:$username" "$script_path"
+        chown -R "$username:$username" "$cache_dir"
         chmod +x "$script_path"
-
-        # Store the temp file path to ensure cleanup
-        local temp_files=("$script_path")
-
-        # Add cleanup for the temporary file
-        trap 'rm -f "${temp_files[@]}"' EXIT
 
         # Set up environment for non-interactive run
         export SUDO_ASKPASS="/bin/false" # Prevent graphical password prompts
@@ -165,8 +188,8 @@ handle_root() {
         echo "frappemanager" | FM_INSTALL_AS_USER=1 sudo -S -E -H -u "$username" \
             env HOME="/home/$username" \
             USER="$username" \
-            bash -c "FM_INSTALL_AS_USER=1 $script_path $flags"
-
+            bash -c "cd '$logs_dir' && FM_INSTALL_AS_USER=1 ./$script_name $flags"
+        
         exit $?
     fi
 }
