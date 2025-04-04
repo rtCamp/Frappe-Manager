@@ -29,7 +29,7 @@ jobs:
           path: /tmp/docker-images
           key: docker-images-${{ runner.os }}-${{ hashFiles('Docker/images-tag.json') }}
           restore-keys: |
-            docker-images-${{ runner.os }}-
+            docker-images-${{ runner.os }}-${{ hashFiles('Docker/images-tag.json') }}
 
       - name: Load cached Docker images
         if: steps.cache-docker-images.outputs.cache-hit == 'true'
@@ -71,13 +71,6 @@ jobs:
             docker save $(docker images -q) > /tmp/docker-images/images.tar
           fi
 
-      # Save Docker images before cleanup
-      - name: Save Docker images
-        if: always() && steps.docker-cache.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p /tmp/.buildx-cache
-          docker images  # Debug: show what images we have
-          docker save $(docker images -q) > /tmp/.buildx-cache/images.tar || true
 
       - name: cleanup
         if: always()
@@ -98,18 +91,21 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Cache Docker images
-        id: docker-cache
+        id: cache-docker-images
         uses: actions/cache@v3
         with:
-          path: /tmp/.buildx-cache
-          key: docker-${{ runner.os }}-${{ hashFiles('Docker/images-tag.json') }}
+          path: /tmp/docker-images
+          key: docker-images-${{ runner.os }}-${{ hashFiles('Docker/images-tag.json') }}
           restore-keys: |
-            docker-${{ runner.os }}-
+            docker-images-${{ runner.os }}-${{ hashFiles('Docker/images-tag.json') }}
 
       - name: Load cached Docker images
-        if: steps.docker-cache.outputs.cache-hit == 'true'
+        if: steps.cache-docker-images.outputs.cache-hit == 'true'
         run: |
-          docker load < /tmp/.buildx-cache/images.tar || true
+          mkdir -p /tmp/docker-images
+          if [ -f /tmp/docker-images/images.tar ]; then
+            docker load < /tmp/docker-images/images.tar
+          fi
 
       - uses: actions/setup-python@v5
         with:

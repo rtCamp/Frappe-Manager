@@ -42,7 +42,7 @@ jobs:
           path: /tmp/docker-images
           key: docker-images-${{ runner.os }}-${{ hashFiles('Docker/images-tag.json') }}
           restore-keys: |
-            docker-images-${{ runner.os }}-
+            docker-images-${{ runner.os }}-${{ hashFiles('Docker/images-tag.json') }}
 
       - name: Load cached Docker images
         if: steps.cache-docker-images.outputs.cache-hit == 'true'
