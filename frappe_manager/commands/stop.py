@@ -2,7 +2,7 @@ import typer
 from typing import Annotated, Optional
 from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.site_manager.SiteManager import BenchesManager
-from frappe_manager.site_manager.site import Bench
+from frappe_manager.site_manager.bench import Bench
 from frappe_manager.utils.callbacks import sites_autocompletion_callback, sitename_callback
 
 from frappe_manager.commands import app

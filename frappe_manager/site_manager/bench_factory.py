@@ -42,7 +42,7 @@ class BenchFactory:
         )
 
         # Import here to avoid circular imports
-        from frappe_manager.site_manager.site import Bench
+        from frappe_manager.site_manager.bench import Bench
 
         return Bench(
             bench_path,
@@ -158,7 +158,7 @@ class BenchFactory:
         bench_config = BenchConfig.import_from_toml(bench_config_path)
 
         # Import Bench class here to avoid circular imports
-        from frappe_manager.site_manager.site import Bench
+        from frappe_manager.site_manager.bench import Bench
 
         # Create bench parameters
         params: Dict[str, Any] = {
