@@ -2,7 +2,7 @@ import typer
 from typing import Annotated, Optional
 from frappe_manager import EnableDisableOptionsEnum
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES, LETSENCRYPT_PREFERRED_CHALLENGE
-from frappe_manager.site_manager.site import Bench
+from frappe_manager.site_manager.bench import Bench
 from frappe_manager.site_manager.site_exceptions import BenchNotRunning
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate

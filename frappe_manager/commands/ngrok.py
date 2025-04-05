@@ -1,6 +1,6 @@
 import typer
 from typing import Annotated, Optional
-from frappe_manager.site_manager.site import Bench
+from frappe_manager.site_manager.bench import Bench
 from frappe_manager.site_manager.site_exceptions import BenchNotRunning
 from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
 from frappe_manager.display_manager.DisplayManager import richprint

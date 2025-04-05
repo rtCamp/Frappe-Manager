@@ -5,7 +5,7 @@ from typing import List
 from pathlib import Path
 from rich.table import Table
 from frappe_manager.services_manager.services import ServicesManager
-from frappe_manager.site_manager.site import Bench
+from frappe_manager.site_manager.bench import Bench
 from frappe_manager.display_manager.DisplayManager import richprint
 
 

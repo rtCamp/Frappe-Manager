@@ -1,7 +1,7 @@
 import typer
 from typing import Annotated, List, Optional
 from frappe_manager import DEFAULT_EXTENSIONS
-from frappe_manager.site_manager.site import Bench
+from frappe_manager.site_manager.bench import Bench
 from frappe_manager.utils.callbacks import (
     sites_autocompletion_callback,
     sitename_callback,
