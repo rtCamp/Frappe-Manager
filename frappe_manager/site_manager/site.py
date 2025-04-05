@@ -123,6 +123,7 @@ class Bench:
 
         # ssl
         certificate_updated = self.update_certificate(self.bench_config.ssl, raise_error=False)
+
         if certificate_updated:
             richprint.print("Certificate Updated.")
 

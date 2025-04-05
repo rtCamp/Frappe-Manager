@@ -15,7 +15,7 @@ from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.SiteManager import BenchesManager
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
-from frappe_manager.site_manager.site import Bench
+from frappe_manager.site_manager.bench import Bench
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate

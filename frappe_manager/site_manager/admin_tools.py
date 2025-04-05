@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 from frappe_manager import CLI_DEFAULT_DELIMETER
 
 if TYPE_CHECKING:
-    from frappe_manager.site_manager.site import Bench
+    from frappe_manager.site_manager.bench import Bench
 
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject

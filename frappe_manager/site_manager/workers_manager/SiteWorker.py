@@ -9,7 +9,7 @@ from frappe_manager.utils.helpers import get_container_name_prefix, get_current_
 from frappe_manager.utils.site import is_default_worker
 
 if TYPE_CHECKING:
-    from frappe_manager.site_manager.site import Bench
+    from frappe_manager.site_manager.bench import Bench
 
 
 class BenchWorkers:

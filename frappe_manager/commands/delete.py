@@ -13,7 +13,7 @@ from frappe_manager.site_manager.SiteManager import BenchesManager
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
-from frappe_manager.site_manager.site import Bench
+from frappe_manager.site_manager.bench import Bench
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.utils.callbacks import (
     sites_autocompletion_callback,
