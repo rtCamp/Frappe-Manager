@@ -1120,7 +1120,7 @@ class Bench:
         try:
             self.remove_certificate()
         except Exception as e:
-            # self.logger.exception(e)
+            self.logger.exception(e)
             richprint.warning(str(e))
 
         self.remove_database_and_user()
