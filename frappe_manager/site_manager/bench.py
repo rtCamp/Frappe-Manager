@@ -109,7 +109,7 @@ class Bench:
         """Factory method for creating Bench instances"""
         return BenchFactory.create_bench(
             bench_name=bench_name,
-            services=services, 
+            services=services,
             benches_path=benches_path,
             bench_config_file_name=bench_config_file_name,
             workers_check=workers_check,
@@ -161,7 +161,7 @@ class Bench:
 
         Args:
             is_template_bench (bool): Whether this is a template bench.
-            
+
         Returns:
             None
         """
@@ -923,7 +923,7 @@ class Bench:
 
         Args:
             user: Username to be used in the container
-            extensions: List of VS Code extensions to install 
+            extensions: List of VS Code extensions to install
             workdir: Working directory path inside container
             debugger: Whether to setup debugging configuration
 
@@ -938,10 +938,10 @@ class Bench:
             self._setup_debugger_config(workdir)
 
         self._verify_vscode_installed()
-        
+
         container_name = self._get_frappe_container_name()
         vscode_cmd = self._build_vscode_command(container_name, workdir)
-        
+
         self._update_container_config(user, sorted(extensions))
         self._attach_to_container(vscode_cmd)
 
@@ -987,7 +987,7 @@ class Bench:
         labels = {'devcontainer.metadata': json.dumps(config_with_extensions)}
 
         previous_config = self._get_previous_container_config()
-        
+
         if self._config_needs_update(previous_config, extensions, user):
             self._apply_new_config(labels)
 
@@ -1017,7 +1017,7 @@ class Bench:
         """Setup debugger configuration if workdir is in workspace"""
         workdir = workdir.strip('/')
         if not workdir.startswith('workspace'):
-            richprint.warning("Debugger configuration is only supported for workspace directory") 
+            richprint.warning("Debugger configuration is only supported for workspace directory")
             return
 
         self._sync_vscode_config_files(workdir)
@@ -1339,7 +1339,7 @@ class Bench:
                 time.sleep(interval)
         else:
             raise BenchOperationException(
-                self.name, 
+                self.name,
                 message=f'Supervisor socket for {service} service not created after {timeout} seconds'
             )
 
