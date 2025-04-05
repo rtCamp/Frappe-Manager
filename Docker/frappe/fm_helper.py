@@ -31,7 +31,7 @@ def get_xml_connection(service_name):
         ),
     )
 
-def is_supervisord_running(service_name, interval: int = 2, timeout: int = 30):
+def is_supervisord_running(service_name, interval: int = 1, timeout: int = 5):
     """Check if supervisord is running and responding for the given service
     
     Args:
