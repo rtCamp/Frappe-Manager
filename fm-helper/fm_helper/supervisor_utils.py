@@ -1,4 +1,5 @@
 import os
+import sys
 import time
 from pathlib import Path
 from xmlrpc.client import Fault, ServerProxy, ProtocolError
@@ -94,10 +95,13 @@ def is_supervisord_running(service_name: str, interval: int = 1, timeout: int = 
 def get_service_names() -> List[str]:
     """Get a list of service names based on available socket files."""
     if not FM_SUPERVISOR_SOCKETS_DIR.is_dir():
-        # Only print warning if the directory itself is missing
+        # Print error if the directory is missing or not a directory
         if not FM_SUPERVISOR_SOCKETS_DIR.exists():
-             print(f"[yellow]Warning:[/yellow] Supervisor socket directory not found: {FM_SUPERVISOR_SOCKETS_DIR}")
+            print(f"[bold red]Error:[/bold red] Supervisor socket directory not found: {FM_SUPERVISOR_SOCKETS_DIR}", file=sys.stderr)
+        else:
+            print(f"[bold red]Error:[/bold red] Path exists but is not a directory: {FM_SUPERVISOR_SOCKETS_DIR}", file=sys.stderr)
         return []
+
     return sorted([
         file.stem # Use stem to get name without extension
         for file in FM_SUPERVISOR_SOCKETS_DIR.glob("*.sock")
