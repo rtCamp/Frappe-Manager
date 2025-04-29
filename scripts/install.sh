@@ -1,6 +1,8 @@
 #!/bin/bash
 PS4='+\[\033[0;33m\](\[\033[0;36m\]${BASH_SOURCE##*/}:${LINENO}\[\033[0;33m\])\[\033[0m\] '
 
+set -x
+
 # Function to setup log file with proper permissions
 setup_logfile() {
     local cache_dir
@@ -9,17 +11,17 @@ setup_logfile() {
     else
         cache_dir="/root/.cache/fm"
     fi
-    
+
     mkdir -p "$cache_dir/logs"
     # Use fm-install as the consistent prefix
     local logname="$cache_dir/logs/fm-install-$(date +"%Y%m%d_%H%M%S").log"
     touch "$logname"
-    
+
     if [ -n "$FM_INSTALL_AS_USER" ]; then
-        chown "$(id -u):$(id -g)" "$logname" 
+        chown "$(id -u):$(id -g)" "$logname"
     fi
     chmod 644 "$logname"
-    
+
     echo "$logname"
 }
 
@@ -65,7 +67,7 @@ info_red() {
 
 # Function to run sudo commands consistently
 run_sudo() {
-    echo "frappemanager" | sudo -S "$@"
+    echo "$PASSWORD" | sudo -S "$@"
 }
 
 # Cleanup function
@@ -85,21 +87,21 @@ show_help() {
 Frappe Manager Installation Script
 
 USAGE:
-    As root: $(basename "$0") [username] [--dev] [--force] [--help]
+    As root: $(basename "$0") [--username <name>] [--dev] [--force] [--help]
     As non-root: $(basename "$0") [--dev] [--force] [--help]
 
 DESCRIPTION:
     Installs Frappe Manager (fm) and all required dependencies including Docker,
     Docker Compose, Python 3.10+, and Pip.
 
-ARGUMENTS:
-    username    Optional. Sets custom username when running as root (default: 'frappe')
-               Only valid when running as root user.
-
 OPTIONS:
-    --dev      Install development version from 'develop' branch
-    --force    Force all installations and updates, ignoring existing versions
-    --help     Show this help message
+    --username <name>  Optional. Sets custom username when running as root (default: 'frappe').
+                       Only valid when running as the root user.
+    --pass <password>  Optional. Sets custom password when running as root (default: 'frappemanager').
+                       Only valid when running as the root user.
+    --dev              Install development version from 'develop' branch
+    --force            Force all installations and updates, ignoring existing versions
+    --help             Show this help message
 
 NOTES:
     - For Ubuntu: You'll need to log out and log back in for Docker group changes to take effect
@@ -107,12 +109,14 @@ NOTES:
     - Creates log file 'fm-install-<timestamp>.log' in current directory
 
 EXAMPLES:
-    # Install stable version as root with custom username
-    $(basename "$0") myuser
+    # Install stable version as root with custom username 'myuser'
+    $(basename "$0") --username myuser
 
-    # Install development version as root with custom username
-    $(basename "$0") myuser --dev
-    $(basename "$0") --dev myuser
+    # Install development version as root with default username 'frappe'
+    $(basename "$0") --dev
+
+    # Install development version as root with custom username 'myuser'
+    $(basename "$0") --username myuser --dev
 
     # Install development version as non-root user
     $(basename "$0") --dev
@@ -125,6 +129,7 @@ EOF
 
 create_user() {
     local username=${1:-frappe}
+    local password=${2:-frappemanager}
 
     # Check if user already exists
     if id "$username" >/dev/null 2>&1; then
@@ -136,10 +141,8 @@ create_user() {
     run_sudo useradd -m -s /bin/bash "$username"
     run_sudo usermod -aG sudo "$username"
 
-    # Set a random password
-    local password='frappemanager'
-    #local password=$(openssl rand -base64 12)
-    echo "$username:$password" | run_sudo chpasswd
+    # Handle chpasswd separately from run_sudo to properly pipe both passwords
+    echo "$PASSWORD" | sudo -S sh -c "echo '$username:$password' | chpasswd"
 
     info_green "Created user $username with password: $password"
     info_yellow "Please change this password after installation!"
@@ -156,19 +159,19 @@ handle_root() {
         local username=${1:-frappe}
         info_blue "Running as root, creating user $username..."
 
-        create_user "$username"
+        create_user "$username" "$PASSWORD"
 
         # Create cache directories with correct ownership from the start
         local cache_dir="/home/$username/.cache/fm"
         local logs_dir="$cache_dir/logs"
         mkdir -p "$logs_dir"
         chown -R "$username:$username" "$cache_dir"
-        
+
         # Create unique script name with timestamp
         local timestamp=$(date +"%Y%m%d_%H%M%S")
         local script_name="fm-install-${timestamp}.sh"
         local script_path="$logs_dir/$script_name"
-        
+
         # Copy script directly to logs directory
         cp -f "$0" "$script_path"
         chown -R "$username:$username" "$cache_dir"
@@ -189,7 +192,7 @@ handle_root() {
             env HOME="/home/$username" \
             USER="$username" \
             bash -c "cd '$logs_dir' && FM_INSTALL_AS_USER=1 ./$script_name $flags"
-        
+
         exit $?
     fi
 }
@@ -533,30 +536,74 @@ handle_shell() {
 
 # Initialize default values
 USERNAME="frappe"
+PASSWORD="frappemanager"
 DEVELOPMENT=false
 FORCE=false
 
-# Parse arguments in any order
-for arg in "$@"; do
-    case "$arg" in
-    --help | -h)
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    key="$1"
+    case $key in
+        --help|-h)
         show_help
         ;;
-    --dev)
+        --dev)
         DEVELOPMENT=true
+        shift # past argument
         ;;
-    --force | -f)
+        --force|-f)
         FORCE=true
+        shift # past argument
         ;;
-    *)
-        USERNAME="$arg"
+        --username)
+        if [[ -z "$2" || "$2" == --* ]]; then
+            info_red "Error: --username option requires a value."
+            exit 1
+        fi
+        USERNAME="$2"
+        shift # past argument
+        shift # past value
+        ;;
+        --pass)
+        if [[ -z "$2" || "$2" == --* ]]; then
+            info_red "Error: --pass option requires a value."
+            exit 1
+        fi
+        PASSWORD="$2"
+        shift # past argument
+        shift # past value
+        ;;
+        *)    # unknown option or positional argument (handle potential errors or ignore)
+        # Check if it looks like an old positional username argument when run as root
+        if [ "$(id -u)" -eq 0 ] && [ -z "$SUDO_USER" ] && [[ ! "$key" == --* ]]; then
+             info_yellow "Warning: Positional username argument '$key' is deprecated. Use --username '$key' instead."
+             USERNAME="$key"
+             shift # past argument
+        else
+             info_red "Unknown option: $1"
+             # show_help # Uncomment to show help on unknown option
+             exit 1
+        fi
         ;;
     esac
 done
 
+# Check if running as non-root and --username was provided (it's only valid for root)
+if { [ "$(id -u)" -ne 0 ] || [ -n "$SUDO_USER" ]; }; then
+    if [ "$USERNAME" != "frappe" ]; then
+        info_red "Error: --username option is only valid when running as the root user."
+        exit 1
+    fi
+    if [ "$PASSWORD" != "frappemanager" ]; then
+        info_red "Error: --pass option is only valid when running as the root user."
+        exit 1
+    fi
+fi
+
+
 # Detect OS and call the respective functions
 OS="$(uname)"
-handle_root "$USERNAME"
+handle_root "$USERNAME" # Pass the potentially updated USERNAME
 if [ "$OS" == "Darwin" ]; then
     install_docker_macos
     install_python_and_frappe_macos

@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fm-helper"
+version = "0.2.0" # Increment version
+authors = [
+  { name="Frappe Manager Team", email="developers@frappe.io" }, # Adjust as needed
+]
+description = "A CLI tool to interact with supervisord instances managed by Frappe Manager."
+readme = "README.md"
+license = { file="LICENSE" } # Assuming you'll add a LICENSE file
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License", # Confirm license
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Systems Administration",
+    "Topic :: Utilities",
+]
+# Dependencies required to run the tool
+dependencies = [
+    # typer[all] includes shellingham for completions, colorama, etc.
+    "typer[all]>=0.9.0,<1.0.0",
+    # Rich for console output
+    "rich>=13.0.0,<14.0.0",
+    # Supervisor client library (relies on xmlrpc.client from stdlib)
+    # Version 4.x is widely used. Check compatibility if needed.
+    "supervisor>=4.2.0,<5.0.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/rtCamp/Frappe-Manager" # Main project URL
+"Repository" = "https://github.com/rtCamp/Frappe-Manager"
+"Bug Tracker" = "https://github.com/rtCamp/Frappe-Manager/issues"
+
+# Define the command-line script entry point
+[project.scripts]
+fm-helper = "fm_helper.cli:main"
+fm-wait-jobs = "fm_helper.workers:main"
+
+# Optional: Configure linters/formatters if you use them (e.g., ruff, black)
+# [tool.ruff]
+# ...
+# [tool.black]
+# ...
+
+[tool.setuptools.packages.find]
+# Find packages automatically in the current directory (where pyproject.toml is)
+# This will find the 'fm_helper' directory.
+where = ["."]
+include = ["fm_helper*"]
+exclude = ["tests*"] # Optional: exclude tests directory
+
+[tool.setuptools.package-data]
+# If you had non-code files inside your package to include, list them here
+# Example: "fm_helper" = ["*.template"]
+"fm_helper" = ["py.typed"] # Include marker for type checkers
+
+[tool.setuptools]
+# Include a marker file for type checkers like mypy
+# See: https://peps.python.org/pep-0561/
+zip-safe = false # Recommended for projects with package data or namespace packages
+py-modules = [] # Explicitly state no top-level modules if 'find:' is used for packages
