@@ -6,9 +6,6 @@ from rich import print
 
 from ..cli import (
     ServiceNameEnumFactory,
-    ServiceNameArgument,
-    ProcessNameOption,
-    WaitOption,
     execute_parallel_command,
     get_service_names_for_completion,
     _cached_service_names,
@@ -16,19 +13,36 @@ from ..cli import (
 )
 from ..supervisor_utils import start_service as util_start_service
 
-command_app = typer.Typer(
-    help="🟢 [green]Start[/green] managed services or specific processes within them.",
-    no_args_is_help=True,
-)
 command_name = "start"
 
 ServiceNamesEnum = ServiceNameEnumFactory()
 
-@command_app.callback(invoke_without_command=True)
-def start_cmd(
-    service_names: Annotated[Optional[List[ServiceNamesEnum]], ServiceNameArgument],
-    process_name: Annotated[Optional[List[str]], ProcessNameOption],
-    wait: Annotated[bool, WaitOption],
+def command(
+    ctx: typer.Context,
+    service_names: Annotated[
+        Optional[List[ServiceNamesEnum]], 
+        typer.Argument(
+            help="Name(s) of the service(s) to target. If omitted, targets ALL running services.",
+            autocompletion=get_service_names_for_completion,
+            show_default=False,
+        )
+    ] = None,
+    process_name: Annotated[
+        Optional[List[str]], 
+        typer.Option(
+            "--process",
+            "-p",
+            help="Target only specific process(es) within the selected service(s). Use multiple times for multiple processes (e.g., -p worker_short -p worker_long).",
+            show_default=False,
+        )
+    ] = None,
+    wait: Annotated[
+        bool,
+        typer.Option(
+            "--wait/--no-wait",
+            help="Wait for supervisor start/stop operations to complete before returning.",
+        )
+    ] = True, # Keep existing defaults for options
 ):
     """Start services or specific processes."""
     if not _cached_service_names:

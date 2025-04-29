@@ -6,14 +6,6 @@ from rich import print
 
 from ..cli import (
     ServiceNameEnumFactory,
-    ServiceNameArgument,
-    ProcessNameOption,
-    WaitOption,
-    WaitJobsOption,
-    SiteNameOption,
-    WaitJobsTimeoutOption,
-    WaitJobsPollOption,
-    WaitJobsQueueOption,
     _run_wait_jobs,
     execute_parallel_command,
     get_service_names_for_completion,
@@ -22,24 +14,70 @@ from ..cli import (
 )
 from ..supervisor_utils import stop_service as util_stop_service
 
-command_app = typer.Typer(
-    help="🛑 [red]Stop[/red] managed services or specific processes within them. Can optionally wait for active background jobs.",
-    no_args_is_help=True,
-)
 command_name = "stop"
 
 ServiceNamesEnum = ServiceNameEnumFactory()
 
-@command_app.callback(invoke_without_command=True)
-def stop_cmd(
-    service_names: Annotated[Optional[List[ServiceNamesEnum]], ServiceNameArgument],
-    process_name: Annotated[Optional[List[str]], ProcessNameOption],
-    wait: Annotated[bool, WaitOption],
-    wait_jobs: Annotated[bool, WaitJobsOption],
-    site_name: Annotated[Optional[str], SiteNameOption],
-    wait_jobs_timeout: Annotated[int, WaitJobsTimeoutOption],
-    wait_jobs_poll: Annotated[int, WaitJobsPollOption],
-    wait_jobs_queue: Annotated[Optional[List[str]], WaitJobsQueueOption],
+def command(
+    ctx: typer.Context,
+    service_names: Annotated[
+        Optional[List[ServiceNamesEnum]],
+        typer.Argument(
+            help="Name(s) of the service(s) to target. If omitted, targets ALL running services.",
+            autocompletion=get_service_names_for_completion,
+            show_default=False,
+        )
+    ] = None,
+    process_name: Annotated[
+        Optional[List[str]],
+        typer.Option(
+            "--process", "-p",
+            help="Target only specific process(es) within the selected service(s). Use multiple times for multiple processes (e.g., -p worker_short -p worker_long).",
+            show_default=False,
+        )
+    ] = None,
+    wait: Annotated[
+        bool,
+        typer.Option(
+            "--wait/--no-wait",
+            help="Wait for supervisor start/stop operations to complete before returning.",
+        )
+    ] = True,
+    wait_jobs: Annotated[
+        bool,
+        typer.Option(
+            "--wait-jobs",
+            help="Wait for active Frappe background jobs ('started' state) to finish before completing stop/restart.",
+        )
+    ] = False,
+    site_name: Annotated[
+        Optional[str],
+        typer.Option(
+            "--site-name",
+            help="Frappe site name (required if --wait-jobs is used).",
+        )
+    ] = None,
+    wait_jobs_timeout: Annotated[
+        int,
+        typer.Option(
+            "--wait-jobs-timeout",
+            help="Timeout (seconds) for waiting for jobs (default: 300).",
+        )
+    ] = 300,
+    wait_jobs_poll: Annotated[
+        int,
+        typer.Option(
+            "--wait-jobs-poll",
+            help="Polling interval (seconds) for checking jobs (default: 5).",
+        )
+    ] = 5,
+    wait_jobs_queue: Annotated[
+        Optional[List[str]],
+        typer.Option(
+            "--queue", "-q",
+            help="Specific job queue(s) to monitor when using --wait-jobs. Use multiple times (e.g., -q short -q long). Monitors all if not specified.",
+        )
+    ] = None,
 ):
     """Stop services and optionally wait for jobs to complete."""
     if not _cached_service_names:

@@ -9,7 +9,12 @@ import typer
 from rich import print
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.live import Live
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from rich.panel import Panel
+from contextlib import nullcontext # Ensure nullcontext is imported
+# Imports needed for command registration
+import pkgutil
+import importlib
 
 # Use relative imports within the package
 try:
@@ -71,39 +76,44 @@ def execute_parallel_command(
     results = {}
     futures = {}
 
-    progress_context = Progress(
-            SpinnerColumn(),
-            TextColumn("[progress.description]{task.description}"),
-            transient=True, # Hide progress bar when done
-        ) if show_progress else None
+    # Define the context manager for progress, or a dummy one using nullcontext
+    progress_manager = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        transient=True,
+    ) if show_progress else nullcontext()
 
     try:
-        with (progress_context or open(os.devnull, 'w')) as progress: # Use dummy context if no progress
-            if progress:
-                task_id = progress.add_task(f"{action_verb.capitalize()} services...", total=len(services))
+        # Use both context managers: the progress manager and the thread pool
+        with progress_manager as progress, ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="fm_helper_worker") as executor:
+            # Add task ONLY if progress is being shown (progress will be a Progress instance)
+            task_id = None # Initialize task_id
+            if show_progress and progress: # Check if progress is a valid Progress object
+                 task_id = progress.add_task(f"{action_verb.capitalize()} services...", total=len(services))
 
-            with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="fm_helper_worker") as executor:
-                # Submit tasks
-                for service in services:
-                    future = executor.submit(command_func, service, **kwargs)
-                    futures[future] = service
+            # Submit tasks
+            for service in services:
+                future = executor.submit(command_func, service, **kwargs)
+                futures[future] = service
 
-                # Process completed tasks as they finish
-                for future in as_completed(futures):
-                    service = futures[future]
-                    try:
-                        result = future.result()
-                        results[service] = result # Store result (e.g., Tree for status, bool for stop/restart)
-                    except Exception as e:
-                        # Log error immediately
-                        print(f"[bold red]Error {action_verb} {service}:[/bold red] {e}")
-                        results[service] = None # Indicate failure
-                    finally:
-                         if progress:
-                            progress.update(task_id, advance=1)
+            # Process completed tasks
+            for future in as_completed(futures):
+                service = futures[future]
+                try:
+                    result = future.result()
+                    results[service] = result
+                except Exception as e:
+                    print(f"[bold red]Error {action_verb} {service}:[/bold red] {e}")
+                    results[service] = None
+                    raise e # TODO debug
+                finally:
+                    # Update progress ONLY if show_progress is True and task_id is valid
+                    if show_progress and task_id is not None and progress: # Check progress again
+                        progress.update(task_id, advance=1)
 
     except Exception as e:
-         print(f"[bold red]An unexpected error occurred during parallel execution:[/bold red] {e}")
+        print(f"[bold red]An unexpected error occurred during parallel execution:[/bold red] {e}")
+        raise e # TODO debug
     finally:
         # Ensure progress bar stops even if interrupted
         # This might not be strictly necessary with transient=True and context manager
@@ -154,56 +164,6 @@ app = typer.Typer(
     Uses supervisord socket files typically located in: {FM_SUPERVISOR_SOCKETS_DIR}
     (controlled by the SUPERVISOR_SOCKET_DIR environment variable).
     """
-)
-
-# --- Common Arguments & Options ---
-
-ServiceNameArgument = typer.Argument(
-    None, # Default to None, meaning "all services" if not provided
-    help="Name(s) of the service(s) to target. If omitted, targets ALL running services.",
-    autocompletion=get_service_names_for_completion,
-    show_default=False, # Don't show default=None
-)
-
-ProcessNameOption = typer.Option(
-    None, # Default to None, meaning "all processes"
-    "--process",
-    "-p",
-    help="Target only specific process(es) within the selected service(s). Use multiple times for multiple processes (e.g., -p worker_short -p worker_long).",
-    show_default=False,
-)
-
-WaitOption = typer.Option(
-    True, # Default to waiting
-    "--wait/--no-wait",
-    help="Wait for supervisor start/stop operations to complete before returning.",
-)
-
-# Options specifically for --wait-jobs
-WaitJobsOption = typer.Option(
-    False,
-    "--wait-jobs",
-    help="Wait for active Frappe background jobs ('started' state) to finish before completing stop/restart.",
-)
-SiteNameOption = typer.Option(
-    None,
-    "--site-name",
-    help="Frappe site name (required if --wait-jobs is used).",
-)
-WaitJobsTimeoutOption = typer.Option(
-    300,
-    "--wait-jobs-timeout",
-    help="Timeout (seconds) for waiting for jobs (default: 300).",
-)
-WaitJobsPollOption = typer.Option(
-    5,
-    "--wait-jobs-poll",
-    help="Polling interval (seconds) for checking jobs (default: 5).",
-)
-WaitJobsQueueOption = typer.Option(
-    None,
-    "--queue", "-q",
-    help="Specific job queue(s) to monitor when using --wait-jobs. Use multiple times (e.g., -q short -q long). Monitors all if not specified.",
 )
 
 # --- Helper for Job Waiting ---
@@ -277,6 +237,45 @@ def _run_wait_jobs(
                  print(f"[dim]- {line}[/dim]")
         return False # Indicate error
 
+# --- Command Discovery and Registration ---
+import pkgutil
+import importlib
+from . import commands as commands_package # Import the commands package
+
+def register_commands():
+    """Discovers and registers command functions from the 'commands' directory."""
+    package_path = commands_package.__path__
+    prefix = commands_package.__name__ + "."
+
+    for _, name, ispkg in pkgutil.iter_modules(package_path, prefix):
+        if not ispkg: # Only process modules, not subpackages
+            try:
+                module = importlib.import_module(name)
+                # Look for exported 'command' function and 'command_name'
+                if hasattr(module, "command") and hasattr(module, "command_name"):
+                    cmd_func = getattr(module, "command")
+                    cmd_name = getattr(module, "command_name")
+                    
+                    # Safeguard: Ensure cmd_name is not None and is a proper string
+                    if cmd_name is None:
+                        print(f"[bold red]Error:[/bold red] Command name defined in module '{name}' is None. Skipping registration.")
+                        continue
+                    
+                    if callable(cmd_func) and isinstance(cmd_name, str):
+                        if not cmd_name.strip():  # Check for empty or whitespace-only strings
+                            print(f"[bold red]Error:[/bold red] Command name defined in module '{name}' is empty. Skipping registration.")
+                            continue
+                        
+                        # Register the function directly as a command, explicitly set no_args_is_help=False
+                        # This allows commands to run without arguments when they have optional args
+                        app.command(name=cmd_name, no_args_is_help=False)(cmd_func)
+                        # print(f"Registered command: {cmd_name}") # Optional debug print
+                    else:
+                        print(f"[yellow]Warning:[/yellow] Skipping module '{name}': 'command' not callable or 'command_name' not a string.")
+                else:
+                    print(f"[yellow]Warning:[/yellow] Skipping module '{name}': Missing 'command' function or 'command_name'.")
+            except Exception as e:
+                print(f"[bold red]Error importing command module '{name}':[/bold red] {e}")
 
 # --- Main Execution Guard ---
 

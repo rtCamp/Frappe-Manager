@@ -105,15 +105,13 @@ def main(site: str, queue: Optional[List[str]], timeout: int, poll_interval: int
     finally:
         if frappe.local.db:
             frappe.db.close()
-        if frappe.local.conf and frappe.local.conf.get('redis_cache'):
-             # Attempt to close redis connection if exists
-             # Attempt to close redis connection if exists (best effort)
-             try:
-                 if frappe.local.conf and frappe.local.conf.get('redis_cache'):
-                     from frappe.utils.redis_wrapper import RedisWrapper
-                     RedisWrapper.close_all()
-             except Exception:
-                 pass # Ignore errors during cleanup
+        # Attempt to close redis connection if exists (best effort)
+        try:
+            if frappe.local.conf and frappe.local.conf.get('redis_cache'):
+                from frappe.utils.redis_wrapper import RedisWrapper
+                RedisWrapper.close_all()
+        except Exception:
+            pass # Ignore errors during cleanup
         # frappe.destroy() # Avoid destroy for cleaner exit
 
         # Output final result as JSON to stdout

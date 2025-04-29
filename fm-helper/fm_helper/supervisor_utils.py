@@ -8,6 +8,41 @@ from typing import List, Optional, Dict, Any
 from rich import print
 from rich.tree import Tree
 from rich.table import Table
+import socket # For socket.error
+
+# --- Custom Exceptions ---
+
+class SupervisorError(Exception):
+    """Base exception for fm-helper supervisor interactions."""
+    def __init__(self, message, service_name=None, process_name=None, original_exception=None):
+        self.service_name = service_name
+        self.process_name = process_name
+        self.original_exception = original_exception
+        detail = f"Service: {service_name}" if service_name else ""
+        if process_name:
+            detail += f", Process: {process_name}"
+        full_message = f"{message} ({detail})" if detail else message
+        super().__init__(full_message)
+
+class SupervisorConnectionError(SupervisorError):
+    """Raised when connection to supervisord fails."""
+    pass
+
+class ProcessNotFoundError(SupervisorError):
+    """Raised when a process name is not found by supervisord."""
+    pass
+
+class ProcessNotRunningError(SupervisorError):
+    """Raised when trying to act on a process that isn't running."""
+    pass
+
+class ProcessAlreadyStartedError(SupervisorError):
+    """Raised when trying to start an already started process."""
+    pass
+
+class SupervisorOperationFailedError(SupervisorError):
+    """Raised for general operational failures reported by supervisord."""
+    pass
 
 # Import supervisor safely, providing guidance if not installed
 try:
@@ -172,6 +207,7 @@ def execute_supervisor_command(
         return None
 
     conn = get_xml_connection(service_name)
+
     if not conn:
         print(f"[red]Error:[/red] Could not establish connection to [b magenta]{service_name}[/b magenta].")
         return None
@@ -196,14 +232,19 @@ def execute_supervisor_command(
             else:
                 # Stop all processes
                 results = supervisor_api.stopAllProcesses(wait)
-                stopped_ok = all(info['statename'] == 'STOPPED' for info in results)
+
+                print(results)
+
+                # More robust checking of process states, handling missing keys
+                stopped_ok = all(info.get('statename', '').upper() == 'STOPPED' for info in results)
+
                 if stopped_ok:
                     print(f"Stopped all processes in [b magenta]{service_name}[/b magenta]")
                 else:
                     print(f"[yellow]Warning:[/yellow] Not all processes stopped successfully in [b magenta]{service_name}[/b magenta]. Check status.")
                 return stopped_ok
 
-        elif action == "start": # Added start action
+        elif action == "start":
              if process_names:
                 results = {}
                 for process in process_names:
@@ -216,7 +257,8 @@ def execute_supervisor_command(
                 return all(results.values())
              else:
                 results = supervisor_api.startAllProcesses(wait)
-                started_ok = all(info['statename'] in ['RUNNING', 'STARTING'] for info in results) # Consider STARTING ok
+                # More robust checking of process states, handling missing keys
+                started_ok = all(info.get('statename', '').upper() in ['RUNNING', 'STARTING'] for info in results)
                 if started_ok:
                     print(f"Started all processes in [b magenta]{service_name}[/b magenta]")
                 else:
@@ -244,8 +286,10 @@ def execute_supervisor_command(
 
             # Graceful restart (stop all, then start all)
             print(f"[b blue]{service_name}[/b blue] - Stopping all processes...")
+
             # Use internal call to stop, respecting 'wait'
             stop_success = execute_supervisor_command(service_name, "stop", wait=wait)
+
             if stop_success:
                 print(f"[b blue]{service_name}[/b blue] - Starting all processes...")
                 # Use internal call to start, respecting 'wait'
@@ -259,7 +303,6 @@ def execute_supervisor_command(
                 print(f"[red]Error:[/red] Failed to stop processes during graceful restart of [b magenta]{service_name}[/b magenta]. Aborting start.")
                 return False
 
-
         elif action == "info":
             return supervisor_api.getAllProcessInfo()
 
@@ -270,7 +313,8 @@ def execute_supervisor_command(
     except ConnectionRefusedError:
          print(f"[red]Error:[/red] Connection refused by {service_name} during '{action}'. Is supervisord running?")
     except Exception as e:
-        print(f"[red]Error:[/red] Unexpected error during '{action}' on {service_name}: {e}")
+        raise e
+        print(f"[red]Error:[/red] UUnexpected error during '{action}' on {service_name}: {e}")
 
     return None # Indicate failure or no return value expected
 
