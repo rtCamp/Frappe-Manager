@@ -1,8 +1,22 @@
 import time
 from typing import Optional, List, Any, Dict
 from xmlrpc.client import Fault, ProtocolError
+from enum import IntEnum
 
 from rich import print
+
+# Define Supervisor Process States Constants
+class ProcessStates(IntEnum):
+    STOPPED = 0
+    STARTING = 10
+    RUNNING = 20
+    BACKOFF = 30
+    STOPPING = 40
+    EXITED = 100
+    FATAL = 200
+    UNKNOWN = 1000
+
+STOPPED_STATES = (ProcessStates.STOPPED, ProcessStates.EXITED, ProcessStates.FATAL)
 from .exceptions import (
     SupervisorError,
     SupervisorConnectionError,
@@ -52,25 +66,149 @@ def _get_validated_supervisor_api(service_name: str):
 
 
 # --- Helper: Stop Action ---
-def _handle_stop(supervisor_api, service_name: str, process_names: Optional[List[str]], wait: bool) -> bool:
-    """Handle the 'stop' action."""
+def _handle_stop(
+    supervisor_api,
+    service_name: str,
+    process_names: Optional[List[str]],
+    wait: bool,
+    force_kill_timeout: Optional[int] = None
+) -> bool:
+    """Handle the 'stop' action, with optional force kill logic."""
     action = "stop"
-    try:
-        if process_names:
+
+    # --- Case 1: Stop specific processes ---
+    if process_names:
+        results = {}
+        for process in process_names:
+            process_stopped = False
+            try:
+                print(f"Attempting to stop process [b green]{process}[/b green] in [b magenta]{service_name}[/b magenta]...")
+                # Use wait=False if force_kill_timeout is active, otherwise use provided wait
+                effective_wait = wait and not force_kill_timeout
+                supervisor_api.stopProcess(process, effective_wait)
+
+                if force_kill_timeout is not None and force_kill_timeout > 0:
+                    # Force kill logic for individual process
+                    print(f"  Waiting up to {force_kill_timeout}s for graceful stop...")
+                    start_time = time.monotonic()
+                    while time.monotonic() - start_time < force_kill_timeout:
+                        info = supervisor_api.getProcessInfo(process)
+                        if info['state'] in STOPPED_STATES:
+                            print(f"  Process [b green]{process}[/b green] stopped gracefully.")
+                            process_stopped = True
+                            break
+                        time.sleep(0.5)
+
+                    if not process_stopped:
+                        print(f"  [yellow]Timeout reached.[/yellow] Process [b green]{process}[/b green] still running. Sending SIGKILL...")
+                        try:
+                            supervisor_api.signalProcess(process, 'KILL')
+                            time.sleep(1)
+                            info = supervisor_api.getProcessInfo(process)
+                            if info['state'] in STOPPED_STATES:
+                                print(f"  Process [b green]{process}[/b green] killed successfully.")
+                                process_stopped = True
+                            else:
+                                print(f"  [red]Error:[/red] Failed to kill process [b green]{process}[/b green]. Final state: {info['statename']}")
+                                process_stopped = False
+                        except Fault as kill_fault:
+                            if "ALREADY_DEAD" in kill_fault.faultString or "NOT_RUNNING" in kill_fault.faultString:
+                                print(f"  Process [b green]{process}[/b green] was already stopped before SIGKILL.")
+                                process_stopped = True
+                            else:
+                                print(f"  [red]Error sending SIGKILL to {process}:[/red] {kill_fault.faultString}")
+                                _raise_exception_from_fault(kill_fault, service_name, "signal", process)
+                                process_stopped = False
+
+                elif effective_wait:
+                    process_stopped = True
+                    print(f"Stopped process [b green]{process}[/b green] in [b magenta]{service_name}[/b magenta] (waited).")
+                else:
+                    process_stopped = True
+                    print(f"Stop signal sent to process [b green]{process}[/b green] in [b magenta]{service_name}[/b magenta] (no wait).")
+
+                results[process] = process_stopped
+
+            except Fault as e:
+                if "NOT_RUNNING" in e.faultString:
+                    print(f"Process [b green]{process}[/b green] was already stopped.")
+                    results[process] = True
+                else:
+                    _raise_exception_from_fault(e, service_name, action, process)
+                    results[process] = False
+        return all(results.values())
+
+    # --- Case 2: Stop all processes (process_names is None) ---
+    else:
+        print(f"Attempting to stop all processes in [b magenta]{service_name}[/b magenta]...")
+        try:
+            # If no force kill, just use stopAllProcesses with the specified wait
+            if force_kill_timeout is None or force_kill_timeout <= 0:
+                supervisor_api.stopAllProcesses(wait)
+                print(f"Stopped all processes in [b magenta]{service_name}[/b magenta] {'(waited)' if wait else '(no wait)'}.")
+                return True
+
+            # --- Force kill logic for 'stop all' ---
+            print(f"  Initiating stop for all processes (no wait)...")
+            supervisor_api.stopAllProcesses(wait=False)
+
+            print(f"  Waiting up to {force_kill_timeout}s for graceful stop of all processes...")
+            start_time = time.monotonic()
+            all_stopped_gracefully = False
+            target_processes_info = []
+
+            while time.monotonic() - start_time < force_kill_timeout:
+                target_processes_info = supervisor_api.getAllProcessInfo()
+                if not target_processes_info:
+                    print("[yellow]Warning:[/yellow] No process info found after initiating stop.")
+                    return True
+
+                if all(info['state'] in STOPPED_STATES for info in target_processes_info):
+                    print(f"  All processes stopped gracefully.")
+                    all_stopped_gracefully = True
+                    break
+                time.sleep(0.5)
+
+            if all_stopped_gracefully:
+                return True
+
+            # Timeout reached, identify running processes and kill them
+            print(f"  [yellow]Timeout reached.[/yellow] Checking for running processes to kill...")
             results = {}
-            for process in process_names:
-                # stopProcess returns True on success, raises Fault on failure
-                supervisor_api.stopProcess(process, wait)
-                print(f"Stopped process [b green]{process}[/b green] in [b magenta]{service_name}[/b magenta]")
-                results[process] = True
-            return all(results.values()) # Return True if all individual stops succeeded
-        else:
-            # stopAllProcesses raises Fault on failure for any process
-            supervisor_api.stopAllProcesses(wait)
-            print(f"Stopped all processes in [b magenta]{service_name}[/b magenta]")
-            return True # If no Fault was raised, assume success
-    except Fault as e:
-        _raise_exception_from_fault(e, service_name, action, process_names[0] if process_names else None)
+            processes_to_kill = [info for info in target_processes_info if info['state'] not in STOPPED_STATES]
+
+            if not processes_to_kill:
+                print("  No running processes found after timeout.")
+                return True
+
+            for info in processes_to_kill:
+                process = info['name']
+                process_killed = False
+                print(f"  Sending SIGKILL to process [b green]{process}[/b green] (State: {info['statename']})...")
+                try:
+                    supervisor_api.signalProcess(process, 'KILL')
+                    time.sleep(0.5)
+                    final_info = supervisor_api.getProcessInfo(process)
+                    if final_info['state'] in STOPPED_STATES:
+                        print(f"    Process [b green]{process}[/b green] killed successfully.")
+                        process_killed = True
+                    else:
+                        print(f"    [red]Error:[/red] Failed to kill process [b green]{process}[/b green]. Final state: {final_info['statename']}")
+                        process_killed = False
+                except Fault as kill_fault:
+                    if "ALREADY_DEAD" in kill_fault.faultString or "NOT_RUNNING" in kill_fault.faultString:
+                        print(f"    Process [b green]{process}[/b green] was already stopped before SIGKILL.")
+                        process_killed = True
+                    else:
+                        print(f"    [red]Error sending SIGKILL to {process}:[/red] {kill_fault.faultString}")
+                        process_killed = False
+                results[process] = process_killed
+
+            return all(results.values())
+
+        except Fault as e:
+            _raise_exception_from_fault(e, service_name, action)
+            return False
 
 
 # --- Helper: Start Action ---
@@ -125,7 +263,8 @@ def execute_supervisor_command(
     service_name: str,
     action: str,
     process_names: Optional[List[str]] = None,
-    wait: bool = True
+    wait: bool = True,
+    force_kill_timeout: Optional[int] = None
 ) -> Any: # Return type depends on action
     """Execute supervisor commands, raising exceptions on failure.
 

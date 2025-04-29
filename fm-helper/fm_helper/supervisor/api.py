@@ -20,14 +20,20 @@ def get_service_names() -> List[str]:
 def stop_service(
     service_name: str,
     process_name_list: Optional[List[str]] = None,
-    wait: bool = True
+    wait: bool = True,
+    force_kill_timeout: Optional[int] = None
 ) -> bool:
-    """Stop specific processes or all processes in a service."""
+    """Stop specific processes or all processes in a service.
+    
+    If force_kill_timeout is provided, attempts graceful stop, waits for the
+    timeout, and then sends SIGKILL if the process is still running.
+    """
     try:
         return execute_supervisor_command(
             service_name, "stop",
             process_names=process_name_list,
-            wait=wait
+            wait=wait,
+            force_kill_timeout=force_kill_timeout
         ) or False
     except SupervisorError as e:
         print(f"[red]Error stopping {service_name}:[/red] {str(e)}")

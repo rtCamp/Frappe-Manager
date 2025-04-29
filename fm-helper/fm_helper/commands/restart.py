@@ -71,9 +71,16 @@ def command(
         bool,
         typer.Option(
             "--force", "-f",
-            help="Force restart using supervisor's internal restart (if available). Defaults to graceful stop/start.",
+            help="Force stop/start. Tries graceful stop first, then force kills if timeout is reached.",
         )
     ] = False,
+    force_timeout: Annotated[
+        int,
+        typer.Option(
+            "--force-timeout",
+            help="Timeout (seconds) to wait for graceful stop during --force before killing (default: 10).",
+        )
+    ] = 10,
     wait: Annotated[
         bool,
         typer.Option(
@@ -145,22 +152,44 @@ def command(
         if wait_jobs and force:
             print("[yellow]Warning:[/yellow] --wait-jobs is ignored when using --force restart.")
 
-        # For forced restart, directly call stop then start
-        print("\n[STEP 1/2] Force stopping services...")
-        execute_parallel_command(
-            services_to_target,
-            util_stop_service,
-            action_verb="stopping",
-            show_progress=True,
-            wait=wait
-        )
+        if force:
+            # Forced restart logic
+            print("\n[STEP 1/2] Force stopping services...")
+            execute_parallel_command(
+                services_to_target,
+                util_stop_service,
+                action_verb="stopping",
+                show_progress=True,
+                wait=wait,
+                force_kill_timeout=force_timeout
+            )
 
-        print("\n[STEP 2/2] Force starting services...")
-        execute_parallel_command(
-            services_to_target,
-            util_start_service,
-            action_verb="starting",
-            show_progress=True,
-            wait=wait
-        )
-        print("\nForced restart sequence complete.")
+            print("\n[STEP 2/2] Force starting services...")
+            execute_parallel_command(
+                services_to_target,
+                util_start_service,
+                action_verb="starting",
+                show_progress=True,
+                wait=wait
+            )
+            print("\nForced restart sequence complete.")
+        else:
+            # Simple restart logic (not forced, not waiting for jobs)
+            print("\n[STEP 1/2] Stopping services...")
+            execute_parallel_command(
+                services_to_target,
+                util_stop_service,
+                action_verb="stopping",
+                show_progress=True,
+                wait=wait
+            )
+
+            print("\n[STEP 2/2] Starting services...")
+            execute_parallel_command(
+                services_to_target,
+                util_start_service,
+                action_verb="starting",
+                show_progress=True,
+                wait=wait
+            )
+            print("\nRestart sequence complete.")
