@@ -10,12 +10,12 @@ from ..cli import (
     execute_parallel_command,
     get_service_names_for_completion,
     _cached_service_names,
-    FM_SUPERVISOR_SOCKETS_DIR,
 )
-from ..supervisor_utils import (
+from ..supervisor import (
     restart_service as util_restart_service,
     stop_service as util_stop_service,
     start_service as util_start_service,
+    FM_SUPERVISOR_SOCKETS_DIR,
 )
 
 command_name = "restart"
@@ -145,11 +145,22 @@ def command(
         if wait_jobs and force:
             print("[yellow]Warning:[/yellow] --wait-jobs is ignored when using --force restart.")
 
+        # For forced restart, directly call stop then start
+        print("\n[STEP 1/2] Force stopping services...")
         execute_parallel_command(
             services_to_target,
-            util_restart_service,
-            action_verb="restarting",
+            util_stop_service,
+            action_verb="stopping",
             show_progress=True,
-            force=force,
             wait=wait
         )
+
+        print("\n[STEP 2/2] Force starting services...")
+        execute_parallel_command(
+            services_to_target,
+            util_start_service,
+            action_verb="starting",
+            show_progress=True,
+            wait=wait
+        )
+        print("\nForced restart sequence complete.")

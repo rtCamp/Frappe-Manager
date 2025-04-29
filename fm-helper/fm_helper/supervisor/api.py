@@ -1,7 +1,7 @@
 from typing import List, Optional
 from pathlib import Path
 
-from .executor import execute_supervisor_command, is_supervisord_running
+from .executor import execute_supervisor_command, check_supervisord_connection
 from .connection import FM_SUPERVISOR_SOCKETS_DIR
 from .status_formatter import format_service_info
 from .exceptions import SupervisorError
@@ -51,14 +51,12 @@ def start_service(
 
 def restart_service(
     service_name: str,
-    force: bool = False,
     wait: bool = True
 ) -> bool:
     """Restart a service (all its processes)."""
     try:
         return execute_supervisor_command(
             service_name, "restart",
-            force=force,
             wait=wait
         ) or False
     except SupervisorError as e:
@@ -68,7 +66,7 @@ def restart_service(
 def get_service_info(service_name: str):
     """Get detailed information about a service and its processes."""
     try:
-        if not is_supervisord_running(service_name):
+        if not check_supervisord_connection(service_name):
             return format_service_info(
                 service_name,
                 []

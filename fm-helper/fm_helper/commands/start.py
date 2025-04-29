@@ -9,9 +9,8 @@ from ..cli import (
     execute_parallel_command,
     get_service_names_for_completion,
     _cached_service_names,
-    FM_SUPERVISOR_SOCKETS_DIR,
 )
-from ..supervisor_utils import start_service as util_start_service
+from ..supervisor import start_service as util_start_service, FM_SUPERVISOR_SOCKETS_DIR
 
 command_name = "start"
 

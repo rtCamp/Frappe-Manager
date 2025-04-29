@@ -9,9 +9,8 @@ from ..cli import (
     execute_parallel_command,
     get_service_names_for_completion,
     _cached_service_names,
-    FM_SUPERVISOR_SOCKETS_DIR,
 )
-from ..supervisor_utils import get_service_info as util_get_service_info
+from ..supervisor import get_service_info as util_get_service_info, FM_SUPERVISOR_SOCKETS_DIR
 
 command_name = "status"
 

@@ -11,6 +11,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.live import Live
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from rich.panel import Panel
+from rich.tree import Tree
 from contextlib import nullcontext # Ensure nullcontext is imported
 # Imports needed for command registration
 import pkgutil
@@ -18,17 +19,20 @@ import importlib
 
 # Use relative imports within the package
 try:
-    from .supervisor_utils import (
+    # Import from the new supervisor module
+    from .supervisor import (
         get_service_names as util_get_service_names,
         stop_service as util_stop_service,
-        start_service as util_start_service, # Added start
+        start_service as util_start_service,
         restart_service as util_restart_service,
-        get_service_info as util_get_service_info,
-        FM_SUPERVISOR_SOCKETS_DIR, # Import for error messages
+        get_service_info as util_get_service_info, # Correctly imported function
+        FM_SUPERVISOR_SOCKETS_DIR,
+        SupervisorError, # Import the base error
     )
-except ImportError:
-    # Handle case where supervisor_utils failed (e.g., supervisor not installed)
-    print("[bold red]Error:[/bold red] Failed to import supervisor utilities. Is 'supervisor' installed?")
+except ImportError as e:
+    # Handle case where supervisor module or its dependencies failed
+    print(f"[bold red]Error:[/bold red] Failed to import supervisor module: {e}")
+    print("Ensure 'supervisor' package is installed and fm-helper structure is correct.")
     sys.exit(1)
 
 # --- CLI Specific Helpers ---
@@ -122,19 +126,28 @@ def execute_parallel_command(
 
     # --- Process and Print Results ---
 
+    # --- Process and Print Results ---
+
     # For status command, print the Trees
     if command_func == util_get_service_info:
         print("-" * 30)
+        output_printed = False
         # Sort results by service name for consistent output
         for service in sorted(results.keys()):
-            result = results[service]
-            if result is not None:
+            result = results.get(service) # Use .get for safety
+            # Check if the result is a Tree object (meaning success or connection error handled by get_service_info)
+            if isinstance(result, Tree):
                 print(result) # Print the Rich Tree
-                print() # Add spacing between service outputs
-            # else: # Error already printed during execution
+                output_printed = True
+            # else: the result was likely False due to an exception caught in the parallel executor loop
+            # Error message was already printed in that loop.
+
+        # If no Trees were printed (e.g., all services failed before returning a Tree)
+        if not output_printed:
+             print("[yellow]No service status information could be retrieved.[/yellow]")
         print("-" * 30)
 
-    # For stop/start/restart, summarize success/failure
+    # For stop/start/restart, summarize success/failure based on boolean results
     elif command_func in [util_stop_service, util_start_service, util_restart_service]:
         success_count = sum(1 for res in results.values() if res is True)
         fail_count = len(services) - success_count
