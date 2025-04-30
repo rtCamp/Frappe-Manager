@@ -29,6 +29,8 @@ try:
         FM_SUPERVISOR_SOCKETS_DIR,
         SupervisorError, # Import the base error
     )
+    # Import the refactored function from workers module
+    from .workers import wait_for_jobs_to_finish
 except ImportError as e:
     # Handle case where supervisor module or its dependencies failed
     print(f"[bold red]Error:[/bold red] Failed to import supervisor module: {e}")
@@ -185,70 +187,44 @@ def _run_wait_jobs(
     site_name: str,
     timeout: int,
     poll_interval: int,
-    queues: Optional[List[str]]
+    queues: Optional[List[str]] = None,
 ) -> bool:
-    """Runs the fm-wait-jobs script and handles its output."""
-    command = [
-        "fm-wait-jobs",
-        site_name,
-        "--timeout", str(timeout),
-        "--poll-interval", str(poll_interval),
-    ]
-    if queues:
-        for q in queues:
-            command.extend(["--queue", q])
-
-    print(f"\n[cyan]Waiting for active jobs on site '{site_name}' (timeout: {timeout}s)...[/cyan]")
-
-    # Use subprocess.Popen to stream stderr for progress
-    process = subprocess.Popen(
-        command,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        text=True,
-        bufsize=1, # Line buffered
-    )
-
-    stderr_lines = []
-    # Display stderr lines live using Rich Live and Panel
-    with Live(auto_refresh=False, transient=True) as live:
-        if process.stderr:
-            for line in process.stderr:
-                cleaned_line = line.strip()
-                if cleaned_line: # Avoid adding empty lines
-                    stderr_lines.append(cleaned_line)
-                    # Display the last line of stderr within a panel
-                    live.update(Panel(f"[dim]{cleaned_line}[/dim]", border_style="dim", title="Job Status"), refresh=True)
-
-    stdout, _ = process.communicate() # Get final stdout after process finishes
-    returncode = process.returncode
+    """Calls the wait_for_jobs_to_finish function directly."""
+    queue_desc = f"queues: {', '.join(queues)}" if queues else "all queues"
+    print(f"\n[cyan]Waiting up to {timeout}s for active jobs on site '{site_name}' ({queue_desc})...[/cyan]")
 
     try:
-        # Try parsing the final stdout as JSON
-        result_json = json.loads(stdout.strip())
-        status = result_json.get("status", "error")
-        message = result_json.get("message", "No message from script.")
-        remaining = result_json.get("remaining_jobs", -1)
-    except json.JSONDecodeError:
-        status = "error"
-        message = f"Failed to parse JSON output from fm-wait-jobs script. Output: '{stdout.strip()}'"
-        remaining = -1
+        result = wait_for_jobs_to_finish(
+            site=site_name,
+            timeout=timeout,
+            poll_interval=poll_interval,
+            queues=queues,
+            verbose=True
+        )
 
-    # Determine success/failure based on exit code and parsed status
-    if returncode == 0 and status == "success":
-        print(f"[green]✔ Success:[/green] {message}")
-        return True
-    elif returncode == 1 and status == "timeout":
-        print(f"[yellow]⚠ Timeout:[/yellow] {message}. {remaining} job(s) might still be running.")
-        return False # Indicate timeout/failure
-    else:
-        print(f"[red]✘ Error waiting for jobs (Exit Code: {returncode}):[/red] {message}")
-        # Print captured stderr for debugging if there was an error (and not just timeout)
-        if stderr_lines and returncode != 1:
-             print("[bold dim]fm-wait-jobs stderr log:[/bold dim]")
-             for line in stderr_lines:
-                 print(f"[dim]- {line}[/dim]")
-        return False # Indicate error
+        status = result.get("status", "error")
+        message = result.get("message", "No details provided.")
+        remaining_jobs = result.get("remaining_jobs", -1)
+
+        if status == "success":
+            print(f"[green]Success:[/green] {message}")
+            return True
+        elif status == "timeout":
+            print(f"[yellow]Timeout:[/yellow] {message}")
+            if remaining_jobs > 0:
+                print(f"  {remaining_jobs} job(s) might still be running.")
+            return False
+        else:
+            print(f"[red]Error waiting for jobs:[/red] {message}")
+            return False
+
+    except ImportError as e:
+        print(f"[bold red]Import Error:[/bold red] Failed to import Frappe modules. Is Frappe installed? ({e})", file=sys.stderr)
+        print("  Job waiting requires access to the Frappe framework.", file=sys.stderr)
+        return False
+    except Exception as e:
+        print(f"[bold red]Error:[/bold red] An unexpected error occurred during job waiting: {e}", file=sys.stderr)
+        return False
 
 # --- Command Discovery and Registration ---
 import pkgutil

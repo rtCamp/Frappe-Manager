@@ -2,9 +2,10 @@ import frappe
 import sys
 import time
 import json
-import argparse
-from typing import Optional, List, Tuple
+import os
+from typing import Optional, List, Tuple, Dict, Any
 from frappe.utils.background_jobs import get_queues
+from rich import print
 
 def check_started_jobs(queues_to_monitor: Optional[List[str]] = None) -> Tuple[int, List[str]]:
     """
@@ -49,23 +50,47 @@ def check_started_jobs(queues_to_monitor: Optional[List[str]] = None) -> Tuple[i
 
 # Removed typer app initialization and command decorator
 
-def main(site: str, queue: Optional[List[str]], timeout: int, poll_interval: int):
+def wait_for_jobs_to_finish(
+    site: str,
+    timeout: int,
+    poll_interval: int,
+    queues: Optional[List[str]] = None,
+    verbose: bool = False,
+    cleanup: bool = False
+) -> Dict[str, Any]:
     """
-    Waits for currently 'started' Frappe background jobs to finish and outputs JSON status.
+    Waits for currently 'started' Frappe background jobs to finish.
 
-    Exit Codes:
-        0: Success (no started jobs remaining)
-        1: Timeout
-        2: Error checking job status
-        3: Initialization or other error
+    Connects to the specified site and monitors job queues.
+
+    Args:
+        site: The Frappe site name.
+        queues: Specific queue names to monitor (monitors all if None).
+        timeout: Maximum time in seconds to wait.
+        poll_interval: Interval in seconds between checks.
+        verbose: If True, print progress messages to stderr.
+        cleanup: If True, explicitly close DB and Redis connections (default: False).
+
+    Returns:
+        A dictionary containing:
+            'status': 'success', 'timeout', or 'error'.
+            'message': A descriptive message.
+            'remaining_jobs': The number of jobs remaining at the end (-1 on error).
     """
     result = {"status": "unknown", "message": "", "remaining_jobs": -1}
     exit_code = 3 # Default to general error
+    original_cwd = None
 
     try:
+        # Store original CWD and change to target directory
+        original_cwd = os.getcwd()
+        target_cwd = "/workspace/frappe-bench/sites"
+        if verbose: print(f"[dim]Changing CWD to {target_cwd}...[/dim]", file=sys.stderr)
+        os.chdir(target_cwd)
+
+        if verbose: print(f"[dim]Initializing Frappe for site '{site}'...[/dim]", file=sys.stderr)
         frappe.init(site)
-        if not frappe.conf.db_name:
-             raise Exception(f"Database name not found for site {site}. Check site_config.json.")
+        if verbose: print(f"[dim]Connecting to database for site '{site}'...[/dim]", file=sys.stderr)
         frappe.connect()
 
         start_time = time.time()
@@ -81,7 +106,7 @@ def main(site: str, queue: Optional[List[str]], timeout: int, poll_interval: int
                 break
 
             try:
-                started_jobs_count, running_job_ids = check_started_jobs(queues_to_monitor=queue)
+                started_jobs_count, running_job_ids = check_started_jobs(queues_to_monitor=queues)
                 last_job_count = started_jobs_count # Store the last known count
             except Exception as e:
                 result = {"status": "error", "message": f"Error checking job status: {e}", "remaining_jobs": -1}
@@ -102,29 +127,29 @@ def main(site: str, queue: Optional[List[str]], timeout: int, poll_interval: int
         print(file=sys.stderr)
         result = {"status": "error", "message": f"An initialization or other error occurred: {e}", "remaining_jobs": -1}
         exit_code = 3
+
     finally:
-        if frappe.local.db:
-            frappe.db.close()
-        # Attempt to close redis connection if exists (best effort)
-        try:
-            if frappe.local.conf and frappe.local.conf.get('redis_cache'):
-                from frappe.utils.redis_wrapper import RedisWrapper
-                RedisWrapper.close_all()
-        except Exception:
-            pass # Ignore errors during cleanup
+        # Conditionally perform cleanup
+        if cleanup:
+            if frappe.local.db:
+                frappe.db.close()
+                if verbose: print("\n[dim]Database connection closed.[/dim]", file=sys.stderr)
+
+            try:
+                if frappe.local.conf and frappe.local.conf.get('redis_cache'):
+                    from frappe.utils.redis_wrapper import RedisWrapper
+                    RedisWrapper.close_all()
+                    if verbose: print("[dim]Attempted to close Redis connections.[/dim]", file=sys.stderr)
+            except Exception as cleanup_err:
+                if verbose:
+                    print(f"\n[yellow]Warning:[/yellow] Error during Redis cleanup: {cleanup_err}", file=sys.stderr)
+
         # frappe.destroy() # Avoid destroy for cleaner exit
 
-        # Output final result as JSON to stdout
-        print(json.dumps(result))
-        sys.exit(exit_code)
+        # Restore original CWD if it was changed
+        if original_cwd:
+            if verbose: print(f"[dim]Restoring CWD to {original_cwd}...[/dim]", file=sys.stderr)
+            os.chdir(original_cwd)
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Waits for currently 'started' Frappe background jobs to finish.")
-    parser.add_argument("site", help="The Frappe site name to connect to.")
-    parser.add_argument("-q", "--queue", action="append", help="Specific queue(s) to monitor. Monitors all if not specified.")
-    parser.add_argument("-t", "--timeout", type=int, default=300, help="Maximum time in seconds to wait for jobs to finish (default: 300).")
-    parser.add_argument("-i", "--poll-interval", type=int, default=5, help="Interval in seconds between checking job status (default: 5).")
+        return result
 
-    args = parser.parse_args()
-
-    main(site=args.site, queue=args.queue, timeout=args.timeout, poll_interval=args.poll_interval)
