@@ -1,14 +1,14 @@
 #!/bin/bash
 restart_command() {
-      fm-helper restart
+      exec fm-helper restart "$@"
 }
 
 status_command() {
-      fm-helper status
+      exec fm-helper status "$@"
 }
 
 stop_command() {
-      fm-helper stop
+      exec fm-helper stop "$@"
 }
 
 show_fm_helper_commands() {
@@ -26,14 +26,22 @@ show_fm_helper_commands() {
 }
 
 if [[ "$@" =~ ^restart[[:space:]]* ]]; then
-    restart_command
+    # Remove 'restart' from arguments and pass the rest
+    args="${@#restart}"
+    restart_command $args
 elif [[ "$@" =~ ^status[[:space:]]* ]]; then
-    status_command
+    # Remove 'status' from arguments and pass the rest
+    args="${@#status}"
+    status_command $args
 elif [[ "$@" =~ ^stop[[:space:]]* ]]; then
-    stop_command
+    # Remove 'stop' from arguments and pass the rest
+    args="${@#stop}"
+    stop_command $args
 elif [[ -z "$@" ]]; then
+    # Run bench without exec to allow show_fm_helper_commands afterwards
     /opt/.pyenv/shims/bench "$@"
     show_fm_helper_commands
 else
-    /opt/.pyenv/shims/bench "$@"
+    # Use exec to pass signals directly to the bench command
+    exec /opt/.pyenv/shims/bench "$@"
 fi
