@@ -88,16 +88,16 @@ RUN export NAME='frappe' && \
 
 RUN echo PREBAKE_APPS="$PREBAKE_APPS" >> /prebake_info && echo PREBAKE_FRAPPE_BRANCH="$PREBAKE_FRAPPE_BRANCH" >> /prebake_info
 
-ENV PYENV_ROOT /opt/.pyenv
-ENV PATH $PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH
+ENV PYENV_ROOT=/opt/.pyenv
+ENV PATH=$PYENV_ROOT/shims:$PYENV_ROOT/bin:$PATH
 
 # for bench wrapper
-ENV PATH /opt/user/.bin:${PATH}
+ENV PATH=/opt/user/.bin:${PATH}
 
 # for nvm
 ENV NODE_VERSION=20.9.0
-ENV NVM_DIR /opt/.nvm
-ENV PATH ${NVM_DIR}/versions/node/v${NODE_VERSION}/bin/:${PATH}
+ENV NVM_DIR=/opt/.nvm
+ENV PATH=${NVM_DIR}/versions/node/v${NODE_VERSION}/bin/:${PATH}
 
 FROM bench AS prebake
 
@@ -105,15 +105,15 @@ RUN chown -R frappe:frappe /opt
 
 USER frappe
 
-ENV USERZSHRC /opt/user/.zshrc
-ENV USERPROFILE /opt/user/.profile
+ENV USERZSHRC=/opt/user/.zshrc
+ENV USERPROFILE=/opt/user/.profile
 
 WORKDIR /opt
 
 RUN mkdir -p /opt/user && touch /opt/user/.profile && ls -lah
 
-ENV ZSH /opt/user/.oh-my-zsh
-ENV DISABLE_UPDATE_PROMPT true
+ENV ZSH=/opt/user/.oh-my-zsh
+ENV DISABLE_UPDATE_PROMPT=true
 
 # install ohmyzsh
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
@@ -181,7 +181,7 @@ COPY --from=prebake --chown=frappe:frappe /workspace/hrms /workspace/frappe-benc
 FROM bench AS fm_image
 
 # Detect arch and install wkhtmltopdf
-ENV WKHTMLTOPDF_VERSION 0.12.6.1-3
+ENV WKHTMLTOPDF_VERSION=0.12.6.1-3
 RUN if [ "$(uname -m)" = "aarch64" ]; then export ARCH=arm64; fi \
     && if [ "$(uname -m)" = "x86_64" ]; then export ARCH=amd64; fi \
     && downloaded_file=wkhtmltox_$WKHTMLTOPDF_VERSION.jammy_${ARCH}.deb \
