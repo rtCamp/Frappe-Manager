@@ -154,7 +154,7 @@ RUN mkdir -p /workspace
 
 WORKDIR /workspace
 
-RUN mkdir -p /opt/user/.bin
+RUN mkdir -p /opt/user/.bin /opt/user/conf.d
 
 RUN echo 'export PATH="/opt/user/.bin:$PATH"' >> "$USERZSHRC"
 
