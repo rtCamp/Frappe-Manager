@@ -14,37 +14,88 @@ from typing import Optional, List, Tuple, Dict, Any
 from frappe.utils.background_jobs import get_queues
 from rich import print
 
-def _update_site_config_scheduler(config_path: Path, pause_value: Optional[int], verbose: bool = False) -> None:
-    """Update the scheduler pause state in a site's config file.
-    
+def _get_site_config_key_value(config_path: Path, key_name: str, default: Optional[Any] = None, verbose: bool = False) -> Optional[Any]:
+    """Read a specific key's value from a site's config file (site_config.json).
+
     Args:
-        config_path: Path to the site_config.json file
-        pause_value: Value to set for pause_scheduler (None to remove the key)
-        verbose: If True, print status messages
+        config_path: Path to the site_config.json file.
+        key_name: The name of the key to read.
+        default: The default value to return if the key is not found or the file is invalid/missing.
+        verbose: If True, print status messages.
+
+    Returns:
+        The value of the key, or the default value.
+    """
+    config = {}
+    try:
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                # Suppress error if file is empty or invalid JSON
+                with contextlib.suppress(json.JSONDecodeError):
+                    config = json.load(f)
+            if verbose:
+                print(f"[dim]Read config from {config_path}[/dim]", file=sys.stderr)
+        elif verbose:
+            print(f"[dim]Config file {config_path} does not exist.[/dim]", file=sys.stderr)
+
+        value = config.get(key_name, default)
+        if verbose:
+            print(f"[dim]Value for key '{key_name}': {json.dumps(value)}[/dim]", file=sys.stderr)
+        return value
+
+    except OSError as e:
+        if verbose:
+            print(f"[yellow]Warning:[/yellow] Could not read {config_path}: {e}", file=sys.stderr)
+        # In case of read error, return default, as we can't determine the value
+        return default
+
+
+def _update_site_config_key(config_path: Path, key_name: str, value: Optional[Any], verbose: bool = False) -> None:
+    """Update a specific key in a site's config file (site_config.json).
+
+    Args:
+        config_path: Path to the site_config.json file.
+        key_name: The name of the key to update (e.g., "pause_scheduler", "maintenance_mode").
+        value: The value to set for the key. If None, the key will be removed.
+        verbose: If True, print status messages.
     """
     try:
-        # Read current config
-        with open(config_path) as f:
-            config = json.load(f)
-        
-        # Update pause_scheduler
-        if pause_value is None:
-            config.pop('pause_scheduler', None)  # Remove if exists
-        else:
-            config['pause_scheduler'] = pause_value
-        
-        # Write back
-        with open(config_path, 'w') as f:
-            json.dump(config, f, indent=1)
-            
+        # Read current config safely
+        config = {}
+        if config_path.exists():
+            with open(config_path, 'r') as f:
+                # Suppress error if file is empty or invalid JSON, start with empty config
+                with contextlib.suppress(json.JSONDecodeError):
+                    config = json.load(f)
+
+        needs_update = False
+        current_value = config.get(key_name)
+
+        # Determine if update is needed
+        if value is None:
+            if key_name in config:
+                del config[key_name]  # Remove the key if value is None and key exists
+                needs_update = True
+        elif current_value != value:
+            config[key_name] = value # Set or update the key
+            needs_update = True
+
+        if needs_update:
+            # Write back
+            with open(config_path, 'w') as f:
+                json.dump(config, f, indent=1) # Use indent=1 for consistency
+
+            if verbose:
+                action = "Removed" if value is None else f"Set to {json.dumps(value)}" # Use json.dumps for representation
+                print(f"[dim]Updated {config_path}: '{key_name}' {action}[/dim]", file=sys.stderr)
+        elif verbose:
+             print(f"[dim]'{key_name}' already set appropriately in {config_path}. No change needed.[/dim]", file=sys.stderr)
+
+    except (OSError, json.JSONDecodeError, Exception) as e:
         if verbose:
-            action = "Removed" if pause_value is None else f"Set to {pause_value}"
-            print(f"[dim]Updated {config_path}: pause_scheduler {action}[/dim]", file=sys.stderr)
-            
-    except Exception as e:
-        if verbose:
-            print(f"[yellow]Warning:[/yellow] Failed to update scheduler state in {config_path}: {e}", 
+            print(f"[yellow]Warning:[/yellow] Failed to update key '{key_name}' in {config_path}: {e}",
                   file=sys.stderr)
+        # Re-raise the exception so the caller knows it failed
         raise
 
 def check_started_jobs(queues_to_monitor: Optional[List[str]] = None) -> Tuple[int, List[str]]:
@@ -137,18 +188,21 @@ def wait_for_jobs_to_finish(
     
     if pause_scheduler_during_wait:
         try:
-            # Read current scheduler state
-            with open(site_config_path) as f:
-                config = json.load(f)
-                result["original_scheduler_state"] = config.get("pause_scheduler")
+            # Read current scheduler state using the new helper
+            result["original_scheduler_state"] = _get_site_config_key_value(
+                site_config_path, "pause_scheduler", default=None, verbose=verbose
+            )
             
-            # Pause the scheduler (set pause_scheduler to 1)
-            _update_site_config_scheduler(site_config_path, pause_value=1, verbose=verbose)
-            result["scheduler_was_paused"] = True
-            
-        except Exception as e:
+            # Pause the scheduler only if it's not already paused
+            if result["original_scheduler_state"] != 1:
+                _update_site_config_key(site_config_path, key_name="pause_scheduler", value=1, verbose=verbose)
+                result["scheduler_was_paused"] = True
+            elif verbose:
+                 print(f"[dim]'pause_scheduler' already set to 1. No change needed.[/dim]", file=sys.stderr)
+
+        except Exception as e: # Catch potential errors from _update_site_config_key as well
             if verbose:
-                print(f"[yellow]Warning:[/yellow] Failed to pause scheduler: {e}", file=sys.stderr)
+                print(f"[yellow]Warning:[/yellow] Failed to read or pause scheduler: {e}", file=sys.stderr)
 
     try:
         target_cwd = Path("/workspace/frappe-bench/sites") # Define target CWD

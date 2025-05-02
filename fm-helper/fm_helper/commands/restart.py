@@ -17,9 +17,11 @@ from ..supervisor import (
     start_service as util_start_service,
     FM_SUPERVISOR_SOCKETS_DIR,
 )
-# Import necessary components for scheduler restoration
+# Import necessary components for config key management
+import json
+import contextlib
 from pathlib import Path
-from ..workers import _update_site_config_scheduler
+from ..workers import _update_site_config_key, _get_site_config_key_value
 
 command_name = "restart"
 
@@ -98,8 +100,15 @@ def command(
             help="Pause the Frappe scheduler before waiting for jobs and unpause after. Requires --wait-jobs and --site-name.",
         )
     ] = False,
+    maintenance_mode: Annotated[
+        bool,
+        typer.Option(
+            "--maintenance-mode",
+            help="Set 'maintenance_mode: 1' in site_config.json before waiting for jobs and restore original state after waiting. Requires --wait-jobs and --site-name.",
+        )
+    ] = False,
 ):
-    """Restart services with optional job waiting and scheduler pausing."""
+    """Restart services with optional job waiting, scheduler pausing, and maintenance mode key setting."""
     if not _cached_service_names:
         print(f"[bold red]Error:[/bold red] No supervisord services found to restart.", file=sys.stderr)
         print(f"Looked for socket files in: {FM_SUPERVISOR_SOCKETS_DIR}", file=sys.stderr)
@@ -119,21 +128,56 @@ def command(
     restart_type = "Forced" if force else "Graceful"
     print(f"Attempting {restart_type} restart for {target_desc}...")
 
-    # Variables to store scheduler state returned from job waiting
+    # Variables to store state returned from job waiting / set by this script
     original_scheduler_state: Optional[int] = None
     scheduler_was_paused: bool = False
+    original_maintenance_state: Optional[Any] = None # Can be any JSON value or None
+    maintenance_was_managed_by_script: bool = False
 
+    # --- Validations ---
     if pause_scheduler and not wait_jobs:
-        print("[red]Error:[/red] --pause-scheduler can only be used with --wait-jobs.")
+        print("[red]Error:[/red] --pause-scheduler requires --wait-jobs.")
+        raise typer.Exit(code=1)
+
+    if maintenance_mode and not wait_jobs:
+        print("[red]Error:[/red] --maintenance-mode requires --wait-jobs.")
+        raise typer.Exit(code=1)
+
+    if maintenance_mode and not site_name:
+        print("[red]Error:[/red] --site-name is required when using --maintenance-mode.")
         raise typer.Exit(code=1)
 
     if wait_jobs:
         if not site_name:
-            print("[red]Error:[/red] --site-name is required when using --wait-jobs (and --pause-scheduler).")
+            print("[red]Error:[/red] --site-name is required when using --wait-jobs, --pause-scheduler, or --maintenance-mode.")
             raise typer.Exit(code=1)
-        
+            
+        # --- Set Maintenance Mode Key (Moved inside wait_jobs block, before job waiting) ---
+        site_config_path = Path(f"/workspace/frappe-bench/sites/{site_name}/site_config.json")
+
+        if maintenance_mode:
+            print(f"\n[cyan]Checking and setting 'maintenance_mode' key for site: {site_name}...[/cyan]")
+            try:
+                # Read current maintenance state using the new helper
+                original_maintenance_state = _get_site_config_key_value(
+                    site_config_path, "maintenance_mode", default=None, verbose=True
+                )
+
+                if original_maintenance_state != 1:
+                    _update_site_config_key(site_config_path, "maintenance_mode", 1, verbose=True)
+                    maintenance_was_managed_by_script = True
+                    print(f"[green]'maintenance_mode' key set to 1 for site: {site_name}.[/green]")
+                else:
+                    print("[dim]'maintenance_mode' key already set to 1. No action taken.[/dim]")
+
+            except Exception as e:
+                print(f"[bold red]Error:[/bold red] Failed to check or set 'maintenance_mode' key for site {site_name}: {e}")
+                print("Aborting restart.")
+                raise typer.Exit(code=1)
+
         pause_desc = " and pausing scheduler" if pause_scheduler else ""
-        print(f"[cyan]Graceful restart: Waiting for active jobs first{pause_desc}...[/cyan]")
+        maint_desc = " (after setting maintenance mode key)" if maintenance_was_managed_by_script else ""
+        print(f"[cyan]Graceful restart: Waiting for active jobs first{pause_desc}{maint_desc}...[/cyan]")
         print("-" * 30)
         # Capture the returned tuple from _run_wait_jobs
         wait_success, original_scheduler_state, scheduler_was_paused = _run_wait_jobs(
@@ -149,10 +193,21 @@ def command(
             print("[bold red]Error:[/bold red] Job waiting failed or timed out.")
             print("Aborting restart process. Services were not stopped or started.")
             raise typer.Exit(code=1)
-        
-        print("[green]Job waiting successful. Proceeding with service restart.[/green]")
+            
+        print("[green]Job waiting successful.[/green]")
 
-    # --- Restart Execution (wrapped in try...finally for scheduler restoration) ---
+        # --- Restore State Immediately After Job Wait (Before Stop/Start) ---
+        # Restore Maintenance Mode Key
+        if maintenance_was_managed_by_script:
+            print(f"\n[cyan]Restoring original 'maintenance_mode' key value ({json.dumps(original_maintenance_state)}) for site '{site_name}' (before stop/start)...[/cyan]", file=sys.stderr)
+            try:
+                _update_site_config_key(site_config_path, "maintenance_mode", original_maintenance_state, verbose=True)
+                print(f"[green]'maintenance_mode' key restored for site '{site_name}'.[/green]", file=sys.stderr)
+            except Exception as e:
+                print(f"\n[bold yellow]Warning:[/bold yellow] Failed to restore 'maintenance_mode' key in {site_config_path}: {e}", file=sys.stderr)
+                print(f"[yellow]Please manually ensure 'maintenance_mode' is set correctly (should be {json.dumps(original_maintenance_state)}) in the file.[/yellow]", file=sys.stderr)
+
+    # --- Restart Execution (Stop/Start) ---
     restart_type = "Forced" if force else "Graceful"
     job_wait_performed = wait_jobs # Keep track if we waited
 
@@ -197,15 +252,14 @@ def command(
             # site_name is guaranteed to be non-None if scheduler_was_paused is True
             print(f"\n[cyan]Restoring original scheduler state ({original_scheduler_state}) for site '{site_name}'...[/cyan]", file=sys.stderr)
             try:
-                # Construct path within the container where wait_for_jobs runs
-                site_config_path = Path(f"/workspace/frappe-bench/sites/{site_name}/site_config.json")
-                _update_site_config_scheduler(site_config_path, pause_value=original_scheduler_state, verbose=True)
+                # Path should already be defined if scheduler_was_paused is True
+                _update_site_config_key(site_config_path, "pause_scheduler", original_scheduler_state, verbose=True)
                 print(f"[green]Scheduler state restored for site '{site_name}'.[/green]", file=sys.stderr)
             except Exception as e:
-                print(f"\n[bold yellow]Warning:[/bold yellow] Failed to automatically restore scheduler state in {site_config_path}: {e}", file=sys.stderr)
-                print(f"[yellow]Please manually ensure 'pause_scheduler' is set correctly (should be {original_scheduler_state}) in the file.[/yellow]", file=sys.stderr)
+                print(f"\n[bold yellow]Warning:[/bold yellow] Failed to automatically restore 'pause_scheduler' key in {site_config_path}: {e}", file=sys.stderr)
+                print(f"[yellow]Please manually ensure 'pause_scheduler' is set correctly (should be {json.dumps(original_scheduler_state)}) in the file.[/yellow]", file=sys.stderr)
         # --- End Restore Scheduler State ---
 
-        # Final message indicating the whole process (including finally block) is done
+        # Final message indicating the stop/start try block is done
         print(f"\n{restart_type} restart process complete.")
     # --- End of Restart Execution ---
