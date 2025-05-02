@@ -17,6 +17,9 @@ from ..supervisor import (
     start_service as util_start_service,
     FM_SUPERVISOR_SOCKETS_DIR,
 )
+# Import necessary components for scheduler restoration
+from pathlib import Path
+from ..workers import _update_site_config_scheduler
 
 command_name = "restart"
 
@@ -88,8 +91,15 @@ def command(
             help="Wait for supervisor start/stop operations to complete before returning.",
         )
     ] = True,
+    pause_scheduler: Annotated[
+        bool,
+        typer.Option(
+            "--pause-scheduler",
+            help="Pause the Frappe scheduler before waiting for jobs and unpause after. Requires --wait-jobs and --site-name.",
+        )
+    ] = False,
 ):
-    """Restart services with optional job waiting."""
+    """Restart services with optional job waiting and scheduler pausing."""
     if not _cached_service_names:
         print(f"[bold red]Error:[/bold red] No supervisord services found to restart.", file=sys.stderr)
         print(f"Looked for socket files in: {FM_SUPERVISOR_SOCKETS_DIR}", file=sys.stderr)
@@ -109,20 +119,29 @@ def command(
     restart_type = "Forced" if force else "Graceful"
     print(f"Attempting {restart_type} restart for {target_desc}...")
 
-    proceed_with_restart = True
+    # Variables to store scheduler state returned from job waiting
+    original_scheduler_state: Optional[int] = None
+    scheduler_was_paused: bool = False
+
+    if pause_scheduler and not wait_jobs:
+        print("[red]Error:[/red] --pause-scheduler can only be used with --wait-jobs.")
+        raise typer.Exit(code=1)
 
     if wait_jobs:
         if not site_name:
-            print("[red]Error:[/red] --site-name is required when using --wait-jobs.")
+            print("[red]Error:[/red] --site-name is required when using --wait-jobs (and --pause-scheduler).")
             raise typer.Exit(code=1)
         
-        print("[cyan]Graceful restart: Waiting for active jobs first...[/cyan]")
+        pause_desc = " and pausing scheduler" if pause_scheduler else ""
+        print(f"[cyan]Graceful restart: Waiting for active jobs first{pause_desc}...[/cyan]")
         print("-" * 30)
-        wait_success = _run_wait_jobs(
+        # Capture the returned tuple from _run_wait_jobs
+        wait_success, original_scheduler_state, scheduler_was_paused = _run_wait_jobs(
             site_name=site_name,
             timeout=wait_jobs_timeout,
             poll_interval=wait_jobs_poll,
-            queues=wait_jobs_queue
+            queues=wait_jobs_queue,
+            pause_scheduler_during_wait=pause_scheduler
         )
         print("-" * 30)
 
@@ -133,42 +152,60 @@ def command(
         
         print("[green]Job waiting successful. Proceeding with service restart.[/green]")
 
-    # --- Restart Execution ---
+    # --- Restart Execution (wrapped in try...finally for scheduler restoration) ---
     restart_type = "Forced" if force else "Graceful"
     job_wait_performed = wait_jobs # Keep track if we waited
 
     print(f"\nProceeding with {restart_type} restart for {target_desc}...")
 
-    # STEP 1: Stop Service
-    step_num_stop = 1 + (1 if job_wait_performed else 0)
-    step_num_start = step_num_stop + 1
-    total_steps = step_num_start
+    try:
+        # STEP 1: Stop Service
+        step_num_stop = 1 + (1 if job_wait_performed else 0)
+        step_num_start = step_num_stop + 1
+        total_steps = step_num_start
 
-    print(f"\n[STEP {step_num_stop}/{total_steps}] {restart_type} stopping services...")
-    stop_kwargs = {
-        "action_verb": "stopping",
-        "show_progress": True,
-        "wait": wait,
-    }
-    if force:
-        stop_kwargs["force_kill_timeout"] = force_timeout
+        print(f"\n[STEP {step_num_stop}/{total_steps}] {restart_type} stopping services...")
+        stop_kwargs = {
+            "action_verb": "stopping",
+            "show_progress": True,
+            "wait": wait,
+        }
+        if force:
+            stop_kwargs["force_kill_timeout"] = force_timeout
 
-    execute_parallel_command(
-        services_to_target,
-        util_stop_service,
-        **stop_kwargs
-    )
+        execute_parallel_command(
+            services_to_target,
+            util_stop_service,
+            **stop_kwargs
+        )
 
-    # STEP 2: Start Service
-    print(f"\n[STEP {step_num_start}/{total_steps}] Starting services...")
-    execute_parallel_command(
-        services_to_target,
-        util_start_service,
-        action_verb="starting",
-        show_progress=True,
-        wait=wait
-    )
+        # STEP 2: Start Service
+        print(f"\n[STEP {step_num_start}/{total_steps}] Starting services...")
+        execute_parallel_command(
+            services_to_target,
+            util_start_service,
+            action_verb="starting",
+            show_progress=True,
+            wait=wait
+        )
 
-    print(f"\n{restart_type} restart sequence complete.")
+        print(f"\n{restart_type} restart sequence finished successfully.")
 
+    finally:
+        # --- Restore Scheduler State ---
+        if scheduler_was_paused:
+            # site_name is guaranteed to be non-None if scheduler_was_paused is True
+            print(f"\n[cyan]Restoring original scheduler state ({original_scheduler_state}) for site '{site_name}'...[/cyan]", file=sys.stderr)
+            try:
+                # Construct path within the container where wait_for_jobs runs
+                site_config_path = Path(f"/workspace/frappe-bench/sites/{site_name}/site_config.json")
+                _update_site_config_scheduler(site_config_path, pause_value=original_scheduler_state, verbose=True)
+                print(f"[green]Scheduler state restored for site '{site_name}'.[/green]", file=sys.stderr)
+            except Exception as e:
+                print(f"\n[bold yellow]Warning:[/bold yellow] Failed to automatically restore scheduler state in {site_config_path}: {e}", file=sys.stderr)
+                print(f"[yellow]Please manually ensure 'pause_scheduler' is set correctly (should be {original_scheduler_state}) in the file.[/yellow]", file=sys.stderr)
+        # --- End Restore Scheduler State ---
+
+        # Final message indicating the whole process (including finally block) is done
+        print(f"\n{restart_type} restart process complete.")
     # --- End of Restart Execution ---

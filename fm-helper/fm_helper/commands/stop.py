@@ -77,8 +77,15 @@ def command(
             help="Specific job queue(s) to monitor when using --wait-jobs. Use multiple times (e.g., -q short -q long). Monitors all if not specified.",
         )
     ] = None,
+    pause_scheduler: Annotated[
+        bool,
+        typer.Option(
+            "--pause-scheduler",
+            help="Pause the Frappe scheduler before waiting for jobs and unpause after. Requires --wait-jobs and --site-name.",
+        )
+    ] = False,
 ):
-    """Stop services and optionally wait for jobs to complete."""
+    """Stop services, optionally wait for jobs, and optionally pause scheduler."""
     if not _cached_service_names:
         print(f"[bold red]Error:[/bold red] No supervisord services found to stop.", file=sys.stderr)
         print(f"Looked for socket files in: {FM_SUPERVISOR_SOCKETS_DIR}", file=sys.stderr)
@@ -97,7 +104,34 @@ def command(
     target_desc = "all services" if not service_names else f"service(s): [b cyan]{', '.join(services_to_target)}[/b cyan]"
     process_desc = f"process(es): [b yellow]{', '.join(process_name)}[/b yellow]" if process_name else "all processes"
 
-    print(f"Attempting to stop {process_desc} in {target_desc}...")
+    # --- Job Waiting Logic (Before Stop) ---
+    wait_success = True # Assume success if not waiting
+    if wait_jobs:
+        if not site_name:
+            print("[red]Error:[/red] --site-name is required when using --wait-jobs (and --pause-scheduler).")
+            raise typer.Exit(code=1)
+        if pause_scheduler and not wait_jobs:
+            print("[red]Error:[/red] --pause-scheduler can only be used with --wait-jobs.")
+            raise typer.Exit(code=1)
+        if process_name:
+             print("[yellow]Warning:[/yellow] --wait-jobs checks all jobs for the site, ignoring specific --process flags for the wait.")
+
+        pause_desc = " and pausing scheduler" if pause_scheduler else ""
+        print(f"[cyan]Waiting for active jobs first{pause_desc}...[/cyan]")
+        print("-" * 30)
+        wait_success = _run_wait_jobs(
+            site_name=site_name,
+            timeout=wait_jobs_timeout,
+            poll_interval=wait_jobs_poll,
+            queues=wait_jobs_queue,
+            pause_scheduler_during_wait=pause_scheduler
+        )
+        print("-" * 30)
+        if not wait_success:
+             print("[yellow]Continuing stop process despite job wait failure/timeout.[/yellow]")
+
+    # --- Stop Execution ---
+    print(f"\nAttempting to stop {process_desc} in {target_desc}...")
     execute_parallel_command(
         services_to_target,
         util_stop_service,
@@ -107,20 +141,4 @@ def command(
         wait=wait
     )
 
-    if wait_jobs:
-        if not site_name:
-            print("[red]Error:[/red] --site-name is required when using --wait-jobs.")
-            raise typer.Exit(code=1)
-        if process_name:
-             print("[yellow]Warning:[/yellow] --wait-jobs checks all jobs for the site, ignoring specific --process flags for the wait.")
-
-        print("-" * 30)
-        wait_success = _run_wait_jobs(
-            site_name=site_name,
-            timeout=wait_jobs_timeout,
-            poll_interval=wait_jobs_poll,
-            queues=wait_jobs_queue
-        )
-        print("-" * 30)
-        if not wait_success:
-             print("[yellow]Continuing stop process despite job wait failure/timeout.[/yellow]")
+    print("\nStop sequence complete.")

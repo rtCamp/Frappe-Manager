@@ -3,7 +3,7 @@ import sys
 import json
 import subprocess
 from enum import Enum
-from typing import Annotated, Optional, List
+from typing import Annotated, Optional, List, Tuple
 
 import typer
 from rich import print
@@ -188,10 +188,12 @@ def _run_wait_jobs(
     timeout: int,
     poll_interval: int,
     queues: Optional[List[str]] = None,
-) -> bool:
+    pause_scheduler_during_wait: bool = False,
+) -> Tuple[bool, Optional[int], bool]:
     """Calls the wait_for_jobs_to_finish function directly."""
     queue_desc = f"queues: {', '.join(queues)}" if queues else "all queues"
-    print(f"\n[cyan]Waiting up to {timeout}s for active jobs on site '{site_name}' ({queue_desc})...[/cyan]")
+    pause_msg = " (and pausing scheduler)" if pause_scheduler_during_wait else ""
+    print(f"\n[cyan]Waiting up to {timeout}s for active jobs on site '{site_name}' ({queue_desc}){pause_msg}...[/cyan]")
 
     try:
         result = wait_for_jobs_to_finish(
@@ -199,32 +201,36 @@ def _run_wait_jobs(
             timeout=timeout,
             poll_interval=poll_interval,
             queues=queues,
-            verbose=True
+            verbose=True,
+            pause_scheduler_during_wait=pause_scheduler_during_wait
         )
 
         status = result.get("status", "error")
         message = result.get("message", "No details provided.")
         remaining_jobs = result.get("remaining_jobs", -1)
+        # Extract scheduler info, defaulting if keys are missing (shouldn't happen)
+        original_state = result.get("original_scheduler_state")
+        was_paused = result.get("scheduler_was_paused", False)
 
         if status == "success":
             print(f"[green]Success:[/green] {message}")
-            return True
+            return True, original_state, was_paused
         elif status == "timeout":
             print(f"[yellow]Timeout:[/yellow] {message}")
             if remaining_jobs > 0:
                 print(f"  {remaining_jobs} job(s) might still be running.")
-            return False
+            return False, original_state, was_paused
         else:
             print(f"[red]Error waiting for jobs:[/red] {message}")
-            return False
+            return False, original_state, was_paused
 
     except ImportError as e:
         print(f"[bold red]Import Error:[/bold red] Failed to import Frappe modules. Is Frappe installed? ({e})", file=sys.stderr)
         print("  Job waiting requires access to the Frappe framework.", file=sys.stderr)
-        return False
+        return False, None, False
     except Exception as e:
         print(f"[bold red]Error:[/bold red] An unexpected error occurred during job waiting: {e}", file=sys.stderr)
-        return False
+        return False, None, False
 
 # --- Command Discovery and Registration ---
 import pkgutil

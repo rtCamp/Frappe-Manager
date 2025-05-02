@@ -3,9 +3,49 @@ import sys
 import time
 import json
 import os
+import frappe
+import sys
+import time
+import json
+import os
+import contextlib
+from pathlib import Path
 from typing import Optional, List, Tuple, Dict, Any
 from frappe.utils.background_jobs import get_queues
 from rich import print
+
+def _update_site_config_scheduler(config_path: Path, pause_value: Optional[int], verbose: bool = False) -> None:
+    """Update the scheduler pause state in a site's config file.
+    
+    Args:
+        config_path: Path to the site_config.json file
+        pause_value: Value to set for pause_scheduler (None to remove the key)
+        verbose: If True, print status messages
+    """
+    try:
+        # Read current config
+        with open(config_path) as f:
+            config = json.load(f)
+        
+        # Update pause_scheduler
+        if pause_value is None:
+            config.pop('pause_scheduler', None)  # Remove if exists
+        else:
+            config['pause_scheduler'] = pause_value
+        
+        # Write back
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=1)
+            
+        if verbose:
+            action = "Removed" if pause_value is None else f"Set to {pause_value}"
+            print(f"[dim]Updated {config_path}: pause_scheduler {action}[/dim]", file=sys.stderr)
+            
+    except Exception as e:
+        if verbose:
+            print(f"[yellow]Warning:[/yellow] Failed to update scheduler state in {config_path}: {e}", 
+                  file=sys.stderr)
+        raise
 
 def check_started_jobs(queues_to_monitor: Optional[List[str]] = None) -> Tuple[int, List[str]]:
     """
@@ -56,7 +96,8 @@ def wait_for_jobs_to_finish(
     poll_interval: int,
     queues: Optional[List[str]] = None,
     verbose: bool = False,
-    cleanup: bool = False
+    cleanup: bool = False,
+    pause_scheduler_during_wait: bool = False
 ) -> Dict[str, Any]:
     """
     Waits for currently 'started' Frappe background jobs to finish.
@@ -70,26 +111,55 @@ def wait_for_jobs_to_finish(
         poll_interval: Interval in seconds between checks.
         verbose: If True, print progress messages to stderr.
         cleanup: If True, explicitly close DB and Redis connections (default: False).
+        pause_scheduler_during_wait: If True, pause the scheduler during wait and restore after.
 
     Returns:
         A dictionary containing:
             'status': 'success', 'timeout', or 'error'.
             'message': A descriptive message.
             'remaining_jobs': The number of jobs remaining at the end (-1 on error).
+            'original_scheduler_state': The value of 'pause_scheduler' before modification (None, 0, or 1).
+            'scheduler_was_paused': Boolean indicating if this function paused the scheduler.
     """
-    result = {"status": "unknown", "message": "", "remaining_jobs": -1}
+    # Initialize result with new keys
+    result = {
+        "status": "unknown",
+        "message": "",
+        "remaining_jobs": -1,
+        "original_scheduler_state": None,
+        "scheduler_was_paused": False
+    }
     exit_code = 3 # Default to general error
-    original_cwd = None
+    original_cwd = None # Initialize original_cwd before try block
+    
+    # Handle scheduler pausing if requested
+    site_config_path = Path(f"/workspace/frappe-bench/sites/{site}/site_config.json")
+    
+    if pause_scheduler_during_wait:
+        try:
+            # Read current scheduler state
+            with open(site_config_path) as f:
+                config = json.load(f)
+                result["original_scheduler_state"] = config.get("pause_scheduler")
+            
+            # Pause the scheduler (set pause_scheduler to 1)
+            _update_site_config_scheduler(site_config_path, pause_value=1, verbose=verbose)
+            result["scheduler_was_paused"] = True
+            
+        except Exception as e:
+            if verbose:
+                print(f"[yellow]Warning:[/yellow] Failed to pause scheduler: {e}", file=sys.stderr)
 
     try:
-        # Store original CWD and change to target directory
-        original_cwd = os.getcwd()
-        target_cwd = "/workspace/frappe-bench/sites"
+        target_cwd = Path("/workspace/frappe-bench/sites") # Define target CWD
+        original_cwd = Path.cwd() # Store original CWD *before* changing
+
         if verbose: print(f"[dim]Changing CWD to {target_cwd}...[/dim]", file=sys.stderr)
         os.chdir(target_cwd)
 
         if verbose: print(f"[dim]Initializing Frappe for site '{site}'...[/dim]", file=sys.stderr)
-        frappe.init(site)
+        # Pass sites_path explicitly during init when CWD is changed
+        frappe.init(site=site, sites_path=str(target_cwd))
         if verbose: print(f"[dim]Connecting to database for site '{site}'...[/dim]", file=sys.stderr)
         frappe.connect()
 
@@ -101,7 +171,7 @@ def wait_for_jobs_to_finish(
             elapsed_time = current_time - start_time
 
             if elapsed_time > timeout:
-                result = {"status": "timeout", "message": f"Timeout exceeded ({timeout}s)", "remaining_jobs": last_job_count}
+                result.update({"status": "timeout", "message": f"Timeout exceeded ({timeout}s)", "remaining_jobs": last_job_count})
                 exit_code = 1
                 break
 
@@ -109,27 +179,26 @@ def wait_for_jobs_to_finish(
                 started_jobs_count, running_job_ids = check_started_jobs(queues_to_monitor=queues)
                 last_job_count = started_jobs_count # Store the last known count
             except Exception as e:
-                result = {"status": "error", "message": f"Error checking job status: {e}", "remaining_jobs": -1}
+                result.update({"status": "error", "message": f"Error checking job status: {e}", "remaining_jobs": -1})
                 exit_code = 2
                 break
 
             if started_jobs_count == 0:
-                result = {"status": "success", "message": "No 'started' jobs found.", "remaining_jobs": 0}
+                result.update({"status": "success", "message": "No 'started' jobs found.", "remaining_jobs": 0})
                 exit_code = 0
                 break
             else:
                 # Print running job IDs to stderr
-                print(f"\rWaiting... {started_jobs_count} 'started' job(s) remaining. IDs: {running_job_ids}", file=sys.stderr, end="")
+                print(f"\rWaiting... {started_jobs_count} 'started' job(s) remaining. IDs: {running_job_ids}", file=sys.stderr, end="\n")
                 time.sleep(poll_interval)
 
     except Exception as e:
         # Clear the stderr line on error
         print(file=sys.stderr)
-        result = {"status": "error", "message": f"An initialization or other error occurred: {e}", "remaining_jobs": -1}
+        result.update({"status": "error", "message": f"An initialization or other error occurred: {e}", "remaining_jobs": -1})
         exit_code = 3
 
     finally:
-        # Conditionally perform cleanup
         if cleanup:
             if frappe.local.db:
                 frappe.db.close()
@@ -146,10 +215,12 @@ def wait_for_jobs_to_finish(
 
         # frappe.destroy() # Avoid destroy for cleaner exit
 
-        # Restore original CWD if it was changed
-        if original_cwd:
+        # Restore original CWD if it was changed and is different
+        if original_cwd and Path.cwd() != original_cwd:
             if verbose: print(f"[dim]Restoring CWD to {original_cwd}...[/dim]", file=sys.stderr)
             os.chdir(original_cwd)
 
+        # Ensure final newline after potential \r updates from the loop
+        print(file=sys.stderr)
         return result
 
