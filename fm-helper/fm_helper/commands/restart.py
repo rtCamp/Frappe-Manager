@@ -104,7 +104,7 @@ def command(
         bool,
         typer.Option(
             "--maintenance-mode",
-            help="Set 'maintenance_mode: 1' in site_config.json before waiting for jobs and restore original state after waiting. Requires --wait-jobs and --site-name.",
+            help="Set 'maintenance_mode: true' in site_config.json before waiting for jobs and restore original state after waiting. Requires --wait-jobs and --site-name.",
         )
     ] = False,
 ):
@@ -163,12 +163,12 @@ def command(
                     site_config_path, "maintenance_mode", default=None, verbose=True
                 )
 
-                if original_maintenance_state != 1:
-                    _update_site_config_key(site_config_path, "maintenance_mode", 1, verbose=True)
+                if original_maintenance_state is not True:
+                    _update_site_config_key(site_config_path, "maintenance_mode", True, verbose=True)
                     maintenance_was_managed_by_script = True
-                    print(f"[green]'maintenance_mode' key set to 1 for site: {site_name}.[/green]")
+                    print(f"[green]'maintenance_mode' key set to true for site: {site_name}.[/green]")
                 else:
-                    print("[dim]'maintenance_mode' key already set to 1. No action taken.[/dim]")
+                    print("[dim]'maintenance_mode' key already set to true. No action taken.[/dim]")
 
             except Exception as e:
                 print(f"[bold red]Error:[/bold red] Failed to check or set 'maintenance_mode' key for site {site_name}: {e}")

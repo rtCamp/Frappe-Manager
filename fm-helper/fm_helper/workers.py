@@ -193,12 +193,12 @@ def wait_for_jobs_to_finish(
                 site_config_path, "pause_scheduler", default=None, verbose=verbose
             )
             
-            # Pause the scheduler only if it's not already paused
-            if result["original_scheduler_state"] != 1:
-                _update_site_config_key(site_config_path, key_name="pause_scheduler", value=1, verbose=verbose)
+            # Pause the scheduler only if it's not already True
+            if result["original_scheduler_state"] is not True:
+                _update_site_config_key(site_config_path, key_name="pause_scheduler", value=True, verbose=verbose)
                 result["scheduler_was_paused"] = True
             elif verbose:
-                 print(f"[dim]'pause_scheduler' already set to 1. No change needed.[/dim]", file=sys.stderr)
+                 print(f"[dim]'pause_scheduler' already set to true. No change needed.[/dim]", file=sys.stderr)
 
         except Exception as e: # Catch potential errors from _update_site_config_key as well
             if verbose:
