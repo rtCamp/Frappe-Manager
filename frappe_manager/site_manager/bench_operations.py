@@ -173,10 +173,11 @@ class BenchOperations:
                 self.bench.name, "Failed to configure supervisor."
             )
             self.container_run(bench_setup_supervisor_command, bench_setup_supervisor_exception)
-            self.split_supervisor_config()
+            #self.split_supervisor_config(blue_green_deployment=getattr(self.bench.bench_config, 'blue_green_workers', False))
+            self.split_supervisor_config(blue_green_deployment=True)
             richprint.print("Configured supervisor configs")
 
-    def split_supervisor_config(self):
+    def split_supervisor_config(self, blue_green_deployment: bool = False):
         import configparser
 
         supervisor_conf_path: Path = self.frappe_bench_dir / "config" / "supervisor.conf"
@@ -190,39 +191,64 @@ class BenchOperations:
 
         for section_name in config.sections():
             if "group:" not in section_name:
-                section_config = configparser.ConfigParser(interpolation=None)
-                section_config.add_section(section_name)
-                for key, value in config.items(section_name):
-                    if handle_symlink_frappe_dir:
-                        to_replace = str(self.frappe_bench_dir.readlink())
-
-                        if to_replace in value:
-                            value = value.replace(to_replace, self.frappe_bench_dir.name)
-
-                    if "frappe-web" in section_name:
-                        if key == "command":
-                            value = value.replace("127.0.0.1:80", "0.0.0.0:80")
-                    section_config.set(section_name, key, value)
-
+                # Determine output file name based on original section name
                 section_name_delimeter = '-frappe-'
-
                 if '-node-' in section_name:
                     section_name_delimeter = '-node-'
 
-                file_name_prefix = section_name.split(section_name_delimeter)
-
-                file_name_prefix = file_name_prefix[-1]
+                file_name_prefix = section_name.split(section_name_delimeter)[-1]
                 file_name = file_name_prefix + ".fm.supervisor.conf"
-
                 if "worker" in section_name:
                     file_name = file_name_prefix + ".workers.fm.supervisor.conf"
 
                 new_file: Path = supervisor_conf_path.parent / file_name
 
-                with open(new_file, "w") as section_file:
-                    section_config.write(section_file)
+                # Blue/Green logic for workers
+                if blue_green_deployment and "worker" in section_name:
+                    blue_section_name = f"{section_name}_blue"
+                    green_section_name = f"{section_name}_green"
 
-                self.bench.logger.info(f"Split supervisor conf {section_name} => {file_name}")
+                    combined_config = configparser.ConfigParser(interpolation=None)
+                    combined_config.add_section(blue_section_name)
+                    combined_config.add_section(green_section_name)
+
+                    for key, value in config.items(section_name):
+                        if handle_symlink_frappe_dir:
+                            to_replace = str(self.frappe_bench_dir.readlink())
+                            if to_replace in value:
+                                value = value.replace(to_replace, self.frappe_bench_dir.name)
+
+                        combined_config.set(blue_section_name, key, value)
+                        combined_config.set(green_section_name, key, value)
+
+                    # Set autostart for blue and green
+                    combined_config.set(blue_section_name, 'autostart', 'true')
+                    combined_config.set(green_section_name, 'autostart', 'false')
+
+                    with open(new_file, "w") as section_file:
+                        combined_config.write(section_file)
+
+                    self.bench.logger.info(f"Split supervisor conf {section_name} => {blue_section_name} & {green_section_name} in {file_name}")
+
+                # Standard logic for non-workers or when blue/green is disabled
+                else:
+                    section_config = configparser.ConfigParser(interpolation=None)
+                    section_config.add_section(section_name)
+                    for key, value in config.items(section_name):
+                        if handle_symlink_frappe_dir:
+                            to_replace = str(self.frappe_bench_dir.readlink())
+                            if to_replace in value:
+                                value = value.replace(to_replace, self.frappe_bench_dir.name)
+
+                        if "frappe-web" in section_name:
+                            if key == "command":
+                                value = value.replace("127.0.0.1:80", "0.0.0.0:80")
+                        section_config.set(section_name, key, value)
+
+                    with open(new_file, "w") as section_file:
+                        section_config.write(section_file)
+
+                    self.bench.logger.info(f"Split supervisor conf {section_name} => {file_name}")
 
     def setup_frappe_server_config(self):
         bench_serve_help_output: Optional[SubprocessOutput] = self.container_run(
