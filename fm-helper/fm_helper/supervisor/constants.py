@@ -12,3 +12,9 @@ class ProcessStates(IntEnum):
     UNKNOWN = 1000
 
 STOPPED_STATES = (ProcessStates.STOPPED, ProcessStates.EXITED, ProcessStates.FATAL)
+
+# Constants for worker process identification
+WORKER_PROCESS_IDENTIFIERS = ["-worker", "worker-", "_worker", "worker_"]
+def is_worker_process(process_name: str) -> bool:
+    """Check if a process name indicates it's a worker process."""
+    return any(identifier in process_name.lower() for identifier in WORKER_PROCESS_IDENTIFIERS)

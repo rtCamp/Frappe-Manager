@@ -1,5 +1,5 @@
 import socket
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 from xmlrpc.client import ProtocolError
 
 from .exceptions import SupervisorConnectionError
@@ -19,7 +19,8 @@ def execute_supervisor_command(
     action: str,
     process_names: Optional[List[str]] = None,
     wait: bool = True,
-    force_kill_timeout: Optional[int] = None
+    force_kill_timeout: Optional[int] = None,
+    wait_workers: bool = False
 ) -> Any: # Return type depends on action
     """Execute supervisor commands, raising exceptions on failure.
 
@@ -31,14 +32,12 @@ def execute_supervisor_command(
     try:
         if action == "stop":
             # Pass force_kill_timeout to _handle_stop
-            return _handle_stop(supervisor_api, service_name, process_names, wait, force_kill_timeout)
+            return _handle_stop(supervisor_api, service_name, process_names, wait, force_kill_timeout, wait_workers)
         elif action == "start":
             return _handle_start(supervisor_api, service_name, process_names, wait)
         elif action == "restart":
-            # Note: Restart currently doesn't support force_kill_timeout directly in its sequence
-            # It relies on the _handle_stop call within it, which *doesn't* get the timeout here.
-            # If force_kill is needed for restart, _handle_restart needs modification.
-            return _handle_restart(supervisor_api, service_name, process_names, wait)
+            # Pass force_kill_timeout and wait_workers to handle_restart
+            return _handle_restart(supervisor_api, service_name, process_names, wait, force_kill_timeout, wait_workers)
         elif action == "info":
             return _handle_info(supervisor_api, service_name)
         else:

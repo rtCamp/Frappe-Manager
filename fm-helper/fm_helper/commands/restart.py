@@ -107,8 +107,15 @@ def command(
             help="Set 'maintenance_mode: true' in site_config.json before waiting for jobs and restore original state after waiting. Requires --wait-jobs and --site-name.",
         )
     ] = False,
+    wait_workers: Annotated[
+        bool,
+        typer.Option(
+            "--wait-workers/--no-wait-workers",
+            help="Explicitly wait for processes containing '-worker' to stop gracefully during the stop phase of restart (primarily relevant with --force-timeout).",
+        )
+    ] = False,
 ):
-    """Restart services with optional job waiting, scheduler pausing, and maintenance mode key setting."""
+    """Restart services with optional job waiting, scheduler pausing, maintenance mode, and worker waiting."""
     if not _cached_service_names:
         print(f"[bold red]Error:[/bold red] No supervisord services found to restart.", file=sys.stderr)
         print(f"Looked for socket files in: {FM_SUPERVISOR_SOCKETS_DIR}", file=sys.stderr)
@@ -224,6 +231,7 @@ def command(
             "action_verb": "stopping",
             "show_progress": True,
             "wait": wait,
+            "wait_workers": wait_workers,
         }
         if force:
             stop_kwargs["force_kill_timeout"] = force_timeout

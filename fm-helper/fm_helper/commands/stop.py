@@ -84,8 +84,15 @@ def command(
             help="Pause the Frappe scheduler before waiting for jobs and unpause after. Requires --wait-jobs and --site-name.",
         )
     ] = False,
+    wait_workers: Annotated[
+        bool,
+        typer.Option(
+            "--wait-workers/--no-wait-workers",
+            help="Explicitly wait for processes containing '-worker' to stop gracefully during the stop sequence (primarily relevant with --force-timeout).",
+        )
+    ] = False,
 ):
-    """Stop services, optionally wait for jobs, and optionally pause scheduler."""
+    """Stop services, optionally wait for jobs, optionally pause scheduler, and optionally wait specifically for workers."""
     if not _cached_service_names:
         print(f"[bold red]Error:[/bold red] No supervisord services found to stop.", file=sys.stderr)
         print(f"Looked for socket files in: {FM_SUPERVISOR_SOCKETS_DIR}", file=sys.stderr)
@@ -138,7 +145,8 @@ def command(
         action_verb="stopping",
         show_progress=True,
         process_name_list=process_name,
-        wait=wait
+        wait=wait,
+        wait_workers=wait_workers
     )
 
     print("\nStop sequence complete.")

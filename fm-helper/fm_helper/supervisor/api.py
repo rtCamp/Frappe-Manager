@@ -21,19 +21,22 @@ def stop_service(
     service_name: str,
     process_name_list: Optional[List[str]] = None,
     wait: bool = True,
-    force_kill_timeout: Optional[int] = None
+    force_kill_timeout: Optional[int] = None,
+    wait_workers: bool = False
 ) -> bool:
     """Stop specific processes or all processes in a service.
     
     If force_kill_timeout is provided, attempts graceful stop, waits for the
     timeout, and then sends SIGKILL if the process is still running.
+    If wait_workers is True, adds an explicit check for worker processes stopping.
     """
     try:
         return execute_supervisor_command(
             service_name, "stop",
             process_names=process_name_list,
             wait=wait,
-            force_kill_timeout=force_kill_timeout
+            force_kill_timeout=force_kill_timeout,
+            wait_workers=wait_workers
         ) or False
     except SupervisorError as e:
         print(f"[red]Error stopping {service_name}:[/red] {str(e)}")
@@ -57,13 +60,22 @@ def start_service(
 
 def restart_service(
     service_name: str,
-    wait: bool = True
+    wait: bool = True,
+    wait_workers: bool = False,
+    force_kill_timeout: Optional[int] = None
 ) -> bool:
-    """Restart a service (all its processes)."""
+    """Restart a service (all its processes).
+
+    If wait_workers is True, adds an explicit check for worker processes stopping
+    during the stop phase.
+    If force_kill_timeout is provided, it's used during the stop phase.
+    """
     try:
         return execute_supervisor_command(
             service_name, "restart",
-            wait=wait
+            wait=wait,
+            wait_workers=wait_workers,
+            force_kill_timeout=force_kill_timeout
         ) or False
     except SupervisorError as e:
         print(f"[red]Error restarting {service_name}:[/red] {str(e)}")
