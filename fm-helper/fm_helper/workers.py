@@ -168,6 +168,10 @@ def wait_for_jobs_to_finish(
             'message': A descriptive message.
             'remaining_jobs': The number of jobs remaining at the end (-1 on error).
     """
+    # Store original CWD for restoration later
+    original_cwd = Path.cwd()
+    target_cwd = Path("/workspace/frappe-bench")
+
     # Initialize result
     result = {
         "status": "unknown",

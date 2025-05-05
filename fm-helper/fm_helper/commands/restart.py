@@ -3,7 +3,12 @@ import sys
 import signal
 import os
 from typing import Annotated, Optional, List, Tuple, Any
-from ..rq_controller import control_rq_workers, check_rq_suspension, ActionEnum
+from ..rq_controller import (
+    control_rq_workers, 
+    check_rq_suspension, 
+    wait_for_rq_workers_suspended,
+    ActionEnum
+)
 from ..supervisor.executor import execute_supervisor_command
 
 
@@ -137,6 +142,13 @@ def command(
             help="Set 'maintenance_mode: true' in site_config.json before waiting for jobs and restore original state after waiting. Requires --wait-jobs and --site-name.",
         )
     ] = False,
+    suspend_rq: Annotated[
+        bool,
+        typer.Option(
+            "--suspend-rq",
+            help="Suspend RQ workers via Redis flag before restarting. Requires Redis connection info in common_site_config.json.",
+        )
+    ] = False,
     wait: Annotated[
         bool,
         typer.Option(
@@ -144,21 +156,50 @@ def command(
             help="Wait for the final supervisor restart operations to complete before returning.",
         )
     ] = True,
+    wait_workers: Annotated[
+        bool,
+        typer.Option(
+            "--wait-workers",
+            help="Wait for RQ workers to become idle/suspended before restarting. Mutually exclusive with --wait-jobs. Implies --suspend-rq.",
+        )
+    ] = False,
+    wait_workers_timeout: Annotated[
+        int,
+        typer.Option(
+            "--wait-workers-timeout",
+            help="Timeout (seconds) for --wait-workers (default: 300).",
+        )
+    ] = 300,
+    wait_workers_poll: Annotated[
+        int,
+        typer.Option(
+            "--wait-workers-poll", 
+            help="Polling interval (seconds) for --wait-workers (default: 5).",
+        )
+    ] = 5,
+    wait_workers_verbose: Annotated[
+        bool,
+        typer.Option(
+            "--wait-workers-verbose",
+            help="Show detailed worker states during --wait-workers checks.",
+        )
+    ] = False,
 ):
     """
-    Restart services using RQ's Redis-based suspension for graceful shutdown.
+    Restart services using standard supervisor stop-then-start.
+
+    Supports two methods of graceful worker shutdown:
+    1. Redis-based suspension (--suspend-rq or --wait-workers)
+    2. Job completion waiting (--wait-jobs with optional --pause-scheduler)
 
     [bold]Workflow:[/bold]
-    1. Sets the 'rq:suspended' flag in Redis for the specified site, causing workers
-       to finish their current job and then pause without picking up new ones.
-    2. Verifies the suspension flag is set in Redis.
-    3. (Optional) Sets 'maintenance_mode: true' in site_config.json (--maintenance-mode).
-    4. (Optional) Waits for Frappe background jobs to complete (--wait-jobs),
+    1. (Optional, if --suspend-rq) Sets the 'rq:suspended' flag in Redis, verifies it.
+    2. (Optional, if --wait-jobs) Sets 'maintenance_mode: true' in common_site_config.json (--maintenance-mode).
+    3. (Optional, if --wait-jobs) Waits for Frappe background jobs to complete,
        potentially pausing the scheduler (--pause-scheduler).
-    5. (Optional) Restores the original 'maintenance_mode' value in site_config.json.
-    6. Restarts all target services using standard supervisor stop-then-start.
-    7. (Finally) Restores the original scheduler state if it was paused.
-    8. (Finally) Removes the 'rq:suspended' flag from Redis to allow workers to resume.
+    4. (Optional, if --wait-jobs) Restores the original 'maintenance_mode' value.
+    5. Restarts all target services using standard supervisor stop-then-start.
+    6. (Finally, if --suspend-rq) Removes the 'rq:suspended' flag from Redis.
     """
     if not _cached_service_names:
         print(f"[bold red]Error:[/bold red] No supervisord services found to restart.", file=sys.stderr)
@@ -178,44 +219,63 @@ def command(
     target_desc = "all services" if not service_names else f"service(s): [b cyan]{', '.join(services_to_target)}[/b cyan]"
     print(f"Attempting Restart (Suspend + Wait + Restart) for {target_desc}...")
 
-    # --- STEP 1: Suspend Workers (SIGUSR2) ---
     # --- STEP 1: Suspend Workers (via Redis Flag) ---
-    print("\n[STEP 1/3] Suspending RQ workers via Redis flag...")
-    try:
-        # Call without site parameter
-        success = control_rq_workers(action=ActionEnum.suspend)
+    is_waiting_workers = wait_workers
+    suspension_needed = suspend_rq or is_waiting_workers
+    if suspension_needed:
+        print("\n[Optional Step] Suspending RQ workers via Redis flag...")
+        try:
+            # Call without site parameter
+            success = control_rq_workers(action=ActionEnum.suspend)
 
-        if not success:
-            print(f"[bold red]Error:[/bold red] Failed to suspend RQ workers for site '{site_name}' via Redis.")
-            print("Check logs above for details from rq_controller.")
-            print("Aborting restart.")
-            raise typer.Exit(code=1) # Raise Exit from restart command
-        else:
-            # Success message is printed by control_rq_workers
-            print("[green]RQ workers suspended via Redis flag.[/green]") # Keep overall status
-
-            # --- Verify Suspension ---
-            print("[dim]Verifying suspension status...[/dim]")
-            suspension_status = check_rq_suspension()
-
-            if suspension_status is True:
-                print("[green]Verification successful: RQ suspension flag is set in Redis.[/green]")
-            elif suspension_status is False:
-                print("[bold red]Error:[/bold red] Verification failed: RQ suspension flag was NOT found in Redis after attempting to set it.")
+            if not success:
+                print("[bold red]Error:[/bold red] Failed to suspend RQ workers via Redis.")
+                print("Check logs above for details from rq_controller.")
                 print("Aborting restart.")
-                raise typer.Exit(code=1)
-            else: # suspension_status is None
-                print("[bold red]Error:[/bold red] Could not verify suspension status due to an error during the check.")
-                print("Check logs above for details from rq_controller check.")
-                print("Aborting restart.")
-                raise typer.Exit(code=1)
-            # --- End Verification ---
+                raise typer.Exit(code=1) # Raise Exit from restart command
+            else:
+                # Success message is printed by control_rq_workers
+                print("[green]RQ workers suspended via Redis flag.[/green]") # Keep overall status
 
-    except Exception as e: # Catch unexpected errors *calling* control_rq_workers OR check_rq_suspension
-        print(f"[bold red]Error:[/bold red] An unexpected error occurred during worker suspension or verification: {e}")
-        import traceback
-        traceback.print_exc()
-        raise typer.Exit(code=1)
+                # --- Verify Suspension ---
+                print("[dim]Verifying suspension status...[/dim]")
+                suspension_status = check_rq_suspension()
+
+                if suspension_status is True:
+                    print("[green]Verification successful: RQ suspension flag is set in Redis.[/green]")
+                elif suspension_status is False:
+                    print("[bold red]Error:[/bold red] Verification failed: RQ suspension flag was NOT found in Redis after attempting to set it.")
+                    print("Aborting restart.")
+                    raise typer.Exit(code=1)
+                else: # suspension_status is None
+                    print("[bold red]Error:[/bold red] Could not verify suspension status due to an error during the check.")
+                    print("Check logs above for details from rq_controller check.")
+                    print("Aborting restart.")
+                    raise typer.Exit(code=1)
+                # --- End Verification ---
+
+                # Optional: Add message indicating noop jobs were handled
+                print("[dim]Noop jobs enqueued (if applicable). Proceeding...[/dim]")
+
+                # If --wait-workers is active, wait for workers to complete
+                if wait_workers:
+                    print("\n[cyan]Waiting for RQ workers to complete their current jobs...[/cyan]")
+                    if not wait_for_rq_workers_suspended(
+                        timeout=wait_workers_timeout,
+                        poll_interval=wait_workers_poll,
+                        verbose=wait_workers_verbose
+                    ):
+                        print("[red]Error:[/red] Workers did not become idle within the timeout period.")
+                        print("Aborting restart to avoid interrupting jobs.")
+                        # Resume workers before exiting
+                        control_rq_workers(action=ActionEnum.resume)
+                        raise typer.Exit(code=1)
+
+        except Exception as e: # Catch unexpected errors *calling* control_rq_workers OR check_rq_suspension
+            print(f"[bold red]Error:[/bold red] An unexpected error occurred during worker suspension or verification: {e}")
+            import traceback
+            traceback.print_exc()
+            raise typer.Exit(code=1)
 
     # --- End STEP 1 ---
 
@@ -234,6 +294,12 @@ def command(
 
     if maintenance_mode and not wait_jobs:
         print("[red]Error:[/red] --maintenance-mode requires --wait-jobs.")
+        raise typer.Exit(code=1)
+        
+    if wait_workers is not None and wait_jobs:
+        print("[red]Error:[/red] --wait-workers and --wait-jobs are mutually exclusive.")
+        print("Use --wait-workers for simple worker completion waiting, or")
+        print("--wait-jobs for full job queue monitoring with optional scheduler pause.")
         raise typer.Exit(code=1)
 
     resume_called = False # Flag to ensure resume is called only once
@@ -262,7 +328,7 @@ def command(
 
         pause_desc = " and pausing scheduler" if pause_scheduler else ""
         maint_desc = " (after setting maintenance mode key)" if maintenance_was_managed_by_script else ""
-        print(f"[cyan][STEP 2/3] Optional: Waiting for active jobs{pause_desc}{maint_desc}...[/cyan]")
+        print(f"[cyan][Optional Step] Waiting for active jobs{pause_desc}{maint_desc}...[/cyan]")
         print("-" * 30)
         # Call wait_jobs function
         wait_success = _run_wait_jobs(
@@ -295,7 +361,7 @@ def command(
     # --- Restart Execution ---
     job_wait_performed = wait_jobs # Keep track if we waited
 
-    print(f"\n[STEP 3/3] Restarting {target_desc} (standard stop-then-start)...")
+    print(f"\n[Main Step] Restarting {target_desc} (standard stop-then-start)...")
 
     try:
         # Execute the restart command in parallel using the single restart function
@@ -315,7 +381,7 @@ def command(
     finally:
 
         # --- Resume Workers ---
-        if not resume_called:
+        if suspension_needed and not resume_called:
             print("\n[cyan]Attempting to resume RQ workers via Redis flag...[/cyan]", file=sys.stderr)
             try:
                 # Call without site parameter
