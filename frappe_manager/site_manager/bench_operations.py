@@ -1,4 +1,5 @@
 from collections.abc import Iterable
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from frappe_manager import CLI_DEFAULT_DELIMETER, STABLE_APP_BRANCH_MAPPING_LIST
@@ -24,7 +25,7 @@ from frappe_manager.utils.site import get_all_docker_images
 class BenchOperations:
     def __init__(self, bench) -> None:
         self.bench = bench
-        self.bench_cli_cmd = ["/opt/.pyenv/shims/bench"]
+        self.bench_cli_cmd = ['/opt/user/.bin/bench_orig']
         self.frappe_bench_dir: Path = self.bench.path / "workspace" / "frappe-bench"
 
     def create_fm_bench(self):
@@ -188,6 +189,8 @@ class BenchOperations:
 
         if self.frappe_bench_dir.is_symlink():
             handle_symlink_frappe_dir = True
+            symlink_target = str(self.frappe_bench_dir.readlink())
+            symlink_name = self.frappe_bench_dir.name
 
         for section_name in config.sections():
             if "group:" not in section_name:
@@ -203,52 +206,25 @@ class BenchOperations:
 
                 new_file: Path = supervisor_conf_path.parent / file_name
 
-                # Blue/Green logic for workers
-                if blue_green_deployment and "worker" in section_name:
-                    blue_section_name = f"{section_name}_blue"
-                    green_section_name = f"{section_name}_green"
+                section_config = configparser.ConfigParser(interpolation=None)
+                section_config.add_section(section_name)
+                for key, original_value in config.items(section_name):
+                    value = original_value
 
-                    combined_config = configparser.ConfigParser(interpolation=None)
-                    combined_config.add_section(blue_section_name)
-                    combined_config.add_section(green_section_name)
-
-                    for key, value in config.items(section_name):
-                        if handle_symlink_frappe_dir:
-                            to_replace = str(self.frappe_bench_dir.readlink())
-                            if to_replace in value:
-                                value = value.replace(to_replace, self.frappe_bench_dir.name)
-
-                        combined_config.set(blue_section_name, key, value)
-                        combined_config.set(green_section_name, key, value)
-
-                    # Set autostart for blue and green
-                    combined_config.set(blue_section_name, 'autostart', 'true')
-                    combined_config.set(green_section_name, 'autostart', 'false')
-
-                    with open(new_file, "w") as section_file:
-                        combined_config.write(section_file)
-
-                    self.bench.logger.info(f"Split supervisor conf {section_name} => {blue_section_name} & {green_section_name} in {file_name}")
-
-                # Standard logic for non-workers or when blue/green is disabled
-                else:
-                    section_config = configparser.ConfigParser(interpolation=None)
-                    section_config.add_section(section_name)
-                    for key, value in config.items(section_name):
-                        if handle_symlink_frappe_dir:
-                            to_replace = str(self.frappe_bench_dir.readlink())
-                            if to_replace in value:
-                                value = value.replace(to_replace, self.frappe_bench_dir.name)
-
+                    if key == "command":
                         if "frappe-web" in section_name:
-                            if key == "command":
-                                value = value.replace("127.0.0.1:80", "0.0.0.0:80")
-                        section_config.set(section_name, key, value)
+                            value = value.replace("127.0.0.1:80", "0.0.0.0:80")
 
-                    with open(new_file, "w") as section_file:
-                        section_config.write(section_file)
+                    if handle_symlink_frappe_dir:
+                        if symlink_target in value:
+                            value = value.replace(symlink_target, symlink_name)
 
-                    self.bench.logger.info(f"Split supervisor conf {section_name} => {file_name}")
+                    section_config.set(section_name, key, value)
+
+                with open(new_file, "w") as section_file:
+                    section_config.write(section_file)
+
+                self.bench.logger.info(f"Split supervisor conf {section_name} => {file_name}")
 
     def setup_frappe_server_config(self):
         bench_serve_help_output: Optional[SubprocessOutput] = self.container_run(

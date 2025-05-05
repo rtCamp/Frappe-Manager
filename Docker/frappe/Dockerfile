@@ -134,7 +134,11 @@ RUN git clone --depth 1 https://github.com/pyenv/pyenv.git .pyenv \
     # https://github.com/docker-library/python/blob/789d789e4a8db71d3d393667971c49b845ffdc3f/3.11/alpine3.19/Dockerfile#L106-L111
     && find /opt/.pyenv/versions -depth \( \( -type d -a \( -name test -o -name tests -o -name idle_test \) \) -o \( -type f -a \( -name '*.pyc' -o -name '*.pyo' -o -name 'libpython*.a' \) \) \) -exec rm -rf '{}' + ;
 
-RUN pip install frappe-bench
+RUN mkdir -p /opt/user/.bin /opt/user/conf.d \
+    && python -m venv /opt/user/bench-venv \
+    && /opt/user/bench-venv/bin/pip install frappe-bench \
+    && chown -R frappe:frappe /opt/user/bench-venv \
+    && ln -s /opt/user/bench-venv/bin/bench /opt/user/.bin/bench_orig
 
 RUN mkdir -p /opt/.nvm \
     && wget -qO- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.0/install.sh | bash \
@@ -153,8 +157,6 @@ RUN mkdir -p /opt/.nvm \
 RUN mkdir -p /workspace
 
 WORKDIR /workspace
-
-RUN mkdir -p /opt/user/.bin /opt/user/conf.d
 
 RUN echo 'export PATH="/opt/user/.bin:$PATH"' >> "$USERZSHRC"
 
