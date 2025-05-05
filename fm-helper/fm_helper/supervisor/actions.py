@@ -10,6 +10,7 @@ from .stop_helpers import (
     _stop_single_process_with_logic,
     _wait_for_worker_processes_stop
 )
+from rich import print
 
 
 def _handle_stop(
@@ -300,26 +301,6 @@ def _handle_restart(
     action = "restart"
     print(f"Initiating restart for [b magenta]{service_name}[/b magenta]...")
 
-    # --- Get Initial State ---
-    try:
-        all_initial_info = supervisor_api.getAllProcessInfo()
-        initial_process_map = {info['name']: info for info in all_initial_info}
-        initial_running_processes = {
-            name for name, info in initial_process_map.items()
-            if info['state'] == ProcessStates.RUNNING
-        }
-    except (Fault, SupervisorConnectionError) as e:
-        # Use err_msg variable defined earlier
-        err_msg = e.faultString if isinstance(e, Fault) else str(e)
-        print(f"[red]Error getting initial process list for {service_name}: {err_msg}[/red]")
-        # Try to raise specific error, but handle potential double-raise
-        try:
-            _raise_exception_from_fault(e, service_name, "getAllProcessInfo (restart initial)")
-        except SupervisorError: # Catch the specific error raised
-             raise # Re-raise it
-        except Exception as inner_e: # Catch unexpected errors during raise
-             raise SupervisorOperationFailedError(f"Failed to get initial state: {err_msg}", service_name=service_name, original_exception=e) from inner_e
-        return False # Should not be reached
 
     # --- Standard Restart Strategy (Only strategy now) ---
     # The wait_workers flag is implicitly handled by _handle_stop
@@ -333,15 +314,9 @@ def _handle_restart(
         print(f"[red]Error:[/red] Failed to stop all processes during standard restart of {service_name}. Aborting start.")
         raise SupervisorOperationFailedError("Failed to stop processes during standard restart", service_name=service_name)
 
-    print(f"  Starting previously running processes in {service_name}...")
-    # Only start processes that were initially running
-    processes_to_start = list(initial_running_processes)
-    if not processes_to_start:
-        print("  No processes were running initially. Nothing to start.")
-        return True # Considered success as stop worked and nothing needed starting
-
-    # Call simplified _handle_start
-    start_results = _handle_start(supervisor_api, service_name, processes_to_start, wait, verbose=False)
+    print(f"  Starting all defined processes in {service_name}...")
+    # Call _handle_start with None to start all defined processes
+    start_results = _handle_start(supervisor_api, service_name, None, wait, verbose=False)
 
     # _handle_start now raises SupervisorOperationFailedError on failure
     # No need to check start_results["failed"] here, exception handling covers it
@@ -367,26 +342,62 @@ def _handle_signal(supervisor_api, service_name: str, process_names: List[str], 
         print("  No specific processes provided to signal.")
         return True # Nothing to do
 
-    for process_name in process_names:
+    # --- Get All Process Info Once ---
+    try:
+        all_info = supervisor_api.getAllProcessInfo()
+        if not all_info:
+            print(f"No processes found running in [b magenta]{service_name}[/b magenta]. Cannot send signal.")
+            return True # Nothing to signal if no processes exist
+        # Create a map of simple name -> full info dict
+        process_info_map = {info['name']: info for info in all_info}
+    except Fault as e:
+        print(f"[red]Error getting process list for {service_name} before signaling: {e.faultString}[/red]")
+        _raise_exception_from_fault(e, service_name, "getAllProcessInfo (signal)")
+        return False # Indicate failure if we can't get the process list
+    except Exception as e: # Catch other unexpected errors
+        print(f"[red]Unexpected error getting process list for {service_name} before signaling: {e}[/red]")
+        return False
+    # --- End Get All Process Info ---
+
+    for requested_name in process_names:
+        # --- Look up info and construct API name ---
+        process_info = process_info_map.get(requested_name)
+
+        if not process_info:
+            print(f"  [yellow]Warning:[/yellow] Process [b green]{requested_name}[/b green] not found or not running in {service_name}. Skipping signal.")
+            results[requested_name] = True # Treat missing process as success for signaling
+            continue # Move to the next requested name
+
+        group_name = process_info.get('group')
+        name_for_api = requested_name # Default to simple name
+
+        # Construct 'group:name' format if needed
+        if group_name and not requested_name.startswith(f"{group_name}:"):
+            name_for_api = f"{group_name}:{requested_name}"
+        # --- End Look up info ---
+
         try:
-            # Pass signal name directly, supervisor should handle it
-            supervisor_api.signalProcess(process_name, signal_name.upper())
-            results[process_name] = True
+            # Use name_for_api in the call
+            supervisor_api.signalProcess(name_for_api, signal_name.upper())
+            results[requested_name] = True # Use requested_name as key for results
         except Fault as e:
             fault_string = getattr(e, 'faultString', '')
+            # Use requested_name in messages
             if "BAD_NAME" in fault_string:
-                print(f"  [dim]Process {process_name} not found (BAD_NAME). Skipping signal.[/dim]")
-                results[process_name] = True # Treat as success (process gone)
+                print(f"  [dim]Process {requested_name} not found by supervisor (BAD_NAME). Skipping signal.[/dim]")
+                results[requested_name] = True # Treat as success (process gone)
             elif "NOT_RUNNING" in fault_string:
-                print(f"  [dim]Process {process_name} not running (NOT_RUNNING). Skipping signal.[/dim]")
-                results[process_name] = True # Treat as success (process stopped)
+                print(f"  [dim]Process {requested_name} not running (NOT_RUNNING). Skipping signal.[/dim]")
+                results[requested_name] = True # Treat as success (process stopped)
             else:
-                print(f"  [red]Error signaling process {process_name}: {e.faultString}[/red]")
-                _raise_exception_from_fault(e, service_name, action, process_name)
-                results[process_name] = False
+                print(f"  [red]Error signaling process {requested_name}: {e.faultString}[/red]")
+                # Pass requested_name to the fault handler
+                _raise_exception_from_fault(e, service_name, action, requested_name)
+                results[requested_name] = False
         except Exception as e:
-            print(f"  [red]Unexpected error signaling process {process_name}: {e}[/red]")
-            results[process_name] = False
+            # Use requested_name in messages
+            print(f"  [red]Unexpected error signaling process {requested_name}: {e}[/red]")
+            results[requested_name] = False
 
     return all(results.values())
 

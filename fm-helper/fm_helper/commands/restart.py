@@ -3,6 +3,7 @@ import sys
 import signal
 import os
 from typing import Annotated, Optional, List, Tuple, Any
+from ..rq_controller import control_rq_workers, check_rq_suspension, ActionEnum
 from ..supervisor.executor import execute_supervisor_command
 
 
@@ -79,6 +80,13 @@ def _get_worker_processes_for_service(service_name: str) -> List[str]:
 # --- Command Definition ---
 def command(
     ctx: typer.Context,
+    site_name: Annotated[
+        Optional[str],
+        typer.Option(
+            "--site-name",
+            help="Frappe site name. [bold yellow]Required only if --wait-jobs is used[/bold yellow] (or related options like --pause-scheduler, --maintenance-mode).",
+        )
+    ] = None,
     service_names: Annotated[
         Optional[List[ServiceNamesEnum]],
         typer.Argument(
@@ -94,13 +102,6 @@ def command(
             help="Wait for active Frappe background jobs ('started' state) to finish after suspending workers.",
         )
     ] = False,
-    site_name: Annotated[
-        Optional[str],
-        typer.Option(
-            "--site-name",
-            help="Frappe site name (required if --wait-jobs, --pause-scheduler, or --maintenance-mode is used).",
-        )
-    ] = None,
     wait_jobs_timeout: Annotated[
         int,
         typer.Option(
@@ -145,12 +146,19 @@ def command(
     ] = True,
 ):
     """
-    Restart services using worker suspension (SIGUSR2) for graceful shutdown.
+    Restart services using RQ's Redis-based suspension for graceful shutdown.
 
-    Workflow:
-    1. Sends SIGUSR2 to worker processes, causing them to finish current jobs and suspend.
-    2. (Optional) Waits for Frappe background jobs to complete (--wait-jobs).
-    3. Restarts all target services using standard supervisor stop-then-start.
+    [bold]Workflow:[/bold]
+    1. Sets the 'rq:suspended' flag in Redis for the specified site, causing workers
+       to finish their current job and then pause without picking up new ones.
+    2. Verifies the suspension flag is set in Redis.
+    3. (Optional) Sets 'maintenance_mode: true' in site_config.json (--maintenance-mode).
+    4. (Optional) Waits for Frappe background jobs to complete (--wait-jobs),
+       potentially pausing the scheduler (--pause-scheduler).
+    5. (Optional) Restores the original 'maintenance_mode' value in site_config.json.
+    6. Restarts all target services using standard supervisor stop-then-start.
+    7. (Finally) Restores the original scheduler state if it was paused.
+    8. (Finally) Removes the 'rq:suspended' flag from Redis to allow workers to resume.
     """
     if not _cached_service_names:
         print(f"[bold red]Error:[/bold red] No supervisord services found to restart.", file=sys.stderr)
@@ -170,13 +178,56 @@ def command(
     target_desc = "all services" if not service_names else f"service(s): [b cyan]{', '.join(services_to_target)}[/b cyan]"
     print(f"Attempting Restart (Suspend + Wait + Restart) for {target_desc}...")
 
-    # Variables to store state returned from job waiting / set by this script
-    original_scheduler_state: Optional[int] = None
-    scheduler_was_paused: bool = False
+    # --- STEP 1: Suspend Workers (SIGUSR2) ---
+    # --- STEP 1: Suspend Workers (via Redis Flag) ---
+    print("\n[STEP 1/3] Suspending RQ workers via Redis flag...")
+    try:
+        # Call without site parameter
+        success = control_rq_workers(action=ActionEnum.suspend)
+
+        if not success:
+            print(f"[bold red]Error:[/bold red] Failed to suspend RQ workers for site '{site_name}' via Redis.")
+            print("Check logs above for details from rq_controller.")
+            print("Aborting restart.")
+            raise typer.Exit(code=1) # Raise Exit from restart command
+        else:
+            # Success message is printed by control_rq_workers
+            print("[green]RQ workers suspended via Redis flag.[/green]") # Keep overall status
+
+            # --- Verify Suspension ---
+            print("[dim]Verifying suspension status...[/dim]")
+            suspension_status = check_rq_suspension()
+
+            if suspension_status is True:
+                print("[green]Verification successful: RQ suspension flag is set in Redis.[/green]")
+            elif suspension_status is False:
+                print("[bold red]Error:[/bold red] Verification failed: RQ suspension flag was NOT found in Redis after attempting to set it.")
+                print("Aborting restart.")
+                raise typer.Exit(code=1)
+            else: # suspension_status is None
+                print("[bold red]Error:[/bold red] Could not verify suspension status due to an error during the check.")
+                print("Check logs above for details from rq_controller check.")
+                print("Aborting restart.")
+                raise typer.Exit(code=1)
+            # --- End Verification ---
+
+    except Exception as e: # Catch unexpected errors *calling* control_rq_workers OR check_rq_suspension
+        print(f"[bold red]Error:[/bold red] An unexpected error occurred during worker suspension or verification: {e}")
+        import traceback
+        traceback.print_exc()
+        raise typer.Exit(code=1)
+
+    # --- End STEP 1 ---
+
+    # Variables to store state set by this script
     original_maintenance_state: Optional[Any] = None # Can be any JSON value or None
     maintenance_was_managed_by_script: bool = False
 
     # --- Validations ---
+    if wait_jobs and not site_name:
+        print("[red]Error:[/red] --site-name is required when using --wait-jobs.")
+        raise typer.Exit(code=1)
+
     if pause_scheduler and not wait_jobs:
         print("[red]Error:[/red] --pause-scheduler requires --wait-jobs.")
         raise typer.Exit(code=1)
@@ -185,32 +236,24 @@ def command(
         print("[red]Error:[/red] --maintenance-mode requires --wait-jobs.")
         raise typer.Exit(code=1)
 
-    if maintenance_mode and not site_name:
-        print("[red]Error:[/red] --site-name is required when using --maintenance-mode.")
-        raise typer.Exit(code=1)
+    resume_called = False # Flag to ensure resume is called only once
 
     if wait_jobs:
-        if not site_name:
-            print("[red]Error:[/red] --site-name is required when using --wait-jobs, --pause-scheduler, or --maintenance-mode.")
-            raise typer.Exit(code=1)
-            
         # --- Set Maintenance Mode Key (Moved inside wait_jobs block, before job waiting) ---
-        site_config_path = Path(f"/workspace/frappe-bench/sites/{site_name}/site_config.json")
+        common_config_path = Path("/workspace/frappe-bench/sites/common_site_config.json")
 
         if maintenance_mode:
             print(f"\n[cyan]Checking and setting 'maintenance_mode' key for site: {site_name}...[/cyan]")
             try:
-                # Read current maintenance state using the new helper
-                original_maintenance_state = _get_site_config_key_value(
-                    site_config_path, "maintenance_mode", default=None, verbose=True
-                )
+                # Read current maintenance state using the helper
+                original_maintenance_state = _get_site_config_key_value("maintenance_mode", default=None, verbose=True)
 
                 if original_maintenance_state is not True:
-                    _update_site_config_key(site_config_path, "maintenance_mode", True, verbose=True)
+                    _update_site_config_key("maintenance_mode", True, verbose=True)
                     maintenance_was_managed_by_script = True
-                    print(f"[green]'maintenance_mode' key set to true for site: {site_name}.[/green]")
+                    print(f"[green]'maintenance_mode' key set to true in {common_config_path}.[/green]")
                 else:
-                    print("[dim]'maintenance_mode' key already set to true. No action taken.[/dim]")
+                    print(f"[dim]'maintenance_mode' key already set to true in {common_config_path}. No action taken.[/dim]")
 
             except Exception as e:
                 print(f"[bold red]Error:[/bold red] Failed to check or set 'maintenance_mode' key for site {site_name}: {e}")
@@ -219,10 +262,10 @@ def command(
 
         pause_desc = " and pausing scheduler" if pause_scheduler else ""
         maint_desc = " (after setting maintenance mode key)" if maintenance_was_managed_by_script else ""
-        print(f"[cyan]Graceful restart: Waiting for active jobs first{pause_desc}{maint_desc}...[/cyan]")
+        print(f"[cyan][STEP 2/3] Optional: Waiting for active jobs{pause_desc}{maint_desc}...[/cyan]")
         print("-" * 30)
-        # Capture the returned tuple from _run_wait_jobs
-        wait_success, original_scheduler_state, scheduler_was_paused = _run_wait_jobs(
+        # Call wait_jobs function
+        wait_success = _run_wait_jobs(
             site_name=site_name,
             timeout=wait_jobs_timeout,
             poll_interval=wait_jobs_poll,
@@ -241,12 +284,12 @@ def command(
         # --- Restore State Immediately After Job Wait (Before Stop/Start) ---
         # Restore Maintenance Mode Key
         if maintenance_was_managed_by_script:
-            print(f"\n[cyan]Restoring original 'maintenance_mode' key value ({json.dumps(original_maintenance_state)}) for site '{site_name}' (before stop/start)...[/cyan]", file=sys.stderr)
+            print(f"\n[cyan]Restoring original 'maintenance_mode' key value ({json.dumps(original_maintenance_state)}) in {common_config_path} (before stop/start)...[/cyan]", file=sys.stderr)
             try:
-                _update_site_config_key(site_config_path, "maintenance_mode", original_maintenance_state, verbose=True)
-                print(f"[green]'maintenance_mode' key restored for site '{site_name}'.[/green]", file=sys.stderr)
+                _update_site_config_key("maintenance_mode", original_maintenance_state, verbose=True)
+                print(f"[green]'maintenance_mode' key restored in {common_config_path}.[/green]", file=sys.stderr)
             except Exception as e:
-                print(f"\n[bold yellow]Warning:[/bold yellow] Failed to restore 'maintenance_mode' key in {site_config_path}: {e}", file=sys.stderr)
+                print(f"\n[bold yellow]Warning:[/bold yellow] Failed to restore 'maintenance_mode' key in {common_config_path}: {e}", file=sys.stderr)
                 print(f"[yellow]Please manually ensure 'maintenance_mode' is set correctly (should be {json.dumps(original_maintenance_state)}) in the file.[/yellow]", file=sys.stderr)
 
     # --- Restart Execution ---
@@ -270,19 +313,25 @@ def command(
         # Success/failure summary is now handled within execute_parallel_command
 
     finally:
-        # --- Restore Scheduler State ---
-        if scheduler_was_paused:
-            # site_name is guaranteed to be non-None if scheduler_was_paused is True
-            print(f"\n[cyan]Restoring original scheduler state ({original_scheduler_state}) for site '{site_name}'...[/cyan]", file=sys.stderr)
-            try:
-                # Path should already be defined if scheduler_was_paused is True
-                _update_site_config_key(site_config_path, "pause_scheduler", original_scheduler_state, verbose=True)
-                print(f"[green]Scheduler state restored for site '{site_name}'.[/green]", file=sys.stderr)
-            except Exception as e:
-                print(f"\n[bold yellow]Warning:[/bold yellow] Failed to automatically restore 'pause_scheduler' key in {site_config_path}: {e}", file=sys.stderr)
-                print(f"[yellow]Please manually ensure 'pause_scheduler' is set correctly (should be {json.dumps(original_scheduler_state)}) in the file.[/yellow]", file=sys.stderr)
-        # --- End Restore Scheduler State ---
 
+        # --- Resume Workers ---
+        if not resume_called:
+            print("\n[cyan]Attempting to resume RQ workers via Redis flag...[/cyan]", file=sys.stderr)
+            try:
+                # Call without site parameter
+                success = control_rq_workers(action=ActionEnum.resume)
+
+                if not success:
+                    print(f"[bold yellow]Warning:[/bold yellow] Failed to resume RQ workers via Redis flag. Check logs above.", file=sys.stderr)
+                    print("[yellow]You may need to manually remove the 'rq:suspended' key in Redis if workers remain suspended.[/yellow]", file=sys.stderr)
+                # else: Success message printed by control_rq_workers
+
+            except Exception as e: # Catch unexpected errors *calling* rq_controller_main
+                 print(f"[bold red]Error:[/bold red] An unexpected error occurred while trying to call rq_controller to resume workers: {e}", file=sys.stderr)
+                 import traceback
+                 traceback.print_exc(file=sys.stderr)
+            finally:
+                 resume_called = True # Mark as attempted regardless of outcome
         # Final message indicating the stop/start try block is done
         print(f"\nRestart process complete for {target_desc}.")
     # --- End of Restart Execution ---

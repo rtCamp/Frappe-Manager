@@ -14,11 +14,10 @@ from typing import Optional, List, Tuple, Dict, Any
 from frappe.utils.background_jobs import get_queues
 from rich import print
 
-def _get_site_config_key_value(config_path: Path, key_name: str, default: Optional[Any] = None, verbose: bool = False) -> Optional[Any]:
-    """Read a specific key's value from a site's config file (site_config.json).
+def _get_site_config_key_value(key_name: str, default: Optional[Any] = None, verbose: bool = False) -> Optional[Any]:
+    """Read a specific key's value from common_site_config.json.
 
     Args:
-        config_path: Path to the site_config.json file.
         key_name: The name of the key to read.
         default: The default value to return if the key is not found or the file is invalid/missing.
         verbose: If True, print status messages.
@@ -26,17 +25,18 @@ def _get_site_config_key_value(config_path: Path, key_name: str, default: Option
     Returns:
         The value of the key, or the default value.
     """
+    common_config_path = Path("/workspace/frappe-bench/sites/common_site_config.json")
     config = {}
     try:
-        if config_path.exists():
-            with open(config_path, 'r') as f:
+        if common_config_path.exists():
+            with open(common_config_path, 'r') as f:
                 # Suppress error if file is empty or invalid JSON
                 with contextlib.suppress(json.JSONDecodeError):
                     config = json.load(f)
             if verbose:
-                print(f"[dim]Read config from {config_path}[/dim]", file=sys.stderr)
+                print(f"[dim]Read config from {common_config_path}[/dim]", file=sys.stderr)
         elif verbose:
-            print(f"[dim]Config file {config_path} does not exist.[/dim]", file=sys.stderr)
+            print(f"[dim]Config file {common_config_path} does not exist.[/dim]", file=sys.stderr)
 
         value = config.get(key_name, default)
         if verbose:
@@ -45,25 +45,25 @@ def _get_site_config_key_value(config_path: Path, key_name: str, default: Option
 
     except OSError as e:
         if verbose:
-            print(f"[yellow]Warning:[/yellow] Could not read {config_path}: {e}", file=sys.stderr)
+            print(f"[yellow]Warning:[/yellow] Could not read {common_config_path}: {e}", file=sys.stderr)
         # In case of read error, return default, as we can't determine the value
         return default
 
 
-def _update_site_config_key(config_path: Path, key_name: str, value: Optional[Any], verbose: bool = False) -> None:
-    """Update a specific key in a site's config file (site_config.json).
+def _update_site_config_key(key_name: str, value: Optional[Any], verbose: bool = False) -> None:
+    """Update a specific key in common_site_config.json.
 
     Args:
-        config_path: Path to the site_config.json file.
         key_name: The name of the key to update (e.g., "pause_scheduler", "maintenance_mode").
         value: The value to set for the key. If None, the key will be removed.
         verbose: If True, print status messages.
     """
+    common_config_path = Path("/workspace/frappe-bench/sites/common_site_config.json")
     try:
         # Read current config safely
         config = {}
-        if config_path.exists():
-            with open(config_path, 'r') as f:
+        if common_config_path.exists():
+            with open(common_config_path, 'r') as f:
                 # Suppress error if file is empty or invalid JSON, start with empty config
                 with contextlib.suppress(json.JSONDecodeError):
                     config = json.load(f)
@@ -82,18 +82,18 @@ def _update_site_config_key(config_path: Path, key_name: str, value: Optional[An
 
         if needs_update:
             # Write back
-            with open(config_path, 'w') as f:
+            with open(common_config_path, 'w') as f:
                 json.dump(config, f, indent=1) # Use indent=1 for consistency
 
             if verbose:
                 action = "Removed" if value is None else f"Set to {json.dumps(value)}" # Use json.dumps for representation
-                print(f"[dim]Updated {config_path}: '{key_name}' {action}[/dim]", file=sys.stderr)
+                print(f"[dim]Updated {common_config_path}: '{key_name}' {action}[/dim]", file=sys.stderr)
         elif verbose:
-             print(f"[dim]'{key_name}' already set appropriately in {config_path}. No change needed.[/dim]", file=sys.stderr)
+             print(f"[dim]'{key_name}' already set appropriately in {common_config_path}. No change needed.[/dim]", file=sys.stderr)
 
     except (OSError, json.JSONDecodeError, Exception) as e:
         if verbose:
-            print(f"[yellow]Warning:[/yellow] Failed to update key '{key_name}' in {config_path}: {e}",
+            print(f"[yellow]Warning:[/yellow] Failed to update key '{key_name}' in {common_config_path}: {e}",
                   file=sys.stderr)
         # Re-raise the exception so the caller knows it failed
         raise
@@ -147,8 +147,7 @@ def wait_for_jobs_to_finish(
     poll_interval: int,
     queues: Optional[List[str]] = None,
     verbose: bool = False,
-    cleanup: bool = False,
-    pause_scheduler_during_wait: bool = False
+    cleanup: bool = False
 ) -> Dict[str, Any]:
     """
     Waits for currently 'started' Frappe background jobs to finish.
@@ -162,56 +161,21 @@ def wait_for_jobs_to_finish(
         poll_interval: Interval in seconds between checks.
         verbose: If True, print progress messages to stderr.
         cleanup: If True, explicitly close DB and Redis connections (default: False).
-        pause_scheduler_during_wait: If True, pause the scheduler during wait and restore after.
 
     Returns:
         A dictionary containing:
             'status': 'success', 'timeout', or 'error'.
             'message': A descriptive message.
             'remaining_jobs': The number of jobs remaining at the end (-1 on error).
-            'original_scheduler_state': The value of 'pause_scheduler' before modification (None, 0, or 1).
-            'scheduler_was_paused': Boolean indicating if this function paused the scheduler.
     """
-    # Initialize result with new keys
+    # Initialize result
     result = {
         "status": "unknown",
         "message": "",
-        "remaining_jobs": -1,
-        "original_scheduler_state": None,
-        "scheduler_was_paused": False
+        "remaining_jobs": -1
     }
     exit_code = 3 # Default to general error
-    original_cwd = None # Initialize original_cwd before try block
-    
-    # Handle scheduler pausing if requested
-    site_config_path = Path(f"/workspace/frappe-bench/sites/{site}/site_config.json")
-    
-    if pause_scheduler_during_wait:
-        try:
-            # Read current scheduler state using the new helper
-            result["original_scheduler_state"] = _get_site_config_key_value(
-                site_config_path, "pause_scheduler", default=None, verbose=verbose
-            )
-            
-            # Pause the scheduler only if it's not already True
-            if result["original_scheduler_state"] is not True:
-                _update_site_config_key(site_config_path, key_name="pause_scheduler", value=True, verbose=verbose)
-                result["scheduler_was_paused"] = True
-            elif verbose:
-                 print(f"[dim]'pause_scheduler' already set to true. No change needed.[/dim]", file=sys.stderr)
-
-        except Exception as e: # Catch potential errors from _update_site_config_key as well
-            if verbose:
-                print(f"[yellow]Warning:[/yellow] Failed to read or pause scheduler: {e}", file=sys.stderr)
-
     try:
-        target_cwd = Path("/workspace/frappe-bench/sites") # Define target CWD
-        original_cwd = Path.cwd() # Store original CWD *before* changing
-
-        if verbose: print(f"[dim]Changing CWD to {target_cwd}...[/dim]", file=sys.stderr)
-        os.chdir(target_cwd)
-
-        if verbose: print(f"[dim]Initializing Frappe for site '{site}'...[/dim]", file=sys.stderr)
         # Pass sites_path explicitly during init when CWD is changed
         frappe.init(site=site, sites_path=str(target_cwd))
         if verbose: print(f"[dim]Connecting to database for site '{site}'...[/dim]", file=sys.stderr)
