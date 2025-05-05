@@ -2,7 +2,7 @@ import sys
 from typing import Annotated, Optional, List
 
 import typer
-from rich import print
+from ..display import DisplayManager
 
 from ..cli import (
     ServiceNameEnumFactory,
@@ -10,7 +10,8 @@ from ..cli import (
     get_service_names_for_completion,
     _cached_service_names,
 )
-from ..supervisor import start_service as util_start_service, FM_SUPERVISOR_SOCKETS_DIR
+from ..supervisor.api import start_service as util_start_service
+from ..supervisor.connection import FM_SUPERVISOR_SOCKETS_DIR
 
 command_name = "start"
 
@@ -60,42 +61,43 @@ def command(
     ] = False,
 ):
     """Start services or specific processes."""
+    # Get display manager from context
+    display: DisplayManager = ctx.obj.display
+
     if not _cached_service_names:
-        print(f"[bold red]Error:[/bold red] No supervisord services found to start.", file=sys.stderr)
-        print(f"Looked for socket files in: {FM_SUPERVISOR_SOCKETS_DIR}", file=sys.stderr)
-        print("Ensure Frappe Manager services are running.", file=sys.stderr)
-        raise typer.Exit(code=1)
+        display.error(f"No supervisord services found to start.", exit_code=1)
+        display.print(f"Looked for socket files in: {FM_SUPERVISOR_SOCKETS_DIR}", file=sys.stderr)
+        display.print("Ensure Frappe Manager services are running.", file=sys.stderr)
 
     all_services = get_service_names_for_completion()
     services_to_target = all_services if not service_names else [s.value for s in service_names]
 
     invalid_services = [s for s in services_to_target if s not in all_services]
     if invalid_services:
-        print(f"[red]Error:[/red] Invalid service name(s): {', '.join(invalid_services)}")
-        print(f"Available services: {', '.join(all_services) or 'None'}")
-        raise typer.Exit(code=1)
+        display.error(f"Invalid service name(s): {', '.join(invalid_services)}", exit_code=1)
+        display.print(f"Available services: {', '.join(all_services) or 'None'}")
 
     # Validate state if provided
     if state and state not in ("blue", "green"):
-        print(f"[red]Error:[/red] Invalid --state value '{state}'. Must be 'blue' or 'green'.")
-        raise typer.Exit(code=1)
+        display.error(f"Invalid --state value '{state}'. Must be 'blue' or 'green'.", exit_code=1)
 
-    target_desc = "all services" if not service_names else f"service(s): [b cyan]{', '.join(services_to_target)}[/b cyan]"
+    target_desc = "all services" if not service_names else f"service(s): {display.highlight(', '.join(services_to_target))}"
 
     # Determine description based on whether specific processes or state are targeted
     if process_name:
-        process_desc = f"specific process(es): [b yellow]{', '.join(process_name)}[/b yellow]"
+        process_desc = f"specific process(es): {display.highlight(', '.join(process_name))}"
     elif state:
-        process_desc = f"non-workers and [b yellow]{state}[/b yellow] worker processes"
+        process_desc = f"non-workers and {display.highlight(state)} worker processes"
     else:
         process_desc = "all defined non-workers and the active worker state"
 
-    print(f"\nStarting {process_desc} in {target_desc}...")
+    display.print(f"\nStarting {process_desc} in {target_desc}...")
 
     execute_parallel_command(
         services_to_target,
         util_start_service,
         action_verb="starting",
+        display=display,
         show_progress=True,
         process_name_list=process_name,
         wait=wait,
@@ -103,4 +105,4 @@ def command(
         verbose=verbose
     )
 
-    print("\nStart sequence complete.")
+    display.print("\nStart sequence complete.")
