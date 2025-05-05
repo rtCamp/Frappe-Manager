@@ -160,7 +160,7 @@ def command(
     is_waiting_workers = wait_workers
     suspension_needed = suspend_rq or is_waiting_workers
     if suspension_needed:
-        print("\n[Step 1/2 - Optional] Suspending RQ workers via Redis flag...")
+        print("\n[bold cyan]➡️ Suspending RQ Workers (Redis Flag)[/bold cyan]")
         try:
             # Call without site parameter
             success = control_rq_workers(action=ActionEnum.suspend)
@@ -191,9 +191,6 @@ def command(
                     raise typer.Exit(code=1)
                 # --- End Verification ---
 
-                # Optional: Add message indicating noop jobs were handled
-                print("[dim]Noop jobs enqueued (if applicable). Proceeding...[/dim]")
-
                 # If --wait-workers is active, wait for workers to complete
                 if wait_workers:
                     print("\n[cyan]Waiting for RQ workers to complete their current jobs...[/cyan]")
@@ -220,7 +217,7 @@ def command(
 
 
     # --- Restart Execution ---
-    print(f"\n[Main Step] Restarting {target_desc} (standard stop-then-start)...")
+    print(f"\n[bold cyan]🔄 Restarting Services[/bold cyan] ({target_desc}, standard stop-then-start)...")
 
     try:
         # Execute the restart command in parallel using the single restart function
@@ -241,7 +238,7 @@ def command(
 
         # --- Resume Workers ---
         if suspension_needed and not resume_called:
-            print("\n[cyan]Attempting to resume RQ workers via Redis flag...[/cyan]", file=sys.stderr)
+            print("\n[bold cyan]🟢 Resuming RQ Workers (Redis Flag)[/bold cyan]", file=sys.stderr)
             try:
                 # Call without site parameter
                 success = control_rq_workers(action=ActionEnum.resume)
