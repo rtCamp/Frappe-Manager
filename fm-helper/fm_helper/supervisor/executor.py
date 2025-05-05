@@ -22,7 +22,7 @@ def execute_supervisor_command(
     process_names: Optional[List[str]] = None,
     wait: bool = True,
     force_kill_timeout: Optional[int] = None,
-    wait_workers: bool = False,
+    wait_workers: Optional[bool] = None,
     state: Optional[str] = None,
     verbose: bool = False,
     signal_name: Optional[str] = None,

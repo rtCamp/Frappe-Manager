@@ -33,7 +33,7 @@ def command(
         typer.Option(
             "--process",
             "-p",
-            help="Target only specific process(es). If omitted, attempts to start ALL non-worker processes and the ACTIVE worker state (or the state specified by --state).",
+            help="Target only specific process(es). If omitted, attempts to start ALL defined processes in the service.",
             show_default=False,
         )
     ] = None,
@@ -41,7 +41,7 @@ def command(
         Optional[str],
         typer.Option(
             "--state", "-s",
-            help="Explicitly start only worker processes matching this state (e.g., 'blue' or 'green'). Overrides automatic active state detection. Only applies when specific processes (-p) are NOT given.",
+            help="[Ignored unless -p is used] Explicitly start only worker processes matching this state.",
             show_default=False,
         )
     ] = None,
@@ -61,8 +61,8 @@ def command(
     ] = False,
 ):
     """Start services or specific processes."""
-    # Get display manager from context
-    display: DisplayManager = ctx.obj.display
+    # Get display manager from context dictionary
+    display: DisplayManager = ctx.obj['display']
 
     if not _cached_service_names:
         display.error(f"No supervisord services found to start.", exit_code=1)
@@ -83,13 +83,11 @@ def command(
 
     target_desc = "all services" if not service_names else f"service(s): {display.highlight(', '.join(services_to_target))}"
 
-    # Determine description based on whether specific processes or state are targeted
+    # Determine description based on whether specific processes are targeted
     if process_name:
         process_desc = f"specific process(es): {display.highlight(', '.join(process_name))}"
-    elif state:
-        process_desc = f"non-workers and {display.highlight(state)} worker processes"
     else:
-        process_desc = "all defined non-workers and the active worker state"
+        process_desc = "all defined processes"
 
     display.print(f"\nStarting {process_desc} in {target_desc}...")
 
@@ -97,7 +95,6 @@ def command(
         services_to_target,
         util_start_service,
         action_verb="starting",
-        display=display,
         show_progress=True,
         process_name_list=process_name,
         wait=wait,

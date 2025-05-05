@@ -174,7 +174,7 @@ def _stop_single_process_with_logic(
     process_name: str,
     wait: bool,
     force_kill_timeout: Optional[int],
-    wait_workers: bool,
+    wait_workers: Optional[bool],
     process_info: Optional[Dict[str, Any]] = None
 ) -> bool:
     """Stop a single process, respecting the 'wait' flag for the API call and handling force kill separately."""

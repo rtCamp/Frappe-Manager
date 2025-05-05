@@ -22,7 +22,7 @@ def stop_service(
     process_name_list: Optional[List[str]] = None,
     wait: bool = True,
     force_kill_timeout: Optional[int] = None,
-    wait_workers: bool = False
+    wait_workers: Optional[bool] = None
 ) -> bool:
     """Stop specific processes or all processes in a service.
     
@@ -39,8 +39,7 @@ def stop_service(
             wait_workers=wait_workers
         ) or False
     except SupervisorError as e:
-        print(f"[red]Error stopping {service_name}:[/red] {str(e)}")
-        return None
+        raise e
 
 def start_service(
     service_name: str,
@@ -59,13 +58,12 @@ def start_service(
             verbose=verbose
         )
     except SupervisorError as e:
-        print(f"[red]Error starting {service_name}:[/red] {str(e)}")
-        return False
+        raise e
 
 def restart_service(
     service_name: str,
     wait: bool = True,
-    wait_workers: bool = False,
+    wait_workers: Optional[bool] = None,
     force_kill_timeout: Optional[int] = None
 ) -> bool:
     """Restart a service (all its processes) using standard stop-then-start.
@@ -81,8 +79,7 @@ def restart_service(
             force_kill_timeout=force_kill_timeout
         ) or False
     except SupervisorError as e:
-        print(f"[red]Error restarting {service_name}:[/red] {str(e)}")
-        return False
+        raise e
 
 def signal_service(
     service_name: str,
@@ -107,11 +104,9 @@ def signal_service(
             # Other parameters like wait, force_kill etc. are not relevant for signal
         ) or False # Ensure boolean return
     except SupervisorError as e:
-        print(f"[red]Error signaling {signal_name} in {service_name}:[/red] {str(e)}")
-        return False
+        raise e
     except ValueError as e: # Catch potential ValueError from execute_supervisor_command
-         print(f"[red]Error during signal operation for {service_name}:[/red] {str(e)}")
-         return False
+         raise e
 
 def get_service_info(service_name: str, verbose: bool = False) -> Tree:
     """Get information about a service and its processes.

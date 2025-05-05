@@ -36,8 +36,8 @@ def command(
     ] = False,
 ):
     """Show detailed status of services."""
-    # Get display manager from context
-    display: DisplayManager = ctx.obj.display
+    # Get display manager from context dictionary
+    display: DisplayManager = ctx.obj['display']
 
     if not _cached_service_names:
         display.error(f"No supervisord services found to check status.", exit_code=1)
@@ -59,7 +59,6 @@ def command(
         services_to_target,
         util_get_service_info,
         action_verb="checking status",
-        display=display,
         show_progress=False,
         verbose=verbose
     )

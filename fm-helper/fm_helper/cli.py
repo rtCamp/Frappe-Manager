@@ -7,6 +7,7 @@ from typing import Annotated, Optional, List, Tuple
 
 import typer
 from rich import print
+from .display import DisplayManager
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.live import Live
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -251,6 +252,25 @@ app = typer.Typer(
     (controlled by the SUPERVISOR_SOCKET_DIR environment variable).
     """
 )
+
+# --- App Callback for Context Initialization ---
+@app.callback(invoke_without_command=True)
+def main_callback(
+    ctx: typer.Context,
+    # Optional: Add global options here if needed, e.g., verbosity
+    # verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output.")] = False,
+):
+    """
+    Main callback to initialize shared context object.
+    """
+    # Initialize ctx.obj as a dictionary if None
+    if ctx.obj is None:
+        ctx.obj = {}
+    
+    # Create and attach the DisplayManager to the context dictionary
+    # Pass global options like verbose if you add them
+    # ctx.obj['display'] = DisplayManager(verbose=verbose)
+    ctx.obj['display'] = DisplayManager() # Initialize with default verbosity for now
 
 
 # --- Command Discovery and Registration ---

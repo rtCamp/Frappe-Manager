@@ -19,7 +19,8 @@ def _handle_stop(
     process_names: Optional[List[str]],
     wait: bool,
     force_kill_timeout: Optional[int],
-    wait_workers: bool
+    wait_workers: Optional[bool],
+    called_from_restart: bool = False
 ) -> bool:
     """Handle the 'stop' action by iterating through target processes and applying wait logic."""
     action = "stop"
@@ -62,35 +63,38 @@ def _handle_stop(
         target_process_names = list(process_info_map.keys())
         print(f"Preparing to stop all processes in [b magenta]{service_name}[/b magenta]...")
 
-    # --- Determine Wait Override ---
-    # --no-wait-workers means wait_workers is False.
-    # We want to override the main 'wait' ONLY if wait=True AND wait_workers=False
-    apply_worker_no_wait_override = wait and not wait_workers
-
-    if apply_worker_no_wait_override:
-        print("[dim]--no-wait-workers specified: Stop calls for worker processes will not wait, even if --wait is active.[/dim]")
+    # --- Print Wait Behavior Message (only if NOT called from restart) ---
+    if not called_from_restart:
+        if wait_workers is True:
+            print("[dim]--wait-workers specified: Stop calls for worker processes WILL wait for graceful shutdown.[/dim]")
+        elif wait_workers is False:
+            print("[dim]--no-wait-workers specified: Stop calls for worker processes will NOT wait for graceful shutdown.[/dim]")
 
     # --- Iterate and Stop Each Process ---
     for process_name in target_process_names:
         try:
-            # Determine the effective wait for *this specific process*
-            effective_wait_for_this_process = wait # Start with the global wait flag
-
+            # --- Determine the effective wait for *this specific process* ---
             is_worker = is_worker_process(process_name)
+            effective_wait_for_this_process: bool
 
-            # Apply override if: global wait is True, --no-wait-workers is active, AND this is a worker
-            if is_worker and apply_worker_no_wait_override:
-                effective_wait_for_this_process = False
+            if is_worker:
+                if wait_workers is True:
+                    effective_wait_for_this_process = True # Explicitly wait for worker
+                elif wait_workers is False:
+                    effective_wait_for_this_process = False # Explicitly DO NOT wait for worker
+                else: # wait_workers is None (default)
+                    effective_wait_for_this_process = wait # Use the global wait flag for worker
+            else: # Not a worker process
+                effective_wait_for_this_process = wait # Always use the global wait flag for non-workers
 
             # Call the single process handler with the calculated wait and process info
-            # Note: wait_workers flag is still passed for the force_kill_timeout logic inside the helper
             results[process_name] = _stop_single_process_with_logic(
                 supervisor_api,
                 service_name,
                 process_name,
                 wait=effective_wait_for_this_process, # Use calculated wait for API call
                 force_kill_timeout=force_kill_timeout,
-                wait_workers=wait_workers, # Pass original flag for internal checks
+                wait_workers=wait_workers, # Pass original flag (True/False/None)
                 process_info=process_info_map.get(process_name)
             )
         except Fault as e:
@@ -295,7 +299,8 @@ def _handle_restart(
     process_names: Optional[List[str]], # Still unused, always restarts all
     wait: bool,
     force_kill_timeout: Optional[int] = None,
-    wait_workers: bool = False # Keep for consistency, but only standard path is used
+    # Accept Optional[bool] to match caller
+    wait_workers: Optional[bool] = None
 ) -> bool:
     """Handle the 'restart' action by performing a standard stop-then-start sequence."""
     action = "restart"
@@ -308,7 +313,11 @@ def _handle_restart(
     print(f"  Stopping all processes in {service_name}...")
     # Pass None for process_names to stop all
     # Pass wait_workers=True to ensure worker stop wait logic is used if needed by stop helpers
-    stop_success = _handle_stop(supervisor_api, service_name, None, wait, force_kill_timeout, wait_workers=True) # Force wait_workers=True for standard stop
+    stop_success = _handle_stop(
+        supervisor_api, service_name, None, wait, force_kill_timeout,
+        wait_workers=None,
+        called_from_restart=True
+    )
 
     if not stop_success:
         print(f"[red]Error:[/red] Failed to stop all processes during standard restart of {service_name}. Aborting start.")
