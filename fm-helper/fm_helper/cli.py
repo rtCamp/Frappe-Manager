@@ -1,6 +1,5 @@
 import os
 import sys
-import json
 import subprocess
 import traceback
 from enum import Enum
@@ -31,8 +30,6 @@ try:
         FM_SUPERVISOR_SOCKETS_DIR,
         SupervisorError, # Import the base error
     )
-    # Import the refactored function from workers module
-    from .workers import wait_for_jobs_to_finish
 except ImportError as e:
     # Handle case where supervisor module or its dependencies failed
     print(f"[bold red]Error:[/bold red] Failed to import supervisor module: {e}")
@@ -255,95 +252,6 @@ app = typer.Typer(
     """
 )
 
-# --- Helper for Job Waiting ---
-
-# --- Helper for Job Waiting ---
-# Add imports needed for the corrected version
-from .workers import _update_site_config_key, _get_site_config_key_value
-from pathlib import Path
-
-def _run_wait_jobs(
-    site_name: str,
-    timeout: int,
-    poll_interval: int,
-    queues: Optional[List[str]] = None,
-    pause_scheduler_during_wait: bool = False,
-) -> bool: # Return only success/failure
-    """Calls wait_for_jobs_to_finish and handles scheduler pausing via common_site_config.json."""
-    queue_desc = f"queues: {', '.join(queues)}" if queues else "all queues"
-    pause_msg = " (and pausing scheduler via common_site_config.json)" if pause_scheduler_during_wait else ""
-    print(f"\n[cyan]Waiting up to {timeout}s for active jobs on site '{site_name}' ({queue_desc}){pause_msg}...[/cyan]")
-
-    common_config_path = Path("/workspace/frappe-bench/sites/common_site_config.json")
-    original_scheduler_state = None
-    scheduler_was_paused_by_this_run = False
-    wait_status_success = False # Track job wait success separately
-
-    try:
-        # --- Handle Scheduler Pausing (Before Wait) ---
-        if pause_scheduler_during_wait:
-            print(f"[dim]Checking scheduler state in {common_config_path}...[/dim]", file=sys.stderr)
-            try:
-                original_scheduler_state = _get_site_config_key_value("pause_scheduler", default=None, verbose=True)
-                if original_scheduler_state is not True:
-                    print(f"[dim]Pausing scheduler by setting 'pause_scheduler: true' in {common_config_path}...[/dim]", file=sys.stderr)
-                    _update_site_config_key("pause_scheduler", True, verbose=True)
-                    scheduler_was_paused_by_this_run = True
-                else:
-                    print("[dim]'pause_scheduler' is already true. No change needed.[/dim]", file=sys.stderr)
-            except Exception as e:
-                print(f"[bold red]Error:[/bold red] Failed to read or pause scheduler state in {common_config_path}: {e}", file=sys.stderr)
-                # Decide whether to proceed or abort if scheduler can't be paused
-                print("[yellow]Warning:[/yellow] Proceeding with job wait without pausing scheduler.", file=sys.stderr)
-
-        # --- Wait for Jobs ---
-        try:
-            # Call the refactored wait_for_jobs_to_finish (which no longer handles scheduler)
-            result = wait_for_jobs_to_finish(
-                site=site_name,
-                timeout=timeout,
-                poll_interval=poll_interval,
-                queues=queues,
-                verbose=True,
-                # pause_scheduler_during_wait is removed from wait_for_jobs_to_finish
-            )
-
-            status = result.get("status", "error")
-            message = result.get("message", "No details provided.")
-            remaining_jobs = result.get("remaining_jobs", -1)
-
-            if status == "success":
-                print(f"[green]Success:[/green] {message}")
-                wait_status_success = True
-            elif status == "timeout":
-                print(f"[yellow]Timeout:[/yellow] {message}")
-                if remaining_jobs > 0:
-                    print(f"  {remaining_jobs} job(s) might still be running.")
-                wait_status_success = False # Timeout is considered failure for the overall step
-            else:
-                print(f"[red]Error waiting for jobs:[/red] {message}")
-                wait_status_success = False
-
-        finally:
-            # --- Restore Scheduler State (After Wait) ---
-            if scheduler_was_paused_by_this_run:
-                print(f"\n[cyan]Restoring original scheduler state ({json.dumps(original_scheduler_state)}) in {common_config_path}...[/cyan]", file=sys.stderr)
-                try:
-                    _update_site_config_key("pause_scheduler", original_scheduler_state, verbose=True)
-                    print(f"[green]Scheduler state restored in {common_config_path}.[/green]", file=sys.stderr)
-                except Exception as e:
-                    print(f"\n[bold yellow]Warning:[/bold yellow] Failed to automatically restore 'pause_scheduler' key in {common_config_path}: {e}", file=sys.stderr)
-                    print(f"[yellow]Please manually ensure 'pause_scheduler' is set correctly (should be {json.dumps(original_scheduler_state)}) in the file.[/yellow]", file=sys.stderr)
-
-    except ImportError as e:
-        print(f"[bold red]Import Error:[/bold red] Failed to import Frappe modules. Is Frappe installed? ({e})", file=sys.stderr)
-        print("  Job waiting requires access to the Frappe framework.", file=sys.stderr)
-        return False # Overall failure
-    except Exception as e:
-        print(f"[bold red]Error:[/bold red] An unexpected error occurred during job waiting setup or execution: {e}", file=sys.stderr)
-        return False # Overall failure
-
-    return wait_status_success # Return the success status of the job wait itself
 
 # --- Command Discovery and Registration ---
 import pkgutil

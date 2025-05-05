@@ -1,8 +1,5 @@
-# New restart.py containing the suspend-based restart logic
 import sys
-import signal
-import os
-from typing import Annotated, Optional, List, Tuple, Any
+from typing import Annotated, Optional, List
 from ..rq_controller import (
     control_rq_workers, 
     check_rq_suspension, 
@@ -19,7 +16,6 @@ from rich import print
 try:
     from ..cli import (
         ServiceNameEnumFactory,
-        _run_wait_jobs,
         execute_parallel_command,
         get_service_names_for_completion,
         _cached_service_names,
@@ -32,11 +28,6 @@ try:
     from ..supervisor.connection import FM_SUPERVISOR_SOCKETS_DIR
     from ..supervisor.constants import is_worker_process, ProcessStates
     from ..supervisor.exceptions import SupervisorError, SupervisorConnectionError
-    # Import necessary components for config key management
-    import json
-    import contextlib
-    from pathlib import Path
-    from ..workers import _update_site_config_key, _get_site_config_key_value
 except ImportError as e:
     print(f"[bold red]Error:[/bold red] Failed to import required modules: {e}")
     print("Ensure fm-helper structure is correct and dependencies are installed.")
@@ -85,13 +76,6 @@ def _get_worker_processes_for_service(service_name: str) -> List[str]:
 # --- Command Definition ---
 def command(
     ctx: typer.Context,
-    site_name: Annotated[
-        Optional[str],
-        typer.Option(
-            "--site-name",
-            help="Frappe site name. [bold yellow]Required only if --wait-jobs is used[/bold yellow] (or related options like --pause-scheduler, --maintenance-mode).",
-        )
-    ] = None,
     service_names: Annotated[
         Optional[List[ServiceNamesEnum]],
         typer.Argument(
@@ -100,48 +84,6 @@ def command(
             show_default=False,
         )
     ] = None,
-    wait_jobs: Annotated[
-        bool,
-        typer.Option(
-            "--wait-jobs",
-            help="Wait for active Frappe background jobs ('started' state) to finish after suspending workers.",
-        )
-    ] = False,
-    wait_jobs_timeout: Annotated[
-        int,
-        typer.Option(
-            "--wait-jobs-timeout",
-            help="Timeout (seconds) for waiting for jobs (default: 300).",
-        )
-    ] = 300,
-    wait_jobs_poll: Annotated[
-        int,
-        typer.Option(
-            "--wait-jobs-poll",
-            help="Polling interval (seconds) for checking jobs (default: 5).",
-        )
-    ] = 5,
-    wait_jobs_queue: Annotated[
-        Optional[List[str]],
-        typer.Option(
-            "--queue", "-q",
-            help="Specific job queue(s) to monitor when using --wait-jobs. Use multiple times (e.g., -q short -q long). Monitors all if not specified.",
-        )
-    ] = None,
-    pause_scheduler: Annotated[
-        bool,
-        typer.Option(
-            "--pause-scheduler",
-            help="Pause the Frappe scheduler before waiting for jobs and unpause after. Requires --wait-jobs and --site-name.",
-        )
-    ] = False,
-    maintenance_mode: Annotated[
-        bool,
-        typer.Option(
-            "--maintenance-mode",
-            help="Set 'maintenance_mode: true' in site_config.json before waiting for jobs and restore original state after waiting. Requires --wait-jobs and --site-name.",
-        )
-    ] = False,
     suspend_rq: Annotated[
         bool,
         typer.Option(
@@ -185,21 +127,16 @@ def command(
         )
     ] = False,
 ):
-    """
-    Restart services using standard supervisor stop-then-start.
+    """Restart services using standard supervisor stop-then-start.
 
-    Supports two methods of graceful worker shutdown:
-    1. Redis-based suspension (--suspend-rq or --wait-workers)
-    2. Job completion waiting (--wait-jobs with optional --pause-scheduler)
+    Optionally uses RQ's Redis-based suspension (--suspend-rq) and waits for
+    workers to suspend (--wait-workers) before restarting.
 
     [bold]Workflow:[/bold]
-    1. (Optional, if --suspend-rq) Sets the 'rq:suspended' flag in Redis, verifies it.
-    2. (Optional, if --wait-jobs) Sets 'maintenance_mode: true' in common_site_config.json (--maintenance-mode).
-    3. (Optional, if --wait-jobs) Waits for Frappe background jobs to complete,
-       potentially pausing the scheduler (--pause-scheduler).
-    4. (Optional, if --wait-jobs) Restores the original 'maintenance_mode' value.
-    5. Restarts all target services using standard supervisor stop-then-start.
-    6. (Finally, if --suspend-rq) Removes the 'rq:suspended' flag from Redis.
+    1. (Optional) Sets the 'rq:suspended' flag in Redis, verifies it, enqueues noop jobs.
+    2. (Optional) Waits for RQ workers to reach the 'suspended' state.
+    3. Restarts all target services using standard supervisor stop-then-start.
+    4. (Finally) Removes the 'rq:suspended' flag from Redis.
     """
     if not _cached_service_names:
         print(f"[bold red]Error:[/bold red] No supervisord services found to restart.", file=sys.stderr)
@@ -217,13 +154,13 @@ def command(
         raise typer.Exit(code=1)
 
     target_desc = "all services" if not service_names else f"service(s): [b cyan]{', '.join(services_to_target)}[/b cyan]"
-    print(f"Attempting Restart (Suspend + Wait + Restart) for {target_desc}...")
+    print(f"Attempting Restart for {target_desc}...")
 
     # --- STEP 1: Suspend Workers (via Redis Flag) ---
     is_waiting_workers = wait_workers
     suspension_needed = suspend_rq or is_waiting_workers
     if suspension_needed:
-        print("\n[Optional Step] Suspending RQ workers via Redis flag...")
+        print("\n[Step 1/2 - Optional] Suspending RQ workers via Redis flag...")
         try:
             # Call without site parameter
             success = control_rq_workers(action=ActionEnum.suspend)
@@ -279,88 +216,10 @@ def command(
 
     # --- End STEP 1 ---
 
-    # Variables to store state set by this script
-    original_maintenance_state: Optional[Any] = None # Can be any JSON value or None
-    maintenance_was_managed_by_script: bool = False
-
-    # --- Validations ---
-    if wait_jobs and not site_name:
-        print("[red]Error:[/red] --site-name is required when using --wait-jobs.")
-        raise typer.Exit(code=1)
-
-    if pause_scheduler and not wait_jobs:
-        print("[red]Error:[/red] --pause-scheduler requires --wait-jobs.")
-        raise typer.Exit(code=1)
-
-    if maintenance_mode and not wait_jobs:
-        print("[red]Error:[/red] --maintenance-mode requires --wait-jobs.")
-        raise typer.Exit(code=1)
-        
-    if wait_workers is not None and wait_jobs:
-        print("[red]Error:[/red] --wait-workers and --wait-jobs are mutually exclusive.")
-        print("Use --wait-workers for simple worker completion waiting, or")
-        print("--wait-jobs for full job queue monitoring with optional scheduler pause.")
-        raise typer.Exit(code=1)
-
     resume_called = False # Flag to ensure resume is called only once
 
-    if wait_jobs:
-        # --- Set Maintenance Mode Key (Moved inside wait_jobs block, before job waiting) ---
-        common_config_path = Path("/workspace/frappe-bench/sites/common_site_config.json")
-
-        if maintenance_mode:
-            print(f"\n[cyan]Checking and setting 'maintenance_mode' key for site: {site_name}...[/cyan]")
-            try:
-                # Read current maintenance state using the helper
-                original_maintenance_state = _get_site_config_key_value("maintenance_mode", default=None, verbose=True)
-
-                if original_maintenance_state is not True:
-                    _update_site_config_key("maintenance_mode", True, verbose=True)
-                    maintenance_was_managed_by_script = True
-                    print(f"[green]'maintenance_mode' key set to true in {common_config_path}.[/green]")
-                else:
-                    print(f"[dim]'maintenance_mode' key already set to true in {common_config_path}. No action taken.[/dim]")
-
-            except Exception as e:
-                print(f"[bold red]Error:[/bold red] Failed to check or set 'maintenance_mode' key for site {site_name}: {e}")
-                print("Aborting restart.")
-                raise typer.Exit(code=1)
-
-        pause_desc = " and pausing scheduler" if pause_scheduler else ""
-        maint_desc = " (after setting maintenance mode key)" if maintenance_was_managed_by_script else ""
-        print(f"[cyan][Optional Step] Waiting for active jobs{pause_desc}{maint_desc}...[/cyan]")
-        print("-" * 30)
-        # Call wait_jobs function
-        wait_success = _run_wait_jobs(
-            site_name=site_name,
-            timeout=wait_jobs_timeout,
-            poll_interval=wait_jobs_poll,
-            queues=wait_jobs_queue,
-            pause_scheduler_during_wait=pause_scheduler
-        )
-        print("-" * 30)
-
-        if not wait_success:
-            print("[bold red]Error:[/bold red] Job waiting failed or timed out.")
-            print("Aborting restart process. Services were not stopped or started.")
-            raise typer.Exit(code=1)
-            
-        print("[green]Job waiting successful.[/green]")
-
-        # --- Restore State Immediately After Job Wait (Before Stop/Start) ---
-        # Restore Maintenance Mode Key
-        if maintenance_was_managed_by_script:
-            print(f"\n[cyan]Restoring original 'maintenance_mode' key value ({json.dumps(original_maintenance_state)}) in {common_config_path} (before stop/start)...[/cyan]", file=sys.stderr)
-            try:
-                _update_site_config_key("maintenance_mode", original_maintenance_state, verbose=True)
-                print(f"[green]'maintenance_mode' key restored in {common_config_path}.[/green]", file=sys.stderr)
-            except Exception as e:
-                print(f"\n[bold yellow]Warning:[/bold yellow] Failed to restore 'maintenance_mode' key in {common_config_path}: {e}", file=sys.stderr)
-                print(f"[yellow]Please manually ensure 'maintenance_mode' is set correctly (should be {json.dumps(original_maintenance_state)}) in the file.[/yellow]", file=sys.stderr)
 
     # --- Restart Execution ---
-    job_wait_performed = wait_jobs # Keep track if we waited
-
     print(f"\n[Main Step] Restarting {target_desc} (standard stop-then-start)...")
 
     try:

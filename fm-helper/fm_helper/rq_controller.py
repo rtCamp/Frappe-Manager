@@ -82,32 +82,66 @@ def control_rq_workers(action: ActionEnum) -> bool:
             suspend(connection)
             print(f"[green]Successfully set suspension flag in Redis.[/green]", file=sys.stderr)
 
-            # --- Enqueue noop job ---
+            # --- Enqueue noop jobs targeting Idle Workers' Queues ---
             try:
-                if Queue is None: # Check if Queue import failed
-                     print("[yellow]Warning:[/yellow] Cannot enqueue noop job because RQ Queue class failed to import.", file=sys.stderr)
+                if Queue is None or Worker is None: # Check if imports failed
+                     print("[yellow]Warning:[/yellow] Cannot enqueue noop jobs because RQ Queue/Worker class failed to import.", file=sys.stderr)
                 else:
-                    print("[dim]Enqueuing noop jobs to wake idle workers...[/dim]", file=sys.stderr)
-                    queues = Queue.all(connection=connection)
-                    if queues:
-                        noop_job_count = 0
-                        for queue in queues:
+                    print("[dim]Checking for idle workers to enqueue targeted noop jobs...[/dim]", file=sys.stderr)
+                    workers = Worker.all(connection=connection)
+                    idle_workers = [w for w in workers if w.state == 'idle']
+                    num_idle = len(idle_workers)
+
+                    if num_idle > 0:
+                        jobs_to_enqueue_per_queue: Dict[str, int] = {}
+                        print(f"[dim]Found {num_idle} idle worker(s). Determining target queues...[/dim]", file=sys.stderr)
+
+                        # Determine how many noops per queue based on idle workers listening
+                        for worker in idle_workers:
                             try:
-                                # Enqueue using the full import path string
-                                queue.enqueue('fm_helper.rq_controller.noop',at_front=True)
-                                noop_job_count += 1
-                            except Exception as enqueue_err:
-                                print(f"[yellow]Warning:[/yellow] Failed to enqueue noop job to queue '{queue.name}': {enqueue_err}", file=sys.stderr)
-                        if noop_job_count > 0:
-                            print(f"[dim]Enqueued noop job to {noop_job_count} queue(s).[/dim]", file=sys.stderr)
+                                listened_queue_names = worker.queue_names()
+                                if listened_queue_names:
+                                    # Target the first queue the worker listens to
+                                    target_queue_name = listened_queue_names[0]
+                                    jobs_to_enqueue_per_queue[target_queue_name] = jobs_to_enqueue_per_queue.get(target_queue_name, 0) + 1
+                                else:
+                                     print(f"[yellow]Warning:[/yellow] Idle worker '{worker.name}' is not listening to any queues?", file=sys.stderr)
+                            except Exception as e:
+                                 print(f"[yellow]Warning:[/yellow] Could not get queues for worker '{worker.name}': {e}", file=sys.stderr)
+
+                        # Enqueue the determined number of jobs per queue
+                        if jobs_to_enqueue_per_queue:
+                            total_enqueued_count = 0
+                            total_requested_count = sum(jobs_to_enqueue_per_queue.values())
+                            print(f"[dim]Attempting to enqueue {total_requested_count} noop job(s) across {len(jobs_to_enqueue_per_queue)} queue(s)...[/dim]", file=sys.stderr)
+
+                            for queue_name, count in jobs_to_enqueue_per_queue.items():
+                                try:
+                                    queue = Queue(queue_name, connection=connection)
+                                    print(f"[dim]  - Enqueuing {count} to queue '{queue_name}'...[/dim]", file=sys.stderr)
+                                    for _ in range(count):
+                                        try:
+                                            # Enqueue using the full import path string, at front
+                                            queue.enqueue('fm_helper.rq_controller.noop', at_front=True)
+                                            total_enqueued_count += 1
+                                        except Exception as enqueue_err:
+                                            print(f"[yellow]Warning:[/yellow] Failed to enqueue a noop job to queue '{queue_name}': {enqueue_err}", file=sys.stderr)
+                                            # Continue trying other jobs/queues
+                                except Exception as queue_err:
+                                     print(f"[yellow]Warning:[/yellow] Failed to get Queue object for '{queue_name}': {queue_err}", file=sys.stderr)
+
+                            if total_enqueued_count > 0:
+                                print(f"[dim]Successfully enqueued {total_enqueued_count}/{total_requested_count} noop job(s).[/dim]", file=sys.stderr)
+                            else:
+                                print("[yellow]Warning:[/yellow] Failed to enqueue any noop jobs.", file=sys.stderr)
                         else:
-                            print("[dim]No queues found or noop job could not be enqueued.[/dim]", file=sys.stderr)
+                             print("[dim]No target queues identified for idle workers.[/dim]", file=sys.stderr)
                     else:
-                        print("[dim]No RQ queues found to enqueue noop job.[/dim]", file=sys.stderr)
+                        print("[dim]No idle workers found to wake up.[/dim]", file=sys.stderr)
             except Exception as e:
-                print(f"[yellow]Warning:[/yellow] Error occurred during noop job enqueue: {e}", file=sys.stderr)
+                print(f"[yellow]Warning:[/yellow] Error occurred during idle worker check or noop job enqueue: {e}", file=sys.stderr)
                 # Do not return False here, continue with the suspend success
-            # --- End Enqueue noop job ---
+            # --- End Enqueue noop jobs ---
 
             return True
         elif action == ActionEnum.resume:
@@ -163,12 +197,9 @@ def wait_for_rq_workers_suspended(timeout: int = 300, poll_interval: int = 5, ve
         start_time = time.time()
         final_status = "unknown"  # Track loop exit reason
 
-        with Live(refresh_per_second=4, transient=True, vertical_overflow="visible") as live:
+        with Live(vertical_overflow="visible") as live:
             while True:
-                current_time = time.time()
-                elapsed_time = current_time - start_time
-
-                if elapsed_time > timeout:
+                if (time.time() - start_time) > timeout:
                     final_status = "timeout"
                     break
 
@@ -179,24 +210,54 @@ def wait_for_rq_workers_suspended(timeout: int = 300, poll_interval: int = 5, ve
                         final_status = "no_workers"
                         break
 
-                    non_suspended_workers = []
+                    non_suspended_workers_list = [] # Store worker objects, not just names
                     worker_states = []  # Store tuples of (name, state) for table
                     for worker in workers:
                         state = worker.state
                         worker_states.append((worker.name, state))
                         if state != 'suspended':
-                            non_suspended_workers.append(worker.name)
+                            non_suspended_workers_list.append(worker) # Add worker object
 
-                    if not non_suspended_workers:
+                    # --- Enqueue noop job for non-suspended workers ---
+                    if non_suspended_workers_list:
+                        # Only print this message once per poll interval if there are non-suspended workers
+                        if verbose:
+                            print(f"[dim]Found {len(non_suspended_workers_list)} non-suspended worker(s). Attempting to enqueue noop jobs...[/dim]", file=sys.stderr)
+                        for worker in non_suspended_workers_list:
+                            # Try to enqueue only if the worker might be idle and needs waking
+                            # You could refine this condition further if needed (e.g., only for 'idle' state)
+                            if worker.state != 'busy': # Example: Don't bother busy workers
+                                try:
+                                    listened_queue_names = worker.queue_names()
+                                    if listened_queue_names:
+                                        target_queue_name = listened_queue_names[0] # Target the first queue
+                                        queue = Queue(target_queue_name, connection=connection)
+                                        # Enqueue the noop job to the front
+                                        queue.enqueue('fm_helper.rq_controller.noop', at_front=True)
+                                        if verbose:
+                                            print(f"[dim]  - Enqueued noop to '{target_queue_name}' for worker '{worker.name}' (state: {worker.state}).[/dim]", file=sys.stderr)
+                                    # else: Worker not listening to any queues, nothing to enqueue
+                                except Exception as enqueue_err:
+                                    # Log error but continue waiting
+                                    if verbose:
+                                        print(f"[yellow]Warning:[/yellow] Failed to enqueue noop job for worker '{worker.name}': {enqueue_err}", file=sys.stderr)
+                        # Add a small delay after enqueue attempts before the next state check
+                        time.sleep(0.5)
+
+                    # --- Check if all workers are now suspended ---
+                    non_suspended_worker_names = [w.name for w in non_suspended_workers_list] # Get names for summary
+                    if not non_suspended_worker_names:
                         final_status = "success"
                         break
 
                     # --- Build Renderables ---
                     # 1. Summary Panel
+                    current_time = time.time()
+                    elapsed_time = current_time - start_time
                     remaining_time = max(0, timeout - elapsed_time)
                     summary_text = (
                         f"Elapsed: [cyan]{elapsed_time:.1f}s[/] | Remaining: [cyan]{remaining_time:.1f}s[/]\n"
-                        f"Waiting for [yellow]{len(non_suspended_workers)}[/] worker(s) to suspend: {', '.join(non_suspended_workers)}"
+                        f"Waiting for [yellow]{len(non_suspended_worker_names)}[/] worker(s) to suspend: {', '.join(non_suspended_worker_names)}"
                     )
                     summary_panel = Panel(summary_text, title="RQ Worker Wait Status", border_style="blue", expand=False)
 
