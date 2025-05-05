@@ -1,6 +1,7 @@
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 from rich.tree import Tree
+from ..display import display
 
 from .executor import execute_supervisor_command, check_supervisord_connection
 from .connection import FM_SUPERVISOR_SOCKETS_DIR
@@ -89,10 +90,10 @@ def signal_service(
     """Send a signal to specific processes or all processes in a service."""
     # Basic validation for signal name (more can be added)
     if not signal_name or not signal_name.isalnum():
-        print(f"[red]Invalid signal name format: {signal_name}[/red]")
+        display.error(f"Invalid signal name format: {signal_name}")
         return False
     if not process_name_list:
-         print(f"[yellow]Warning:[/yellow] No process names specified for signal '{signal_name}' in service '{service_name}'.")
+         display.warning(f"No process names specified for signal '{signal_name}' in service '{service_name}'.")
          return True # Assuming success if no processes targeted
 
     try:
@@ -135,9 +136,9 @@ def get_service_info(service_name: str, verbose: bool = False) -> Tree:
     # Add SupervisorConnectionError handling here
     except SupervisorConnectionError as e:
          # Handle connection errors gracefully by returning formatted output
-         print(f"[yellow]Connection Error getting info for {service_name}:[/yellow] {str(e)}")
+         display.warning(f"Connection Error getting info for {display.highlight(service_name)}: {str(e)}")
          return format_service_info(service_name, [], verbose=verbose)
     except SupervisorError as e:
         # Handle other supervisor errors
-        print(f"[red]Error getting info for {service_name}:[/red] {str(e)}")
+        display.error(f"Error getting info for {display.highlight(service_name)}: {str(e)}")
         return format_service_info(service_name, [], verbose=verbose) # Return formatted empty info

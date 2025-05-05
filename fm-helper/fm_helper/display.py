@@ -74,4 +74,7 @@ class DisplayManager:
          """Prints a rich Panel object."""
          self._stdout_console.print(panel, **kwargs)
 
+# Global instance with default settings
+display = DisplayManager()
+
     # Add more methods as needed (e.g., for progress, live displays if centralized later)

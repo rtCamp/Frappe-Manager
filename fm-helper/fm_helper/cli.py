@@ -6,8 +6,7 @@ from enum import Enum
 from typing import Annotated, Optional, List, Tuple
 
 import typer
-from rich import print
-from .display import DisplayManager
+from .display import DisplayManager, display  # Import both DisplayManager and global display instance
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.live import Live
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -33,8 +32,8 @@ try:
     )
 except ImportError as e:
     # Handle case where supervisor module or its dependencies failed
-    print(f"[bold red]Error:[/bold red] Failed to import supervisor module: {e}")
-    print("Ensure 'supervisor' package is installed and fm-helper structure is correct.")
+    display.error(f"Failed to import supervisor module: {e}")
+    display.print("Ensure 'supervisor' package is installed and fm-helper structure is correct.")
     sys.exit(1)
 
 # --- CLI Specific Helpers ---
@@ -73,7 +72,7 @@ def execute_parallel_command(
 ):
     """Execute a command in parallel across multiple services with progress display."""
     if not services:
-        print("[yellow]No services specified or found to execute command on.[/yellow]")
+        display.print("No services specified or found to execute command on.")
         return
 
     # Adjust max_workers: ensure at least 1, max os.cpu_count(), but no more than num services
@@ -110,9 +109,9 @@ def execute_parallel_command(
                     results[service] = result
                 except Exception as e:
                     # Print the error message identifying the service
-                    print(f"[bold red]Error {action_verb} {service}:[/bold red] {e}")
+                    display.error(f"Error {action_verb} {display.highlight(service)}: {e}")
                     # Print the traceback for this specific failure
-                    print(f"[red]Traceback for {service}:[/red]", file=sys.stderr)
+                    display.error(f"Traceback for {display.highlight(service)}:", file=sys.stderr)
                     traceback.print_exc(file=sys.stderr)
                     results[service] = None # Mark service as failed
                 finally:
@@ -138,21 +137,21 @@ def execute_parallel_command(
             return results # Return raw results for internal use
 
         # Otherwise, print status trees for the 'status' command
-        print("-" * 30)
+        display.print("-" * 30)
         output_printed = False
         # Sort results by service name for consistent output
         for service in sorted(results.keys()):
             result = results.get(service) # Use .get for safety
             # Check if the result is a Tree object (meaning success or connection error handled by get_service_info)
             if isinstance(result, Tree):
-                print(result) # Print the Rich Tree
+                display.display_tree(result) # Print the Rich Tree
                 output_printed = True
             # else: Error message was already printed in the parallel executor loop.
 
         # If no Trees were printed
         if not output_printed:
-             print("[yellow]No service status information could be retrieved.[/yellow]")
-        print("-" * 30)
+             display.warning("No service status information could be retrieved.")
+        display.print("-" * 30)
         # Return None or empty dict? For status, printing is the main goal.
         return None # Indicate status was printed
 
@@ -162,11 +161,11 @@ def execute_parallel_command(
         fail_count = len(services) - success_count
 
         if fail_count == 0:
-            print(f"[green]Successfully {action_verb} {success_count} service(s).[/green]")
+            display.success(f"Successfully {action_verb} {success_count} service(s).")
         elif success_count == 0:
-             print(f"[red]Failed to {action_verb} {fail_count} service(s).[/red]")
+             display.error(f"Failed to {action_verb} {fail_count} service(s).")
         else:
-             print(f"[yellow]Finished {action_verb}: {success_count} succeeded, {fail_count} failed.[/yellow]")
+             display.warning(f"Finished {action_verb}: {success_count} succeeded, {fail_count} failed.")
     
     # --- Add new block specifically for start_service results ---
     elif command_func == util_start_service:
@@ -177,7 +176,7 @@ def execute_parallel_command(
         services_failed_entirely: List[str] = []
         output_generated = False # Flag to track if any service details were printed
 
-        print("\n[bold]Start Results by Service:[/bold]")
+        display.heading("Start Results by Service")
 
         # Sort by service name for consistent aggregation order
         for service_name in sorted(results.keys()):
@@ -194,44 +193,44 @@ def execute_parallel_command(
 
                 # Print service details if anything happened
                 if started or already_running or failed:
-                    print(f"- [cyan]{service_name}[/cyan]:")
+                    display.print(f"- {display.highlight(service_name)}:")
                     if started:
-                        print(f"  - [green]Started:[/green]")
+                        display.success("  - Started:")
                         for process in started:
-                            print(f"    - {process}")
+                            display.print(f"    - {display.highlight(process)}")
                     if already_running:
-                        print(f"  - [dim]Already Running:[/dim]")
+                        display.dimmed("  - Already Running:")
                         for process in already_running:
-                            print(f"    - {process}")
+                            display.print(f"    - {display.highlight(process)}")
                     if failed:
-                        print(f"  - [red]Failed:[/red]")
+                        display.error("  - Failed:")
                         for process in failed:
-                            print(f"    - {process}")
+                            display.print(f"    - {display.highlight(process)}")
                     output_generated = True
 
             else: # Result was None (or unexpected type), indicating failure in start_service itself
                 services_failed_entirely.append(service_name)
-                print(f"- [bold red]{service_name}: Failed entirely.[/bold red]")
+                display.error(f"- {display.highlight(service_name)}: Failed entirely.")
                 output_generated = True
 
         # Print Overall Summary
-        print("\n[bold]Overall Summary:[/bold]")
+        display.heading("Overall Summary") # Use heading for consistency
         summary_parts = []
         if total_started_count:
-            summary_parts.append(f"[green]{total_started_count} started[/green]")
+            summary_parts.append(f"[green]{total_started_count} started[/green]") # Keep markup for inline styling
         if total_already_running_count:
-            summary_parts.append(f"[dim]{total_already_running_count} already running[/dim]")
+            summary_parts.append(f"[dim]{total_already_running_count} already running[/dim]") # Keep markup
         if total_failed_count:
-            summary_parts.append(f"[red]{total_failed_count} failed[/red]")
+            summary_parts.append(f"[red]{total_failed_count} failed[/red]") # Keep markup
         if services_failed_entirely:
-            summary_parts.append(f"[bold red]{len(services_failed_entirely)} service(s) failed entirely[/bold red]")
+            summary_parts.append(f"[bold red]{len(services_failed_entirely)} service(s) failed entirely[/bold red]") # Keep markup
 
         if summary_parts:
-            print("  " + ", ".join(summary_parts) + ".")
+            display.print("  " + ", ".join(summary_parts) + ".") # Use display.print
         elif not services: # Check if services list was empty to begin with
             pass # Initial message already handled this
         elif not output_generated: # Check if any service details were printed
-            print("  [yellow]No processes were targeted for starting or required starting.[/yellow]")
+            display.warning("No processes were targeted for starting or required starting.") # Use display.warning
 
 
 # --- Typer App Definition ---
