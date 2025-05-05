@@ -196,16 +196,16 @@ def _stop_single_process_with_logic(
 
         # --- Force Kill Logic (runs independently of the 'wait' parameter for stopProcess) ---
         if force_kill_timeout is not None and force_kill_timeout > 0:
-            # Optional worker-specific check within the timeout window
+            # Worker process special handling (only if --wait-workers)
             worker_wait_timed_out = False
             if wait_workers and is_worker_process(original_process_name):
                 print(f"  --wait-workers: Checking graceful stop for worker [b green]{original_process_name}[/b green] (timeout: {force_kill_timeout}s)...")
                 worker_stopped_gracefully = _wait_for_process_stop(supervisor_api, original_process_name, force_kill_timeout)
                 if not worker_stopped_gracefully:
                     worker_wait_timed_out = True
-                    print(f"  [yellow]Warning (--wait-workers):[/yellow] Worker process [b green]{original_process_name}[/b green] did not stop gracefully within {force_kill_timeout}s.")
+                    print(f"  [yellow]Warning:[/yellow] Worker process {original_process_name} did not stop gracefully within {force_kill_timeout}s.")
                 else:
-                    print(f"  --wait-workers: Worker process [b green]{original_process_name}[/b green] stopped gracefully.")
+                    print(f"  Worker process [b green]{original_process_name}[/b green] stopped gracefully.")
 
             # General wait check (if worker wait didn't already time out)
             stopped_gracefully = False

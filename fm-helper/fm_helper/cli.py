@@ -2,6 +2,7 @@ import os
 import sys
 import json
 import subprocess
+import traceback
 from enum import Enum
 from typing import Annotated, Optional, List, Tuple
 
@@ -25,7 +26,8 @@ try:
         stop_service as util_stop_service,
         start_service as util_start_service,
         restart_service as util_restart_service,
-        get_service_info as util_get_service_info, # Correctly imported function
+        get_service_info as util_get_service_info,
+        signal_service as util_signal_service,
         FM_SUPERVISOR_SOCKETS_DIR,
         SupervisorError, # Import the base error
     )
@@ -109,17 +111,17 @@ def execute_parallel_command(
                     result = future.result()
                     results[service] = result
                 except Exception as e:
+                    # Print the error message identifying the service
                     print(f"[bold red]Error {action_verb} {service}:[/bold red] {e}")
-                    results[service] = None
-                    raise e # TODO debug
+                    # Print the traceback for this specific failure
+                    print(f"[red]Traceback for {service}:[/red]", file=sys.stderr)
+                    traceback.print_exc(file=sys.stderr)
+                    results[service] = None # Mark service as failed
                 finally:
                     # Update progress ONLY if show_progress is True and task_id is valid
                     if show_progress and task_id is not None and progress: # Check progress again
                         progress.update(task_id, advance=1)
 
-    except Exception as e:
-        print(f"[bold red]An unexpected error occurred during parallel execution:[/bold red] {e}")
-        raise e # TODO debug
     finally:
         # Ensure progress bar stops even if interrupted
         # This might not be strictly necessary with transient=True and context manager
@@ -130,8 +132,14 @@ def execute_parallel_command(
 
     # --- Process and Print Results ---
 
-    # For status command, print the Trees
-    if command_func == util_get_service_info:
+    # For status command (using util_get_service_info), print the Trees
+    # Also handle the internal INFO action used by graceful_restart
+    if command_func == util_get_service_info or kwargs.get('action') == 'INFO':
+        # If it was the internal INFO action, don't print status trees
+        if kwargs.get('action') == 'INFO':
+            return results # Return raw results for internal use
+
+        # Otherwise, print status trees for the 'status' command
         print("-" * 30)
         output_printed = False
         # Sort results by service name for consistent output
@@ -141,16 +149,17 @@ def execute_parallel_command(
             if isinstance(result, Tree):
                 print(result) # Print the Rich Tree
                 output_printed = True
-            # else: the result was likely False due to an exception caught in the parallel executor loop
-            # Error message was already printed in that loop.
+            # else: Error message was already printed in the parallel executor loop.
 
-        # If no Trees were printed (e.g., all services failed before returning a Tree)
+        # If no Trees were printed
         if not output_printed:
              print("[yellow]No service status information could be retrieved.[/yellow]")
         print("-" * 30)
+        # Return None or empty dict? For status, printing is the main goal.
+        return None # Indicate status was printed
 
-    # For stop/start/restart, summarize success/failure based on boolean results
-    elif command_func in [util_stop_service, util_start_service, util_restart_service]:
+    # For stop/restart/signal (simple boolean results expected per service)
+    elif command_func in [util_stop_service, util_restart_service, util_signal_service]:
         success_count = sum(1 for res in results.values() if res is True)
         fail_count = len(services) - success_count
 
@@ -160,6 +169,71 @@ def execute_parallel_command(
              print(f"[red]Failed to {action_verb} {fail_count} service(s).[/red]")
         else:
              print(f"[yellow]Finished {action_verb}: {success_count} succeeded, {fail_count} failed.[/yellow]")
+    
+    # --- Add new block specifically for start_service results ---
+    elif command_func == util_start_service:
+        # Initialize overall counts
+        total_started_count = 0
+        total_already_running_count = 0
+        total_failed_count = 0
+        services_failed_entirely: List[str] = []
+        output_generated = False # Flag to track if any service details were printed
+
+        print("\n[bold]Start Results by Service:[/bold]")
+
+        # Sort by service name for consistent aggregation order
+        for service_name in sorted(results.keys()):
+            result = results[service_name]
+            if isinstance(result, dict): # Check if we got the expected dictionary
+                started = result.get("started", [])
+                already_running = result.get("already_running", [])
+                failed = result.get("failed", [])
+
+                # Update overall counts
+                total_started_count += len(started)
+                total_already_running_count += len(already_running)
+                total_failed_count += len(failed)
+
+                # Print service details if anything happened
+                if started or already_running or failed:
+                    print(f"- [cyan]{service_name}[/cyan]:")
+                    if started:
+                        print(f"  - [green]Started:[/green]")
+                        for process in started:
+                            print(f"    - {process}")
+                    if already_running:
+                        print(f"  - [dim]Already Running:[/dim]")
+                        for process in already_running:
+                            print(f"    - {process}")
+                    if failed:
+                        print(f"  - [red]Failed:[/red]")
+                        for process in failed:
+                            print(f"    - {process}")
+                    output_generated = True
+
+            else: # Result was None (or unexpected type), indicating failure in start_service itself
+                services_failed_entirely.append(service_name)
+                print(f"- [bold red]{service_name}: Failed entirely.[/bold red]")
+                output_generated = True
+
+        # Print Overall Summary
+        print("\n[bold]Overall Summary:[/bold]")
+        summary_parts = []
+        if total_started_count:
+            summary_parts.append(f"[green]{total_started_count} started[/green]")
+        if total_already_running_count:
+            summary_parts.append(f"[dim]{total_already_running_count} already running[/dim]")
+        if total_failed_count:
+            summary_parts.append(f"[red]{total_failed_count} failed[/red]")
+        if services_failed_entirely:
+            summary_parts.append(f"[bold red]{len(services_failed_entirely)} service(s) failed entirely[/bold red]")
+
+        if summary_parts:
+            print("  " + ", ".join(summary_parts) + ".")
+        elif not services: # Check if services list was empty to begin with
+            pass # Initial message already handled this
+        elif not output_generated: # Check if any service details were printed
+            print("  [yellow]No processes were targeted for starting or required starting.[/yellow]")
 
 
 # --- Typer App Definition ---

@@ -26,6 +26,13 @@ def command(
             show_default=False,
         )
     ] = None,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose", "-v",
+            help="Show detailed process information.",
+        )
+    ] = False,
 ):
     """Show detailed status of services."""
     if not _cached_service_names:
@@ -50,6 +57,7 @@ def command(
         services_to_target,
         util_get_service_info,
         action_verb="checking status",
-        show_progress=False
+        show_progress=False,
+        verbose=verbose
     )
     print("Status check finished.")

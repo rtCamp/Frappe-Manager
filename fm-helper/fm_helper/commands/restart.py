@@ -11,12 +11,14 @@ from ..cli import (
     get_service_names_for_completion,
     _cached_service_names,
 )
-from ..supervisor import (
+from ..supervisor.api import (
     restart_service as util_restart_service,
     stop_service as util_stop_service,
     start_service as util_start_service,
-    FM_SUPERVISOR_SOCKETS_DIR,
 )
+from ..supervisor.connection import FM_SUPERVISOR_SOCKETS_DIR
+from ..supervisor.constants import DEFAULT_SUFFIXES
+from ..supervisor.executor import execute_supervisor_command
 # Import necessary components for config key management
 import json
 import contextlib
@@ -111,11 +113,30 @@ def command(
         bool,
         typer.Option(
             "--wait-workers/--no-wait-workers",
-            help="Explicitly wait for processes containing '-worker' to stop gracefully during the stop phase of restart (primarily relevant with --force-timeout).",
+            help="Use standard stop-then-start restart. Default (--no-wait-workers) uses hybrid rolling restart for worker pairs.",
         )
     ] = False,
+    suffixes: Annotated[
+        str,
+        typer.Option(
+            "--suffixes",
+            help=f"Comma-separated Blue/Green suffixes for hybrid/rolling restart (default: '{DEFAULT_SUFFIXES}'). Used with --no-wait-workers.",
+        )
+    ] = DEFAULT_SUFFIXES,
+    rolling_timeout: Annotated[
+        int,
+        typer.Option(
+            "--rolling-timeout",
+            help="Timeout (seconds) for waiting for new rolling instances during hybrid restart (with --no-wait-workers).",
+        )
+    ] = 60,
 ):
-    """Restart services with optional job waiting, scheduler pausing, maintenance mode, and worker waiting."""
+    """
+    Restart services using either hybrid rolling restart (default) or standard stop-then-start (--wait-workers).
+    
+    The default mode (--no-wait-workers) uses rolling restart for worker processes and standard restart for others.
+    Use --wait-workers to force standard stop-then-start behavior for all processes.
+    """
     if not _cached_service_names:
         print(f"[bold red]Error:[/bold red] No supervisord services found to restart.", file=sys.stderr)
         print(f"Looked for socket files in: {FM_SUPERVISOR_SOCKETS_DIR}", file=sys.stderr)
@@ -214,45 +235,33 @@ def command(
                 print(f"\n[bold yellow]Warning:[/bold yellow] Failed to restore 'maintenance_mode' key in {site_config_path}: {e}", file=sys.stderr)
                 print(f"[yellow]Please manually ensure 'maintenance_mode' is set correctly (should be {json.dumps(original_maintenance_state)}) in the file.[/yellow]", file=sys.stderr)
 
-    # --- Restart Execution (Stop/Start) ---
-    restart_type = "Forced" if force else "Graceful"
+    # --- Restart Execution ---
     job_wait_performed = wait_jobs # Keep track if we waited
 
-    print(f"\nProceeding with {restart_type} restart for {target_desc}...")
+    # Determine effective force_kill_timeout
+    effective_force_timeout = force_timeout if force else None
+
+    # Choose description based on strategy
+    strategy_desc = "Standard Restart (--wait-workers)" if wait_workers else "Hybrid Rolling Restart (default)"
+    restart_type = "Forced" if force else "Graceful"
+    print(f"\nProceeding with {restart_type} restart ({strategy_desc}) for {target_desc}...")
 
     try:
-        # STEP 1: Stop Service
-        step_num_stop = 1 + (1 if job_wait_performed else 0)
-        step_num_start = step_num_stop + 1
-        total_steps = step_num_start
-
-        print(f"\n[STEP {step_num_stop}/{total_steps}] {restart_type} stopping services...")
-        stop_kwargs = {
-            "action_verb": "stopping",
-            "show_progress": True,
-            "wait": wait,
-            "wait_workers": wait_workers,
-        }
-        if force:
-            stop_kwargs["force_kill_timeout"] = force_timeout
-
+        # Execute the restart command in parallel using the single restart function
         execute_parallel_command(
             services_to_target,
-            util_stop_service,
-            **stop_kwargs
-        )
-
-        # STEP 2: Start Service
-        print(f"\n[STEP {step_num_start}/{total_steps}] Starting services...")
-        execute_parallel_command(
-            services_to_target,
-            util_start_service,
-            action_verb="starting",
+            util_restart_service, # Use the single restart function from api.py
+            action_verb="restarting",
             show_progress=True,
-            wait=wait
+            # Pass all relevant parameters down
+            wait=wait,
+            wait_workers=wait_workers, # This flag determines the strategy in _handle_restart
+            force_kill_timeout=effective_force_timeout, # Pass timeout only if force is True
+            suffixes=suffixes,
+            rolling_timeout=rolling_timeout,
         )
 
-        print(f"\n{restart_type} restart sequence finished successfully.")
+        # Success/failure summary is now handled within execute_parallel_command
 
     finally:
         # --- Restore Scheduler State ---

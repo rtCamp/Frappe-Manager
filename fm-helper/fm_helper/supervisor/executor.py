@@ -1,10 +1,13 @@
 import socket
+import socket
+import signal
 from typing import Optional, List, Any, Dict
 from xmlrpc.client import ProtocolError
 
 from .exceptions import SupervisorConnectionError
 from .connection import check_supervisord_connection
-from .actions import _handle_stop, _handle_start, _handle_restart, _handle_info
+from .actions import _handle_stop, _handle_start, _handle_restart, _handle_info, _handle_signal
+from .constants import DEFAULT_SUFFIXES
 
 # --- Helper: Get Validated API ---
 def _get_validated_supervisor_api(service_name: str):
@@ -20,7 +23,14 @@ def execute_supervisor_command(
     process_names: Optional[List[str]] = None,
     wait: bool = True,
     force_kill_timeout: Optional[int] = None,
-    wait_workers: bool = False
+    wait_workers: bool = False,
+    state: Optional[str] = None,
+    verbose: bool = False,
+    # Add parameters for restart
+    suffixes: str = DEFAULT_SUFFIXES,
+    rolling_timeout: int = 60,
+    # Add parameter for signal
+    signal_name: Optional[str] = None,
 ) -> Any: # Return type depends on action
     """Execute supervisor commands, raising exceptions on failure.
 
@@ -34,12 +44,32 @@ def execute_supervisor_command(
             # Pass force_kill_timeout to _handle_stop
             return _handle_stop(supervisor_api, service_name, process_names, wait, force_kill_timeout, wait_workers)
         elif action == "start":
-            return _handle_start(supervisor_api, service_name, process_names, wait)
+            return _handle_start(supervisor_api, service_name, process_names, wait, state=state, verbose=verbose)
         elif action == "restart":
             # Pass force_kill_timeout and wait_workers to handle_restart
-            return _handle_restart(supervisor_api, service_name, process_names, wait, force_kill_timeout, wait_workers)
+            return _handle_restart(
+                supervisor_api,
+                service_name,
+                process_names, # Currently unused, restarts all processes
+                wait,
+                force_kill_timeout,
+                wait_workers, # This determines the strategy
+                suffixes,
+                rolling_timeout
+            )
         elif action == "info":
+            # Returns raw list now
             return _handle_info(supervisor_api, service_name)
+        elif action == "signal":
+            if not signal_name:
+                 raise ValueError("Signal name must be provided for the 'signal' action.")
+            if process_names is None:
+                 raise ValueError("Process names must be provided for the 'signal' action.")
+            return _handle_signal(supervisor_api, service_name, process_names, signal_name)
+        elif action == "INFO":
+             # This is just a placeholder to reuse the executor logic for getting info
+             # It relies on _handle_info returning the raw list
+             return _handle_info(supervisor_api, service_name)
         else:
             raise ValueError(f"Unknown supervisor action requested: {action}")
 

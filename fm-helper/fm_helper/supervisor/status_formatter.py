@@ -21,8 +21,8 @@ def get_state_color(state: str) -> str:
         return 'yellow'
     return 'red'
 
-def create_process_details_table(process_info: Dict[str, Any]) -> Table:
-    """Create a formatted table of process details."""
+def create_process_details_table(process_info: Dict[str, Any], verbose: bool = False) -> Table:
+    """Create a formatted table of process details (only verbose details)."""
     table = Table(
         show_lines=False,
         show_edge=False,
@@ -34,12 +34,16 @@ def create_process_details_table(process_info: Dict[str, Any]) -> Table:
     table.add_column(style="dim", justify="right")
     table.add_column()
 
+    # Only show details if verbose is True
+    if not verbose:
+        return table # Return empty table if not verbose
+
+    # Define verbose fields
     fields_to_display = [
         ("group", "Group"),
-        ("pid", "PID"),
-        ("start", "Start Time"),
+        ("start", "Start Time"), # Keep start/stop time in verbose
         ("stop", "Stop Time"),
-        ("now", "Server Time"),
+        ("now", "Server Time"), # Keep server time in verbose
         ("spawnerr", "Spawn Error"),
         ("exitstatus", "Exit Status"),
         ("stdout_logfile", "Stdout Log"),
@@ -49,20 +53,29 @@ def create_process_details_table(process_info: Dict[str, Any]) -> Table:
 
     for field, label in fields_to_display:
         value = process_info.get(field)
-        if value or field in ['pid', 'exitstatus']:
-            if field in ['start', 'stop', 'now']:
-                value = format_timestamp(value)
-            elif field == 'pid' and value == 0:
-                value = "N/A (Not Running)"
-            elif field == 'exitstatus' and process_info.get('statename') == 'RUNNING':
-                continue
+        # Special handling for PID 0 and Exit Status when running
+        if field == 'pid' and value == 0:
+            value = "N/A (Not Running)"
+        elif field == 'exitstatus' and process_info.get('statename') == 'RUNNING':
+            continue # Don't show exit status for running processes
+        elif field in ['start', 'stop', 'now']:
+            value = format_timestamp(value)
 
-            table.add_row(f"{label}:", str(value))
+        # Only add row if value exists (or for specific fields like PID/Exit Status)
+        if value is not None or field in ['pid', 'exitstatus']:
+             # Ensure value is a string for the table
+             table.add_row(f"{label}:", str(value))
 
     return table
 
-def format_service_info(service_name: str, process_info_list: list) -> Tree:
-    """Format service and process information as a Rich Tree."""
+def format_service_info(service_name: str, process_info_list: list, verbose: bool = False) -> Tree:
+    """Format service and process information as a Rich Tree.
+    
+    Args:
+        service_name: Name of the service to format info for
+        process_info_list: List of process information dictionaries
+        verbose: If True, shows more detailed information in the output
+    """
     root = Tree(f"📄 [b magenta]{service_name}[/b magenta]", highlight=True)
     
     if not process_info_list:
@@ -74,12 +87,15 @@ def format_service_info(service_name: str, process_info_list: list) -> Tree:
         state = process.get('statename', 'UNKNOWN')
         state_color = get_state_color(state)
 
+        # Rearrange the elements: PID, Status, then Process Name
         process_tree = root.add(
-            f"[b cyan]Process:[/b cyan] [b]{process_name}[/b] "
-            f"([{state_color}]{state}[/{state_color}])"
+            f"([dim]PID: {process.get('pid', 0) or 'N/A'}[/dim]) " # PID first
+            f"([{state_color}]{state}[/{state_color}]) " # Status second 
+            f"[b cyan]Process:[/b cyan] [b]{process_name}[/b]" # Process name last
         )
         
-        details_table = create_process_details_table(process)
+        # Pass the verbose flag here
+        details_table = create_process_details_table(process, verbose=verbose)
         if details_table.row_count > 0:
             process_tree.add(details_table)
 

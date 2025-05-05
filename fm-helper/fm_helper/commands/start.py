@@ -16,6 +16,7 @@ command_name = "start"
 
 ServiceNamesEnum = ServiceNameEnumFactory()
 
+
 def command(
     ctx: typer.Context,
     service_names: Annotated[
@@ -31,7 +32,15 @@ def command(
         typer.Option(
             "--process",
             "-p",
-            help="Target only specific process(es) within the selected service(s). Use multiple times for multiple processes (e.g., -p worker_short -p worker_long).",
+            help="Target only specific process(es). If omitted, attempts to start ALL non-worker processes and the ACTIVE worker state (or the state specified by --state).",
+            show_default=False,
+        )
+    ] = None,
+    state: Annotated[
+        Optional[str],
+        typer.Option(
+            "--state", "-s",
+            help="Explicitly start only worker processes matching this state (e.g., 'blue' or 'green'). Overrides automatic active state detection. Only applies when specific processes (-p) are NOT given.",
             show_default=False,
         )
     ] = None,
@@ -41,7 +50,14 @@ def command(
             "--wait/--no-wait",
             help="Wait for supervisor start/stop operations to complete before returning.",
         )
-    ] = True, # Keep existing defaults for options
+    ] = True,
+    verbose: Annotated[
+        bool,
+        typer.Option(
+            "--verbose", "-v",
+            help="Show detailed process identification and skipping messages during start.",
+        )
+    ] = False,
 ):
     """Start services or specific processes."""
     if not _cached_service_names:
@@ -59,14 +75,32 @@ def command(
         print(f"Available services: {', '.join(all_services) or 'None'}")
         raise typer.Exit(code=1)
 
-    target_desc = "all services" if not service_names else f"service(s): [b cyan]{', '.join(services_to_target)}[/b cyan]"
-    process_desc = f"process(es): [b yellow]{', '.join(process_name)}[/b yellow]" if process_name else "all processes"
+    # Validate state if provided
+    if state and state not in ("blue", "green"):
+        print(f"[red]Error:[/red] Invalid --state value '{state}'. Must be 'blue' or 'green'.")
+        raise typer.Exit(code=1)
 
-    print(f"Attempting to start {process_desc} in {target_desc}...")
+    target_desc = "all services" if not service_names else f"service(s): [b cyan]{', '.join(services_to_target)}[/b cyan]"
+
+    # Determine description based on whether specific processes or state are targeted
+    if process_name:
+        process_desc = f"specific process(es): [b yellow]{', '.join(process_name)}[/b yellow]"
+    elif state:
+        process_desc = f"non-workers and [b yellow]{state}[/b yellow] worker processes"
+    else:
+        process_desc = "all defined non-workers and the active worker state"
+
+    print(f"\nStarting {process_desc} in {target_desc}...")
+
     execute_parallel_command(
         services_to_target,
         util_start_service,
         action_verb="starting",
+        show_progress=True,
         process_name_list=process_name,
-        wait=wait
+        wait=wait,
+        state=state,
+        verbose=verbose
     )
+
+    print("\nStart sequence complete.")

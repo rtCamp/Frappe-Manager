@@ -8,6 +8,7 @@ from .api import (
     restart_service,
     get_service_info,
     get_service_names,
+    signal_service,
 )
 
 # Import public exceptions
@@ -37,6 +38,7 @@ __all__ = [
     "restart_service",
     "get_service_info",
     "get_service_names",
+    "signal_service",
 
     # Exceptions
     "SupervisorError",
