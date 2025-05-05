@@ -6,8 +6,6 @@ from .executor import execute_supervisor_command, check_supervisord_connection
 from .connection import FM_SUPERVISOR_SOCKETS_DIR
 from .status_formatter import format_service_info
 from .exceptions import SupervisorError, SupervisorConnectionError
-from .constants import DEFAULT_SUFFIXES
-
 def get_service_names() -> List[str]:
     """Get a list of service names based on available socket files."""
     if not FM_SUPERVISOR_SOCKETS_DIR.is_dir():
@@ -68,27 +66,19 @@ def restart_service(
     service_name: str,
     wait: bool = True,
     wait_workers: bool = False,
-    force_kill_timeout: Optional[int] = None,
-    # Add missing parameters needed by execute_supervisor_command -> _handle_restart
-    suffixes: str = DEFAULT_SUFFIXES,
-    rolling_timeout: int = 60
+    force_kill_timeout: Optional[int] = None
 ) -> bool:
-    """Restart a service (all its processes).
+    """Restart a service (all its processes) using standard stop-then-start.
 
-    If wait_workers is True, uses standard stop-then-start.
-    If wait_workers is False (default), uses hybrid rolling restart for workers.
-    If force_kill_timeout is provided, it's used during the stop phase(s).
-    suffixes and rolling_timeout are used for hybrid restart.
+    If force_kill_timeout is provided, it's used during the stop phase.
+    The wait_workers flag influences stop behavior if specific worker waits are needed.
     """
     try:
         return execute_supervisor_command(
             service_name, "restart",
             wait=wait,
             wait_workers=wait_workers,
-            force_kill_timeout=force_kill_timeout,
-            # Pass the new parameters down
-            suffixes=suffixes,
-            rolling_timeout=rolling_timeout
+            force_kill_timeout=force_kill_timeout
         ) or False
     except SupervisorError as e:
         print(f"[red]Error restarting {service_name}:[/red] {str(e)}")

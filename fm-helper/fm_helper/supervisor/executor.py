@@ -7,7 +7,6 @@ from xmlrpc.client import ProtocolError
 from .exceptions import SupervisorConnectionError
 from .connection import check_supervisord_connection
 from .actions import _handle_stop, _handle_start, _handle_restart, _handle_info, _handle_signal
-from .constants import DEFAULT_SUFFIXES
 
 # --- Helper: Get Validated API ---
 def _get_validated_supervisor_api(service_name: str):
@@ -26,10 +25,6 @@ def execute_supervisor_command(
     wait_workers: bool = False,
     state: Optional[str] = None,
     verbose: bool = False,
-    # Add parameters for restart
-    suffixes: str = DEFAULT_SUFFIXES,
-    rolling_timeout: int = 60,
-    # Add parameter for signal
     signal_name: Optional[str] = None,
 ) -> Any: # Return type depends on action
     """Execute supervisor commands, raising exceptions on failure.
@@ -53,9 +48,7 @@ def execute_supervisor_command(
                 process_names, # Currently unused, restarts all processes
                 wait,
                 force_kill_timeout,
-                wait_workers, # This determines the strategy
-                suffixes,
-                rolling_timeout
+                wait_workers # This determines the strategy
             )
         elif action == "info":
             # Returns raw list now

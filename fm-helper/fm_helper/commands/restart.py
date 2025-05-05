@@ -1,40 +1,88 @@
+# New restart.py containing the suspend-based restart logic
 import sys
-from typing import Annotated, Optional, List
+import signal
+import os
+from typing import Annotated, Optional, List, Tuple, Any
+from ..supervisor.executor import execute_supervisor_command
+
 
 import typer
 from rich import print
 
-from ..cli import (
-    ServiceNameEnumFactory,
-    _run_wait_jobs,
-    execute_parallel_command,
-    get_service_names_for_completion,
-    _cached_service_names,
-)
-from ..supervisor.api import (
-    restart_service as util_restart_service,
-    stop_service as util_stop_service,
-    start_service as util_start_service,
-)
-from ..supervisor.connection import FM_SUPERVISOR_SOCKETS_DIR
-from ..supervisor.constants import DEFAULT_SUFFIXES
-from ..supervisor.executor import execute_supervisor_command
-# Import necessary components for config key management
-import json
-import contextlib
-from pathlib import Path
-from ..workers import _update_site_config_key, _get_site_config_key_value
+# Use relative imports within the package
+try:
+    from ..cli import (
+        ServiceNameEnumFactory,
+        _run_wait_jobs,
+        execute_parallel_command,
+        get_service_names_for_completion,
+        _cached_service_names,
+    )
+    from ..supervisor.api import (
+        restart_service as util_restart_service,
+        signal_service as util_signal_service,
+        get_service_info as util_get_service_info,
+    )
+    from ..supervisor.connection import FM_SUPERVISOR_SOCKETS_DIR
+    from ..supervisor.constants import is_worker_process, ProcessStates
+    from ..supervisor.exceptions import SupervisorError, SupervisorConnectionError
+    # Import necessary components for config key management
+    import json
+    import contextlib
+    from pathlib import Path
+    from ..workers import _update_site_config_key, _get_site_config_key_value
+except ImportError as e:
+    print(f"[bold red]Error:[/bold red] Failed to import required modules: {e}")
+    print("Ensure fm-helper structure is correct and dependencies are installed.")
+    sys.exit(1)
+
 
 command_name = "restart"
 
 ServiceNamesEnum = ServiceNameEnumFactory()
 
+# --- Helper to get worker process names for a service ---
+def _get_worker_processes_for_service(service_name: str) -> List[str]:
+    """Fetches process info and returns names of worker processes."""
+    worker_names = []
+    try:
+        # Use execute_parallel_command with a placeholder action 'INFO'
+        process_info_results = execute_parallel_command(
+            [service_name],
+            lambda s, **kw: execute_supervisor_command(s, action="info"),
+            action_verb="getting info for",
+            show_progress=False,
+            action='INFO'
+        )
+
+        info_list = process_info_results.get(service_name) if isinstance(process_info_results, dict) else None
+
+        if isinstance(info_list, list):
+             for proc_info in info_list:
+                 if 'name' in proc_info and is_worker_process(proc_info['name']):
+                     worker_names.append(proc_info['name'])
+        elif info_list is None and process_info_results is not None and service_name in process_info_results:
+             print(f"[yellow]Warning:[/yellow] Could not retrieve process info for {service_name} to identify workers (result was None).")
+        elif info_list is None:
+             pass # Error already logged
+
+    except SupervisorConnectionError:
+         print(f"[yellow]Warning:[/yellow] Could not connect to {service_name} to identify workers.")
+    except Exception as e:
+        print(f"[red]Error identifying workers for {service_name}: {e}[/red]")
+        import traceback
+        traceback.print_exc()
+
+    return worker_names
+
+
+# --- Command Definition ---
 def command(
     ctx: typer.Context,
     service_names: Annotated[
         Optional[List[ServiceNamesEnum]],
         typer.Argument(
-            help="Name(s) of the service(s) to target. If omitted, targets ALL running services.",
+            help="Name(s) of the service(s) to restart. If omitted, targets ALL running services.",
             autocompletion=get_service_names_for_completion,
             show_default=False,
         )
@@ -43,14 +91,14 @@ def command(
         bool,
         typer.Option(
             "--wait-jobs",
-            help="Wait for active Frappe background jobs ('started' state) to finish before completing stop/restart.",
+            help="Wait for active Frappe background jobs ('started' state) to finish after suspending workers.",
         )
     ] = False,
     site_name: Annotated[
         Optional[str],
         typer.Option(
             "--site-name",
-            help="Frappe site name (required if --wait-jobs is used).",
+            help="Frappe site name (required if --wait-jobs, --pause-scheduler, or --maintenance-mode is used).",
         )
     ] = None,
     wait_jobs_timeout: Annotated[
@@ -74,27 +122,6 @@ def command(
             help="Specific job queue(s) to monitor when using --wait-jobs. Use multiple times (e.g., -q short -q long). Monitors all if not specified.",
         )
     ] = None,
-    force: Annotated[
-        bool,
-        typer.Option(
-            "--force", "-f",
-            help="Force stop/start. Tries graceful stop first, then force kills if timeout is reached.",
-        )
-    ] = False,
-    force_timeout: Annotated[
-        int,
-        typer.Option(
-            "--force-timeout",
-            help="Timeout (seconds) to wait for graceful stop during --force before killing (default: 10).",
-        )
-    ] = 10,
-    wait: Annotated[
-        bool,
-        typer.Option(
-            "--wait/--no-wait",
-            help="Wait for supervisor start/stop operations to complete before returning.",
-        )
-    ] = True,
     pause_scheduler: Annotated[
         bool,
         typer.Option(
@@ -109,33 +136,21 @@ def command(
             help="Set 'maintenance_mode: true' in site_config.json before waiting for jobs and restore original state after waiting. Requires --wait-jobs and --site-name.",
         )
     ] = False,
-    wait_workers: Annotated[
+    wait: Annotated[
         bool,
         typer.Option(
-            "--wait-workers/--no-wait-workers",
-            help="Use standard stop-then-start restart. Default (--no-wait-workers) uses hybrid rolling restart for worker pairs.",
+            "--wait/--no-wait",
+            help="Wait for the final supervisor restart operations to complete before returning.",
         )
-    ] = False,
-    suffixes: Annotated[
-        str,
-        typer.Option(
-            "--suffixes",
-            help=f"Comma-separated Blue/Green suffixes for hybrid/rolling restart (default: '{DEFAULT_SUFFIXES}'). Used with --no-wait-workers.",
-        )
-    ] = DEFAULT_SUFFIXES,
-    rolling_timeout: Annotated[
-        int,
-        typer.Option(
-            "--rolling-timeout",
-            help="Timeout (seconds) for waiting for new rolling instances during hybrid restart (with --no-wait-workers).",
-        )
-    ] = 60,
+    ] = True,
 ):
     """
-    Restart services using either hybrid rolling restart (default) or standard stop-then-start (--wait-workers).
-    
-    The default mode (--no-wait-workers) uses rolling restart for worker processes and standard restart for others.
-    Use --wait-workers to force standard stop-then-start behavior for all processes.
+    Restart services using worker suspension (SIGUSR2) for graceful shutdown.
+
+    Workflow:
+    1. Sends SIGUSR2 to worker processes, causing them to finish current jobs and suspend.
+    2. (Optional) Waits for Frappe background jobs to complete (--wait-jobs).
+    3. Restarts all target services using standard supervisor stop-then-start.
     """
     if not _cached_service_names:
         print(f"[bold red]Error:[/bold red] No supervisord services found to restart.", file=sys.stderr)
@@ -153,8 +168,7 @@ def command(
         raise typer.Exit(code=1)
 
     target_desc = "all services" if not service_names else f"service(s): [b cyan]{', '.join(services_to_target)}[/b cyan]"
-    restart_type = "Forced" if force else "Graceful"
-    print(f"Attempting {restart_type} restart for {target_desc}...")
+    print(f"Attempting Restart (Suspend + Wait + Restart) for {target_desc}...")
 
     # Variables to store state returned from job waiting / set by this script
     original_scheduler_state: Optional[int] = None
@@ -238,13 +252,7 @@ def command(
     # --- Restart Execution ---
     job_wait_performed = wait_jobs # Keep track if we waited
 
-    # Determine effective force_kill_timeout
-    effective_force_timeout = force_timeout if force else None
-
-    # Choose description based on strategy
-    strategy_desc = "Standard Restart (--wait-workers)" if wait_workers else "Hybrid Rolling Restart (default)"
-    restart_type = "Forced" if force else "Graceful"
-    print(f"\nProceeding with {restart_type} restart ({strategy_desc}) for {target_desc}...")
+    print(f"\n[STEP 3/3] Restarting {target_desc} (standard stop-then-start)...")
 
     try:
         # Execute the restart command in parallel using the single restart function
@@ -255,10 +263,8 @@ def command(
             show_progress=True,
             # Pass all relevant parameters down
             wait=wait,
-            wait_workers=wait_workers, # This flag determines the strategy in _handle_restart
-            force_kill_timeout=effective_force_timeout, # Pass timeout only if force is True
-            suffixes=suffixes,
-            rolling_timeout=rolling_timeout,
+            wait_workers=True, # Force standard stop-then-start strategy
+            force_kill_timeout=None, # No forced kill in this flow
         )
 
         # Success/failure summary is now handled within execute_parallel_command
@@ -278,5 +284,5 @@ def command(
         # --- End Restore Scheduler State ---
 
         # Final message indicating the stop/start try block is done
-        print(f"\n{restart_type} restart process complete.")
+        print(f"\nRestart process complete for {target_desc}.")
     # --- End of Restart Execution ---
