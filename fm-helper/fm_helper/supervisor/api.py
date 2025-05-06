@@ -4,6 +4,7 @@ from rich.tree import Tree
 from ..display import display
 
 from .executor import execute_supervisor_command, check_supervisord_connection
+from .constants import SIGNAL_NUM_WORKER_GRACEFUL_EXIT
 from .connection import FM_SUPERVISOR_SOCKETS_DIR
 from .status_formatter import format_service_info
 from .exceptions import SupervisorError, SupervisorConnectionError
@@ -108,6 +109,25 @@ def signal_service(
         raise e
     except ValueError as e: # Catch potential ValueError from execute_supervisor_command
          raise e
+
+def signal_service_workers(
+    service_name: str,
+    signal_num: int = SIGNAL_NUM_WORKER_GRACEFUL_EXIT,
+) -> List[str]:
+    """Signal worker processes within a service for graceful shutdown.
+
+    Args:
+        service_name: The name of the target service.
+        signal_num: The signal number to send. Defaults to graceful exit signal.
+
+    Returns:
+        List[str]: A list of process names that were signaled.
+
+    Raises:
+        SupervisorError: If the signaling operation fails.
+    """
+    # Use a distinct action name 'signal_workers' to trigger the specific handler
+    return execute_supervisor_command(service_name, "signal_workers", signal_num=signal_num)
 
 def get_service_info(service_name: str, verbose: bool = False) -> Tree:
     """Get information about a service and its processes.

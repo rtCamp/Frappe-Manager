@@ -3,8 +3,8 @@ import signal
 from typing import List, Optional, Dict, Any
 from xmlrpc.client import Fault
 
-from .constants import STOPPED_STATES, is_worker_process, ProcessStates
-from .exceptions import SupervisorOperationFailedError, SupervisorConnectionError
+from .constants import STOPPED_STATES, is_worker_process, ProcessStates, SIGNAL_NUM_WORKER_GRACEFUL_EXIT, WORKER_PROCESS_IDENTIFIERS
+from .exceptions import SupervisorOperationFailedError, SupervisorConnectionError, SupervisorProcessError
 from ..display import display
 from .fault_handler import _raise_exception_from_fault
 from .stop_helpers import (
@@ -409,6 +409,47 @@ def _handle_signal(supervisor_api, service_name: str, process_names: List[str], 
             results[requested_name] = False
 
     return all(results.values())
+
+def _handle_signal_workers(
+    supervisor_api,
+    service_name: str,
+    signal_num: int = SIGNAL_NUM_WORKER_GRACEFUL_EXIT,
+) -> List[str]:
+    """Identify worker processes and send them a specific signal.
+
+    Args:
+        supervisor_api: The connected supervisor XML-RPC proxy.
+        service_name: Name of the service being targeted.
+        signal_num: The numeric signal to send.
+
+    Returns:
+        List[str]: The names of the processes that were successfully signaled.
+
+    Raises:
+        SupervisorProcessError: If fetching process info fails.
+    """
+    signaled_processes = []
+    action = "signal_workers" # For error reporting context
+    try:
+        all_info = supervisor_api.getAllProcessInfo()
+    except Fault as e:
+        _raise_exception_from_fault(e, service_name, "getAllProcessInfo (signal_workers)")
+        # _raise_exception_from_fault will raise, but return empty list as fallback
+        return []
+
+    for proc in all_info:
+        proc_name = proc.get('name', '')
+        # Check if the process name indicates it's a worker
+        if is_worker_process(proc_name):
+            if proc.get('state') not in STOPPED_STATES: # Only signal running/starting processes
+                try:
+                    display.info(f"Signaling worker process {display.highlight(proc_name)} in {display.highlight(service_name)} with signal {signal_num}...")
+                    supervisor_api.signalProcess(proc_name, signal_num)
+                    signaled_processes.append(proc_name)
+                except Fault as e:
+                    # Log warning but continue signaling others
+                    display.warning(f"Failed to send signal {signal_num} to process {display.highlight(proc_name)} in {display.highlight(service_name)}: {e.faultString}")
+    return signaled_processes
 
 def _handle_info(supervisor_api, service_name: str) -> List[Dict[str, Any]]:
     """Handle the 'info' action. Returns raw process info list."""

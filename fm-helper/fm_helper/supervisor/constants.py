@@ -13,6 +13,10 @@ class ProcessStates(IntEnum):
 
 STOPPED_STATES = (ProcessStates.STOPPED, ProcessStates.EXITED, ProcessStates.FATAL)
 
+# Signal number used to ask Frappe RQ workers for graceful shutdown
+# This corresponds to SIGRTMIN+1 on Linux, which bench worker listens for.
+SIGNAL_NUM_WORKER_GRACEFUL_EXIT = 35
+
 # Constants for worker process identification
 WORKER_PROCESS_IDENTIFIERS = ["-worker", "worker-", "_worker", "worker_"]
 def is_worker_process(process_name: str) -> bool:

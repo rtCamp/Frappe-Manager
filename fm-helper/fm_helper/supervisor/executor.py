@@ -6,7 +6,8 @@ from xmlrpc.client import ProtocolError
 
 from .exceptions import SupervisorConnectionError
 from .connection import check_supervisord_connection
-from .actions import _handle_stop, _handle_start, _handle_restart, _handle_info, _handle_signal
+from .actions import _handle_stop, _handle_start, _handle_restart, _handle_info, _handle_signal, _handle_signal_workers
+from .constants import SIGNAL_NUM_WORKER_GRACEFUL_EXIT
 
 # --- Helper: Get Validated API ---
 def _get_validated_supervisor_api(service_name: str):
@@ -26,6 +27,7 @@ def execute_supervisor_command(
     state: Optional[str] = None,
     verbose: bool = False,
     signal_name: Optional[str] = None,
+    signal_num: Optional[int] = None,
 ) -> Any: # Return type depends on action
     """Execute supervisor commands, raising exceptions on failure.
 
@@ -59,6 +61,10 @@ def execute_supervisor_command(
             if process_names is None:
                  raise ValueError("Process names must be provided for the 'signal' action.")
             return _handle_signal(supervisor_api, service_name, process_names, signal_name)
+        elif action == "signal_workers":
+            # Use the provided signal_num or the default graceful exit signal
+            effective_signal_num = signal_num if signal_num is not None else SIGNAL_NUM_WORKER_GRACEFUL_EXIT
+            return _handle_signal_workers(supervisor_api, service_name, effective_signal_num)
         elif action == "INFO":
              # This is just a placeholder to reuse the executor logic for getting info
              # It relies on _handle_info returning the raw list

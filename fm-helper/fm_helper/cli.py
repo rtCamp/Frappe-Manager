@@ -68,6 +68,7 @@ def execute_parallel_command(
     command_func,
     action_verb: str,
     show_progress: bool = True,
+    return_raw_results: bool = False,
     **kwargs
 ):
     """Execute a command in parallel across multiple services with progress display."""
@@ -124,6 +125,9 @@ def execute_parallel_command(
         # This might not be strictly necessary with transient=True and context manager
         pass
 
+    # Return raw results if requested
+    if return_raw_results:
+        return results
 
     # --- Process and Print Results ---
 

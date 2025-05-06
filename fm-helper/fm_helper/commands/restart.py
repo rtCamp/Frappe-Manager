@@ -1,5 +1,7 @@
 import sys
+import time
 from typing import Annotated, Optional, List
+from ..supervisor.constants import STOPPED_STATES
 from ..rq_controller import (
     control_rq_workers, 
     check_rq_suspension, 
@@ -18,7 +20,11 @@ try:
         get_service_names_for_completion,
         _cached_service_names,
     )
-    from ..supervisor.api import restart_service as util_restart_service
+    from ..supervisor.api import (
+        restart_service as util_restart_service,
+        signal_service_workers as util_signal_service_workers,
+        get_service_info as util_get_service_info
+    )
     from ..supervisor.connection import FM_SUPERVISOR_SOCKETS_DIR
 except ImportError as e:
     sys.stderr.write(f"Error: Failed to import required modules: {e}\n")
@@ -84,6 +90,13 @@ def command(
             help="Show detailed worker states during --wait-workers checks.",
         )
     ] = False,
+    wait_after_signal_timeout: Annotated[
+        int,
+        typer.Option(
+            "--wait-after-signal-timeout",
+            help="Timeout (seconds) for waiting after signaling workers (default: 60).",
+        )
+    ] = 60,
 ):
     """Restart services using standard supervisor stop-then-start.
 
@@ -170,6 +183,48 @@ def command(
             raise typer.Exit(code=1)
 
     # --- End STEP 1 ---
+
+    # --- STEP 2: Signal Workers (if using --no-wait-workers) ---
+    is_signaling_workers = wait_workers is False
+    if is_signaling_workers:
+        display.heading("➡️ Signaling Workers for Graceful Shutdown")
+        try:
+            # Signal workers in all target services
+            for service_name in services_to_target:
+                signaled_workers = util_signal_service_workers(service_name)
+                if signaled_workers:
+                    display.success(f"Signaled workers in {display.highlight(service_name)}: {', '.join(signaled_workers)}")
+                else:
+                    display.dimmed(f"No worker processes found to signal in {display.highlight(service_name)}")
+
+            # Poll for worker states if timeout is provided
+            if wait_after_signal_timeout > 0:
+                display.print("\n[cyan]Waiting for signaled workers to stop...[/cyan]")
+                end_time = time.time() + wait_after_signal_timeout
+                while time.time() < end_time:
+                    all_stopped = True
+                    for service_name in services_to_target:
+                        process_info = util_get_service_info(service_name)
+                        if not process_info:  # Handle None or empty result
+                            continue
+                        for proc in process_info:
+                            if proc.get('name', '').lower() in signaled_workers and proc.get('state') not in STOPPED_STATES:
+                                all_stopped = False
+                                break
+                        if not all_stopped:
+                            break
+                    
+                    if all_stopped:
+                        display.success("All signaled workers have stopped.")
+                        break
+                    time.sleep(5)  # Poll every 5 seconds
+                else:
+                    display.warning(f"Some workers did not stop within {wait_after_signal_timeout} seconds.")
+                    display.warning("Proceeding with restart anyway.")
+
+        except Exception as e:
+            display.error(f"Error during worker signaling: {e}")
+            display.warning("Proceeding with restart despite signaling error.")
 
     resume_called = False # Flag to ensure resume is called only once
 
