@@ -1,4 +1,14 @@
 #!/bin/bash
+
+# --- Define Logging Function ---
+LOG_FILE="/tmp/bench-wrapper.log"
+
+log_message() {
+    # Prepend timestamp to the message and append to log file
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+}
+# --- End Logging Function ---
+
 restart_command() {
       exec fm-helper restart "$@"
 }
@@ -53,13 +63,13 @@ elif [[ "$@" =~ ^worker[[:space:]]* ]]; then
 
     # Function to handle SIGRTMIN+1 (Signal 35) - Special Case
     handle_sigrtmin_plus_1() {
-        echo "Wrapper: Received SIGRTMIN+1 (35)."
+        log_message "Received SIGRTMIN (34)."
         if [[ -n "$BENCH_WORKER_PID" ]]; then
-            echo "Wrapper: Sending SIGTERM to bench worker (PID $BENCH_WORKER_PID) and exiting wrapper immediately."
+            log_message "Sending SIGTERM to bench worker (PID $BENCH_WORKER_PID) and exiting wrapper immediately."
             # Send SIGTERM (graceful shutdown) to the actual bench worker process
             kill -TERM "$BENCH_WORKER_PID" 2>/dev/null
         else
-            echo "Wrapper: Bench worker PID not set, cannot send SIGTERM. Exiting wrapper."
+            log_message "Bench worker PID not set, cannot send SIGTERM. Exiting wrapper."
         fi
         # Exit the wrapper script immediately with success status
         exit 0
@@ -68,29 +78,29 @@ elif [[ "$@" =~ ^worker[[:space:]]* ]]; then
     # Function to forward any other trapped signal by its number
     forward_signal_by_num() {
         local signal_num="$1"
-        echo "Wrapper: Received signal ${signal_num}."
+        log_message "Received signal ${signal_num}."
         if [[ -n "$BENCH_WORKER_PID" ]]; then
-            echo "Wrapper: Forwarding signal ${signal_num} to bench worker (PID $BENCH_WORKER_PID)."
+            log_message "Forwarding signal ${signal_num} to bench worker (PID $BENCH_WORKER_PID)."
             # Send the *same* signal number that the wrapper received to the child process
             kill "-${signal_num}" "$BENCH_WORKER_PID" 2>/dev/null
         else
-            echo "Wrapper: Bench worker PID not set, cannot forward signal ${signal_num}."
+            log_message "Bench worker PID not set, cannot forward signal ${signal_num}."
         fi
         # DO NOT exit the wrapper here. Let the 'wait' command handle termination.
     }
 
     # --- Set Traps ---
-    echo "Wrapper: Setting up signal traps..."
+    log_message "Setting up signal traps..."
     # Special trap for Signal 35
-    trap 'handle_sigrtmin_plus_1' 35
-    echo "Wrapper: Set trap for signal 35."
+    trap 'handle_sigrtmin_plus_1' 34
+    log_message "Set trap for signal 34."
 
     # Dynamically trap signals 1-64 (excluding non-trappable and special case 35)
     for sig_num in $(seq 1 64); do
         case "$sig_num" in
             9 | 19) # SIGKILL, SIGSTOP - cannot be trapped, skip
                 ;;
-            35) # Special case - already handled, skip
+            34) # Special case - already handled, skip
                 ;;
             *) # All other signals in the range 1-64
                 # Set the trap to call the forwarding function with the signal number
@@ -98,7 +108,7 @@ elif [[ "$@" =~ ^worker[[:space:]]* ]]; then
                 ;;
         esac
     done
-    echo "Wrapper: Dynamically set traps for signals 1-64 (excluding 9, 19, 35)."
+    log_message "Dynamically set traps for signals 1-64 (excluding 9, 19, 34)."
 
     # --- Run the actual bench worker command ---
     # Run in the background so the wrapper can wait and handle signals
@@ -106,7 +116,7 @@ elif [[ "$@" =~ ^worker[[:space:]]* ]]; then
 
     # Capture the Process ID (PID) of the background command
     BENCH_WORKER_PID=$!
-    echo "Wrapper: Started bench worker (PID $BENCH_WORKER_PID)."
+    log_message "Started bench worker (PID $BENCH_WORKER_PID)."
 
     # --- Wait for the child process ---
     # Wait for the bench worker process to finish.
@@ -114,17 +124,17 @@ elif [[ "$@" =~ ^worker[[:space:]]* ]]; then
     wait "$BENCH_WORKER_PID"
     # Capture the exit status of the waited process
     EXIT_STATUS=$?
-    echo "Wrapper: Bench worker (PID $BENCH_WORKER_PID) exited with status $EXIT_STATUS."
+    log_message "Bench worker (PID $BENCH_WORKER_PID) exited with status $EXIT_STATUS."
 
     # --- Cleanup ---
-    # Reset signal 35 trap explicitly. Other traps are generally reset on exit.
-    trap - 35
-    echo "Wrapper: Cleaned up trap for signal 35."
+    # Reset signal 34 trap explicitly. Other traps are generally reset on exit.
+    trap - 34
+    log_message "Cleaned up trap for signal 34."
 
     # Exit the wrapper script with the exit status of the bench worker process
     exit $EXIT_STATUS
 else
     # Use exec for other bench commands to pass signals directly and replace the wrapper
-    echo "Wrapper: Executing '/opt/user/.bin/bench_orig $@'"
+    log_message "Executing '/opt/user/.bin/bench_orig $@'"
     exec /opt/user/.bin/bench_orig "$@"
 fi

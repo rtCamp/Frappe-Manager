@@ -69,7 +69,7 @@ def _handle_stop(
         if wait_workers is True:
             display.dimmed("Stop calls for worker processes WILL wait for graceful shutdown.")
         elif wait_workers is False:
-            display.dimmed("Stop calls for worker processes will NOT wait for graceful shutdown.")
+            display.dimmed("Stop calls for worker processes will not stop it and not wait for graceful shutdown.")
 
     # --- Iterate and Stop Each Process ---
     for process_name in target_process_names:
@@ -77,27 +77,34 @@ def _handle_stop(
             # --- Determine the effective wait for *this specific process* ---
             is_worker = is_worker_process(process_name)
             effective_wait_for_this_process: bool
+            skip_stop: bool = False
+
 
             if is_worker:
                 if wait_workers is True:
                     effective_wait_for_this_process = True # Explicitly wait for worker
                 elif wait_workers is False:
                     effective_wait_for_this_process = False # Explicitly DO NOT wait for worker
+                    skip_stop: bool = True
                 else: # wait_workers is None (default)
                     effective_wait_for_this_process = wait # Use the global wait flag for worker
             else: # Not a worker process
                 effective_wait_for_this_process = wait # Always use the global wait flag for non-workers
 
-            # Call the single process handler with the calculated wait and process info
-            results[process_name] = _stop_single_process_with_logic(
-                supervisor_api,
-                service_name,
-                process_name,
-                wait=effective_wait_for_this_process, # Use calculated wait for API call
-                force_kill_timeout=force_kill_timeout,
-                wait_workers=wait_workers, # Pass original flag (True/False/None)
-                process_info=process_info_map.get(process_name)
-            )
+            if skip_stop:
+                results[process_name] = True
+
+            else:
+                # Call the single process handler with the calculated wait and process info
+                results[process_name] = _stop_single_process_with_logic(
+                    supervisor_api,
+                    service_name,
+                    process_name,
+                    wait=effective_wait_for_this_process, # Use calculated wait for API call
+                    force_kill_timeout=force_kill_timeout,
+                    wait_workers=wait_workers, # Pass original flag (True/False/None)
+                    process_info=process_info_map.get(process_name)
+                )
         except Fault as e:
             # Catch faults raised by _stop_single_process_with_logic or its sub-helpers
             # _raise_exception_from_fault is already called inside the helper for specific faults
@@ -308,14 +315,14 @@ def _handle_restart(
     action = "restart"
     display.print(f"Initiating restart for {display.highlight(service_name)}...")
 
-
     # --- Standard Restart Strategy (Only strategy now) ---
     display.print("  Using Standard Restart strategy.")
     display.print(f"  Stopping all processes in {display.highlight(service_name)}...")
+
     # Pass None for process_names to stop all
     stop_success = _handle_stop(
         supervisor_api, service_name, None, wait, force_kill_timeout,
-        wait_workers=wait,  # Force True for standard restart
+        wait_workers=wait_workers,
         called_from_restart=True
     )
 
@@ -324,8 +331,9 @@ def _handle_restart(
         raise SupervisorOperationFailedError("Failed to stop processes during standard restart", service_name=service_name)
 
     display.print(f"  Starting all defined processes in {display.highlight(service_name)}...")
+
     # Call _handle_start with None to start all defined processes
-    start_results = _handle_start(supervisor_api, service_name, None, wait, verbose=False)
+    _handle_start(supervisor_api, service_name, None, wait, verbose=False)
 
     # _handle_start now raises SupervisorOperationFailedError on failure
     # No need to check start_results["failed"] here, exception handling covers it
@@ -443,8 +451,16 @@ def _handle_signal_workers(
         if is_worker_process(proc_name):
             if proc.get('state') not in STOPPED_STATES: # Only signal running/starting processes
                 try:
-                    display.info(f"Signaling worker process {display.highlight(proc_name)} in {display.highlight(service_name)} with signal {signal_num}...")
-                    supervisor_api.signalProcess(proc_name, signal_num)
+                    # Construct the fully qualified name
+                    group_name = proc.get('group')
+                    if not group_name:
+                        # This case should ideally not happen if process info is complete
+                        display.warning(f"Worker process {display.highlight(proc_name)} in {display.highlight(service_name)} is missing group information. Skipping signal.")
+                        continue
+
+                    name_for_api = f"{group_name}:{proc_name}"
+                    display.info(f"Signaling worker process {display.highlight(name_for_api)} in {display.highlight(service_name)} with signal {signal_num}...")
+                    supervisor_api.signalProcess(name_for_api, signal_num) # Use name_for_api
                     signaled_processes.append(proc_name)
                 except Fault as e:
                     # Log warning but continue signaling others

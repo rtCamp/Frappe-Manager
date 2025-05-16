@@ -47,10 +47,10 @@ def execute_supervisor_command(
             return _handle_restart(
                 supervisor_api,
                 service_name,
-                process_names, # Currently unused, restarts all processes
+                process_names,
                 wait,
                 force_kill_timeout,
-                wait_workers # This determines the strategy
+                wait_workers
             )
         elif action == "info":
             # Returns raw list now

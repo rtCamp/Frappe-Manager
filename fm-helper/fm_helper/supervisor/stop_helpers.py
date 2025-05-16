@@ -192,23 +192,22 @@ def _stop_single_process_with_logic(
 
     try:
         display.print(f"Attempting to stop process {display.highlight(original_process_name)} in {display.highlight(service_name)} (API wait: {wait})...")
-        # Call stopProcess with the constructed name
+
         supervisor_api.stopProcess(name_to_stop, wait)
 
         # --- Force Kill Logic (runs independently of the 'wait' parameter for stopProcess) ---
         if force_kill_timeout is not None and force_kill_timeout > 0:
-            # Worker process special handling (only if --wait-workers)
-            worker_wait_timed_out = False
-            if wait_workers and is_worker_process(original_process_name):
-                display.print(f"  --wait-workers: Checking graceful stop for worker {display.highlight(original_process_name)} (timeout: {force_kill_timeout}s)...")
-                worker_stopped_gracefully = _wait_for_process_stop(supervisor_api, original_process_name, force_kill_timeout)
-                if not worker_stopped_gracefully:
-                    worker_wait_timed_out = True
-                    display.warning(f"Worker process {display.highlight(original_process_name)} did not stop gracefully within {force_kill_timeout}s.")
-                else:
-                    display.success(f"  Worker process {display.highlight(original_process_name)} stopped gracefully.")
+            display.print(f"  --wait-workers: Checking graceful stop for worker {display.highlight(original_process_name)} (timeout: {force_kill_timeout}s)...")
+            worker_stopped_gracefully = _wait_for_process_stop(supervisor_api, original_process_name, force_kill_timeout)
 
-            # General wait check (if worker wait didn't already time out)
+            worker_wait_timed_out = False
+
+            if not worker_stopped_gracefully:
+                worker_wait_timed_out = True
+                display.warning(f"Worker process {display.highlight(original_process_name)} did not stop gracefully within {force_kill_timeout}s.")
+            else:
+                display.success(f"  Worker process {display.highlight(original_process_name)} stopped gracefully.")
+
             stopped_gracefully = False
             if not worker_wait_timed_out:
                 display.print(f"  Verifying final stop state for {display.highlight(original_process_name)} (timeout: {force_kill_timeout}s)...")
