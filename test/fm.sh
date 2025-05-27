@@ -25,7 +25,7 @@ TestSiteReachability() {
     local siteName="$1"
     info_blue "Testing reachability for $siteName..."
     
-    if curl -f --retry 18 --retry-max-time 600 --head \
+    if curl -f --retry 20 --retry-max-time 120  --retry-delay 5 --head \
         -H "Host: $siteName" \
         -H "Cache-Control: no-cache,no-store" \
         http://localhost:80; then
