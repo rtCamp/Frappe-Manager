@@ -125,7 +125,7 @@ jobs:
           echo "FM_VERSION=$FM_VERSION" >> $GITHUB_ENV
           fm --version
 
-      - name: Install specific typer version for 0.16.0
+      - name: [Fix] install specific typer version for 0.16.0
         if: env.FM_VERSION == '0.16.0'
         run: python -m pip install typer==0.15.4
 
