@@ -2,18 +2,21 @@ name: E2E migration testing
 
 on:
   push:
-    tags:
-      - v*
     branches:
       - main
       - develop
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   e2e-migration-from-0_9_0-to-latest:
     runs-on: ${{ matrix.os }}
 
     strategy:
+      fail-fast: true
       matrix:
         python-ver: ["3.11", "3.12"]
         os: [ubuntu-latest]
@@ -76,6 +79,7 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     strategy:
+      fail-fast: true
       matrix:
         python-ver: ["3.11", "3.12"]
         os: [ubuntu-latest]
@@ -107,7 +111,7 @@ jobs:
 
       - name: install jq
         run: |
-          sudo apt upgrade -y
+          sudo apt update -y
           sudo apt install -y jq curl
 
       - name: install frappe previous the latest release
@@ -115,7 +119,15 @@ jobs:
           python -m pip install -U git+https://github.com/rtCamp/Frappe-Manager.git@$(curl --silent https://api.github.com/repos/rtCamp/Frappe-Manager/tags | jq -r '.[0].name')
 
       - name: fm previous version before migration
-        run: fm --version
+        id: fm_version_check
+        run: |
+          FM_VERSION=$(fm --version | cut -d' ' -f2)
+          echo "FM_VERSION=$FM_VERSION" >> $GITHUB_ENV
+          fm --version
+
+      - name: Install specific typer version for 0.16.0
+        if: env.FM_VERSION == '0.16.0'
+        run: python -m pip install typer==0.15.4
 
       - name: e2e run
         timeout-minutes: 30
