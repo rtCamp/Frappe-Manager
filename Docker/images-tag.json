@@ -1,5 +1,5 @@
 {
-"frappe": "v0.16.7",
-"prebake": "v0.16.7",
+"frappe": "v0.17.0",
+"prebake": "v0.17.0",
 "nginx": "v0.16.1"
 }

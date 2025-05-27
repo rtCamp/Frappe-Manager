@@ -34,8 +34,8 @@ def get_new_envrionment_for_service(service_name: str):
     return envs
 
 
-class MigrationV0167(MigrationBase):
-    version = Version("0.16.7")
+class MigrationV0170(MigrationBase):
+    version = Version("0.17.0")
 
     def init(self):
         self.cli_dir: Path = Path.home() / "frappe"
