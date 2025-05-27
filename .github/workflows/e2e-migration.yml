@@ -43,18 +43,12 @@ jobs:
         with:
           python-version: ${{ matrix.python-ver }}
 
-      - name: header
-        run: |
-          echo -e "\e[1;33m┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\e[0m
-          \e[1;33m┃\e[0m \e[1;36m Migration from v0.9.0 to latest \e[0m \e[1;33m┃\e[0m
-          \e[1;33m┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\e[0m"
-
       - name: install frappe from v0.9.0
         run: |
           cd /tmp
           python -m pip install -U git+https://github.com/rtCamp/Frappe-Manager.git@v0.9.0
 
-      - name: frappe version
+      - name: fm version
         run: fm --version
 
       - name: e2e run
@@ -115,17 +109,12 @@ jobs:
         run: |
           sudo apt upgrade -y
           sudo apt install -y jq curl
-      - name: header
-        run: |
-          echo -e "\e[1;33m┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓\e[0m
-          \e[1;33m┃\e[0m \e[1;36m Migration from latest~1 to latest \e[0m \e[1;33m┃\e[0m
-          \e[1;33m┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛\e[0m"
 
       - name: install frappe previous the latest release
         run: |
-          python -m pip install -U git+https://github.com/rtCamp/Frappe-Manager.git@$(curl --silent https://api.github.com/repos/rtCamp/Frappe-Manager/tags | jq -r '.[1].name')
+          python -m pip install -U git+https://github.com/rtCamp/Frappe-Manager.git@$(curl --silent https://api.github.com/repos/rtCamp/Frappe-Manager/tags | jq -r '.[0].name')
 
-      - name: frappe version
+      - name: fm previous version before migration
         run: fm --version
 
       - name: e2e run
