@@ -1,5 +1,9 @@
 name: Build Linux binary
 
+permissions:
+  contents: write
+  actions: read
+
 env:
   PYAPP_DOWNLOAD: https://github.com/ofek/pyapp/releases/latest/download/source.tar.gz
 
