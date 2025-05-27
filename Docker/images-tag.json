@@ -2,5 +2,4 @@
 "frappe": "v0.16.7",
 "prebake": "v0.16.7",
 "nginx": "v0.16.1",
-"rqdash": "v0.16.7"
 }

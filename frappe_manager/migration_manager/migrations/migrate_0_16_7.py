@@ -274,7 +274,6 @@ class MigrationV0167(MigrationBase):
 
                 data = {
                     "mailpit_host": f"{get_container_name_prefix(bench.name)}__mailpit",
-                    "rqdash_host": f"{get_container_name_prefix(bench.name)}__rqdash",
                     "adminer_host": f"{get_container_name_prefix(bench.name)}__adminer",
                     "auth_file": f"/etc/nginx/http_auth/{auth_file.name}",
                 }
@@ -312,21 +311,9 @@ class MigrationV0167(MigrationBase):
                 "mailpit-data": {"name": f"{get_container_name_prefix(bench.name)}__mailpit-data"}
             }
 
-            # Add rqdash configuration
-            admin_tool_compose_project.compose_file_manager.yml['services']['rqdash'] = {
-                "image": f"ghcr.io/rtcamp/frappe-manager-rqdash:{self.version.version_string()}",
-                "expose": ['9181'],
-                "environment": {
-                    "RQ_DASHBOARD_REDIS_URL": f"redis://{get_container_name_prefix(bench.name)}__redis-queue:6379"
-                },
-                "networks": {"site-network": None},
-            }
-
-            admin_tool_compose_project.compose_file_manager.set_service_command("rqdash", "--url-prefix /rqdash")
-
             admin_tools_image_info = admin_tool_compose_project.compose_file_manager.get_all_images()
 
-            for image in [admin_tools_image_info["rqdash"], admin_tools_image_info["mailpit"]]:
+            for image in [admin_tools_image_info["mailpit"]]:
                 pull_image = f"{image['name']}:{image['tag']}"
                 if pull_image not in self.pulled_images_list:
                     richprint.change_head(f"Pulling Image {pull_image}")
@@ -424,19 +411,5 @@ location ^~ /adminer/ {
     proxy_set_header X-Forwarded-Proto $scheme;
     proxy_set_header Host $host;
     proxy_pass http://{{ adminer_host }}:8080/;
-}
-
-# RQ Dashboard
-location ^~ /rqdash/ {
-    auth_basic "Frappe-Manager Admin Tools";
-    auth_basic_user_file {{ auth_file }};
-
-    proxy_set_header X-Forwarded-For $remote_addr;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header Host $host;
-    proxy_pass http://{{ rqdash_host }}:9181/rqdash/;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
 }
 '''

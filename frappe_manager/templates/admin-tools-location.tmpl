@@ -23,17 +23,3 @@ location ^~ /adminer/ {
     proxy_set_header Host $host;
     proxy_pass http://{{ adminer_host }}:8080/;
 }
-
-# RQ Dashboard
-location ^~ /rqdash/ {
-    auth_basic "Frappe-Manager Admin Tools";
-    auth_basic_user_file {{ auth_file }};
-    
-    proxy_set_header X-Forwarded-For $remote_addr;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header Host $host;
-    proxy_pass http://{{ rqdash_host }}:9181/rqdash/;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection "upgrade";
-}

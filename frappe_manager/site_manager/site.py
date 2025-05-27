@@ -772,7 +772,6 @@ class Bench:
 
             admin_tools_Table.add_row("Mailpit", f"{protocol}://{self.name}/mailpit")
             admin_tools_Table.add_row("Adminer", f"{protocol}://{self.name}/adminer")
-            admin_tools_Table.add_row("RQ Dashboard", f"{protocol}://{self.name}/rqdash")
 
             # Combine table and auth info
             from rich.console import Group

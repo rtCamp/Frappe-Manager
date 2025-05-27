@@ -16,17 +16,6 @@ services:
       MP_SMTP_AUTH_ACCEPT_ANY: 1
       MP_SMTP_AUTH_ALLOW_INSECURE: 1
 
-  rqdash:
-    image: ghcr.io/rtcamp/frappe-manager-rqdash:v0.16.7
-    container_name: REPLACE_ME_WITH_CONTAINER_NAME
-    command: --url-prefix /rqdash
-    expose:
-      - 9181
-    environment:
-      RQ_DASHBOARD_REDIS_URL: REPLACE_ME_WITH_REDIS_QUEUE_CONTAINER_NAME
-    networks:
-      site-network:
-
   adminer:
     image: adminer:4
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
