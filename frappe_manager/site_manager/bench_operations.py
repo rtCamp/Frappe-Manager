@@ -1,4 +1,6 @@
 from collections.abc import Iterable
+import os
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from frappe_manager import CLI_DEFAULT_DELIMETER, STABLE_APP_BRANCH_MAPPING_LIST
@@ -201,7 +203,15 @@ class BenchOperations:
 
                     if "frappe-web" in section_name:
                         if key == "command":
+                            # Replace localhost binding with all interfaces
                             value = value.replace("127.0.0.1:80", "0.0.0.0:80")
+                            
+                            # Calculate optimal workers based on CPU count
+                            workers = (os.cpu_count() * 2) + 1
+                            
+                            # Replace worker count using regex
+                            value = re.sub(r'-w\s+\d+', f'-w {workers}', value)
+                            
                     section_config.set(section_name, key, value)
 
                 section_name_delimeter = '-frappe-'
