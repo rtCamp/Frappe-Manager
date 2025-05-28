@@ -1,24 +1,27 @@
 services:
   worker-name:
-    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.15.0
-    environment:
-      TIMEOUT: 6000
-      CHANGE_DIR: /workspace/frappe-bench
-      WAIT_FOR: /workspace/frappe-bench/config/frappe-bench-frappe-{worker-name}.workers.fm.supervisor.conf
-      # here worker-name will be replace with the worker name
-      COMMAND: |
-        ln -sfn /workspace/frappe-bench/config/frappe-bench-frappe-{worker-name}.workers.fm.supervisor.conf /opt/user/conf.d/frappe-bench-frappe-{worker-name}.workers.fm.supervisor.conf
-        supervisord -c /opt/user/supervisord.conf
-    command: launch.sh
-    volumes:
-      - ./workspace:/workspace:cached
+    image: ghcr.io/rtcamp/frappe-manager-frappe:v0.17.0
+    container_name: REPLACE_ME_WITH_CONTAINER_NAME
+    command: launch_supervisor_service.sh
     networks:
       site-network:
       global-backend-network:
+    volumes:
+      - fm-sockets:/fm-sockets
+      - ./workspace:/workspace
+    environment:
+      USERID: REPLACE_ME_WITH_CURRENT_USER
+      USERGROUP: REPLACE_ME_WITH_CURRENT_USER_GROUP
+      SERVICE_NAME: worker-name
+
+volumes:
+  fm-sockets:
+    name: fm__SITE_NAME_PREFIX__fm-sockets
+    external: true
 
 networks:
   site-network:
-    name: REPLACE_ME_WITH_SITE_NAME_NETWORK
+    name: fm__SITE_NAME_PREFIX__site-network
     external: true
   global-backend-network:
     name: fm-global-backend-network

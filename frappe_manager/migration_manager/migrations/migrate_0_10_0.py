@@ -227,7 +227,7 @@ class MigrationV0100(MigrationBase):
         bench.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(bench.name))
 
         bench.compose_project.compose_file_manager.set_version(str(self.version))
-        bench.compose_project.compose_file_manager.set_top_networks_name(
+        bench.compose_project.compose_file_manager.set_root_networks_name(
             "site-network", get_container_name_prefix(bench.name)
         )
         bench.compose_project.compose_file_manager.write_to_file()

@@ -2,7 +2,14 @@
 
 PS4='+\[\033[0;33m\](\[\033[0;36m\]${BASH_SOURCE##*/}:${LINENO}\[\033[0;33m\])\[\033[0m\] '
 
-set -xe
+set -e  # Exit on error
+trap 'handle_error $?' ERR
+
+handle_error() {
+    info_red "Test failed with exit code $1"
+    RemoveDanglingDockerStuff
+    exit $1
+}
 
 
 source ${PWD}/fm.sh

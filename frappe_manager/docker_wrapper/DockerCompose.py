@@ -174,15 +174,7 @@ class DockerComposeWrapper:
 
         exec_cmd: list[str] = ["exec"]
 
-        remove_parameters = [
-            "service",
-            "stream",
-            "command",
-            "env",
-            "use_shlex_split",
-            "capture_output",
-            "no_tty"
-        ]
+        remove_parameters = ["service", "stream", "command", "env", "use_shlex_split", "capture_output", "no_tty"]
 
         exec_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 

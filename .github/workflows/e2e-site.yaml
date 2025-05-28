@@ -7,10 +7,23 @@ on:
     branches:
       - main
       - develop
-  workflow_dispatch:
 
 jobs:
+  check-permissions:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'workflow_dispatch'
+    steps:
+      - name: Check user permission
+        if: github.actor != 'xieyt'
+        run: |
+          echo "Only xieyt can trigger this workflow manually"
+          exit 1
+
   e2e-current:
+    needs: check-permissions
+    if: |
+      always() &&
+      (needs.check-permissions.result == 'success' || needs.check-permissions.result == 'skipped')
     name: e2e current latest branch
     runs-on: ${{ matrix.os }}
 
@@ -18,10 +31,26 @@ jobs:
       matrix:
         python-ver: ["3.11", "3.12"]
         os: [ubuntu-latest]
-        # os: [self-hosted-arm64, ubuntu-latest]
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Cache Docker images
+        id: cache-docker-images
+        uses: actions/cache@v3
+        with:
+          path: /tmp/docker-images
+          key: docker-images-${{ runner.os }}-${{ hashFiles('Docker/images-tag.json') }}
+          restore-keys: |
+            docker-images-${{ runner.os }}-${{ hashFiles('Docker/images-tag.json') }}
+
+      - name: Load cached Docker images
+        if: steps.cache-docker-images.outputs.cache-hit == 'true'
+        run: |
+          mkdir -p /tmp/docker-images
+          if [ -f /tmp/docker-images/images.tar ]; then
+            docker load < /tmp/docker-images/images.tar
+          fi
 
       - uses: actions/setup-python@v5
         with:
@@ -42,10 +71,27 @@ jobs:
         run: fm --version
 
       - name: e2e run
+        id: e2e_test
         timeout-minutes: 20
         working-directory: test
         run: |
           ./e2e_test.sh
+
+      - name: Upload FM logs
+        if: always()  # Upload logs whether the test succeeds or fails
+        uses: actions/upload-artifact@v4
+        with:
+          name: fm-logs-${{ matrix.python-ver }}
+          path: ~/frappe/logs/fm.log
+          retention-days: 2
+
+      - name: Save Docker images
+        if: always() && steps.cache-docker-images.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p /tmp/docker-images
+          if [ "$(docker images -q | wc -l)" -gt 0 ]; then
+            docker save $(docker images -q) > /tmp/docker-images/images.tar
+          fi
 
       - name: cleanup
         if: always()

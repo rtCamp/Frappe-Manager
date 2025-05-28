@@ -1,11 +1,13 @@
-from typing import Optional
+from datetime import datetime
+import json
+from pathlib import Path
 import typer
 from typing import List, Optional, Set
 from frappe_manager.site_manager.site_exceptions import BenchNotFoundError
-from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version, get_sitename_from_current_path
+from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager import CLI_BENCHES_DIRECTORY, STABLE_APP_BRANCH_MAPPING_LIST, DEFAULT_EXTENSIONS
-from frappe_manager.utils.site import validate_sitename
+from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_CACHE_PATH, CLI_RECENT_USED_SITES_CACHE_PATH, STABLE_APP_BRANCH_MAPPING_LIST, DEFAULT_EXTENSIONS
+from frappe_manager.utils.site import get_sitename_from_current_path, validate_sitename
 
 
 def apps_list_validation_callback(value: List[str] | None):
@@ -31,7 +33,6 @@ def apps_list_validation_callback(value: List[str] | None):
                 raise typer.BadParameter("'frappe' should not be included here.")
 
             if "https:" in app or "http:" in app:
-
                 temp_appx = appx
                 appx = [":".join(appx[:2])]
 
@@ -72,8 +73,8 @@ def apps_list_validation_callback(value: List[str] | None):
                     raise typer.BadParameter(f"Invaid branch '{appx[1]}' for '{appx[0]}'.")
 
             appx = {
-                'app' : appx[0],
-                'branch' : appx[1] if len(appx) > 1 else None ,
+                'app': appx[0],
+                'branch': appx[1] if len(appx) > 1 else None,
             }
             apps_list.append(appx)
     return apps_list
@@ -113,22 +114,53 @@ def version_callback(version: Optional[bool] = None):
         raise typer.Exit()
 
 
-def sites_autocompletion_callback():
+
+def sites_autocompletion_callback() -> list[Path]:
     sites_list = []
     for dir in CLI_BENCHES_DIRECTORY.iterdir():
         if dir.is_dir():
             dir = dir / "docker-compose.yml"
             if dir.exists() and dir.is_file():
-                sites_list.append(sites_list)
+                sites_list.append(dir)
     return sites_list
 
+
+def val(answers, current):
+    print(answers,current)
 
 def sitename_callback(sitename: Optional[str]):
     if not sitename:
         sitename = get_sitename_from_current_path()
 
     if not sitename:
-        raise typer.BadParameter(message="Missing Argument")
+        from InquirerPy import inquirer
+
+        # Get basic sites list
+        sites_list = [site_name.parent.name for site_name in sites_autocompletion_callback()]
+        
+        if sites_list:
+            richprint.stop()
+
+            # Sort with recently used sites first
+            sorted_sites = get_sorted_sites_list(sites_list)
+            
+            sitename = inquirer.fuzzy(
+                message="Select bench (↑↓ navigate, type to search)",
+                vi_mode=True,
+                choices=sorted_sites,
+                mandatory=True,
+                qmark='🤔',
+                amark='🤔'
+            ).execute()
+            
+            # Update cache with selected site
+            if sitename:
+                update_sites_cache(sitename)
+
+            richprint.start("working")
+
+    if sitename is None:
+        richprint.exit("Invalid selection. Must match existing sites")
 
     sitename = validate_sitename(sitename)
 
@@ -140,6 +172,58 @@ def sitename_callback(sitename: Optional[str]):
 
     return sitename
 
+
+def get_cache_file() -> Path:
+    """Returns the path to the cache file for recently used sites"""
+    CLI_CACHE_PATH.mkdir(parents=True, exist_ok=True)
+    return CLI_RECENT_USED_SITES_CACHE_PATH
+
+def update_sites_cache(sitename: str) -> None:
+    """Updates the cache with the most recently used site"""
+    cache_file = get_cache_file()
+    try:
+        if cache_file.exists():
+            with open(cache_file, "r") as f:
+                cache = json.load(f)
+        else:
+            cache = {"sites": []}
+        
+        # Remove if exists and add to front
+        cache["sites"] = [s for s in cache["sites"] if s["name"] != sitename]
+        cache["sites"].insert(0, {
+            "name": sitename,
+            "last_used": datetime.now().isoformat()
+        })
+        
+        # Keep only last 10 entries
+        cache["sites"] = cache["sites"][:10]
+        
+        with open(cache_file, "w") as f:
+            json.dump(cache, f)
+    except Exception:
+        # Fail silently if cache operations fail
+        pass
+
+def get_sorted_sites_list(sites_list: list[str]) -> list[str]:
+    """Returns sites list with recently used sites first, but only for sites that actually exist"""
+    cache_file = get_cache_file()
+    try:
+        if cache_file.exists():
+            with open(cache_file, "r") as f:
+                cache = json.load(f)
+            
+            # Get cached site names, but only if they exist in the actual sites_list
+            cached_sites = [s["name"] for s in cache["sites"] if s["name"] in sites_list]
+            
+            # Get remaining sites that aren't in cache
+            remaining_sites = [s for s in sites_list if s not in cached_sites]
+            
+            # Return cached sites first, then remaining sites
+            return cached_sites + remaining_sites
+    except Exception:
+        pass
+    
+    return sites_list
 
 def code_command_extensions_callback(extensions: List[str]) -> List[str]:
     extx = extensions + DEFAULT_EXTENSIONS

@@ -1,20 +1,15 @@
 #!/bin/bash
-
 set -e
 
 cleanup() {
-    echo "Received signal, performing cleanup..."
-    # Add any necessary cleanup commands here
-
-    # Forward the signal to supervisord (if it's running)
-    if [ -n "$supervisord_pid" ]; then
-        kill -s SIGTERM "$supervisord_pid"
+    echo "Received signal SIGTERM, stopping..."
+    if [ -n "$running_script_pid" ]; then
+        kill -s SIGTERM "$running_script_pid"
     fi
     exit 0
 }
 
-# Trap SIGQUIT, SIGTERM, SIGINT
-trap cleanup SIGQUIT SIGTERM
+trap cleanup SIGTERM
 
 emer() {
     echo "$@"
@@ -27,6 +22,6 @@ if [[ -n "$BENCH_START_OFF" ]]; then
 else
     echo "Starting supervisor.."
     supervisord -c /opt/user/supervisord.conf &
-    supervisord_pid=$!
-    wait $supervisord_pid
+    running_script_pid=$!
+    wait $running_script_pid
 fi

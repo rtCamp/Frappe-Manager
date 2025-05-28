@@ -5,7 +5,7 @@ name = "fm.com"
 # Enables Frappe developer mode for the bench.
 developer_mode = false
 
-# Enables admin tools (e.g., Mailhog and Adminer) for the bench.
+# Enables admin tools (e.g., Mailpit and Adminer) for the bench.
 admin_tools = false
 
 # Sets the bench environment to either "prod" (production) or "dev" (development).

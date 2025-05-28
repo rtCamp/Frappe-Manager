@@ -20,33 +20,15 @@ class DockerException(Exception):
         )
 
         if self.output.stdout:
-            error_msg += f"The content of stdout is '{self.output.stdout}'\n"
+            stdout_output = "\n".join(self.output.stdout)
+            error_msg += f"The content of stdout is \n{'--' * 10}\n'{stdout_output}'\n"
         else:
-            error_msg += "The content of stdout can be found above the " "stacktrace (it wasn't captured).\n"
+            error_msg += "The content of stdout can be found above the stacktrace (it wasn't captured).\n"
 
         if self.output.stderr:
-            error_msg += f"The content of stderr is '{self.output.stderr}'\n"
+            stderr_output = "\n".join(self.output.stderr)
+            error_msg += f"The content of stderr is \n{'--' * 10}\n'{stderr_output}'\n"
         else:
-            error_msg += "The content of stderr can be found above the " "stacktrace (it wasn't captured)."
+            error_msg += "The content of stderr can be found above the stacktrace (it wasn't captured)."
 
         super().__init__(error_msg)
-
-
-class NoSuchContainer(DockerException):
-    pass
-
-
-class NoSuchImage(DockerException):
-    pass
-
-
-class NoSuchService(DockerException):
-    pass
-
-
-class NotASwarmManager(DockerException):
-    pass
-
-
-class NoSuchVolume(DockerException):
-    pass

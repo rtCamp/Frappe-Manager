@@ -49,6 +49,7 @@ from frappe_manager.utils.docker import host_run_cp
 from frappe_manager import (
     CLI_BENCH_CONFIG_FILE_NAME,
     CLI_BENCHES_DIRECTORY,
+    CLI_DEFAULT_DELIMETER,
     CLI_DIR,
     SiteServicesEnum,
 )
@@ -76,7 +77,7 @@ class Bench:
         self.compose_project: ComposeProject = compose_project
         self.logger = log.get_logger()
         self.proxy_manager: NginxProxyManager = NginxProxyManager('nginx', self.compose_project)
-        self.admin_tools: AdminTools = AdminTools(self.name, self.path, self.proxy_manager)
+        self.admin_tools: AdminTools = AdminTools(self, self.proxy_manager)
 
         self.certificate_manager = SSLCertificateManager(
             certificate=self.bench_config.ssl,
@@ -128,9 +129,6 @@ class Bench:
     def sync_bench_config_configuration(self):
         # set developer_mode based on config
         self.set_common_bench_config({'developer_mode': self.bench_config.developer_mode})
-
-        # dev or prod
-        self.switch_bench_env()
 
         # ssl
         certificate_updated = self.update_certificate(self.bench_config.ssl, raise_error=False)
@@ -199,6 +197,8 @@ class Bench:
             richprint.change_head("Creating bench and bench site.")
             self.benchops.create_fm_bench()
             self.sync_bench_config_configuration()
+
+            self.switch_bench_env()
 
             richprint.change_head("Configuring bench workers.")
             self.sync_workers_compose(force_recreate=True, setup_supervisor=False)
@@ -314,8 +314,9 @@ class Bench:
 
         self.compose_project.compose_file_manager.set_network_alias("nginx", "site-network", [self.name])
         self.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(self.name))
+        self.compose_project.compose_file_manager.set_root_volumes_names(get_container_name_prefix(self.name))
         self.compose_project.compose_file_manager.set_version(get_current_fm_version())
-        self.compose_project.compose_file_manager.set_top_networks_name(
+        self.compose_project.compose_file_manager.set_root_networks_name(
             "site-network", get_container_name_prefix(self.name)
         )
         self.compose_project.compose_file_manager.write_to_file()
@@ -334,9 +335,9 @@ class Bench:
             "socketio_port": "80",
             "db_host": services_db_host,
             "db_port": services_db_port,
-            "redis_cache": f"redis://{container_prefix}-redis-cache:6379",
-            "redis_queue": f"redis://{container_prefix}-redis-queue:6379",
-            "redis_socketio": f"redis://{container_prefix}-redis-cache:6379",
+            "redis_cache": f"redis://{container_prefix}{CLI_DEFAULT_DELIMETER}redis-cache:6379",
+            "redis_queue": f"redis://{container_prefix}{CLI_DEFAULT_DELIMETER}redis-queue:6379",
+            "redis_socketio": f"redis://{container_prefix}{CLI_DEFAULT_DELIMETER}redis-socketio:6379",
         }
         self.set_common_bench_config(common_site_config_data)
 
@@ -349,7 +350,8 @@ class Bench:
         """
         richprint.change_head("Creating required directories")
 
-        frappe_image = self.compose_project.compose_file_manager.yml["services"]["frappe"]["image"]
+        frappe_image: str = self.compose_project.compose_file_manager.yml["services"]["frappe"]["image"]
+        frappe_image = frappe_image.replace('-frappe', '-prebake')
 
         workspace_path = self.path / "workspace"
         workspace_path_abs = str(workspace_path.absolute())
@@ -392,31 +394,78 @@ class Bench:
 
         return True
 
-    def start(self, force: bool = False):
+    def start(
+        self,
+        force: bool = False,
+        sync_bench_config_changes: bool = False,
+        reconfigure_workers: bool = False,
+        include_default_workers=False,
+        include_custom_workers = False,
+        reconfigure_supervisor: bool = False,
+        reconfigure_common_site_config: bool = False,
+        sync_dev_packages: bool = False,
+    ):
         """
         Starts the bench.
         """
 
         self.benchops.check_required_docker_images_available()
 
-        # Should be done in site manager ?
-        global_db_info = self.services.database_manager.database_server_info
-        self.sync_bench_common_site_config(global_db_info.host, global_db_info.port)
+        # Reconfigure common_site_config.json if required
+        if reconfigure_common_site_config:
+            richprint.print("Reconfiguring common_site_config with defaults")
+            global_db_info = self.services.database_manager.database_server_info
+            self.sync_bench_common_site_config(global_db_info.host, global_db_info.port)
 
         richprint.change_head("Starting bench services")
-        self.admin_tools.remove_nginx_location_config()
+
         self.compose_project.start_service(force_recreate=force)
+
+        # start admin-tools if exists
+        if self.admin_tools.compose_project.compose_file_manager.compose_path.exists():
+            richprint.change_head("Starting admin tools services")
+            self.admin_tools.compose_project.start_service(force_recreate=force)
+            richprint.print("Started admin tools services.")
+
+            # Check if nginx service is stopped and restart if needed
+            if not self.compose_project.is_service_running('nginx'):
+                self.compose_project.start_service(['nginx'])
+
         self.benchops.is_required_services_available()
-        self.sync_workers_compose()
-        self.sync_bench_config_configuration()
-        self.save_bench_config()
-        richprint.print("Started bench services.")
+
+        # Reconfigure supervisord if requested
+        if reconfigure_supervisor:
+            richprint.print("Reconfiguring supervisord")
+            self.benchops.setup_supervisor(force=True)
+
+        # Reconfigure workers if requested
+        if reconfigure_workers:
+            richprint.print("Reconfiguring workers")
+            self.sync_workers_compose(include_default_workers=include_default_workers, include_custom_workers=include_custom_workers)
+
+        # Sync dev packages if requested
+        if sync_dev_packages:
+            richprint.print("Syncing dev packages")
+            if self.bench_config.environment_type == FMBenchEnvType.dev:
+                self.install_dev_packages()
+            else:
+                self.remove_dev_packages()
+
+        self.switch_bench_env()
+
+        # Sync bench config changes if requested
+        if sync_bench_config_changes:
+            richprint.print("Syncing bench configuration changes")
+            self.sync_bench_config_configuration()
 
         # start workers if exists
         if self.workers.compose_project.compose_file_manager.exists():
             richprint.change_head("Starting bench workers services")
             self.workers.compose_project.start_service(force_recreate=force)
             richprint.print("Started bench workers services.")
+
+        self.save_bench_config()
+        richprint.print("Started bench services.")
 
     def frappe_logs_till_start(self):
         """
@@ -453,7 +502,7 @@ class Bench:
                     if "INFO supervisord started with pid".lower() in line.lower():
                         break
 
-    def stop(self) -> bool:
+    def stop(self):
         """
         Stop the site by stopping the containers.
 
@@ -551,7 +600,7 @@ class Bench:
                 time.sleep(interval)
         return False
 
-    def sync_workers_compose(self, force_recreate: bool = False, setup_supervisor: bool = True):
+    def sync_workers_compose(self, force_recreate: bool = False, setup_supervisor: bool = True, include_default_workers: bool = True, include_custom_workers: bool = True):
         if setup_supervisor:
             workers_backup_manager = self.backup_workers_supervisor_conf()
             try:
@@ -559,14 +608,16 @@ class Bench:
             except BenchOperationException as e:
                 self.backup_restore_workers_supervisor(workers_backup_manager)
 
-        are_workers_not_changed = self.workers.is_new_workers_added()
+        are_workers_not_changed = self.workers.is_new_workers_added(include_default_workers=include_default_workers)
 
         if are_workers_not_changed:
             richprint.print("Workers configuration remains unchanged.")
             return
 
-        self.workers.generate_compose()
-        self.workers.compose_project.start_service(force_recreate=force_recreate)
+        start_required = self.workers.generate_compose(include_default_workers=include_default_workers, include_custom_workers=include_custom_workers)
+
+        if start_required:
+            self.workers.compose_project.start_service(force_recreate=force_recreate)
 
     def backup_restore_workers_supervisor(self, backup_manager: BackupManager):
         richprint.print("Rolling back to previous workers configuration.")
@@ -680,9 +731,14 @@ class Bench:
                 f'[{self.bench_config.ssl.preferred_challenge.value}] {self.bench_config.ssl.ssl_type.value}'
             )
 
+        status = "Active" if self.compose_project.running else "Inactive"
+        status_color = "green" if self.compose_project.running else "red"
+        status_display = f"[{status_color}]{status}[/{status_color}]"
+
         data = {
             "Bench Url": f"{protocol}://{self.name}",
             "Bench Root": f"[link=file://{self.path.absolute()}]{self.path.absolute()}[/link]",
+            "Status": status_display,
             "Frappe Username": "administrator",
             "Frappe Password": admin_pass,
             "Root DB User": services_db_info.user,
@@ -702,12 +758,25 @@ class Bench:
         if not self.bench_config.admin_tools:
             data['Admin Tools'] = 'Not Enabled'
         else:
-            admin_tools_Table = Table(show_lines=True, show_edge=False, pad_edge=False, expand=True)
-            admin_tools_Table.add_column("Tool")
-            admin_tools_Table.add_column("URL")
-            admin_tools_Table.add_row("Mailhog", f"{protocol}://{self.name}/mailhog")
+            # Create main admin tools table
+            admin_tools_Table = Table(show_lines=False, show_edge=False, pad_edge=False, expand=True)
+            admin_tools_Table.add_column("Service", style="cyan")
+            admin_tools_Table.add_column("URL", style="blue")
+
+            # Get auth credentials
+            username = self.bench_config.admin_tools_username or "admin"
+            password = self.bench_config.admin_tools_password or "protected"
+
+            # Create auth info section
+            auth_info = f"\nAuthentication Required:\n  Username: [cyan]{username}[/cyan]\n  Password: [green]{password}[/green]"
+
+            admin_tools_Table.add_row("Mailpit", f"{protocol}://{self.name}/mailpit")
             admin_tools_Table.add_row("Adminer", f"{protocol}://{self.name}/adminer")
-            data['Admin Tools'] = admin_tools_Table
+
+            # Combine table and auth info
+            from rich.console import Group
+
+            data['Admin Tools'] = Group(admin_tools_Table, auth_info)
 
         bench_info_table.add_column(no_wrap=True)
         bench_info_table.add_column(no_wrap=True)
@@ -856,114 +925,157 @@ class Bench:
         except KeyboardInterrupt:
             richprint.stdout.print("Detected CTRL+C. Exiting..")
 
-    def attach_to_bench(self, user: str, extensions: List[str], workdir: str, debugger: bool = False):
+    def attach_to_bench(self, user: str, extensions: List[str], workdir: str, debugger: bool = False) -> None:
         """
-        Attaches to a running site's container using Visual Studio Code Remote Containers extension.
+        Attaches to a running bench's container using Visual Studio Code Remote Containers extension.
 
         Args:
-            user (str): The username to be used in the container.
-            extensions (List[str]): List of extensions to be installed in the container.
+            user: Username to be used in the container
+            extensions: List of VS Code extensions to install 
+            workdir: Working directory path inside container
+            debugger: Whether to setup debugging configuration
+
+        Raises:
+            BenchNotRunning: If the bench container is not running
+            BenchAttachTocontainerFailed: If attaching to container fails
         """
 
+        self._verify_bench_running()
+
+        if debugger:
+            self._setup_debugger_config(workdir)
+
+        self._verify_vscode_installed()
+        
+        container_name = self._get_frappe_container_name()
+        vscode_cmd = self._build_vscode_command(container_name, workdir)
+        
+        self._update_container_config(user, sorted(extensions))
+        self._attach_to_container(vscode_cmd)
+
+    def _verify_bench_running(self) -> None:
+        """Verify bench container is running"""
         if not self.compose_project.running:
             raise BenchNotRunning(self.name)
 
-        # check if vscode is installed
+    def _verify_vscode_installed(self) -> None:
+        """Verify VS Code is installed and accessible"""
         vscode_path = shutil.which("code")
-
         if not vscode_path:
-            # TODO todo this should be exception
             richprint.exit("Visual Studio Code binary i.e 'code' is not accessible via cli.")
 
+    def _get_frappe_container_name(self) -> str:
+        """Get the frappe container name and encode it"""
         container_name = self.compose_project.compose_file_manager.get_container_names()
-        container_hex = container_name["frappe"].encode().hex()
+        return container_name["frappe"].encode().hex()
 
-        vscode_cmd = shlex.join(
-            [
-                vscode_path,
-                f"--folder-uri=vscode-remote://attached-container+{container_hex}+{workdir}",
-            ]
-        )
+    def _build_vscode_command(self, container_hex: str, workdir: str) -> str:
+        """Build the VS Code remote container command"""
+        vscode_path = shutil.which("code")
+        return shlex.join([
+            vscode_path,
+            f"--folder-uri=vscode-remote://attached-container+{container_hex}+{workdir}"
+        ])
 
-        extensions.sort()
-
-        vscode_config_without_extension = [
-            {
-                "remoteUser": user,
-                "remoteEnv": {"SHELL": "/bin/zsh"},
-                "customizations": {
-                    "vscode": {
-                        "settings": VSCODE_SETTINGS_JSON,
-                    }
-                },
+    def _update_container_config(self, user: str, extensions: List[str]) -> None:
+        """Update container configuration with user and extensions"""
+        base_config = [{
+            "remoteUser": user,
+            "remoteEnv": {"SHELL": "/bin/zsh"},
+            "customizations": {
+                "vscode": {
+                    "settings": VSCODE_SETTINGS_JSON,
+                }
             }
-        ]
+        }]
 
-        vscode_config_json = copy.deepcopy(vscode_config_without_extension)
-        vscode_config_json[0]['customizations']['vscode']["extensions"] = extensions
+        config_with_extensions = copy.deepcopy(base_config)
+        config_with_extensions[0]['customizations']['vscode']["extensions"] = extensions
 
-        labels = {'devcontainer.metadata': json.dumps(vscode_config_json)}
+        labels = {'devcontainer.metadata': json.dumps(config_with_extensions)}
 
+        previous_config = self._get_previous_container_config()
+        
+        if self._config_needs_update(previous_config, extensions, user):
+            self._apply_new_config(labels)
+
+    def _get_previous_container_config(self) -> List[str]:
+        """Get previous container extension configuration"""
         try:
-            labels_previous = self.compose_project.compose_file_manager.get_labels("frappe")[0]
-            labels_previous = json.loads(labels_previous["devcontainer.metadata"])
-            extensions_previous = copy.deepcopy(labels_previous["customizations"]["vscode"]["extensions"])
-
+            labels = self.compose_project.compose_file_manager.get_labels("frappe")[0]
+            config = json.loads(labels["devcontainer.metadata"])
+            return config["customizations"]["vscode"]["extensions"]
         except KeyError:
-            extensions_previous = []
+            return []
 
-        if not extensions_previous == extensions or not user == user:
-            richprint.change_head("Configuration changed, regenerating label in bench compose")
-            self.compose_project.compose_file_manager.set_labels("frappe", labels)
-            self.compose_project.compose_file_manager.write_to_file()
-            richprint.print("Regenerated bench compose.")
-            self.compose_project.start_service(['frappe'])
-            self.switch_bench_env()
+    def _config_needs_update(self, previous_extensions: List[str], new_extensions: List[str], user: str) -> bool:
+        """Check if container config needs updating"""
+        return not previous_extensions == new_extensions or not user == user
 
-        # sync debugger files
-        if debugger:
-            richprint.change_head("Sync vscode debugger configuration")
-            dot_vscode_dir = self.path / "workspace" / "frappe-bench" / ".vscode"
-            tasks_json_path = dot_vscode_dir / "tasks"
-            launch_json_path = dot_vscode_dir / "launch"
-            setting_json_path = dot_vscode_dir / "settings"
+    def _apply_new_config(self, labels: dict) -> None:
+        """Apply new container configuration"""
+        richprint.change_head("Configuration changed, regenerating label in bench compose")
+        self.compose_project.compose_file_manager.set_labels("frappe", labels)
+        self.compose_project.compose_file_manager.write_to_file()
+        richprint.print("Regenerated bench compose.")
+        self.compose_project.start_service(['frappe'])
+        self.switch_bench_env()
 
-            dot_vscode_config = {
-                tasks_json_path: VSCODE_TASKS_JSON,
-                launch_json_path: VSCODE_LAUNCH_JSON,
-                setting_json_path: VSCODE_SETTINGS_JSON,
-            }
+    def _setup_debugger_config(self, workdir: str) -> None:
+        """Setup debugger configuration if workdir is in workspace"""
+        workdir = workdir.strip('/')
+        if not workdir.startswith('workspace'):
+            richprint.warning("Debugger configuration is only supported for workspace directory") 
+            return
 
-            if not dot_vscode_dir.exists():
-                dot_vscode_dir.mkdir(exist_ok=True, parents=True)
+        self._sync_vscode_config_files(workdir)
+        self._install_ruff()
+        richprint.print("Synced vscode debugger configuration.")
 
-            for file_path in [launch_json_path, tasks_json_path, setting_json_path]:
-                file_name = f"{file_path.name}.json"
-                real_file_path = file_path.parent / file_name
-                if real_file_path.exists():
-                    backup_tasks_path = (
-                        file_path.parent / f"{file_path.name}.{datetime.now().strftime('%d-%b-%y--%H-%M-%S')}.json"
-                    )
-                    shutil.copy2(real_file_path, backup_tasks_path)
-                    richprint.print(f"Backup previous '{file_name}' : {backup_tasks_path}")
+    def _sync_vscode_config_files(self, workdir: str) -> None:
+        """Sync VS Code configuration files"""
+        workdir = workdir.strip('/')
+        vscode_dir = self.path / workdir / ".vscode"
+        vscode_dir.mkdir(exist_ok=True, parents=True)
 
-                with open(real_file_path, "w+") as f:
-                    f.write(json.dumps(dot_vscode_config[file_path]))
+        config_files = {
+            "tasks": VSCODE_TASKS_JSON,
+            "launch": VSCODE_LAUNCH_JSON,
+            "settings": VSCODE_SETTINGS_JSON
+        }
 
-            # install black in env
-            try:
-                self.compose_project.docker.compose.exec(
-                    service="frappe",
-                    command="/workspace/frappe-bench/env/bin/pip install black",
-                    user='frappe',
-                    stream=True,
-                )
-            except DockerException as e:
-                self.logger.error(f"black installation exception: {capture_and_format_exception()}")
-                richprint.warning("Not able to install black in env.")
+        for filename, content in config_files.items():
+            file_path = vscode_dir / f"{filename}.json"
+            if file_path.exists():
+                self._backup_config_file(file_path)
+            self._write_config_file(file_path, content)
 
-            richprint.print("Synced vscode debugger configuration.")
+    def _backup_config_file(self, file_path: Path) -> None:
+        """Backup existing config file"""
+        backup_path = file_path.parent / f"{file_path.stem}.{datetime.now().strftime('%d-%b-%y--%H-%M-%S')}.json"
+        shutil.copy2(file_path, backup_path)
+        richprint.print(f"Backup previous '{file_path.name}' : {backup_path}")
 
+    def _write_config_file(self, file_path: Path, content: dict) -> None:
+        """Write new config file"""
+        with open(file_path, "w+") as f:
+            f.write(json.dumps(content, indent=4, sort_keys=True))
+
+    def _install_ruff(self) -> None:
+        """Install ruff in the container environment"""
+        try:
+            self.compose_project.docker.compose.exec(
+                service="frappe",
+                command="/workspace/frappe-bench/env/bin/pip install ruff",
+                user='frappe',
+                stream=True,
+            )
+        except DockerException as e:
+            self.logger.error(f"ruff installation exception: {capture_and_format_exception()}")
+            richprint.warning("Not able to install ruff in env.")
+
+    def _attach_to_container(self, vscode_cmd: str) -> None:
+        """Attach to the container using VS Code"""
         richprint.change_head("Attaching to Container")
         output = subprocess.run(vscode_cmd, shell=True)
 
@@ -1103,53 +1215,73 @@ class Bench:
             raise BenchFailedToRemoveDevPackages(self.name)
         richprint.print("Installed dev packages in env.")
 
-    def switch_bench_env(self):
+    def switch_bench_env(self, timeout: int = 30, interval: int = 1):
         if not self.is_supervisord_running():
             raise BenchFrappeServiceSupervisorNotRunning(self.name)
 
+        socket_path = f"/fm-sockets/frappe.sock"
+
+        # Wait for supervisor socket file to be created in container
+        for _ in range(timeout):
+            try:
+                self.frappe_service_run_command(f"test -e {socket_path}")
+                break
+            except DockerException as e:
+                print('--->')
+                print(e)
+                time.sleep(interval)
+        else:
+            raise BenchOperationException(
+                self.name,
+                message=f'Supervisor socket for frappe service not created after {timeout} seconds'
+            )
+
+        supervisorctl_command = f"supervisorctl -s unix:///{socket_path} "
+
         if self.bench_config.environment_type == FMBenchEnvType.dev:
-            self.install_dev_packages()
             richprint.change_head(f"Configuring and starting {self.bench_config.environment_type.value} services")
-            stop_command = 'supervisorctl -c /opt/user/supervisord.conf stop all'
+
+            stop_command = supervisorctl_command + "stop all"
             self.frappe_service_run_command(stop_command)
 
-            unlink_command = 'rm -rf /opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf'
+            unlink_command = 'rm -rf /opt/user/conf.d/web.fm.supervisor.conf'
             self.frappe_service_run_command(unlink_command)
 
             link_command = 'ln -sfn /opt/user/frappe-dev.conf /opt/user/conf.d/frappe-dev.conf'
             self.frappe_service_run_command(link_command)
 
-            reread_command = 'supervisorctl -c /opt/user/supervisord.conf reread'
+            reread_command = supervisorctl_command + "reread"
             self.frappe_service_run_command(reread_command)
 
-            update_command = 'supervisorctl -c /opt/user/supervisord.conf update'
+            update_command = supervisorctl_command + "update"
             self.frappe_service_run_command(update_command)
 
-            start_command = 'supervisorctl -c /opt/user/supervisord.conf start all'
+            start_command = supervisorctl_command + "start all"
             self.frappe_service_run_command(start_command)
 
             richprint.print(f"Configured and Started {self.bench_config.environment_type.value} services.")
 
         elif self.bench_config.environment_type == FMBenchEnvType.prod:
-            self.remove_dev_packages()
             richprint.change_head(f"Configuring and starting {self.bench_config.environment_type.value} services")
-            stop_command = 'supervisorctl -c /opt/user/supervisord.conf stop all'
 
+            stop_command = supervisorctl_command + "stop all"
             self.frappe_service_run_command(stop_command)
 
             unlink_command = 'rm -rf /opt/user/conf.d/frappe-dev.conf'
             self.frappe_service_run_command(unlink_command)
 
-            link_command = 'ln -sfn /workspace/frappe-bench/config/frappe-bench-frappe-web.fm.supervisor.conf /opt/user/conf.d/frappe-bench-frappe-web.fm.supervisor.conf'
+            link_command = (
+                'ln -sfn /workspace/frappe-bench/config/web.fm.supervisor.conf /opt/user/conf.d/web.fm.supervisor.conf'
+            )
             self.frappe_service_run_command(link_command)
 
-            reread_command = 'supervisorctl -c /opt/user/supervisord.conf reread'
+            reread_command = supervisorctl_command + "reread"
             self.frappe_service_run_command(reread_command)
 
-            update_command = 'supervisorctl -c /opt/user/supervisord.conf update'
+            update_command = supervisorctl_command + "update"
             self.frappe_service_run_command(update_command)
 
-            start_command = 'supervisorctl -c /opt/user/supervisord.conf start all'
+            start_command = supervisorctl_command + "start all"
             self.frappe_service_run_command(start_command)
 
             richprint.print(f"Configured and Started {self.bench_config.environment_type.value} services.")
@@ -1195,7 +1327,29 @@ class Bench:
 
         richprint.print(f"Reset bench site {self.name}")
 
-    def restart_supervisor_service(self, service: str, compose_project_obj: Optional[ComposeProject] = None):
+    def restart_supervisor_service(
+        self, service: str, compose_project_obj: Optional[ComposeProject] = None, timeout: int = 30, interval: int = 1
+    ):
+        socket_path = f"/fm-sockets/{service}.sock"
+
+        # Wait for supervisor socket file to be created in container
+        for _ in range(timeout):
+            try:
+                self.compose_project.docker.compose.exec(
+                    service=service,
+                    user='frappe',
+                    command=f"test -e {socket_path}",
+                    stream=False
+                )
+                break
+            except DockerException:
+                time.sleep(interval)
+        else:
+            raise BenchOperationException(
+                self.name, 
+                message=f'Supervisor socket for {service} service not created after {timeout} seconds'
+            )
+
         restart_supervisor_command = 'supervisorctl -c /opt/user/supervisord.conf restart all'
         exception = BenchOperationException(self.name, message=f'Failed to restart supervisor for {service} service')
 
@@ -1222,8 +1376,6 @@ class Bench:
             SiteServicesEnum.frappe.value,
             SiteServicesEnum.socketio.value,
         ]
-
-        restart_supervisor_command = 'supervisorctl -c /opt/user/supervisord.conf restart all'
 
         for service in web_services:
             richprint.change_head(f"Restarting web services - {service}")

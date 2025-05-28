@@ -40,6 +40,7 @@ class FMConfigManager(BaseModel):
     root_path: Path
     version: Version
     letsencrypt: FMLetsencryptConfig = Field(default=FMLetsencryptConfig())
+    ngrok_auth_token: Optional[str] = Field(None, description="Ngrok authentication token")
 
     def export_to_toml(self, path: Path = CLI_FM_CONFIG_PATH) -> bool:
         exclude = {'root_path'}
@@ -81,6 +82,7 @@ class FMConfigManager(BaseModel):
         input_data['version'] = Version('0.8.3')
         input_data['letsencrypt'] = FMLetsencryptConfig(email=None, api_key=None, api_token=None)
         input_data['root_path'] = str(path)
+        input_data['ngrok_auth_token'] = None
 
         if old_config_path.exists():
             old_data = tomlkit.parse(old_config_path.read_text())
@@ -91,6 +93,7 @@ class FMConfigManager(BaseModel):
             input_data['letsencrypt'] = FMLetsencryptConfig(
                 **data.get('letsencrypt', {'email': None, 'api_key': None, 'api_token': None})
             )
+            input_data['ngrok_auth_token'] = data.get('ngrok_auth_token', None)
 
         fm_config_instance = cls(**input_data)
         return fm_config_instance

@@ -1,27 +1,39 @@
 services:
-  mailhog:
-    image: ghcr.io/rtcamp/frappe-manager-mailhog:v0.8.3
+  mailpit:
+    image: axllent/mailpit:v1.22
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
+    volumes:
+      - mailpit-data:/data
     expose:
       - 1025
       - 8025
     networks:
       site-network:
+    environment:
+      MP_WEBROOT: mailpit
+      MP_MAX_MESSAGES: 5000
+      MP_DATABASE: /data/mailpit.db
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
 
   adminer:
     image: adminer:4
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
-    environment:
-      ADMINER_DEFAULT_SERVER: global-db
     expose:
       - 8080
     networks:
       site-network:
       global-backend-network:
+    environment:
+      ADMINER_DEFAULT_SERVER: global-db
+
+volumes:
+  mailpit-data:
+    name: fm__SITE_NAME_PREFIX__mailpit-data
 
 networks:
   site-network:
-    name: REPLACE_ME_WITH_SITE_NAME_NETWORK
+    name: fm__SITE_NAME_PREFIX__site-network
   global-backend-network:
     name: fm-global-backend-network
     external: true

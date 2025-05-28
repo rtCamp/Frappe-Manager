@@ -2,55 +2,40 @@
 
 source /scripts/helper-function.sh
 
-emer() {
-   echo "$1"
-   exit 1
-}
 cleanup() {
-    echo "Received signal, stopping..."
-    # Insert cleanup code here (e.g., stop services, clean temp files)
+    echo "Received signal SIGTERM, stopping..."
     if [ -n "$running_script_pid" ]; then
         kill -s SIGTERM "$running_script_pid"
     fi
     exit 0
 }
 
-trap cleanup SIGQUIT SIGTERM
+trap cleanup SIGTERM
+
+if [[ -n "${WORKER_NAME:-}" ]]; then
+    SERVICE_NAME="${WORKER_NAME}"
+fi
 
 [[ "${USERID:-}" ]] || emer "[ERROR] Please provide USERID environment variable."
 [[ "${USERGROUP:-}" ]] || emer "[ERROR] Please provide USERGROUP environment variable."
+[[ "${SERVICE_NAME:-}" ]] || emer "[ERROR] Please provide SERVICE_NAME environment variable."
 
 echo "Setting up user"
 
 update_uid_gid "${USERID}" "${USERGROUP}" "frappe" "frappe"
 
-mkdir -p /opt/user/conf.d
+SOCK_DIR='/fm-sockets'
+SOCK_SERVICE_PATH="$SOCK_DIR/$SERVICE_NAME.sock"
 
-start_time=$(date +%s.%N)
-chown -R "$USERID":"$USERGROUP" /opt
-end_time=$(date +%s.%N)
-execution_time=$(awk "BEGIN {print $end_time - $start_time}")
-echo "Time taken for chown /opt : $execution_time seconds"
+echo "Setting supervisord sock directory to $SOCK_SERVICE_PATH"
 
-if [[ ! -d "/workspace/.oh-my-zsh" ]]; then
-   cp -pr /opt/user/.oh-my-zsh /workspace/
-   cp -p /opt/user/fm.zsh-theme /workspace/.oh-my-zsh/custom/themes/
-fi
+mkdir -p $SOCK_DIR
+chown "$USERID:$USERGROUP" $SOCK_DIR /opt/user /opt/user/conf.d
 
-if [[ ! -f "/workspace/.zshrc" ]]; then
-   cp -p /opt/user/.zshrc  /workspace/
-fi
+rm -rf "$SOCK_SERVICE_PATH"
 
-if [[ ! -f "/workspace/.profile" ]]; then
-   cp -p /opt/user/.profile  /workspace/
-fi
-
-
-# start_time=$(date +%s.%N)
-# chown -R "$USERID":"$USERGROUP" /workspace
-# end_time=$(date +%s.%N)
-# execution_time=$(awk "BEGIN {print $end_time - $start_time}")
-# echo "Time taken for chown /workspace : $execution_time seconds"
+sed -i "s/\opt\/user\/supervisor\.sock/fm-sockets\/${SERVICE_NAME}\.sock/g" /opt/user/supervisord.conf
+echo "supervisord configured $?"
 
 if [ "$#" -gt 0 ]; then
     gosu "$USERID":"$USERGROUP" "/scripts/$@" &
@@ -59,5 +44,7 @@ else
     gosu "${USERID}":"${USERGROUP}" /scripts/user-script.sh &
     running_script_pid=$!
 fi
+
+configure_workspace
 
 wait $running_script_pid
