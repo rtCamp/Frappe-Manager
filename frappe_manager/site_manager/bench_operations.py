@@ -229,6 +229,8 @@ class BenchOperations:
 
                 new_file: Path = supervisor_conf_path.parent / file_name
 
+                section_config.set(section_name, "startsecs", "0")
+
                 with open(new_file, "w") as section_file:
                     section_config.write(section_file)
 
