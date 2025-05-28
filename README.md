@@ -66,8 +66,11 @@
 ## 🚀 Quick Start
 
 ```bash
-# Install Frappe Manager
-pip install frappe-manager
+# Install Frappe Manager (stable)
+pipx install frappe-manager 
+
+# Install Frappe Manager (latest develop)
+pipx install git+https://github.com/rtcamp/frappe-manager@develop 
 
 # Setup shell completion
 fm --install-completion
@@ -109,6 +112,7 @@ fm create example.com --environment prod \
 # Common commands
 fm start mysite      # Start site
 fm stop mysite       # Stop site
+fm info mysite       # View site info
 fm logs mysite -f    # View logs
 fm shell mysite      # Access shell
 ```
