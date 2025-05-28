@@ -40,13 +40,13 @@ class DisplayManager:
         self.live.start(refresh=True)
         self.live.update(self.spinner, refresh=True)
 
-    def error(self, text: str, exception: Optional[Exception] = None, emoji_code: str = ":x:"):
+    def error(self, text: str, exception: Optional[Exception] = None, emoji_code: str = ":no_entry:"):
         """
         Display an error message with an optional emoji code.
 
         Args:
             text (str): The error message to display.
-            emoji_code (str, optional): The emoji code to display before the error message. Defaults to ':x:'.
+            emoji_code (str, optional): The emoji code to display before the error message. Defaults to ':stop_sign:'.
         """
         self.stdout.print(f"{emoji_code} {text}")
 
@@ -66,13 +66,13 @@ class DisplayManager:
         """
         self.stdout.print(f"{emoji_code} {text}")
 
-    def exit(self, text: str, emoji_code: str = ":x:", os_exit=False, error_msg=None):
+    def exit(self, text: str, emoji_code: str = ":no_entry:", os_exit=False, error_msg=None):
         """
         Exits the display manager and prints the given text with an optional emoji code and error message.
 
         Args:
             text (str): The text to be printed.
-            emoji_code (str, optional): The emoji code to be displayed before the text. Default is ":x:".
+            emoji_code (str, optional): The emoji code to be displayed before the text. Default is ":stop_sign:".
             os_exit (bool, optional): If True, the program will exit with status code 1. Default is False.
             error_msg (str, optional): The error message to be displayed after the text. Default is None.
         """

@@ -153,7 +153,7 @@ def domain_level(domain):
     return len(parts) - 1
 
 
-def validate_sitename(sitename: str) -> str:
+def validate_sitename(sitename: str | None) -> str:
     match = is_fqdn(sitename)
 
     if domain_level(sitename) == 0:

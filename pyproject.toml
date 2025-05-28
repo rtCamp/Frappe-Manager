@@ -47,6 +47,7 @@ python = "^3.10"
 typer = "^0.15.4"
 requests = "^2.31.0"
 psutil = "^5.9.6"
+configargparse = "!=1.7"
 ruamel-yaml = "^0.18.5"
 tomlkit = "^0.12.3"
 certbot = "^2.9.0"
@@ -56,6 +57,7 @@ jinja2 = "^3.1.3"
 certbot-dns-cloudflare = "^2.10.0"
 ngrok = "^1.4.0"
 passlib = "^1.7.4"
+inquirerpy = "^0.3.4"
 
 [tool.pyright]
 reportOptionalMemberAccess = false
