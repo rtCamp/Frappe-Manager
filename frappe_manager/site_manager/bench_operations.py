@@ -7,7 +7,10 @@ from frappe_manager import CLI_DEFAULT_DELIMETER, STABLE_APP_BRANCH_MAPPING_LIST
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.docker_wrapper.subprocess_output import SubprocessOutput
+from frappe_manager.site_manager.bench_config import FMBenchEnvType
+from frappe_manager.site_manager.site import Site
 from frappe_manager.site_manager.site_exceptions import (
+    BenchFrappeServiceSupervisorNotRunning,
     BenchOperationBenchAppInSiteFailed,
     BenchOperationBenchBuildFailed,
     BenchOperationBenchInstallAppInPythonEnvFailed,
@@ -29,11 +32,14 @@ class BenchOperations:
         self.bench_cli_cmd = ["/usr/local/bin/bench"]
         self.frappe_bench_dir: Path = self.bench.path / "workspace" / "frappe-bench"
 
-    def create_fm_bench(self):
+    def init_bench(self):
+        """Initialize bench without creating sites"""
         richprint.change_head("Configuring common_site_config.json")
+
         common_site_config_data = self.bench.bench_config.get_commmon_site_config_data(
             self.bench.services.database_manager.database_server_info
         )
+
         self.bench.set_common_bench_config(common_site_config_data)
         richprint.print("Configured common_site_config.json")
 
@@ -54,39 +60,32 @@ class BenchOperations:
             BenchOperationException(self.bench.name, "Failed to remove /workspace/frappe-bench/archived directory."),
         )
 
-        richprint.change_head(f"Creating bench site {self.bench.name}")
-        self.create_bench_site()
-        richprint.print(f"Created bench site {self.bench.name}")
-
-        self.bench_install_apps_site()
-
-        self.bench.set_bench_site_config({'admin_password': self.bench.bench_config.admin_pass})
-
-    def create_bench_site(self):
+    def create_bench_site(self, site: Site):
+        """Create a new site in the bench"""
         new_site_command = self.bench_cli_cmd + ["new-site"]
         new_site_command += ["--db-root-password", self.bench.services.database_manager.database_server_info.password]
-        new_site_command += ["--db-name", self.bench.bench_config.db_name]
+        new_site_command += ["--db-name", site.get_db_name()]
         new_site_command += ["--db-host", self.bench.services.database_manager.database_server_info.host]
         new_site_command += ["--admin-password", self.bench.bench_config.admin_pass]
         new_site_command += ["--db-port", str(self.bench.services.database_manager.database_server_info.port)]
         new_site_command += ["--verbose", "--mariadb-user-host-login-scope","%"]
-        new_site_command += [self.bench.name]
+        new_site_command += [site.name]
 
         new_site_command = " ".join(new_site_command)
 
-        self.container_run(new_site_command, raise_exception_obj=BenchOperationBenchSiteCreateFailed(self.bench.name))
+        self.container_run(new_site_command, raise_exception_obj=BenchOperationBenchSiteCreateFailed(site.name))
 
         self.container_run(
-            " ".join(self.bench_cli_cmd + [f"use {self.bench.name}"]),
+            " ".join(self.bench_cli_cmd + [f"use {site.name}"]),
             raise_exception_obj=BenchOperationException(
-                self.bench.name, f"Failed to set {self.bench.name} as default site."
+                site.name, f"Failed to set {site.name} as default site."
             ),
         )
 
         self.container_run(
-            " ".join(self.bench_cli_cmd + [f"--site {self.bench.name} scheduler enable"]),
+            " ".join(self.bench_cli_cmd + [f"--site {site.name} scheduler enable"]),
             raise_exception_obj=BenchOperationException(
-                self.bench.name, f"Failed to enable {self.bench.name}'s scheduler."
+                site.name, f"Failed to enable {site.name}'s scheduler."
             ),
         )
 
@@ -177,6 +176,81 @@ class BenchOperations:
             self.container_run(bench_setup_supervisor_command, bench_setup_supervisor_exception)
             self.split_supervisor_config()
             richprint.print("Configured supervisor configs")
+
+    def switch_bench_env(self, timeout: int = 30, interval: int = 1):
+        """Switch bench environment between dev and prod modes"""
+        if not self.is_supervisord_running():
+            raise BenchFrappeServiceSupervisorNotRunning(self.bench.name)
+
+        socket_path = f"/fm-sockets/frappe.sock"
+
+        # Wait for supervisor socket file to be created in container
+        for _ in range(timeout):
+            try:
+                self.container_run(f"test -e {socket_path}", raise_exception_obj=BenchOperationException(
+                    self.bench.name,
+                    message=f'Failed to check supervisor socket exists'
+                ))
+                break
+            except DockerException as e:
+                print('--->')
+                print(e)
+                time.sleep(interval)
+        else:
+            raise BenchOperationException(
+                self.bench.name,
+                message=f'Supervisor socket for frappe service not created after {timeout} seconds'
+            )
+
+        supervisorctl_command = f"supervisorctl -s unix:///{socket_path} "
+
+        if self.bench.bench_config.environment_type == FMBenchEnvType.dev:
+            richprint.change_head(f"Configuring and starting {self.bench.bench_config.environment_type.value} services")
+
+            stop_command = supervisorctl_command + "stop all"
+            self.container_run(stop_command)
+
+            unlink_command = 'rm -rf /opt/user/conf.d/web.fm.supervisor.conf'
+            self.container_run(unlink_command)
+
+            link_command = 'ln -sfn /opt/user/frappe-dev.conf /opt/user/conf.d/frappe-dev.conf'
+            self.container_run(link_command)
+
+            reread_command = supervisorctl_command + "reread"
+            self.container_run(reread_command)
+
+            update_command = supervisorctl_command + "update"
+            self.container_run(update_command)
+
+            start_command = supervisorctl_command + "start all"
+            self.container_run(start_command)
+
+            richprint.print(f"Configured and Started {self.bench.bench_config.environment_type.value} services.")
+
+        elif self.bench.bench_config.environment_type == FMBenchEnvType.prod:
+            richprint.change_head(f"Configuring and starting {self.bench.bench_config.environment_type.value} services")
+
+            stop_command = supervisorctl_command + "stop all"
+            self.container_run(stop_command)
+
+            unlink_command = 'rm -rf /opt/user/conf.d/frappe-dev.conf'
+            self.container_run(unlink_command)
+
+            link_command = (
+                'ln -sfn /workspace/frappe-bench/config/web.fm.supervisor.conf /opt/user/conf.d/web.fm.supervisor.conf'
+            )
+            self.container_run(link_command)
+
+            reread_command = supervisorctl_command + "reread"
+            self.container_run(reread_command)
+
+            update_command = supervisorctl_command + "update"
+            self.container_run(update_command)
+
+            start_command = supervisorctl_command + "start all"
+            self.container_run(start_command)
+
+            richprint.print(f"Configured and Started {self.bench.bench_config.environment_type.value} services.")
 
     def split_supervisor_config(self):
         import configparser
@@ -290,16 +364,16 @@ class BenchOperations:
 
     def get_current_apps_list(self):
         """Return apps which are available in apps directory"""
-
         apps_dir = self.frappe_bench_dir / 'apps'
         apps_dirs: List[Path] = [item for item in apps_dir.iterdir() if item.is_dir()]
         return apps_dirs
 
-    def bench_install_apps_site(self):
+    def bench_install_apps_site(self, site: Site):
+        """Install all apps for a given site"""
         for app in self.get_current_apps_list():
-            richprint.change_head(f"Installing app {app.name} in site.")
-            self.bench_install_app_site(app.name)
-            richprint.print(f"Installed app {app.name} in site.")
+            richprint.change_head(f"Installing app {app.name} in site {site.name}")
+            self.bench_install_app_site(site, app.name)
+            richprint.print(f"Installed app {app.name} in site {site.name}")
 
     def bench_build(self, app_list: Optional[List[str]] = None):
         build_cmd = self.bench_cli_cmd + ["build"]
@@ -348,19 +422,21 @@ class BenchOperations:
             ),
         )
 
-    def bench_install_app_site(self, app: str):
-        app_install_site_command = self.bench_cli_cmd + ["--site", self.bench.name]
+    def bench_install_app_site(self, site: Site, app: str):
+        """Install an app for a specific site"""
+
+        app_install_site_command = self.bench_cli_cmd + ["--site", site.name]
         app_install_site_command += ["install-app", app]
         app_install_site_command = " ".join(app_install_site_command)
 
         self.container_run(
             app_install_site_command,
-            raise_exception_obj=BenchOperationBenchAppInSiteFailed(bench_name=self.bench.name, app_name=app),
+            raise_exception_obj=BenchOperationBenchAppInSiteFailed(site.name, app_name=app),
         )
 
-    def is_bench_site_exists(self, bench_site_name: str):
-        site_path: Path = self.frappe_bench_dir / "sites" / bench_site_name
-        return site_path.exists()
+    def is_bench_site_exists(self, site: Site) -> bool:
+        """Check if a site exists in the bench"""
+        return site.exists
 
     def wait_for_required_service(self, host: str, port: int, timeout: int = 120):
         return self.container_run(
@@ -370,6 +446,34 @@ class BenchOperations:
             ),
             capture_output=True,
         )
+
+    def is_supervisord_running(self, interval: int = 2, timeout: int = 30) -> bool:
+        """
+        Check if supervisord is running in the frappe service container
+        
+        Args:
+            interval: Time to wait between retries
+            timeout: Total time to wait before giving up
+            
+        Returns:
+            bool: True if supervisord is running, False otherwise
+        """
+        for _ in range(timeout):
+            try:
+                status_command = 'supervisorctl -c /opt/user/supervisord.conf status all'
+                output = self.bench.compose_project.docker.compose.exec(
+                    'frappe', 
+                    status_command, 
+                    user='frappe', 
+                    stream=False
+                )
+                return True
+            except DockerException as e:
+                if any('frappe-bench' in s for s in e.output.combined):
+                    return True
+                time.sleep(interval)
+                continue
+        return False
 
     def check_required_docker_images_available(self):
         richprint.change_head("Checking required docker images availability")
@@ -401,9 +505,12 @@ class BenchOperations:
                 richprint.error(f"Docker image '{image}' is not available locally")
             raise BenchOperationRequiredDockerImagesNotAvailable(self.bench.name, 'fm self update-images')
 
-    def reset_bench_site(self, admin_password: str):
+    def reset_bench_site(self, site: Site, admin_password: str):
+        """Reset a specific site"""
+
         global_db_info = self.bench.services.database_manager.database_server_info
-        reset_bench_site_command = self.bench_cli_cmd + ["--site", self.bench.name]
+
+        reset_bench_site_command = self.bench_cli_cmd + ["--site", site.name]
         reset_bench_site_command += ['reinstall', '--admin-password', admin_password]
         reset_bench_site_command += ['--db-root-username', global_db_info.user]
         reset_bench_site_command += ['--db-root-password', global_db_info.password]
@@ -414,6 +521,6 @@ class BenchOperations:
         self.container_run(
             reset_bench_site_command,
             raise_exception_obj=BenchOperationException(
-                bench_name=self.bench.name, message=f'Failed to reset bench site {self.bench.name}.'
+                site.name, message=f'Failed to reset site {site.name}.'
             ),
         )

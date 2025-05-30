@@ -111,8 +111,12 @@ def update(
                 )
                 email = fm_config_manager.letsencrypt.email
 
+            site = bench.get_default_site()
+            if not site:
+                richprint.exit("No default site configured for SSL certificate")
+                
             new_ssl_certificate = LetsencryptSSLCertificate(
-                domain=benchname,
+                domain=site.name,
                 ssl_type=ssl,
                 email=email,
                 preferred_challenge=letsencrypt_preferred_challenge,

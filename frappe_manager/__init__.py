@@ -8,7 +8,6 @@ from rich.panel import Panel
 # save the function so that recurssion doesn't occur
 rich_format_help_original = ut.rich_format_help
 
-
 def print_fm_examples(*, obj, ctx, markup_mode):
     # utilising the original saved function
     rich_format_help_original(obj=obj, ctx=ctx, markup_mode=markup_mode)
@@ -54,7 +53,6 @@ SSL_RENEW_BEFORE_DAYS = 30
 CLI_DEFAULT_DELIMETER = '__'
 CLI_SITE_NAME_DELIMETER = '_'
 
-
 DEFAULT_EXTENSIONS = [
     # Debugger
     "ms-python.debugpy",
@@ -93,7 +91,6 @@ STABLE_APP_BRANCH_MAPPING_LIST = {
     "erpnext": "version-15",
     "hrms": "version-15",
 }
-
 
 class EnableDisableOptionsEnum(str, Enum):
     enable = "enable"

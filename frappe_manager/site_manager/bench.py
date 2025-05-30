@@ -7,6 +7,7 @@ import shutil
 import json
 import subprocess
 from typing import Any, Dict, List, Optional
+from .site import Site
 from pathlib import Path
 from frappe_manager.site_manager.bench_operations import BenchOperations
 from rich.table import Table
@@ -78,14 +79,16 @@ class Bench:
         self.bench_config: BenchConfig = bench_config
         self.compose_project: ComposeProject = compose_project
         self.logger = log.get_logger()
+        
+        # Initialize empty sites dictionary - sites are composed parts of bench
+        self._sites: Dict[str, Site] = {}
+        
+        # Load existing sites from filesystem
+        self._load_sites()
+
         self.proxy_manager: NginxProxyManager = NginxProxyManager('nginx', self.compose_project)
         self.admin_tools: AdminTools = AdminTools(self, self.proxy_manager)
 
-        self.certificate_manager = SSLCertificateManager(
-            certificate=self.bench_config.ssl,
-            webroot_dir=self.proxy_manager.dirs.html.host,
-            proxy_manager=services.proxy_manager,
-        )
         self.benchops = BenchOperations(self)
         self.workers = BenchWorkers(self, not verbose)
 
@@ -155,15 +158,18 @@ class Bench:
     def exists(self):
         return self.path.exists()
 
-    def create(self, is_template_bench: bool = False):
+    def create(self, sites_to_create: List[str], is_template_bench: bool = False):
         """
-        Creates a new bench using BenchFactory.
-
+        Creates a new bench with configured sites.
+        
         Args:
+            sites_to_create: List of site names to create
             is_template_bench (bool): Whether this is a template bench.
 
         Returns:
             None
+            
+        Each site will be created with its own SSL certificate if configured.
         """
         self.benchops.check_required_docker_images_available()
 
@@ -184,34 +190,55 @@ class Bench:
 
             richprint.change_head("Starting bench services")
             self.compose_project.start_service(force_recreate=True)
+
             richprint.print("Started bench services.")
+            richprint.change_head("Creating bench and sites")
+            
+            # Initialize bench without creating sites
+            self.benchops.init_bench()
+            
+            # Create each site
+            for i, site_name in sites_to_create:
+                richprint.change_head(f"Creating site {site_name}")
+                site = Site(site_name, self.path)
+                
+                # Create the site
+                self.benchops.create_bench_site(site)
+                self.benchops.bench_install_apps_site(site)
 
-            richprint.change_head("Creating bench and bench site.")
-            self.benchops.create_fm_bench()
+                site.set_config({'admin_password': self.bench_config.admin_pass})
+                
+                # Add to sites dictionary
+                self.sites[site_name] = site
+                
+                # Set first site as default
+                if i == 0:
+                    self.set_default_site(site_name)
+                
+                richprint.print(f"Created site {site_name}")
+
             self.sync_bench_config_configuration()
-
             self.switch_bench_env()
 
             richprint.change_head("Configuring bench workers.")
             self.sync_workers_compose(force_recreate=True, setup_supervisor=False)
-            richprint.change_head("Configuring bench workers.")
-            richprint.update_live()
+            richprint.print("Configured bench workers.")
 
             self.save_bench_config()
 
             richprint.change_head("Commencing site status check")
 
-            # check if bench is created
-            if not self.is_bench_created():
-                raise Exception("Bench site is inactive or unresponsive.")
+            # Check if bench and sites are created properly
+            for site_name in sites_to_create:
+                if not self.sites[site_name].exists:
+                    raise Exception(f"Site {site_name} is inactive or unresponsive.")
+                richprint.print(f"Site {site_name} is active and responding.")
 
-            richprint.print("Bench site is active and responding.")
-
-            self.logger.info(f"{self.name}: Bench site is active and responding.")
+            self.logger.info(f"{self.name}: All sites are active and responding.")
 
             self.info()
 
-            if ".localhost" not in self.name:
+            if not any(".localhost" in site_name for site_name in self.site_names_to_create):
                 richprint.print(
                     "Please note that You will have to add a host entry to your system's hosts file to access the bench locally."
                 )
@@ -645,48 +672,76 @@ class Bench:
 
     # this can be plugable
     def get_db_connection_info(self):
-        return get_bench_db_connection_info(self.name, self.path)
+        """Get database connection info for default site"""
+        site = self.get_default_site()
+        if not site:
+            raise BenchException(self.name, "No default site configured")
+        
+        site_config = site.get_config()
 
-    def create_certificate(self):
-        self.certificate_manager.generate_certificate()
-        self.save_bench_config()
+        return {
+            "name": site_config.get("db_name"),
+            "user": site_config.get("db_name"),
+            "password": site_config.get("db_password"),
+        }
 
-    def has_certificate(self):
-        return self.certificate_manager.has_certificate()
+    def create_certificate(self, site_name: Optional[str] = None):
+        """Generate SSL certificate for specified site or default site"""
+        site = self.get_site(site_name) if site_name else self.get_default_site()
+        if not site:
+            raise BenchException(self.name, f"Site {site_name or 'default'} not found")
+        
+        site.setup_certificate_manager(
+            webroot_dir=self.proxy_manager.dirs.html.host,
+            proxy_manager=self.services.proxy_manager
+        )
+        site.create_certificate()
 
-    def remove_certificate(self):
-        self.certificate_manager.remove_certificate()
-        self.bench_config.ssl = SSLCertificate(domain=self.name, ssl_type=SUPPORTED_SSL_TYPES.none)
-        self.save_bench_config()
+    def has_certificate(self, site_name: Optional[str] = None) -> bool:
+        """Check if site has SSL certificate"""
+        site = self.get_site(site_name) if site_name else self.get_default_site()
+        if not site:
+            raise BenchException(self.name, f"Site {site_name or 'default'} not found")
+        return site.has_certificate()
 
-    def update_certificate(self, certificate: SSLCertificate, raise_error: bool = True):
-        if certificate.ssl_type == SUPPORTED_SSL_TYPES.le:
-            if self.has_certificate():
-                if raise_error:
-                    raise BenchSSLCertificateAlreadyIssued(self.name)
-            else:
-                self.certificate_manager.set_certificate(certificate)
-                self.bench_config.ssl = certificate
-                self.create_certificate()
+    def remove_certificate(self, site_name: Optional[str] = None):
+        """Remove SSL certificate from specified site or default site"""
+        site = self.get_site(site_name) if site_name else self.get_default_site()
+        if not site:
+            raise BenchException(self.name, f"Site {site_name or 'default'} not found")
+        
+        site.setup_certificate_manager(
+            webroot_dir=self.proxy_manager.dirs.html.host,
+            proxy_manager=self.services.proxy_manager
+        )
+        site.remove_certificate()
 
-        elif certificate.ssl_type == SUPPORTED_SSL_TYPES.none:
-            if self.has_certificate():
-                self.remove_certificate()
-            else:
-                if not raise_error:
-                    return
-                raise BenchSSLCertificateNotIssued(self.name)
+    def update_certificate(self, certificate: SSLCertificate, site_name: Optional[str] = None, raise_error: bool = True):
+        """Update SSL certificate for specified site or default site"""
+        site = self.get_site(site_name) if site_name else self.get_default_site()
+        if not site:
+            raise BenchException(self.name, f"Site {site_name or 'default'} not found")
 
-        return True
+        site.setup_certificate_manager(
+            webroot_dir=self.proxy_manager.dirs.html.host,
+            proxy_manager=self.services.proxy_manager
+        )
+        return site.update_certificate(certificate, raise_error)
 
-    def renew_certificate(self):
-        if not self.has_certificate():
-            raise BenchSSLCertificateNotIssued(self.name)
+    def renew_certificate(self, site_name: Optional[str] = None):
+        """Renew SSL certificate for specified site or default site"""
+        site = self.get_site(site_name) if site_name else self.get_default_site()
+        if not site:
+            raise BenchException(self.name, f"Site {site_name or 'default'} not found")
 
         if not self.compose_project.is_service_running('nginx'):
             raise BenchServiceNotRunning(self.name, 'nginx')
 
-        self.certificate_manager.renew_certificate()
+        site.setup_certificate_manager(
+            webroot_dir=self.proxy_manager.dirs.html.host,
+            proxy_manager=self.services.proxy_manager
+        )
+        site.renew_certificate()
 
     def info(self):
         """
@@ -740,11 +795,15 @@ class Bench:
             "DB User": db_user,
             "DB Password": db_pass,
             "Environment": self.bench_config.environment_type.value,
-            "HTTPS": (
-                f'{ssl_service_type.upper()} ({format_ssl_certificate_time_remaining(self.certificate_manager.get_certficate_expiry())})'
-                if self.has_certificate()
-                else 'Not Enabled'
-            ),
+            # Show SSL info for each site
+            **{
+                f'HTTPS ({site_name})': (
+                    f'{site.certificate.ssl_type.value.upper()} ({format_ssl_certificate_time_remaining(site.get_certificate_expiry())})'
+                    if site.has_certificate()
+                    else 'Not Enabled'
+                )
+                for site_name, site in self.sites.items()
+            },
         }
 
         if not self.bench_config.admin_tools:
@@ -1076,34 +1135,37 @@ class Bench:
 
         richprint.print("Attached to frappe service container.")
 
-    def remove_database_and_user(self):
-        """
-        This function is used to remove db and user of the site at self.name and path at self.path.
-        """
+    def remove_database_and_user(self, site_name: Optional[str] = None):
 
-        bench_db_info = self.get_db_connection_info()
-        richprint.change_head("Removing bench db and db users")
-        if "name" in bench_db_info:
-            db_name = bench_db_info["name"]
-            db_user = bench_db_info["user"]
+        """Remove database and user for specified site or default site"""
+        site = self.get_site(site_name) if site_name else self.get_default_site()
 
+        if not site:
+            raise BenchException(self.name, f"Site {site_name or 'default'} not found")
+
+        site_config = site.get_config()
+        db_name = site_config.get("db_name")
+        db_user = site_config.get("db_name")  # User name is same as db name
+
+        richprint.change_head(f"Removing site db and db users for {site.name}")
+        
+        if db_name:
             if not self.services.database_manager.check_db_exists(db_name):
-                richprint.warning(f"Bench db [blue]{db_name}[/blue] not found. Skipping...")
+                richprint.warning(f"Site db [blue]{db_name}[/blue] not found. Skipping...")
             else:
                 self.services.database_manager.remove_db(db_name)
-                richprint.print(f"Removed bench db [blue]{db_name}[/blue].")
+                richprint.print(f"Removed site db [blue]{db_name}[/blue].")
 
             if not self.services.database_manager.check_user_exists(db_user):
-                richprint.warning(f"Bench db user [blue]{db_user}[/blue] not found. Skipping...")
+                richprint.warning(f"Site db user [blue]{db_user}[/blue] not found. Skipping...")
             else:
                 self.services.database_manager.remove_user(db_user, remove_all_host=True)
-                richprint.print(f"Removed bench db users [blue]{db_user}[/blue].")
+                richprint.print(f"Removed site db users [blue]{db_user}[/blue].")
 
     def remove_bench(self, default_choice: bool = True):
         """
-        Removes the site.
+        Removes the bench and all its sites.
         """
-
         params: Dict[str, Any] = {}
         params['prompt'] = f"🤔 Do you want to remove [bold][green]'{self.name}'[/bold][/green]"
         params['choices'] = ["yes", "no"]
@@ -1118,13 +1180,28 @@ class Bench:
 
         richprint.start("Removing bench")
 
-        try:
-            self.remove_certificate()
-        except Exception as e:
-            self.logger.exception(e)
-            richprint.warning(str(e))
+        # Remove certificates for all sites
+        for site_name, site in self.sites.items():
+            try:
+                site.setup_certificate_manager(
+                    webroot_dir=self.proxy_manager.dirs.html.host,
+                    proxy_manager=self.services.proxy_manager
+                )
+                if site.has_certificate():
+                    richprint.print(f"Removing certificate for site {site_name}")
+                    site.remove_certificate()
+            except Exception as e:
+                self.logger.exception(e)
+                richprint.warning(f"Failed to remove certificate for site {site_name}: {str(e)}")
 
-        self.remove_database_and_user()
+        # Remove databases and users for all sites
+        for site_name in self.sites:
+            try:
+                self.remove_database_and_user(site_name)
+            except Exception as e:
+                self.logger.exception(e)
+                richprint.warning(f"Failed to remove database/user for site {site_name}: {str(e)}")
+
         self.remove_containers_and_dirs()
         return True
 
@@ -1136,7 +1213,6 @@ class Bench:
 
     def ensure_admin_tools_running_if_available(self):
         if self.admin_tools.compose_project.compose_file_manager.exists():
-
             if self.bench_config.admin_tools:
                 if not self.admin_tools.compose_project.running:
                     if self.compose_project.running:
@@ -1156,12 +1232,6 @@ class Bench:
         self.admin_tools.generate_compose(self.services.database_manager.database_server_info.host)
         restart_required = self.admin_tools.enable(force_recreate_container=True)
         return restart_required
-
-    def frappe_service_run_command(self, command: str):
-        try:
-            self.compose_project.docker.compose.exec('frappe', command, user='frappe', stream=False)
-        except DockerException as e:
-            raise BenchException("frappe", f"Faild to run {command} in frappe service.")
 
     def get_apps_dev_requirements(self) -> List[str]:
         """Parse pip requirement string to package name and version"""
@@ -1209,116 +1279,89 @@ class Bench:
         richprint.print("Installed dev packages in env.")
 
     def switch_bench_env(self, timeout: int = 30, interval: int = 1):
-        if not self.is_supervisord_running():
-            raise BenchFrappeServiceSupervisorNotRunning(self.name)
+        """Delegate bench environment switching to BenchOperations"""
+        self.benchops.switch_bench_env(timeout, interval)
 
-        socket_path = f"/fm-sockets/frappe.sock"
+    def is_supervisord_running(self, interval: int = 2, timeout: int = 30) -> bool:
+        """Delegate supervisord status check to BenchOperations"""
+        return self.benchops.is_supervisord_running(interval, timeout)
 
-        # Wait for supervisor socket file to be created in container
-        for _ in range(timeout):
-            try:
-                self.frappe_service_run_command(f"test -e {socket_path}")
-                break
-            except DockerException as e:
-                print('--->')
-                print(e)
-                time.sleep(interval)
-        else:
-            raise BenchOperationException(
-                self.name,
-                message=f'Supervisor socket for frappe service not created after {timeout} seconds'
+    def reset(self, site_name: Optional[str] = None, admin_password: Optional[str] = None):
+        """Reset a specific site or the default site"""
+        site = self.get_site(site_name) if site_name else self.get_default_site()
+        if not site:
+            raise BenchException(self.name, f"Site {site_name or 'default'} not found")
+
+        if not admin_password:
+            admin_password = site.get_config().get("admin_password")
+        
+        if not admin_password:
+            admin_password = richprint.prompt_ask(
+                prompt=f"Please enter admin password for site {site.name}"
             )
 
-        supervisorctl_command = f"supervisorctl -s unix:///{socket_path} "
+        richprint.change_head(f"Resetting bench site {site.name}")
+        self.benchops.reset_bench_site(admin_password, site_name=site.name)
+        site.set_config({"admin_password": admin_password})
+        richprint.print(f"Reset bench site {site.name}")
 
-        if self.bench_config.environment_type == FMBenchEnvType.dev:
-            richprint.change_head(f"Configuring and starting {self.bench_config.environment_type.value} services")
+    def _load_sites(self) -> None:
+        """Load all existing sites in the bench"""
+        sites_dir = self.path / "workspace/frappe-bench/sites"
 
-            stop_command = supervisorctl_command + "stop all"
-            self.frappe_service_run_command(stop_command)
+        if not sites_dir.exists():
+            return
 
-            unlink_command = 'rm -rf /opt/user/conf.d/web.fm.supervisor.conf'
-            self.frappe_service_run_command(unlink_command)
+        for site_dir in sites_dir.iterdir():
+            if site_dir.is_dir() and (site_dir / "site_config.json").exists():
+                site_name = site_dir.name
+                # Create site with reference to self (the bench)
+                self._sites[site_name] = Site(site_name, self)
 
-            link_command = 'ln -sfn /opt/user/frappe-dev.conf /opt/user/conf.d/frappe-dev.conf'
-            self.frappe_service_run_command(link_command)
+    @property
+    def sites(self) -> Dict[str, Site]:
+        """Public read-only access to sites"""
+        return self._sites.copy()
 
-            reread_command = supervisorctl_command + "reread"
-            self.frappe_service_run_command(reread_command)
+    def get_default_site(self) -> Optional[Site]:
+        """Get the default site configured in common_site_config.json"""
+        common_config = self.get_common_bench_config()
+        default_site = common_config.get("default_site")
 
-            update_command = supervisorctl_command + "update"
-            self.frappe_service_run_command(update_command)
+        return self.sites.get(default_site) if default_site else None
 
-            start_command = supervisorctl_command + "start all"
-            self.frappe_service_run_command(start_command)
+    def set_default_site(self, site_name: str) -> None:
+        """Set the default site in common_site_config.json"""
+        if site_name not in self.sites:
+            raise ValueError(f"Site {site_name} does not exist")
+        
+        common_config = self.get_common_bench_config()
+        common_config["default_site"] = site_name
 
-            richprint.print(f"Configured and Started {self.bench_config.environment_type.value} services.")
+        self.set_common_bench_config(common_config)
 
-        elif self.bench_config.environment_type == FMBenchEnvType.prod:
-            richprint.change_head(f"Configuring and starting {self.bench_config.environment_type.value} services")
+    def get_site(self, site_name: str) -> Optional[Site]:
+        """Get a specific site by name"""
+        return self.sites.get(site_name)
 
-            stop_command = supervisorctl_command + "stop all"
-            self.frappe_service_run_command(stop_command)
+    def create_site(self, site_name: str, admin_password: Optional[str] = None) -> Site:
+        """Create a new site in the bench"""
+        if site_name in self.sites:
+            raise ValueError(f"Site {site_name} already exists")
 
-            unlink_command = 'rm -rf /opt/user/conf.d/frappe-dev.conf'
-            self.frappe_service_run_command(unlink_command)
+        # Create and store Site object
+        site = Site(site_name, self.path)
 
-            link_command = (
-                'ln -sfn /workspace/frappe-bench/config/web.fm.supervisor.conf /opt/user/conf.d/web.fm.supervisor.conf'
-            )
-            self.frappe_service_run_command(link_command)
+        # TODO Add support for admin_password here
+        # Create site using bench new-site command
+        self.benchops.create_bench_site(site)
+        self.sites[site_name] = site
+        
+        return site
 
-            reread_command = supervisorctl_command + "reread"
-            self.frappe_service_run_command(reread_command)
-
-            update_command = supervisorctl_command + "update"
-            self.frappe_service_run_command(update_command)
-
-            start_command = supervisorctl_command + "start all"
-            self.frappe_service_run_command(start_command)
-
-            richprint.print(f"Configured and Started {self.bench_config.environment_type.value} services.")
-
-    def is_supervisord_running(self, interval: int = 2, timeout: int = 30):
-        for i in range(timeout):
-            try:
-                status_command = 'supervisorctl -c /opt/user/supervisord.conf status all'
-                output = self.compose_project.docker.compose.exec('frappe', status_command, user='frappe', stream=False)
-                return True
-            except DockerException as e:
-                if any('frappe-bench' in s for s in e.output.combined):
-                    return True
-                time.sleep(interval)
-                continue
-        return False
-
-    def reset(self, admin_password: Optional[str] = None):
-        admin_pass = None
-
-        if admin_password:
-            admin_pass = admin_password
-        else:
-            if not admin_pass:
-                site_config = self.get_bench_site_config()
-                if 'admin_password' in site_config:
-                    admin_pass = site_config['admin_password']
-                    richprint.print("Using admin_password defined in site_config.json")
-
-            if not admin_pass:
-                common_site_config = self.get_common_bench_config()
-                if 'admin_password' in common_site_config:
-                    admin_pass = common_site_config['admin_password']
-                    richprint.print("Using admin_password defined in common_site_config.json")
-
-        if not admin_pass:
-            admin_pass = richprint.prompt_ask(prompt=f"Please enter admin password for site {self.name}")
-
-        richprint.change_head(f"Resetting bench site {self.name}")
-
-        self.benchops.reset_bench_site(admin_pass)
-        self.set_bench_site_config({'admin_password': admin_pass})
-
-        richprint.print(f"Reset bench site {self.name}")
+    def list_sites(self) -> List[Site]:
+        """Get list of all sites in the bench"""
+        return list(self.sites.values())
 
     def restart_supervisor_service(
         self, service: str, compose_project_obj: Optional[ComposeProject] = None, timeout: int = 30, interval: int = 1

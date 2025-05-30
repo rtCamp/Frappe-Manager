@@ -22,17 +22,26 @@ def delete(
             help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
         ),
     ] = None,
-):
-    """Delete bench ssl certficate."""
+    sitename: Annotated[
+        Optional[str],
+        typer.Option("--site", help="Site to remove certificate from")
+    ] = None,
+):  
+    """Delete site SSL certificate."""
 
     services_manager = ctx.obj["services"]
     bench = Bench.get_object(benchname, services_manager)
-    richprint.change_head("Removing SSL certificate")
+    site = bench.get_site(sitename) if sitename else bench.get_default_site()
+    
+    if not site:
+        richprint.exit(f"Site {sitename or 'default'} not found in bench {benchname}")
+        
+    richprint.change_head(f"Removing SSL certificate for site {site.name}")
 
-    if not bench.has_certificate():
-        richprint.exit(f"{benchname} doesn't have SSL certificate issued.")
-    bench.remove_certificate()
-    richprint.print("Removed SSL certificate.")
+    if not site.has_certificate():
+        richprint.exit(f"Site {site.name} doesn't have SSL certificate issued.")
+    site.remove_certificate()
+    richprint.print(f"Removed SSL certificate for site {site.name}.")
 
 
 @ssl_command.command()
@@ -47,6 +56,7 @@ def renew(
     """Renew bench ssl certficate."""
 
     services_manager = ctx.obj["services"]
+
     benches = BenchesManager(CLI_BENCHES_DIRECTORY, services=services_manager)
 
     if all:

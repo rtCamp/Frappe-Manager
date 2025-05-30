@@ -16,6 +16,7 @@ from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.SiteManager import BenchesManager
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.site_manager.bench import Bench
+from frappe_manager.site_manager.site import Site
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
@@ -31,6 +32,10 @@ from frappe_manager.commands import app
 def create(
     ctx: typer.Context,
     benchname: Annotated[str, typer.Argument(help="Name of the bench", callback=create_command_sitename_callback)],
+    site_names: Annotated[
+        List[str], 
+        typer.Argument(help="Names of sites to create (first site will be default)")
+    ],
     apps: Annotated[
         List[str],
         typer.Option(
@@ -68,7 +73,8 @@ def create(
     ] = SUPPORTED_SSL_TYPES.none,
 ):
     """
-    Create a new bench.
+    Create a new bench with one or more sites.
+    The first site in site_names will be set as the default site.
     """
 
     services_manager: ServicesManager = ctx.obj["services"]
@@ -81,46 +87,28 @@ def create(
     bench_path = benches.root_path / benchname
     bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
 
-    if ssl == SUPPORTED_SSL_TYPES.le:
-        if not letsencrypt_preferred_challenge:
-            if fm_config_manager.letsencrypt.exists:
-                if letsencrypt_preferred_challenge is None:
-                    letsencrypt_preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
+    # If no sites specified, use benchname as the site name
+    if not site_names:
+        site_names = [benchname]
 
-            if not letsencrypt_preferred_challenge:
-                letsencrypt_preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.http01
-
-        if fm_config_manager.letsencrypt.email == 'dummy@fm.fm' or fm_config_manager.letsencrypt.email is None:
-            if not letsencrypt_email:
-                richprint.stop()
-                raise typer.BadParameter("No email provided, required by certbot.", param_hint='--letsencrypt-email')
-            else:
-                email = letsencrypt_email
-
-            validate_email(email, check_deliverability=False)
-        else:
-            richprint.print(
-                "Defaulting to Let's Encrypt email from [blue]fm_config.toml[/blue] since [blue]'--letsencrypt-email'[/blue] is not given."
+    # Initialize sites with certificates
+    for site_name in site_names:
+        site = Site(site_name, bench)
+                
+        if ssl == SUPPORTED_SSL_TYPES.le:
+            # Let Site handle Let's Encrypt configuration
+            site.certificate = site.configure_letsencrypt(
+                letsencrypt_email=letsencrypt_email,
+                letsencrypt_preferred_challenge=letsencrypt_preferred_challenge,
+                fm_config_manager=fm_config_manager
             )
-            email = fm_config_manager.letsencrypt.email
+        else:
+            # Simple SSL certificate 
+            site.certificate = SSLCertificate(domain=site.name, ssl_type=ssl)
 
-        ssl_certificate = LetsencryptSSLCertificate(
-            domain=benchname,
-            ssl_type=ssl,
-            email=email,
-            preferred_challenge=letsencrypt_preferred_challenge,
-            api_key=fm_config_manager.letsencrypt.api_key,
-            api_token=fm_config_manager.letsencrypt.api_token,
-        )
+        bench.add_site(site)
 
-    elif ssl == SUPPORTED_SSL_TYPES.none:
-        ssl_certificate = SSLCertificate(domain=benchname, ssl_type=ssl)
-
-    if developer_mode == EnableDisableOptionsEnum.enable:
-        developer_mode_status = True
-    elif developer_mode == EnableDisableOptionsEnum.disable:
-        developer_mode_status = False
-
+    # Initialize empty config without SSL certificates
     bench_config: BenchConfig = BenchConfig(
         name=benchname,
         apps_list=apps,
@@ -128,16 +116,33 @@ def create(
         developer_mode=True if environment == FMBenchEnvType.dev else developer_mode_status,
         admin_tools=True if environment == FMBenchEnvType.dev else False,
         admin_pass=admin_pass,
-        # TODO get this info from services, maybe ?
         environment_type=environment,
         root_path=bench_config_path,
-        ssl=ssl_certificate,
     )
 
     compose_path = bench_path / 'docker-compose.yml'
     compose_file_manager = ComposeFile(compose_path)
     compose_project = ComposeProject(compose_file_manager, verbose)
 
+    # Create bench instance 
     bench: Bench = Bench(bench_path, benchname, bench_config, compose_project, services_manager)
-    benches.add_bench(bench)
-    benches.create_benches(is_template_bench=template)
+
+    # Initialize sites with certificates
+    for site_name in site_names:
+        site = Site(site_name, bench)
+                
+        if ssl == SUPPORTED_SSL_TYPES.le:
+            # Let Site handle Let's Encrypt configuration
+            site.certificate = site.configure_letsencrypt(
+                letsencrypt_email=letsencrypt_email,
+                letsencrypt_preferred_challenge=letsencrypt_preferred_challenge,
+                fm_config_manager=fm_config_manager
+            )
+        else:
+            # Simple SSL certificate 
+            site.certificate = SSLCertificate(domain=site.name, ssl_type=ssl)
+
+        bench.add_site(site)
+
+    # Create the bench with all configured sites
+    bench.create(site_names)
