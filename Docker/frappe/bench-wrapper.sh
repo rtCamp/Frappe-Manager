@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # --- Define Logging Function ---
-LOG_FILE="/tmp/bench-wrapper.log"
+LOG_FILE="/tmp/bench.log"
+RQ_LOG_FILE="/tmp/bench.rq.log"
 
 log_message() {
     # Prepend timestamp with microseconds and PID to the message and append to log file
@@ -66,149 +67,163 @@ elif [[ "$@" =~ ^worker[[:space:]]* ]]; then
     BENCH_WORKER_PID=""
 
     # Function to handle Signal 34:
-    # Sends SIGTERM to the worker, detaches wrapper from supervisord control,
-    # and continues monitoring until worker exits.
+    # Detaches wrapper from supervisord control while keeping worker running
     handle_signal_34_detach_and_terminate_worker() {
-        log_message "Wrapper received signal 34 (request to terminate worker and detach)."
-        if [[ -n "$BENCH_WORKER_PID" ]]; then
-            # Log the current process tree for debugging
-            log_message "Process tree before detaching:"
-            ps -ef | grep -E "(bench|worker|supervisord)" | grep -v grep | while read line; do
-                log_message "PROCTREE: $line"
-            done
-
-            log_message "Creating daemon process to handle worker termination"
-
-            # Create background daemon process that will send signal and wait for worker to terminate
-            (
-                # Redirect I/O
-                exec 0</dev/null 1>>"$LOG_FILE" 2>>"$LOG_FILE"
-
-                # Create new session
-                setsid &>/dev/null
-
-                # Add initial delay to ensure wrapper has fully exited
-                sleep 1
-
-                echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - Detached process checking worker status (PID $BENCH_WORKER_PID)"
-
-                # Check if worker is still running
-                if kill -0 $BENCH_WORKER_PID 2>/dev/null; then
-                    echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - Worker is still running, sending SIGTERM"
-
-                    # Log processes and signal states before signal
-                    ps -ef | grep -E "(bench|worker|supervisord)" | grep -v grep | while read line; do
-                        echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - PROCTREE-BEFORE: $line"
-                    done
-
-                    # Try to check what signals the worker process has received/blocked
-                    echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - Signal state for worker process:"
-                    cat /proc/$BENCH_WORKER_PID/status | grep -E "^Sig" 2>/dev/null | while read line; do
-                        echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - SIGNAL-STATE: $line"
-                    done
-
-                    # Send signals to the worker process
-                    echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - Sending SIGTERM to worker"
-
-                    # Send SIGTERM directly to the process group
-                    echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - Sending SIGTERM (15) to process group"
-                    kill -15 -$BENCH_WORKER_PID 2>/dev/null
-                    signal_result=$?
-                    echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - SIGTERM sent, result: $signal_result"
-
-                    # Track worker status with timestamps
-                    start_time=$(date +%s)
-
-                    while kill -0 $BENCH_WORKER_PID 2>/dev/null; do
-                        current_time=$(date +%s)
-                        elapsed=$((current_time - start_time))
-
-                        # Log status every 5 seconds
-                        if (( elapsed % 5 == 0 )); then
-                            echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - Worker still running after $elapsed seconds"
-                            # Capture process state and signal info
-                            ps -o pid,ppid,stat,cmd -p $BENCH_WORKER_PID | while read line; do
-                                echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - PROCSTATE: $line"
-                            done
-
-                            # Check current signal state
-                            cat /proc/$BENCH_WORKER_PID/status | grep -E "^Sig" 2>/dev/null | while read line; do
-                                echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - CURRENT-SIGNALS: $line"
-                            done
-                        fi
-                        sleep 1
-                    done
-
-                    end_time=$(date +%s)
-                    total_time=$((end_time - start_time))
-                    echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - Worker process terminated after $total_time seconds"
-
-                    # Try to get exit status info
-                    echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - Checking for exit signal in /proc/[PID]/stat if available"
-                    if [ -f /proc/$BENCH_WORKER_PID/stat ]; then
-                        # This might not work because the process is gone, but worth a try
-                        cat /proc/$BENCH_WORKER_PID/stat 2>/dev/null | while read line; do
-                            echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - EXIT-INFO: $line"
-                        done
-                    else
-                        echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - No /proc/$BENCH_WORKER_PID/stat available"
-                    fi
-                else
-                    echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - Worker already terminated before we could send SIGTERM!"
-                fi
-
-                # Final process tree check
-                echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - Final process tree:"
-                ps -ef | grep -E "(bench|worker|supervisord)" | grep -v grep | while read line; do
-                    echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - PROCTREE-AFTER: $line"
-                done
-            ) &
-
-            # Tell supervisord we're done
-            log_message "Wrapper exiting, detached monitor will handle termination"
-            exit 0
-        else
-            log_message "Bench worker PID not set. Cannot send SIGTERM."
+        log_message "Received request to detach worker (signal 34)"
+        
+        if [[ -z "$BENCH_WORKER_PID" ]]; then
+            log_message "No worker PID found, cannot detach"
             exit 1
         fi
+
+        # Log current state
+        log_message "Process tree before detaching:"
+        ps -ef | grep -E "(bench|worker|supervisord)" | grep -v grep | while read line; do
+            log_message "PROCTREE: $line"
+        done
+
+        # First fork
+        log_message "Starting daemonization process - first fork"
+        daemon_pid=$$
+        
+        fork1_pid=$(bash -c "echo \$PPID & exit")
+        if [ $? -ne 0 ]; then
+            log_message "First fork failed"
+            exit 1
+        fi
+
+        if [ "$fork1_pid" -ne 0 ]; then
+            # Parent exits immediately
+            log_message "Parent process exiting after first fork"
+            exit 0
+        fi
+
+        # Child continues...
+        
+        # Create new session
+        if ! setsid; then
+            log_message "setsid failed"
+            exit 1
+        fi
+
+        # Set umask
+        umask 0
+
+        # Change working directory
+        cd /
+
+        # Second fork
+        fork2_pid=$(bash -c "echo \$PPID & exit")
+        if [ $? -ne 0 ]; then
+            log_message "Second fork failed"
+            exit 1
+        fi
+
+        if [ "$fork2_pid" -ne 0 ]; then
+            log_message "Parent process exiting after second fork"
+            exit 0
+        fi
+
+        # Now we're fully daemonized
+        daemon_pid=$$
+        log_message "Successfully daemonized with PID: $daemon_pid"
+
+        # Close and redirect standard file descriptors
+        exec 0>&- 
+        exec 1>&- 
+        exec 2>&- 
+        exec 0</dev/null
+        exec 1>>"$LOG_FILE"
+        exec 2>>"$LOG_FILE"
+
+        # Write PID file
+        echo "$daemon_pid" > /tmp/bench-daemon.pid
+        log_message "Wrote daemon PID to /tmp/bench-daemon.pid"
+
+        # Function to clean up daemon resources
+        cleanup_daemon() {
+            local signal=$1
+            log_message "Daemon received $signal - starting cleanup"
+            
+            # Forward signal to worker process group
+            if kill -$signal -$BENCH_WORKER_PID 2>/dev/null; then
+                log_message "Forwarded $signal to worker process group -$BENCH_WORKER_PID"
+            else
+                log_message "Failed to forward $signal to worker process group -$BENCH_WORKER_PID"
+            fi
+
+            # Wait for worker processes to finish
+            local timeout=30  # 30 seconds timeout
+            local counter=0
+            while kill -0 -$BENCH_WORKER_PID 2>/dev/null; do
+                sleep 1
+                ((counter++))
+                if [ $counter -ge $timeout ]; then
+                    log_message "Timeout waiting for workers to finish, forcing termination"
+                    kill -9 -$BENCH_WORKER_PID 2>/dev/null
+                    break
+                fi
+                log_message "Waiting for workers to finish ($counter/$timeout seconds)..."
+            done
+
+            # Remove PID file
+            rm -f /tmp/bench-daemon.pid
+            log_message "Removed PID file, daemon cleanup complete"
+            
+            # Exit with appropriate status
+            exit 0
+        }
+
+        # Set up improved signal handlers for daemon
+        trap 'cleanup_daemon TERM' SIGTERM
+        trap 'cleanup_daemon HUP' SIGHUP
+        trap 'cleanup_daemon INT' SIGINT
+
+        log_message "Daemon process fully initialized and running"
+        log_message "Original worker process group ($BENCH_WORKER_PID) is now detached"
+
+        # Monitor worker process group
+        while true; do
+            if ! kill -0 -$BENCH_WORKER_PID 2>/dev/null; then
+                log_message "Worker process group no longer exists, daemon exiting"
+                cleanup_daemon TERM
+            fi
+            sleep 1
+        done
     }
 
     # Track which signals have already been forwarded to prevent duplicate forwarding
-    declare -A FORWARDED_SIGNALS
-
     # Function to forward any other trapped signal by its number
     forward_signal_by_num() {
         local signal_num="$1"
 
-        # Check if we've already forwarded this signal
-        if [[ -n "${FORWARDED_SIGNALS[$signal_num]}" ]]; then
-            log_message "Signal ${signal_num} already being processed, skipping duplicate forwarding."
-            return
-        fi
+        # Log the signal receipt
+        log_message "Received signal ${signal_num}"
+        log_message "envs: $(env)"
 
-        # Mark this signal as being forwarded
-        FORWARDED_SIGNALS[$signal_num]=1
-
-        log_message "Wrapper received signal ${signal_num}."
+        log_message "xd: $BENCH_WORKER_PID"
+        log_message "xd: $BENCH_WRAPPER_PID"
 
         if [[ -n "$BENCH_WORKER_PID" ]]; then
-            log_message "Forwarding signal ${signal_num} to bench worker (PID $BENCH_WORKER_PID)."
-            # Send the *same* signal number that the wrapper received to the child process
-            kill "-${signal_num}" "$BENCH_WORKER_PID" 2>/dev/null
+            log_message "Forwarding signal ${signal_num} to worker group (-$BENCH_WORKER_PID)"
 
-            # For SIGTERM (15), ensure we don't exit immediately but wait for child to handle it
+            # Forward directly to process group
+            kill "-${signal_num}" "-$BENCH_WORKER_PID" 2>/dev/null
+            KILL_STATUS=$?
+            log_message "kill signal forward status: $KILL_STATUS"
+
+            if [ $KILL_STATUS -eq 0 ]; then
+                log_message "Successfully forwarded signal ${signal_num} to process group -$BENCH_WORKER_PID"
+            else
+                log_message "Failed to forward signal ${signal_num} to process group -$BENCH_WORKER_PID"
+            fi
+
             if [ "$signal_num" -eq 15 ]; then
-                log_message "SIGTERM received. Waiting for worker to gracefully terminate..."
-                # DO NOT exit - just let the wait command handle it
+                log_message "SIGTERM received. Continuing to monitor worker..."
             fi
         else
             log_message "Bench worker PID not set, cannot forward signal ${signal_num}."
         fi
-
-        # Clear this signal from being processed
-        unset FORWARDED_SIGNALS[$signal_num]
-
-        # DO NOT exit the wrapper here. Let the 'wait' command handle termination.
     }
 
     # --- Set Traps ---
@@ -237,27 +252,38 @@ elif [[ "$@" =~ ^worker[[:space:]]* ]]; then
     # Run in the background so the wrapper can wait and handle signals
     # Use setsid to ensure the worker becomes a process group leader
     # Use bash -c with exec and proper I/O redirection to prevent broken pipes
-    setsid bash -c "exec /opt/user/.bin/bench_orig $*" </dev/null >> "$LOG_FILE" 2>&1 &
+    #setsid bash -c "echo \"\$PPID\" > /tmp/bench_wrapper.pid; exec env PYTHONDEVMODE=1 /opt/user/.bin/bench_orig $*" </dev/null >> "$RQ_LOG_FILE" 2>&1 &
+    setsid bash -c "echo \"\$PPID\" > /tmp/bench_wrapper.pid; exec env PYTHONDEVMODE=1 /opt/user/.bin/bench_orig $*" </dev/null 2>&1 &
 
     # Capture the Process ID (PID) of the background command
     BENCH_WORKER_PID=$!
-    log_message "Started bench worker as process group leader (PID $BENCH_WORKER_PID)."
+    BENCH_WRAPPER_PID=$(cat /tmp/bench_wrapper.pid 2>/dev/null)
+    log_message "Bench wrapper PID: $BENCH_WRAPPER_PID, Worker group PID: $BENCH_WORKER_PID"
 
-    # --- Wait for the child process ---
-    # Wait for the bench worker process to finish.
-    # This 'wait' will be interrupted if any trapped signal is received.
-    wait "$BENCH_WORKER_PID"
-
-    # Capture the exit status of the waited process
-    EXIT_STATUS=$?
-    log_message "Bench worker (PID $BENCH_WORKER_PID) exited with status $EXIT_STATUS."
+    # Monitor worker process group without using wait
+    EXIT_STATUS=0
+    log_message "Starting monitoring loop for worker process group"
+    
+    while true; do
+        if ! kill -0 -$BENCH_WORKER_PID 2>/dev/null; then
+            EXIT_STATUS=$?
+            log_message "Worker process group no longer exists (status: $EXIT_STATUS), wrapper exiting"
+            break
+        fi
+        # Log process tree periodically to help with debugging
+        if [ $((SECONDS % 60)) -eq 0 ]; then
+            log_message "Current process tree:"
+            ps -ef | grep -E "(bench|worker)" | grep -v grep | while read line; do
+                log_message "PROCTREE: $line"
+            done
+        fi
+        sleep 1
+    done
 
     # --- Cleanup ---
-    # Reset signal 34 trap explicitly. Other traps are generally reset on exit.
     trap - 34
     log_message "Cleaned up trap for signal 34."
-
-    # Exit the wrapper script with the exit status of the bench worker process
+    log_message "Wrapper exiting with status: $EXIT_STATUS"
     exit $EXIT_STATUS
 else
     # Use exec for other bench commands to pass signals directly and replace the wrapper
