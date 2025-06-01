@@ -3,6 +3,7 @@
 # --- Define Logging Function ---
 LOG_FILE="/tmp/bench.log"
 RQ_LOG_FILE="/tmp/bench.rq.log"
+MONITORING_MODE=0
 
 log_message() {
     # Prepend timestamp with microseconds and PID to the message and append to log file
@@ -205,6 +206,27 @@ elif [[ "$@" =~ ^worker[[:space:]]* ]]; then
         log_message "xd: $BENCH_WRAPPER_PID"
 
         if [[ -n "$BENCH_WORKER_PID" ]]; then
+            # Switch to monitoring mode if not already
+            if [ "$MONITORING_MODE" -eq 0 ]; then
+                MONITORING_MODE=1
+                log_message "Switching to monitoring mode for enhanced signal handling"
+                
+                # Start monitoring loop in background
+                (
+                    while kill -0 -$BENCH_WORKER_PID 2>/dev/null; do
+                        # Log process tree periodically to help with debugging
+                        if [ $((SECONDS % 60)) -eq 0 ]; then
+                            log_message "Current process tree:"
+                            ps -ef | grep -E "(bench|worker)" | grep -v grep | while read line; do
+                                log_message "PROCTREE: $line"
+                            done
+                        fi
+                        sleep 1
+                    done
+                    log_message "Worker process group ended naturally in monitoring mode"
+                ) &
+            fi
+
             log_message "Forwarding signal ${signal_num} to worker group (-$BENCH_WORKER_PID)"
 
             # Forward directly to process group
@@ -260,24 +282,20 @@ elif [[ "$@" =~ ^worker[[:space:]]* ]]; then
     BENCH_WRAPPER_PID=$(cat /tmp/bench_wrapper.pid 2>/dev/null)
     log_message "Bench wrapper PID: $BENCH_WRAPPER_PID, Worker group PID: $BENCH_WORKER_PID"
 
-    # Monitor worker process group without using wait
-    EXIT_STATUS=0
-    log_message "Starting monitoring loop for worker process group"
-    
+    # Use continuous wait loop that handles interruptions
+    log_message "Starting wait loop for worker"
     while true; do
-        if ! kill -0 -$BENCH_WORKER_PID 2>/dev/null; then
-            EXIT_STATUS=$?
-            log_message "Worker process group no longer exists (status: $EXIT_STATUS), wrapper exiting"
+        wait "$BENCH_WORKER_PID" 2>/dev/null
+        wait_status=$?
+        
+        # Check if process actually exited or wait was interrupted
+        if ! kill -0 "$BENCH_WORKER_PID" 2>/dev/null; then
+            log_message "Worker actually exited with status: $wait_status"
+            EXIT_STATUS=$wait_status
             break
         fi
-        # Log process tree periodically to help with debugging
-        if [ $((SECONDS % 60)) -eq 0 ]; then
-            log_message "Current process tree:"
-            ps -ef | grep -E "(bench|worker)" | grep -v grep | while read line; do
-                log_message "PROCTREE: $line"
-            done
-        fi
-        sleep 1
+        
+        log_message "Wait interrupted by signal, continuing to wait..."
     done
 
     # --- Cleanup ---
