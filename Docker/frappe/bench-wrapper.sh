@@ -1,8 +1,103 @@
 #!/bin/bash
 
+# === bench-wrapper.sh Documentation ===
+#
+# Purpose:
+#   Manages Frappe bench worker processes under supervisor control, handling:
+#   - Process detachment
+#   - Signal management
+#   - Logging and monitoring
+#
+# Core Functions
+# =============
+#
+# 1. Worker Launch & Monitoring
+# ---------------------------
+# Initial Launch:
+#   - Sets up logging streams
+#   - Creates process group via setsid
+#   - Captures worker PID
+#   - Establishes signal handlers
+#
+# Monitor Mode (--monitor):
+#   - Triggered by Signal 34
+#   - Performs process detachment
+#   - Implements 3-second grace period
+#   - Sends TERM signal to process group
+#   - Tracks child process changes
+#   - Logs state transitions
+#
+# 2. Signal Management
+# ------------------
+# Handled Signals:
+#   - 34 (SIGRTMIN+2): Initiates detachment
+#   - 1 (SIGHUP): Forwarded to worker
+#   - 2 (SIGINT): Forwarded to worker
+#   - 3 (SIGQUIT): Forwarded to worker
+#   - 15 (SIGTERM): Forwarded to worker
+#
+# 3. Process Flow
+# -------------
+# Normal Operation:
+#   1. Start under supervisor
+#   2. Execute bench worker command
+#   3. Wait for signals
+#
+# Detachment Sequence:
+#   1. Receive Signal 34
+#   2. Fork monitor process
+#   3. Setup stream redirection
+#   4. Detach from supervisor
+#   5. Wait 3 seconds
+#   6. Send TERM to process group
+#   7. Monitor until completion
+#
+# Logging
+# =======
+# Files:
+#   - /tmp/bench.log: Main process log
+#   - /tmp/bench.rq.log: Worker output
+#
+# Debug Mode:
+#   Enable: export BENCH_DEBUG=1
+#   Provides:
+#   - Process tree changes
+#   - File descriptor states
+#   - Signal handling details
+#   - Environment information
+#
+# Command Examples
+# ==============
+# Start Worker:
+#   bench worker --queue long,default,short
+#
+# Trigger Detachment:
+#   kill -34 <bench-wrapper-pid>
+#
+# Monitor Status:
+#   tail -f /tmp/bench.log
+#
+# Implementation Notes
+# ==================
+# - Uses setsid for process group management
+# - Implements robust signal forwarding
+# - Handles supervisor detection
+# - Maintains process hierarchy logging
+# - Ensures clean process detachment
+#
+# Error Handling
+# ============
+# - Logs failed signal operations
+# - Tracks process state changes
+# - Reports worker termination
+# - Maintains audit trail
+#
+# === End Documentation ===
+
 # --- Define Logging Function ---
-LOG_FILE="/tmp/bench.log"
-RQ_LOG_FILE="/tmp/bench.rq.log"
+LOG_FILE="/workspace/frappe-bench/logs/worker.error.log"
+RQ_LOG_FILE="/workspace/frappe-bench/logs/worker.log"
+
 MONITORING_MODE=0
 DEBUG=0  # Set to 1 to enable debug logging
 
@@ -43,7 +138,7 @@ setup_process_streams() {
 }
 
 # Add new monitor-simple mode
-if [[ "$1" == "--monitor-simple" ]]; then
+if [[ "$1" == "--monitor" ]]; then
     MONITORING_MODE=1
     BENCH_WORKER_PID="$2"
     
@@ -81,6 +176,23 @@ if [[ "$1" == "--monitor-simple" ]]; then
     
     cd /
     log_message "Starting worker process monitoring"
+
+    debug_log "Waiting 3 seconds before sending TERM signal to worker group"
+    sleep 3
+
+    # Send TERM signal to the worker process group
+    if kill -TERM -"$BENCH_WORKER_PID" 2>/dev/null; then
+        debug_log "Successfully sent TERM signal to worker group -$BENCH_WORKER_PID"
+    else
+        debug_log "Failed to send TERM signal to worker group -$BENCH_WORKER_PID"
+        # Try sending to just the worker process as fallback
+        if kill -TERM "$BENCH_WORKER_PID" 2>/dev/null; then
+            debug_log "Sent TERM signal directly to worker PID $BENCH_WORKER_PID"
+        else
+            debug_log "Failed to send TERM signal to worker PID $BENCH_WORKER_PID"
+        fi
+    fi
+
     last_children=""
     
     while kill -0 "$BENCH_WORKER_PID" 2>/dev/null; do
@@ -99,40 +211,7 @@ if [[ "$1" == "--monitor-simple" ]]; then
         sleep 1
     done
     
-    log_message "Worker process $BENCH_WORKER_PID has terminated"
-    exit 0
-fi
-
-# Monitor mode with environment detection
-if [[ "$1" == "--monitor" ]]; then
-    MONITORING_MODE=1
-    BENCH_WORKER_PID="$2"
-    shift 2
-
-    # Debug logging
-    log_message "Environment detection starting"
-    log_message "SUPERVISOR_ENABLED: ${SUPERVISOR_ENABLED:-no}"
-    log_message "SUPERVISOR_PROCESS_NAME: ${SUPERVISOR_PROCESS_NAME:-none}"
-    log_message "PPID: $PPID"
-    log_message "Parent process: $(ps -o comm= -p $PPID)"
-    log_message "Current process tree:"
-    ps -ef f | grep -v grep | grep -E "supervisor|bench|worker" >> "$LOG_FILE"
-
-    if is_under_supervisor; then
-        log_message "Running under supervisor - using alternate detach strategy"
-        # Use different strategy for supervisor
-        exec nohup "$0" --monitor-simple "$BENCH_WORKER_PID" </dev/null >/dev/null 2>&1 &
-    else
-        log_message "Running in shell - using standard detach strategy"
-        # Use current strategy for shell
-        (
-            log_message "Monitor starting in detached mode"
-            cd /
-            while kill -0 -"$BENCH_WORKER_PID" 2>/dev/null; do
-                sleep 1
-            done
-        ) &
-    fi
+    log_message "Worker process $BENCH_WORKER_PID has finished"
     exit 0
 fi
 
