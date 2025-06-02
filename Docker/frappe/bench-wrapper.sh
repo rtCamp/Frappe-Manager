@@ -11,6 +11,29 @@ log_message() {
 }
 # --- End Logging Function ---
 
+# Check if pstree is available, if not fall back to ps
+if ! command -v pstree >/dev/null 2>&1; then
+    log_message "pstree not found, installing procps package"
+    apt-get update -qq && apt-get install -qq procps >/dev/null 2>&1
+    if [ $? -ne 0 ]; then
+        log_message "Failed to install procps, will fall back to ps command"
+    fi
+fi
+
+# Function to show process tree
+show_process_tree() {
+    local pid=$1
+    if command -v pstree >/dev/null 2>&1; then
+        pstree -p "$pid" 2>/dev/null | while read line; do
+            log_message "PROCTREE: $line"
+        done
+    else
+        ps -ef | grep -E "(bench|worker|supervisord)" | grep -v grep | while read line; do
+            log_message "PROCTREE: $line"
+        done
+    fi
+}
+
 restart_command() {
       exec fm-helper restart "$@"
 }
@@ -79,118 +102,39 @@ elif [[ "$@" =~ ^worker[[:space:]]* ]]; then
 
         # Log current state
         log_message "Process tree before detaching:"
-        ps -ef | grep -E "(bench|worker|supervisord)" | grep -v grep | while read line; do
-            log_message "PROCTREE: $line"
-        done
+        show_process_tree "$$"
 
         # First fork
         log_message "Starting daemonization process - first fork"
         daemon_pid=$$
         
         fork1_pid=$(bash -c "echo \$PPID & exit")
+
         if [ $? -ne 0 ]; then
             log_message "First fork failed"
             exit 1
         fi
 
         if [ "$fork1_pid" -ne 0 ]; then
+            # Launch background process to send SIGTERM after delay
+            (
+                log_message "Starting delayed termination process"
+                sleep 5
+                if kill -0 -"$BENCH_WORKER_PID" 2>/dev/null; then
+                    log_message "Sending delayed SIGTERM to worker group -$BENCH_WORKER_PID"
+                    kill -15 -"$BENCH_WORKER_PID"
+                    log_message "Delayed SIGTERM sent with status: $?"
+                else
+                    log_message "Worker group -$BENCH_WORKER_PID already terminated"
+                fi
+            ) &
+            disown
+
             # Parent exits immediately
             log_message "Parent process exiting after first fork"
             exit 0
         fi
 
-        # Child continues...
-        
-        # Create new session
-        if ! setsid; then
-            log_message "setsid failed"
-            exit 1
-        fi
-
-        # Set umask
-        umask 0
-
-        # Change working directory
-        cd /
-
-        # Second fork
-        fork2_pid=$(bash -c "echo \$PPID & exit")
-        if [ $? -ne 0 ]; then
-            log_message "Second fork failed"
-            exit 1
-        fi
-
-        if [ "$fork2_pid" -ne 0 ]; then
-            log_message "Parent process exiting after second fork"
-            exit 0
-        fi
-
-        # Now we're fully daemonized
-        daemon_pid=$$
-        log_message "Successfully daemonized with PID: $daemon_pid"
-
-        # Close and redirect standard file descriptors
-        exec 0>&- 
-        exec 1>&- 
-        exec 2>&- 
-        exec 0</dev/null
-        exec 1>>"$LOG_FILE"
-        exec 2>>"$LOG_FILE"
-
-        # Write PID file
-        echo "$daemon_pid" > /tmp/bench-daemon.pid
-        log_message "Wrote daemon PID to /tmp/bench-daemon.pid"
-
-        # Function to clean up daemon resources
-        cleanup_daemon() {
-            local signal=$1
-            log_message "Daemon received $signal - starting cleanup"
-            
-            # Forward signal to worker process group
-            if kill -$signal -$BENCH_WORKER_PID 2>/dev/null; then
-                log_message "Forwarded $signal to worker process group -$BENCH_WORKER_PID"
-            else
-                log_message "Failed to forward $signal to worker process group -$BENCH_WORKER_PID"
-            fi
-
-            # Wait for worker processes to finish
-            local timeout=30  # 30 seconds timeout
-            local counter=0
-            while kill -0 -$BENCH_WORKER_PID 2>/dev/null; do
-                sleep 1
-                ((counter++))
-                if [ $counter -ge $timeout ]; then
-                    log_message "Timeout waiting for workers to finish, forcing termination"
-                    kill -9 -$BENCH_WORKER_PID 2>/dev/null
-                    break
-                fi
-                log_message "Waiting for workers to finish ($counter/$timeout seconds)..."
-            done
-
-            # Remove PID file
-            rm -f /tmp/bench-daemon.pid
-            log_message "Removed PID file, daemon cleanup complete"
-            
-            # Exit with appropriate status
-            exit 0
-        }
-
-        # Set up improved signal handlers for daemon
-        trap 'cleanup_daemon TERM' SIGTERM
-        trap 'cleanup_daemon HUP' SIGHUP
-        trap 'cleanup_daemon INT' SIGINT
-
-        log_message "Daemon process fully initialized and running"
-        log_message "Original worker process group ($BENCH_WORKER_PID) is now detached"
-
-        # Monitor worker process group
-        while true; do
-            if ! kill -0 -$BENCH_WORKER_PID 2>/dev/null; then
-                log_message "Worker process group no longer exists, daemon exiting"
-                cleanup_daemon TERM
-            fi
-            sleep 1
-        done
     }
 
     # Track which signals have already been forwarded to prevent duplicate forwarding
@@ -200,38 +144,14 @@ elif [[ "$@" =~ ^worker[[:space:]]* ]]; then
 
         # Log the signal receipt
         log_message "Received signal ${signal_num}"
-        log_message "envs: $(env)"
-
-        log_message "xd: $BENCH_WORKER_PID"
-        log_message "xd: $BENCH_WRAPPER_PID"
 
         if [[ -n "$BENCH_WORKER_PID" ]]; then
-            # Switch to monitoring mode if not already
-            if [ "$MONITORING_MODE" -eq 0 ]; then
-                MONITORING_MODE=1
-                log_message "Switching to monitoring mode for enhanced signal handling"
-                
-                # Start monitoring loop in background
-                (
-                    while kill -0 -$BENCH_WORKER_PID 2>/dev/null; do
-                        # Log process tree periodically to help with debugging
-                        if [ $((SECONDS % 60)) -eq 0 ]; then
-                            log_message "Current process tree:"
-                            ps -ef | grep -E "(bench|worker)" | grep -v grep | while read line; do
-                                log_message "PROCTREE: $line"
-                            done
-                        fi
-                        sleep 1
-                    done
-                    log_message "Worker process group ended naturally in monitoring mode"
-                ) &
-            fi
-
             log_message "Forwarding signal ${signal_num} to worker group (-$BENCH_WORKER_PID)"
 
             # Forward directly to process group
             kill "-${signal_num}" "-$BENCH_WORKER_PID" 2>/dev/null
             KILL_STATUS=$?
+
             log_message "kill signal forward status: $KILL_STATUS"
 
             if [ $KILL_STATUS -eq 0 ]; then
@@ -240,11 +160,18 @@ elif [[ "$@" =~ ^worker[[:space:]]* ]]; then
                 log_message "Failed to forward signal ${signal_num} to process group -$BENCH_WORKER_PID"
             fi
 
+            # For SIGTERM, we want to continue monitoring but log it
             if [ "$signal_num" -eq 15 ]; then
                 log_message "SIGTERM received. Continuing to monitor worker..."
             fi
+
+            # Reset the signal handler for this signal
+            trap "forward_signal_by_num $signal_num" "$signal_num"
+            
+            return 0  # Return to the wait loop
         else
             log_message "Bench worker PID not set, cannot forward signal ${signal_num}."
+            return 1
         fi
     }
 
@@ -257,6 +184,7 @@ elif [[ "$@" =~ ^worker[[:space:]]* ]]; then
     # Set up explicit traps only for signals we want to handle
     # SIGTERM (15) - normal termination request
     trap "forward_signal_by_num 15" 15
+
     # SIGHUP (1) - terminal disconnect
     trap "forward_signal_by_num 1" 1
     # SIGINT (2) - Ctrl+C
