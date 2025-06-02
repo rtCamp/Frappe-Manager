@@ -197,30 +197,9 @@ def command(
                 else:
                     display.dimmed(f"No worker processes found to signal in {display.highlight(service_name)}")
 
-            # Poll for worker states if timeout is provided
-            # if wait_after_signal_timeout > 0:
-            #     display.print("\n[cyan]Waiting for signaled workers to stop...[/cyan]")
-            #     end_time = time.time() + wait_after_signal_timeout
-            #     while time.time() < end_time:
-            #         all_stopped = True
-            #         for service_name in services_to_target:
-            #             process_info = util_get_service_info(service_name)
-            #             if not process_info:  # Handle None or empty result
-            #                 continue
-            #             for proc in process_info:
-            #                 if proc.get('name', '').lower() in signaled_workers and proc.get('state') not in STOPPED_STATES:
-            #                     all_stopped = False
-            #                     break
-            #             if not all_stopped:
-            #                 break
-
-            #         if all_stopped:
-            #             display.success("All signaled workers have stopped.")
-            #             break
-            #         time.sleep(5)  # Poll every 5 seconds
-            #     else:
-            #         display.warning(f"Some workers did not stop within {wait_after_signal_timeout} seconds.")
-            #         display.warning("Proceeding with restart anyway.")
+            # Let bench-wrapper.sh handle the worker lifecycle
+            # The monitor process in bench-wrapper.sh will manage
+            # the graceful shutdown after Signal 34
 
         except Exception as e:
             display.error(f"Error during worker signaling: {e}")

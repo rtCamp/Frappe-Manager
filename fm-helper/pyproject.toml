@@ -31,7 +31,7 @@ classifiers = [
 # Dependencies required to run the tool
 dependencies = [
     # typer[all] includes shellingham for completions, colorama, etc.
-    "typer[all]>=0.9.0,<1.0.0",
+    "typer>=0.16.0",
     # Rich for console output
     "rich>=13.0.0,<15.0.0", # Allow rich v14+
     # Supervisor client library (relies on xmlrpc.client from stdlib)
@@ -47,13 +47,7 @@ dependencies = [
 # Define the command-line script entry point
 [project.scripts]
 fm-helper = "fm_helper.cli:main"
-fm-wait-jobs = "fm_helper.workers:main"
 
-# Optional: Configure linters/formatters if you use them (e.g., ruff, black)
-# [tool.ruff]
-# ...
-# [tool.black]
-# ...
 
 [tool.setuptools.packages.find]
 # Find packages automatically in the current directory (where pyproject.toml is)
