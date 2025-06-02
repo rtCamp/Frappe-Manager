@@ -4,12 +4,137 @@
 LOG_FILE="/tmp/bench.log"
 RQ_LOG_FILE="/tmp/bench.rq.log"
 MONITORING_MODE=0
+DEBUG=0  # Set to 1 to enable debug logging
+
+# Enable debug if BENCH_DEBUG is set
+if [[ -n "$BENCH_DEBUG" ]]; then
+    DEBUG=1
+fi
+
+debug_log() {
+    if [[ $DEBUG -eq 1 ]]; then
+        log_message "DEBUG: $1"
+    fi
+}
 
 log_message() {
-    # Prepend timestamp with microseconds and PID to the message and append to log file
-    echo "$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26) - PID: $$ - $1" >> "$LOG_FILE"
+    local timestamp=$(date '+%Y-%m-%d %H:%M:%S.%N' | cut -c1-26)
+    local context="PID: $$ PPID: $PPID CMD: $0"
+    echo "$timestamp - $context - $1" >> "$LOG_FILE"
+}
+
+is_under_supervisor() {
+    # Check various ways to detect supervisor
+    if [[ -n "$SUPERVISOR_ENABLED" ]] || \
+       [[ "$(ps -o comm= -p $PPID)" =~ supervisor ]] || \
+       [[ -n "$SUPERVISOR_PROCESS_NAME" ]]; then
+        return 0
+    fi
+    return 1
 }
 # --- End Logging Function ---
+
+setup_process_streams() {
+    debug_log "Setting up process streams"
+    debug_log "Current FD list: $(ls -l /proc/$$/fd)"
+    exec 1>>"$RQ_LOG_FILE"
+    exec 2>>"$RQ_LOG_FILE"
+    debug_log "Process streams redirected to $RQ_LOG_FILE"
+}
+
+# Add new monitor-simple mode
+if [[ "$1" == "--monitor-simple" ]]; then
+    MONITORING_MODE=1
+    BENCH_WORKER_PID="$2"
+    
+    log_message "Simple monitor mode started"
+    log_message "Monitor PID: $$, PPID: $PPID, Worker PID: $BENCH_WORKER_PID"
+    log_message "Initial process tree before disown:"
+    ps -ef f | grep -v grep | grep -E "supervisor|bench|worker" >> "$LOG_FILE"
+    
+    # Set up proper stream handling before detachment
+    setup_process_streams
+    
+    # Detach completely from process hierarchy
+    log_message "Attempting to disown worker process $BENCH_WORKER_PID"
+    disown -h "$BENCH_WORKER_PID" 2>/dev/null
+    disown_status=$?
+    log_message "Disown worker status: $disown_status"
+    
+    # Ensure we're completely detached
+    cd /
+    umask 022
+    
+    # Close any inherited file descriptors
+    for fd in $(ls /proc/$$/fd); do
+        case "$fd" in
+            0|1|2) continue ;; # Keep stdin/stdout/stderr
+            *) eval "exec $fd>&-" 2>/dev/null ;; # Close everything else
+        esac
+    done
+    
+    log_message "Detaching all remaining background jobs"
+    disown -a 2>/dev/null
+    
+    log_message "Process tree after disown:"
+    ps -ef f | grep -v grep | grep -E "supervisor|bench|worker" >> "$LOG_FILE"
+    
+    cd /
+    log_message "Starting worker process monitoring"
+    last_children=""
+    
+    while kill -0 "$BENCH_WORKER_PID" 2>/dev/null; do
+        current_children=$(pgrep -P "$BENCH_WORKER_PID")
+        if [[ "$current_children" != "$last_children" ]]; then
+            debug_log "Worker children changed"
+            debug_log "Previous children: $last_children"
+            debug_log "Current children: $current_children"
+            debug_log "Process details:"
+            ps axo pid,ppid,pgid,sid,comm,wchan | grep -E "($BENCH_WORKER_PID|$current_children)" | 
+                while read -r line; do
+                    debug_log "PROC: $line"
+                done
+            last_children="$current_children"
+        fi
+        sleep 1
+    done
+    
+    log_message "Worker process $BENCH_WORKER_PID has terminated"
+    exit 0
+fi
+
+# Monitor mode with environment detection
+if [[ "$1" == "--monitor" ]]; then
+    MONITORING_MODE=1
+    BENCH_WORKER_PID="$2"
+    shift 2
+
+    # Debug logging
+    log_message "Environment detection starting"
+    log_message "SUPERVISOR_ENABLED: ${SUPERVISOR_ENABLED:-no}"
+    log_message "SUPERVISOR_PROCESS_NAME: ${SUPERVISOR_PROCESS_NAME:-none}"
+    log_message "PPID: $PPID"
+    log_message "Parent process: $(ps -o comm= -p $PPID)"
+    log_message "Current process tree:"
+    ps -ef f | grep -v grep | grep -E "supervisor|bench|worker" >> "$LOG_FILE"
+
+    if is_under_supervisor; then
+        log_message "Running under supervisor - using alternate detach strategy"
+        # Use different strategy for supervisor
+        exec nohup "$0" --monitor-simple "$BENCH_WORKER_PID" </dev/null >/dev/null 2>&1 &
+    else
+        log_message "Running in shell - using standard detach strategy"
+        # Use current strategy for shell
+        (
+            log_message "Monitor starting in detached mode"
+            cd /
+            while kill -0 -"$BENCH_WORKER_PID" 2>/dev/null; do
+                sleep 1
+            done
+        ) &
+    fi
+    exit 0
+fi
 
 # Check if pstree is available, if not fall back to ps
 if ! command -v pstree >/dev/null 2>&1; then
@@ -94,121 +219,122 @@ elif [[ "$@" =~ ^worker[[:space:]]* ]]; then
     # Detaches wrapper from supervisord control while keeping worker running
     handle_signal_34_detach_and_terminate_worker() {
         log_message "Received request to detach worker (signal 34)"
-        
+    
         if [[ -z "$BENCH_WORKER_PID" ]]; then
             log_message "No worker PID found, cannot detach"
             exit 1
         fi
 
-        # Log current state
-        log_message "Process tree before detaching:"
-        show_process_tree "$$"
-
-        # First fork
-        log_message "Starting daemonization process - first fork"
-        daemon_pid=$$
+        # Log current process info
+        log_message "Current PPID: $PPID"
+        log_message "Current PID: $$"
         
-        fork1_pid=$(bash -c "echo \$PPID & exit")
-
-        if [ $? -ne 0 ]; then
-            log_message "First fork failed"
-            exit 1
-        fi
-
-        if [ "$fork1_pid" -ne 0 ]; then
-            # Launch background process to send SIGTERM after delay
-            (
-                log_message "Starting delayed termination process"
-                sleep 5
-                if kill -0 -"$BENCH_WORKER_PID" 2>/dev/null; then
-                    log_message "Sending delayed SIGTERM to worker group -$BENCH_WORKER_PID"
-                    kill -15 -"$BENCH_WORKER_PID"
-                    log_message "Delayed SIGTERM sent with status: $?"
-                else
-                    log_message "Worker group -$BENCH_WORKER_PID already terminated"
-                fi
-            ) &
-            disown
-
-            # Parent exits immediately
-            log_message "Parent process exiting after first fork"
-            exit 0
-        fi
-
+        # Fork with proper quoting and redirection
+        log_message "Starting fork"
+        /usr/bin/nohup "$0" "--monitor" "$BENCH_WORKER_PID" </dev/null >/dev/null 2>&1 &
+        FORK_STATUS=$?
+        
+        log_message "Fork completed with status: $FORK_STATUS"
+        
+        # Give the monitor a moment to start
+        sleep 1
+        
+        log_message "Parent exiting after fork"
+        exit 0
     }
 
-    # Track which signals have already been forwarded to prevent duplicate forwarding
-    # Function to forward any other trapped signal by its number
-    forward_signal_by_num() {
+    # Function to forward signals
+    forward_signal() {
         local signal_num="$1"
-
-        # Log the signal receipt
-        log_message "Received signal ${signal_num}"
 
         if [[ -n "$BENCH_WORKER_PID" ]]; then
             log_message "Forwarding signal ${signal_num} to worker group (-$BENCH_WORKER_PID)"
-
-            # Forward directly to process group
             kill "-${signal_num}" "-$BENCH_WORKER_PID" 2>/dev/null
-            KILL_STATUS=$?
+            local kill_status=$?
 
-            log_message "kill signal forward status: $KILL_STATUS"
-
-            if [ $KILL_STATUS -eq 0 ]; then
-                log_message "Successfully forwarded signal ${signal_num} to process group -$BENCH_WORKER_PID"
+            if [ $kill_status -eq 0 ]; then
+                log_message "Successfully forwarded signal ${signal_num}"
             else
-                log_message "Failed to forward signal ${signal_num} to process group -$BENCH_WORKER_PID"
+                log_message "Failed to forward signal ${signal_num}"
             fi
-
-            # For SIGTERM, we want to continue monitoring but log it
-            if [ "$signal_num" -eq 15 ]; then
-                log_message "SIGTERM received. Continuing to monitor worker..."
-            fi
-
-            # Reset the signal handler for this signal
-            trap "forward_signal_by_num $signal_num" "$signal_num"
-            
-            return 0  # Return to the wait loop
         else
-            log_message "Bench worker PID not set, cannot forward signal ${signal_num}."
-            return 1
+            log_message "Worker PID not set, cannot forward signal ${signal_num}"
         fi
+        
+        return 0
     }
 
-    # --- Set Traps ---
-    log_message "Setting up signal traps..."
-    # Trap for Signal 34 (custom detach and terminate worker behavior)
-    trap 'handle_signal_34_detach_and_terminate_worker' 34
-    log_message "Set trap for signal 34 to 'handle_signal_34_detach_and_terminate_worker'."
-
-    # Set up explicit traps only for signals we want to handle
-    # SIGTERM (15) - normal termination request
-    trap "forward_signal_by_num 15" 15
-
-    # SIGHUP (1) - terminal disconnect
-    trap "forward_signal_by_num 1" 1
-    # SIGINT (2) - Ctrl+C
-    trap "forward_signal_by_num 2" 2
-    # SIGQUIT (3) - Ctrl+\
-    trap "forward_signal_by_num 3" 3
-
-    # # Explicitly ignore SIGCHLD (17) - avoid forwarding child status changes
-    # trap ":" 17
-    # log_message "Ignoring SIGCHLD to avoid signal flood."
-
-    log_message "Set up explicit signal handlers for SIGTERM, SIGHUP, SIGINT, SIGQUIT."
+    # Function to handle different signal types appropriately
+    handle_signal() {
+        local signal_num="$1"
+        debug_log "Received signal $signal_num"
+        debug_log "Current process tree:"
+        ps -ef f | grep -E "supervisor|bench|worker" | while read -r line; do
+            debug_log "TREE: $line"
+        done
+    
+        case $signal_num in
+            34)  
+                debug_log "Processing detach signal"
+                handle_signal_34_detach_and_terminate_worker
+                ;;
+            1|2|3|15)  # SIGHUP, SIGINT, SIGQUIT, SIGTERM
+                debug_log "Processing termination signal $signal_num"
+                forward_signal "$signal_num"
+                ;;
+        esac
+    }
 
     # --- Run the actual bench worker command ---
+    # Ensure RQ worker has proper streams
+    export PYTHONUNBUFFERED=1
+    setup_process_streams
+    
+    debug_log "Starting worker with args: $@"
+    debug_log "Current environment:"
+    env | grep -E 'SUPERVISOR|PYTHON|RQ' | while read -r line; do
+        debug_log "ENV: $line"
+    done
+
+    debug_log "Pre-launch process state:"
+    debug_log "Open file descriptors: $(ls -l /proc/$$/fd)"
+    debug_log "Current working directory: $(pwd)"
+    debug_log "ulimit settings: $(ulimit -a)"
+
     # Run in the background so the wrapper can wait and handle signals
     # Use setsid to ensure the worker becomes a process group leader
     # Use bash -c with exec and proper I/O redirection to prevent broken pipes
-    #setsid bash -c "echo \"\$PPID\" > /tmp/bench_wrapper.pid; exec env PYTHONDEVMODE=1 /opt/user/.bin/bench_orig $*" </dev/null >> "$RQ_LOG_FILE" 2>&1 &
-    setsid bash -c "echo \"\$PPID\" > /tmp/bench_wrapper.pid; exec env PYTHONDEVMODE=1 /opt/user/.bin/bench_orig $*" </dev/null 2>&1 &
+    setsid bash -c "
+        # Debug logging for process creation
+        log_message 'Worker launch environment:'
+        log_message 'PPID: \$PPID'
+        log_message 'Process groups before RQ:'
+        ps axo pid,ppid,pgid,sid,comm | grep -E '(supervisor|bench|worker|rq)' >> '$LOG_FILE'
+        
+        # Export debug variables for RQ
+        export PYTHONUNBUFFERED=1
+
+        echo \"\$PPID\" > /tmp/bench_wrapper.pid
+        exec /opt/user/.bin/bench_orig $*" \
+        2>> "$RQ_LOG_FILE" &
 
     # Capture the Process ID (PID) of the background command
     BENCH_WORKER_PID=$!
     BENCH_WRAPPER_PID=$(cat /tmp/bench_wrapper.pid 2>/dev/null)
     log_message "Bench wrapper PID: $BENCH_WRAPPER_PID, Worker group PID: $BENCH_WORKER_PID"
+
+    # --- Set Traps ---
+    log_message "Setting up signal traps..."
+
+    # Define the signals we want to handle
+    declare -a signals_to_trap=(1 2 3 15 34)
+
+    for signum in "${signals_to_trap[@]}"; do
+        trap "handle_signal $signum" $signum
+        log_message "Set trap for signal $signum"
+    done
+
+    log_message "Completed setting up signal handling"
 
     # Use continuous wait loop that handles interruptions
     log_message "Starting wait loop for worker"
