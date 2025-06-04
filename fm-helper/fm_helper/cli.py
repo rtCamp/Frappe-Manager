@@ -68,6 +68,7 @@ def execute_parallel_command(
     command_func,
     action_verb: str,
     show_progress: bool = True,
+    verbose: bool = False,
     return_raw_results: bool = False,
     **kwargs
 ):
@@ -109,12 +110,26 @@ def execute_parallel_command(
                     result = future.result()
                     results[service] = result
                 except Exception as e:
-                    # Print the error message identifying the service
-                    display.error(f"Error {action_verb} {display.highlight(service)}: {e}")
-                    # Print the traceback for this specific failure
-                    display.error(f"Traceback for {display.highlight(service)}:", file=sys.stderr)
-                    traceback.print_exc(file=sys.stderr)
-                    results[service] = None # Mark service as failed
+                    # Format supervisor errors more clearly
+                    error_msg = str(e)
+                    if "Supervisor Fault" in error_msg:
+                        # Better error message formatting
+                        if "SPAWN_ERROR" in error_msg:
+                            # Extract just the relevant part of the spawn error
+                            error_parts = error_msg.split("SPAWN_ERROR:", 1)
+                            if len(error_parts) > 1:
+                                error_msg = error_parts[1].strip()
+                                # Remove the service name from the error if it's duplicated
+                                error_msg = error_msg.split(" (Service:", 1)[0].strip()
+                            else:
+                                error_msg = error_msg.replace("Supervisor Fault 50:", "")
+                    
+                    results[service] = {
+                        'error': error_msg,
+                        'failed': [],
+                        'started': [],
+                        'already_running': []
+                    }
                 finally:
                     # Update progress ONLY if show_progress is True and task_id is valid
                     if show_progress and task_id is not None and progress: # Check progress again
@@ -159,8 +174,8 @@ def execute_parallel_command(
         # Return None or empty dict? For status, printing is the main goal.
         return None # Indicate status was printed
 
-    # For stop/restart/signal (simple boolean results expected per service)
-    elif command_func in [util_stop_service, util_restart_service, util_signal_service]:
+    # For restart/signal (simple boolean results expected per service)
+    elif command_func in [util_restart_service, util_signal_service]:
         success_count = sum(1 for res in results.values() if res is True)
         fail_count = len(services) - success_count
 
@@ -186,6 +201,15 @@ def execute_parallel_command(
         for service_name in sorted(results.keys()):
             result = results[service_name]
             if isinstance(result, dict): # Check if we got the expected dictionary
+                # Check if this is an error result
+                if 'error' in result and result['error']:
+                    display.print(f"- {display.highlight(service_name)}:")
+                    display.error("  - Failed:", prefix=False)
+                    display.print(f"    - {result['error']}")
+                    output_generated = True
+                    services_failed_entirely.append(service_name)
+                    continue
+                
                 started = result.get("started", [])
                 already_running = result.get("already_running", [])
                 failed = result.get("failed", [])
@@ -199,7 +223,7 @@ def execute_parallel_command(
                 if started or already_running or failed:
                     display.print(f"- {display.highlight(service_name)}:")
                     if started:
-                        display.success("  - Started:")
+                        display.print("  - Started:")
                         for process in started:
                             display.print(f"    - {display.highlight(process)}")
                     if already_running:
@@ -207,14 +231,14 @@ def execute_parallel_command(
                         for process in already_running:
                             display.print(f"    - {display.highlight(process)}")
                     if failed:
-                        display.error("  - Failed:")
+                        display.error("  - Failed:", prefix=False)
                         for process in failed:
                             display.print(f"    - {display.highlight(process)}")
                     output_generated = True
 
             else: # Result was None (or unexpected type), indicating failure in start_service itself
                 services_failed_entirely.append(service_name)
-                display.error(f"- {display.highlight(service_name)}: Failed entirely.")
+                display.error(f"- {display.highlight(service_name)}: Failed entirely.", prefix=False)
                 output_generated = True
 
         # Print Overall Summary
@@ -235,6 +259,80 @@ def execute_parallel_command(
             pass # Initial message already handled this
         elif not output_generated: # Check if any service details were printed
             display.warning("No processes were targeted for starting or required starting.") # Use display.warning
+
+    # --- Add new block specifically for stop_service results ---
+    elif command_func == util_stop_service:
+        # Initialize overall counts
+        total_stopped_count = 0
+        total_already_stopped_count = 0
+        total_failed_count = 0
+        services_failed_entirely: List[str] = []
+        output_generated = False # Flag to track if any service details were printed
+
+        display.heading("Stop Results by Service")
+
+        # Sort by service name for consistent aggregation order
+        for service_name in sorted(results.keys()):
+            result = results[service_name]
+            if isinstance(result, dict): # Check if we got the expected dictionary
+                # Check if this is an error result
+                if 'error' in result and result['error']:
+                    display.print(f"- {display.highlight(service_name)}:")
+                    display.error("  - Failed:", prefix=False)
+                    display.print(f"    - {result['error']}")
+                    output_generated = True
+                    services_failed_entirely.append(service_name)
+                    continue
+                
+                stopped = result.get("stopped", [])
+                already_stopped = result.get("already_stopped", [])
+                failed = result.get("failed", [])
+
+                # Update overall counts
+                total_stopped_count += len(stopped)
+                total_already_stopped_count += len(already_stopped)
+                total_failed_count += len(failed)
+
+                # Print service details if anything happened
+                if stopped or already_stopped or failed:
+                    display.print(f"- {display.highlight(service_name)}:")
+                    if stopped:
+                        display.print("  - Stopped:")
+                        for process in stopped:
+                            display.print(f"    - {display.highlight(process)}")
+                    if already_stopped:
+                        display.dimmed("  - Already Stopped:")
+                        for process in already_stopped:
+                            display.print(f"    - {display.highlight(process)}")
+                    if failed:
+                        display.error("  - Failed:", prefix=False)
+                        for process in failed:
+                            display.print(f"    - {display.highlight(process)}")
+                    output_generated = True
+
+            else: # Result was None (or unexpected type), indicating failure in stop_service itself
+                services_failed_entirely.append(service_name)
+                display.error(f"- {display.highlight(service_name)}: Failed entirely.", prefix=False)
+                output_generated = True
+
+        # Print Overall Summary
+        display.heading("Overall Summary") # Use heading for consistency
+        summary_parts = []
+        if total_stopped_count:
+            summary_parts.append(f"[green]{total_stopped_count} stopped[/green]") # Keep markup for inline styling
+        if total_already_stopped_count:
+            summary_parts.append(f"[dim]{total_already_stopped_count} already stopped[/dim]") # Keep markup
+        if total_failed_count:
+            summary_parts.append(f"[red]{total_failed_count} failed[/red]") # Keep markup
+        if services_failed_entirely:
+            summary_parts.append(f"[bold red]{len(services_failed_entirely)} service(s) failed entirely[/bold red]") # Keep markup
+
+        if summary_parts:
+            display.print("  " + ", ".join(summary_parts) + ".") # Use display.print
+        elif not services: # Check if services list was empty to begin with
+            pass # Initial message already handled this
+        elif not output_generated: # Check if any service details were printed
+            display.warning("No processes were targeted for stopping or required stopping.") # Use display.warning
 
 
 # --- Typer App Definition ---

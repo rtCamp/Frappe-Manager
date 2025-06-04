@@ -21,26 +21,29 @@ def _handle_stop(
     wait: bool,
     force_kill_timeout: Optional[int],
     wait_workers: Optional[bool],
-    called_from_restart: bool = False
-) -> bool:
+    called_from_restart: bool = False,
+    verbose: bool = False
+) -> Dict[str, List[str]]:
     """Handle the 'stop' action by iterating through target processes and applying wait logic."""
     action = "stop"
-    results: Dict[str, bool] = {} # Store success/failure per process
     target_process_names: List[str] = []
     process_info_map: Dict[str, Dict[str, Any]] = {}
+    
+    # Initialize detailed results like start does
+    stop_results = {"stopped": [], "already_stopped": [], "failed": []}
 
     # --- Get All Process Info Once ---
     try:
         all_info = supervisor_api.getAllProcessInfo()
         if not all_info:
             display.print(f"No processes found running in {display.highlight(service_name)}.")
-            return True # Nothing to stop
+            return stop_results
         # Populate the process info map
         process_info_map = {info['name']: info for info in all_info}
     except Fault as e:
         display.error(f"Error getting process list for {service_name}: {e.faultString}")
         _raise_exception_from_fault(e, service_name, "getAllProcessInfo (stop)")
-        return {"started": [], "already_running": [], "failed": ["<unexpected error>"]}
+        return {"stopped": [], "already_stopped": [], "failed": ["<unexpected error>"]}
 
     # --- Determine Target Processes ---
     if process_names:
@@ -57,15 +60,17 @@ def _handle_stop(
             display.warning(f"Specified process(es) not found or not running: {', '.join(missing_names)}")
         if not target_process_names:
             display.error("None of the specified processes are currently running.")
-            return False
-        display.print(f"Preparing to stop specific process(es): {display.highlight(', '.join(target_process_names))} in {display.highlight(service_name)}...")
+            return stop_results
+        if verbose:
+            display.print(f"Preparing to stop specific process(es): {display.highlight(', '.join(target_process_names))} in {display.highlight(service_name)}...")
     else:
         # Use all running processes
         target_process_names = list(process_info_map.keys())
-        display.print(f"Preparing to stop all processes in {display.highlight(service_name)}...")
+        if verbose:
+            display.print(f"Preparing to stop all processes in {display.highlight(service_name)}...")
 
     # --- Print Wait Behavior Message (only if NOT called from restart) ---
-    if not called_from_restart:
+    if not called_from_restart and verbose:
         if wait_workers is True:
             display.dimmed("Stop calls for worker processes WILL wait for graceful shutdown.")
         elif wait_workers is False:
@@ -85,26 +90,41 @@ def _handle_stop(
                     effective_wait_for_this_process = True # Explicitly wait for worker
                 elif wait_workers is False:
                     effective_wait_for_this_process = False # Explicitly DO NOT wait for worker
-                    skip_stop: bool = True
+                    skip_stop = True
                 else: # wait_workers is None (default)
                     effective_wait_for_this_process = wait # Use the global wait flag for worker
             else: # Not a worker process
                 effective_wait_for_this_process = wait # Always use the global wait flag for non-workers
 
             if skip_stop:
-                results[process_name] = True
-
+                stop_results["already_stopped"].append(process_name)
             else:
+                # Get current process state before attempting stop
+                process_info = process_info_map.get(process_name)
+                current_state = process_info.get('state') if process_info else None
+                
+                # Check if already stopped
+                if current_state in STOPPED_STATES:
+                    stop_results["already_stopped"].append(process_name)
+                    continue
+                
                 # Call the single process handler with the calculated wait and process info
-                results[process_name] = _stop_single_process_with_logic(
+                success = _stop_single_process_with_logic(
                     supervisor_api,
                     service_name,
                     process_name,
                     wait=effective_wait_for_this_process, # Use calculated wait for API call
                     force_kill_timeout=force_kill_timeout,
                     wait_workers=wait_workers, # Pass original flag (True/False/None)
-                    process_info=process_info_map.get(process_name)
+                    process_info=process_info_map.get(process_name),
+                    verbose=verbose
                 )
+                
+                if success:
+                    stop_results["stopped"].append(process_name)
+                else:
+                    stop_results["failed"].append(process_name)
+                    
         except Fault as e:
             # Catch faults raised by _stop_single_process_with_logic or its sub-helpers
             # _raise_exception_from_fault is already called inside the helper for specific faults
@@ -116,15 +136,13 @@ def _handle_stop(
                 _raise_exception_from_fault(e, service_name, action, process_name)
             except Exception: # Catch the exception raised by _raise_exception_from_fault
                 pass # Exception is raised, loop continues or function exits
-            results[process_name] = False # Mark as failed if exception occurred
+            stop_results["failed"].append(process_name)
         except Exception as e: # Catch non-Fault errors
             display.error(f"Unexpected error stopping process {display.highlight(process_name)}: {e}")
-            results[process_name] = False
+            stop_results["failed"].append(process_name)
 
-    # --- Return overall success ---
-    return all(results.values())
-    # Return True only if all individual stop operations succeeded
-    return all(results.values())
+    # Return detailed results instead of boolean
+    return stop_results
 
 # --- Remove the _stop_all_processes_with_logic function ---
 # It's no longer needed as _handle_stop now iterates individually when necessary.
@@ -237,8 +255,7 @@ def _handle_start(supervisor_api, service_name: str, process_names: Optional[Lis
         # Return failure state if exception occurs before starting loop
         return {"started": [], "already_running": [], "failed": processes_to_start_explicitly or ["<error getting process list>"]}
     except Exception as e: # Catch other unexpected errors
-        display.error(f"Unexpected error during start action for {display.highlight(service_name)}: {e}")
-        return {"started": [], "already_running": [], "failed": ["<unexpected error>"]}
+        return {"started": [], "already_running": [], "failed": [str(e)]}
 
 
 # --- Helper: Restart Action ---
@@ -320,14 +337,15 @@ def _handle_restart(
     display.print(f"  Stopping all processes in {display.highlight(service_name)}...")
 
     # Pass None for process_names to stop all
-    stop_success = _handle_stop(
+    stop_results = _handle_stop(
         supervisor_api, service_name, None, wait, force_kill_timeout,
         wait_workers=wait_workers,
         called_from_restart=True
     )
 
-    if not stop_success:
-        display.error(f"Failed to stop all processes during standard restart of {display.highlight(service_name)}. Aborting start.")
+    # Check if any processes failed to stop
+    if stop_results.get("failed"):
+        display.error(f"Failed to stop some processes during standard restart of {display.highlight(service_name)}. Aborting start.")
         raise SupervisorOperationFailedError("Failed to stop processes during standard restart", service_name=service_name)
 
     display.print(f"  Starting all defined processes in {display.highlight(service_name)}...")

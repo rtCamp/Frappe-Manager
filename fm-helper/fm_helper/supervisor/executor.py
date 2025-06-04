@@ -39,7 +39,7 @@ def execute_supervisor_command(
     try:
         if action == "stop":
             # Pass force_kill_timeout to _handle_stop
-            return _handle_stop(supervisor_api, service_name, process_names, wait, force_kill_timeout, wait_workers)
+            return _handle_stop(supervisor_api, service_name, process_names, wait, force_kill_timeout, wait_workers, verbose=verbose)
         elif action == "start":
             return _handle_start(supervisor_api, service_name, process_names, wait, state=state, verbose=verbose)
         elif action == "restart":

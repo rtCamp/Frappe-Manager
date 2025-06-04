@@ -104,6 +104,27 @@ fm create example.com --environment prod \
   --letsencrypt-email admin@example.com
 ```
 
+### Worker Process Management
+```bash
+# Production-safe worker operations
+fm restart mysite \
+  --wait-workers \
+  --wait-workers-timeout 300 \  # 5 minute timeout
+  --wait-workers-poll 5         # Check every 5 seconds
+
+# Worker suspension with Redis
+fm restart mysite \
+  --suspend-rq \               # Use Redis suspension
+  --wait-workers \
+  --wait-workers-verbose      # Show detailed progress
+```
+
+For safety reasons:
+- Default to `--wait-workers` in production
+- Monitor jobs before operations
+- Set appropriate timeouts
+- Have rollback procedures ready
+
 ### Daily Operations
 ```bash
 # Common commands
@@ -112,6 +133,68 @@ fm stop mysite       # Stop site
 fm logs mysite -f    # View logs
 fm shell mysite      # Access shell
 ```
+
+### Worker Management
+```bash
+# Production-Safe Worker Management
+fm restart mysite --wait-workers --suspend-rq    
+# - Uses Redis to suspend new jobs
+# - Waits for current jobs to finish
+# - Ensures clean worker shutdown
+# - Recommended for production
+
+# Development/Testing Worker Management
+fm restart mysite --no-wait-workers
+# - Uses Signal 34 for worker detachment
+# - Waits 3 seconds for cleanup
+# - Sends SIGTERM for RQ graceful shutdown
+# - Faster but less controlled
+
+# Monitor Worker Status
+fm status mysite -v                
+# - Shows detailed worker states
+# - Displays process hierarchies
+# - Reports job queue status
+```
+
+Safety Notes:
+- Use --wait-workers --suspend-rq in production
+- Monitor active jobs before operations
+- Set appropriate timeouts (--wait-workers-timeout)
+- Have rollback procedures ready
+- Never use --no-wait-workers in production
+
+### Worker Process Handling
+
+Frappe Manager supports two approaches for worker management:
+
+1. Redis-Based Suspension (Production Safe)
+   - Suspends new job intake via Redis flag
+   - Allows current jobs to complete
+   - Monitors worker states
+   - Ensures data consistency
+   - Uses RQ's built-in suspension mechanism
+   - Required when schema changes are involved
+
+2. Signal-Based Management
+   - Uses Signal 34 for worker detachment
+   - Preserves running jobs
+   - Sends SIGTERM after 3-second delay
+   - Allows RQ's graceful shutdown
+   - Monitor process tracks completion
+   - Suitable for:
+     • Development/testing environments
+     • When no schema changes are involved
+     • Code-only updates
+     • Configuration changes
+     • Quick service restarts
+
+The Signal 34 handler in bench-wrapper.sh:
+- Detaches worker from supervisor
+- Forks monitor process
+- Waits 3 seconds
+- Sends SIGTERM for graceful shutdown
+- Tracks process completion
 
 ## 📖 Documentation
 

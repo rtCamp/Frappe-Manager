@@ -47,9 +47,12 @@ class DisplayManager:
         """Print warning messages."""
         self._console.print(f"[warning]:warning: {message}[/warning]", **kwargs)
 
-    def error(self, message: str, exit_code: Optional[int] = None, **kwargs):
+    def error(self, message: str, exit_code: Optional[int] = None, prefix: bool = True, **kwargs):
         """Print error messages and optionally exit."""
-        self._console.print(f"[error]Error: {message}[/error]", **kwargs)
+        if prefix:
+            self._console.print(f"[error]Error: {message}[/error]", **kwargs)
+        else:
+            self._console.print(f"[error]{message}[/error]", **kwargs)
         if exit_code is not None:
             raise typer.Exit(code=exit_code)
 

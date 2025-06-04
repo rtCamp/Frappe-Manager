@@ -24,7 +24,8 @@ def stop_service(
     process_name_list: Optional[List[str]] = None,
     wait: bool = True,
     force_kill_timeout: Optional[int] = None,
-    wait_workers: Optional[bool] = None
+    wait_workers: Optional[bool] = None,
+    verbose: bool = False
 ) -> bool:
     """Stop specific processes or all processes in a service.
     
@@ -38,7 +39,8 @@ def stop_service(
             process_names=process_name_list,
             wait=wait,
             force_kill_timeout=force_kill_timeout,
-            wait_workers=wait_workers
+            wait_workers=wait_workers,
+            verbose=verbose
         ) or False
     except SupervisorError as e:
         raise e
@@ -156,9 +158,7 @@ def get_service_info(service_name: str, verbose: bool = False) -> Tree:
     # Add SupervisorConnectionError handling here
     except SupervisorConnectionError as e:
          # Handle connection errors gracefully by returning formatted output
-         display.warning(f"Connection Error getting info for {display.highlight(service_name)}: {str(e)}")
          return format_service_info(service_name, [], verbose=verbose)
     except SupervisorError as e:
         # Handle other supervisor errors
-        display.error(f"Error getting info for {display.highlight(service_name)}: {str(e)}")
         return format_service_info(service_name, [], verbose=verbose) # Return formatted empty info

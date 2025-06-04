@@ -3,6 +3,7 @@ from typing import Annotated, Optional, List
 
 import typer
 from ..display import DisplayManager
+from ..command_utils import validate_services, get_process_description
 
 from ..cli import (
     ServiceNameEnumFactory,
@@ -39,20 +40,12 @@ def command(
     # Get display manager from context dictionary
     display: DisplayManager = ctx.obj['display']
 
-    if not _cached_service_names:
-        display.error(f"No supervisord services found to check status.", exit_code=1)
-        display.print(f"Looked for socket files in: {FM_SUPERVISOR_SOCKETS_DIR}", file=sys.stderr)
-        display.print("Ensure Frappe Manager services are running.", file=sys.stderr)
-
     all_services = get_service_names_for_completion()
     services_to_target = all_services if not service_names else [s.value for s in service_names]
 
-    invalid_services = [s for s in services_to_target if s not in all_services]
-    if invalid_services:
-        display.error(f"Invalid service name(s): {', '.join(invalid_services)}", exit_code=1)
-        display.print(f"Available services: {', '.join(all_services) or 'None'}")
-
-    target_desc = "all services" if not service_names else f"service(s): {display.highlight(', '.join(services_to_target))}"
+    valid, target_desc = validate_services(display, services_to_target, all_services, "check status")
+    if not valid:
+        return
     display.print(f"Fetching status for {target_desc}...")
 
     execute_parallel_command(

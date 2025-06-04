@@ -176,7 +176,8 @@ def _stop_single_process_with_logic(
     wait: bool,
     force_kill_timeout: Optional[int],
     wait_workers: Optional[bool],
-    process_info: Optional[Dict[str, Any]] = None
+    process_info: Optional[Dict[str, Any]] = None,
+    verbose: bool = False
 ) -> bool:
     """Stop a single process, respecting the 'wait' flag for the API call and handling force kill separately."""
     action = "stop"
@@ -191,7 +192,8 @@ def _stop_single_process_with_logic(
         name_to_stop = f"{group_name}:{original_process_name}"
 
     try:
-        display.print(f"Attempting to stop process {display.highlight(original_process_name)} in {display.highlight(service_name)} (API wait: {wait})...")
+        if verbose:
+            display.print(f"Attempting to stop process {display.highlight(original_process_name)} in {display.highlight(service_name)} (API wait: {wait})...")
 
         supervisor_api.stopProcess(name_to_stop, wait)
 
@@ -224,11 +226,13 @@ def _stop_single_process_with_logic(
         else:
             if wait:
                 # If stopProcess(wait=True) succeeded without Fault, assume it stopped.
-                display.success(f"Stopped process {display.highlight(process_name)} in {display.highlight(service_name)} (waited).")
+                if verbose:
+                    display.success(f"Stopped process {display.highlight(process_name)} in {display.highlight(service_name)} (waited).")
                 return True
             else:
                 # If stopProcess(wait=False) was called.
-                display.print(f"Stop signal sent to process {display.highlight(process_name)} in {display.highlight(service_name)} (no wait).")
+                if verbose:
+                    display.print(f"Stop signal sent to process {display.highlight(process_name)} in {display.highlight(service_name)} (no wait).")
                 return True # Assume success as signal was sent
 
     except Fault as e:
