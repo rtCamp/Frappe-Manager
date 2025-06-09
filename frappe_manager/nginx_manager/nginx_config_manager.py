@@ -10,7 +10,7 @@ class NginxConfigManager:
     def __init__(self, bench_path: Path, bench_name: str):
         self.bench_path = bench_path
         self.bench_name = bench_name
-        self.nginx_config_dir = bench_path / "configs" / "nginx" / "conf"
+        self.nginx_config_dir = bench_path / "configs" / "nginx" / "conf" / "conf.d"
         self.nginx_config_dir.mkdir(parents=True, exist_ok=True)
         
         # Setup Jinja2 environment - templates are in the same directory as this file
