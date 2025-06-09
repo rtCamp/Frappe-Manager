@@ -151,7 +151,8 @@ class Bench:
 
     def save_bench_config(self):
         richprint.change_head("Saving bench config changes")
-        self.bench_config.export_to_toml(self.bench_config.root_path)
+        site_names = list(self.sites.keys())
+        self.bench_config.export_to_toml(self.bench_config.root_path, sites=site_names)
         richprint.print("Saved bench config.")
 
     @property
@@ -198,9 +199,9 @@ class Bench:
             self.benchops.init_bench()
             
             # Create each site
-            for i, site_name in sites_to_create:
+            for i, site_name in enumerate(sites_to_create):
                 richprint.change_head(f"Creating site {site_name}")
-                site = Site(site_name, self.path)
+                site = Site(site_name, self)
                 
                 # Create the site
                 self.benchops.create_bench_site(site)
@@ -209,7 +210,7 @@ class Bench:
                 site.set_config({'admin_password': self.bench_config.admin_pass})
                 
                 # Add to sites dictionary
-                self.sites[site_name] = site
+                self._sites[site_name] = site
                 
                 # Set first site as default
                 if i == 0:
@@ -238,7 +239,7 @@ class Bench:
 
             self.info()
 
-            if not any(".localhost" in site_name for site_name in self.site_names_to_create):
+            if not any(".localhost" in site_name for site_name in sites_to_create):
                 richprint.print(
                     "Please note that You will have to add a host entry to your system's hosts file to access the bench locally."
                 )
@@ -680,8 +681,8 @@ class Bench:
         site_config = site.get_config()
 
         return {
-            "name": site_config.get("db_name"),
-            "user": site_config.get("db_name"),
+            "name": site_config.get("db_name") or site.get_expected_db_name(),
+            "user": site_config.get("db_name") or site.get_expected_db_name(),
             "password": site_config.get("db_password"),
         }
 
@@ -1144,8 +1145,8 @@ class Bench:
             raise BenchException(self.name, f"Site {site_name or 'default'} not found")
 
         site_config = site.get_config()
-        db_name = site_config.get("db_name")
-        db_user = site_config.get("db_name")  # User name is same as db name
+        db_name = site_config.get("db_name") or site.get_expected_db_name()
+        db_user = site_config.get("db_name") or site.get_expected_db_name()  # User name is same as db name
 
         richprint.change_head(f"Removing site db and db users for {site.name}")
         
@@ -1161,6 +1162,51 @@ class Bench:
             else:
                 self.services.database_manager.remove_user(db_user, remove_all_host=True)
                 richprint.print(f"Removed site db users [blue]{db_user}[/blue].")
+
+    def remove_database_and_user_by_site(self, site: Site):
+        """Remove database and user for a specific site object"""
+        db_name = site.get_expected_db_name()  # Use expected name since site might not be fully created
+        db_user = db_name  # User name is same as db name
+        
+        richprint.change_head(f"Removing site db and db users for {site.name}")
+        
+        if db_name:
+            if not self.services.database_manager.check_db_exists(db_name):
+                richprint.warning(f"Site db [blue]{db_name}[/blue] not found. Skipping...")
+            else:
+                self.services.database_manager.remove_db(db_name)
+                richprint.print(f"Removed site db [blue]{db_name}[/blue].")
+
+            if not self.services.database_manager.check_user_exists(db_user):
+                richprint.warning(f"Site db user [blue]{db_user}[/blue] not found. Skipping...")
+            else:
+                self.services.database_manager.remove_user(db_user, remove_all_host=True)
+                richprint.print(f"Removed site db users [blue]{db_user}[/blue].")
+
+    def _discover_all_sites_for_cleanup(self) -> set:
+        """Discover all sites that need cleanup - both registered and filesystem-only"""
+        all_sites = set(self.sites.keys())
+
+        from rich import inspect
+        inspect(self.sites.keys())
+
+        sites_dir = self.path / "workspace/frappe-bench/sites"
+        if sites_dir.exists():
+            for site_dir in sites_dir.iterdir():
+                if site_dir.is_dir() and site_dir.name not in ["assets", "common_site_config.json"]:
+                    all_sites.add(site_dir.name)
+        
+        return all_sites
+
+    def _cleanup_site_databases(self, site_names_to_cleanup: set):
+        """Clean up databases and users for given site names"""
+        for site_name in site_names_to_cleanup:
+            try:
+                temp_site = Site(site_name, self)
+                self.remove_database_and_user_by_site(temp_site)
+            except Exception as e:
+                self.logger.exception(e)
+                richprint.warning(f"Failed to remove database/user for site {site_name}: {str(e)}")
 
     def remove_bench(self, default_choice: bool = True):
         """
@@ -1195,12 +1241,8 @@ class Bench:
                 richprint.warning(f"Failed to remove certificate for site {site_name}: {str(e)}")
 
         # Remove databases and users for all sites
-        for site_name in self.sites:
-            try:
-                self.remove_database_and_user(site_name)
-            except Exception as e:
-                self.logger.exception(e)
-                richprint.warning(f"Failed to remove database/user for site {site_name}: {str(e)}")
+        all_sites_to_cleanup = self._discover_all_sites_for_cleanup()
+        self._cleanup_site_databases(all_sites_to_cleanup)
 
         self.remove_containers_and_dirs()
         return True
@@ -1350,12 +1392,12 @@ class Bench:
             raise ValueError(f"Site {site_name} already exists")
 
         # Create and store Site object
-        site = Site(site_name, self.path)
+        site = Site(site_name, self)
 
         # TODO Add support for admin_password here
         # Create site using bench new-site command
         self.benchops.create_bench_site(site)
-        self.sites[site_name] = site
+        self._sites[site_name] = site
         
         return site
 

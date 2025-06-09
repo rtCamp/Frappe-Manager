@@ -24,7 +24,9 @@ class Site:
 
         self.site_dir = self._bench.path / "workspace/frappe-bench/sites" / name
         self.config_path = self.site_dir / "site_config.json"
-        self.certificate: Optional[SSLCertificate] = None
+        
+        # Set default certificate (no SSL)
+        self.certificate = SSLCertificate(domain=name, ssl_type=SUPPORTED_SSL_TYPES.none)
         self.certificate_manager: Optional[SSLCertificateManager] = None
 
     @property
@@ -46,8 +48,23 @@ class Site:
     def get_db_name(self) -> Optional[str]:
         """Get database name from site config"""
         config = self.get_config()
-
         return config.get("db_name")
+
+    def get_expected_db_name(self) -> str:
+        """Get expected database name (works even before site creation)"""
+        # Sanitize bench and site names for database naming
+        bench_part = self._bench.name.replace(".", "_").replace("-", "_")
+        site_part = self.name.replace(".", "_").replace("-", "_")
+        
+        # Ensure we don't exceed MySQL's 64-character limit for database names
+        db_name = f"{bench_part}_{site_part}"
+        if len(db_name) > 64:
+            # Truncate but keep the site part identifiable
+            max_bench_len = 64 - len(site_part) - 1  # -1 for underscore
+            bench_part = bench_part[:max_bench_len]
+            db_name = f"{bench_part}_{site_part}"
+        
+        return db_name
 
     def setup_certificate_manager(self, webroot_dir: Path, proxy_manager: Any):
         """Initialize certificate manager with required parameters"""

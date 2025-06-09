@@ -64,7 +64,7 @@ class BenchOperations:
         """Create a new site in the bench"""
         new_site_command = self.bench_cli_cmd + ["new-site"]
         new_site_command += ["--db-root-password", self.bench.services.database_manager.database_server_info.password]
-        new_site_command += ["--db-name", site.get_db_name()]
+        new_site_command += ["--db-name", site.get_expected_db_name()]
         new_site_command += ["--db-host", self.bench.services.database_manager.database_server_info.host]
         new_site_command += ["--admin-password", self.bench.bench_config.admin_pass]
         new_site_command += ["--db-port", str(self.bench.services.database_manager.database_server_info.port)]

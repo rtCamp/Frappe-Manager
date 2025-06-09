@@ -33,9 +33,9 @@ def create(
     ctx: typer.Context,
     benchname: Annotated[str, typer.Argument(help="Name of the bench", callback=create_command_sitename_callback)],
     site_names: Annotated[
-        List[str], 
-        typer.Argument(help="Names of sites to create (first site will be default)")
-    ],
+        Optional[List[str]], 
+        typer.Argument(help="Names of sites to create. If not provided, uses bench name as site name. First site becomes default.")
+    ] = None,
     apps: Annotated[
         List[str],
         typer.Option(
@@ -90,34 +90,22 @@ def create(
     # If no sites specified, use benchname as the site name
     if not site_names:
         site_names = [benchname]
+        richprint.print(f"No sites specified, creating site: {benchname}")
 
-    # Initialize sites with certificates
-    for site_name in site_names:
-        site = Site(site_name, bench)
-                
-        if ssl == SUPPORTED_SSL_TYPES.le:
-            # Let Site handle Let's Encrypt configuration
-            site.certificate = site.configure_letsencrypt(
-                letsencrypt_email=letsencrypt_email,
-                letsencrypt_preferred_challenge=letsencrypt_preferred_challenge,
-                fm_config_manager=fm_config_manager
-            )
-        else:
-            # Simple SSL certificate 
-            site.certificate = SSLCertificate(domain=site.name, ssl_type=ssl)
+    # Create SSL certificate object based on ssl type
+    ssl_certificate = SSLCertificate(domain=benchname, ssl_type=ssl)
 
-        bench.add_site(site)
-
-    # Initialize empty config without SSL certificates
+    # Initialize bench config with SSL certificate object
     bench_config: BenchConfig = BenchConfig(
         name=benchname,
         apps_list=apps,
         frappe_branch=frappe_branch,
-        developer_mode=True if environment == FMBenchEnvType.dev else developer_mode_status,
+        developer_mode=True if environment == FMBenchEnvType.dev else developer_mode.value,
         admin_tools=True if environment == FMBenchEnvType.dev else False,
         admin_pass=admin_pass,
         environment_type=environment,
         root_path=bench_config_path,
+        ssl=ssl_certificate,
     )
 
     compose_path = bench_path / 'docker-compose.yml'
@@ -141,8 +129,6 @@ def create(
         else:
             # Simple SSL certificate 
             site.certificate = SSLCertificate(domain=site.name, ssl_type=ssl)
-
-        bench.add_site(site)
 
     # Create the bench with all configured sites
     bench.create(site_names)

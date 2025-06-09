@@ -60,7 +60,7 @@ class BenchConfig(BaseModel):
     def container_name_prefix(self):
         return get_container_name_prefix(self.name)
 
-    def export_to_toml(self, path: Path) -> bool:
+    def export_to_toml(self, path: Path, sites: Optional[List[str]] = None) -> bool:
         ssl_toml_doc: Optional[tomlkit.TOMLDocument] = None
 
         # TODO Fix this issue
@@ -90,8 +90,9 @@ class BenchConfig(BaseModel):
         if ssl_toml_doc:
             bench_dict['ssl'] = ssl_toml_doc
 
-        # Add sites information
-        bench_dict['sites'] = [site.name for site in self.sites]
+        # Add sites information if provided
+        if sites:
+            bench_dict['sites'] = sites
 
         # Serialize the dictionary to a TOML string
         # Create a TOML document from the dictionary
