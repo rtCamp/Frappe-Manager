@@ -39,6 +39,7 @@ from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.nginxproxymanager import NginxProxyManager
 from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
+from frappe_manager.nginx_manager import NginxConfigManager
 from frappe_manager.utils.helpers import (
     capture_and_format_exception,
     format_ssl_certificate_time_remaining,
@@ -88,6 +89,9 @@ class Bench:
 
         self.proxy_manager: NginxProxyManager = NginxProxyManager('nginx', self.compose_project)
         self.admin_tools: AdminTools = AdminTools(self, self.proxy_manager)
+        
+        # Add nginx config manager
+        self.nginx_config_manager = NginxConfigManager(self.path, self.name)
 
         self.benchops = BenchOperations(self)
         self.workers = BenchWorkers(self, not verbose)
@@ -155,6 +159,25 @@ class Bench:
         self.bench_config.export_to_toml(self.bench_config.root_path, sites=site_names)
         richprint.print("Saved bench config.")
 
+    def _generate_nginx_configs(self):
+        """Generate nginx configurations for all sites"""
+        richprint.change_head("Generating nginx configurations")
+        
+        sites_list = list(self.sites.values())
+        
+        if not sites_list:
+            richprint.warning("No sites found, skipping nginx config generation")
+            return
+        
+        # Generate individual site configs
+        for site in sites_list:
+            self.nginx_config_manager.generate_site_config(site)
+            richprint.print(f"Generated nginx config for {site.name}")
+        
+        # Generate main bench config
+        self.nginx_config_manager.generate_main_config(sites_list)
+        richprint.print("Generated main nginx configuration")
+
     @property
     def exists(self):
         return self.path.exists()
@@ -217,6 +240,9 @@ class Bench:
                     self.set_default_site(site_name)
                 
                 richprint.print(f"Created site {site_name}")
+
+            # After creating all sites, generate nginx configs
+            self._generate_nginx_configs()
 
             self.sync_bench_config_configuration()
             self.switch_bench_env()
@@ -743,7 +769,17 @@ class Bench:
             webroot_dir=self.proxy_manager.dirs.html.host,
             proxy_manager=self.services.proxy_manager
         )
-        return site.update_certificate(certificate, raise_error)
+        
+        result = site.update_certificate(certificate, raise_error)
+        
+        if result:
+            # Regenerate nginx configs with new SSL settings
+            self._generate_nginx_configs()
+            
+            # Reload nginx
+            self.nginx_config_manager.reload_nginx(self.compose_project)
+        
+        return result
 
     def renew_certificate(self, site_name: Optional[str] = None):
         """Renew SSL certificate for specified site or default site"""
@@ -1415,7 +1451,37 @@ class Bench:
         self.benchops.create_bench_site(site)
         self._sites[site_name] = site
         
+        # Regenerate nginx configs for all sites
+        self._generate_nginx_configs()
+        
+        # Reload nginx configuration
+        self.nginx_config_manager.reload_nginx(self.compose_project)
+        
         return site
+
+    def remove_site(self, site_name: str):
+        """Remove a site from the bench"""
+        if site_name not in self.sites:
+            raise ValueError(f"Site {site_name} does not exist")
+        
+        site = self.sites[site_name]
+        
+        # Remove site database and user
+        self.remove_database_and_user_by_site(site)
+        
+        # Remove from sites dictionary
+        del self._sites[site_name]
+        
+        # Remove nginx config
+        self.nginx_config_manager.remove_site_config(site_name)
+        
+        # Regenerate nginx configs
+        self._generate_nginx_configs()
+        
+        # Reload nginx
+        self.nginx_config_manager.reload_nginx(self.compose_project)
+        
+        richprint.print(f"Removed site {site_name}")
 
     def list_sites(self) -> List[Site]:
         """Get list of all sites in the bench"""
