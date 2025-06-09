@@ -13,11 +13,13 @@ def get_examples_from_toml(
     commands_stack: List[str],
     frappe_version: str,
     toml_path: Path = get_frappe_manager_own_files('./utils/examples.json'),
+    sitename: str = None,
 ):
     file_data = toml_path.read_bytes()
     data: Dict[str, List[Dict[str, str]]] = json.loads(file_data)
 
-    bench_name = 'example.com'
+    # Use provided sitename or default to 'example.com'
+    bench_name = sitename if sitename else 'example.com'
 
     example_data = {'benchname': bench_name, 'default_version': frappe_version}
 
@@ -47,6 +49,9 @@ def get_examples_from_toml(
 
             if 'benchname' in element:
                 element_example_data['benchname'] = element['benchname']
+            else:
+                # Use the sitename if provided, otherwise use the default bench_name
+                element_example_data['benchname'] = bench_name
 
             element_table = Table(box=None, show_lines=False)
 

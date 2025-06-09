@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "frappe-manager"
-version = "0.17.0"
+version = "1.0.0"
 license = "MIT"
 repository = "https://github.com/rtcamp/frappe-manager"
 description = "A CLI tool based on Docker Compose to easily manage Frappe based projects. As of now, only suitable for development in local machines running on Mac and Linux based OS."
@@ -12,7 +12,7 @@ readme = "README.md"
 [tool.ruff]
 line-length = 120
 indent-width = 4
-target-version = "py310"
+target-version = "py311"
 
 [tool.ruff.lint]
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"

@@ -13,9 +13,32 @@ def print_fm_examples(*, obj, ctx, markup_mode):
     rich_format_help_original(obj=obj, ctx=ctx, markup_mode=markup_mode)
 
     commands_stack = ctx.command_path.split(' ')[1:]
+    
+    # Extract sitename from command arguments if available
+    sitename = None
+    
+    # Get the raw command line arguments
+    import sys
+    cmd_args = sys.argv[1:]  # Skip the script name
+    
+    # More generic approach: find the current command and get the next non-option argument
+    try:
+        current_command = commands_stack[-1] if commands_stack else None
+        if current_command and current_command in cmd_args:
+            command_index = cmd_args.index(current_command)
+            # Look for the next argument that's not a flag
+            for i in range(command_index + 1, len(cmd_args)):
+                arg = cmd_args[i]
+                if not arg.startswith('-') and arg != '--help':
+                    sitename = arg
+                    break
+    except (ValueError, IndexError):
+        pass
 
     new_doc = get_examples_from_toml(
-        commands_stack=commands_stack, frappe_version=STABLE_APP_BRANCH_MAPPING_LIST["frappe"]
+        commands_stack=commands_stack, 
+        frappe_version=STABLE_APP_BRANCH_MAPPING_LIST["frappe"],
+        sitename=sitename
     )
 
     if new_doc:
