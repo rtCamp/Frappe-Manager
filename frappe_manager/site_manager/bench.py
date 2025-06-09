@@ -285,14 +285,21 @@ class Bench:
 
     def set_bench_site_config(self, config: dict):
         """
-        Sets the values in the bench's site site_config.json file.
+        Sets the values in the default site's site_config.json file.
 
         Args:
             config (dict): A dictionary containing the key-value pairs
         """
-        site_config_path = self.path / "workspace/frappe-bench/sites" / self.name / "site_config.json"
+        default_site = self.get_default_site()
+        if not default_site:
+            if self.sites:
+                default_site = list(self.sites.values())[0]
+            else:
+                raise BenchException(self.name, message='No sites found in bench.')
+        
+        site_config_path = self.path / "workspace/frappe-bench/sites" / default_site.name / "site_config.json"
         if not site_config_path.exists():
-            raise BenchException(self.name, message=f'File not found {site_config_path.name}.')
+            raise BenchException(self.name, message=f'site_config.json not found for site {default_site.name}.')
         save_dict_to_file(config, site_config_path)
 
     def get_common_bench_config(self):
@@ -302,9 +309,18 @@ class Bench:
         return json.loads(common_bench_config_path.read_text())
 
     def get_bench_site_config(self):
-        site_config_path = self.path / "workspace/frappe-bench/sites" / self.name / "site_config.json"
+        """Get site config for the default site"""
+        default_site = self.get_default_site()
+        if not default_site:
+            # Fallback to any available site if no default site is set
+            if self.sites:
+                default_site = list(self.sites.values())[0]
+            else:
+                raise BenchException(self.name, message='No sites found in bench.')
+        
+        site_config_path = self.path / "workspace/frappe-bench/sites" / default_site.name / "site_config.json"
         if not site_config_path.exists():
-            raise BenchException(self.name, message='site_config.json not found.')
+            raise BenchException(self.name, message=f'site_config.json not found for site {default_site.name}.')
         return json.loads(site_config_path.read_text())
 
     def generate_compose(self, inputs: dict) -> None:
