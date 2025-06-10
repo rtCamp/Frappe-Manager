@@ -1,20 +1,20 @@
-import os
-import sys
-import subprocess
-import traceback
-from enum import Enum
-from typing import Annotated, Optional, List, Tuple
-
-import typer
-from .display import DisplayManager, display  # Import both DisplayManager and global display instance
-from rich.progress import Progress, SpinnerColumn, TextColumn
-from rich.live import Live
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from rich.panel import Panel
-from rich.tree import Tree
 from contextlib import nullcontext
-import pkgutil
+from enum import Enum
 import importlib
+import importlib
+import os
+import pkgutil
+import pkgutil
+import sys
+from typing import List, Optional
+
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from rich.tree import Tree
+import typer
+
+from . import commands as commands_package
+from .display import DisplayManager, display
 
 try:
     from .supervisor import (
@@ -25,7 +25,6 @@ try:
         get_service_info as util_get_service_info,
         signal_service as util_signal_service,
         FM_SUPERVISOR_SOCKETS_DIR,
-        SupervisorError, # Import the base error
     )
 except ImportError as e:
     display.error(f"Failed to import supervisor module: {e}")
@@ -304,9 +303,7 @@ def main_callback(ctx: typer.Context):
     
     ctx.obj['display'] = DisplayManager()
 
-import pkgutil
-import importlib
-from . import commands as commands_package
+
 
 def register_commands():
     """Discover and register command functions from the commands directory."""
@@ -343,7 +340,7 @@ def register_commands():
 def main():
     """Main entry point for the fm-helper CLI."""
     get_service_names_for_completion()
-    ServiceNamesEnum = ServiceNameEnumFactory()
+    ServiceNameEnumFactory()
     register_commands()
     app()
 
