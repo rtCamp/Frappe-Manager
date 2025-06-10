@@ -7,14 +7,13 @@ from rich.tree import Tree
 from rich.table import Table
 from rich.panel import Panel
 
-# Basic theme (can be expanded)
 custom_theme = Theme({
     "info": "dim cyan",
     "warning": "yellow",
     "error": "bold red",
     "success": "green",
     "heading": "bold cyan",
-    "highlight": "bold magenta", # For service names etc.
+    "highlight": "bold magenta",
     "dimmed": "dim"
 })
 
@@ -62,7 +61,6 @@ class DisplayManager:
 
     def highlight(self, text: str) -> str:
         """Applies highlight style for inline use."""
-        # This returns a string, intended to be embedded in other prints
         return f"[highlight]{text}[/highlight]"
 
     def display_tree(self, tree: Tree, **kwargs):
@@ -77,7 +75,4 @@ class DisplayManager:
          """Prints a rich Panel object."""
          self._stdout_console.print(panel, **kwargs)
 
-# Global instance with default settings
 display = DisplayManager()
-
-    # Add more methods as needed (e.g., for progress, live displays if centralized later)
