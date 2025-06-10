@@ -6,9 +6,9 @@ build-backend = "setuptools.build_meta"
 name = "fmx"
 version = "0.3.0"
 authors = [
-  { name="Frappe Manager Team", email="developers@frappe.io" }, # Adjust as needed
+  { name="fmx - fm container helper cli", email="sys@rtcamp.com" },
 ]
-description = "A CLI tool to interact with supervisord instances managed by Frappe Manager."
+description = "A CLI tool to interact with supervisord instances managed by Frappe-Manager."
 readme = "README.md"
 license = { file="LICENSE" }
 requires-python = ">=3.8"
@@ -41,7 +41,7 @@ dependencies = [
 "Bug Tracker" = "https://github.com/rtCamp/Frappe-Manager/issues"
 
 [project.scripts]
-fm-helper = "fm_helper.cli:main"
+fmx = "fmx.cli:main"
 
 
 [tool.setuptools.packages.find]

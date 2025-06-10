@@ -1,4 +1,4 @@
-# fm-helper
+# fmx
 
 A command-line utility designed to interact with `supervisord` instances managed within the [Frappe Manager](https://github.com/rtCamp/Frappe-Manager) environment.
 
@@ -11,7 +11,7 @@ It allows users inside the Frappe Docker container to easily:
 
 ## Overview
 
-Frappe Manager uses `supervisord` to manage background processes like the Frappe web server (gunicorn/nginx unit), scheduler, and workers. This tool (`fm-helper`) provides a convenient interface to control these processes directly from the command line within the container, using the socket files created by `supervisord`.
+Frappe Manager uses `supervisord` to manage background processes like the Frappe web server (gunicorn/nginx unit), scheduler, and workers. This tool (`fmx`) provides a convenient interface to control these processes directly from the command line within the container, using the socket files created by `supervisord`.
 
 ## Installation
 
@@ -24,14 +24,14 @@ If manual installation is needed (e.g., during development or customization):
 pip install .
 ```
 
-(This assumes you are in the `fm-helper` directory containing `pyproject.toml`).
+(This assumes you are in the `fmx` directory containing `pyproject.toml`).
 
 ## Usage
 
 The tool uses a simple command structure:
 
 ```bash
-fm-helper [COMMAND] [SERVICE_NAMES...] [OPTIONS]
+fmx [COMMAND] [SERVICE_NAMES...] [OPTIONS]
 ```
 
 **Commands:**
@@ -61,25 +61,25 @@ fm-helper [COMMAND] [SERVICE_NAMES...] [OPTIONS]
 
 ```bash
 # Check status of all services
-fm-helper status
+fmx status
 
 # Check status of only the 'frappe' service
-fm-helper status frappe
+fmx status frappe
 
 # Stop all processes in all services
-fm-helper stop
+fmx stop
 
 # Start only the 'frappe' service
-fm-helper start frappe
+fmx start frappe
 
 # Restart the 'frappe' service gracefully
-fm-helper restart frappe
+fmx restart frappe
 
 # Stop only the 'worker_short' process within the 'frappe' service
-fm-helper stop frappe --process worker_short
+fmx stop frappe --process worker_short
 
 # Restart all services forcefully (less common)
-fm-helper restart --force
+fmx restart --force
 ```
 
 ## Environment Variables
