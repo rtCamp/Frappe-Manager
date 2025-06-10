@@ -3,14 +3,14 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "fm-helper"
-version = "0.2.0" # Increment version
+name = "fmx"
+version = "0.3.0"
 authors = [
   { name="Frappe Manager Team", email="developers@frappe.io" }, # Adjust as needed
 ]
 description = "A CLI tool to interact with supervisord instances managed by Frappe Manager."
 readme = "README.md"
-license = { file="LICENSE" } # Assuming you'll add a LICENSE file
+license = { file="LICENSE" }
 requires-python = ">=3.8"
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -28,41 +28,30 @@ classifiers = [
     "Topic :: System :: Systems Administration",
     "Topic :: Utilities",
 ]
-# Dependencies required to run the tool
+
 dependencies = [
-    # typer[all] includes shellingham for completions, colorama, etc.
     "typer>=0.16.0",
-    # Rich for console output
-    "rich>=13.0.0,<15.0.0", # Allow rich v14+
-    # Supervisor client library (relies on xmlrpc.client from stdlib)
-    # Version 4.x is widely used. Check compatibility if needed.
+    "rich>=13.0.0,<15.0.0",
     "supervisor>=4.2.0,<5.0.0",
 ]
 
 [project.urls]
-"Homepage" = "https://github.com/rtCamp/Frappe-Manager" # Main project URL
+"Homepage" = "https://github.com/rtCamp/Frappe-Manager"
 "Repository" = "https://github.com/rtCamp/Frappe-Manager"
 "Bug Tracker" = "https://github.com/rtCamp/Frappe-Manager/issues"
 
-# Define the command-line script entry point
 [project.scripts]
 fm-helper = "fm_helper.cli:main"
 
 
 [tool.setuptools.packages.find]
-# Find packages automatically in the current directory (where pyproject.toml is)
-# This will find the 'fm_helper' directory.
 where = ["."]
-include = ["fm_helper*"]
-exclude = ["tests*"] # Optional: exclude tests directory
+include = ["fmx*"]
+exclude = ["tests*"]
 
 [tool.setuptools.package-data]
-# If you had non-code files inside your package to include, list them here
-# Example: "fm_helper" = ["*.template"]
-"fm_helper" = ["py.typed"] # Include marker for type checkers
+"fmx" = ["py.typed"]
 
 [tool.setuptools]
-# Include a marker file for type checkers like mypy
-# See: https://peps.python.org/pep-0561/
-zip-safe = false # Recommended for projects with package data or namespace packages
-py-modules = [] # Explicitly state no top-level modules if 'find:' is used for packages
+zip-safe = false
+py-modules = []
