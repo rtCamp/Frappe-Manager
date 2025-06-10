@@ -76,13 +76,6 @@ class BenchOperations:
         self.container_run(new_site_command, raise_exception_obj=BenchOperationBenchSiteCreateFailed(site.name))
 
         self.container_run(
-            " ".join(self.bench_cli_cmd + [f"use {site.name}"]),
-            raise_exception_obj=BenchOperationException(
-                site.name, f"Failed to set {site.name} as default site."
-            ),
-        )
-
-        self.container_run(
             " ".join(self.bench_cli_cmd + [f"--site {site.name} scheduler enable"]),
             raise_exception_obj=BenchOperationException(
                 site.name, f"Failed to enable {site.name}'s scheduler."
@@ -505,12 +498,11 @@ class BenchOperations:
                 richprint.error(f"Docker image '{image}' is not available locally")
             raise BenchOperationRequiredDockerImagesNotAvailable(self.bench.name, 'fm self update-images')
 
-    def reset_bench_site(self, site: Site, admin_password: str):
-        """Reset a specific site"""
-
+    def reset_bench_site(self, admin_password: str, site_name: str):
+        """Reset a specific site - updated to require site_name parameter"""
         global_db_info = self.bench.services.database_manager.database_server_info
 
-        reset_bench_site_command = self.bench_cli_cmd + ["--site", site.name]
+        reset_bench_site_command = self.bench_cli_cmd + ["--site", site_name]
         reset_bench_site_command += ['reinstall', '--admin-password', admin_password]
         reset_bench_site_command += ['--db-root-username', global_db_info.user]
         reset_bench_site_command += ['--db-root-password', global_db_info.password]
@@ -521,6 +513,6 @@ class BenchOperations:
         self.container_run(
             reset_bench_site_command,
             raise_exception_obj=BenchOperationException(
-                site.name, message=f'Failed to reset site {site.name}.'
+                site_name, message=f'Failed to reset site {site_name}.'
             ),
         )

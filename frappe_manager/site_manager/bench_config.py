@@ -209,10 +209,9 @@ class BenchConfig(BaseModel):
                 "SERVICE_NAME": "frappe",
             },
             "nginx": {
-                "SITENAME": self.name,
-                "VIRTUAL_HOST": self.name,
-                "VIRTUAL_PORT": 80,
-                "HSTS": self.ssl.hsts,
+                # Base nginx-proxy settings - VIRTUAL_HOST will be set in generate_compose()
+                "VIRTUAL_PORT": "80",
+                "HSTS": "off",  # Default value, may be overridden based on SSL config
             },
             "worker": {
                 "USERID": self.userid,

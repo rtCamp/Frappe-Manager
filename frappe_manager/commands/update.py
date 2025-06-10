@@ -14,6 +14,25 @@ from frappe_manager.site_manager.bench_config import FMBenchEnvType
 
 from frappe_manager.commands import app
 
+def handle_ssl_site_selection(bench, site_name, benchname, ssl_type):
+    """Handle site selection for SSL operations with better UX"""
+    if not site_name:
+        if len(bench.sites) == 0:
+            richprint.exit(f"No sites found in bench {benchname}")
+        elif len(bench.sites) == 1:
+            site_name = list(bench.sites.keys())[0]
+            richprint.print(f"Applying SSL to site: {site_name}")
+        else:
+            # Multi-site: show options and require selection
+            richprint.print(f"SSL operations require site selection. Available sites in {benchname}:")
+            for site in bench.sites.keys():
+                marker = " (default)" if site == bench.get_default_site().name else ""
+                current_ssl = "SSL enabled" if bench.has_certificate(site) else "No SSL"
+                richprint.print(f"  - {site}{marker} ({current_ssl})")
+            richprint.exit("Please specify --site <sitename> for SSL operations")
+    
+    return site_name
+
 @app.command()
 def update(
     ctx: typer.Context,
@@ -23,10 +42,18 @@ def update(
             help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
         ),
     ] = None,
+    site_name: Annotated[
+        Optional[str],
+        typer.Option("--site", help="Site name for SSL operations (uses default site if not specified)", show_default=False),
+    ] = None,
     ssl: Annotated[Optional[SUPPORTED_SSL_TYPES], typer.Option(help="Enable SSL.", show_default=False)] = None,
     admin_tools: Annotated[
         Optional[EnableDisableOptionsEnum],
         typer.Option("--admin-tools", help="Toggle admin-tools.", show_default=False),
+    ] = None,
+    default_site: Annotated[
+        Optional[str],
+        typer.Option("--default-site", help="Set default site for the bench", show_default=False),
     ] = None,
     letsencrypt_preferred_challenge: Annotated[
         Optional[LETSENCRYPT_PREFERRED_CHALLENGE],
@@ -62,6 +89,19 @@ def update(
     if not bench.compose_project.running:
         raise BenchNotRunning(bench_name=bench.name)
 
+    # Handle default site setting
+    if default_site:
+        if default_site not in bench.sites:
+            richprint.exit(f"Site {default_site} not found in bench {benchname}")
+        
+        current_default = bench.get_default_site()
+        if current_default and current_default.name == default_site:
+            richprint.print(f"Site {default_site} is already the default site")
+        else:
+            bench.set_default_site(default_site)
+            richprint.print(f"Set {default_site} as default site for bench {benchname}")
+            bench_config_save = True
+
     if developer_mode:
         if developer_mode == EnableDisableOptionsEnum.enable:
             bench.bench_config.developer_mode = True
@@ -84,7 +124,18 @@ def update(
         bench_config_save = True
 
     if ssl:
-        new_ssl_certificate = SSLCertificate(domain=benchname, ssl_type=SUPPORTED_SSL_TYPES.none)
+        # Use enhanced site selection for SSL
+        site_name = handle_ssl_site_selection(bench, site_name, benchname, ssl)
+        
+        site = bench.get_site(site_name)
+        if not site:
+            richprint.exit(f"Site {site_name} not found in bench {benchname}")
+
+        # Show current SSL status
+        if bench.has_certificate(site_name):
+            richprint.warning(f"Site {site_name} already has SSL certificate. This will replace it.")
+
+        new_ssl_certificate = SSLCertificate(domain=site_name, ssl_type=SUPPORTED_SSL_TYPES.none)
 
         if ssl == SUPPORTED_SSL_TYPES.le:
             if not letsencrypt_preferred_challenge:
@@ -110,10 +161,6 @@ def update(
                     "Defaulting to Let's Encrypt email from [blue]fm_config.toml[/blue] since [blue]'--letsencrypt-email'[/blue] is not given."
                 )
                 email = fm_config_manager.letsencrypt.email
-
-            site = bench.get_default_site()
-            if not site:
-                richprint.exit("No default site configured for SSL certificate")
                 
             new_ssl_certificate = LetsencryptSSLCertificate(
                 domain=site.name,
@@ -125,12 +172,12 @@ def update(
             )
 
         richprint.print("Updating Certificate.")
-        bench.update_certificate(new_ssl_certificate)
+        bench.update_certificate(new_ssl_certificate, site_name)
         richprint.print("Certificate Updated.")
 
-        if bench.has_certificate():
+        if bench.has_certificate(site_name):
             richprint.print(
-                f"SSL Certificate will expire in {format_ssl_certificate_time_remaining(bench.certificate_manager.get_certficate_expiry())}"
+                f"SSL Certificate will expire in {format_ssl_certificate_time_remaining(site.get_certificate_expiry())}"
             )
 
     if admin_tools:

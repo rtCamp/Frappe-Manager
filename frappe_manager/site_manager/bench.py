@@ -169,6 +169,11 @@ class Bench:
             richprint.warning("No sites found, skipping nginx config generation")
             return
         
+        # Ensure nginx config directory exists before generating configs
+        # if not self.nginx_config_manager.nginx_confd_dir.exists():
+        #     richprint.warning("Nginx config directory not found, ensuring it's created")
+        #     self.nginx_config_manager.nginx_confd_dir.mkdir(parents=True, exist_ok=True)
+        
         # Generate individual site configs
         for site in sites_list:
             self.nginx_config_manager.generate_site_config(site)
@@ -202,7 +207,7 @@ class Bench:
             self.path.mkdir(parents=True, exist_ok=True)
 
             richprint.change_head("Generating bench compose")
-            self.generate_compose(self.bench_config.export_to_compose_inputs())
+            self.generate_compose(self.bench_config.export_to_compose_inputs(), sites_to_create=sites_to_create)
             self.create_compose_dirs()
 
             if is_template_bench:
@@ -235,13 +240,13 @@ class Bench:
                 # Add to sites dictionary
                 self._sites[site_name] = site
                 
-                # Set first site as default
-                if i == 0:
+                # Set first site as default for multi-site setups
+                if i == 0 and len(sites_to_create) > 1:
                     self.set_default_site(site_name)
                 
                 richprint.print(f"Created site {site_name}")
 
-            # After creating all sites, generate nginx configs
+            # Generate nginx configs AFTER all sites are created and nginx dirs are properly set up
             self._generate_nginx_configs()
 
             self.sync_bench_config_configuration()
@@ -309,23 +314,27 @@ class Bench:
 
         save_dict_to_file(config, common_bench_config_path)
 
-    def set_bench_site_config(self, config: dict):
+    def set_bench_site_config(self, config: dict, site_name: Optional[str] = None):
         """
-        Sets the values in the default site's site_config.json file.
+        Sets the values in the specified site's site_config.json file.
 
         Args:
             config (dict): A dictionary containing the key-value pairs
+            site_name (str): Name of the site to configure (uses default site if not specified)
         """
-        default_site = self.get_default_site()
-        if not default_site:
-            if self.sites:
-                default_site = list(self.sites.values())[0]
-            else:
-                raise BenchException(self.name, message='No sites found in bench.')
+        if not site_name:
+            default_site = self.get_default_site()
+            if not default_site:
+                raise BenchException(self.name, "No sites available")
+            site_name = default_site.name
         
-        site_config_path = self.path / "workspace/frappe-bench/sites" / default_site.name / "site_config.json"
+        site = self.get_site(site_name)
+        if not site:
+            raise BenchException(self.name, f"Site {site_name} not found")
+        
+        site_config_path = self.path / "workspace/frappe-bench/sites" / site.name / "site_config.json"
         if not site_config_path.exists():
-            raise BenchException(self.name, message=f'site_config.json not found for site {default_site.name}.')
+            raise BenchException(self.name, message=f'site_config.json not found for site {site.name}.')
         save_dict_to_file(config, site_config_path)
 
     def get_common_bench_config(self):
@@ -334,31 +343,48 @@ class Bench:
             raise BenchException(self.name, message='common_site_config.json not found.')
         return json.loads(common_bench_config_path.read_text())
 
-    def get_bench_site_config(self):
-        """Get site config for the default site"""
-        default_site = self.get_default_site()
-        if not default_site:
-            # Fallback to any available site if no default site is set
-            if self.sites:
-                default_site = list(self.sites.values())[0]
-            else:
-                raise BenchException(self.name, message='No sites found in bench.')
+    def get_bench_site_config(self, site_name: Optional[str] = None):
+        """Get site config - use default site if none specified"""
+        if not site_name:
+            default_site = self.get_default_site()
+            if not default_site:
+                raise BenchException(self.name, "No sites available")
+            site_name = default_site.name
         
-        site_config_path = self.path / "workspace/frappe-bench/sites" / default_site.name / "site_config.json"
+        site = self.get_site(site_name)
+        if not site:
+            raise BenchException(self.name, f"Site {site_name} not found")
+        
+        site_config_path = self.path / "workspace/frappe-bench/sites" / site.name / "site_config.json"
         if not site_config_path.exists():
-            raise BenchException(self.name, message=f'site_config.json not found for site {default_site.name}.')
+            raise BenchException(self.name, message=f'site_config.json not found for site {site.name}.')
         return json.loads(site_config_path.read_text())
 
-    def generate_compose(self, inputs: dict) -> None:
+    def generate_compose(self, inputs: dict, sites_to_create: List[str] = None) -> None:
         """
         Generates the compose file for the site based on the given inputs.
 
         Args:
             inputs (dict): A dictionary containing the inputs for generating the compose file.
+            sites_to_create (List[str], optional): List of site names to be created (used during initial setup)
 
         Returns:
             None
         """
+        
+        # Use existing sites or sites that will be created
+        if sites_to_create:
+            all_site_names = sites_to_create
+        else:
+            all_site_names = list(self.sites.keys())
+
+        if all_site_names:
+            # Prepare nginx environment for jwilder/nginx-proxy
+            nginx_proxy_env = {"VIRTUAL_HOST": ",".join(all_site_names)}
+
+            # Update nginx environment with proxy settings
+            inputs["environment"]["nginx"].update(nginx_proxy_env)
+            
         if "environment" in inputs.keys():
             environments: dict = inputs["environment"]
             self.compose_project.compose_file_manager.set_all_envs(environments)
@@ -428,29 +454,7 @@ class Bench:
         configs_path = self.path / "configs"
         configs_path.mkdir(parents=True, exist_ok=True)
 
-        # create nginx dirs
-        nginx_dir = configs_path / "nginx"
-        nginx_dir.mkdir(parents=True, exist_ok=True)
-
-        nginx_poluate_dir = ["conf"]
-        nginx_image = self.compose_project.compose_file_manager.yml["services"]["nginx"]["image"]
-
-        for directory in nginx_poluate_dir:
-            new_dir = nginx_dir / directory
-            if not new_dir.exists():
-                new_dir_abs = str(new_dir.absolute())
-                host_run_cp(
-                    nginx_image,
-                    source="/etc/nginx",
-                    destination=new_dir_abs,
-                    docker=self.compose_project.docker,
-                )
-
-        nginx_subdirs = ["logs", "cache", "run", "html"]
-
-        for directory in nginx_subdirs:
-            new_dir = nginx_dir / directory
-            new_dir.mkdir(parents=True, exist_ok=True)
+        self.nginx_config_manager.setup_nginx_directories(self.compose_project)
 
         richprint.print("Created all required directories.")
 
@@ -714,25 +718,44 @@ class Bench:
         return apps_data
 
     # this can be plugable
-    def get_db_connection_info(self):
-        """Get database connection info for default site"""
-        site = self.get_default_site()
+    def get_db_connection_info(self, site_name: Optional[str] = None):
+        """Get database connection info - use default site if none specified"""
+        if not site_name:
+            default_site = self.get_default_site()
+            if not default_site:
+                raise BenchException(self.name, "No sites available")
+            site_name = default_site.name
+        
+        site = self.get_site(site_name)
         if not site:
-            raise BenchException(self.name, "No default site configured")
+            raise BenchException(self.name, f"Site {site_name} not found")
         
         site_config = site.get_config()
 
+        # Handle Frappe v15+ database user vs database name
+        db_name = site_config.get("db_name") or site.get_expected_db_name()
+        
+        # In Frappe v15+, db_user can be different from db_name
+        # Check for explicit db_user in site config, fallback to db_name
+        db_user = site_config.get("db_user", db_name)
+
         return {
-            "name": site_config.get("db_name") or site.get_expected_db_name(),
-            "user": site_config.get("db_name") or site.get_expected_db_name(),
+            "name": db_name,
+            "user": db_user,
             "password": site_config.get("db_password"),
         }
 
     def create_certificate(self, site_name: Optional[str] = None):
-        """Generate SSL certificate for specified site or default site"""
-        site = self.get_site(site_name) if site_name else self.get_default_site()
+        """Generate SSL certificate - use default site if none specified"""
+        if not site_name:
+            default_site = self.get_default_site()
+            if not default_site:
+                raise BenchException(self.name, "No sites available")
+            site_name = default_site.name
+        
+        site = self.get_site(site_name)
         if not site:
-            raise BenchException(self.name, f"Site {site_name or 'default'} not found")
+            raise BenchException(self.name, f"Site {site_name} not found")
         
         site.setup_certificate_manager(
             webroot_dir=self.proxy_manager.dirs.html.host,
@@ -741,17 +764,23 @@ class Bench:
         site.create_certificate()
 
     def has_certificate(self, site_name: Optional[str] = None) -> bool:
-        """Check if site has SSL certificate"""
-        site = self.get_site(site_name) if site_name else self.get_default_site()
+        """Check if site has SSL certificate - use default site if none specified"""
+        if not site_name:
+            default_site = self.get_default_site()
+            if not default_site:
+                return False
+            site_name = default_site.name
+        
+        site = self.get_site(site_name)
         if not site:
-            raise BenchException(self.name, f"Site {site_name or 'default'} not found")
+            return False
         return site.has_certificate()
 
-    def remove_certificate(self, site_name: Optional[str] = None):
-        """Remove SSL certificate from specified site or default site"""
-        site = self.get_site(site_name) if site_name else self.get_default_site()
+    def remove_certificate(self, site_name: str):
+        """Remove SSL certificate from specified site"""
+        site = self.get_site(site_name)
         if not site:
-            raise BenchException(self.name, f"Site {site_name or 'default'} not found")
+            raise BenchException(self.name, f"Site {site_name} not found")
         
         site.setup_certificate_manager(
             webroot_dir=self.proxy_manager.dirs.html.host,
@@ -760,10 +789,18 @@ class Bench:
         site.remove_certificate()
 
     def update_certificate(self, certificate: SSLCertificate, site_name: Optional[str] = None, raise_error: bool = True):
-        """Update SSL certificate for specified site or default site"""
-        site = self.get_site(site_name) if site_name else self.get_default_site()
+        """Update SSL certificate with enhanced context awareness"""
+        if not site_name:
+            default_site = self.get_default_site()
+            if not default_site:
+                raise BenchException(self.name, "No sites available")
+            site_name = default_site.name
+        
+        self._log_operation_context("SSL certificate update", site_name)
+        
+        site = self.get_site(site_name)
         if not site:
-            raise BenchException(self.name, f"Site {site_name or 'default'} not found")
+            raise BenchException(self.name, f"Site {site_name} not found")
 
         site.setup_certificate_manager(
             webroot_dir=self.proxy_manager.dirs.html.host,
@@ -781,11 +818,11 @@ class Bench:
         
         return result
 
-    def renew_certificate(self, site_name: Optional[str] = None):
-        """Renew SSL certificate for specified site or default site"""
-        site = self.get_site(site_name) if site_name else self.get_default_site()
+    def renew_certificate(self, site_name: str):
+        """Renew SSL certificate for specified site"""
+        site = self.get_site(site_name)
         if not site:
-            raise BenchException(self.name, f"Site {site_name or 'default'} not found")
+            raise BenchException(self.name, f"Site {site_name} not found")
 
         if not self.compose_project.is_service_running('nginx'):
             raise BenchServiceNotRunning(self.name, 'nginx')
@@ -796,69 +833,98 @@ class Bench:
         )
         site.renew_certificate()
 
-    def info(self):
-        """
-        Retrieves and displays information about the bench.
+    def info(self, site_name: Optional[str] = None):
+        """Display comprehensive bench info - always shows all sites"""
+        richprint.change_head("Bench Overview")
+        self._show_bench_overview()
 
-        This method retrieves various information about the site, such as site URL, site root, database details,
-        Frappe username and password, root database user and password, and more. It then formats and displays
-        this information using the richprint library.
-        """
-
+    def _show_bench_overview(self):
+        """Show general bench information and sites summary"""
         richprint.change_head("Getting bench info")
-        bench_db_info = self.get_db_connection_info()
-
-        db_user = bench_db_info["name"]
-        db_pass = bench_db_info["password"]
-
+        
         services_db_info = self.services.database_manager.database_server_info
         bench_info_table = Table(show_lines=True, show_header=False, highlight=True)
 
-        protocol = 'https' if self.has_certificate() else 'http'
-
-        # get admin pass from site_config.json if available use that
-        admin_pass = self.bench_config.admin_pass + " (default)"
-
-        site_config = self.get_bench_site_config()
-
-        if 'admin_password' in site_config:
-            admin_pass = site_config['admin_password']
-
-        ssl_service_type = f'{self.bench_config.ssl.ssl_type.value}'
-
-        if self.bench_config.ssl.ssl_type == SUPPORTED_SSL_TYPES.le:
-            ssl_service_type = (
-                f'[{self.bench_config.ssl.preferred_challenge.value}] {self.bench_config.ssl.ssl_type.value}'
-            )
+        # Get admin password - use bench default
+        admin_pass = self.bench_config.admin_pass
 
         status = "Active" if self.compose_project.running else "Inactive"
         status_color = "green" if self.compose_project.running else "red"
         status_display = f"[{status_color}]{status}[/{status_color}]"
 
+        # Show default site info prominently
+        default_site = self.get_default_site()
+        default_site_display = default_site.name if default_site else "None"
         data = {
-            "Bench Url": f"{protocol}://{self.name}",
-            "Bench Root": f"[link=file://{self.path.absolute()}]{self.path.absolute()}[/link]",
+            "Bench Name": self.name,
             "Status": status_display,
+            "Bench Root": f"[link=file://{self.path.absolute()}]{self.path.absolute()}[/link]",
+            "Environment": self.bench_config.environment_type.value,
             "Frappe Username": "administrator",
             "Frappe Password": admin_pass,
             "Root DB User": services_db_info.user,
             "Root DB Password": services_db_info.password,
             "Root DB Host": services_db_info.host,
-            "DB Name": db_user,
-            "DB User": db_user,
-            "DB Password": db_pass,
-            "Environment": self.bench_config.environment_type.value,
-            # Show SSL info for each site
-            **{
-                f'HTTPS ({site_name})': (
-                    f'{site.certificate.ssl_type.value.upper()} ({format_ssl_certificate_time_remaining(site.get_certificate_expiry())})'
-                    if site.has_certificate()
-                    else 'Not Enabled'
-                )
-                for site_name, site in self.sites.items()
-            },
         }
 
+        # Minimal single-column sites overview
+        if self.sites:
+            sites_table = Table(show_header=False, show_lines=False, expand=True, padding=(0, 1), show_edge=False)
+            sites_table.add_column("Site Information", style="cyan")
+            
+            site_items = list(self.sites.items())
+            for i, (site_name, site) in enumerate(site_items):
+                # Get site-specific database info
+                site_db_info = self.get_db_connection_info(site_name)
+                
+                # Build site URL
+                protocol = 'https' if self.has_certificate(site_name) else 'http'
+                site_url = f"{protocol}://{site_name}"
+                
+                # Check if this is the default site
+                is_default = site_name == (default_site.name if default_site else None)
+                site_display = f"{site_name}"
+                if is_default:
+                    site_display += " (Default)"
+                
+                status = "Active" if site.exists else "Inactive"
+                status_color = "green" if site.exists else "red"
+                
+                ssl_status = "Enabled" if site.has_certificate() else "Disabled"
+                ssl_color = "green" if site.has_certificate() else "yellow"
+                
+                # Get database info
+                db_name = site_db_info['name']
+                db_user = site_db_info['user']
+                db_password = site_db_info['password']
+                
+                db_info = (
+                    f"DB Name: [dim]{db_name}[/dim]\n"
+                    f"DB User: [dim]{db_user}[/dim]\n"
+                    f"Password: [dim]{db_password}[/dim]"
+                )
+                
+                # Create single-column information block with spacing
+                site_info = (
+                    f"[bold cyan]{site_display}[/bold cyan]\n"
+                    f"URL: [blue]{site_url}[/blue]\n"
+                    f"Status: [{status_color}]{status}[/{status_color}] | "
+                    f"SSL: [{ssl_color}]{ssl_status}[/{ssl_color}]\n"
+                    f"{db_info}"
+                )
+                
+                # Add extra spacing between sites (except for the last one)
+                if i < len(site_items) - 1:
+                    site_info += "\n"  # Add blank line between sites
+                
+                sites_table.add_row(site_info)
+            
+            data["Sites Details"] = sites_table
+            
+        else:
+            data["Sites"] = "No sites configured"
+
+        # Admin tools section - REMOVE duplicate site URLs
         if not self.bench_config.admin_tools:
             data['Admin Tools'] = 'Not Enabled'
         else:
@@ -874,12 +940,13 @@ class Bench:
             # Create auth info section
             auth_info = f"\nAuthentication Required:\n  Username: [cyan]{username}[/cyan]\n  Password: [green]{password}[/green]"
 
+            # Use bench name for admin tools URLs (not individual sites)
+            protocol = 'https' if any(self.has_certificate(site) for site in self.sites.keys()) else 'http'
             admin_tools_Table.add_row("Mailpit", f"{protocol}://{self.name}/mailpit")
             admin_tools_Table.add_row("Adminer", f"{protocol}://{self.name}/adminer")
 
             # Combine table and auth info
             from rich.console import Group
-
             data['Admin Tools'] = Group(admin_tools_Table, auth_info)
 
         bench_info_table.add_column(no_wrap=True)
@@ -1189,12 +1256,16 @@ class Bench:
         richprint.print("Attached to frappe service container.")
 
     def remove_database_and_user(self, site_name: Optional[str] = None):
-
-        """Remove database and user for specified site or default site"""
-        site = self.get_site(site_name) if site_name else self.get_default_site()
-
+        """Remove database and user - use default site if none specified"""
+        if not site_name:
+            default_site = self.get_default_site()
+            if not default_site:
+                raise BenchException(self.name, "No sites available")
+            site_name = default_site.name
+        
+        site = self.get_site(site_name)
         if not site:
-            raise BenchException(self.name, f"Site {site_name or 'default'} not found")
+            raise BenchException(self.name, f"Site {site_name} not found")
 
         site_config = site.get_config()
         db_name = site_config.get("db_name") or site.get_expected_db_name()
@@ -1238,9 +1309,6 @@ class Bench:
     def _discover_all_sites_for_cleanup(self) -> set:
         """Discover all sites that need cleanup - both registered and filesystem-only"""
         all_sites = set(self.sites.keys())
-
-        from rich import inspect
-        inspect(self.sites.keys())
 
         sites_dir = self.path / "workspace/frappe-bench/sites"
         if sites_dir.exists():
@@ -1380,11 +1448,32 @@ class Bench:
         """Delegate supervisord status check to BenchOperations"""
         return self.benchops.is_supervisord_running(interval, timeout)
 
+    def _log_operation_context(self, operation: str, site_name: Optional[str] = None):
+        """Log context about which site an operation is targeting"""
+        if not site_name:
+            default_site = self.get_default_site()
+            if not default_site:
+                return
+            site_name = default_site.name
+        
+        if len(self.sites) > 1:
+            richprint.print(f"{operation} targeting site: {site_name}")
+            if site_name == self.get_default_site().name:
+                richprint.print("(This is the default site. Use --site <name> to target a different site)")
+
     def reset(self, site_name: Optional[str] = None, admin_password: Optional[str] = None):
-        """Reset a specific site or the default site"""
-        site = self.get_site(site_name) if site_name else self.get_default_site()
+        """Reset a site - use default site if none specified"""
+        if not site_name:
+            default_site = self.get_default_site()
+            if not default_site:
+                raise BenchException(self.name, "No sites available")
+            site_name = default_site.name
+        
+        self._log_operation_context("Reset operation", site_name)
+        
+        site = self.get_site(site_name)
         if not site:
-            raise BenchException(self.name, f"Site {site_name or 'default'} not found")
+            raise BenchException(self.name, f"Site {site_name} not found")
 
         if not admin_password:
             admin_password = site.get_config().get("admin_password")
@@ -1418,20 +1507,36 @@ class Bench:
         return self._sites.copy()
 
     def get_default_site(self) -> Optional[Site]:
-        """Get the default site configured in common_site_config.json"""
-        common_config = self.get_common_bench_config()
-        default_site = common_config.get("default_site")
-
-        return self.sites.get(default_site) if default_site else None
+        """Get the default site - smart logic based on available sites"""
+        if not self.sites:
+            return None
+        
+        # If only one site, use it as default
+        if len(self.sites) == 1:
+            return list(self.sites.values())[0]
+        
+        # Check if there's an explicitly set default site in config
+        try:
+            common_config = self.get_common_bench_config()
+            default_site_name = common_config.get("default_site")
+            
+            if default_site_name and default_site_name in self.sites:
+                return self.sites[default_site_name]
+        except BenchException:
+            # If common config doesn't exist yet, fall back to first site
+            pass
+        
+        # Fallback to first site alphabetically for consistency
+        sorted_sites = sorted(self.sites.keys())
+        return self.sites[sorted_sites[0]]
 
     def set_default_site(self, site_name: str) -> None:
-        """Set the default site in common_site_config.json"""
+        """Explicitly set a default site"""
         if site_name not in self.sites:
             raise ValueError(f"Site {site_name} does not exist")
         
         common_config = self.get_common_bench_config()
         common_config["default_site"] = site_name
-
         self.set_common_bench_config(common_config)
 
     def get_site(self, site_name: str) -> Optional[Site]:
@@ -1457,6 +1562,13 @@ class Bench:
         # Reload nginx configuration
         self.nginx_config_manager.reload_nginx(self.compose_project)
         
+        # Regenerate compose with updated VIRTUAL_HOST
+        self.generate_compose(self.bench_config.export_to_compose_inputs())
+        
+        # Restart nginx to pick up new environment
+        if self.compose_project.is_service_running('nginx'):
+            self.compose_project.restart_service(['nginx'])
+        
         return site
 
     def remove_site(self, site_name: str):
@@ -1480,6 +1592,13 @@ class Bench:
         
         # Reload nginx
         self.nginx_config_manager.reload_nginx(self.compose_project)
+        
+        # Regenerate compose with updated VIRTUAL_HOST
+        self.generate_compose(self.bench_config.export_to_compose_inputs())
+        
+        # Restart nginx to pick up new environment
+        if self.compose_project.is_service_running('nginx'):
+            self.compose_project.restart_service(['nginx'])
         
         richprint.print(f"Removed site {site_name}")
 

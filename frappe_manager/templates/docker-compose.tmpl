@@ -18,11 +18,10 @@ services:
       global-backend-network:
 
   nginx:
-    image: ghcr.io/rtcamp/frappe-manager-nginx:v0.16.1
+    image: ghcr.io/rtcamp/frappe-manager-nginx:v1.0.0
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     user: REPLACE_ME_WITH_CURRENT_USER:REPLACE_ME_WITH_CURRENT_USER_GROUP
     environment:
-      SITENAME: REPLACE_ME_WITH_THE_SITE_NAME
       VIRTUAL_HOST: REPLACE_ME_WITH_SITE_NAME
       VIRTUAL_PORT: 80
       HSTS: 'off'

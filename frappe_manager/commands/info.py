@@ -15,9 +15,10 @@ def info(
         ),
     ] = None,
 ):
-    """Shows information about given bench."""
+    """Shows information about the bench and all its sites."""
 
     services_manager = ctx.obj["services"]
-    verbose = ctx.obj['verbose']
     bench = Bench.get_object(benchname, services_manager)
+    
+    # Always show comprehensive bench overview with all sites
     bench.info()
