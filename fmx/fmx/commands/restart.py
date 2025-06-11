@@ -130,44 +130,80 @@ def _resume_rq_workers(display: DisplayManager) -> bool:
     return True
 
 def _run_migration(display: DisplayManager, migrate_timeout: int) -> bool:
-    """Run bench migrate with timeout.
+    """Run bench migrate with timeout and real-time output.
     
     Logic:
     1. Executes 'bench migrate' from /workspace/frappe-bench directory
-    2. Applies specified timeout to prevent hanging
-    3. Captures output for error reporting
+    2. Shows real-time output during migration
+    3. Applies specified timeout to prevent hanging
     4. Returns success/failure status
     
     Returns:
         True if migration succeeded, False to abort restart
     """
     display.print("🔄 Running bench migrate...")
+    display.dimmed(f"Migration timeout: {migrate_timeout}s")
     
     try:
         start_time = time.time()
         
-        result = subprocess.run(
+        # Use Popen for real-time output streaming
+        process = subprocess.Popen(
             ["bench", "migrate"],
             cwd="/workspace/frappe-bench",
-            timeout=migrate_timeout,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Combine stderr with stdout
             text=True,
-            env={"PYTHONUNBUFFERED": "1", **dict(os.environ)}
+            bufsize=0,  # Unbuffered for immediate output
+            universal_newlines=True,
+            env={"PYTHONUNBUFFERED": "1", "PYTHONIOENCODING": "utf-8", **dict(os.environ)}
         )
         
-        elapsed_time = time.time() - start_time
+        # Stream output in real-time
+        output_lines = []
+        try:
+            while True:
+                output = process.stdout.readline()
+                if output == '' and process.poll() is not None:
+                    break
+                if output:
+                    # Clean the line of control characters
+                    line = output.rstrip('\r\n')
+                    if line:  # Only show non-empty lines
+                        # Use print directly to avoid Rich formatting issues
+                        print(f"  {line}", flush=True)
+                        output_lines.append(line)
+                
+                # Check timeout
+                if time.time() - start_time > migrate_timeout:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                    raise subprocess.TimeoutExpired(["bench", "migrate"], migrate_timeout)
         
-        if result.returncode == 0:
+        finally:
+            # Ensure process is cleaned up
+            if process.poll() is None:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+        
+        elapsed_time = time.time() - start_time
+        return_code = process.returncode
+        
+        if return_code == 0:
             display.success(f"Migration completed successfully in {elapsed_time:.1f}s")
-            if result.stdout.strip():
-                display.dimmed(f"Migration output: {result.stdout.strip()}")
             return True
         else:
-            display.error(f"Migration failed with exit code {result.returncode}")
-            if result.stderr.strip():
-                display.print(f"Migration error: {result.stderr.strip()}")
-            if result.stdout.strip():
-                display.print(f"Migration output: {result.stdout.strip()}")
+            display.error(f"Migration failed with exit code {return_code}")
+            if output_lines:
+                display.print("Recent migration output:")
+                for line in output_lines[-10:]:  # Show last 10 lines
+                    print(f"  {line}")
             return False
             
     except subprocess.TimeoutExpired:
