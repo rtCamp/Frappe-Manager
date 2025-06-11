@@ -13,13 +13,6 @@ def format_timestamp(timestamp: int) -> str:
     except Exception:
         return f"{timestamp} (timestamp)"
 
-def get_state_color(state: str) -> str:
-    """Get the appropriate color for a process state."""
-    if state == 'RUNNING':
-        return 'green'
-    elif state in ['STARTING', 'BACKOFF', 'STOPPING']:
-        return 'yellow'
-    return 'red'
 
 def create_process_details_table(process_info: Dict[str, Any], verbose: bool = False) -> Table:
     """Create a formatted table of process details (only verbose details)."""
@@ -85,7 +78,7 @@ def format_service_info(service_name: str, process_info_list: list, verbose: boo
     for process in process_info_list:
         process_name = process.get('name', 'N/A')
         state = process.get('statename', 'UNKNOWN')
-        state_color = get_state_color(state)
+        state_color = 'green' if state == 'RUNNING' else ('yellow' if state in ['STARTING', 'BACKOFF', 'STOPPING'] else 'red')
 
         # Rearrange the elements: PID, Status, then Process Name
         process_tree = root.add(

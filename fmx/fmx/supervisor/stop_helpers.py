@@ -59,57 +59,7 @@ def _kill_process(supervisor_api, service_name: str, process_name: str) -> bool:
             _raise_exception_from_fault(kill_fault, service_name, "signal/getInfo", process_name)
             return False # Should not be reached if _raise_exception_from_fault raises
 
-def _wait_for_all_processes_stop(supervisor_api, service_name: str, timeout: int) -> bool:
-    """Wait for all processes managed by supervisor to reach a stopped state."""
-    display.print(f"  Waiting up to {timeout}s for graceful stop of all processes in {display.highlight(service_name)}...")
-    start_time = time.monotonic()
-    while time.monotonic() - start_time < timeout:
-        try:
-            all_info = supervisor_api.getAllProcessInfo()
-            # Handle case where supervisor might return empty list temporarily or if no processes exist
-            if not all_info:
-                 display.warning("No process info found while waiting for stop. Assuming all stopped.")
-                 return True
-            if all(info['state'] in STOPPED_STATES for info in all_info):
-                display.success(f"  All processes in {display.highlight(service_name)} stopped gracefully.")
-                return True
-        except Fault as e:
-             # If supervisor is shutting down during wait, consider it done.
-             if "SHUTDOWN_STATE" in e.faultString:
-                  display.print(f"  Supervisor in {display.highlight(service_name)} is shutting down, assuming processes stopped.")
-                  return True
-             # Re-raise other faults
-             _raise_exception_from_fault(e, service_name, "getAllProcessInfo (wait)")
-             return False # Should not be reached
-        time.sleep(0.5)
-    display.warning(f"Timeout reached. Not all processes in {display.highlight(service_name)} stopped gracefully.")
-    return False
 
-def _kill_remaining_processes(supervisor_api, service_name: str) -> bool:
-    """Find and kill processes that are not in a stopped state."""
-    display.print(f"  Checking for running processes in {display.highlight(service_name)} to kill...")
-    results = {}
-    try:
-        all_info = supervisor_api.getAllProcessInfo()
-        processes_to_kill = [info for info in all_info if info['state'] not in STOPPED_STATES]
-
-        if not processes_to_kill:
-            display.print("  No running processes found to kill.")
-            return True
-
-        for info in processes_to_kill:
-            process_name = info['name']
-            display.print(f"  Attempting to kill process {display.highlight(process_name)} (State: {info['statename']})...")
-            # Use the existing _kill_process helper
-            results[process_name] = _kill_process(supervisor_api, service_name, process_name)
-
-        return all(results.values())
-
-    except Fault as e:
-        # Handle errors during getAllProcessInfo itself
-        display.error(f"Error getting process info to identify processes to kill: {e.faultString}")
-        _raise_exception_from_fault(e, service_name, "getAllProcessInfo (kill remaining)")
-        return False # Indicate failure
 
 def _wait_for_worker_processes_stop(supervisor_api, service_name: str, timeout: int) -> bool:
     """Wait specifically for worker processes to reach a stopped state."""

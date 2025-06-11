@@ -213,7 +213,7 @@ def _handle_start(supervisor_api, service_name: str, process_names: Optional[Lis
                 if not process_info:
                     # Should not happen if list was built correctly, but safety check
                     display.warning(f"Skipping {display.highlight(process_name_to_start)} - info not found.")
-                    results[process_name_to_start] = False # Mark as failed
+                    start_results["failed"].append(process_name_to_start)
                     continue
 
                 # Determine the name to use for the API call (group:name or just name)
@@ -259,65 +259,6 @@ def _handle_start(supervisor_api, service_name: str, process_names: Optional[Lis
 
 
 # --- Helper: Restart Action ---
-# --- Helper: Wait for Start ---
-def _wait_for_processes_start(supervisor_api, service_name: str, process_names: List[str], timeout: int) -> bool:
-    """Wait for specific processes to reach RUNNING state."""
-    if not process_names:
-        return True # Nothing to wait for
-
-    display.print(f"  Waiting up to {timeout}s for {len(process_names)} process(es) to reach RUNNING state...")
-    start_time = time.monotonic()
-    process_set = set(process_names)
-    running_set = set()
-
-    while time.monotonic() - start_time < timeout:
-        all_running_this_check = True
-        try:
-            all_info = supervisor_api.getAllProcessInfo()
-            current_states = {info['name']: info['state'] for info in all_info}
-
-            for name in process_set:
-                if name in running_set: # Already confirmed running in a previous check
-                    continue
-
-                current_state = current_states.get(name)
-                if current_state == ProcessStates.RUNNING:
-                    running_set.add(name) # Mark as running
-                elif current_state in (ProcessStates.FATAL, ProcessStates.EXITED, ProcessStates.STOPPED, ProcessStates.UNKNOWN):
-                    display.error(f"Process {display.highlight(name)} entered non-running state ({ProcessStates(current_state).name}) while waiting for start.")
-                    return False # Failure
-                else:
-                    # Still STARTING, BACKOFF, STOPPING (unexpected but possible race), or not found yet
-                    all_running_this_check = False
-
-            if running_set == process_set:
-                display.success(f"  All {len(process_names)} target process(es) are RUNNING.")
-                return True
-
-        except Fault as e:
-            # If supervisor is shutting down during wait, consider it failed.
-            if "SHUTDOWN_STATE" in e.faultString:
-                display.error(f"Supervisor in {display.highlight(service_name)} shut down while waiting for processes to start.")
-                return False
-            # Handle other potential faults during getAllProcessInfo
-            display.error(f"Error checking process status during start wait: {e.faultString}")
-            # Don't raise here, just log and assume not running for this check
-            all_running_this_check = False
-        except Exception as e:
-             display.error(f"Unexpected error checking process status during start wait: {e}")
-             all_running_this_check = False
-
-
-        if not all_running_this_check:
-            time.sleep(1) # Check every second
-
-    display.warning(f"Timeout reached. Not all target processes reached RUNNING state.")
-    # List missing processes
-    missing_processes = process_set - running_set
-    if missing_processes:
-         display.print(f"  Processes not confirmed RUNNING: {', '.join(missing_processes)}")
-    return False
-
 
 def _handle_restart(
     supervisor_api,
