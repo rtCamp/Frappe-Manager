@@ -1,16 +1,15 @@
-import sys
-from typing import Annotated, Optional, List
+from typing import Annotated, List, Optional
 
 import typer
-from ..display import DisplayManager
-from ..command_utils import validate_services, get_process_description
+
 from ..cli import (
     ServiceNameEnumFactory,
     execute_parallel_command,
     get_service_names_for_completion,
-    _cached_service_names,
 )
-from ..supervisor import stop_service as util_stop_service, FM_SUPERVISOR_SOCKETS_DIR
+from ..command_utils import get_process_description, validate_services
+from ..display import DisplayManager
+from ..supervisor import stop_service as util_stop_service
 
 command_name = "stop"
 
@@ -51,21 +50,20 @@ def command(
     ] = None,
 ):
     """Stop services or specific processes."""
-    # Get display manager from context dictionary
     display: DisplayManager = ctx.obj['display']
 
     all_services = get_service_names_for_completion()
     services_to_target = all_services if not service_names else [s.value for s in service_names]
 
-    # Use shared validation
     valid, target_desc = validate_services(display, services_to_target, all_services, "stop")
     if not valid:
-        return  # Validation already printed error messages
+        return
 
     process_desc = get_process_description(display, process_name)
 
     # Add wait information to the message
     wait_desc = "(with wait)" if wait else "(without wait)"
+
     display.print(f"\nAttempting to stop {process_desc} in {target_desc} {wait_desc}...")
     execute_parallel_command(
         services_to_target,
