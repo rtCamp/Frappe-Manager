@@ -1,3 +1,5 @@
+import os
+import subprocess
 import sys
 import time
 from typing import Annotated, Optional, List
@@ -9,7 +11,7 @@ from ..rq_controller import control_rq_workers, check_rq_suspension, wait_for_rq
 from ..display import DisplayManager
 from ..command_utils import validate_services, get_process_description
 from ..cli import ServiceNameEnumFactory, execute_parallel_command, get_service_names_for_completion
-from ..supervisor.api import restart_service as util_restart_service, signal_service_workers as util_signal_service_workers
+from ..supervisor.api import restart_service as util_restart_service, signal_service_workers as util_signal_service_workers, stop_service as util_stop_service, start_service as util_start_service
 
 
 command_name = "restart"
@@ -127,6 +129,58 @@ def _resume_rq_workers(display: DisplayManager) -> bool:
     
     return True
 
+def _run_migration(display: DisplayManager, migrate_timeout: int) -> bool:
+    """Run bench migrate with timeout.
+    
+    Logic:
+    1. Executes 'bench migrate' from /workspace/frappe-bench directory
+    2. Applies specified timeout to prevent hanging
+    3. Captures output for error reporting
+    4. Returns success/failure status
+    
+    Returns:
+        True if migration succeeded, False to abort restart
+    """
+    display.print("🔄 Running bench migrate...")
+    
+    try:
+        start_time = time.time()
+        
+        result = subprocess.run(
+            ["bench", "migrate"],
+            cwd="/workspace/frappe-bench",
+            timeout=migrate_timeout,
+            capture_output=True,
+            text=True,
+            env={"PYTHONUNBUFFERED": "1", **dict(os.environ)}
+        )
+        
+        elapsed_time = time.time() - start_time
+        
+        if result.returncode == 0:
+            display.success(f"Migration completed successfully in {elapsed_time:.1f}s")
+            if result.stdout.strip():
+                display.dimmed(f"Migration output: {result.stdout.strip()}")
+            return True
+        else:
+            display.error(f"Migration failed with exit code {result.returncode}")
+            if result.stderr.strip():
+                display.print(f"Migration error: {result.stderr.strip()}")
+            if result.stdout.strip():
+                display.print(f"Migration output: {result.stdout.strip()}")
+            return False
+            
+    except subprocess.TimeoutExpired:
+        display.error(f"Migration timed out after {migrate_timeout}s")
+        display.print("Consider increasing --migrate-timeout if migration needs more time.")
+        return False
+    except FileNotFoundError:
+        display.error("bench command not found. Ensure you're running from within the Frappe environment.")
+        return False
+    except Exception as e:
+        display.error(f"Unexpected error during migration: {e}")
+        return False
+
 def command(
     ctx: typer.Context,
     service_names: Annotated[
@@ -144,6 +198,20 @@ def command(
             help="Suspend RQ workers via Redis flag before restarting. Requires Redis connection info in common_site_config.json.",
         )
     ] = False,
+    migrate: Annotated[
+        bool,
+        typer.Option(
+            "--migrate",
+            help="Run 'bench migrate' after stopping services but before starting them.",
+        )
+    ] = False,
+    migrate_timeout: Annotated[
+        int,
+        typer.Option(
+            "--migrate-timeout",
+            help="Timeout (seconds) for bench migrate operation (default: 300).",
+        )
+    ] = 300,
     wait: Annotated[
         bool,
         typer.Option(
@@ -195,9 +263,10 @@ def command(
         )
     ] = 60,
 ):
-    """Restart services with optional RQ worker coordination.
+    """Restart services with optional RQ worker coordination and migration.
     
     Performs supervisor-based restart with optional Redis worker suspension.
+    Can run bench migrate between stop and start phases.
     Can wait for workers to complete jobs or signal them for graceful shutdown.
     Always attempts to resume workers after restart completion.
     """
@@ -224,15 +293,34 @@ def command(
 
     resume_called = False
     try:
+        # First, stop all services
         execute_parallel_command(
             services_to_target,
-            util_restart_service,
-            action_verb="restarting",
+            util_stop_service,
+            action_verb="stopping",
             show_progress=True,
+            process_name_list=None,  # Stop all processes for restart
             wait=wait,
             wait_workers=wait_workers,
             force_kill_timeout=force_kill_timeout,
         )
+        
+        # Run migration if requested
+        if migrate:
+            if not _run_migration(display, migrate_timeout):
+                display.error("Migration failed. Aborting restart - services remain stopped.")
+                raise typer.Exit(code=1)
+        
+        # Then start all services
+        execute_parallel_command(
+            services_to_target,
+            util_start_service,
+            action_verb="starting",
+            show_progress=True,
+            process_name_list=None,  # Start all defined processes
+            wait=wait,
+        )
+        
     finally:
         if suspension_needed and not resume_called:
             _resume_rq_workers(display)
