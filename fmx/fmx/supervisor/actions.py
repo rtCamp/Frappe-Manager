@@ -1,16 +1,12 @@
-import time
 import signal
 from typing import List, Optional, Dict, Any
 from xmlrpc.client import Fault
 
-from .constants import STOPPED_STATES, is_worker_process, ProcessStates, SIGNAL_NUM_WORKER_GRACEFUL_EXIT, WORKER_PROCESS_IDENTIFIERS
-from .exceptions import SupervisorOperationFailedError, SupervisorConnectionError, SupervisorProcessError
+from .constants import STOPPED_STATES, is_worker_process, SIGNAL_NUM_WORKER_GRACEFUL_EXIT
+from .exceptions import SupervisorOperationFailedError
 from ..display import display
 from .fault_handler import _raise_exception_from_fault
-from .stop_helpers import (
-    _stop_single_process_with_logic,
-    _wait_for_worker_processes_stop
-)
+from .stop_helpers import _stop_single_process_with_logic
 from ..display import display
 
 
@@ -134,7 +130,7 @@ def _handle_stop(
 
     return stop_results
 
-def _handle_start(supervisor_api, service_name: str, process_names: Optional[List[str]], wait: bool, state: Optional[str] = None, verbose: bool = False) -> Dict[str, List[str]]:
+def _handle_start(supervisor_api, service_name: str, process_names: Optional[List[str]], wait: bool, verbose: bool = False) -> Dict[str, List[str]]:
     """
     Starts processes in a service with validation and conflict detection.
     
@@ -248,8 +244,11 @@ def _handle_restart(
     display.print("  Using Standard Restart strategy.")
     display.print(f"  Stopping all processes in {display.highlight(service_name)}...")
 
+    if process_names and len(process_names) == 0:
+        process_names = None
+
     stop_results = _handle_stop(
-        supervisor_api, service_name, None, wait, force_kill_timeout,
+        supervisor_api, service_name, process_names, wait, force_kill_timeout,
         wait_workers=wait_workers,
         called_from_restart=True
     )
@@ -260,7 +259,7 @@ def _handle_restart(
 
     display.print(f"  Starting all defined processes in {display.highlight(service_name)}...")
 
-    _handle_start(supervisor_api, service_name, None, wait, verbose=False)
+    _handle_start(supervisor_api, service_name, process_names, wait, verbose=False)
 
     display.success(f"Standard restart completed successfully for {display.highlight(service_name)}.")
     return True
@@ -383,7 +382,7 @@ def _handle_signal_workers(
                     display.warning(f"Failed to send signal {signal_num} to process {display.highlight(proc_name)} in {display.highlight(service_name)}: {e.faultString}")
     return signaled_processes
 
-def _handle_info(supervisor_api, service_name: str) -> List[Dict[str, Any]]:
+def _handle_info(supervisor_api, service_name: str):
     """
     Retrieves raw process information from supervisor for status display.
     

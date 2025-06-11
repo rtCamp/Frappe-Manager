@@ -69,7 +69,6 @@ def start_service(
     service_name: str,
     process_name_list: Optional[List[str]] = None,
     wait: bool = True,
-    state: Optional[str] = None,
     verbose: bool = False
 ) -> Optional[Dict[str, List[str]]]:
     """
@@ -90,7 +89,6 @@ def start_service(
             service_name, "start",
             process_names=process_name_list,
             wait=wait,
-            state=state,
             verbose=verbose
         )
     except SupervisorError as e:

@@ -35,7 +35,6 @@ def execute_supervisor_command(
     wait: bool = True,
     force_kill_timeout: Optional[int] = None,
     wait_workers: Optional[bool] = None,
-    state: Optional[str] = None,
     verbose: bool = False,
     signal_name: Optional[str] = None,
     signal_num: Optional[int] = None,
@@ -74,7 +73,7 @@ def execute_supervisor_command(
         if action == "stop":
             return _handle_stop(supervisor_api, service_name, process_names, wait, force_kill_timeout, wait_workers, verbose=verbose)
         elif action == "start":
-            return _handle_start(supervisor_api, service_name, process_names, wait, state=state, verbose=verbose)
+            return _handle_start(supervisor_api, service_name, process_names, wait, verbose=verbose)
         elif action == "restart":
             return _handle_restart(
                 supervisor_api,
