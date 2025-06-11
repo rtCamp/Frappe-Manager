@@ -1,19 +1,92 @@
+import contextlib
+from enum import Enum
+import json
+from pathlib import Path
 import sys
 import time
 import traceback
 from typing import Optional
-from enum import Enum
+from typing import Any, Optional
+
 from rich import print
+from rich import print
+from rich.console import Group
 from rich.live import Live
 from rich.panel import Panel
 from rich.table import Table
-from rich.console import Group
 
-from rq.suspension import suspend, resume, is_suspended
-from rq.worker import Worker
-from rq import Queue
 import redis
-from .workers import _get_site_config_key_value
+from rq import Queue
+from rq.suspension import is_suspended, resume, suspend
+from rq.worker import Worker
+
+def _get_site_config_key_value(key_name: str, default: Optional[Any] = None, verbose: bool = False) -> Optional[Any]:
+    """Read a specific key's value from common_site_config.json.
+
+    Args:
+        key_name: The name of the key to read.
+        default: The default value to return if the key is not found or the file is invalid/missing.
+        verbose: If True, print status messages.
+
+    Returns:
+        The value of the key, or the default value.
+    """
+    common_config_path = Path("/workspace/frappe-bench/sites/common_site_config.json")
+    config = {}
+    try:
+        if common_config_path.exists():
+            with open(common_config_path, 'r') as f:
+                # Suppress error if file is empty or invalid JSON
+                with contextlib.suppress(json.JSONDecodeError):
+                    config = json.load(f)
+            if verbose:
+                print(f"[dim]Read config from {common_config_path}[/dim]", file=sys.stderr)
+        elif verbose:
+            print(f"[dim]Config file {common_config_path} does not exist.[/dim]", file=sys.stderr)
+
+        value = config.get(key_name, default)
+        if verbose:
+            print(f"[dim]Value for key '{key_name}': {json.dumps(value)}[/dim]", file=sys.stderr)
+        return value
+
+    except OSError as e:
+        if verbose:
+            print(f"[yellow]Warning:[/yellow] Could not read {common_config_path}: {e}", file=sys.stderr)
+        # In case of read error, return default, as we can't determine the value
+        return default
+
+
+def _get_redis_connection():
+    """Get Redis connection from common_site_config.json"""
+    redis_url = _get_site_config_key_value("redis_queue", verbose=False)
+    if not redis_url:
+        print("[bold red]Error:[/bold red] 'redis_queue' URL not found in common_site_config.json.", file=sys.stderr)
+        return None
+
+    try:
+        connection = redis.from_url(redis_url)
+        connection.ping()
+        return connection
+    except (redis.exceptions.ConnectionError, ValueError) as e:
+        print(f"[bold red]Error:[/bold red] Failed to connect to Redis: {e}", file=sys.stderr)
+        return None
+
+def _get_worker_states(connection):
+    """Get all workers and their states from Redis"""
+    workers = Worker.all(connection=connection)
+    if not workers:
+        return [], []
+    
+    non_suspended_workers = []
+    worker_states = []
+    
+    for worker in workers:
+        state = worker.state
+        worker_states.append((worker.name, state))
+        if state != 'suspended':
+            non_suspended_workers.append(worker)
+    
+    return non_suspended_workers, worker_states
 
 
 def noop():
@@ -35,21 +108,8 @@ def control_rq_workers(action: ActionEnum) -> bool:
         bool: True on success, False on failure
     """
     try:
-        redis_url = _get_site_config_key_value("redis_queue", verbose=True)
-        if not redis_url:
-            print("[bold red]Error:[/bold red] 'redis_queue' URL not found in common_site_config.json.", file=sys.stderr)
-            return False
-
-        try:
-            print(f"[dim]Connecting to Redis via URL: {redis_url}...[/dim]", file=sys.stderr)
-            connection = redis.from_url(redis_url)
-            connection.ping()
-            print("[dim]Redis connection successful.[/dim]", file=sys.stderr)
-        except redis.exceptions.ConnectionError as conn_err:
-            print(f"[bold red]Error:[/bold red] Failed to connect to Redis at '{redis_url}': {conn_err}", file=sys.stderr)
-            return False
-        except ValueError as url_err:
-            print(f"[bold red]Error:[/bold red] Invalid Redis URL format found in common_site_config.json: '{redis_url}' - {url_err}", file=sys.stderr)
+        connection = _get_redis_connection()
+        if not connection:
             return False
 
         if action == ActionEnum.suspend:
@@ -88,17 +148,8 @@ def wait_for_rq_workers_suspended(timeout: int = 300, poll_interval: int = 5, ve
         bool: True if all workers are suspended/gone, False on timeout or error.
     """
     try:
-        # Get Redis URL from common config
-        redis_url = _get_site_config_key_value("redis_queue", verbose=False)
-        if not redis_url:
-            print("[bold red]Error:[/bold red] 'redis_queue' URL not found in common_site_config.json.", file=sys.stderr)
-            return False
-
-        try:
-            connection = redis.from_url(redis_url)
-            connection.ping()
-        except (redis.exceptions.ConnectionError, ValueError) as e:
-            print(f"[bold red]Error:[/bold red] Failed to connect to Redis: {e}", file=sys.stderr)
+        connection = _get_redis_connection()
+        if not connection:
             return False
 
         print(f"Waiting up to {timeout}s for RQ workers to reach 'suspended' state...")
@@ -114,18 +165,10 @@ def wait_for_rq_workers_suspended(timeout: int = 300, poll_interval: int = 5, ve
                     break
 
                 try:
-                    workers = Worker.all(connection=connection)
-                    if not workers:
+                    non_suspended_workers_list, worker_states = _get_worker_states(connection)
+                    if not worker_states:  # No workers at all
                         final_status = "no_workers"
                         break
-
-                    non_suspended_workers_list = []
-                    worker_states = []
-                    for worker in workers:
-                        state = worker.state
-                        worker_states.append((worker.name, state))
-                        if state != 'suspended':
-                            non_suspended_workers_list.append(worker)
 
                     if non_suspended_workers_list:
                         if verbose:
@@ -220,27 +263,14 @@ def check_rq_suspension() -> Optional[bool]:
         Optional[bool]: True if suspended, False if not suspended, None on error.
     """
     try:
-        # Get Redis URL from common config
-        redis_url = _get_site_config_key_value("redis_queue", verbose=False)
-        if not redis_url:
-            print("[bold red]Error:[/bold red] 'redis_queue' URL not found in common_site_config.json.", file=sys.stderr)
-            return None
-
-        # Create Redis connection
-        try:
-            connection = redis.from_url(redis_url)
-            connection.ping()
-        except (redis.exceptions.ConnectionError, ValueError) as e:
-            print(f"[bold red]Error:[/bold red] Failed to connect to Redis: {e}", file=sys.stderr)
+        connection = _get_redis_connection()
+        if not connection:
             return None
 
         suspended = is_suspended(connection)
-        return bool(suspended)  # Convert Redis result (0 or 1) to boolean
+        return bool(suspended)
 
     except Exception as e:
         print(f"\n[bold red]Error (check_rq_suspension):[/bold red] Failed during RQ suspension check: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return None
-
-    finally:
-        pass
