@@ -180,6 +180,13 @@ def command(
             help="Show detailed worker states during --wait-workers checks.",
         )
     ] = False,
+    force_kill_timeout: Annotated[
+        Optional[int],
+        typer.Option(
+            "--force-kill-timeout",
+            help="Timeout (seconds) after which stubborn non-worker processes will be forcefully killed during restart.",
+        )
+    ] = None,
     wait_after_signal_timeout: Annotated[
         int,
         typer.Option(
@@ -224,7 +231,7 @@ def command(
             show_progress=True,
             wait=wait,
             wait_workers=wait_workers,
-            force_kill_timeout=None,
+            force_kill_timeout=force_kill_timeout,
         )
     finally:
         if suspension_needed and not resume_called:

@@ -2,7 +2,9 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from enum import Enum
 import importlib
+import logging
 import os
+from pathlib import Path
 import pkgutil
 from typing import List, Optional
 
@@ -23,6 +25,19 @@ from .supervisor import (
 )
 
 _cached_service_names: Optional[List[str]] = None
+
+def setup_logging():
+    """Setup logging for fmx application."""
+    log_dir = Path("/workspace/frappe-bench/logs")
+    log_dir.mkdir(exist_ok=True)
+    
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_dir / "fmx.log"),
+        ]
+    )
 
 def get_service_names_for_completion() -> List[str]:
     """Get service names for autocompletion."""
@@ -473,6 +488,7 @@ def register_commands():
 
 def main():
     """Main entry point for the fm-helper CLI."""
+    setup_logging()
     get_service_names_for_completion()
     ServiceNameEnumFactory()
     register_commands()

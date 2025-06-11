@@ -1,36 +1,39 @@
+import logging
 import time
 from typing import Optional, List, Any, Dict
 from xmlrpc.client import Fault
 
 from ..display import display
 
+logger = logging.getLogger(__name__)
+
 from .constants import STOPPED_STATES, is_worker_process
 from .fault_handler import _raise_exception_from_fault
 
 def _wait_for_process_stop(supervisor_api, process_name: str, timeout: int) -> bool:
     """Wait for a single process to reach a stopped state."""
-    display.print(f"  Waiting up to {timeout}s for graceful stop of {display.highlight(process_name)}...")
+    logger.info(f"Waiting up to {timeout}s for graceful stop of {process_name}")
     start_time = time.monotonic()
     while time.monotonic() - start_time < timeout:
         try:
             info = supervisor_api.getProcessInfo(process_name)
             if info['state'] in STOPPED_STATES:
-                display.success(f"  Process {display.highlight(process_name)} stopped gracefully.")
+                logger.info(f"Process {process_name} stopped gracefully")
                 return True
         except Fault as e:
             # If process disappears during wait (e.g., BAD_NAME), consider it stopped.
             if "BAD_NAME" in e.faultString:
-                 display.print(f"  Process {display.highlight(process_name)} disappeared, assuming stopped.")
-                 return True
+                logger.info(f"Process {process_name} disappeared, assuming stopped")
+                return True
             # Re-raise other faults
             raise
         time.sleep(0.5)
-    display.warning(f"Timeout reached. Process {display.highlight(process_name)} did not stop gracefully.")
+    logger.warning(f"Timeout reached. Process {process_name} did not stop gracefully")
     return False
 
 def _kill_process(supervisor_api, service_name: str, process_name: str) -> bool:
     """Send SIGKILL to a process and verify it stopped."""
-    display.print(f"  Sending SIGKILL to process {display.highlight(process_name)}...")
+    logger.info(f"Sending SIGKILL to process {process_name}")
     try:
         # Signal process KILL
         supervisor_api.signalProcess(process_name, 'KILL')
@@ -39,23 +42,23 @@ def _kill_process(supervisor_api, service_name: str, process_name: str) -> bool:
         # Verify state after kill
         info = supervisor_api.getProcessInfo(process_name)
         if info['state'] in STOPPED_STATES:
-            display.success(f"  Process {display.highlight(process_name)} killed successfully.")
+            logger.info(f"Process {process_name} killed successfully")
             return True
         else:
-            display.error(f"Failed to kill process {display.highlight(process_name)}. Final state: {info['statename']}")
+            logger.error(f"Failed to kill process {process_name}. Final state: {info['statename']}")
             return False
     except Fault as kill_fault:
         # Handle cases where the process was already dead before KILL
         if "ALREADY_DEAD" in kill_fault.faultString or "NOT_RUNNING" in kill_fault.faultString:
-            display.print(f"  Process {display.highlight(process_name)} was already stopped before SIGKILL.")
+            logger.info(f"Process {process_name} was already stopped before SIGKILL")
             return True
         # Handle cases where the process doesn't exist anymore
         elif "BAD_NAME" in kill_fault.faultString:
-            display.print(f"  Process {display.highlight(process_name)} not found, assuming stopped/killed.")
+            logger.info(f"Process {process_name} not found, assuming stopped/killed")
             return True
         else:
             # Re-raise unexpected faults during signal/getInfo
-            display.error(f"Error sending SIGKILL or getting info for {display.highlight(process_name)}: {kill_fault.faultString}")
+            logger.error(f"Error sending SIGKILL to {process_name}: {kill_fault.faultString}")
             _raise_exception_from_fault(kill_fault, service_name, "signal/getInfo", process_name)
             return False # Should not be reached if _raise_exception_from_fault raises
 
@@ -149,27 +152,44 @@ def _stop_single_process_with_logic(
 
         # --- Force Kill Logic (runs independently of the 'wait' parameter for stopProcess) ---
         if force_kill_timeout is not None and force_kill_timeout > 0:
-            display.print(f"  --wait-workers: Checking graceful stop for worker {display.highlight(original_process_name)} (timeout: {force_kill_timeout}s)...")
-            worker_stopped_gracefully = _wait_for_process_stop(supervisor_api, original_process_name, force_kill_timeout)
-
-            worker_wait_timed_out = False
-
-            if not worker_stopped_gracefully:
-                worker_wait_timed_out = True
-                display.warning(f"Worker process {display.highlight(original_process_name)} did not stop gracefully within {force_kill_timeout}s.")
-            else:
-                display.success(f"  Worker process {display.highlight(original_process_name)} stopped gracefully.")
-
-            stopped_gracefully = False
-            if not worker_wait_timed_out:
-                display.print(f"  Verifying final stop state for {display.highlight(original_process_name)} (timeout: {force_kill_timeout}s)...")
+            is_worker = is_worker_process(original_process_name)
+            
+            if is_worker and wait_workers is False:
+                # --no-wait-workers means detachment occurred, use monitor process logic
+                logger.info(f"Worker {original_process_name} detached, allowing monitor process {min(5, force_kill_timeout)}s")
+                time.sleep(min(5, force_kill_timeout))
+                return True
+            elif is_worker:
+                # Normal worker restart/stop (with or without --wait-workers)
+                # Worker is still under supervisor control, send extra TERM via supervisor
+                logger.info(f"Checking graceful stop for worker {original_process_name} (timeout: {force_kill_timeout}s)")
                 stopped_gracefully = _wait_for_process_stop(supervisor_api, original_process_name, force_kill_timeout)
-
-            # Kill if the general wait failed or worker wait timed out
-            if not stopped_gracefully:
-                return _kill_process(supervisor_api, service_name, original_process_name)
+                
+                if not stopped_gracefully:
+                    logger.info(f"Worker {original_process_name} didn't stop gracefully, sending additional TERM")
+                    try:
+                        supervisor_api.signalProcess(name_to_stop, 'TERM')
+                        # Give a bit more time after the additional TERM
+                        time.sleep(3)
+                        logger.info(f"Additional TERM sent to worker {original_process_name}")
+                        return True
+                    except Fault as e:
+                        logger.warning(f"Failed to send additional TERM to worker {original_process_name}: {e.faultString}")
+                        return False
+                else:
+                    logger.info(f"Worker {original_process_name} stopped gracefully")
+                    return True
             else:
-                return True # Stopped gracefully within the force_kill_timeout
+                # Non-workers get normal force kill logic (TERM → wait → KILL)
+                logger.info(f"Checking graceful stop for non-worker {original_process_name} (timeout: {force_kill_timeout}s)")
+                stopped_gracefully = _wait_for_process_stop(supervisor_api, original_process_name, force_kill_timeout)
+                
+                if not stopped_gracefully:
+                    logger.info(f"Non-worker {original_process_name} didn't stop gracefully, force killing")
+                    return _kill_process(supervisor_api, service_name, original_process_name)
+                else:
+                    logger.info(f"Non-worker {original_process_name} stopped gracefully")
+                    return True
 
         # --- Non-Force Kill Reporting ---
         # If force_kill_timeout was NOT used, report based on the 'wait' flag passed to stopProcess
