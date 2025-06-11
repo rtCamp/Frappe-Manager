@@ -1,4 +1,3 @@
-import sys
 from typing import Annotated, Optional, List
 
 import typer
@@ -8,10 +7,8 @@ from ..cli import (
     ServiceNameEnumFactory,
     execute_parallel_command,
     get_service_names_for_completion,
-    _cached_service_names,
 )
 from ..supervisor.api import start_service as util_start_service
-from ..supervisor.connection import FM_SUPERVISOR_SOCKETS_DIR
 
 command_name = "start"
 
