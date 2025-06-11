@@ -227,7 +227,7 @@ def _handle_restart(
     wait: bool,
     force_kill_timeout: Optional[int] = None,
     wait_workers: Optional[bool] = None
-) -> bool:
+) -> Dict[str, List[str]]:
     """
     Performs a complete service restart using stop-then-start strategy.
     
@@ -236,13 +236,9 @@ def _handle_restart(
     2. Waits for complete shutdown with optional force kill
     3. If stop fails, aborts the restart to prevent inconsistent state
     4. Starts ALL defined processes (fresh start from configuration)
-    5. Returns success/failure status for the entire operation
+    5. Returns detailed results for both stop and start phases
     """
     action = "restart"
-    display.print(f"Initiating restart for {display.highlight(service_name)}...")
-
-    display.print("  Using Standard Restart strategy.")
-    display.print(f"  Stopping all processes in {display.highlight(service_name)}...")
 
     if process_names and len(process_names) == 0:
         process_names = None
@@ -255,14 +251,27 @@ def _handle_restart(
 
     if stop_results.get("failed"):
         display.error(f"Failed to stop some processes during standard restart of {display.highlight(service_name)}. Aborting start.")
-        raise SupervisorOperationFailedError("Failed to stop processes during standard restart", service_name=service_name)
+        # Return combined results showing the failure
+        return {
+            "stopped": stop_results.get("stopped", []),
+            "already_stopped": stop_results.get("already_stopped", []),
+            "started": [],
+            "already_running": [],
+            "failed": stop_results.get("failed", [])
+        }
 
-    display.print(f"  Starting all defined processes in {display.highlight(service_name)}...")
-
-    _handle_start(supervisor_api, service_name, process_names, wait, verbose=False)
-
-    display.success(f"Standard restart completed successfully for {display.highlight(service_name)}.")
-    return True
+    start_results = _handle_start(supervisor_api, service_name, process_names, wait, verbose=False)
+    
+    # Combine stop and start results
+    combined_results = {
+        "stopped": stop_results.get("stopped", []),
+        "already_stopped": stop_results.get("already_stopped", []),
+        "started": start_results.get("started", []),
+        "already_running": start_results.get("already_running", []),
+        "failed": start_results.get("failed", [])
+    }
+    
+    return combined_results
 
 def _handle_signal(supervisor_api, service_name: str, process_names: List[str], signal_name: str) -> bool:
     """

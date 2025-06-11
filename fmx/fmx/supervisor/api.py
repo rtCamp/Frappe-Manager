@@ -99,7 +99,7 @@ def restart_service(
     wait: bool = True,
     wait_workers: Optional[bool] = None,
     force_kill_timeout: Optional[int] = None
-) -> bool:
+) -> Dict[str, List[str]]:
     """
     Performs complete service restart using stop-then-start strategy.
     
@@ -108,10 +108,10 @@ def restart_service(
     2. Waits for complete shutdown with optional force kill timeout
     3. If stop phase fails: aborts restart to prevent inconsistent state
     4. Starts ALL defined processes (fresh start from supervisor configuration)
-    5. Returns overall success/failure status for the entire operation
+    5. Returns detailed results combining both stop and start phases
     
     Returns:
-        True if restart completed successfully, False if any phase failed
+        Dict with keys: 'stopped', 'already_stopped', 'started', 'already_running', 'failed'
     """
     try:
         return execute_supervisor_command(
@@ -119,7 +119,7 @@ def restart_service(
             wait=wait,
             wait_workers=wait_workers,
             force_kill_timeout=force_kill_timeout
-        ) or False
+        )
     except SupervisorError as e:
         raise e
 

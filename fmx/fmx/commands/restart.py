@@ -29,7 +29,7 @@ def _suspend_rq_workers(display: DisplayManager, wait_workers: Optional[bool], w
     Returns:
         True if suspension completed successfully, False to abort restart
     """
-    display.heading("➡️ Suspending RQ Workers (Redis Flag)")
+    display.print("⏸️  Suspending RQ workers via Redis flag...")
     try:
         success = control_rq_workers(action=ActionEnum.suspend)
 
@@ -86,14 +86,12 @@ def _signal_workers_for_graceful_shutdown(display: DisplayManager, services_to_t
     3. Logs which workers were signaled in each service
     4. Designed to work with bench-wrapper.sh monitor process
     """
-    display.heading("➡️ Signaling Workers for Graceful Shutdown")
+    display.print("Signaling workers for graceful shutdown...")
     try:
         for service_name in services_to_target:
             signaled_workers = util_signal_service_workers(service_name)
             if signaled_workers:
                 display.success(f"Signaled workers in {display.highlight(service_name)}: {', '.join(signaled_workers)}")
-            else:
-                display.dimmed(f"No worker processes found to signal in {display.highlight(service_name)}")
 
     except Exception as e:
         display.error(f"Error during worker signaling: {e}")
@@ -112,7 +110,7 @@ def _resume_rq_workers(display: DisplayManager) -> bool:
     Returns:
         True if resume succeeded, False if failed (non-fatal)
     """
-    display.heading("🟢 Resuming RQ Workers (Redis Flag)")
+    display.print("▶️  Resuming RQ workers via Redis flag...")
     try:
         success = control_rq_workers(action=ActionEnum.resume)
 
@@ -205,7 +203,9 @@ def command(
     if not valid:
         return
     
-    display.print(f"Attempting Restart for {target_desc}...")
+    # Add wait information to the message
+    wait_desc = "(with wait)" if wait else "(without wait)"
+    display.print(f"\nAttempting to restart {target_desc} {wait_desc}...")
 
     suspension_needed = suspend_rq or (wait_workers is True)
     if suspension_needed:
@@ -217,7 +217,6 @@ def command(
 
     resume_called = False
     try:
-        display.print(f"\n[bold cyan]🔄 Restarting Services[/bold cyan] ({target_desc})...")
         execute_parallel_command(
             services_to_target,
             util_restart_service,
@@ -232,4 +231,4 @@ def command(
             _resume_rq_workers(display)
             resume_called = True
         
-        display.print(f"\nRestart process complete for {target_desc}.")
+        display.print("\nRestart sequence complete.")
