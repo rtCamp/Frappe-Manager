@@ -1,6 +1,9 @@
+import logging
 import signal
 from typing import List, Optional, Dict, Any
 from xmlrpc.client import Fault
+
+logger = logging.getLogger(__name__)
 
 from .constants import STOPPED_STATES, is_worker_process, SIGNAL_NUM_WORKER_GRACEFUL_EXIT
 from .exceptions import SupervisorOperationFailedError
@@ -32,6 +35,8 @@ def _handle_stop(
     4. Optionally applies force kill timeout for stubborn processes
     5. Returns categorized results (stopped, already_stopped, failed)
     """
+    logger.info(f"Handle stop called: service={service_name}, processes={process_names}, wait={wait}, force_kill_timeout={force_kill_timeout}, wait_workers={wait_workers}")
+    
     action = "stop"
     target_process_names: List[str] = []
     process_info_map: Dict[str, Dict[str, Any]] = {}
@@ -128,6 +133,7 @@ def _handle_stop(
             display.error(f"Unexpected error stopping process {display.highlight(process_name)}: {e}")
             stop_results["failed"].append(process_name)
 
+    logger.info(f"Stop operation completed: service={service_name}, results={stop_results}")
     return stop_results
 
 def _handle_start(supervisor_api, service_name: str, process_names: Optional[List[str]], wait: bool, verbose: bool = False) -> Dict[str, List[str]]:
@@ -143,6 +149,8 @@ def _handle_start(supervisor_api, service_name: str, process_names: Optional[Lis
        - Handles ALREADY_STARTED, FATAL, and BAD_NAME errors gracefully
     4. Returns categorized results (started, already_running, failed)
     """
+    logger.info(f"Handle start called: service={service_name}, processes={process_names}, wait={wait}")
+    
     action = "start"
     processes_to_start_explicitly: List[str] = []
     start_results = {"started": [], "already_running": [], "failed": []}
@@ -211,6 +219,7 @@ def _handle_start(supervisor_api, service_name: str, process_names: Optional[Lis
                     start_results["failed"].append(process_name_to_start)
                     _raise_exception_from_fault(start_fault, service_name, action, process_name_to_start)
 
+        logger.info(f"Start operation completed: service={service_name}, results={start_results}")
         return start_results
 
     except Fault as e:
@@ -238,6 +247,8 @@ def _handle_restart(
     4. Starts ALL defined processes (fresh start from configuration)
     5. Returns detailed results for both stop and start phases
     """
+    logger.info(f"Handle restart called: service={service_name}, processes={process_names}, wait={wait}, force_kill_timeout={force_kill_timeout}, wait_workers={wait_workers}")
+    
     action = "restart"
 
     if process_names and len(process_names) == 0:
@@ -271,6 +282,7 @@ def _handle_restart(
         "failed": start_results.get("failed", [])
     }
     
+    logger.info(f"Restart operation completed: service={service_name}, results={combined_results}")
     return combined_results
 
 def _handle_signal(supervisor_api, service_name: str, process_names: List[str], signal_name: str) -> bool:
@@ -286,6 +298,8 @@ def _handle_signal(supervisor_api, service_name: str, process_names: List[str], 
        - Gracefully handles NOT_RUNNING and BAD_NAME cases
     4. Returns True if all signals sent successfully, False otherwise
     """
+    logger.info(f"Handle signal called: service={service_name}, processes={process_names}, signal={signal_name}")
+    
     action = "signal"
     results = {}
     signal_enum = getattr(signal, f"SIG{signal_name.upper()}", None)
@@ -347,7 +361,9 @@ def _handle_signal(supervisor_api, service_name: str, process_names: List[str], 
             display.error(f"Unexpected error signaling process {display.highlight(requested_name)}: {e}")
             results[requested_name] = False
 
-    return all(results.values())
+    success = all(results.values())
+    logger.info(f"Signal operation completed: service={service_name}, signal={signal_name}, success={success}")
+    return success
 
 def _handle_signal_workers(
     supervisor_api,
@@ -365,6 +381,8 @@ def _handle_signal_workers(
        - Constructs proper group:process API name
     4. Returns list of successfully signaled worker process names
     """
+    logger.info(f"Handle signal workers called: service={service_name}, signal_num={signal_num}")
+    
     signaled_processes = []
     action = "signal_workers"
     try:
@@ -389,6 +407,8 @@ def _handle_signal_workers(
                     signaled_processes.append(proc_name)
                 except Fault as e:
                     display.warning(f"Failed to send signal {signal_num} to process {display.highlight(proc_name)} in {display.highlight(service_name)}: {e.faultString}")
+    
+    logger.info(f"Signal workers completed: service={service_name}, signaled_count={len(signaled_processes)}, workers={signaled_processes}")
     return signaled_processes
 
 def _handle_info(supervisor_api, service_name: str):

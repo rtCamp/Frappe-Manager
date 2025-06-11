@@ -1,7 +1,10 @@
+import logging
 from typing import List, Optional, Dict, Any
 from pathlib import Path
 from rich.tree import Tree
 from ..display import display
+
+logger = logging.getLogger(__name__)
 
 from .executor import execute_supervisor_command, check_supervisord_connection
 from .constants import SIGNAL_NUM_WORKER_GRACEFUL_EXIT
@@ -23,14 +26,18 @@ def get_service_names() -> List[str]:
     Returns:
         List of service names found, empty if directory doesn't exist
     """
+    logger.info(f"Discovering services from {FM_SUPERVISOR_SOCKETS_DIR}")
     if not FM_SUPERVISOR_SOCKETS_DIR.is_dir():
+        logger.warning(f"Supervisor sockets directory not found: {FM_SUPERVISOR_SOCKETS_DIR}")
         return []
 
-    return sorted([
+    services = sorted([
         file.stem
         for file in FM_SUPERVISOR_SOCKETS_DIR.glob("*.sock")
         if file.is_socket()
     ])
+    logger.info(f"Found {len(services)} services: {services}")
+    return services
 
 def stop_service(
     service_name: str,
@@ -53,8 +60,9 @@ def stop_service(
     Returns:
         True if all targeted processes stopped successfully, False otherwise
     """
+    logger.info(f"Stop service called: service={service_name}, processes={process_name_list}, wait={wait}, force_kill_timeout={force_kill_timeout}, wait_workers={wait_workers}")
     try:
-        return execute_supervisor_command(
+        result = execute_supervisor_command(
             service_name, "stop",
             process_names=process_name_list,
             wait=wait,
@@ -62,7 +70,10 @@ def stop_service(
             wait_workers=wait_workers,
             verbose=verbose
         ) or False
+        logger.info(f"Stop service completed: service={service_name}, success={bool(result)}")
+        return result
     except SupervisorError as e:
+        logger.error(f"Stop service failed: service={service_name}, error={str(e)}")
         raise e
 
 def start_service(
@@ -84,14 +95,21 @@ def start_service(
     Returns:
         Dict with keys: 'started', 'already_running', 'failed' containing process lists
     """
+    logger.info(f"Start service called: service={service_name}, processes={process_name_list}, wait={wait}")
     try:
-        return execute_supervisor_command(
+        result = execute_supervisor_command(
             service_name, "start",
             process_names=process_name_list,
             wait=wait,
             verbose=verbose
         )
+        started_count = len(result.get("started", [])) if result else 0
+        already_running_count = len(result.get("already_running", [])) if result else 0
+        failed_count = len(result.get("failed", [])) if result else 0
+        logger.info(f"Start service completed: service={service_name}, started={started_count}, already_running={already_running_count}, failed={failed_count}")
+        return result
     except SupervisorError as e:
+        logger.error(f"Start service failed: service={service_name}, error={str(e)}")
         raise e
 
 def restart_service(
@@ -113,14 +131,21 @@ def restart_service(
     Returns:
         Dict with keys: 'stopped', 'already_stopped', 'started', 'already_running', 'failed'
     """
+    logger.info(f"Restart service called: service={service_name}, wait={wait}, wait_workers={wait_workers}, force_kill_timeout={force_kill_timeout}")
     try:
-        return execute_supervisor_command(
+        result = execute_supervisor_command(
             service_name, "restart",
             wait=wait,
             wait_workers=wait_workers,
             force_kill_timeout=force_kill_timeout
         )
+        stopped_count = len(result.get("stopped", [])) if result else 0
+        started_count = len(result.get("started", [])) if result else 0
+        failed_count = len(result.get("failed", [])) if result else 0
+        logger.info(f"Restart service completed: service={service_name}, stopped={stopped_count}, started={started_count}, failed={failed_count}")
+        return result
     except SupervisorError as e:
+        logger.error(f"Restart service failed: service={service_name}, error={str(e)}")
         raise e
 
 def signal_service(
@@ -141,25 +166,32 @@ def signal_service(
     Returns:
         True if all signals sent successfully, False if any failed
     """
+    logger.info(f"Signal service called: service={service_name}, signal={signal_name}, processes={process_name_list}")
     if not signal_name or not signal_name.isalnum():
+        logger.error(f"Invalid signal name format: {signal_name}")
         display.error(f"Invalid signal name format: {signal_name}")
         return False
     if not process_name_list:
-         display.warning(f"No process names specified for signal '{signal_name}' in service '{service_name}'.")
-         return True
+        logger.warning(f"No processes specified for signal '{signal_name}' in service '{service_name}'")
+        display.warning(f"No process names specified for signal '{signal_name}' in service '{service_name}'.")
+        return True
 
     try:
-        return execute_supervisor_command(
+        result = execute_supervisor_command(
             service_name,
             "signal",
             process_names=process_name_list,
             signal_name=signal_name,
             # Other parameters like wait, force_kill etc. are not relevant for signal
         ) or False
+        logger.info(f"Signal service completed: service={service_name}, signal={signal_name}, success={bool(result)}")
+        return result
     except SupervisorError as e:
+        logger.error(f"Signal service failed: service={service_name}, signal={signal_name}, error={str(e)}")
         raise e
     except ValueError as e:
-         raise e
+        logger.error(f"Signal service validation failed: service={service_name}, signal={signal_name}, error={str(e)}")
+        raise e
 
 def signal_service_workers(
     service_name: str,
@@ -178,7 +210,15 @@ def signal_service_workers(
     Returns:
         List of process names that were signaled (empty if no workers found)
     """
-    return execute_supervisor_command(service_name, "signal_workers", signal_num=signal_num)
+    logger.info(f"Signal workers called: service={service_name}, signal_num={signal_num}")
+    try:
+        result = execute_supervisor_command(service_name, "signal_workers", signal_num=signal_num)
+        worker_count = len(result) if result else 0
+        logger.info(f"Signal workers completed: service={service_name}, workers_signaled={worker_count}, workers={result}")
+        return result
+    except Exception as e:
+        logger.error(f"Signal workers failed: service={service_name}, error={str(e)}")
+        raise e
 
 def get_service_info(service_name: str, verbose: bool = False) -> Tree:
     """
@@ -194,8 +234,10 @@ def get_service_info(service_name: str, verbose: bool = False) -> Tree:
     Returns:
         Rich Tree object ready for display, even if service is offline/empty
     """
+    logger.info(f"Get service info called: service={service_name}, verbose={verbose}")
     try:
         if not check_supervisord_connection(service_name):
+            logger.warning(f"Service {service_name} supervisor connection failed, returning empty info")
             return format_service_info(
                 service_name,
                 [],
@@ -203,10 +245,14 @@ def get_service_info(service_name: str, verbose: bool = False) -> Tree:
             )
 
         process_info = execute_supervisor_command(service_name, "INFO")
+        process_count = len(process_info) if process_info else 0
+        logger.info(f"Get service info completed: service={service_name}, process_count={process_count}")
 
         return format_service_info(service_name, process_info or [], verbose=verbose)
 
     except SupervisorConnectionError as e:
-         return format_service_info(service_name, [], verbose=verbose)
+        logger.error(f"Get service info connection error: service={service_name}, error={str(e)}")
+        return format_service_info(service_name, [], verbose=verbose)
     except SupervisorError as e:
+        logger.error(f"Get service info failed: service={service_name}, error={str(e)}")
         return format_service_info(service_name, [], verbose=verbose)
