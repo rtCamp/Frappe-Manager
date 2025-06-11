@@ -37,14 +37,6 @@ def command(
             show_default=False,
         )
     ] = None,
-    state: Annotated[
-        Optional[str],
-        typer.Option(
-            "--state", "-s",
-            help="[Ignored unless -p is used] Explicitly start only worker processes matching this state.",
-            show_default=False,
-        )
-    ] = None,
     wait: Annotated[
         bool,
         typer.Option(
@@ -71,10 +63,6 @@ def command(
     if not valid:
         return
 
-    # Validate state if provided
-    if state and state not in ("blue", "green"):
-        display.error(f"Invalid --state value '{state}'. Must be 'blue' or 'green'.", exit_code=1)
-
     process_desc = get_process_description(display, process_name)
 
     # Determine description based on whether specific processes are targeted
@@ -94,7 +82,6 @@ def command(
         show_progress=True,
         process_name_list=process_name,
         wait=wait,
-        state=state,
         verbose=verbose
     )
 
