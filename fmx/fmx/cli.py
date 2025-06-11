@@ -230,7 +230,7 @@ def _display_start_results_by_service(results: dict) -> List[str]:
                     for process in started:
                         display.print(f"    - {display.highlight(process)}")
                 if already_running:
-                    display.dimmed("  - Already Running:")
+                    display.dimmed("  - Restarted (was already running):")
                     for process in already_running:
                         display.print(f"    - {display.highlight(process)}")
                 if failed:
@@ -270,7 +270,7 @@ def _display_stop_results_by_service(results: dict) -> List[str]:
                     for process in stopped:
                         display.print(f"    - {display.highlight(process)}")
                 if already_stopped:
-                    display.dimmed("  - Already Stopped:")
+                    display.dimmed("  - Signaled (not waited for stop):")
                     for process in already_stopped:
                         display.print(f"    - {display.highlight(process)}")
                 if failed:
