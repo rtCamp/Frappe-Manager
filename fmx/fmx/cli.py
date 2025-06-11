@@ -326,11 +326,11 @@ def _display_stop_summary(totals: dict, services_failed_entirely: List[str], tot
         display.warning("No processes were targeted for stopping or required stopping.")
 
 app = typer.Typer(
-    name="fmx",
+    invoke_without_command=True,
     no_args_is_help=True,
     rich_markup_mode="rich",
     help="""
-    [bold]fm-helper[/bold]: Interact with supervisord instances managed by Frappe Manager.
+    Interact with supervisord instances managed by Frappe Manager.
 
     Provides commands to [red]stop[/red], [green]start[/green], [blue]restart[/blue], and check the [yellow]status[/yellow]
     of background services (like Frappe, Workers, Scheduler) running within
@@ -342,12 +342,11 @@ app = typer.Typer(
     """
 )
 
-@app.callback(invoke_without_command=True)
+@app.callback()
 def main_callback(ctx: typer.Context):
-    """Initialize shared context object."""
     if ctx.obj is None:
         ctx.obj = {}
-    
+
     ctx.obj['display'] = DisplayManager()
 
 def register_commands():
@@ -357,28 +356,20 @@ def register_commands():
 
     for _, name, ispkg in pkgutil.iter_modules(package_path, prefix):
         if not ispkg:
-            try:
-                module = importlib.import_module(name)
-                if hasattr(module, "command") and hasattr(module, "command_name"):
-                    cmd_func = getattr(module, "command")
-                    cmd_name = getattr(module, "command_name")
-                    
-                    if cmd_name is None:
-                        print(f"[bold red]Error:[/bold red] Command name defined in module '{name}' is None. Skipping registration.")
+            module = importlib.import_module(name)
+
+            if hasattr(module, "command") and hasattr(module, "command_name"):
+                cmd_func = getattr(module, "command")
+                cmd_name = getattr(module, "command_name")
+
+                if cmd_name is None:
+                    continue
+
+                if callable(cmd_func) and isinstance(cmd_name, str):
+                    if not cmd_name.strip():
                         continue
-                    
-                    if callable(cmd_func) and isinstance(cmd_name, str):
-                        if not cmd_name.strip():
-                            print(f"[bold red]Error:[/bold red] Command name defined in module '{name}' is empty. Skipping registration.")
-                            continue
+                    app.command(name=cmd_name, no_args_is_help=False)(cmd_func)
                         
-                        app.command(name=cmd_name, no_args_is_help=False)(cmd_func)
-                    else:
-                        print(f"[yellow]Warning:[/yellow] Skipping module '{name}': 'command' not callable or 'command_name' not a string.")
-                else:
-                    print(f"[yellow]Warning:[/yellow] Skipping module '{name}': Missing 'command' function or 'command_name'.")
-            except Exception as e:
-                print(f"[bold red]Error importing command module '{name}':[/bold red] {e}")
 
 def main():
     """Main entry point for the fm-helper CLI."""
