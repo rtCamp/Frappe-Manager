@@ -1,7 +1,7 @@
 services:
   global-db:
     container_name: fm_global-db
-    image: mariadb:10.6
+    image: mariadb:lts-ubi9
     user: REPLACE_WITH_CURRENT_USER:REPLACE_WITH_CURRENT_USER_GROUP
     restart: always
     command:

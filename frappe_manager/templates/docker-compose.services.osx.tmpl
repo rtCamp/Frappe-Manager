@@ -1,7 +1,7 @@
 services:
   global-db:
     container_name: fm_global-db
-    image: mariadb:10.6
+    image: mariadb:lts-ubi9
     user: REPLACE_WITH_CURRENT_USER:REPLACE_WITH_CURRENT_USER_GROUP
     restart: always
     command:
@@ -27,7 +27,7 @@ services:
   global-nginx-proxy:
     container_name: fm_global-nginx-proxy
     user: REPLACE_WITH_CURRENT_USER:REPLACE_WITH_CURRENT_USER_GROUP
-    image: jwilder/nginx-proxy:1.6
+    image: jwilder/nginx-proxy:1.8
     environment:
       ACME_HTTP_CHALLENGE_LOCATION: false
     ports:

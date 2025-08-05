@@ -71,7 +71,7 @@ services:
       global-backend-network:
 
   redis-cache:
-    image: redis:6.2-alpine
+    image: redis:8.2.0-alpine
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     volumes:
       - redis-cache-data:/data
@@ -81,7 +81,7 @@ services:
       site-network:
 
   redis-queue:
-    image: redis:6.2-alpine
+    image: redis:8.2.0-alpine
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     volumes:
       - redis-queue-data:/data
@@ -91,7 +91,7 @@ services:
       site-network:
 
   redis-socketio:
-    image: redis:6.2-alpine
+    image: redis:8.2.0-alpine
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     volumes:
        - redis-socketio-data:/data
