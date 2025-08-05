@@ -1,6 +1,6 @@
 services:
   mailpit:
-    image: axllent/mailpit:v1.22
+    image: axllent/mailpit:v1.27
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     volumes:
       - mailpit-data:/data
@@ -17,7 +17,7 @@ services:
       MP_SMTP_AUTH_ALLOW_INSECURE: 1
 
   adminer:
-    image: adminer:4
+    image: adminer:5.3.0
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     expose:
       - 8080
