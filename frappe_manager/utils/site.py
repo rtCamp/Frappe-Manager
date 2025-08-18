@@ -155,7 +155,6 @@ def domain_level(domain):
 
 def validate_sitename(sitename: str | None) -> str:
     match = is_fqdn(sitename)
-
     if domain_level(sitename) == 0:
         sitename = sitename + ".localhost"
 

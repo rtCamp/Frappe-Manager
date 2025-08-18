@@ -51,6 +51,7 @@ class BenchConfig(BaseModel):
     admin_tools_username: Optional[str] = Field(None, description="Username for admin tools basic auth")
     admin_tools_password: Optional[str] = Field(None, description="Password for admin tools basic auth")
 
+
     @property
     def db_name(self):
         return self.name.replace(".", "-")
@@ -62,8 +63,12 @@ class BenchConfig(BaseModel):
     def export_to_toml(self, path: Path) -> bool:
         ssl_toml_doc: Optional[tomlkit.TOMLDocument] = None
 
-        # check if it's SSLCertificate if not then its
-        ssl_toml_doc = ssl_certificate_to_toml_doc(self.ssl)
+        # TODO Fix this issue
+        # Use first site's SSL certificate if it exists
+        # if self.default_site and self.default_site.certificate:
+        #     ssl_toml_doc = ssl_certificate_to_toml_doc(self.default_site.certificate)
+        # else:
+        #     ssl_toml_doc = ssl_certificate_to_toml_doc(self.ssl)
 
         exclude = {
             'root_path',
@@ -84,6 +89,9 @@ class BenchConfig(BaseModel):
 
         if ssl_toml_doc:
             bench_dict['ssl'] = ssl_toml_doc
+
+        # Add sites information
+        bench_dict['sites'] = [site.name for site in self.sites]
 
         # Serialize the dictionary to a TOML string
         # Create a TOML document from the dictionary
@@ -151,8 +159,18 @@ class BenchConfig(BaseModel):
         else:
             ssl_instance = SSLCertificate(domain=data.get('name', None), ssl_type=SUPPORTED_SSL_TYPES.none)
 
+        # TODO fix this
+        # # Create Site objects from site names in TOML
+        # sites = []
+        # site_names = data.get('sites', [data.get('name')])  # fallback to bench name if no sites
+
+        # for site_name in site_names:
+        #     site = Site(site_name, bench_path)
+        #     sites.append(site)
+
         input_data = {
             'name': data.get('name', None),
+            # 'sites': sites,
             'developer_mode': data.get('developer_mode', None),
             'admin_tools': data.get('admin_tools', False),
             'environment_type': data.get('environment_type', None),

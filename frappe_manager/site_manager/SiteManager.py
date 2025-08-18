@@ -8,7 +8,6 @@ from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench import Bench
 from frappe_manager.display_manager.DisplayManager import richprint
 
-
 class BenchesManager:
     def __init__(self, sitesdir: Path, services: ServicesManager, verbose: bool = False):
         self.root_path = sitesdir

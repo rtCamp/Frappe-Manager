@@ -253,6 +253,13 @@ class BenchOperationException(BenchException):
         super().__init__(self.bench_name, self.message, prefix_bench_name=False)
 
 
+class SiteCertificateException(Exception):
+    def __init__(self, site_name: str, message: str):
+        self.site_name = site_name
+        self.message = f"Site {site_name}: {message}"
+        super().__init__(self.message)
+
+
 class BenchOperationFrappeBranchChangeFailed(BenchException):
     def __init__(self, bench_name, app: str, branch: str, message: str = "Failed to change {} app branch to {}."):
         self.bench_name = bench_name
@@ -358,20 +365,20 @@ class BenchOperationBenchRemoveAppFromPythonEnvFailed(BenchOperationException):
 class BenchOperationBenchAppInSiteFailed(BenchOperationException):
     def __init__(
         self,
-        bench_name,
+        site_name: str,
         app_name: str,
         message: str = "Failed to install app {} in site {}.",
         print_combined: bool = True,
         print_stdout: bool = False,
         print_stderr: bool = False,
     ):
-        self.bench_name = bench_name
+        self.site_name = site_name
         self.app_name = app_name
-        self.message = message.format(app_name, self.bench_name)
+        self.message = message.format(app_name, site_name)
         self.print_stdout = print_stdout
         self.print_stderr = print_stderr
         self.print_combined = print_combined
-        super().__init__(self.bench_name, self.message, self.print_combined, self.print_stdout, self.print_stderr)
+        super().__init__(self.site_name, self.message, self.print_combined, self.print_stdout, self.print_stderr)
 
 
 class BenchOperationBenchBuildFailed(BenchOperationException):
