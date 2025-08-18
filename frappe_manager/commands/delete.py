@@ -14,7 +14,7 @@ from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.site_manager.bench import Bench
-from frappe_manager.ssl_manager.certificate import SSLCertificate
+from frappe_manager.ssl_manager.certificate import BaseSSLConfig
 from frappe_manager.utils.callbacks import (
     sites_autocompletion_callback,
     sitename_callback
@@ -64,7 +64,7 @@ def delete(
                 admin_tools=False,
                 admin_pass='pass',
                 environment_type=FMBenchEnvType.dev,
-                ssl=SSLCertificate(domain=benchname, ssl_type=SUPPORTED_SSL_TYPES.none),
+                ssl=BaseSSLConfig(domain=benchname, ssl_type=SUPPORTED_SSL_TYPES.none),
                 root_path=bench_config_path,
             )
 

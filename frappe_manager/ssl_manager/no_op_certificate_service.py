@@ -1,6 +1,6 @@
 from pathlib import Path
 from typing import Tuple
-from frappe_manager.ssl_manager.certificate import SSLCertificate
+from frappe_manager.ssl_manager.certificate import BaseSSLConfig
 from frappe_manager.ssl_manager.ssl_certificate_service import SSLCertificateService
 from frappe_manager.display_manager.DisplayManager import richprint
 
@@ -12,8 +12,8 @@ class NoOpCertificateService(SSLCertificateService):
     def renew_certificate(self):
         pass
 
-    def remove_certificate(self, certificate: 'SSLCertificate'):
+    def remove_certificate(self, certificate: 'BaseSSLConfig'):
         richprint.warning(f"{certificate.domain} doesn't have certificate issued.")
 
-    def generate_certificate(self, certificate: 'SSLCertificate') -> Tuple[Path, Path]:
+    def generate_certificate(self, certificate: 'BaseSSLConfig') -> Tuple[Path, Path]:
         return Path('/dev/null'), Path('/dev/null')

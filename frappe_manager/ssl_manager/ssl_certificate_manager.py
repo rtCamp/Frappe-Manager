@@ -8,7 +8,7 @@ from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateNotDueForRenewalError,
     SSLCertificateNotFoundError,
 )
-from frappe_manager.ssl_manager.certificate import SSLCertificate
+from frappe_manager.ssl_manager.certificate import BaseSSLConfig
 from frappe_manager.ssl_manager.nginxproxymanager import NginxProxyManager
 from frappe_manager.ssl_manager.ssl_certificate_service import SSLCertificateService
 from frappe_manager.utils.helpers import (
@@ -21,7 +21,7 @@ class SSLCertificateManager:
     service: SSLCertificateService
     proxy_manager: NginxProxyManager
 
-    def __init__(self, certificate: SSLCertificate, webroot_dir: Path, proxy_manager: NginxProxyManager):
+    def __init__(self, certificate: BaseSSLConfig, webroot_dir: Path, proxy_manager: NginxProxyManager):
         self.certificate = certificate
         self.proxy_manager = proxy_manager
         self.webroot_dir = webroot_dir
@@ -37,7 +37,7 @@ class SSLCertificateManager:
         certificate_service = NoOpCertificateService(Path('/dev/null'))
         return certificate_service
 
-    def set_certificate(self, certificate: SSLCertificate):
+    def set_certificate(self, certificate: BaseSSLConfig):
         self.certificate = certificate
         self.service = self.ssl_service_factory()
 

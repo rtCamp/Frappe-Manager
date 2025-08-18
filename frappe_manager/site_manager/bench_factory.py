@@ -15,8 +15,8 @@ from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.utils.site import domain_level
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES, LETSENCRYPT_PREFERRED_CHALLENGE
-from frappe_manager.ssl_manager.certificate import SSLCertificate
-from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
+from frappe_manager.ssl_manager.certificate import BaseSSLConfig
+from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptConfig
 
 
 class BenchFactory:
@@ -38,7 +38,7 @@ class BenchFactory:
             developer_mode=EnableDisableOptionsEnum.disable,
             frappe_branch=STABLE_APP_BRANCH_MAPPING_LIST['frappe'],
             admin_pass='pass',
-            ssl_certificate=SSLCertificate(domain=bench_name, ssl_type=SUPPORTED_SSL_TYPES.none),
+            ssl_certificate=BaseSSLConfig(domain=bench_name, ssl_type=SUPPORTED_SSL_TYPES.none),
         )
 
         # Import here to avoid circular imports
@@ -62,7 +62,7 @@ class BenchFactory:
         fm_config_manager: FMConfigManager,
         letsencrypt_email: Optional[str] = None,
         letsencrypt_preferred_challenge: Optional[LETSENCRYPT_PREFERRED_CHALLENGE] = None,
-    ) -> SSLCertificate:
+    ) -> BaseSSLConfig:
         """Create appropriate SSL certificate instance based on type"""
         if ssl_type == SUPPORTED_SSL_TYPES.le:
             if not letsencrypt_preferred_challenge:
@@ -80,7 +80,7 @@ class BenchFactory:
 
             validate_email(email, check_deliverability=False)
 
-            return LetsencryptSSLCertificate(
+            return LetsencryptConfig(
                 domain=bench_name,
                 ssl_type=ssl_type,
                 email=email,
@@ -89,7 +89,7 @@ class BenchFactory:
                 api_token=fm_config_manager.letsencrypt.api_token,
             )
 
-        return SSLCertificate(domain=bench_name, ssl_type=SUPPORTED_SSL_TYPES.none)
+        return BaseSSLConfig(domain=bench_name, ssl_type=SUPPORTED_SSL_TYPES.none)
 
     @classmethod
     def create_bench_config(
@@ -101,7 +101,7 @@ class BenchFactory:
         developer_mode: EnableDisableOptionsEnum,
         frappe_branch: str,
         admin_pass: str,
-        ssl_certificate: SSLCertificate,
+        ssl_certificate: BaseSSLConfig,
     ) -> BenchConfig:
         """Create a new bench configuration"""
         return BenchConfig(

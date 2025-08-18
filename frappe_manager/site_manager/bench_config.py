@@ -8,8 +8,8 @@ from pydantic import BaseModel, Field
 from frappe_manager import CLI_DEFAULT_DELIMETER, STABLE_APP_BRANCH_MAPPING_LIST
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
-from frappe_manager.ssl_manager.certificate import SSLCertificate
-from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
+from frappe_manager.ssl_manager.certificate import BaseSSLConfig
+from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptConfig
 from frappe_manager.utils.helpers import get_container_name_prefix
 
 
@@ -18,7 +18,7 @@ class FMBenchEnvType(str, Enum):
     dev = 'dev'
 
 
-def ssl_certificate_to_toml_doc(cert: SSLCertificate) -> Optional[tomlkit.TOMLDocument]:
+def ssl_certificate_to_toml_doc(cert: BaseSSLConfig) -> Optional[tomlkit.TOMLDocument]:
     if cert.ssl_type == SUPPORTED_SSL_TYPES.none:
         return None
 
@@ -38,7 +38,7 @@ class BenchConfig(BaseModel):
     developer_mode: bool = Field(..., description="Whether developer mode is enabled")
     admin_tools: bool = Field(..., description="Whether admin tools are enabled")
     environment_type: FMBenchEnvType = Field(..., description="The type of environment")
-    ssl: SSLCertificate = Field(..., description="The SSL certificate")
+    ssl: Optional[BaseSSLConfig] = Field(None, description="The SSL certificate")
 
     frappe_branch: str = Field(
         default=STABLE_APP_BRANCH_MAPPING_LIST['frappe'], description="The branch of Frappe to use"
@@ -146,7 +146,7 @@ class BenchConfig(BaseModel):
                 else:
                     preferred_challenge = pref_challenge_data
 
-                ssl_instance = LetsencryptSSLCertificate(
+                ssl_instance = LetsencryptConfig(
                     domain=domain,
                     ssl_type=ssl_type,
                     email=email,
@@ -155,9 +155,9 @@ class BenchConfig(BaseModel):
                     api_token=api_token,
                 )
             else:
-                ssl_instance = SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none)
+                ssl_instance = BaseSSLConfig(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none)
         else:
-            ssl_instance = SSLCertificate(domain=data.get('name', None), ssl_type=SUPPORTED_SSL_TYPES.none)
+            ssl_instance = BaseSSLConfig(domain=data.get('name', None), ssl_type=SUPPORTED_SSL_TYPES.none)
 
         # TODO fix this
         # # Create Site objects from site names in TOML

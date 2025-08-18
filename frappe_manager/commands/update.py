@@ -4,8 +4,8 @@ from frappe_manager import EnableDisableOptionsEnum
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES, LETSENCRYPT_PREFERRED_CHALLENGE
 from frappe_manager.site_manager.bench import Bench
 from frappe_manager.site_manager.site_exceptions import BenchNotRunning
-from frappe_manager.ssl_manager.certificate import SSLCertificate
-from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
+from frappe_manager.ssl_manager.certificate import BaseSSLConfig
+from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptConfig
 from frappe_manager.utils.callbacks import sites_autocompletion_callback, sitename_callback
 from frappe_manager.utils.helpers import format_ssl_certificate_time_remaining
 from frappe_manager.display_manager.DisplayManager import richprint
@@ -84,7 +84,7 @@ def update(
         bench_config_save = True
 
     if ssl:
-        new_ssl_certificate = SSLCertificate(domain=benchname, ssl_type=SUPPORTED_SSL_TYPES.none)
+        new_ssl_certificate = BaseSSLConfig(domain=benchname, ssl_type=SUPPORTED_SSL_TYPES.none)
 
         if ssl == SUPPORTED_SSL_TYPES.le:
             if not letsencrypt_preferred_challenge:
@@ -115,7 +115,7 @@ def update(
             if not site:
                 richprint.exit("No default site configured for SSL certificate")
                 
-            new_ssl_certificate = LetsencryptSSLCertificate(
+            new_ssl_certificate = LetsencryptConfig(
                 domain=site.name,
                 ssl_type=ssl,
                 email=email,

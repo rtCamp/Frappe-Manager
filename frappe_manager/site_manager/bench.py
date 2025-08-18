@@ -26,17 +26,14 @@ from frappe_manager.site_manager.site_exceptions import (
     BenchAttachTocontainerFailed,
     BenchException,
     BenchFailedToRemoveDevPackages,
-    BenchFrappeServiceSupervisorNotRunning,
     BenchNotRunning,
     BenchOperationException,
     BenchRemoveDirectoryError,
-    BenchSSLCertificateAlreadyIssued,
-    BenchSSLCertificateNotIssued,
     BenchServiceNotRunning,
 )
 from frappe_manager.site_manager.workers_manager.SiteWorker import BenchWorkers
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
-from frappe_manager.ssl_manager.certificate import SSLCertificate
+from frappe_manager.ssl_manager.certificate import BaseSSLConfig
 from frappe_manager.ssl_manager.nginxproxymanager import NginxProxyManager
 from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
 from frappe_manager.utils.helpers import (
@@ -80,10 +77,7 @@ class Bench:
         self.compose_project: ComposeProject = compose_project
         self.logger = log.get_logger()
         
-        # Initialize empty sites dictionary - sites are composed parts of bench
         self._sites: Dict[str, Site] = {}
-        
-        # Load existing sites from filesystem
         self._load_sites()
 
         self.proxy_manager: NginxProxyManager = NginxProxyManager('nginx', self.compose_project)
@@ -194,15 +188,12 @@ class Bench:
             richprint.print("Started bench services.")
             richprint.change_head("Creating bench and sites")
             
-            # Initialize bench without creating sites
             self.benchops.init_bench()
             
-            # Create each site
-            for i, site_name in sites_to_create:
+            for i, site_name in enumerate(sites_to_create):
                 richprint.change_head(f"Creating site {site_name}")
                 site = Site(site_name, self.path)
                 
-                # Create the site
                 self.benchops.create_bench_site(site)
                 self.benchops.bench_install_apps_site(site)
 
@@ -691,18 +682,18 @@ class Bench:
         if not site:
             raise BenchException(self.name, f"Site {site_name or 'default'} not found")
         
-        site.setup_certificate_manager(
+        site.ssl_manager.setup_certificate_manager(
             webroot_dir=self.proxy_manager.dirs.html.host,
             proxy_manager=self.services.proxy_manager
         )
-        site.create_certificate()
+        site.ssl_manager.create_certificate()
 
     def has_certificate(self, site_name: Optional[str] = None) -> bool:
         """Check if site has SSL certificate"""
         site = self.get_site(site_name) if site_name else self.get_default_site()
         if not site:
             raise BenchException(self.name, f"Site {site_name or 'default'} not found")
-        return site.has_certificate()
+        return site.ssl_manager.has_certificate()
 
     def remove_certificate(self, site_name: Optional[str] = None):
         """Remove SSL certificate from specified site or default site"""
@@ -710,23 +701,23 @@ class Bench:
         if not site:
             raise BenchException(self.name, f"Site {site_name or 'default'} not found")
         
-        site.setup_certificate_manager(
+        site.ssl_manager.setup_certificate_manager(
             webroot_dir=self.proxy_manager.dirs.html.host,
             proxy_manager=self.services.proxy_manager
         )
-        site.remove_certificate()
+        site.ssl_manager.remove_certificate()
 
-    def update_certificate(self, certificate: SSLCertificate, site_name: Optional[str] = None, raise_error: bool = True):
+    def update_certificate(self, certificate: BaseSSLConfig, site_name: Optional[str] = None, raise_error: bool = True):
         """Update SSL certificate for specified site or default site"""
         site = self.get_site(site_name) if site_name else self.get_default_site()
         if not site:
             raise BenchException(self.name, f"Site {site_name or 'default'} not found")
 
-        site.setup_certificate_manager(
+        site.ssl_manager.setup_certificate_manager(
             webroot_dir=self.proxy_manager.dirs.html.host,
             proxy_manager=self.services.proxy_manager
         )
-        return site.update_certificate(certificate, raise_error)
+        return site.ssl_manager.update_certificate(certificate, raise_error)
 
     def renew_certificate(self, site_name: Optional[str] = None):
         """Renew SSL certificate for specified site or default site"""
@@ -737,11 +728,11 @@ class Bench:
         if not self.compose_project.is_service_running('nginx'):
             raise BenchServiceNotRunning(self.name, 'nginx')
 
-        site.setup_certificate_manager(
+        site.ssl_manager.setup_certificate_manager(
             webroot_dir=self.proxy_manager.dirs.html.host,
             proxy_manager=self.services.proxy_manager
         )
-        site.renew_certificate()
+        site.ssl_manager.renew_certificate()
 
     def info(self):
         """
@@ -799,7 +790,7 @@ class Bench:
             **{
                 f'HTTPS ({site_name})': (
                     f'{site.certificate.ssl_type.value.upper()} ({format_ssl_certificate_time_remaining(site.get_certificate_expiry())})'
-                    if site.has_certificate()
+                    if site.ssl_manager.has_certificate()
                     else 'Not Enabled'
                 )
                 for site_name, site in self.sites.items()
@@ -1288,6 +1279,7 @@ class Bench:
     def reset(self, site_name: Optional[str] = None, admin_password: Optional[str] = None):
         """Reset a specific site or the default site"""
         site = self.get_site(site_name) if site_name else self.get_default_site()
+
         if not site:
             raise BenchException(self.name, f"Site {site_name or 'default'} not found")
 
@@ -1306,6 +1298,7 @@ class Bench:
 
     def _load_sites(self) -> None:
         """Load all existing sites in the bench"""
+
         sites_dir = self.path / "workspace/frappe-bench/sites"
 
         if not sites_dir.exists():
@@ -1316,6 +1309,10 @@ class Bench:
                 site_name = site_dir.name
                 # Create site with reference to self (the bench)
                 self._sites[site_name] = Site(site_name, self)
+
+
+    def add_site(self, site: Site):
+        self._sites[site.name] = Site
 
     @property
     def sites(self) -> Dict[str, Site]:
@@ -1341,6 +1338,7 @@ class Bench:
 
     def get_site(self, site_name: str) -> Optional[Site]:
         """Get a specific site by name"""
+
         return self.sites.get(site_name)
 
     def create_site(self, site_name: str, admin_password: Optional[str] = None) -> Site:

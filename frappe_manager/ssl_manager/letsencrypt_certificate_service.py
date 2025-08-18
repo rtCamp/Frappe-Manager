@@ -15,7 +15,7 @@ from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateGenerateFailed,
     SSLCertificateNotFoundError,
 )
-from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
+from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptConfig
 from frappe_manager.ssl_manager.ssl_certificate_service import SSLCertificateService
 from frappe_manager.display_manager.DisplayManager import richprint
 
@@ -39,7 +39,7 @@ class LetsEncryptCertificateService(SSLCertificateService):
         self.logger = log.get_logger()
         self.console_output = StringIO()
 
-    def renew_certificate(self, certificate: LetsencryptSSLCertificate):
+    def renew_certificate(self, certificate: LetsencryptConfig):
         renew_certificate_command = (
             self.base_command + f' renew --cert-name {certificate.domain} --non-interactive --force-renewal'
         )
@@ -59,7 +59,7 @@ class LetsEncryptCertificateService(SSLCertificateService):
             display_obj.set_display(displayer)
         return config
 
-    def get_certificate_paths(self, certificate: LetsencryptSSLCertificate) -> Tuple[Path, Path]:
+    def get_certificate_paths(self, certificate: LetsencryptConfig) -> Tuple[Path, Path]:
         config = self._get_le_config(shlex.split(self.base_command), quiet=True)
         for renewal_file in storage.renewal_conf_files(config):
             renewal_candidate = storage.RenewableCert(renewal_file, config)
@@ -72,7 +72,7 @@ class LetsEncryptCertificateService(SSLCertificateService):
                 return privkey_path, fullchain_path
         raise SSLCertificateNotFoundError(certificate.domain)
 
-    def remove_certificate(self, certificate: LetsencryptSSLCertificate):
+    def remove_certificate(self, certificate: LetsencryptConfig):
         richprint.change_head("Removing Letsencrypt certificate")
         remove_certificate_command = self.base_command + f' delete --cert-name {certificate.domain}'
         remove_certificate_config = self._get_le_config(shlex.split(remove_certificate_command), quiet=True)
@@ -80,7 +80,7 @@ class LetsEncryptCertificateService(SSLCertificateService):
         remove_certificate_config.func(remove_certificate_config, plugins)
         richprint.print("Removed Letsencrypt certificate")
 
-    def generate_certificate(self, certificate: LetsencryptSSLCertificate):
+    def generate_certificate(self, certificate: LetsencryptConfig):
         gen_command: str = self.base_command + f" certonly "
 
         richprint.print(f"Using Let's Encrypt {certificate.preferred_challenge.value} challenge.")

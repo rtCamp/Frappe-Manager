@@ -5,3 +5,4 @@ tmp/*
 tests/*
 **/__pycache__/**
 readme.org
+.aider*
