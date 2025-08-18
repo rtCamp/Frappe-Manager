@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Optional
 import typer
 from typing import List, Optional, Set
-from frappe_manager.site_manager.site_exceptions import BenchNotFoundError
+from frappe_manager.site_manager.site_exceptions import BenchException, BenchNotFoundError
 from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager import CLI_BENCHES_DIRECTORY, STABLE_APP_BRANCH_MAPPING_LIST, DEFAULT_EXTENSIONS
@@ -131,6 +131,7 @@ def sitename_callback(sitename: Optional[str]):
         richprint.stop()
         from InquirerPy import inquirer
         sites_list = [site_name.parent.name for site_name in sites_autocompletion_callback()]
+
         sitename = inquirer.fuzzy(
             message="Please select a bench (use arrows/type to search)",
             vi_mode=True,
