@@ -1,3 +1,4 @@
+from frappe_manager.paths import get_frappe_repo_path
 from pathlib import Path
 from enum import Enum
 from typing import Optional
@@ -39,7 +40,7 @@ ut.rich_format_help = print_fm_examples
 
 # TODO configure this using config
 # sites_dir = Path().home() / __name__.split(".")[0]
-CLI_DIR = Path.home() / "frappe"
+CLI_DIR = Path(get_frappe_repo_path())
 CLI_FM_CONFIG_PATH = CLI_DIR / "fm_config.toml"
 CLI_SITES_ARCHIVE = CLI_DIR / "archived"
 CLI_LOG_DIRECTORY = CLI_DIR / "logs"

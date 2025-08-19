@@ -9,6 +9,9 @@ maintainers = ["Alok Singh <alok.singh@rtcamp.com>"]
 documentation = "https://github.com/rtcamp/frappe-manager/wiki"
 readme = "README.md"
 
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.4.1"
+
 [tool.ruff]
 line-length = 120
 indent-width = 4
