@@ -51,6 +51,18 @@ from frappe_manager.migration_manager.version import Version
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from email_validator import validate_email
 
+def resolve_benchname(ctx: typer.Context, benchname: Optional[str]) -> str:
+    """Resolve bench name from local argument or global --site option."""
+    if benchname:
+        return benchname
+    
+    global_site = ctx.obj.get("global_site")
+    if global_site:
+        return global_site
+    
+    # No bench name provided via argument or --site option
+    raise typer.BadParameter("Bench name is required. Provide it as an argument or use --site option.")
+
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
 app.add_typer(services_root_command, name="services", help="Handle global services.")
 app.add_typer(self_app, name="self", help="Perform operations related to the [bold][blue]fm[/bold][/blue] itself.")
@@ -61,6 +73,10 @@ app.add_typer(ssl_root_command, name="ssl", help="Perform operations related to 
 def app_callback(
     ctx: typer.Context,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output.")] = False,
+    site: Annotated[
+        Optional[str], 
+        typer.Option("--site", help="Name of the bench site to operate on.", callback=sitename_callback)
+    ] = None,
     version: Annotated[
         Optional[bool], typer.Option("--version", "-V", help="Show Version.", callback=version_callback)
     ] = None,
@@ -69,6 +85,7 @@ def app_callback(
     Frappe-Manager for creating frappe development environments.
     """
     ctx.obj = {}
+    ctx.obj["global_site"] = site  # Store global site option
     help_called = is_cli_help_called(ctx)
     ctx.obj["is_help_called"] = help_called
 
@@ -316,7 +333,8 @@ def delete(
             )
 
         else:
-            bench = Bench.get_object(benchname, services=services_manager, workers_check=False, admin_tools_check=False)
+            resolved_benchname = resolve_benchname(ctx, benchname)
+            bench = Bench.get_object(resolved_benchname, services=services_manager, workers_check=False, admin_tools_check=False)
 
         benches.add_bench(bench)
         benches.remove_benches()
@@ -363,7 +381,8 @@ def start(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    resolved_benchname = resolve_benchname(ctx, benchname)
+    bench = Bench.get_object(resolved_benchname, services_manager)
 
     bench.start(
         force=force,
@@ -391,7 +410,8 @@ def stop(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    resolved_benchname = resolve_benchname(ctx, benchname)
+    bench = Bench.get_object(resolved_benchname, services_manager)
     benches = BenchesManager(CLI_BENCHES_DIRECTORY, services=services_manager, verbose=verbose)
     benches.add_bench(bench)
     benches.stop_benches()
@@ -429,7 +449,8 @@ def code(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    resolved_benchname = resolve_benchname(ctx, benchname)
+    bench = Bench.get_object(resolved_benchname, services_manager)
 
     if force_start:
         bench.start()
@@ -455,7 +476,8 @@ def logs(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    resolved_benchname = resolve_benchname(ctx, benchname)
+    bench = Bench.get_object(resolved_benchname, services_manager)
     bench.logs(follow, service)
 
 
@@ -477,7 +499,8 @@ def shell(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    resolved_benchname = resolve_benchname(ctx, benchname)
+    bench = Bench.get_object(resolved_benchname, services_manager)
     bench.shell(SiteServicesEnum(service).value, user)
 
 
@@ -495,7 +518,8 @@ def info(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    resolved_benchname = resolve_benchname(ctx, benchname)
+    bench = Bench.get_object(resolved_benchname, services_manager)
     bench.info()
 
 
@@ -539,7 +563,8 @@ def update(
     """Update bench."""
 
     services_manager = ctx.obj["services"]
-    bench = Bench.get_object(benchname, services_manager)
+    resolved_benchname = resolve_benchname(ctx, benchname)
+    bench = Bench.get_object(resolved_benchname, services_manager)
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
 
     bench_config_save = False
@@ -661,7 +686,8 @@ def reset(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    resolved_benchname = resolve_benchname(ctx, benchname)
+    bench = Bench.get_object(resolved_benchname, services_manager)
     bench.reset(admin_pass)
 
 
@@ -691,7 +717,8 @@ def restart(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    resolved_benchname = resolve_benchname(ctx, benchname)
+    bench = Bench.get_object(resolved_benchname, services_manager)
 
     if web:
         bench.restart_web_containers_services()
@@ -720,7 +747,8 @@ def ngrok(
     """Create ngrok tunnel for the bench."""
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    resolved_benchname = resolve_benchname(ctx, benchname)
+    bench = Bench.get_object(resolved_benchname, services_manager)
 
     if not bench.compose_project.running:
         raise BenchNotRunning(bench_name=bench.name)
