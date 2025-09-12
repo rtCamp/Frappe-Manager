@@ -473,7 +473,7 @@ def shell(
         SiteServicesEnum, typer.Option(help="Specify compose service name for which to spawn shell.")
     ] = SiteServicesEnum.frappe,
 ):
-    """Spawn shell for the give bench."""
+    """Spawn shell for the given bench."""
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
