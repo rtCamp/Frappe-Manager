@@ -89,8 +89,8 @@ VSCODE_SETTINGS_JSON = {
         "editor.insertSpaces": True,
     },
     "ruff.organizeImports": True,
-    "ruff.fixAll": True,
-    "ruff.lint.run": "onSave",
+    "ruff.fixAll": True
+    "ruff.nativeServer": "auto",
 }
 
 PREBAKED_SITE_APPS = {
