@@ -2,6 +2,7 @@ FROM ubuntu:22.04 AS bench
 
 LABEL author=rtCamp
 LABEL org.opencontainers.image.source=https://github.com/rtcamp/Frappe-Manager
+LABEL org.opencontainers.image.description="Base build stage for Frappe Manager providing Bench tooling and dependencies"
 
 ARG PYTHON_VERSIONS='3.12.0'
 ARG PYENV_GIT_VERSION='2.6.7'
@@ -186,6 +187,12 @@ COPY --from=prebake --chown=frappe:frappe /workspace/.nvm /workspace/.nvm
 COPY --from=prebake --chown=frappe:frappe /workspace/.oh-my-zsh /workspace/.oh-my-zsh
 
 FROM bench AS fm_image
+
+# OCI image metadata (applies to final image)
+LABEL author=rtCamp \
+    org.opencontainers.image.title="Frappe Manager" \
+    org.opencontainers.image.source="https://github.com/rtcamp/Frappe-Manager" \
+    org.opencontainers.image.description="Frappe Manager runtime image with pre-baked Frappe/ERPNext apps, bench tooling, wkhtmltopdf and supervisor"
 
 ENV WKHTMLTOPDF_VERSION=0.12.6.1-3
 RUN if [ "$(uname -m)" = "aarch64" ]; then export ARCH=arm64; fi \
