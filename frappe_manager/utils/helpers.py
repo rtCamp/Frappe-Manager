@@ -12,7 +12,10 @@ import subprocess
 import platform
 import time
 import secrets
-import grp
+if platform.system() != "Windows":
+    import grp
+else:
+    grp = None
 from pathlib import Path
 import importlib.resources as pkg_resources
 from rich.console import Console
@@ -304,6 +307,9 @@ def random_password_generate(password_length=13, symbols=False):
 
 # Retrieve Unix groups and their corresponding integer mappings
 def get_unix_groups():
+    if grp is None:
+        richprint.warn("Unix group info not available on Windows.")
+        return {}
     groups = {}
     for group_entry in grp.getgrall():
         group_name = group_entry.gr_name
