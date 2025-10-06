@@ -231,7 +231,7 @@ has_docker_compose() {
 }
 
 has_pyenv() {
-    if [[ "$(pyenv --version 2>&1 || true)" = *"pyenv: command not found"* ]]; then
+    if [[ "$(pyenv --version 2>&1 || true)" == *"not found"* ]]; then
         return 1
     else
         return 0
@@ -400,7 +400,7 @@ install_docker_ubuntu() {
     fi
 
     # Check Docker service status before enabling/starting
-    if ! systemctl is-active --quiet docker.service; then
+    if ! systemctl is-active --quiet docker.service  && [[ -z "$WSL_DISTRO_NAME" ]]; then
         info_blue "Docker service is not running. Starting docker service..."
         run_sudo systemctl enable docker.service
         run_sudo systemctl start docker.service
@@ -454,6 +454,7 @@ install_python_and_frappe_ubuntu() {
 
         if ! type pip3 >/dev/null 2>&1; then
             info_blue "Using $(yellow 'apt') for installing pip3..."
+            run_sudo DEBIAN_FRONTEND=noninteractive apt-get update
             run_sudo DEBIAN_FRONTEND=noninteractive apt-get install -y python3-pip
             info_green "Installed pip3"
         else
