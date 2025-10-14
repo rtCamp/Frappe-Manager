@@ -153,14 +153,17 @@ class DockerClient:
         self,
         image: str,
         command: Optional[str] = None,
-        env: Optional[List[str]] = None,
+        env: Optional[dict[str, str]] = None,
         name: Optional[str] = None,
+        user: Optional[str] = None,
         volume: Optional[List[str]] = None,
         detach: bool = False,
         entrypoint: Optional[str] = None,
+        workdir: Optional[str]= None,
         pull: Literal["missing", "never", "always"] = "missing",
         use_shlex_split: bool = True,
         stream: bool = False,
+        rm: bool = False,
     ):
         parameters: dict = locals()
         run_cmd: list = ["run"]
@@ -169,9 +172,9 @@ class DockerClient:
 
         run_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
-        if isinstance(env, list):
-            for i in env:
-                run_cmd += ["--env", i]
+        if isinstance(env, dict):
+            for i,v in env.items():
+                run_cmd += ["--env", f"{i}={v}"]
 
         run_cmd += [f"{image}"]
 
