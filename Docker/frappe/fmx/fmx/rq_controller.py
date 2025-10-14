@@ -17,7 +17,6 @@ from rich.panel import Panel
 from rich.table import Table
 
 import redis
-from rq import Queue
 from rq.suspension import is_suspended, resume, suspend
 from rq.worker import Worker
 
@@ -159,6 +158,7 @@ def wait_for_rq_workers_suspended(timeout: int = 300, poll_interval: int = 5, ve
         start_time = time.time()
         final_status = "unknown"
 
+        from rq import Queue
         with Live(vertical_overflow="visible") as live:
             while True:
                 verbose_messages = []
