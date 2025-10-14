@@ -57,13 +57,13 @@ def _get_common_site_config_key_value(key_name: str, default: Optional[Any] = No
         return default
 
 
-def _get_redis_connection():
-    """Get Redis connection from common_site_config.json"""
-    redis_url = _get_common_site_config_key_value("redis_queue", verbose=False)
+def _get_redis_connection(redis_url=None):
+    """Get Redis connection from argument or common_site_config.json"""
+    if not redis_url:
+        redis_url = _get_common_site_config_key_value("redis_queue", verbose=False)
     if not redis_url:
         print("[bold red]Error:[/bold red] 'redis_queue' URL not found in common_site_config.json.", file=sys.stderr)
         return None
-
     try:
         connection = redis.from_url(redis_url)
         connection.ping()
@@ -98,18 +98,19 @@ class ActionEnum(str, Enum):
     suspend = "suspend"
     resume = "resume"
 
-def control_rq_workers(action: ActionEnum) -> bool:
+def control_rq_workers(action: ActionEnum, redis_url=None) -> bool:
     """
     Connects to Redis using common_site_config.json and performs RQ suspension actions.
 
     Args:
         action: Action to perform (suspend/resume)
+        redis_url: Optional Redis URL to use
 
     Returns:
         bool: True on success, False on failure
     """
     try:
-        connection = _get_redis_connection()
+        connection = _get_redis_connection(redis_url=redis_url)
         if not connection:
             return False
 
@@ -135,7 +136,7 @@ def control_rq_workers(action: ActionEnum) -> bool:
     finally:
         pass
 
-def wait_for_rq_workers_suspended(timeout: int = 300, poll_interval: int = 5, verbose: bool = False) -> bool:
+def wait_for_rq_workers_suspended(timeout: int = 300, poll_interval: int = 5, verbose: bool = False, redis_url=None) -> bool:
     """
     Wait for all RQ workers registered in Redis to reach the 'suspended' state.
     Does not require site initialization, works directly with Redis.
@@ -144,12 +145,13 @@ def wait_for_rq_workers_suspended(timeout: int = 300, poll_interval: int = 5, ve
         timeout: Maximum time to wait in seconds.
         poll_interval: Time between checks in seconds.
         verbose: If True, print the state of each worker during checks.
+        redis_url: Optional Redis URL to use
 
     Returns:
         bool: True if all workers are suspended/gone, False on timeout or error.
     """
     try:
-        connection = _get_redis_connection()
+        connection = _get_redis_connection(redis_url=redis_url)
         if not connection:
             return False
 
@@ -256,15 +258,18 @@ def wait_for_rq_workers_suspended(timeout: int = 300, poll_interval: int = 5, ve
         traceback.print_exc(file=sys.stderr)
         return False
 
-def check_rq_suspension() -> Optional[bool]:
+def check_rq_suspension(redis_url=None) -> Optional[bool]:
     """
     Connects to Redis using common_site_config.json and checks if RQ workers are suspended.
+
+    Args:
+        redis_url: Optional Redis URL to use
 
     Returns:
         Optional[bool]: True if suspended, False if not suspended, None on error.
     """
     try:
-        connection = _get_redis_connection()
+        connection = _get_redis_connection(redis_url=redis_url)
         if not connection:
             return None
 
@@ -278,6 +283,7 @@ def check_rq_suspension() -> Optional[bool]:
 
 def main():
     parser = argparse.ArgumentParser(description="RQ Worker Controller CLI")
+    parser.add_argument("--redis-url", type=str, default=None, help="Redis URL to use (overrides config file)")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # suspend
@@ -298,14 +304,19 @@ def main():
     args = parser.parse_args()
 
     if args.command == "suspend":
-        sys.exit(0 if control_rq_workers(ActionEnum.suspend) else 1)
+        sys.exit(0 if control_rq_workers(ActionEnum.suspend, redis_url=args.redis_url) else 1)
     elif args.command == "resume":
-        sys.exit(0 if control_rq_workers(ActionEnum.resume) else 1)
+        sys.exit(0 if control_rq_workers(ActionEnum.resume, redis_url=args.redis_url) else 1)
     elif args.command == "wait":
-        ok = wait_for_rq_workers_suspended(timeout=args.timeout, poll_interval=args.poll_interval, verbose=args.verbose)
+        ok = wait_for_rq_workers_suspended(
+            timeout=args.timeout,
+            poll_interval=args.poll_interval,
+            verbose=args.verbose,
+            redis_url=args.redis_url
+        )
         sys.exit(0 if ok else 1)
     elif args.command == "check":
-        result = check_rq_suspension()
+        result = check_rq_suspension(redis_url=args.redis_url)
         if result is None:
             print("[red]Error: Could not determine suspension state.[/red]", file=sys.stderr)
             sys.exit(2)
