@@ -8,6 +8,7 @@ import traceback
 from typing import Optional
 from typing import Any, Optional
 
+import argparse
 from rich import print
 from rich import print
 from rich.console import Group
@@ -274,3 +275,42 @@ def check_rq_suspension() -> Optional[bool]:
         print(f"\n[bold red]Error (check_rq_suspension):[/bold red] Failed during RQ suspension check: {e}", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
         return None
+
+def main():
+    parser = argparse.ArgumentParser(description="RQ Worker Controller CLI")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # suspend
+    subparsers.add_parser("suspend", help="Suspend all RQ workers")
+
+    # resume
+    subparsers.add_parser("resume", help="Resume all RQ workers")
+
+    # wait
+    wait_parser = subparsers.add_parser("wait", help="Wait for all RQ workers to be suspended")
+    wait_parser.add_argument("--timeout", type=int, default=300, help="Timeout in seconds (default: 300)")
+    wait_parser.add_argument("--poll-interval", type=int, default=5, help="Polling interval in seconds (default: 5)")
+    wait_parser.add_argument("-v", "--verbose", action="store_true", help="Show verbose output")
+
+    # check
+    subparsers.add_parser("check", help="Check if RQ workers are suspended")
+
+    args = parser.parse_args()
+
+    if args.command == "suspend":
+        sys.exit(0 if control_rq_workers(ActionEnum.suspend) else 1)
+    elif args.command == "resume":
+        sys.exit(0 if control_rq_workers(ActionEnum.resume) else 1)
+    elif args.command == "wait":
+        ok = wait_for_rq_workers_suspended(timeout=args.timeout, poll_interval=args.poll_interval, verbose=args.verbose)
+        sys.exit(0 if ok else 1)
+    elif args.command == "check":
+        result = check_rq_suspension()
+        if result is None:
+            print("[red]Error: Could not determine suspension state.[/red]", file=sys.stderr)
+            sys.exit(2)
+        print("suspended" if result else "not suspended")
+        sys.exit(0 if result else 1)
+
+if __name__ == "__main__":
+    main()
