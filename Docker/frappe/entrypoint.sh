@@ -3,11 +3,16 @@ source /scripts/helper-function.sh
 
 # Activate NVM to make node available in PATH
 if [[ -d "$NVM_DIR" ]]; then
+    # Check if NODE_VERSIONS is set
+    if [[ -z "${NODE_VERSIONS:-}" ]]; then
+        echo "[ERROR] NODE_VERSIONS environment variable is not set" >&2
+        exit 1
+    fi
     export NODE_VERSION="${NODE_VERSIONS%% *}"
     [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 fi
 
-# Activate pyenv to make python available in PATH  
+# Activate pyenv to make python available in PATH
 if [[ -d "$PYENV_ROOT" ]]; then
     export PATH="$PYENV_ROOT/bin:$PATH"
     eval "$(pyenv init --path)"
@@ -39,9 +44,10 @@ SOCK_SERVICE_PATH="$SOCK_DIR/$SERVICE_NAME.sock"
 
 echo "Setting supervisord sock directory to $SOCK_SERVICE_PATH"
 mkdir -p $SOCK_DIR
-chown "$USERID:$USERGROUP" $SOCK_DIR /opt/user /opt/user/conf.d
-rm -rf "$SOCK_SERVICE_PATH"
 
+chown "$USERID:$USERGROUP" $SOCK_DIR /opt/user /opt/user/conf.d
+
+rm -rf "$SOCK_SERVICE_PATH"
 sed -i "s/\opt\/user\/supervisor\.sock/fm-sockets\/${SERVICE_NAME}\.sock/g" /opt/user/supervisord.conf
 
 echo "supervisord configured $?"
@@ -55,5 +61,4 @@ else
 fi
 
 configure_workspace
-
 wait $running_script_pid
