@@ -2,6 +2,7 @@ services:
   worker-name:
     image: ghcr.io/rtcamp/frappe-manager-frappe:v0.18.0
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
+    restart: unless-stopped
     command: launch_supervisor_service.sh
     networks:
       site-network:
