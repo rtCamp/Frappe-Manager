@@ -1,6 +1,8 @@
-FROM nginx:latest
+FROM nginx:alpine
 
-RUN apt update && DEBIAN_FONTEND=noninteractive apt install -y --no-install-recommends wait-for-it gosu python3 python3-pip && rm -rf /var/lib/apt/lists/*
+RUN apk update && DEBIAN_FONTEND=noninteractive apk add --no-cache python3 py3-pip bash && \
+    curl -o /usr/local/bin/wait-for-it https://raw.githubusercontent.com/vishnubob/wait-for-it/master/wait-for-it.sh && \
+    chmod +x /usr/local/bin/wait-for-it
 RUN pip install --no-cache-dir -U jinja2-cli --break-system-packages
 
 COPY template.conf /config/
