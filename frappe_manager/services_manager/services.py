@@ -76,7 +76,7 @@ class ServicesManager:
         if start:
             if not self.typer_context.invoked_subcommand == "service":
                 if not self.compose_project.running:
-                    self.are_ports_free()
+                    #self.are_ports_free()
                     richprint.print(
                         f"Started non running global services [blue]{', '.join(self.compose_project.compose_file_manager.get_services_list())}[/blue]."
                     )
