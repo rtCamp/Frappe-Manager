@@ -9,7 +9,7 @@ class SSLCertificate(BaseModel):
     ssl_type: SUPPORTED_SSL_TYPES
     hsts: str = 'off'
     alias_domains: List[str] = []
-    toml_exclude: Optional[set] = {'domain', 'alias_domains', 'toml_exclude'}
+    toml_exclude: Optional[set] = {'domain', 'toml_exclude'}
 
     @property
     def has_wildcard(self) -> bool:

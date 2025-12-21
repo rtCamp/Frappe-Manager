@@ -36,6 +36,7 @@ from frappe_manager.utils.callbacks import (
     version_callback,
     sitename_callback,
     code_command_extensions_callback,
+    alias_domains_validation_callback,
 )
 from frappe_manager.utils.helpers import (
     format_ssl_certificate_time_remaining,
@@ -181,6 +182,15 @@ def create(
     ssl: Annotated[
         SUPPORTED_SSL_TYPES, typer.Option(help="Enable https", show_default=True)
     ] = SUPPORTED_SSL_TYPES.none,
+    alias_domains: Annotated[
+        Optional[str],
+        typer.Option(
+            help="Comma-separated list of alias domains for the site (e.g., 'www.example.com,api.example.com'). These will be included as Subject Alternative Names (SAN) in the SSL certificate. Wildcard domains (e.g., '*.example.com') require dns01 challenge.",
+            callback=alias_domains_validation_callback,
+            show_default=False,
+            rich_help_panel="SSL Configuration"
+        ),
+    ] = None,
 ):
     # TODO Create markdown table for the below help
     """
@@ -198,6 +208,26 @@ def create(
     bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
 
     if ssl == SUPPORTED_SSL_TYPES.le:
+        # Check if alias_domains contains wildcards and enforce dns01 challenge
+        if alias_domains:
+            has_wildcard = any(domain.startswith('*.') for domain in alias_domains)
+            if has_wildcard:
+                if letsencrypt_preferred_challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
+                    richprint.stop()
+                    raise typer.BadParameter(
+                        "Wildcard domains require dns01 challenge. "
+                        "Please specify --letsencrypt-preferred-challenge dns01",
+                        param_hint='--letsencrypt-preferred-challenge'
+                    )
+                # Ensure DNS credentials are available
+                if not fm_config_manager.letsencrypt.api_token and not fm_config_manager.letsencrypt.api_key:
+                    richprint.stop()
+                    raise typer.BadParameter(
+                        "Wildcard domains require Cloudflare DNS credentials. "
+                        "Please configure api_token or api_key in fm_config.toml or ensure they are set globally.",
+                        param_hint='--alias-domains'
+                    )
+        
         if not letsencrypt_preferred_challenge:
             if fm_config_manager.letsencrypt.exists:
                 if letsencrypt_preferred_challenge is None:
@@ -227,10 +257,15 @@ def create(
             preferred_challenge=letsencrypt_preferred_challenge,
             api_key=fm_config_manager.letsencrypt.api_key,
             api_token=fm_config_manager.letsencrypt.api_token,
+            alias_domains=alias_domains if alias_domains else [],
         )
 
     elif ssl == SUPPORTED_SSL_TYPES.none:
-        ssl_certificate = SSLCertificate(domain=benchname, ssl_type=ssl)
+        ssl_certificate = SSLCertificate(
+            domain=benchname, 
+            ssl_type=ssl,
+            alias_domains=alias_domains if alias_domains else [],
+        )
 
     if developer_mode == EnableDisableOptionsEnum.enable:
         developer_mode_status = True

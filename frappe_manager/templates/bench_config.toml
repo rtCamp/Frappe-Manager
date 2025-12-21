@@ -32,3 +32,9 @@ api_token = "0123456789abcdef0123456789abcdef01234567"
 
 # Cloudflare API token for Let's Encrypt DNS01 Challenge.
 api_key = "0123456789abcdef0123456789abcdef01234"
+
+# (Optional) Additional domains (aliases) to be included in the SSL certificate.
+# These domains will be added as Subject Alternative Names (SAN) to the certificate.
+# Example: alias_domains = ["www.fm.com", "api.fm.com"]
+# Note: Wildcard domains (e.g., "*.fm.com") require dns01 challenge.
+# alias_domains = []

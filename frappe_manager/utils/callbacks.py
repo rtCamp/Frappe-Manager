@@ -7,7 +7,7 @@ from frappe_manager.site_manager.site_exceptions import BenchNotFoundError
 from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_CACHE_PATH, CLI_RECENT_USED_SITES_CACHE_PATH, STABLE_APP_BRANCH_MAPPING_LIST, DEFAULT_EXTENSIONS
-from frappe_manager.utils.site import get_sitename_from_current_path, validate_sitename
+from frappe_manager.utils.site import get_sitename_from_current_path, validate_sitename, is_fqdn, is_wildcard_fqdn
 
 
 def apps_list_validation_callback(value: List[str] | None):
@@ -243,3 +243,62 @@ def create_command_sitename_callback(sitename: str):
         richprint.exit(f"The bench '{sitename}' already exists at {bench_path}. Aborting operation.")
 
     return sitename
+
+
+def alias_domains_validation_callback(value: Optional[str]) -> List[str]:
+    """
+    Validate the comma-separated list of alias domains.
+    
+    Args:
+        value (Optional[str]): Comma-separated list of alias domains
+        
+    Returns:
+        List[str]: List of validated alias domains
+        
+    Raises:
+        typer.BadParameter: If any domain is invalid
+    """
+    if not value:
+        return []
+    
+    # Split by comma and strip whitespace
+    domains = [domain.strip() for domain in value.split(',') if domain.strip()]
+    
+    if not domains:
+        return []
+    
+    validated_domains = []
+    
+    for domain in domains:
+        # Check if it's a wildcard domain
+        if domain.startswith('*.'):
+            if not is_wildcard_fqdn(domain):
+                richprint.stop()
+                raise typer.BadParameter(
+                    f"Invalid wildcard domain '{domain}'. "
+                    "Wildcard domains must be in format '*.example.com'."
+                )
+            validated_domains.append(domain)
+        else:
+            # Regular domain validation
+            if not is_fqdn(domain):
+                richprint.stop()
+                raise typer.BadParameter(
+                    f"Invalid domain '{domain}'. "
+                    "Domain must be a valid FQDN (e.g., 'www.example.com')."
+                )
+            # Additional check: domain must have at least one dot (TLD)
+            if '.' not in domain:
+                richprint.stop()
+                raise typer.BadParameter(
+                    f"Invalid domain '{domain}'. "
+                    "Domain must include a TLD (e.g., 'example.com')."
+                )
+            validated_domains.append(domain)
+    
+    # Check for duplicates
+    if len(validated_domains) != len(set(validated_domains)):
+        richprint.stop()
+        raise typer.BadParameter("Duplicate domains found in alias domains list.")
+    
+    return validated_domains

@@ -138,6 +138,9 @@ class BenchConfig(BaseModel):
                 else:
                     preferred_challenge = pref_challenge_data
 
+                # Parse alias_domains from SSL config
+                alias_domains = ssl_data.get('alias_domains', [])
+
                 ssl_instance = LetsencryptSSLCertificate(
                     domain=domain,
                     ssl_type=ssl_type,
@@ -145,9 +148,12 @@ class BenchConfig(BaseModel):
                     preferred_challenge=preferred_challenge,
                     api_key=api_key,
                     api_token=api_token,
+                    alias_domains=alias_domains,
                 )
             else:
-                ssl_instance = SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none)
+                # Parse alias_domains for non-Let's Encrypt SSL too
+                alias_domains = ssl_data.get('alias_domains', [])
+                ssl_instance = SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none, alias_domains=alias_domains)
         else:
             ssl_instance = SSLCertificate(domain=data.get('name', None), ssl_type=SUPPORTED_SSL_TYPES.none)
 
@@ -183,6 +189,12 @@ class BenchConfig(BaseModel):
         return common_site_config_data
 
     def export_to_compose_inputs(self):
+        # Build domains list: primary domain + alias domains
+        all_domains = [self.name]
+        if self.ssl.alias_domains:
+            all_domains.extend(self.ssl.alias_domains)
+        domains_string = ','.join(all_domains)
+
         environment = {
             "frappe": {
                 "USERID": self.userid,
@@ -190,8 +202,8 @@ class BenchConfig(BaseModel):
                 "SERVICE_NAME": "frappe",
             },
             "nginx": {
-                "SITENAME": self.name,
-                "VIRTUAL_HOST": self.name,
+                "SITENAME": domains_string,
+                "VIRTUAL_HOST": domains_string,
                 "VIRTUAL_PORT": 80,
                 "HSTS": self.ssl.hsts,
             },
