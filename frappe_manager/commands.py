@@ -658,6 +658,12 @@ def update(
                 api_token=fm_config_manager.letsencrypt.api_token,
             )
 
+            # Auto-include existing alias domains in certificate
+            if bench.bench_config.ssl.alias_domains:
+                new_ssl_certificate.alias_domains = bench.bench_config.ssl.alias_domains
+                alias_list = ', '.join(bench.bench_config.ssl.alias_domains)
+                richprint.print(f"Including alias domains: {alias_list}")
+
         richprint.print("Updating Certificate.")
         bench.update_certificate(new_ssl_certificate)
         richprint.print("Certificate Updated.")
@@ -694,14 +700,6 @@ def update(
 
     # Handle alias domain updates
     if add_alias or remove_alias:
-        # Check if site has SSL certificate
-        if not bench.has_certificate():
-            richprint.stop()
-            raise typer.BadParameter(
-                "Cannot manage alias domains for a site without SSL certificate. Enable Let's Encrypt SSL first using --ssl le.",
-                param_hint='--add-alias/--remove-alias'
-            )
-        
         add_domains_list = add_alias if add_alias else []
         remove_domains_list = remove_alias if remove_alias else []
         
@@ -709,6 +707,7 @@ def update(
         bench.update_alias_domains(add_domains=add_domains_list, remove_domains=remove_domains_list)
         richprint.print("Alias domains updated successfully.")
         
+        # Only show certificate expiry if SSL is active
         if bench.has_certificate():
             richprint.print(
                 f"SSL Certificate will expire in {format_ssl_certificate_time_remaining(bench.certificate_manager.get_certficate_expiry())}"

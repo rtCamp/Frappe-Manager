@@ -700,17 +700,18 @@ class Bench:
         """
         Update alias domains for the bench with atomic rollback support.
         
+        Works independently of SSL status:
+        - If SSL is active: regenerates certificate with updated domains
+        - If SSL is inactive: updates config only
+        
         Args:
             add_domains: List of domains to add as aliases
             remove_domains: List of domains to remove from aliases
             
         Raises:
-            BenchSSLCertificateNotIssued: If site doesn't have an SSL certificate
+            ValueError: If attempting to remove primary domain
             Exception: If certificate generation fails (config is rolled back)
         """
-        if not self.has_certificate():
-            raise BenchSSLCertificateNotIssued(self.name)
-        
         # Backup current alias domains for rollback
         backup_aliases = copy.deepcopy(self.bench_config.ssl.alias_domains or [])
         current_aliases = set(backup_aliases)
@@ -739,6 +740,13 @@ class Bench:
                 current_aliases.add(domain)
                 added_domains.append(domain)
         
+        # Check for wildcard domains and warn about DNS-01 requirement
+        for domain in added_domains:
+            if domain.startswith('*.'):
+                richprint.warning(
+                    f"Wildcard domain '{domain}' requires DNS-01 challenge and Cloudflare credentials."
+                )
+        
         # Remove domains
         removed_domains = []
         for domain in remove_list:
@@ -763,17 +771,17 @@ class Bench:
         self.bench_config.ssl.alias_domains = sorted(list(current_aliases))
         
         try:
-            # Attempt certificate regeneration (this validates the changes)
-            richprint.change_head("Regenerating SSL certificate with updated domains")
-            self.certificate_manager.generate_certificate(self.bench_config.ssl)
-            richprint.print("Certificate regenerated successfully.")
+            # Only regenerate certificate if SSL is active
+            if self.has_certificate():
+                richprint.change_head("Regenerating SSL certificate with updated domains")
+                self.certificate_manager.generate_certificate(self.bench_config.ssl)
+                richprint.print("Certificate regenerated successfully.")
             
-            # Certificate succeeded - save config
+            # Always save config and restart services
             richprint.change_head("Saving configuration")
             self.save_bench_config()
             richprint.print("Configuration saved.")
             
-            # Update compose environment and restart
             richprint.change_head("Updating services")
             self.compose_project.stop_service()
             self.generate_compose(self.bench_config.export_to_compose_inputs())
@@ -785,14 +793,7 @@ class Bench:
             self.bench_config.ssl.alias_domains = backup_aliases
             richprint.stop()
             self.logger.error(f"Failed to update alias domains: {e}")
-            raise Exception(
-                f"Failed to update alias domains. Certificate generation failed: {e}\n"
-                f"Configuration has been rolled back to previous state.\n"
-                f"Please check:\n"
-                f"  - DNS records are properly configured\n"
-                f"  - Domains are accessible\n"
-                f"  - For wildcard domains, DNS-01 challenge is configured with Cloudflare credentials"
-            )
+            raise Exception(f"Failed to update alias domains: {e}")
 
     def info(self):
         """
@@ -853,8 +854,8 @@ class Bench:
             ),
         }
         
-        # Add alias domains if present
-        if self.has_certificate() and self.bench_config.ssl.alias_domains:
+        # Add alias domains if present (independent of SSL status)
+        if self.bench_config.ssl.alias_domains:
             alias_list = ', '.join(sorted(self.bench_config.ssl.alias_domains))
             data['Alias Domains'] = alias_list
         
