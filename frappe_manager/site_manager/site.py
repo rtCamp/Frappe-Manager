@@ -696,6 +696,104 @@ class Bench:
 
         self.certificate_manager.renew_certificate()
 
+    def update_alias_domains(self, add_domains: Optional[List[str]] = None, remove_domains: Optional[List[str]] = None):
+        """
+        Update alias domains for the bench with atomic rollback support.
+        
+        Args:
+            add_domains: List of domains to add as aliases
+            remove_domains: List of domains to remove from aliases
+            
+        Raises:
+            BenchSSLCertificateNotIssued: If site doesn't have an SSL certificate
+            Exception: If certificate generation fails (config is rolled back)
+        """
+        if not self.has_certificate():
+            raise BenchSSLCertificateNotIssued(self.name)
+        
+        # Backup current alias domains for rollback
+        backup_aliases = copy.deepcopy(self.bench_config.ssl.alias_domains or [])
+        current_aliases = set(backup_aliases)
+        
+        # Validate and prepare updates
+        add_list = add_domains if add_domains else []
+        remove_list = remove_domains if remove_domains else []
+        
+        # Validation: Check for primary domain in operations
+        if self.name in add_list:
+            richprint.warning(f"Skipping '{self.name}' - primary domain cannot be added as alias.")
+            add_list = [d for d in add_list if d != self.name]
+        
+        if self.name in remove_list:
+            richprint.stop()
+            raise ValueError(
+                f"Cannot remove primary domain '{self.name}'. Only alias domains can be removed."
+            )
+        
+        # Add domains
+        added_domains = []
+        for domain in add_list:
+            if domain in current_aliases:
+                richprint.warning(f"Domain '{domain}' is already an alias. Skipping.")
+            else:
+                current_aliases.add(domain)
+                added_domains.append(domain)
+        
+        # Remove domains
+        removed_domains = []
+        for domain in remove_list:
+            if domain not in current_aliases:
+                richprint.warning(f"Domain '{domain}' is not an alias. Skipping.")
+            else:
+                current_aliases.remove(domain)
+                removed_domains.append(domain)
+        
+        # Check if any changes were made
+        if not added_domains and not removed_domains:
+            richprint.print("No changes to apply.")
+            return
+        
+        # Display changes
+        if added_domains:
+            richprint.print(f"Adding aliases: {', '.join(added_domains)}")
+        if removed_domains:
+            richprint.print(f"Removing aliases: {', '.join(removed_domains)}")
+        
+        # Update alias list
+        self.bench_config.ssl.alias_domains = sorted(list(current_aliases))
+        
+        try:
+            # Attempt certificate regeneration (this validates the changes)
+            richprint.change_head("Regenerating SSL certificate with updated domains")
+            self.certificate_manager.generate_certificate(self.bench_config.ssl)
+            richprint.print("Certificate regenerated successfully.")
+            
+            # Certificate succeeded - save config
+            richprint.change_head("Saving configuration")
+            self.save_bench_config()
+            richprint.print("Configuration saved.")
+            
+            # Update compose environment and restart
+            richprint.change_head("Updating services")
+            self.compose_project.stop_service()
+            self.generate_compose(self.bench_config.export_to_compose_inputs())
+            self.compose_project.start_service(force_recreate=True)
+            richprint.print("Services restarted with updated configuration.")
+            
+        except Exception as e:
+            # Rollback on failure
+            self.bench_config.ssl.alias_domains = backup_aliases
+            richprint.stop()
+            self.logger.error(f"Failed to update alias domains: {e}")
+            raise Exception(
+                f"Failed to update alias domains. Certificate generation failed: {e}\n"
+                f"Configuration has been rolled back to previous state.\n"
+                f"Please check:\n"
+                f"  - DNS records are properly configured\n"
+                f"  - Domains are accessible\n"
+                f"  - For wildcard domains, DNS-01 challenge is configured with Cloudflare credentials"
+            )
+
     def info(self):
         """
         Retrieves and displays information about the bench.
@@ -754,7 +852,12 @@ class Bench:
                 else 'Not Enabled'
             ),
         }
-
+        
+        # Add alias domains if present
+        if self.has_certificate() and self.bench_config.ssl.alias_domains:
+            alias_list = ', '.join(sorted(self.bench_config.ssl.alias_domains))
+            data['Alias Domains'] = alias_list
+        
         if not self.bench_config.admin_tools:
             data['Admin Tools'] = 'Not Enabled'
         else:

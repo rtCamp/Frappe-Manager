@@ -570,6 +570,24 @@ def update(
             "--mailpit-as-default-mail-server", help="Configure Mailpit as default mail server", show_default=False
         ),
     ] = False,
+    add_alias: Annotated[
+        Optional[str],
+        typer.Option(
+            "--add-alias",
+            help="Add alias domains to the site (comma-separated, e.g., www.example.com,api.example.com)",
+            callback=alias_domains_validation_callback,
+            show_default=False,
+        ),
+    ] = None,
+    remove_alias: Annotated[
+        Optional[str],
+        typer.Option(
+            "--remove-alias",
+            help="Remove alias domains from the site (comma-separated, e.g., shop.example.com)",
+            callback=alias_domains_validation_callback,
+            show_default=False,
+        ),
+    ] = None,
 ):
     """Update bench."""
 
@@ -674,6 +692,28 @@ def update(
                 bench.admin_tools.disable()
                 bench_config_save = True
 
+    # Handle alias domain updates
+    if add_alias or remove_alias:
+        # Check if site has SSL certificate
+        if not bench.has_certificate():
+            richprint.stop()
+            raise typer.BadParameter(
+                "Cannot manage alias domains for a site without SSL certificate. Enable Let's Encrypt SSL first using --ssl le.",
+                param_hint='--add-alias/--remove-alias'
+            )
+        
+        add_domains_list = add_alias if add_alias else []
+        remove_domains_list = remove_alias if remove_alias else []
+        
+        richprint.change_head("Updating alias domains")
+        bench.update_alias_domains(add_domains=add_domains_list, remove_domains=remove_domains_list)
+        richprint.print("Alias domains updated successfully.")
+        
+        if bench.has_certificate():
+            richprint.print(
+                f"SSL Certificate will expire in {format_ssl_certificate_time_remaining(bench.certificate_manager.get_certficate_expiry())}"
+            )
+    
     if bench_config_save:
         bench.save_bench_config()
 
