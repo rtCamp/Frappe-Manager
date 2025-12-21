@@ -68,6 +68,14 @@ class SSLCertificateManager:
     def renew_certificate(self):
         if self.needs_renewal():
             self.service.renew_certificate(self.certificate)
+            # Recreate symlinks to ensure alias domains are covered
+            # This handles cases where alias domains were added after initial generation
+            try:
+                privkey_path, fullchain_path = self.get_certificate_paths()
+                self.__create_certificate_to_domain_link(privkey_path, fullchain_path)
+            except Exception:
+                # If symlink recreation fails, renewal still succeeded
+                pass
             self.proxy_manager.restart()
         else:
             raise SSLCertificateNotDueForRenewalError(self.certificate.domain, self.get_certficate_expiry())
@@ -88,10 +96,24 @@ class SSLCertificateManager:
 
     def __create_certificate_to_domain_link(self, privkey_path: Path, fullchain_path: Path):
         if not self.certificate.ssl_type == SUPPORTED_SSL_TYPES.none:
+            # Create symlinks for primary domain
             create_symlink(self.__get_cert_container_privkey_path(privkey_path), self.get_cert_proxy_privkey_path())
             create_symlink(
                 self.__get_cert_container_fullchain_path(fullchain_path), self.get_cert_proxy_fullchain_path()
             )
+            
+            # Create symlinks for alias domains
+            # This ensures nginx-proxy can find the certificate for each VIRTUAL_HOST entry
+            if hasattr(self.certificate, 'alias_domains') and self.certificate.alias_domains:
+                container_privkey_path = self.__get_cert_container_privkey_path(privkey_path)
+                container_fullchain_path = self.__get_cert_container_fullchain_path(fullchain_path)
+                
+                for alias_domain in self.certificate.alias_domains:
+                    alias_privkey_path = self.proxy_manager.dirs.certs.host / f"{alias_domain}.key"
+                    alias_fullchain_path = self.proxy_manager.dirs.certs.host / f"{alias_domain}.crt"
+                    
+                    create_symlink(container_privkey_path, alias_privkey_path)
+                    create_symlink(container_fullchain_path, alias_fullchain_path)
 
     def remove_certificate_to_domain_link(self):
         host_cert_proxy_privkey_path = self.get_cert_proxy_privkey_path()
@@ -102,6 +124,18 @@ class SSLCertificateManager:
             host_cert_proxy_privkey_path.unlink()
         except:
             pass
+        
+        # Remove symlinks for alias domains
+        if hasattr(self.certificate, 'alias_domains') and self.certificate.alias_domains:
+            for alias_domain in self.certificate.alias_domains:
+                alias_privkey_path = self.proxy_manager.dirs.certs.host / f"{alias_domain}.key"
+                alias_fullchain_path = self.proxy_manager.dirs.certs.host / f"{alias_domain}.crt"
+                
+                try:
+                    alias_fullchain_path.unlink()
+                    alias_privkey_path.unlink()
+                except:
+                    pass
 
     def remove_certificate(self):
         self.remove_certificate_to_domain_link()
