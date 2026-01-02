@@ -791,8 +791,29 @@ class Bench:
             
             richprint.change_head("Updating services")
             self.compose_project.stop_service()
+            
+            # Delete nginx config to force regeneration with new domains
+            nginx_config_path = self.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
+            if nginx_config_path.exists():
+                nginx_config_path.unlink()
+            
             self.generate_compose(self.bench_config.export_to_compose_inputs())
             self.compose_project.start_service(force_recreate=True)
+            
+            # Start admin tools if they exist
+            if self.admin_tools.compose_project.compose_file_manager.compose_path.exists():
+                self.admin_tools.compose_project.start_service(force_recreate=True)
+            
+            # Ensure required services are available
+            self.benchops.is_required_services_available()
+            
+            # Start Frappe supervisor processes (critical for app to be accessible)
+            self.switch_bench_env()
+            
+            # Start workers if they exist
+            if self.workers.compose_project.compose_file_manager.exists():
+                self.workers.compose_project.start_service(force_recreate=True)
+            
             richprint.print("Services restarted with updated configuration.")
             
         except Exception as e:
