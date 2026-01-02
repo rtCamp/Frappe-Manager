@@ -4,6 +4,5 @@
 *.log
 tmp/*
 .tmp/*
-tests/*
 **/__pycache__/**
 readme.org

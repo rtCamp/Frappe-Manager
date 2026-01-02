@@ -72,3 +72,32 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-root = ""  # Flat layout (module in root directory)
 
+[dependency-groups]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-mock>=3.12.0",
+    "pytest-cov>=4.1.0",
+    "pytest-env>=1.1.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--cov=frappe_manager/ssl_manager",
+    "--cov-report=html",
+    "--cov-report=term-missing",
+    "--strict-markers",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+]
+env = [
+    "FM_LETSENCRYPT_STAGING=0",
+]
+
