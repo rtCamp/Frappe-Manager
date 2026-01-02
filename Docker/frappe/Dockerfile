@@ -4,9 +4,9 @@ LABEL author=rtCamp
 LABEL org.opencontainers.image.source=https://github.com/rtcamp/Frappe-Manager
 
 ARG PYTHON_VERSIONS='3.12.0'
-ARG PYENV_GIT_VERSION='2.6.7'
+ARG PYENV_GIT_VERSION='2.6.17'
 ARG PYENV_ROOT='/workspace/.pyenv'
-ARG NVM_VERSION='0.39.0'
+ARG NVM_VERSION='0.40.3'
 ARG NVM_DIR='/workspace/.nvm'
 ARG NODE_VERSIONS='22.18.0'
 ARG PREBAKE_APPS='erpnext:version-15,hrms:version-15'
