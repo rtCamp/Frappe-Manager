@@ -259,6 +259,9 @@ class BenchOperationFrappeBranchChangeFailed(BenchOperationException):
         self.app = app
         self.branch = branch
         self.message = message.format(app, branch)
+        self.print_combined = print_combined
+        self.print_stdout = print_stdout
+        self.print_stderr = print_stderr
         super().__init__(self.bench_name, self.message, print_combined, print_stdout, print_stderr)
 
 
