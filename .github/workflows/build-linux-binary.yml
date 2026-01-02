@@ -28,8 +28,10 @@ jobs:
       with:
         python-version: '3.11'
 
-    - name: Install Poetry
-      uses: snok/install-poetry@v1
+    - name: Install uv and build tooling
+      run: |
+        python -m pip install --upgrade pip
+        pip install uv build
 
     - name: Determine App Version
       run: |
@@ -45,7 +47,7 @@ jobs:
         PYAPP_PIP_EXTRA_ARGS: typer[all] requests psutil ruamel-yaml tomlkit certbot pydantic email-validator jinja2 certbot-dns-cloudflare ngrok passlib
         PYAPP_DISTRIBUTION_EMBED: 1
       run: |
-        poetry build
+        python -m build
         curl ${PYAPP_DOWNLOAD} -Lo pyapp-source.tar.gz
         tar -xzf pyapp-source.tar.gz
         mv pyapp-v* pyapp-latest
