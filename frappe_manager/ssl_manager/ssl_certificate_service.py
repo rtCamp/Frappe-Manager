@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Tuple, runtime_checkable, Protocol, TYPE_CHECKING
+from typing import Tuple, runtime_checkable, Protocol, TYPE_CHECKING, Optional, List
 
 if TYPE_CHECKING:
     from frappe_manager.ssl_manager.certificate import SSLCertificate
@@ -13,4 +13,4 @@ class SSLCertificateService(Protocol):
 
     def remove_certificate(self, certificate: 'SSLCertificate') -> bool: ...
 
-    def generate_certificate(self, certificate: 'SSLCertificate') -> Tuple[Path, Path]: ...
+    def generate_certificate(self, certificate: 'SSLCertificate', alias_domains: Optional[List[str]]=None) -> Tuple[Path, Path]: ...

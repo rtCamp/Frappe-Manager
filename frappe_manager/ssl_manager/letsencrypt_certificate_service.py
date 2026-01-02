@@ -1,7 +1,7 @@
 import shlex
 from io import StringIO
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 from certbot._internal.main import make_or_verify_needed_dirs
 from certbot._internal.plugins import disco as plugins_disco
 from certbot._internal import cli, storage
@@ -43,6 +43,13 @@ class LetsEncryptCertificateService(SSLCertificateService):
         renew_certificate_command = (
             self.base_command + f' renew --cert-name {certificate.domain} --non-interactive --force-renewal'
         )
+        
+        # Check for staging environment variable
+        import os
+        if os.getenv('FM_LETSENCRYPT_STAGING', '').lower() in ('1', 'true', 'yes'):
+            renew_certificate_command += ' --test-cert'
+            richprint.print("[yellow]⚠️  Using Let's Encrypt STAGING server for renewal (test certificates)[/yellow]")
+        
         renew_certificate_config = self._get_le_config(shlex.split(renew_certificate_command), quiet=True)
         make_or_verify_needed_dirs(renew_certificate_config)
         plugins = plugins_disco.PluginsRegistry.find_all()
@@ -80,7 +87,7 @@ class LetsEncryptCertificateService(SSLCertificateService):
         remove_certificate_config.func(remove_certificate_config, plugins)
         richprint.print("Removed Letsencrypt certificate")
 
-    def generate_certificate(self, certificate: LetsencryptSSLCertificate):
+    def generate_certificate(self, certificate: LetsencryptSSLCertificate, alias_domains: Optional[List[str]] = None):
         gen_command: str = self.base_command + f" certonly "
 
         richprint.print(f"Using Let's Encrypt {certificate.preferred_challenge.value} challenge.")
@@ -102,11 +109,20 @@ class LetsEncryptCertificateService(SSLCertificateService):
         gen_command += f' --keep-until-expiring --expand'
         gen_command += f' --agree-tos -m "{certificate.email}" --no-eff-email'
 
-        all_domains = [f'{certificate.domain}'] + certificate.alias_domains
+        # Check for staging environment variable
+        import os
+        if os.getenv('FM_LETSENCRYPT_STAGING', '').lower() in ('1', 'true', 'yes'):
+            gen_command += ' --test-cert'
+            richprint.print("[yellow]⚠️  Using Let's Encrypt STAGING server (test certificates)[/yellow]")
 
-        # alias domains
-        for alias_domain in all_domains:
-            gen_command += f" -d '{alias_domain}'"
+        # Build list of all domains: primary + alias domains
+        all_domains = [f'{certificate.domain}']
+        if alias_domains:
+            all_domains.extend(alias_domains)
+
+        # Add all domains to certificate
+        for domain in all_domains:
+            gen_command += f" -d '{domain}'"
 
         try:
             richprint.change_head("Getting Letsencrypt certificate")
@@ -121,14 +137,16 @@ class LetsEncryptCertificateService(SSLCertificateService):
             self.logger.exception(e)
             output = '\n'.join(line for line in self.console_output.getvalue().split('\n') if not line.startswith('!!'))
             richprint.stdout.print(output)
-            dns_config_path.unlink()
+            if certificate.preferred_challenge == LETSENCRYPT_PREFERRED_CHALLENGE.dns01 and dns_config_path.exists():
+                dns_config_path.unlink()
             raise SSLCertificateChallengeFailed(certificate.preferred_challenge)
 
         except Exception as e:
             self.logger.exception(e)
             output = '\n'.join(line for line in self.console_output.getvalue().split('\n') if not line.startswith('!!'))
             richprint.stdout.print(output)
-            dns_config_path.unlink()
+            if certificate.preferred_challenge == LETSENCRYPT_PREFERRED_CHALLENGE.dns01 and dns_config_path.exists():
+                dns_config_path.unlink()
             raise SSLCertificateGenerateFailed()
 
         richprint.print("Acquired Letsencrypt certificate: Done")

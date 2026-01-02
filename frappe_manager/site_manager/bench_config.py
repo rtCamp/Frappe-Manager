@@ -139,9 +139,6 @@ class BenchConfig(BaseModel):
                 else:
                     preferred_challenge = pref_challenge_data
 
-                # Parse alias_domains from SSL config
-                alias_domains = ssl_data.get('alias_domains', [])
-
                 ssl_instance = LetsencryptSSLCertificate(
                     domain=domain,
                     ssl_type=ssl_type,
@@ -149,20 +146,14 @@ class BenchConfig(BaseModel):
                     preferred_challenge=preferred_challenge,
                     api_key=api_key,
                     api_token=api_token,
-                    alias_domains=alias_domains,
                 )
             else:
-                # Parse alias_domains for non-Let's Encrypt SSL too
-                alias_domains = ssl_data.get('alias_domains', [])
-                ssl_instance = SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none, alias_domains=alias_domains)
+                ssl_instance = SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none)
         else:
             ssl_instance = SSLCertificate(domain=data.get('name', ''), ssl_type=SUPPORTED_SSL_TYPES.none)
 
-        # Read alias_domains - first check top-level, then fallback to SSL section for backward compatibility
+        # Read alias_domains from root level only
         alias_domains_list = data.get('alias_domains', [])
-        if not alias_domains_list and ssl_data:
-            # Backward compatibility: read from SSL section if not in top-level
-            alias_domains_list = ssl_data.get('alias_domains', [])
 
         input_data = {
             'name': data.get('name', None),

@@ -661,13 +661,14 @@ class Bench:
         return get_bench_db_connection_info(self.name, self.path)
 
     def create_certificate(self):
-        self.certificate_manager.generate_certificate()
+        self.certificate_manager.generate_certificate(self.bench_config.alias_domains)
         self.save_bench_config()
 
     def has_certificate(self):
         return self.certificate_manager.has_certificate()
 
     def remove_certificate(self):
+        self.certificate_manager.remove_certificate(self.bench_config.alias_domains)
         self.certificate_manager.remove_certificate()
         self.bench_config.ssl = SSLCertificate(domain=self.name, ssl_type=SUPPORTED_SSL_TYPES.none)
         self.save_bench_config()
@@ -772,16 +773,15 @@ class Bench:
         if removed_domains:
             richprint.print(f"Removing aliases: {', '.join(removed_domains)}")
         
-        # Update alias list in both places for consistency
+        # Update alias list - only at bench level now
         updated_aliases = sorted(list(current_aliases))
         self.bench_config.alias_domains = updated_aliases
-        self.bench_config.ssl.alias_domains = updated_aliases
         
         try:
             # Only regenerate certificate if SSL is active
             if self.has_certificate():
                 richprint.change_head("Regenerating SSL certificate with updated domains")
-                self.certificate_manager.generate_certificate(self.bench_config.ssl)
+                self.certificate_manager.generate_certificate(self.bench_config.alias_domains)
                 richprint.print("Certificate regenerated successfully.")
             
             # Always save config and restart services
@@ -819,7 +819,6 @@ class Bench:
         except Exception as e:
             # Rollback on failure
             self.bench_config.alias_domains = backup_aliases
-            self.bench_config.ssl.alias_domains = backup_aliases
             richprint.stop()
             self.logger.error(f"Failed to update alias domains: {e}")
             raise Exception(f"Failed to update alias domains: {e}")

@@ -257,14 +257,12 @@ def create(
             preferred_challenge=letsencrypt_preferred_challenge,
             api_key=fm_config_manager.letsencrypt.api_key,
             api_token=fm_config_manager.letsencrypt.api_token,
-            alias_domains=alias_domains if alias_domains else [],
         )
 
     elif ssl == SUPPORTED_SSL_TYPES.none:
         ssl_certificate = SSLCertificate(
             domain=benchname, 
             ssl_type=ssl,
-            alias_domains=alias_domains if alias_domains else [],
         )
 
     if developer_mode == EnableDisableOptionsEnum.enable:
@@ -283,6 +281,7 @@ def create(
         environment_type=environment,
         root_path=bench_config_path,
         ssl=ssl_certificate,
+        alias_domains=alias_domains if alias_domains else [],
     )
 
     compose_path = bench_path / 'docker-compose.yml'
@@ -658,10 +657,9 @@ def update(
                 api_token=fm_config_manager.letsencrypt.api_token,
             )
 
-            # Auto-include existing alias domains in certificate
-            if bench.bench_config.ssl.alias_domains:
-                new_ssl_certificate.alias_domains = bench.bench_config.ssl.alias_domains
-                alias_list = ', '.join(bench.bench_config.ssl.alias_domains)
+            # Auto-include existing alias domains (no need to copy to certificate, they're at bench level)
+            if bench.bench_config.alias_domains:
+                alias_list = ', '.join(bench.bench_config.alias_domains)
                 richprint.print(f"Including alias domains: {alias_list}")
 
         richprint.print("Updating Certificate.")
