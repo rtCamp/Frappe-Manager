@@ -1,167 +1,227 @@
-from pathlib import Path
+"""
+SSL Certificate Manager with dependency injection.
+
+This module orchestrates SSL certificate operations by coordinating between:
+- SSL certificate services (Let's Encrypt, self-signed, etc.)
+- Certificate link manager (for symlink operations)
+- Nginx controller (for service restarts)
+
+The manager is designed to be testable and decoupled from infrastructure details.
+"""
+
 from datetime import timedelta, datetime
-from typing import List, Optional
+from typing import Optional, List
+from pathlib import Path
 from frappe_manager import SSL_RENEW_BEFORE_DAYS
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
-from frappe_manager.ssl_manager.letsencrypt_certificate_service import LetsEncryptCertificateService
-from frappe_manager.ssl_manager.no_op_certificate_service import NoOpCertificateService
 from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateNotDueForRenewalError,
     SSLCertificateNotFoundError,
 )
 from frappe_manager.ssl_manager.certificate import SSLCertificate
-from frappe_manager.ssl_manager.nginxproxymanager import NginxProxyManager
 from frappe_manager.ssl_manager.ssl_certificate_service import SSLCertificateService
-from frappe_manager.utils.helpers import (
-    create_symlink,
-    get_certificate_expiry_date,
-)
+from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkManager
+from frappe_manager.ssl_manager.nginx_controller import NginxController
+from frappe_manager.utils.helpers import get_certificate_expiry_date
 
 
 class SSLCertificateManager:
-    service: SSLCertificateService
-    proxy_manager: NginxProxyManager
-
-    def __init__(self, certificate: SSLCertificate, webroot_dir: Path, proxy_manager: NginxProxyManager):
+    """
+    Manages SSL certificate lifecycle with dependency injection.
+    
+    This manager coordinates SSL certificate operations without being tightly
+    coupled to specific implementations. Dependencies are injected, making the
+    class testable and flexible.
+    
+    Attributes:
+        certificate: The SSL certificate configuration to manage
+        service: The certificate service (Let's Encrypt, self-signed, etc.)
+        link_manager: Manages symlinks between cert files and nginx-proxy
+        nginx_controller: Controls nginx service operations
+    """
+    
+    def __init__(
+        self,
+        certificate: SSLCertificate,
+        service: SSLCertificateService,
+        link_manager: CertificateLinkManager,
+        nginx_controller: NginxController,
+    ):
+        """
+        Initialize the SSL certificate manager.
+        
+        Args:
+            certificate: SSL certificate configuration
+            service: Certificate service for generation/renewal operations
+            link_manager: Manager for certificate symlink operations
+            nginx_controller: Controller for nginx service operations
+            
+        Raises:
+            ValueError: If any required dependency is None
+        """
+        if certificate is None:
+            raise ValueError("Certificate configuration is required")
+        if service is None:
+            raise ValueError("Certificate service is required")
+        if link_manager is None:
+            raise ValueError("Certificate link manager is required")
+        if nginx_controller is None:
+            raise ValueError("Nginx controller is required")
+        
         self.certificate = certificate
-        self.proxy_manager = proxy_manager
-        self.webroot_dir = webroot_dir
-        self.service = self.ssl_service_factory()
-
-    def ssl_service_factory(self):
-        # initializing ssl service
-        if self.certificate.ssl_type == SUPPORTED_SSL_TYPES.le:
-            webroot_dir = self.webroot_dir
-            certificate_service = LetsEncryptCertificateService(self.proxy_manager.dirs.ssl.host, webroot_dir)
-            return certificate_service
-
-        certificate_service = NoOpCertificateService(Path('/dev/null'))
-        return certificate_service
-
+        self.service = service
+        self.link_manager = link_manager
+        self.nginx_controller = nginx_controller
+    
     def set_certificate(self, certificate: SSLCertificate):
+        """
+        Update the certificate configuration.
+        
+        Args:
+            certificate: New certificate configuration
+        """
         self.certificate = certificate
-        self.service = self.ssl_service_factory()
-
-    def has_certificate(self):
+    
+    def has_certificate(self) -> bool:
+        """
+        Check if a certificate exists for the configured domain.
+        
+        Returns:
+            True if certificate files exist, False otherwise
+        """
         try:
             self.get_certificate_paths()
             return True
         except SSLCertificateNotFoundError:
             return False
-
-    def get_certificate_paths(self):
+    
+    def get_certificate_paths(self) -> tuple[Path, Path]:
+        """
+        Get paths to the certificate files.
+        
+        Returns:
+            Tuple of (privkey_path, fullchain_path)
+            
+        Raises:
+            SSLCertificateNotFoundError: If certificate doesn't exist
+        """
         try:
-            privkey_file_name: str = f"{self.certificate.domain}.key"
-            fullchain_file_name: str = f"{self.certificate.domain}.crt"
-
-            paths = []
-            for file_name in [privkey_file_name, fullchain_file_name]:
-                path = self.proxy_manager.dirs.certs.host / file_name
-                path = path.readlink()
-                to_remove = Path(self.proxy_manager.dirs.ssl.container)
-                relative_path = path.relative_to(to_remove)
-                path = self.proxy_manager.dirs.ssl.host / relative_path
-                paths.append(path)
-            return paths
+            return self.link_manager.get_certificate_paths(self.certificate.domain)
         except FileNotFoundError:
             raise SSLCertificateNotFoundError(self.certificate.domain)
-
-    def renew_certificate(self):
-        if self.needs_renewal():
-            self.service.renew_certificate(self.certificate)
-            # Recreate symlinks to ensure alias domains are covered
-            # This handles cases where alias domains were added after initial generation
-            try:
-                privkey_path, fullchain_path = self.get_certificate_paths()
-                self.__create_certificate_to_domain_link(privkey_path, fullchain_path)
-            except Exception:
-                # If symlink recreation fails, renewal still succeeded
-                pass
-            self.proxy_manager.restart()
-        else:
-            raise SSLCertificateNotDueForRenewalError(self.certificate.domain, self.get_certficate_expiry())
-
-    def get_certficate_expiry(self):
+    
+    def get_certificate_expiry(self) -> datetime:
+        """
+        Get the expiry date of the certificate.
+        
+        Returns:
+            Datetime object representing when the certificate expires
+            
+        Raises:
+            SSLCertificateNotFoundError: If certificate doesn't exist
+        """
         privkey_path, fullchain_path = self.get_certificate_paths()
         return get_certificate_expiry_date(fullchain_path)
-
+    
     def needs_renewal(self) -> bool:
-        expiry_date_with_minimum_renew_days = self.get_certficate_expiry() - timedelta(days=SSL_RENEW_BEFORE_DAYS)
+        """
+        Check if the certificate needs renewal.
+        
+        A certificate needs renewal if it will expire within SSL_RENEW_BEFORE_DAYS.
+        
+        Returns:
+            True if certificate should be renewed, False otherwise
+        """
+        expiry_date = self.get_certificate_expiry()
+        expiry_date_with_threshold = expiry_date - timedelta(days=SSL_RENEW_BEFORE_DAYS)
+        
         today_date = datetime.now()
-        if expiry_date_with_minimum_renew_days.tzinfo:
-            today_date = today_date.replace(tzinfo=expiry_date_with_minimum_renew_days.tzinfo)
-
-        if not expiry_date_with_minimum_renew_days > today_date:
-            return True
-        return False
-
-    def __create_certificate_to_domain_link(self, privkey_path: Path, fullchain_path: Path, alias_domains: Optional[List[str]] = None):
-        if not self.certificate.ssl_type == SUPPORTED_SSL_TYPES.none:
-            # Create symlinks for primary domain
-            create_symlink(self.__get_cert_container_privkey_path(privkey_path), self.get_cert_proxy_privkey_path())
-            create_symlink(
-                self.__get_cert_container_fullchain_path(fullchain_path), self.get_cert_proxy_fullchain_path()
-            )
+        if expiry_date_with_threshold.tzinfo:
+            today_date = today_date.replace(tzinfo=expiry_date_with_threshold.tzinfo)
+        
+        return not expiry_date_with_threshold > today_date
+    
+    def generate_certificate(self, alias_domains: Optional[List[str]] = None):
+        """
+        Generate a new SSL certificate.
+        
+        This creates a new certificate, sets up symlinks for the domain and any
+        alias domains, and restarts nginx to apply the changes.
+        
+        Args:
+            alias_domains: Optional list of alias domains to include in certificate
+        """
+        # Generate certificate files
+        privkey_path, fullchain_path = self.service.generate_certificate(
+            self.certificate, alias_domains
+        )
+        
+        # Create symlinks for nginx-proxy
+        self.link_manager.link_certificate(
+            cert_type=self.certificate.ssl_type.value,
+            domain=self.certificate.domain,
+            privkey_path=privkey_path,
+            fullchain_path=fullchain_path,
+            alias_domains=alias_domains,
+        )
+        
+        # Restart nginx to pick up new certificate
+        self.nginx_controller.restart()
+    
+    def renew_certificate(self, alias_domains: Optional[List[str]] = None):
+        """
+        Renew an existing SSL certificate.
+        
+        This renews the certificate if it's due for renewal, updates symlinks
+        to handle any new alias domains, and restarts nginx.
+        
+        Args:
+            alias_domains: Optional list of alias domains (may have changed since generation)
             
-            # Create symlinks for alias domains
-            # This ensures nginx-proxy can find the certificate for each VIRTUAL_HOST entry
-            if alias_domains:
-                container_privkey_path = self.__get_cert_container_privkey_path(privkey_path)
-                container_fullchain_path = self.__get_cert_container_fullchain_path(fullchain_path)
-                
-                for alias_domain in alias_domains:
-                    alias_privkey_path = self.proxy_manager.dirs.certs.host / f"{alias_domain}.key"
-                    alias_fullchain_path = self.proxy_manager.dirs.certs.host / f"{alias_domain}.crt"
-                    
-                    create_symlink(container_privkey_path, alias_privkey_path)
-                    create_symlink(container_fullchain_path, alias_fullchain_path)
-
-    def remove_certificate_to_domain_link(self, alias_domains: Optional[List[str]] = None):
-        host_cert_proxy_privkey_path = self.get_cert_proxy_privkey_path()
-        host_cert_proxy_fullchain_path = self.get_cert_proxy_fullchain_path()
-
+        Raises:
+            SSLCertificateNotDueForRenewalError: If certificate doesn't need renewal yet
+        """
+        if not self.needs_renewal():
+            raise SSLCertificateNotDueForRenewalError(
+                self.certificate.domain, self.get_certificate_expiry()
+            )
+        
+        # Renew the certificate
+        self.service.renew_certificate(self.certificate)
+        
+        # Recreate symlinks to ensure alias domains are covered
+        # This handles cases where alias domains were added after initial generation
         try:
-            host_cert_proxy_fullchain_path.unlink()
-            host_cert_proxy_privkey_path.unlink()
-        except:
+            privkey_path, fullchain_path = self.get_certificate_paths()
+            self.link_manager.link_certificate(
+                cert_type=self.certificate.ssl_type.value,
+                domain=self.certificate.domain,
+                privkey_path=privkey_path,
+                fullchain_path=fullchain_path,
+                alias_domains=alias_domains,
+            )
+        except Exception:
+            # If symlink recreation fails, renewal still succeeded
             pass
         
-        # Remove symlinks for alias domains
-        if alias_domains:
-            for alias_domain in alias_domains:
-                alias_privkey_path = self.proxy_manager.dirs.certs.host / f"{alias_domain}.key"
-                alias_fullchain_path = self.proxy_manager.dirs.certs.host / f"{alias_domain}.crt"
-                
-                try:
-                    alias_fullchain_path.unlink()
-                    alias_privkey_path.unlink()
-                except:
-                    pass
-
+        # Restart nginx to pick up renewed certificate
+        self.nginx_controller.restart()
+    
     def remove_certificate(self, alias_domains: Optional[List[str]] = None):
-        self.remove_certificate_to_domain_link(alias_domains)
+        """
+        Remove an SSL certificate and its symlinks.
+        
+        This removes the certificate files, all associated symlinks (including
+        alias domains), and restarts nginx.
+        
+        Args:
+            alias_domains: Optional list of alias domains to also remove symlinks for
+        """
+        # Remove symlinks first
+        self.link_manager.unlink_certificate(self.certificate.domain, alias_domains)
+        
+        # Remove actual certificate files
         self.service.remove_certificate(self.certificate)
-        self.proxy_manager.restart()
-
-    def generate_certificate(self, alias_domains: Optional[List[str]] = None):
-        privkey_path, fullchain_path = self.service.generate_certificate(self.certificate, alias_domains)
-        self.__create_certificate_to_domain_link(privkey_path, fullchain_path, alias_domains)
-        self.proxy_manager.restart()
-
-    def get_cert_proxy_fullchain_path(self) -> Path:
-        return self.proxy_manager.dirs.certs.host / f"{self.certificate.domain}.crt"
-
-    def get_cert_proxy_privkey_path(self) -> Path:
-        return self.proxy_manager.dirs.certs.host / f"{self.certificate.domain}.key"
-
-    def __get_cert_container_privkey_path(self, privkey_path: Path) -> Path:
-        part_to_remove = Path(self.proxy_manager.dirs.ssl.host / self.certificate.ssl_type.value)
-        relative_path = privkey_path.relative_to(part_to_remove)
-        path = self.proxy_manager.dirs.ssl.container / self.certificate.ssl_type.value / relative_path
-        return path
-
-    def __get_cert_container_fullchain_path(self, fullchain_path: Path) -> Path:
-        part_to_remove = Path(self.proxy_manager.dirs.ssl.host / self.certificate.ssl_type.value)
-        relative_path = fullchain_path.relative_to(part_to_remove)
-        path = self.proxy_manager.dirs.ssl.container / self.certificate.ssl_type.value / relative_path
-        return path
+        
+        # Restart nginx to apply changes
+        self.nginx_controller.restart()

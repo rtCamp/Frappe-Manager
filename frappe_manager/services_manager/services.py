@@ -21,7 +21,8 @@ from frappe_manager.services_manager.services_exceptions import (
 )
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
-from frappe_manager.ssl_manager.nginxproxymanager import NginxProxyManager
+from frappe_manager.ssl_manager.proxy_storage import ProxyStoragePaths
+from frappe_manager.ssl_manager.nginx_controller import NginxController
 from frappe_manager.utils.helpers import (
     get_current_fm_version,
     get_template_path,
@@ -97,9 +98,20 @@ class ServicesManager:
             compose_file_manager = ComposeFile(self.compose_path, template_name="docker-compose.services.osx.tmpl")
 
         self.compose_project = ComposeProject(compose_file_manager=compose_file_manager)
-        self.proxy_manager: NginxProxyManager = NginxProxyManager('global-nginx-proxy', self.compose_project)
+        
+        # Initialize nginx-proxy components
+        self.proxy_storage = ProxyStoragePaths('global-nginx-proxy', self.compose_project)
+        self.nginx_controller = NginxController('global-nginx-proxy', self.compose_project)
+        
+        # For backward compatibility
+        # TODO: Remove this when all code is updated
+        self.proxy_manager = type('ProxyManager', (), {
+            'dirs': self.proxy_storage.dirs,
+            'restart': self.nginx_controller.restart,
+            'reload': self.nginx_controller.reload
+        })()
 
-        self.fm_headers_path: Path = self.proxy_manager.dirs.confd.host / 'fm_headers.conf'
+        self.fm_headers_path: Path = self.proxy_storage.dirs.confd.host / 'fm_headers.conf'
         self.set_frappe_headers_conf()
 
     def set_frappe_headers_conf(self):

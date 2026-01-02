@@ -1,18 +1,21 @@
 import json
 import os
 from pathlib import Path
+from typing import Any, TYPE_CHECKING
 from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.compose_manager.ComposeFile import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker_wrapper.DockerException import DockerException
 from frappe_manager.site_manager.site_exceptions import AdminToolsFailedToStart, BenchException
-from frappe_manager.ssl_manager.nginxproxymanager import NginxProxyManager
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version, get_template_path
+
+if TYPE_CHECKING:
+    from frappe_manager.site_manager.site import Bench
 
 
 class AdminTools:
-    def __init__(self, bench: 'Bench', nginx_proxy: NginxProxyManager, verbose: bool = True):
+    def __init__(self, bench: 'Bench', nginx_proxy: Any, verbose: bool = True):
         self.bench = bench
         self.compose_path = bench.path / "docker-compose.admin-tools.yml"
         self.bench_name = bench.name
@@ -20,7 +23,7 @@ class AdminTools:
         self.compose_project = ComposeProject(
             ComposeFile(self.compose_path, template_name='docker-compose.admin-tools.tmpl')
         )
-        self.nginx_proxy: NginxProxyManager = nginx_proxy
+        self.nginx_proxy = nginx_proxy
         self.nginx_config_location_path: Path = self.nginx_proxy.dirs.conf.host / 'custom' / 'admin-tools.conf'
         self.http_auth_path: Path = self.nginx_proxy.dirs.conf.host / 'http_auth'
 

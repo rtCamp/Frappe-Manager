@@ -35,8 +35,13 @@ from frappe_manager.site_manager.site_exceptions import (
 from frappe_manager.site_manager.workers_manager.SiteWorker import BenchWorkers
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
-from frappe_manager.ssl_manager.nginxproxymanager import NginxProxyManager
+from frappe_manager.ssl_manager.proxy_storage import ProxyStoragePaths
+from frappe_manager.ssl_manager.nginx_controller import NginxController
 from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
+from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
+from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkManager
+from frappe_manager.ssl_manager.letsencrypt_certificate_service import LetsEncryptCertificateService
+from frappe_manager.ssl_manager.no_op_certificate_service import NoOpCertificateService
 from frappe_manager.utils.helpers import (
     capture_and_format_exception,
     format_ssl_certificate_time_remaining,
@@ -76,14 +81,55 @@ class Bench:
         self.bench_config: BenchConfig = bench_config
         self.compose_project: ComposeProject = compose_project
         self.logger = log.get_logger()
-        self.proxy_manager: NginxProxyManager = NginxProxyManager('nginx', self.compose_project)
+        
+        # Initialize local nginx proxy components
+        self.bench_proxy_storage = ProxyStoragePaths('nginx', self.compose_project)
+        self.bench_nginx_controller = NginxController('nginx', self.compose_project)
+        
+        # For backward compatibility with admin_tools
+        # TODO: Refactor admin_tools to not need this
+        self.proxy_manager = type('ProxyManager', (), {
+            'dirs': self.bench_proxy_storage.dirs,
+            'restart': self.bench_nginx_controller.restart,
+            'reload': self.bench_nginx_controller.reload,
+            'compose_project': self.compose_project
+        })()
+        
         self.admin_tools: AdminTools = AdminTools(self, self.proxy_manager)
 
+        # Initialize SSL certificate manager with dependency injection
+        # Get global nginx-proxy storage config from services
+        global_proxy_storage = services.proxy_storage
+        webroot_dir = self.bench_proxy_storage.dirs.html.host
+        
+        ssl_storage_config = SSLStorageConfig(
+            ssl_dir=global_proxy_storage.dirs.ssl.host,
+            ssl_dir_container=global_proxy_storage.dirs.ssl.container,
+            certs_dir=global_proxy_storage.dirs.certs.host,
+            certs_dir_container=global_proxy_storage.dirs.certs.container,
+            webroot_dir=webroot_dir,
+        )
+        
+        # Create certificate service based on SSL type
+        if self.bench_config.ssl.ssl_type == SUPPORTED_SSL_TYPES.le:
+            certificate_service = LetsEncryptCertificateService(
+                ssl_storage_config.ssl_dir,
+                webroot_dir
+            )
+        else:
+            certificate_service = NoOpCertificateService(Path('/dev/null'))
+        
+        # Create link manager and nginx controller
+        link_manager = CertificateLinkManager(ssl_storage_config)
+        
+        # Initialize certificate manager
         self.certificate_manager = SSLCertificateManager(
             certificate=self.bench_config.ssl,
-            webroot_dir=self.proxy_manager.dirs.html.host,
-            proxy_manager=services.proxy_manager,
+            service=certificate_service,
+            link_manager=link_manager,
+            nginx_controller=services.nginx_controller,
         )
+        
         self.benchops = BenchOperations(self)
         self.workers = BenchWorkers(self, not verbose)
 
@@ -876,7 +922,7 @@ class Bench:
             "DB Password": db_pass,
             "Environment": self.bench_config.environment_type.value,
             "HTTPS": (
-                f'{ssl_service_type.upper()} ({format_ssl_certificate_time_remaining(self.certificate_manager.get_certficate_expiry())})'
+                f'{ssl_service_type.upper()} ({format_ssl_certificate_time_remaining(self.certificate_manager.get_certificate_expiry())})'
                 if self.has_certificate()
                 else 'Not Enabled'
             ),

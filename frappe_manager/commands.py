@@ -668,7 +668,7 @@ def update(
 
         if bench.has_certificate():
             richprint.print(
-                f"SSL Certificate will expire in {format_ssl_certificate_time_remaining(bench.certificate_manager.get_certficate_expiry())}"
+                f"SSL Certificate will expire in {format_ssl_certificate_time_remaining(bench.certificate_manager.get_certificate_expiry())}"
             )
 
     if admin_tools:
@@ -708,7 +708,7 @@ def update(
         # Only show certificate expiry if SSL is active
         if bench.has_certificate():
             richprint.print(
-                f"SSL Certificate will expire in {format_ssl_certificate_time_remaining(bench.certificate_manager.get_certficate_expiry())}"
+                f"SSL Certificate will expire in {format_ssl_certificate_time_remaining(bench.certificate_manager.get_certificate_expiry())}"
             )
     
     if bench_config_save:
