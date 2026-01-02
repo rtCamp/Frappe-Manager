@@ -34,8 +34,12 @@
         "code": " --ssl letsencrypt --letsencrypt-preferred-challenge dns01"
       },
       {
-        "desc": "Create site with alias domains for SSL certificate.",
+        "desc": "Create site with SSL and alias domains.",
         "code": " --ssl letsencrypt --letsencrypt-preferred-challenge http01 --letsencrypt-email admin@example.com --alias-domains www.example.com,api.example.com"
+      },
+      {
+        "desc": "Create site with alias domains (without SSL).",
+        "code": " --alias-domains www.example.com,api.example.com"
       }
     ]
   },

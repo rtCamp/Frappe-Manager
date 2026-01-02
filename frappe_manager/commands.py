@@ -185,10 +185,9 @@ def create(
     alias_domains: Annotated[
         Optional[str],
         typer.Option(
-            help="Comma-separated list of alias domains for the site (e.g., 'www.example.com,api.example.com'). These will be included as Subject Alternative Names (SAN) in the SSL certificate. Wildcard domains (e.g., '*.example.com') require dns01 challenge.",
+            help="Comma-separated list of alias domains for the site (e.g., 'www.example.com,api.example.com'). These domains will be configured as network aliases for accessing the site. If SSL is enabled, they will also be included as Subject Alternative Names (SAN) in the SSL certificate. Wildcard domains (e.g., '*.example.com') require dns01 challenge and SSL.",
             callback=alias_domains_validation_callback,
             show_default=False,
-            rich_help_panel="SSL Configuration"
         ),
     ] = None,
 ):
