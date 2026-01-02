@@ -39,6 +39,7 @@ class BenchConfig(BaseModel):
     admin_tools: bool = Field(..., description="Whether admin tools are enabled")
     environment_type: FMBenchEnvType = Field(..., description="The type of environment")
     ssl: SSLCertificate = Field(..., description="The SSL certificate")
+    alias_domains: List[str] = Field(default=[], description="List of alias domains for the bench")
 
     frappe_branch: str = Field(
         default=STABLE_APP_BRANCH_MAPPING_LIST['frappe'], description="The branch of Frappe to use"
@@ -110,7 +111,7 @@ class BenchConfig(BaseModel):
         ssl_data = data.get('ssl', None)
 
         if ssl_data:
-            domain: str = data.get('name', None)  # Set domain from main data if necessary
+            domain: str = data.get('name', '')  # Set domain from main data if necessary
             ssl_type = ssl_data.get('ssl_type', SUPPORTED_SSL_TYPES.none)
 
             if ssl_type == SUPPORTED_SSL_TYPES.le:
@@ -155,7 +156,13 @@ class BenchConfig(BaseModel):
                 alias_domains = ssl_data.get('alias_domains', [])
                 ssl_instance = SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none, alias_domains=alias_domains)
         else:
-            ssl_instance = SSLCertificate(domain=data.get('name', None), ssl_type=SUPPORTED_SSL_TYPES.none)
+            ssl_instance = SSLCertificate(domain=data.get('name', ''), ssl_type=SUPPORTED_SSL_TYPES.none)
+
+        # Read alias_domains - first check top-level, then fallback to SSL section for backward compatibility
+        alias_domains_list = data.get('alias_domains', [])
+        if not alias_domains_list and ssl_data:
+            # Backward compatibility: read from SSL section if not in top-level
+            alias_domains_list = ssl_data.get('alias_domains', [])
 
         input_data = {
             'name': data.get('name', None),
@@ -164,6 +171,7 @@ class BenchConfig(BaseModel):
             'environment_type': data.get('environment_type', None),
             'root_path': data.get('root_path', None),
             'ssl': ssl_instance,
+            'alias_domains': alias_domains_list,
             'admin_tools_username': data.get('admin_tools_username', None),
             'admin_tools_password': data.get('admin_tools_password', None),
         }
@@ -191,8 +199,8 @@ class BenchConfig(BaseModel):
     def export_to_compose_inputs(self):
         # Build domains list: primary domain + alias domains
         all_domains = [self.name]
-        if self.ssl.alias_domains:
-            all_domains.extend(self.ssl.alias_domains)
+        if self.alias_domains:
+            all_domains.extend(self.alias_domains)
         domains_string = ','.join(all_domains)
 
         environment = {

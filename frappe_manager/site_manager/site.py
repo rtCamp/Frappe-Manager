@@ -314,8 +314,8 @@ class Bench:
 
         # Build list of all domains for network aliases (primary + alias domains)
         network_aliases = [self.name]
-        if self.bench_config.ssl.alias_domains:
-            network_aliases.extend(self.bench_config.ssl.alias_domains)
+        if self.bench_config.alias_domains:
+            network_aliases.extend(self.bench_config.alias_domains)
         
         self.compose_project.compose_file_manager.set_network_alias("nginx", "site-network", network_aliases)
         self.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(self.name))
@@ -718,7 +718,7 @@ class Bench:
             Exception: If certificate generation fails (config is rolled back)
         """
         # Backup current alias domains for rollback
-        backup_aliases = copy.deepcopy(self.bench_config.ssl.alias_domains or [])
+        backup_aliases = copy.deepcopy(self.bench_config.alias_domains or [])
         current_aliases = set(backup_aliases)
         
         # Validate and prepare updates
@@ -772,8 +772,10 @@ class Bench:
         if removed_domains:
             richprint.print(f"Removing aliases: {', '.join(removed_domains)}")
         
-        # Update alias list
-        self.bench_config.ssl.alias_domains = sorted(list(current_aliases))
+        # Update alias list in both places for consistency
+        updated_aliases = sorted(list(current_aliases))
+        self.bench_config.alias_domains = updated_aliases
+        self.bench_config.ssl.alias_domains = updated_aliases
         
         try:
             # Only regenerate certificate if SSL is active
@@ -795,6 +797,7 @@ class Bench:
             
         except Exception as e:
             # Rollback on failure
+            self.bench_config.alias_domains = backup_aliases
             self.bench_config.ssl.alias_domains = backup_aliases
             richprint.stop()
             self.logger.error(f"Failed to update alias domains: {e}")
@@ -860,8 +863,8 @@ class Bench:
         }
         
         # Add alias domains if present (independent of SSL status)
-        if self.bench_config.ssl.alias_domains:
-            alias_list = ', '.join(sorted(self.bench_config.ssl.alias_domains))
+        if self.bench_config.alias_domains:
+            alias_list = ', '.join(sorted(self.bench_config.alias_domains))
             data['Alias Domains'] = alias_list
         
         if not self.bench_config.admin_tools:
