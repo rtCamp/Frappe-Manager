@@ -715,7 +715,6 @@ class Bench:
 
     def remove_certificate(self):
         self.certificate_manager.remove_certificate(self.bench_config.alias_domains)
-        self.certificate_manager.remove_certificate()
         self.bench_config.ssl = SSLCertificate(domain=self.name, ssl_type=SUPPORTED_SSL_TYPES.none)
         self.save_bench_config()
 
@@ -746,7 +745,7 @@ class Bench:
         if not self.compose_project.is_service_running('nginx'):
             raise BenchServiceNotRunning(self.name, 'nginx')
 
-        self.certificate_manager.renew_certificate()
+        self.certificate_manager.renew_certificate(self.bench_config.alias_domains)
 
     def update_alias_domains(self, add_domains: Optional[List[str]] = None, remove_domains: Optional[List[str]] = None):
         """
