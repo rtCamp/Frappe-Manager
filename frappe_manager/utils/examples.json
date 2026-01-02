@@ -32,6 +32,10 @@
       {
         "desc": "Enable HTTPS using DNS01 Let's Encrypt challenge certificate.",
         "code": " --ssl letsencrypt --letsencrypt-preferred-challenge dns01"
+      },
+      {
+        "desc": "Create site with alias domains for SSL certificate.",
+        "code": " --ssl letsencrypt --letsencrypt-preferred-challenge http01 --letsencrypt-email admin@example.com --alias-domains www.example.com,api.example.com"
       }
     ]
   },
@@ -196,6 +200,18 @@
       {
         "desc": "Disable frappe developer mode.",
         "code": " --developer-mode disable"
+      },
+      {
+        "desc": "Add alias domains to existing site.",
+        "code": " --add-alias www.example.com,api.example.com"
+      },
+      {
+        "desc": "Remove alias domain from site.",
+        "code": " --remove-alias shop.example.com"
+      },
+      {
+        "desc": "Add and remove aliases in single command.",
+        "code": " --add-alias new.example.com --remove-alias old.example.com"
       }
     ]
   },

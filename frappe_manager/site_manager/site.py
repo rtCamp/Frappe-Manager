@@ -312,7 +312,12 @@ class Bench:
                 gid = user[container_name]["gid"]
                 self.compose_project.compose_file_manager.set_user(container_name, uid, gid)
 
-        self.compose_project.compose_file_manager.set_network_alias("nginx", "site-network", [self.name])
+        # Build list of all domains for network aliases (primary + alias domains)
+        network_aliases = [self.name]
+        if self.bench_config.ssl.alias_domains:
+            network_aliases.extend(self.bench_config.ssl.alias_domains)
+        
+        self.compose_project.compose_file_manager.set_network_alias("nginx", "site-network", network_aliases)
         self.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(self.name))
         self.compose_project.compose_file_manager.set_root_volumes_names(get_container_name_prefix(self.name))
         self.compose_project.compose_file_manager.set_version(get_current_fm_version())
