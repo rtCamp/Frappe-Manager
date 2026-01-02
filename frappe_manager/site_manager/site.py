@@ -885,7 +885,7 @@ class Bench:
         
         # Add alias domains if present (independent of SSL status)
         if self.bench_config.alias_domains:
-            alias_list = ', '.join(sorted(self.bench_config.alias_domains))
+            alias_list = '\n'.join(sorted(self.bench_config.alias_domains))
             data['Alias Domains'] = alias_list
         
         if not self.bench_config.admin_tools:
