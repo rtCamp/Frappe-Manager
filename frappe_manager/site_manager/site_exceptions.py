@@ -253,13 +253,13 @@ class BenchOperationException(BenchException):
         super().__init__(self.bench_name, self.message, prefix_bench_name=False)
 
 
-class BenchOperationFrappeBranchChangeFailed(BenchException):
-    def __init__(self, bench_name, app: str, branch: str, message: str = "Failed to change {} app branch to {}."):
+class BenchOperationFrappeBranchChangeFailed(BenchOperationException):
+    def __init__(self, bench_name, app: str, branch: str, message: str = "Failed to change {} app branch to {}.", print_combined: bool = True, print_stdout: bool = False, print_stderr: bool = False):
         self.bench_name = bench_name
         self.app = app
         self.branch = branch
-        self.message = message.format(app, branch)
-        super().__init__(self.bench_name, self.message)
+        self. message = message.format(app, branch)
+        super().__init__(self.bench_name, self.message, print_combined, print_stdout, print_stderr)
 
 
 class BenchOperationRequiredDockerImagesNotAvailable(BenchException):
