@@ -3,11 +3,11 @@ import re
 import json
 from pathlib import Path
 
-from frappe_manager.compose_manager import DockerVolumeMount, DockerVolumeType
-from frappe_manager.compose_manager.ComposeFile import ComposeFile
+from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
+from frappe_manager.docker import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.docker_wrapper.DockerClient import DockerClient
+from frappe_manager.docker import DockerClient
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.migration_manager.migration_base import MigrationBase
 from frappe_manager.migration_manager.migration_exections import (
@@ -165,10 +165,9 @@ class MigrationV0170(MigrationBase):
                 richprint.print(f"Image pulled [blue]{pull_image}[/blue]")
                 self.pulled_images_list.append(pull_image)
 
-        bench.compose_project.compose_file_manager.set_all_images(images_info)
-        bench.compose_project.compose_file_manager.set_all_envs(envs, append=False)
-        bench.compose_project.compose_file_manager.set_version(str(self.version))
-        bench.compose_project.compose_file_manager.write_to_file()
+        # Use transaction to apply all changes atomically
+        with bench.compose_project.compose_file_manager as cf:
+            cf.with_images(images_info).with_envs(envs, append=False).with_version(str(self.version)).commit()
 
         self.split_supervisor_config(bench)
 
@@ -223,11 +222,10 @@ class MigrationV0170(MigrationBase):
             bench.workers_compose_project.compose_file_manager.set_container_names(
                 get_container_name_prefix(bench.name)
             )
-            bench.workers_compose_project.compose_file_manager.set_all_images(workers_image_info)
-            bench.workers_compose_project.compose_file_manager.set_version(str(self.version))
-
-            bench.workers_compose_project.compose_file_manager.set_all_envs(envs, append=False)
-            bench.workers_compose_project.compose_file_manager.write_to_file()
+            
+            # Use transaction to apply all final changes atomically
+            with bench.workers_compose_project.compose_file_manager as cf:
+                cf.with_images(workers_image_info).with_envs(envs, append=False).with_version(str(self.version)).commit()
 
             richprint.print(f"Migrated [blue]{bench.name}[/blue] workers compose file.")
 
@@ -325,10 +323,10 @@ class MigrationV0170(MigrationBase):
             admin_tool_compose_project.compose_file_manager.set_root_networks_name(
                 "site-network", get_container_name_prefix(bench.name), external=True
             )
-            admin_tool_compose_project.compose_file_manager.set_all_images(admin_tools_image_info)
-            admin_tool_compose_project.compose_file_manager.set_container_names(get_container_name_prefix(bench.name))
-            admin_tool_compose_project.compose_file_manager.set_version(str(self.version))
-            admin_tool_compose_project.compose_file_manager.write_to_file()
+            
+            # Use transaction to apply all final changes atomically
+            with admin_tool_compose_project.compose_file_manager as cf:
+                cf.with_images(admin_tools_image_info).with_prefix(get_container_name_prefix(bench.name)).with_version(str(self.version)).commit()
 
             richprint.print(f"Migrated [blue]{bench.name}[/blue] admin-tools compose file.")
 

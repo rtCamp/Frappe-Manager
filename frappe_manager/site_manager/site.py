@@ -11,8 +11,8 @@ from pathlib import Path
 from frappe_manager.site_manager.bench_operations import BenchOperations
 from rich.table import Table
 from frappe_manager.compose_project.compose_project import ComposeProject
-from frappe_manager.docker_wrapper.DockerException import DockerException
-from frappe_manager.compose_manager.ComposeFile import ComposeFile
+from frappe_manager.docker import DockerException
+from frappe_manager.docker import ComposeFile
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.logger import log
 from frappe_manager.migration_manager.backup_manager import BackupManager
@@ -343,34 +343,34 @@ class Bench:
         Returns:
             None
         """
-        if "environment" in inputs.keys():
-            environments: dict = inputs["environment"]
-            self.compose_project.compose_file_manager.set_all_envs(environments)
-
-        if "labels" in inputs.keys():
-            labels: dict = inputs["labels"]
-            self.compose_project.compose_file_manager.set_all_labels(labels)
-
-        if "user" in inputs.keys():
-            user: dict = inputs["user"]
-            for container_name in user.keys():
-                uid = user[container_name]["uid"]
-                gid = user[container_name]["gid"]
-                self.compose_project.compose_file_manager.set_user(container_name, uid, gid)
-
+        # Extract inputs
+        environments = inputs.get("environment")
+        labels = inputs.get("labels")
+        users = None
+        
+        # Convert user format if present
+        if "user" in inputs:
+            users = {}
+            for container_name, user_data in inputs["user"].items():
+                users[container_name] = (user_data["uid"], user_data["gid"])
+        
         # Build list of all domains for network aliases (primary + alias domains)
         network_aliases = [self.name]
         if self.bench_config.alias_domains:
             network_aliases.extend(self.bench_config.alias_domains)
         
+        # Set network aliases separately (not part of configure_bench)
         self.compose_project.compose_file_manager.set_network_alias("nginx", "site-network", network_aliases)
-        self.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(self.name))
-        self.compose_project.compose_file_manager.set_root_volumes_names(get_container_name_prefix(self.name))
-        self.compose_project.compose_file_manager.set_version(get_current_fm_version())
-        self.compose_project.compose_file_manager.set_root_networks_name(
-            "site-network", get_container_name_prefix(self.name)
+        
+        # Use new configure_bench method to set all configurations atomically
+        self.compose_project.compose_file_manager.configure_bench(
+            prefix=get_container_name_prefix(self.name),
+            version=get_current_fm_version(),
+            envs=environments,
+            labels=labels,
+            users=users,
+            network_name="site-network"
         )
-        self.compose_project.compose_file_manager.write_to_file()
 
     def sync_bench_common_site_config(self, services_db_host: str, services_db_port: int):
         """
@@ -1192,8 +1192,8 @@ class Bench:
     def _apply_new_config(self, labels: dict) -> None:
         """Apply new container configuration"""
         richprint.change_head("Configuration changed, regenerating label in bench compose")
-        self.compose_project.compose_file_manager.set_labels("frappe", labels)
-        self.compose_project.compose_file_manager.write_to_file()
+        # Use new configure_service method to set labels atomically
+        self.compose_project.compose_file_manager.configure_service("frappe", labels=labels)
         richprint.print("Regenerated bench compose.")
         self.compose_project.start_service(['frappe'])
         self.switch_bench_env()

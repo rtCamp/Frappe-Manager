@@ -2,7 +2,7 @@ from builtins import len
 from pathlib import Path
 from typing import List, Optional
 
-from frappe_manager.docker_wrapper.subprocess_output import SubprocessOutput
+from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.utils import helpers
 from rich.box import Box
 from rich.style import Style

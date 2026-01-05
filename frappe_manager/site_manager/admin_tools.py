@@ -3,10 +3,10 @@ import os
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 from frappe_manager import CLI_DEFAULT_DELIMETER
-from frappe_manager.compose_manager.ComposeFile import ComposeFile
+from frappe_manager.docker import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.docker_wrapper.DockerException import DockerException
+from frappe_manager.docker import DockerException
 from frappe_manager.site_manager.site_exceptions import AdminToolsFailedToStart, BenchException
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version, get_template_path
 
@@ -30,15 +30,13 @@ class AdminTools:
     def generate_compose(self, db_host: str):
         self.compose_project.compose_file_manager.yml = self.compose_project.compose_file_manager.load_template()
 
-        self.compose_project.compose_file_manager.set_envs('adminer', {"ADMINER_DEFAULT_SERVER": db_host})
-
-        self.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(self.bench_name))
-        self.compose_project.compose_file_manager.set_root_volumes_names(get_container_name_prefix(self.bench_name))
-        self.compose_project.compose_file_manager.set_root_networks_name(
-            'site-network', get_container_name_prefix(self.bench_name)
+        # Use new configure_bench method to set all configurations atomically
+        self.compose_project.compose_file_manager.configure_bench(
+            prefix=get_container_name_prefix(self.bench_name),
+            version=get_current_fm_version(),
+            envs={"adminer": {"ADMINER_DEFAULT_SERVER": db_host}},
+            network_name='site-network'
         )
-        self.compose_project.compose_file_manager.set_version(get_current_fm_version())
-        self.compose_project.compose_file_manager.write_to_file()
 
     def create(self, db_host: str):
         richprint.change_head("Generating admin tools configuration")

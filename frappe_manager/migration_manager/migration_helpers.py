@@ -3,7 +3,7 @@ from pathlib import Path
 import platform
 from typing import Dict
 from frappe_manager import CLI_SERVICES_DIRECTORY
-from frappe_manager.compose_manager.ComposeFile import ComposeFile
+from frappe_manager.docker import ComposeFile
 
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.utils.site import get_bench_db_connection_info

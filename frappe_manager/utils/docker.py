@@ -6,9 +6,9 @@ from subprocess import PIPE, Popen, run
 from threading import Thread
 from typing import Dict, Iterable, Tuple, Union, Optional
 from frappe_manager.logger import log
-from frappe_manager.docker_wrapper.DockerException import DockerException
+from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.docker_wrapper.subprocess_output import SubprocessOutput
+from frappe_manager.docker.subprocess_output import SubprocessOutput
 
 process_opened = []
 
@@ -265,62 +265,29 @@ def host_run_cp(image: str, source: str, destination: str, docker):
         verbose (bool, optional): Whether to display verbose output. Defaults to False.
     """
 
-    source_container_name = generate_random_text(10)
     dest_path = Path(destination)
     richprint.change_head(f"Populating {dest_path.name} directory.")
 
-    failed: Optional[int] = None
-
     try:
-        output = docker.run(
-            image=image,
-            name=source_container_name,
-            detach=True,
-            stream=False,
-            entrypoint='bash',
-            command="tail -f /dev/null",
-        )
-    except DockerException as e:
-        print(e)
-        failed = 0
-
-    if not failed:
-        # cp from the container
-        try:
-            output = docker.cp(
+        # Use context manager for automatic cleanup
+        with docker.create_temp_container(image) as container:
+            # Copy from the container
+            docker.cp(
                 source=source,
                 destination=destination,
-                source_container=source_container_name,
+                source_container=container.name,
                 stream=False,
             )
-        except DockerException as e:
-            print(e)
-            failed = 1
-
-    if not failed:
-        # rm the container
-        try:
-            output = docker.rm(container=source_container_name, force=True, stream=False)
-        except DockerException as e:
-            print(e)
-            failed = 2
-
-    # check if the destination file exists
-    if failed:
-        if failed > 1:
-            if dest_path.exists():
-                import shutil
-
-                shutil.rmtree(dest_path)
-        if failed == 2:
-            try:
-                output = docker.rm(container=source_container_name, force=True, stream=False)
-            except DockerException as e:
-                pass
-        # TODO introuduce custom exception to handle this type of cases where if the flow is not completed then it should raise exception which is handled by caller and then site creation check is done
-        raise Exception(f"Failed to copy files from {source} to {destination}.")
-
-    elif not Path(destination).exists():
-        raise Exception(f"{destination} not found.")
-
-    richprint.change_head(f"Populated {dest_path.name} directory.")
+        
+        # Check if the destination file exists
+        if not Path(destination).exists():
+            raise Exception(f"{destination} not found.")
+        
+        richprint.change_head(f"Populated {dest_path.name} directory.")
+        
+    except DockerException as e:
+        # Clean up destination if copy failed
+        if dest_path.exists():
+            import shutil
+            shutil.rmtree(dest_path)
+        raise Exception(f"Failed to copy files from {source} to {destination}.") from e

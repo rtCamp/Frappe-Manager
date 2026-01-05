@@ -1,7 +1,7 @@
 import json
 from typing import List
 from rich.text import Text
-from frappe_manager.compose_manager.ComposeFile import ComposeFile
+from frappe_manager.docker import ComposeFile
 from frappe_manager.compose_project.exceptions import (
     DockerComposeProjectFailedToPullImagesError,
     DockerComposeProjectFailedToRemoveError,
@@ -9,8 +9,8 @@ from frappe_manager.compose_project.exceptions import (
     DockerComposeProjectFailedToStartError,
     DockerComposeProjectFailedToStopError,
 )
-from frappe_manager.docker_wrapper.DockerClient import DockerClient
-from frappe_manager.docker_wrapper.DockerException import DockerException
+from frappe_manager.docker import DockerClient
+from frappe_manager.docker import DockerException
 from frappe_manager.display_manager.DisplayManager import richprint
 
 

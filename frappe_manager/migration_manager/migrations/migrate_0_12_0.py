@@ -1,6 +1,6 @@
 from pathlib import Path
 from frappe_manager.migration_manager.migration_base import MigrationBase
-from frappe_manager.docker_wrapper.DockerClient import DockerClient
+from frappe_manager.docker import DockerClient
 from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
 from frappe_manager.migration_manager.migration_helpers import (
     MigrationBench,
@@ -67,9 +67,16 @@ class MigrationV0120(MigrationBase):
 
         richprint.print("Removed 'restart: always'.")
 
-        bench.compose_project.compose_file_manager.set_version(str(self.version))
-        bench.compose_project.compose_file_manager.set_all_images(images_info)
-        bench.compose_project.compose_file_manager.write_to_file()
+        # Use transaction to apply all changes atomically
+        tag_updates = {
+            'frappe': self.image_info['tag'],
+            'socketio': self.image_info['tag'],
+            'schedule': self.image_info['tag'],
+        }
+        bench.compose_project.compose_file_manager.migrate_images(
+            tag_updates=tag_updates,
+            new_version=str(self.version)
+        )
 
         richprint.print(f"Migrated {bench.name} compose file.")
 
@@ -96,11 +103,12 @@ class MigrationV0120(MigrationBase):
             bench.workers_compose_project.compose_file_manager.set_root_networks_name(
                 "site-network", get_container_name_prefix(bench.name)
             )
-            bench.workers_compose_project.compose_file_manager.set_all_images(workers_info)
-
-            bench.workers_compose_project.compose_file_manager.set_container_names(
-                get_container_name_prefix(bench.name)
-            )
-            bench.workers_compose_project.compose_file_manager.write_to_file()
+            
+            # Use transaction to apply all changes atomically
+            tag_updates = {worker: self.image_info['tag'] for worker in workers_info.keys()}
+            with bench.workers_compose_project.compose_file_manager as cf:
+                cf.with_prefix(get_container_name_prefix(bench.name))
+                cf.migrate_images(tag_updates=tag_updates, new_version=None, auto_save=False)
+                cf.commit()
 
         richprint.print(f"Migrated [blue]{bench.name}[/blue] compose file.")

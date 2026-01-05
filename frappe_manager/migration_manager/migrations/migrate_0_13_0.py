@@ -3,8 +3,8 @@ import os
 import copy
 from pathlib import Path
 import tomlkit
-from frappe_manager.compose_manager import DockerVolumeMount
-from frappe_manager.compose_manager.ComposeFile import ComposeFile
+from frappe_manager.docker import DockerVolumeMount
+from frappe_manager.docker import ComposeFile
 from frappe_manager.migration_manager.migration_base import MigrationBase
 from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
 from frappe_manager.migration_manager.migration_helpers import (
@@ -16,7 +16,7 @@ from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.migration_manager.version import Version
 from frappe_manager import CLI_DIR, CLI_SERVICES_DIRECTORY
 from frappe_manager.utils.helpers import get_container_name_prefix
-from frappe_manager.docker_wrapper.DockerClient import DockerClient
+from frappe_manager.docker import DockerClient
 from frappe_manager.migration_manager.backup_manager import BackupManager
 
 
@@ -61,8 +61,8 @@ class MigrationV0130(MigrationBase):
         self.services_manager.compose_project.compose_file_manager.set_service_volumes(
             'global-nginx-proxy', volumes=services_volume_list
         )
-        self.services_manager.compose_project.compose_file_manager.set_version(self.version.version_string())
-        self.services_manager.compose_project.compose_file_manager.write_to_file()
+        # Use with_version to set version and auto-save
+        self.services_manager.compose_project.compose_file_manager.with_version(self.version.version_string()).commit()
 
         if self.services_manager.compose_project.is_service_running('global-nginx-proxy'):
             self.services_manager.compose_project.docker.compose.up(services=['global-nginx-proxy'])
@@ -192,11 +192,9 @@ class MigrationV0130(MigrationBase):
 
         bench.compose_project.compose_file_manager.set_service_volumes('nginx', volumes=bench_volume_list)
 
-        bench.compose_project.compose_file_manager.set_all_images(images_info)
-
-        bench.compose_project.compose_file_manager.set_all_envs(envs)
-        bench.compose_project.compose_file_manager.set_version(str(self.version))
-        bench.compose_project.compose_file_manager.write_to_file()
+        # Use transaction to apply all changes atomically
+        with bench.compose_project.compose_file_manager as cf:
+            cf.with_images(images_info).with_envs(envs).with_version(str(self.version)).commit()
 
         richprint.print(f"Migrated [blue]{bench.name}[/blue] compose file.")
         self.migrate_workers_compose(bench)
@@ -221,8 +219,8 @@ class MigrationV0130(MigrationBase):
             bench.workers_compose_project.compose_file_manager.set_container_names(
                 get_container_name_prefix(bench.name)
             )
-            bench.compose_project.compose_file_manager.set_version(str(self.version))
-            bench.workers_compose_project.compose_file_manager.write_to_file()
+            # Use with_version to set version and auto-save
+            bench.compose_project.compose_file_manager.with_version(str(self.version)).commit()
 
             richprint.print(f"Migrated [blue]{bench.name}[/blue] workers compose file.")
 
@@ -259,8 +257,8 @@ class MigrationV0130(MigrationBase):
         )
 
         admin_tools_compose_file_manager.yml = admin_tools_compose
-        admin_tools_compose_file_manager.set_version(self.version.version_string())
-        admin_tools_compose_file_manager.write_to_file()
+        # Use with_version to set version and auto-save
+        admin_tools_compose_file_manager.with_version(self.version.version_string()).commit()
 
         # create custom nginx directory for adming tool location config
 

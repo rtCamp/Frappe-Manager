@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 from typing import Dict, Any, Optional, Protocol, List, Union
 from frappe_manager.compose_project.compose_project import ComposeProject
-from frappe_manager.docker_wrapper.DockerException import DockerException
+from frappe_manager.docker import DockerException
 from frappe_manager.services_manager.services_exceptions import (
     DatabaseServiceDBCreateFailed,
     DatabaseServiceDBExportFailed,
@@ -19,7 +19,7 @@ from frappe_manager.services_manager.services_exceptions import (
 from frappe_manager.display_manager.DisplayManager import richprint
 from pydantic import BaseModel
 
-from frappe_manager.docker_wrapper.subprocess_output import SubprocessOutput
+from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.site_manager.site_exceptions import BenchException
 
 

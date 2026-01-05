@@ -1,7 +1,7 @@
 from copy import deepcopy
 from pathlib import Path
 from typing import List, TYPE_CHECKING
-from frappe_manager.compose_manager.ComposeFile import ComposeFile
+from frappe_manager.docker import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager.site_exceptions import BenchWorkersSupervisorConfigurtionNotFoundError
@@ -105,13 +105,11 @@ class BenchWorkers:
 
                 self.compose_project.compose_file_manager.yml["services"][worker] = worker_config
 
-            self.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(self.bench.name))
-            self.compose_project.compose_file_manager.set_version(get_current_fm_version())
-            self.compose_project.compose_file_manager.set_root_volumes_names(get_container_name_prefix(self.bench.name))
-            self.compose_project.compose_file_manager.set_root_networks_name(
-                'site-network', get_container_name_prefix(self.bench.name)
-            )
-            self.compose_project.compose_file_manager.write_to_file()
+            # Use new with_prefix and with_version methods to set all configurations atomically
+            self.compose_project.compose_file_manager \
+                .with_prefix(get_container_name_prefix(self.bench.name), 'site-network') \
+                .with_version(get_current_fm_version()) \
+                .commit()
             richprint.print("Workers configuration generated successfully")
             return True
 

@@ -1,7 +1,7 @@
 from pathlib import Path
-from frappe_manager.compose_manager.ComposeFile import ComposeFile
+from frappe_manager.docker import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject
-from frappe_manager.docker_wrapper.DockerClient import DockerClient
+from frappe_manager.docker import DockerClient
 from frappe_manager.migration_manager.migration_base import MigrationBase
 from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
 from frappe_manager.migration_manager.migration_helpers import (
@@ -50,9 +50,9 @@ class MigrationV0150(MigrationBase):
         envs = self.services_manager.compose_project.compose_file_manager.get_all_envs()
         envs['global-nginx-proxy'] = {'ACME_HTTP_CHALLENGE_LOCATION': False}
 
-        self.services_manager.compose_project.compose_file_manager.set_all_envs(envs)
-        self.services_manager.compose_project.compose_file_manager.set_version(str(self.version))
-        self.services_manager.compose_project.compose_file_manager.write_to_file()
+        # Use transaction to apply changes atomically
+        with self.services_manager.compose_project.compose_file_manager as cf:
+            cf.with_envs(envs).with_version(str(self.version)).commit()
         richprint.print("Migrated services compose")
         richprint.change_head("Restarting services")
         self.services_manager.compose_project.start_service(force_recreate=True)
@@ -113,9 +113,20 @@ class MigrationV0150(MigrationBase):
                 richprint.print(f"Image pulled [blue]{pull_image}[/blue]")
                 self.pulled_images_list.append(pull_image)
 
-        bench.compose_project.compose_file_manager.set_all_images(images_info)
-        bench.compose_project.compose_file_manager.set_version(str(self.version))
-        bench.compose_project.compose_file_manager.write_to_file()
+        # Use migrate_images to update all image tags and version atomically
+        tag_updates = {
+            'frappe': frappe_image_info['tag'],
+            'socketio': frappe_image_info['tag'],
+            'schedule': frappe_image_info['tag'],
+            'nginx': nginx_image_info['tag'],
+            'redis-cache': redis_image_info['tag'],
+            'redis-queue': redis_image_info['tag'],
+            'redis-socketio': redis_image_info['tag'],
+        }
+        bench.compose_project.compose_file_manager.migrate_images(
+            tag_updates=tag_updates,
+            new_version=str(self.version)
+        )
 
         self.migrate_workers_compose(bench)
         self.migrate_admin_tools_compose(bench)
@@ -134,9 +145,13 @@ class MigrationV0150(MigrationBase):
             bench.workers_compose_project.compose_file_manager.set_container_names(
                 get_container_name_prefix(bench.name)
             )
-            bench.workers_compose_project.compose_file_manager.set_all_images(workers_image_info)
-            bench.workers_compose_project.compose_file_manager.set_version(str(self.version))
-            bench.workers_compose_project.compose_file_manager.write_to_file()
+            
+            # Use transaction to apply image updates and version atomically
+            tag_updates = {worker: self.version.version_string() for worker in workers_image_info.keys()}
+            bench.workers_compose_project.compose_file_manager.migrate_images(
+                tag_updates=tag_updates,
+                new_version=str(self.version)
+            )
             richprint.print(f"Migrated [blue]{bench.name}[/blue] workers compose file.")
 
     def migrate_admin_tools_compose(self, bench: MigrationBench):
@@ -163,9 +178,12 @@ class MigrationV0150(MigrationBase):
             admin_tool_compose_project.compose_file_manager.set_root_networks_name(
                 "site-network", get_container_name_prefix(bench.name)
             )
-            admin_tool_compose_project.compose_file_manager.set_all_images(admin_tools_image_info)
-            admin_tool_compose_project.compose_file_manager.set_container_names(get_container_name_prefix(bench.name))
-            admin_tool_compose_project.compose_file_manager.set_version(str(self.version))
-            admin_tool_compose_project.compose_file_manager.write_to_file()
+            
+            # Use transaction to apply all final changes atomically
+            tag_updates = {'adminer': admin_tools_image_info['adminer']['tag']}
+            with admin_tool_compose_project.compose_file_manager as cf:
+                cf.with_prefix(get_container_name_prefix(bench.name))
+                cf.migrate_images(tag_updates=tag_updates, new_version=str(self.version), auto_save=False)
+                cf.commit()
 
             richprint.print(f"Migrated [blue]{bench.name}[/blue] admin-tools compose file.")

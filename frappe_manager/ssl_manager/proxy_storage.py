@@ -7,7 +7,7 @@ from controlling nginx operations, improving testability and separation of conce
 
 from pathlib import Path
 from typing import List
-from frappe_manager.compose_manager import DockerVolumeMount, DockerVolumeType
+from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.utils.helpers import create_class_from_dict
 

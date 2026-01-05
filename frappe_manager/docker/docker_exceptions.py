@@ -1,6 +1,6 @@
 from typing import List
 
-from frappe_manager.docker_wrapper.subprocess_output import SubprocessOutput
+from frappe_manager.docker.subprocess_output import SubprocessOutput
 
 
 class DockerException(Exception):

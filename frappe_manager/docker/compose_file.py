@@ -1,10 +1,11 @@
 from pathlib import Path
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap as OrderedDict, CommentedSeq as OrderedList
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Tuple
+import copy
 from frappe_manager import CLI_DEFAULT_DELIMETER, CLI_SITE_NAME_DELIMETER
-from frappe_manager.compose_manager import DockerVolumeMount
-from frappe_manager.compose_manager.compose_file_exceptions import ComposeSecretNotFoundError, ComposeServiceNotFound
+from frappe_manager.docker import DockerVolumeMount
+from frappe_manager.docker.compose_exceptions import ComposeSecretNotFoundError, ComposeServiceNotFound
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.utils.site import parse_docker_volume
 from frappe_manager.utils.helpers import get_template_path, represent_null_empty
@@ -21,7 +22,7 @@ yaml.default_style = None
 class ComposeFile:
     yml: dict[Any, Any]
 
-    def __init__(self, loadfile: Path, template_name: str = "docker-compose.tmpl", template_dir: Optional[str] = None):
+    def __init__(self, loadfile: Path, template_name: str = "docker-compose.tmpl", template_dir: Optional[str] = None, auto_save: bool = True):
         self.compose_path: Path = loadfile
         self.template_name = template_name
         self.is_template_loaded = False
@@ -30,6 +31,11 @@ class ComposeFile:
 
         if template_dir:
             self.template_dir = template_dir
+
+        # New: Transaction support
+        self._auto_save = auto_save
+        self._pending_changes: List[Tuple[str, Any]] = []
+        self._snapshot: Optional[dict] = None
 
         # check for if the docker-compose.yml file is present if not then use template provided
         if self.exists():
@@ -636,3 +642,519 @@ class ComposeFile:
             raise KeyError(f"Service {service} not found in compose file")
 
         return self.yml['services'][service].get('command', '')
+
+    # ==================== NEW: Transaction Support ====================
+
+    def _apply_change(self, change: Tuple[str, Any]):
+        """
+        Internal: Apply a single pending change.
+        
+        Args:
+            change: Tuple containing (change_type, *args)
+        """
+        change_type = change[0]
+        
+        if change_type == 'envs':
+            _, envs, append = change
+            self.set_all_envs(envs, append=append)
+        elif change_type == 'labels':
+            _, labels = change
+            self.set_all_labels(labels)
+        elif change_type == 'prefix':
+            _, prefix, network_name = change
+            self.set_container_names(prefix)
+            self.set_root_volumes_names(prefix)
+            self.set_root_networks_name(network_name, prefix)
+        elif change_type == 'version':
+            _, version = change
+            self.set_version(version)
+        elif change_type == 'users':
+            _, users = change
+            self.set_all_users(users)
+        elif change_type == 'images':
+            _, images = change
+            self.set_all_images(images)
+        elif change_type == 'volumes':
+            _, volumes = change
+            self.set_all_services_volumes(volumes)
+        elif change_type == 'extrahosts':
+            _, extrahosts = change
+            self.set_all_extrahosts(extrahosts)
+
+    def commit(self) -> 'ComposeFile':
+        """
+        Apply all pending changes and save to file.
+        
+        Returns:
+            Self for chaining
+        """
+        for change in self._pending_changes:
+            self._apply_change(change)
+        self._pending_changes.clear()
+        self.write_to_file()
+        return self
+
+    def rollback(self) -> 'ComposeFile':
+        """
+        Discard all pending changes without applying them.
+        
+        Returns:
+            Self for chaining
+        """
+        self._pending_changes.clear()
+        return self
+
+    # ==================== NEW: Builder/Fluent Interface ====================
+
+    def with_envs(self, envs: dict, append: bool = True) -> 'ComposeFile':
+        """
+        Fluent setter for environment variables.
+        
+        Args:
+            envs: Dictionary of service names to environment variables
+            append: If True, append to existing envs; if False, replace
+        
+        Returns:
+            Self for chaining
+        """
+        self._pending_changes.append(('envs', envs, append))
+        return self
+
+    def with_labels(self, labels: dict) -> 'ComposeFile':
+        """
+        Fluent setter for labels.
+        
+        Args:
+            labels: Dictionary of service names to labels
+        
+        Returns:
+            Self for chaining
+        """
+        self._pending_changes.append(('labels', labels))
+        return self
+
+    def with_prefix(self, prefix: str, network_name: str = "site-network") -> 'ComposeFile':
+        """
+        Set prefix for containers, volumes, and networks at once.
+        
+        Args:
+            prefix: Prefix to apply
+            network_name: Network name to configure (default: "site-network")
+        
+        Returns:
+            Self for chaining
+        """
+        self._pending_changes.append(('prefix', prefix, network_name))
+        return self
+
+    def with_version(self, version: str) -> 'ComposeFile':
+        """
+        Fluent setter for compose file version.
+        
+        Args:
+            version: Version string to set
+        
+        Returns:
+            Self for chaining
+        """
+        self._pending_changes.append(('version', version))
+        return self
+
+    def with_users(self, users: dict) -> 'ComposeFile':
+        """
+        Fluent setter for user configurations.
+        
+        Args:
+            users: Dictionary of service names to user configs (uid, gid)
+        
+        Returns:
+            Self for chaining
+        """
+        self._pending_changes.append(('users', users))
+        return self
+
+    def with_images(self, images: dict) -> 'ComposeFile':
+        """
+        Fluent setter for service images.
+        
+        Args:
+            images: Dictionary of service names to image info
+        
+        Returns:
+            Self for chaining
+        """
+        self._pending_changes.append(('images', images))
+        return self
+
+    def with_volumes(self, volumes: dict[str, List[DockerVolumeMount]]) -> 'ComposeFile':
+        """
+        Fluent setter for service volumes.
+        
+        Args:
+            volumes: Dictionary mapping service names to volume mounts
+        
+        Returns:
+            Self for chaining
+        """
+        self._pending_changes.append(('volumes', volumes))
+        return self
+
+    def with_extrahosts(self, extrahosts: dict) -> 'ComposeFile':
+        """
+        Fluent setter for extra hosts.
+        
+        Args:
+            extrahosts: Dictionary of service names to extra hosts
+        
+        Returns:
+            Self for chaining
+        """
+        self._pending_changes.append(('extrahosts', extrahosts))
+        return self
+
+    # ==================== NEW: Atomic Configuration Methods ====================
+
+    def configure_bench(
+        self,
+        prefix: str,
+        version: str,
+        envs: Optional[dict] = None,
+        labels: Optional[dict] = None,
+        users: Optional[dict] = None,
+        network_name: str = "site-network",
+        auto_save: bool = True
+    ) -> 'ComposeFile':
+        """
+        Configure a complete bench in one call.
+        
+        Args:
+            prefix: Container/volume/network prefix
+            version: Compose file version
+            envs: Environment variables by service
+            labels: Labels by service
+            users: User configurations by service (supports both dict and tuple formats)
+            network_name: Network name to configure
+            auto_save: Whether to save immediately
+        
+        Returns:
+            Self for chaining
+        """
+        if envs:
+            self.set_all_envs(envs)
+        if labels:
+            self.set_all_labels(labels)
+        if users:
+            # Convert tuple format to dict format if needed
+            # Supports both {'service': (uid, gid)} and {'service': {'uid': uid, 'gid': gid}}
+            converted_users = {}
+            for service, user_data in users.items():
+                if isinstance(user_data, tuple):
+                    converted_users[service] = {"uid": str(user_data[0]), "gid": str(user_data[1])}
+                else:
+                    converted_users[service] = user_data
+            self.set_all_users(converted_users)
+        
+        # Set all prefix-related configs
+        self.set_container_names(prefix)
+        self.set_root_volumes_names(prefix)
+        self.set_root_networks_name(network_name, prefix)
+        self.set_version(version)
+        
+        if auto_save:
+            self.write_to_file()
+        
+        return self
+
+    def configure_service(
+        self,
+        service: str,
+        env: Optional[dict] = None,
+        labels: Optional[dict] = None,
+        user: Optional[Tuple[str, str]] = None,  # (uid, gid)
+        command: Optional[str] = None,
+        volumes: Optional[List[DockerVolumeMount]] = None,
+        auto_save: bool = True
+    ) -> 'ComposeFile':
+        """
+        Configure a single service in one call.
+        
+        Args:
+            service: Service name
+            env: Environment variables
+            labels: Service labels
+            user: Tuple of (uid, gid)
+            command: Service command
+            volumes: Volume mounts
+            auto_save: Whether to save immediately
+        
+        Returns:
+            Self for chaining
+        """
+        if env:
+            self.set_envs(service, env)
+        if labels:
+            self.set_labels(service, labels)
+        if user:
+            uid, gid = user
+            self.set_user(service, uid, gid)
+        if command:
+            self.set_service_command(service, command)
+        if volumes:
+            self.set_service_volumes(service, volumes)
+        
+        if auto_save:
+            self.write_to_file()
+        
+        return self
+
+    def migrate_images(
+        self,
+        tag_updates: dict[str, str],
+        new_version: Optional[str] = None,
+        auto_save: bool = True
+    ) -> 'ComposeFile':
+        """
+        Update multiple image tags and optionally version (common in migrations).
+        
+        Args:
+            tag_updates: Dict of {service: new_tag}
+            new_version: New compose file version
+            auto_save: Whether to save immediately
+        
+        Returns:
+            Self for chaining
+        """
+        images = self.get_all_images()
+        
+        for service, new_tag in tag_updates.items():
+            if service in images:
+                images[service]['tag'] = new_tag
+        
+        self.set_all_images(images)
+        
+        if new_version:
+            self.set_version(new_version)
+        
+        if auto_save:
+            self.write_to_file()
+        
+        return self
+
+    # ==================== NEW: Context Manager Support ====================
+
+    def __enter__(self) -> 'ComposeFile':
+        """Enter context: snapshot current state"""
+        self._snapshot = copy.deepcopy(self.yml)
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
+        """Exit context: save or rollback"""
+        if exc_type is None:
+            # Success: save changes
+            self.write_to_file()
+        else:
+            # Error: rollback changes
+            if self._snapshot:
+                self.yml = self._snapshot
+                self._snapshot = None
+            richprint.warning(f"ComposeFile changes rolled back due to error: {exc_val}")
+        return False  # Don't suppress exceptions
+
+    # ==================== NEW: Update Helper Methods ====================
+
+    def update_env(
+        self, 
+        service: str, 
+        key: str, 
+        value: str,
+        auto_save: bool = None
+    ) -> 'ComposeFile':
+        """
+        Update a single environment variable without get-set dance.
+        
+        Args:
+            service: Service name
+            key: Environment variable key
+            value: Environment variable value
+            auto_save: Override instance auto_save setting
+        
+        Returns:
+            Self for chaining
+        """
+        if service not in self.yml['services']:
+            raise ComposeServiceNotFound(service)
+        
+        if 'environment' not in self.yml['services'][service]:
+            self.yml['services'][service]['environment'] = OrderedDict()
+        
+        self.yml['services'][service]['environment'][key] = value
+        
+        should_save = auto_save if auto_save is not None else self._auto_save
+        if should_save:
+            self.write_to_file()
+        
+        return self
+
+    def delete_env(
+        self,
+        service: str,
+        key: str,
+        auto_save: bool = None
+    ) -> 'ComposeFile':
+        """
+        Delete a single environment variable.
+        
+        Args:
+            service: Service name
+            key: Environment variable key to delete
+            auto_save: Override instance auto_save setting
+        
+        Returns:
+            Self for chaining
+        """
+        if service not in self.yml['services']:
+            raise ComposeServiceNotFound(service)
+        
+        if 'environment' in self.yml['services'][service]:
+            self.yml['services'][service]['environment'].pop(key, None)
+        
+        should_save = auto_save if auto_save is not None else self._auto_save
+        if should_save:
+            self.write_to_file()
+        
+        return self
+
+    def update_label(
+        self,
+        service: str,
+        key: str,
+        value: str,
+        auto_save: bool = None
+    ) -> 'ComposeFile':
+        """
+        Update a single label.
+        
+        Args:
+            service: Service name
+            key: Label key
+            value: Label value
+            auto_save: Override instance auto_save setting
+        
+        Returns:
+            Self for chaining
+        """
+        if service not in self.yml['services']:
+            raise ComposeServiceNotFound(service)
+        
+        if 'labels' not in self.yml['services'][service]:
+            self.yml['services'][service]['labels'] = OrderedDict()
+        
+        self.yml['services'][service]['labels'][key] = value
+        
+        should_save = auto_save if auto_save is not None else self._auto_save
+        if should_save:
+            self.write_to_file()
+        
+        return self
+
+    def update_image_tag(
+        self,
+        service: str,
+        new_tag: str,
+        auto_save: bool = None
+    ) -> 'ComposeFile':
+        """
+        Update a single service image tag.
+        
+        Args:
+            service: Service name
+            new_tag: New tag to set
+            auto_save: Override instance auto_save setting
+        
+        Returns:
+            Self for chaining
+        """
+        if service not in self.yml['services']:
+            raise ComposeServiceNotFound(service)
+        
+        if 'image' not in self.yml['services'][service]:
+            raise KeyError(f"Service {service} has no image defined")
+        
+        current_image = self.yml['services'][service]['image']
+        image_name = current_image.split(':')[0] if ':' in current_image else current_image
+        self.yml['services'][service]['image'] = f"{image_name}:{new_tag}"
+        
+        should_save = auto_save if auto_save is not None else self._auto_save
+        if should_save:
+            self.write_to_file()
+        
+        return self
+
+    # ==================== NEW: Static Template Access ====================
+
+    @classmethod
+    def load_template_yml(
+        cls,
+        template_name: str = "docker-compose.tmpl",
+        template_dir: str = 'templates'
+    ) -> dict:
+        """
+        Load template YAML without instantiating ComposeFile.
+        
+        Args:
+            template_name: Template file name
+            template_dir: Template directory
+        
+        Returns:
+            Parsed YAML dictionary
+        """
+        template_path: Path = get_template_path(template_name, template_dir)
+        with open(template_path, "r") as f:
+            yml = yaml.load(f)
+            return yml
+
+    @classmethod
+    def get_template_images(
+        cls,
+        template_name: str = "docker-compose.tmpl",
+        template_dir: str = 'templates'
+    ) -> dict[str, dict[str, str]]:
+        """
+        Get all images from a template.
+        
+        Args:
+            template_name: Template file name
+            template_dir: Template directory
+        
+        Returns:
+            Dict of {service: {name, tag, image}}
+        """
+        yml = cls.load_template_yml(template_name, template_dir)
+        
+        images = {}
+        for service in yml.get("services", {}).keys():
+            if "image" in yml["services"][service]:
+                image = yml["services"][service]["image"]
+                name, tag = image.split(":") if ":" in image else (image, "latest")
+                images[service] = {"name": name, "tag": tag, "image": image}
+        
+        return images
+
+    @classmethod
+    def get_template_services(
+        cls,
+        template_name: str = "docker-compose.tmpl",
+        template_dir: str = 'templates'
+    ) -> list[str]:
+        """
+        Get list of services from template.
+        
+        Args:
+            template_name: Template file name
+            template_dir: Template directory
+        
+        Returns:
+            List of service names
+        """
+        yml = cls.load_template_yml(template_name, template_dir)
+        return list(yml.get("services", {}).keys())

@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.docker_wrapper.DockerClient import DockerClient
+from frappe_manager.docker import DockerClient
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.migration_manager.migration_base import MigrationBase
 from frappe_manager.migration_manager.migration_exections import (
@@ -38,43 +38,38 @@ class MigrationV0180(MigrationBase):
         bench.compose_project.down_service(volumes=True)
 
         richprint.change_head("Migrating bench compose")
-        images_info = bench.compose_project.compose_file_manager.get_all_images()
-
-        # images
-        frappe_image_info = images_info["frappe"]
-        frappe_image_info["tag"] = self.version.version_string()
-
-        nginx_image_info = images_info["nginx"]
-        nginx_image_info["tag"] = self.version.version_string()
-
-        redis_cache_image_info = images_info["redis-cache"]
-        redis_cache_image_info["tag"] = "8-alpine"
-
-        redis_queue_image_info = images_info["redis-queue"]
-        redis_queue_image_info["tag"] = "8-alpine"
-
+        
+        # Remove redis-socketio service and volume
         if bench.compose_project.compose_file_manager.yml.get('services',{}).get('redis-socketio', None):
             del bench.compose_project.compose_file_manager.yml['services']['redis-socketio']
         if bench.compose_project.compose_file_manager.yml.get('volumes',{}).get('redis-socketio-data', None):
             del bench.compose_project.compose_file_manager.yml['volumes']['redis-socketio-data']
 
-        # change image nginx
-        images_info["nginx"] = nginx_image_info
+        # Build tag updates dict
+        tag_updates = {
+            'frappe': self.version.version_string(),
+            'socketio': self.version.version_string(),
+            'schedule': self.version.version_string(),
+            'nginx': self.version.version_string(),
+            'redis-cache': '8-alpine',
+            'redis-queue': '8-alpine',
+        }
 
-        # change image frappe, socketio, schedule
-        images_info["frappe"] = frappe_image_info
-        images_info["socketio"] = frappe_image_info
-        images_info["schedule"] = frappe_image_info
-        images_info["redis-cache"] = redis_cache_image_info
-        images_info["redis-queue"] = redis_queue_image_info
-
-        for image in [
-            frappe_image_info,
-            nginx_image_info,
-            redis_cache_image_info,
-            {'name': f'ghcr.io/rtcamp/frappe-manager-prebake', 'tag': self.version.version_string()},
+        # Pull required images
+        for image_name, tag in [
+            ('frappe', self.version.version_string()),
+            ('nginx', self.version.version_string()),
+            ('redis-cache', '8-alpine'),
+            ('ghcr.io/rtcamp/frappe-manager-prebake', self.version.version_string()),
         ]:
-            pull_image = f"{image['name']}:{image['tag']}"
+            # Get full image name (handle special cases)
+            if image_name in ['frappe', 'nginx']:
+                images_info = bench.compose_project.compose_file_manager.get_all_images()
+                full_image_name = images_info.get(image_name, {}).get('name', image_name)
+            else:
+                full_image_name = image_name
+            
+            pull_image = f"{full_image_name}:{tag}"
             if pull_image not in self.pulled_images_list:
                 richprint.change_head(f"Pulling Image {pull_image}")
                 output = DockerClient().pull(container_name=pull_image, stream=True)
@@ -82,9 +77,11 @@ class MigrationV0180(MigrationBase):
                 richprint.print(f"Image pulled [blue]{pull_image}[/blue]")
                 self.pulled_images_list.append(pull_image)
 
-        bench.compose_project.compose_file_manager.set_all_images(images_info)
-        bench.compose_project.compose_file_manager.set_version(str(self.version))
-        bench.compose_project.compose_file_manager.write_to_file()
+        # Use new migrate_images method to update all tags and version atomically
+        bench.compose_project.compose_file_manager.migrate_images(
+            tag_updates=tag_updates,
+            new_version=str(self.version)
+        )
 
         self.migrate_workers_compose(bench)
         self.migrate_pyenv_and_nvm(bench)
@@ -197,14 +194,16 @@ class MigrationV0180(MigrationBase):
     def migrate_workers_compose(self, bench: MigrationBench):
         if bench.workers_compose_project.compose_file_manager.compose_path.exists():
             richprint.change_head("Migrating workers compose")
+            
+            # Get all worker service names to update their tags
             workers_image_info = bench.workers_compose_project.compose_file_manager.get_all_images()
-
-            for worker in workers_image_info.keys():
-                workers_image_info[worker]["tag"] = self.version.version_string()
-
-            bench.workers_compose_project.compose_file_manager.set_all_images(workers_image_info)
-            bench.workers_compose_project.compose_file_manager.set_version(str(self.version))
-            bench.workers_compose_project.compose_file_manager.write_to_file()
+            tag_updates = {worker: self.version.version_string() for worker in workers_image_info.keys()}
+            
+            # Use migrate_images to update all worker tags and version atomically
+            bench.workers_compose_project.compose_file_manager.migrate_images(
+                tag_updates=tag_updates,
+                new_version=str(self.version)
+            )
 
             richprint.print(f"Migrated [blue]{bench.name}[/blue] workers compose file.")
 

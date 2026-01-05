@@ -48,9 +48,11 @@ class MigrationV0110(MigrationBase):
         )
         richprint.live_lines(output, padding=(0, 0, 0, 2))
 
-        bench.compose_project.compose_file_manager.set_all_images(images_info)
-
-        bench.compose_project.compose_file_manager.set_version(str(self.version))
-        bench.compose_project.compose_file_manager.write_to_file()
+        # Use migrate_images to update frappe image and version atomically
+        tag_updates = {'frappe': image_info['tag']}
+        bench.compose_project.compose_file_manager.migrate_images(
+            tag_updates=tag_updates,
+            new_version=str(self.version)
+        )
 
         richprint.print(f"Migrated [blue]{bench.name}[/blue] compose file.")

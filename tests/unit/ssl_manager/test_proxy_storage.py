@@ -9,7 +9,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
 from frappe_manager.ssl_manager.proxy_storage import ProxyStoragePaths
-from frappe_manager.compose_manager import DockerVolumeMount, DockerVolumeType
+from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
 
 
 class TestProxyStoragePathsInitialization:

@@ -6,9 +6,9 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 from frappe_manager import CLI_DIR
-from frappe_manager.compose_manager.ComposeFile import ComposeFile
+from frappe_manager.docker import ComposeFile
 from frappe_manager.compose_project.compose_project import ComposeProject
-from frappe_manager.docker_wrapper.DockerException import DockerException
+from frappe_manager.docker import DockerException
 from frappe_manager.migration_manager.backup_manager import BackupData
 from frappe_manager.migration_manager.migration_base import MigrationBase
 from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
@@ -226,11 +226,11 @@ class MigrationV0100(MigrationBase):
         bench.compose_project.compose_file_manager.set_network_alias("nginx", "site-network", [bench.name])
         bench.compose_project.compose_file_manager.set_container_names(get_container_name_prefix(bench.name))
 
-        bench.compose_project.compose_file_manager.set_version(str(self.version))
         bench.compose_project.compose_file_manager.set_root_networks_name(
             "site-network", get_container_name_prefix(bench.name)
         )
-        bench.compose_project.compose_file_manager.write_to_file()
+        # Use with_version to set version and auto-save
+        bench.compose_project.compose_file_manager.with_version(str(self.version)).commit()
 
         # change the node socketio port
         bench.common_bench_config_set({"socketio_port": "80"})

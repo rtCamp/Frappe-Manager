@@ -20,7 +20,7 @@ from frappe_manager.services_manager.services_exceptions import (
     ServicesNotCreated,
 )
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.compose_manager.ComposeFile import ComposeFile
+from frappe_manager.docker import ComposeFile
 from frappe_manager.ssl_manager.proxy_storage import ProxyStoragePaths
 from frappe_manager.ssl_manager.nginx_controller import NginxController
 from frappe_manager.utils.helpers import (
@@ -31,7 +31,7 @@ from frappe_manager.utils.helpers import (
     get_unix_groups,
 )
 from frappe_manager.utils.docker import host_run_cp
-from frappe_manager.docker_wrapper.DockerException import DockerException
+from frappe_manager.docker import DockerException
 
 
 class ServicesManager:
@@ -237,23 +237,29 @@ class ServicesManager:
     def generate_compose(self, inputs: dict):
         # TODO do something about this function
         try:
-            # handle environment
-            if "environment" in inputs.keys():
-                environments: dict = inputs["environment"]
-                self.compose_project.compose_file_manager.set_all_envs(environments)
-
-            # handle lablels
-            if "labels" in inputs.keys():
-                labels: dict = inputs["labels"]
-                self.compose_project.compose_file_manager.set_all_labels(labels)
-
-            # handle user
-            if "user" in inputs.keys():
-                user: dict = inputs["user"]
-                for container_name in user.keys():
-                    uid = user[container_name]["uid"]
-                    gid = user[container_name]["gid"]
-                    self.compose_project.compose_file_manager.set_user(container_name, uid, gid)
+            # Extract inputs
+            environments = inputs.get("environment")
+            labels = inputs.get("labels")
+            users = None
+            
+            # Convert user format if present
+            if "user" in inputs:
+                users = {}
+                for container_name, user_data in inputs["user"].items():
+                    users[container_name] = (user_data["uid"], user_data["gid"])
+            
+            # Use fluent interface to set all configurations atomically
+            cf = self.compose_project.compose_file_manager
+            if environments:
+                cf.with_envs(environments)
+            if labels:
+                cf.with_labels(labels)
+            if users:
+                cf.with_users(users)
+            
+            # Commit changes if any were made
+            if environments or labels or users:
+                cf.commit()
 
         # TODO do something about this exception
         except Exception as e:

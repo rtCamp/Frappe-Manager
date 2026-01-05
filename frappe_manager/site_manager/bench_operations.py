@@ -5,8 +5,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from frappe_manager import CLI_DEFAULT_DELIMETER, STABLE_APP_BRANCH_MAPPING_LIST
 from frappe_manager.compose_project.compose_project import ComposeProject
-from frappe_manager.docker_wrapper.DockerException import DockerException
-from frappe_manager.docker_wrapper.subprocess_output import SubprocessOutput
+from frappe_manager.docker import DockerException
+from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.site_manager.site_exceptions import (
     BenchOperationBenchAppInSiteFailed,
     BenchOperationBenchBuildFailed,

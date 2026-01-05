@@ -6,7 +6,7 @@ from frappe_manager.utils.helpers import get_frappe_manager_own_files
 
 from typing import Optional
 from frappe_manager import CLI_BENCHES_DIRECTORY
-from frappe_manager.compose_manager import DockerVolumeMount, DockerVolumeType
+from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager.site_exceptions import BenchException
 
@@ -196,7 +196,7 @@ def get_bench_db_connection_info(bench_name: str, bench_path: Path):
 
 
 def get_all_docker_images():
-    from frappe_manager.compose_manager.ComposeFile import ComposeFile
+    from frappe_manager.docker import ComposeFile
 
     temp_bench_compose_file_manager = ComposeFile(loadfile=Path('/dev/null/docker-compose.yml'))
     services_manager_compose_file_manager = ComposeFile(
@@ -224,8 +224,8 @@ def get_all_docker_images():
 
 
 def pull_docker_images() -> bool:
-    from frappe_manager.docker_wrapper.DockerException import DockerException
-    from frappe_manager.docker_wrapper.DockerClient import DockerClient
+    from frappe_manager.docker import DockerException
+    from frappe_manager.docker import DockerClient
 
     docker = DockerClient()
     images = get_all_docker_images()

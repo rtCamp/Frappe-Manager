@@ -20,7 +20,7 @@ from frappe_manager import (
     SiteServicesEnum,
     CLI_BENCHES_DIRECTORY,
 )
-from frappe_manager.docker_wrapper.DockerClient import DockerClient
+from frappe_manager.docker import DockerClient
 from frappe_manager.logger import log
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
@@ -49,7 +49,7 @@ from frappe_manager.sub_commands.ssl_command import ssl_root_command
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.migration_manager.version import Version
-from frappe_manager.compose_manager.ComposeFile import ComposeFile
+from frappe_manager.docker import ComposeFile
 from email_validator import validate_email
 
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
