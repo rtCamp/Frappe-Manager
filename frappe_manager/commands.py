@@ -6,7 +6,7 @@ import os
 import sys
 import shutil
 from typing import Annotated, List, Optional
-from frappe_manager.compose_project.compose_project import ComposeProject
+from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.ngrok import create_tunnel
 from frappe_manager.services_manager.services_exceptions import ServicesNotCreated
 from frappe_manager.site_manager.SiteManager import BenchesManager
@@ -285,9 +285,9 @@ def create(
 
     compose_path = bench_path / 'docker-compose.yml'
     compose_file_manager = ComposeFile(compose_path)
-    compose_project = ComposeProject(compose_file_manager, verbose)
+    docker_client = DockerClient(compose_file_path=compose_path)
 
-    bench: Bench = Bench(bench_path, benchname, bench_config, compose_project, services_manager)
+    bench: Bench = Bench(bench_path, benchname, bench_config, compose_file_manager, docker_client, services_manager)
     benches.add_bench(bench)
     benches.create_benches(is_template_bench=template)
 
@@ -314,7 +314,7 @@ def delete(
         bench_path: Path = benches.root_path / benchname
         bench_compose_path = bench_path / 'docker-compose.yml'
         compose_file_manager = ComposeFile(bench_compose_path)
-        bench_compose_project = ComposeProject(compose_file_manager)
+        docker_client = DockerClient(compose_file_path=bench_compose_path)
 
         bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
         # try using bench object if not then create bench
@@ -343,7 +343,8 @@ def delete(
                 bench_path,
                 benchname,
                 fake_config,
-                bench_compose_project,
+                compose_file_manager,
+                docker_client,
                 services=services_manager,
                 workers_check=False,
             )
@@ -595,7 +596,7 @@ def update(
 
     bench_config_save = False
 
-    if not bench.compose_project.running:
+    if not bench.running:
         raise BenchNotRunning(bench_name=bench.name)
 
     if developer_mode:
@@ -675,7 +676,7 @@ def update(
             richprint.change_head("Enabling Admin-tools")
             bench.bench_config.admin_tools = True
 
-            if not bench.admin_tools.compose_project.compose_file_manager.compose_path.exists():
+            if not bench.admin_tools.compose_file_manager.compose_path.exists():
                 bench.sync_admin_tools_compose()
             else:
                 bench.admin_tools.enable(force_configure=mailpit_as_default_mail_server)
@@ -685,7 +686,7 @@ def update(
 
         elif admin_tools == EnableDisableOptionsEnum.disable:
             if (
-                not bench.admin_tools.compose_project.compose_file_manager.compose_path.exists()
+                not bench.admin_tools.compose_file_manager.compose_path.exists()
                 or not bench.bench_config.admin_tools
             ):
                 richprint.print("Admin tools is already disabled.")
@@ -793,7 +794,7 @@ def ngrok(
     verbose = ctx.obj['verbose']
     bench = Bench.get_object(benchname, services_manager)
 
-    if not bench.compose_project.running:
+    if not bench.running:
         raise BenchNotRunning(bench_name=bench.name)
 
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]

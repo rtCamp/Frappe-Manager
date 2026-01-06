@@ -80,7 +80,7 @@ class BenchesManager:
                 status_color = "white"
                 status_msg = "Inactive"
 
-                if bench.compose_project.running:
+                if bench.running:
                     status_color = "green"
                     status_msg = "Active"
 

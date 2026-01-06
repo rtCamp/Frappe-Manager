@@ -186,6 +186,29 @@ def mock_compose_project(mocker):
 
 
 @pytest.fixture
+def mock_compose_file_manager(mocker):
+    """Returns a mock ComposeFile instance."""
+    mock_cf = MagicMock()
+    mock_cf.get_services_list.return_value = ['nginx-proxy']
+    mock_cf.get_container_names.return_value = {'nginx-proxy': 'nginx-proxy-container'}
+    mock_cf.get_service_volumes.return_value = []
+    return mock_cf
+
+
+@pytest.fixture
+def mock_docker_client(mocker):
+    """Returns a mock DockerClient instance."""
+    mock_client = MagicMock()
+    mock_client.compose = MagicMock()
+    mock_client.compose.exec = MagicMock(return_value="OK")
+    mock_client.compose.restart = MagicMock(return_value="OK")
+    mock_client.compose.get_all_services_status.return_value = [
+        {"Name": "nginx-proxy-container", "Service": "nginx-proxy", "State": "running"}
+    ]
+    return mock_client
+
+
+@pytest.fixture
 def mock_ssl_service(mocker):
     """Returns a mock SSLCertificateService."""
     mock_service = MagicMock()

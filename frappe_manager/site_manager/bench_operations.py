@@ -4,8 +4,7 @@ import re
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 from frappe_manager import CLI_DEFAULT_DELIMETER, STABLE_APP_BRANCH_MAPPING_LIST
-from frappe_manager.compose_project.compose_project import ComposeProject
-from frappe_manager.docker import DockerException
+from frappe_manager.docker import DockerException, DockerClient
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.site_manager.site_exceptions import (
     BenchOperationBenchAppInSiteFailed,
@@ -114,23 +113,23 @@ class BenchOperations:
         user: str = "frappe",
         workdir="/workspace/frappe-bench",
         service: str = 'frappe',
-        compose_project_obj: Optional[ComposeProject] = None,
+        docker_client_obj: Optional[DockerClient] = None,
     ):
         command = f"/bin/bash -c \'source /etc/bash.bashrc; {command}\'"
 
-        if compose_project_obj:
-            compose_project: ComposeProject = compose_project_obj
+        if docker_client_obj:
+            docker_client: DockerClient = docker_client_obj
         else:
-            compose_project: ComposeProject = self.bench.compose_project
+            docker_client: DockerClient = self.bench.docker_client
 
         try:
             if capture_output:
-                output: SubprocessOutput = compose_project.docker.compose.exec(
+                output: SubprocessOutput = docker_client.compose.exec(
                     service=service, command=command, user=user, workdir=workdir, stream=not capture_output
                 )
                 return output
             else:
-                output: Iterable[Tuple[str, bytes]] = compose_project.docker.compose.exec(
+                output: Iterable[Tuple[str, bytes]] = docker_client.compose.exec(
                     service=service, command=command, workdir=workdir, user=user, stream=not capture_output
                 )
                 richprint.live_lines(output)
@@ -371,7 +370,7 @@ class BenchOperations:
     def check_required_docker_images_available(self):
         richprint.change_head("Checking required docker images availability")
         fm_images = get_all_docker_images()
-        system_available_images = self.bench.compose_project.docker.images()
+        system_available_images = self.bench.docker_client.images()
 
         not_available_images = []
 

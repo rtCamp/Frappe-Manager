@@ -19,15 +19,15 @@ def stop(
             if service == ServicesEnum.all:
                 continue
 
-            if not services_manager.compose_project.is_service_running(service.value):
+            if not services_manager.is_service_running(service.value):
                 richprint.print(f"Skipping not running service {service.value}.")
                 continue
 
-            services_manager.compose_project.stop_service(services=[service.value])
+            services_manager.stop_service(services=[service.value])
             richprint.print(f"Stopped service {service.value}.")
     else:
-        if services_manager.compose_project.is_service_running(service_name.value):
-            services_manager.compose_project.stop_service(services=[service_name.value])
+        if services_manager.is_service_running(service_name.value):
+            services_manager.stop_service(services=[service_name.value])
         else:
             richprint.print(f"Skipping already stopped service {service_name.value}.")
 
@@ -45,15 +45,15 @@ def start(
             if service == ServicesEnum.all:
                 continue
 
-            if services_manager.compose_project.is_service_running(service.value):
+            if services_manager.is_service_running(service.value):
                 richprint.print(f"Skipping already running service {service.value}.")
                 continue
 
-            services_manager.compose_project.start_service(services=[service.value])
+            services_manager.start_service(services=[service.value])
             richprint.print(f"Started service {service.value}.")
     else:
-        if not services_manager.compose_project.is_service_running(service_name.value):
-            services_manager.compose_project.start_service(services=[service_name.value])
+        if not services_manager.is_service_running(service_name.value):
+            services_manager.start_service(services=[service_name.value])
         else:
             richprint.print(f"Skipping already running service {service_name.value}.")
 
@@ -71,10 +71,10 @@ def restart(
             if service == ServicesEnum.all:
                 continue
 
-            services_manager.compose_project.restart_service(services=[service.value])
+            services_manager.restart_service(services=[service.value])
             richprint.print(f"Restarted service {service.value}.")
     else:
-        services_manager.compose_project.restart_service(services=[service_name.value])
+        services_manager.restart_service(services=[service_name.value])
         richprint.print(f"Restarted service {service_name.value}.")
 
 

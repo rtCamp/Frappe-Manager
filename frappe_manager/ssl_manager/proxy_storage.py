@@ -7,8 +7,7 @@ from controlling nginx operations, improving testability and separation of conce
 
 from pathlib import Path
 from typing import List
-from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
-from frappe_manager.compose_project.compose_project import ComposeProject
+from frappe_manager.docker import DockerVolumeMount, DockerVolumeType, ComposeFile
 from frappe_manager.utils.helpers import create_class_from_dict
 
 
@@ -22,29 +21,29 @@ class ProxyStoragePaths:
     
     Attributes:
         service_name: Name of the nginx service in docker-compose
-        compose_project: The compose project containing the service
+        compose_file_manager: The compose file manager for reading volumes
         dirs: Dynamic attribute containing volume mount information
     """
     
     def __init__(
         self,
         service_name: str,
-        compose_project: ComposeProject,
+        compose_file_manager: ComposeFile,
     ):
         """
         Initialize the proxy storage paths reader.
         
         Args:
             service_name: Name of the nginx service (e.g., 'nginx', 'nginx-proxy')
-            compose_project: The compose project containing the nginx service
+            compose_file_manager: The compose file manager for reading volumes
         """
         self.service_name = service_name
-        self.compose_project = compose_project
+        self.compose_file_manager = compose_file_manager
         self.dirs = self._get_docker_volume_dirs()
     
     def _get_docker_volume_dirs(self):
         """
-        Read volume mount paths from the compose project.
+        Read volume mount paths from the compose file.
         
         Returns:
             A dynamic class instance with attributes for each volume mount.
@@ -53,7 +52,7 @@ class ProxyStoragePaths:
         """
         from pathlib import Path
         
-        all_volumes: List[DockerVolumeMount] = self.compose_project.compose_file_manager.get_service_volumes(
+        all_volumes: List[DockerVolumeMount] = self.compose_file_manager.get_service_volumes(
             self.service_name
         )
         dirs = {}

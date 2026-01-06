@@ -3,8 +3,7 @@ import os
 from pathlib import Path
 from typing import Any, TYPE_CHECKING
 from frappe_manager import CLI_DEFAULT_DELIMETER
-from frappe_manager.docker import ComposeFile
-from frappe_manager.compose_project.compose_project import ComposeProject
+from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker import DockerException
 from frappe_manager.site_manager.site_exceptions import AdminToolsFailedToStart, BenchException
@@ -16,22 +15,37 @@ if TYPE_CHECKING:
 
 class AdminTools:
     def __init__(self, bench: 'Bench', nginx_proxy: Any, verbose: bool = True):
+        """
+        Initialize AdminTools.
+        
+        Args:
+            bench: The Bench instance
+            nginx_proxy: Nginx proxy manager
+            verbose: Whether to show verbose output
+        """
         self.bench = bench
         self.compose_path = bench.path / "docker-compose.admin-tools.yml"
         self.bench_name = bench.name
         self.quiet = not verbose
-        self.compose_project = ComposeProject(
-            ComposeFile(self.compose_path, template_name='docker-compose.admin-tools.tmpl')
+        
+        # Create ComposeFile manager for admin-tools compose file
+        self.compose_file_manager = ComposeFile(
+            self.compose_path, 
+            template_name='docker-compose.admin-tools.tmpl'
         )
+        
+        # Create DockerClient with admin-tools compose file
+        self.docker_client = DockerClient(compose_file_path=self.compose_path)
+        
         self.nginx_proxy = nginx_proxy
         self.nginx_config_location_path: Path = self.nginx_proxy.dirs.conf.host / 'custom' / 'admin-tools.conf'
         self.http_auth_path: Path = self.nginx_proxy.dirs.conf.host / 'http_auth'
 
     def generate_compose(self, db_host: str):
-        self.compose_project.compose_file_manager.yml = self.compose_project.compose_file_manager.load_template()
+        self.compose_file_manager.yml = self.compose_file_manager.load_template()
 
         # Use new configure_bench method to set all configurations atomically
-        self.compose_project.compose_file_manager.configure_bench(
+        self.compose_file_manager.configure_bench(
             prefix=get_container_name_prefix(self.bench_name),
             version=get_current_fm_version(),
             envs={"adminer": {"ADMINER_DEFAULT_SERVER": db_host}},
@@ -170,7 +184,7 @@ class AdminTools:
             for i in range(timeout):
                 try:
                     check_command = f"wait-for-it -t {interval} {get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}{tool}"
-                    self.nginx_proxy.compose_project.docker.compose.exec(
+                    self.bench.docker_client.compose.exec(
                         service='nginx', command=check_command, stream=False
                     )
 
@@ -183,7 +197,22 @@ class AdminTools:
                 raise AdminToolsFailedToStart(self.bench_name)
 
     def enable(self, force_recreate_container: bool = False, force_configure: bool = False):
-        self.compose_project.start_service(force_recreate=force_recreate_container)
+        """Enable admin tools by starting services."""
+        # Use docker_client directly instead of compose_project wrapper
+        try:
+            output = self.docker_client.compose.up(
+                services=[],
+                detach=True,
+                pull="never",
+                force_recreate=force_recreate_container,
+                stream=self.quiet
+            )
+            if self.quiet:
+                richprint.live_lines(output, padding=(0, 0, 0, 2))
+        except DockerException as e:
+            from frappe_manager.compose_project.exceptions import DockerComposeProjectFailedToStartError
+            raise DockerComposeProjectFailedToStartError(self.compose_path, [])
+        
         self.wait_till_services_started()
         self.save_nginx_location_config()
         self.nginx_proxy.reload()
@@ -192,7 +221,16 @@ class AdminTools:
             self.configure_mailpit_as_default_server()
 
     def disable(self):
-        self.compose_project.stop_service(timeout=2)
+        """Disable admin tools by stopping services."""
+        # Use docker_client directly instead of compose_project wrapper
+        try:
+            output = self.docker_client.compose.stop(services=[], timeout=2, stream=self.quiet)
+            if self.quiet:
+                richprint.live_lines(output, padding=(0, 0, 0, 2))
+        except DockerException as e:
+            from frappe_manager.compose_project.exceptions import DockerComposeProjectFailedToStopError
+            raise DockerComposeProjectFailedToStopError(self.compose_path, self.compose_file_manager.get_services_list())
+        
         self.remove_nginx_location_config()
         self.nginx_proxy.reload()
 

@@ -2,8 +2,7 @@ import time
 import json
 from pathlib import Path
 from typing import Dict, Any, Optional, Protocol, List, Union
-from frappe_manager.compose_project.compose_project import ComposeProject
-from frappe_manager.docker import DockerException
+from frappe_manager.docker import ComposeFile, DockerClient, DockerException
 from frappe_manager.services_manager.services_exceptions import (
     DatabaseServiceDBCreateFailed,
     DatabaseServiceDBExportFailed,
@@ -32,11 +31,11 @@ class DatabaseServerServiceInfo(BaseModel):
     name: Optional[str] = None
 
     @classmethod
-    def import_from_compose_file(cls, compose_service_name: str, compose_project: ComposeProject, raise_exception: bool = True):
+    def import_from_compose_file(cls, compose_service_name: str, compose_file_manager: ComposeFile, raise_exception: bool = True):
         """
         Provides info about a database server
         """
-        compose_service_envs = compose_project.compose_file_manager.get_envs(container=compose_service_name)
+        compose_service_envs = compose_file_manager.get_envs(container=compose_service_name)
 
         info: Dict[str, Any] = {}
         info["user"] = 'root'
@@ -47,7 +46,7 @@ class DatabaseServerServiceInfo(BaseModel):
         # TODO use fm main config here
         # secrets or password ?
         if 'MYSQL_ROOT_PASSWORD_FILE' in compose_service_envs:
-            password_path: Path = compose_project.compose_file_manager.get_secret_file_path('db_root_password')
+            password_path: Path = compose_file_manager.get_secret_file_path('db_root_password')
             info["password"] = password_path.read_text()
         elif 'MYSQL_ROOT_PASSWORD' in compose_service_envs:
             info["password"] = compose_service_envs['MYSQL_ROOT_PASSWORD']
@@ -97,9 +96,10 @@ class DatabaseServerServiceInfo(BaseModel):
 
 class DatabaseServiceManager(Protocol):
     database_server_info: DatabaseServerServiceInfo
-    compose_project: ComposeProject
+    compose_file_manager: ComposeFile
+    docker_client: DockerClient
 
-    def __init__(self, database_server_info: DatabaseServerServiceInfo, compose_project: ComposeProject) -> None: ...
+    def __init__(self, database_server_info: DatabaseServerServiceInfo, compose_file_manager: ComposeFile, docker_client: DockerClient) -> None: ...
 
     def remove_user(self, db_user: str, db_user_host: str = '%', remove_all_host: bool = False): ...
 
@@ -122,14 +122,16 @@ class MariaDBManager(DatabaseServiceManager):
     def __init__(
         self,
         database_server_info: DatabaseServerServiceInfo,
-        compose_project: ComposeProject,
+        compose_file_manager: ComposeFile,
+        docker_client: DockerClient,
         run_on_compose_service: Optional[str] = None,
     ) -> None:
         """
         Database manager
         """
         self.database_server_info: DatabaseServerServiceInfo = database_server_info
-        self.compose_project: ComposeProject = compose_project
+        self.compose_file_manager: ComposeFile = compose_file_manager
+        self.docker_client: DockerClient = docker_client
 
         if not run_on_compose_service:
             self.run_on_compose_service: str = self.database_server_info.host
@@ -140,17 +142,28 @@ class MariaDBManager(DatabaseServiceManager):
         self.base_query = '-e '
         self.quiet = True
 
+    def _is_service_running(self, service: str) -> bool:
+        """Check if a service is running."""
+        all_statuses = self.docker_client.compose.get_all_services_status()
+        containers = self.compose_file_manager.get_container_names()
+        service_container = containers.get(service)
+        
+        for status in all_statuses:
+            if status.get("Name") == service_container:
+                return status.get("State") == "running"
+        return False
+
     def _compose_exec_or_run(self, command: str, stream: bool = False, user: str = None, rm: bool = False, entrypoint: str = None):
         """
         Executes a command using compose.exec if the service is running,
         otherwise uses compose.run.
         """
-        if self.compose_project.is_service_running(self.run_on_compose_service):
-            return self.compose_project.docker.compose.exec(
+        if self._is_service_running(self.run_on_compose_service):
+            return self.docker_client.compose.exec(
                 self.run_on_compose_service, command=command, stream=stream
             )
         else:
-            return self.compose_project.docker.compose.run(
+            return self.docker_client.compose.run(
                 self.run_on_compose_service,
                 # command=command,
                 stream=stream,
@@ -323,7 +336,7 @@ class MariaDBManager(DatabaseServiceManager):
         db_import_command = self.base_command + f" {db_name} -e 'source /tmp/{container_db_file_name}'"
 
         try:
-            output = self.compose_project.docker.compose.cp(source, destination, stream=False)
+            output = self.docker_client.compose.cp(source, destination, stream=False)
             output = self._compose_exec_or_run(
                 db_import_command,
                 stream=False,

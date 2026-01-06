@@ -1,8 +1,7 @@
 from copy import deepcopy
 from pathlib import Path
 from typing import List, TYPE_CHECKING
-from frappe_manager.docker import ComposeFile
-from frappe_manager.compose_project.compose_project import ComposeProject
+from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager.site_exceptions import BenchWorkersSupervisorConfigurtionNotFoundError
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version
@@ -19,9 +18,8 @@ class BenchWorkers:
         self.config_dir = self.bench.path / "workspace" / "frappe-bench" / "config"
         self.supervisor_config_path = self.config_dir / "supervisor.conf"
         self.quiet = not verbose
-        self.compose_project = ComposeProject(
-            ComposeFile(self.compose_path, template_name='docker-compose.workers.tmpl')
-        )
+        self.compose_file_manager = ComposeFile(self.compose_path, template_name='docker-compose.workers.tmpl')
+        self.docker_client = DockerClient(compose_file_path=self.compose_path)
 
     def get_expected_workers(self, include_default_workers: bool = True, include_custom_workers: bool = True) -> List[str]:
         richprint.change_head("Checking workers info.")
@@ -56,8 +54,8 @@ class BenchWorkers:
         return workers_expected_service_names
 
     def is_new_workers_added(self, include_default_workers: bool = False) -> bool:
-        if not self.compose_project.compose_file_manager.is_template_loaded:
-            prev_workers = self.compose_project.compose_file_manager.get_services_list()
+        if not self.compose_file_manager.is_template_loaded:
+            prev_workers = self.compose_file_manager.get_services_list()
             prev_workers.sort()
             expected_workers = self.get_expected_workers(include_default_workers=include_default_workers)
 
@@ -84,11 +82,11 @@ class BenchWorkers:
             richprint.print("Workers configuration changed. Recreating compose...")
 
         # create compose file for workers
-        self.compose_project.compose_file_manager.yml = self.compose_project.compose_file_manager.load_template()
+        self.compose_file_manager.yml = self.compose_file_manager.load_template()
         richprint.print("Loaded compose template")
 
-        template_worker_config = self.compose_project.compose_file_manager.yml["services"]["worker-name"]
-        del self.compose_project.compose_file_manager.yml["services"]["worker-name"]
+        template_worker_config = self.compose_file_manager.yml["services"]["worker-name"]
+        del self.compose_file_manager.yml["services"]["worker-name"]
 
         workers_expected_service_names = self.get_expected_workers(include_default_workers=include_default_workers, include_custom_workers=include_custom_workers)
 
@@ -103,10 +101,10 @@ class BenchWorkers:
                 worker_config["environment"]["USERGROUP"] = os.getgid()
                 worker_config["environment"]["WORKER_NAME"] = worker
 
-                self.compose_project.compose_file_manager.yml["services"][worker] = worker_config
+                self.compose_file_manager.yml["services"][worker] = worker_config
 
             # Use new with_prefix and with_version methods to set all configurations atomically
-            self.compose_project.compose_file_manager \
+            self.compose_file_manager \
                 .with_prefix(get_container_name_prefix(self.bench.name), 'site-network') \
                 .with_version(get_current_fm_version()) \
                 .commit()
@@ -114,9 +112,11 @@ class BenchWorkers:
             return True
 
         else:
-            if self.compose_project.compose_file_manager.exists():
+            if self.compose_file_manager.exists():
                 richprint.print("No workers found, cleaning up existing configuration")
-                self.compose_project.down_service()
-                self.compose_project.compose_file_manager.compose_path.unlink()
+                output = self.docker_client.compose.down(remove_orphans=True, volumes=False, timeout=5, stream=True)
+                if not self.quiet:
+                    richprint.live_lines(output, padding=(0, 0, 0, 2))
+                self.compose_file_manager.compose_path.unlink()
 
             return False

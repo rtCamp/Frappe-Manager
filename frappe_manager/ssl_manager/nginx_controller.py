@@ -5,7 +5,7 @@ This module separates nginx control operations from configuration reading,
 following the Single Responsibility Principle and improving testability.
 """
 
-from frappe_manager.compose_project.compose_project import ComposeProject
+from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.display_manager.DisplayManager import richprint
 
 
@@ -18,23 +18,27 @@ class NginxController:
     
     Attributes:
         service_name: Name of the nginx service in docker-compose
-        compose_project: The compose project containing the service
+        compose_file_manager: The compose file manager
+        docker_client: The docker client for operations
     """
     
     def __init__(
         self,
         service_name: str,
-        compose_project: ComposeProject,
+        compose_file_manager: ComposeFile,
+        docker_client: DockerClient,
     ):
         """
         Initialize the nginx controller.
         
         Args:
             service_name: Name of the nginx service (e.g., 'nginx', 'nginx-proxy')
-            compose_project: The compose project containing the nginx service
+            compose_file_manager: The compose file manager
+            docker_client: The docker client for operations
         """
         self.service_name = service_name
-        self.compose_project = compose_project
+        self.compose_file_manager = compose_file_manager
+        self.docker_client = docker_client
     
     def reload(self):
         """
@@ -45,8 +49,19 @@ class NginxController:
         """
         richprint.change_head("Reloading nginx")
         
-        if self.compose_project.running:
-            output = self.compose_project.docker.compose.exec(
+        # Check if service is running
+        services = self.compose_file_manager.get_services_list()
+        containers = self.compose_file_manager.get_container_names().values()
+        all_statuses = self.docker_client.compose.get_all_services_status()
+        running_statuses = {
+            status["Service"]: status["State"]
+            for status in all_statuses
+            if status.get("Name") in containers
+        }
+        all_running = all(running_statuses.get(s) == "running" for s in services)
+        
+        if all_running:
+            output = self.docker_client.compose.exec(
                 service=self.service_name, command='nginx -s reload', stream=False
             )
             richprint.print("Reloaded nginx.")
@@ -60,6 +75,17 @@ class NginxController:
         """
         richprint.change_head("Restarting nginx")
         
-        if self.compose_project.running:
-            output = self.compose_project.docker.compose.restart(services=[self.service_name], stream=False)
+        # Check if service is running
+        services = self.compose_file_manager.get_services_list()
+        containers = self.compose_file_manager.get_container_names().values()
+        all_statuses = self.docker_client.compose.get_all_services_status()
+        running_statuses = {
+            status["Service"]: status["State"]
+            for status in all_statuses
+            if status.get("Name") in containers
+        }
+        all_running = all(running_statuses.get(s) == "running" for s in services)
+        
+        if all_running:
+            output = self.docker_client.compose.restart(services=[self.service_name], stream=False)
             richprint.print("Restarting nginx.")

@@ -10,9 +10,8 @@ from typing import Any, Dict, List, Optional
 from pathlib import Path
 from frappe_manager.site_manager.bench_operations import BenchOperations
 from rich.table import Table
-from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.docker import DockerException
-from frappe_manager.docker import ComposeFile
+from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.logger import log
 from frappe_manager.migration_manager.backup_manager import BackupManager
@@ -67,7 +66,8 @@ class Bench:
         path: Path,
         name: str,
         bench_config: BenchConfig,
-        compose_project: ComposeProject,
+        compose_file_manager: ComposeFile,
+        docker_client: DockerClient,
         services: ServicesManager,
         workers_check: bool = True,
         admin_tools_check: bool = True,
@@ -79,20 +79,22 @@ class Bench:
         self.services = services
         self.backup_path = self.path / 'backups'
         self.bench_config: BenchConfig = bench_config
-        self.compose_project: ComposeProject = compose_project
         self.logger = log.get_logger()
         
+        # Store compose_file_manager and docker_client directly
+        self.compose_file_manager = compose_file_manager
+        self.docker_client = docker_client
+        
         # Initialize local nginx proxy components
-        self.bench_proxy_storage = ProxyStoragePaths('nginx', self.compose_project)
-        self.bench_nginx_controller = NginxController('nginx', self.compose_project)
+        self.bench_proxy_storage = ProxyStoragePaths('nginx', self.compose_file_manager)
+        self.bench_nginx_controller = NginxController('nginx', self.compose_file_manager, self.docker_client)
         
         # For backward compatibility with admin_tools
-        # TODO: Refactor admin_tools to not need this
+        # Create a simple proxy manager object with required attributes
         self.proxy_manager = type('ProxyManager', (), {
             'dirs': self.bench_proxy_storage.dirs,
             'restart': self.bench_nginx_controller.restart,
             'reload': self.bench_nginx_controller.reload,
-            'compose_project': self.compose_project
         })()
         
         self.admin_tools: AdminTools = AdminTools(self, self.proxy_manager)
@@ -157,7 +159,7 @@ class Bench:
         bench_config_path: Path = bench_path / bench_config_file_name
 
         compose_file_manager = ComposeFile(bench_path / "docker-compose.yml")
-        compose_project: ComposeProject = ComposeProject(compose_file_manager, verbose=verbose)
+        docker_client = DockerClient(compose_file_path=bench_path / "docker-compose.yml")
 
         bench_config: BenchConfig = BenchConfig.import_from_toml(bench_config_path)
 
@@ -165,12 +167,54 @@ class Bench:
             'name': bench_name,
             'path': bench_path,
             'bench_config': bench_config,
-            'compose_project': compose_project,
+            'compose_file_manager': compose_file_manager,
+            'docker_client': docker_client,
             'services': services,
             'workers_check': workers_check,
             'admin_tools_check': admin_tools_check,
         }
         return cls(**parms)
+
+    def _is_service_running(self, service: str) -> bool:
+        """Check if a specific service is running."""
+        try:
+            all_statuses = self.docker_client.compose.get_all_services_status()
+            return any(
+                status["Service"] == service and status["State"] == "running"
+                for status in all_statuses
+            )
+        except DockerException:
+            return False
+
+    @property
+    def running(self) -> bool:
+        """Check if all bench services are running."""
+        try:
+            services = self.compose_file_manager.get_services_list()
+            containers = self.compose_file_manager.get_container_names().values()
+            all_statuses = self.docker_client.compose.get_all_services_status()
+            running_statuses = {
+                status["Service"]: status["State"]
+                for status in all_statuses
+                if status.get("Name") in containers
+            }
+            return all(running_statuses.get(s) == "running" for s in services)
+        except DockerException:
+            return False
+
+    def _get_services_running_status(self) -> dict:
+        """Get the running status of all services."""
+        try:
+            services = self.compose_file_manager.get_services_list()
+            containers = self.compose_file_manager.get_container_names().values()
+            all_statuses = self.docker_client.compose.get_all_services_status()
+            return {
+                status["Service"]: status["State"]
+                for status in all_statuses
+                if status.get("Name") in containers
+            }
+        except DockerException:
+            return {}
 
     def sync_bench_config_configuration(self):
         # set developer_mode based on config
@@ -183,14 +227,14 @@ class Bench:
 
         # admin tools
         if self.bench_config.admin_tools:
-            if not self.admin_tools.compose_project.compose_file_manager.compose_path.exists():
+            if not self.admin_tools.compose_file_manager.compose_path.exists():
                 self.sync_admin_tools_compose()
             else:
                 self.admin_tools.enable(force_configure=True)
             richprint.print("Enabled Admin-tools.")
 
         else:
-            if not self.admin_tools.compose_project.compose_file_manager.compose_path.exists():
+            if not self.admin_tools.compose_file_manager.compose_path.exists():
                 richprint.print("Admin tools is already disabled.")
             else:
                 self.admin_tools.disable()
@@ -237,7 +281,10 @@ class Bench:
                 return
 
             richprint.change_head("Starting bench services")
-            self.compose_project.start_service(force_recreate=True)
+            output = self.docker_client.compose.up(services=[], detach=True, pull="never",
+                                                     force_recreate=True, stream=self.quiet)
+            if self.quiet:
+                richprint.live_lines(output, padding=(0, 0, 0, 2))
             richprint.print("Started bench services.")
 
             richprint.change_head("Creating bench and bench site.")
@@ -360,10 +407,10 @@ class Bench:
             network_aliases.extend(self.bench_config.alias_domains)
         
         # Set network aliases separately (not part of configure_bench)
-        self.compose_project.compose_file_manager.set_network_alias("nginx", "site-network", network_aliases)
+        self.compose_file_manager.set_network_alias("nginx", "site-network", network_aliases)
         
         # Use new configure_bench method to set all configurations atomically
-        self.compose_project.compose_file_manager.configure_bench(
+        self.compose_file_manager.configure_bench(
             prefix=get_container_name_prefix(self.name),
             version=get_current_fm_version(),
             envs=environments,
@@ -401,7 +448,7 @@ class Bench:
         """
         richprint.change_head("Creating required directories")
 
-        frappe_image: str = self.compose_project.compose_file_manager.yml["services"]["frappe"]["image"]
+        frappe_image: str = self.compose_file_manager.yml["services"]["frappe"]["image"]
         frappe_image = frappe_image.replace('-frappe', '-prebake')
 
         workspace_path = self.path / "workspace"
@@ -411,7 +458,7 @@ class Bench:
             frappe_image,
             source="/workspace",
             destination=workspace_path_abs,
-            docker=self.compose_project.docker,
+            docker=self.docker_client,
         )
 
         configs_path = self.path / "configs"
@@ -422,7 +469,7 @@ class Bench:
         nginx_dir.mkdir(parents=True, exist_ok=True)
 
         nginx_poluate_dir = ["conf"]
-        nginx_image = self.compose_project.compose_file_manager.yml["services"]["nginx"]["image"]
+        nginx_image = self.compose_file_manager.yml["services"]["nginx"]["image"]
 
         for directory in nginx_poluate_dir:
             new_dir = nginx_dir / directory
@@ -432,7 +479,7 @@ class Bench:
                     nginx_image,
                     source="/etc/nginx",
                     destination=new_dir_abs,
-                    docker=self.compose_project.docker,
+                    docker=self.docker_client,
                 )
 
         nginx_subdirs = ["logs", "cache", "run", "html"]
@@ -470,17 +517,23 @@ class Bench:
 
         richprint.change_head("Starting bench services")
 
-        self.compose_project.start_service(force_recreate=force)
+        output = self.docker_client.compose.up(services=[], detach=True, pull="never",
+                                                 force_recreate=force, stream=self.quiet)
+        if self.quiet:
+            richprint.live_lines(output, padding=(0, 0, 0, 2))
 
         # start admin-tools if exists
-        if self.admin_tools.compose_project.compose_file_manager.compose_path.exists():
+        if self.admin_tools.compose_file_manager.compose_path.exists():
             richprint.change_head("Starting admin tools services")
-            self.admin_tools.compose_project.start_service(force_recreate=force)
+            self.admin_tools.enable(force_recreate_container=force)
             richprint.print("Started admin tools services.")
 
             # Check if nginx service is stopped and restart if needed
-            if not self.compose_project.is_service_running('nginx'):
-                self.compose_project.start_service(['nginx'])
+            if not self._is_service_running('nginx'):
+                output = self.docker_client.compose.up(services=['nginx'], detach=True, pull="never",
+                                                         force_recreate=False, stream=self.quiet)
+                if self.quiet:
+                    richprint.live_lines(output, padding=(0, 0, 0, 2))
 
         self.benchops.is_required_services_available()
 
@@ -510,9 +563,12 @@ class Bench:
             self.sync_bench_config_configuration()
 
         # start workers if exists
-        if self.workers.compose_project.compose_file_manager.exists():
+        if self.workers.compose_file_manager.exists():
             richprint.change_head("Starting bench workers services")
-            self.workers.compose_project.start_service(force_recreate=force)
+            output = self.workers.docker_client.compose.up(services=[], detach=True, pull="never",
+                                                            force_recreate=force, stream=self.quiet)
+            if self.quiet:
+                richprint.live_lines(output, padding=(0, 0, 0, 2))
             richprint.print("Started bench workers services.")
 
         self.save_bench_config()
@@ -525,7 +581,7 @@ class Bench:
         Args:
             status_msg (str, optional): Custom status message to display. Defaults to None.
         """
-        output = self.compose_project.docker.compose.logs(
+        output = self.docker_client.compose.logs(
             services=["frappe"],
             no_log_prefix=True,
             no_color=True,
@@ -561,18 +617,22 @@ class Bench:
             bool: True if the site is successfully stopped, False otherwise.
         """
         richprint.change_head("Stopping bench services")
-        self.compose_project.stop_service()
+        output = self.docker_client.compose.stop(services=[], timeout=10, stream=self.quiet)
+        if self.quiet:
+            richprint.live_lines(output, padding=(0, 0, 0, 2))
         richprint.print("Stopped bench services.")
 
-        if self.workers.compose_project.compose_file_manager.exists():
+        if self.workers.compose_file_manager.exists():
             richprint.change_head("Starting bench workers services")
-            self.workers.compose_project.stop_service()
+            output = self.workers.docker_client.compose.stop(services=[], timeout=10, stream=self.quiet)
+            if self.quiet:
+                richprint.live_lines(output, padding=(0, 0, 0, 2))
             richprint.print("Started bench workers services")
 
         # stop admin_tools if exists
-        if self.admin_tools.compose_project.compose_file_manager.exists():
+        if self.admin_tools.compose_file_manager.exists():
             richprint.change_head("Stopped bench admin tools services")
-            self.admin_tools.compose_project.stop_service()
+            self.admin_tools.disable()
             richprint.print("Stopped bench admin tools services.")
 
     def remove_containers_and_dirs(self):
@@ -584,23 +644,34 @@ class Bench:
             bool: True if the site is successfully removed, False otherwise.
         """
         # TODO handle low level errors like read only, write only, etc.
-        if self.compose_project.compose_file_manager.exists():
+        if self.compose_file_manager.exists():
             richprint.change_head("Removing bench containers.")
-            self.compose_project.down_service(remove_ophans=True, volumes=True)
+            output = self.docker_client.compose.down(remove_orphans=True, volumes=True, timeout=5, stream=True)
+            richprint.live_lines(output, padding=(0, 0, 0, 2))
             richprint.print("Removed bench containers.")
         else:
             richprint.warning('Bench compose file not found. Skipping containers removal.')
 
-        if self.workers.compose_project.compose_file_manager.exists():
+        if self.workers.compose_file_manager.exists():
             richprint.change_head("Removing bench workers containers.")
-            self.workers.compose_project.down_service(remove_ophans=True, volumes=True)
+            output = self.workers.docker_client.compose.down(remove_orphans=True, volumes=True, timeout=5, stream=True)
+            richprint.live_lines(output, padding=(0, 0, 0, 2))
             richprint.print("Removed bench workers containers.")
         else:
             richprint.warning('Bench workers compose file not found. Skipping containers removal.')
 
-        if self.admin_tools.compose_project.compose_file_manager.exists():
+        if self.admin_tools.compose_file_manager.exists():
             richprint.change_head("Removing bench admin tools containers.")
-            self.admin_tools.compose_project.down_service(remove_ophans=True, volumes=True)
+            # down_service equivalent: stop + remove containers + volumes
+            try:
+                self.admin_tools.docker_client.compose.down(
+                    remove_orphans=True,
+                    volumes=True,
+                    timeout=5,
+                    stream=True
+                )
+            except Exception:
+                pass  # Best effort cleanup
             richprint.print("Removed bench admin tools containers.")
         else:
             richprint.warning('Bench admin tools compose file not found. Skipping containers removal.')
@@ -610,11 +681,11 @@ class Bench:
             shutil.rmtree(self.path)
         except PermissionError:
             try:
-                images = self.compose_project.compose_file_manager.get_all_images()
+                images = self.compose_file_manager.get_all_images()
                 if "frappe" in images:
                     frappe_image = images["frappe"]
                     frappe_image = f"{frappe_image['name']}:{frappe_image['tag']}"
-                    self.compose_project.docker.run(
+                    self.docker_client.run(
                         image=frappe_image,
                         entrypoint="/bin/sh",
                         command="-c 'chown -R frappe:frappe .'",
@@ -639,7 +710,7 @@ class Bench:
         for _ in range(retry):
             try:
                 # Execute curl command on frappe service
-                result = self.compose_project.docker.compose.exec(
+                result = self.docker_client.compose.exec(
                     service="frappe",
                     command=check_command,
                     stream=False,
@@ -668,7 +739,10 @@ class Bench:
         start_required = self.workers.generate_compose(include_default_workers=include_default_workers, include_custom_workers=include_custom_workers)
 
         if start_required:
-            self.workers.compose_project.start_service(force_recreate=force_recreate)
+            output = self.workers.docker_client.compose.up(services=[], detach=True, pull="never",
+                                                            force_recreate=force_recreate, stream=self.quiet)
+            if self.quiet:
+                richprint.live_lines(output, padding=(0, 0, 0, 2))
 
     def backup_restore_workers_supervisor(self, backup_manager: BackupManager):
         richprint.print("Rolling back to previous workers configuration.")
@@ -742,7 +816,7 @@ class Bench:
         if not self.has_certificate():
             raise BenchSSLCertificateNotIssued(self.name)
 
-        if not self.compose_project.is_service_running('nginx'):
+        if not self._is_service_running('nginx'):
             raise BenchServiceNotRunning(self.name, 'nginx')
 
         self.certificate_manager.renew_certificate(self.bench_config.alias_domains)
@@ -835,7 +909,9 @@ class Bench:
             richprint.print("Configuration saved.")
             
             richprint.change_head("Updating services")
-            self.compose_project.stop_service()
+            output = self.docker_client.compose.stop(services=[], timeout=10, stream=self.quiet)
+            if self.quiet:
+                richprint.live_lines(output, padding=(0, 0, 0, 2))
             
             # Delete nginx config to force regeneration with new domains
             nginx_config_path = self.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
@@ -843,11 +919,14 @@ class Bench:
                 nginx_config_path.unlink()
             
             self.generate_compose(self.bench_config.export_to_compose_inputs())
-            self.compose_project.start_service(force_recreate=True)
+            output = self.docker_client.compose.up(services=[], detach=True, pull="never",
+                                                     force_recreate=True, stream=self.quiet)
+            if self.quiet:
+                richprint.live_lines(output, padding=(0, 0, 0, 2))
             
             # Start admin tools if they exist
-            if self.admin_tools.compose_project.compose_file_manager.compose_path.exists():
-                self.admin_tools.compose_project.start_service(force_recreate=True)
+            if self.admin_tools.compose_file_manager.compose_path.exists():
+                self.admin_tools.enable(force_recreate_container=True)
             
             # Ensure required services are available
             self.benchops.is_required_services_available()
@@ -856,8 +935,11 @@ class Bench:
             self.switch_bench_env()
             
             # Start workers if they exist
-            if self.workers.compose_project.compose_file_manager.exists():
-                self.workers.compose_project.start_service(force_recreate=True)
+            if self.workers.compose_file_manager.exists():
+                output = self.workers.docker_client.compose.up(services=[], detach=True, pull="never",
+                                                                force_recreate=True, stream=self.quiet)
+                if self.quiet:
+                    richprint.live_lines(output, padding=(0, 0, 0, 2))
             
             richprint.print("Services restarted with updated configuration.")
             
@@ -903,8 +985,8 @@ class Bench:
                 f'[{self.bench_config.ssl.preferred_challenge.value}] {self.bench_config.ssl.ssl_type.value}'
             )
 
-        status = "Active" if self.compose_project.running else "Inactive"
-        status_color = "green" if self.compose_project.running else "red"
+        status = "Active" if self.running else "Inactive"
+        status_color = "green" if self.running else "red"
         status_display = f"[{status_color}]{status}[/{status_color}]"
 
         data = {
@@ -975,9 +1057,35 @@ class Bench:
 
             bench_info_table.add_row("Bench Apps", bench_apps_list_table)
 
-        running_bench_services = self.compose_project.get_services_running_status()
-        running_bench_workers = self.workers.compose_project.get_services_running_status()
-        running_bench_admin_tools = self.admin_tools.compose_project.get_services_running_status()
+        running_bench_services = self._get_services_running_status()
+        
+        # Get workers status using docker_client
+        try:
+            services = self.workers.compose_file_manager.get_services_list()
+            containers = self.workers.compose_file_manager.get_container_names().values()
+            all_statuses = self.workers.docker_client.compose.get_all_services_status()
+            running_bench_workers = {
+                status["Service"]: status["State"]
+                for status in all_statuses
+                if status.get("Name") in containers
+            }
+        except DockerException:
+            running_bench_workers = {}
+        
+        # Get admin tools services status directly from docker_client
+        running_bench_admin_tools = {}
+        if self.admin_tools.compose_file_manager.exists():
+            try:
+                services = self.admin_tools.compose_file_manager.get_services_list()
+                containers = self.admin_tools.compose_file_manager.get_container_names().values()
+                all_statuses = self.admin_tools.docker_client.compose.get_all_services_status()
+                running_bench_admin_tools = {
+                    status["Service"]: status["State"]
+                    for status in all_statuses
+                    if status.get("Name") in containers
+                }
+            except Exception:
+                running_bench_admin_tools = {}
 
         if running_bench_services:
             bench_services_table = generate_services_table(running_bench_services)
@@ -1007,7 +1115,7 @@ class Bench:
         if compose_service == "frappe" and not user:
             user = "frappe"
 
-        if not self.compose_project.is_service_running(compose_service):
+        if not self._is_service_running(compose_service):
             richprint.exit(
                 f"Cannot spawn shell. [blue]{self.name}[/blue]'s compose service '{compose_service}' not running!"
             )
@@ -1030,7 +1138,7 @@ class Bench:
         exec_args["capture_output"] = False
 
         try:
-            self.compose_project.docker.compose.exec(**exec_args)
+            self.docker_client.compose.exec(**exec_args)
 
         except DockerException as e:
             richprint.warning(f"Shell exited with error code: {e.output.exit_code}")
@@ -1093,11 +1201,12 @@ class Bench:
             if not service:
                 self.handle_frappe_server_file_logs(follow=follow)
             else:
-                if not self.compose_project.is_service_running(service):
+                if not self._is_service_running(service):
                     richprint.exit(
                         f"Cannot show logs. [blue]{self.name}[/blue]'s compose service '{service}' not running!"
                     )
-                self.compose_project.logs(service.value, follow)
+                output = self.docker_client.compose.logs(services=[service.value], follow=follow, stream=True)
+                richprint.live_lines(output, padding=(0, 0, 0, 2))
 
         except KeyboardInterrupt:
             richprint.stdout.print("Detected CTRL+C. Exiting..")
@@ -1132,7 +1241,7 @@ class Bench:
 
     def _verify_bench_running(self) -> None:
         """Verify bench container is running"""
-        if not self.compose_project.running:
+        if not self.running:
             raise BenchNotRunning(self.name)
 
     def _verify_vscode_installed(self) -> None:
@@ -1143,7 +1252,7 @@ class Bench:
 
     def _get_frappe_container_name(self) -> str:
         """Get the frappe container name and encode it"""
-        container_name = self.compose_project.compose_file_manager.get_container_names()
+        container_name = self.compose_file_manager.get_container_names()
         return container_name["frappe"].encode().hex()
 
     def _build_vscode_command(self, container_hex: str, workdir: str) -> str:
@@ -1179,7 +1288,7 @@ class Bench:
     def _get_previous_container_config(self) -> List[str]:
         """Get previous container extension configuration"""
         try:
-            labels = self.compose_project.compose_file_manager.get_labels("frappe")[0]
+            labels = self.compose_file_manager.get_labels("frappe")[0]
             config = json.loads(labels["devcontainer.metadata"])
             return config["customizations"]["vscode"]["extensions"]
         except KeyError:
@@ -1193,9 +1302,12 @@ class Bench:
         """Apply new container configuration"""
         richprint.change_head("Configuration changed, regenerating label in bench compose")
         # Use new configure_service method to set labels atomically
-        self.compose_project.compose_file_manager.configure_service("frappe", labels=labels)
+        self.compose_file_manager.configure_service("frappe", labels=labels)
         richprint.print("Regenerated bench compose.")
-        self.compose_project.start_service(['frappe'])
+        output = self.docker_client.compose.up(services=['frappe'], detach=True, pull="never",
+                                                 force_recreate=False, stream=self.quiet)
+        if self.quiet:
+            richprint.live_lines(output, padding=(0, 0, 0, 2))
         self.switch_bench_env()
 
     def _setup_debugger_config(self, workdir: str) -> None:
@@ -1241,7 +1353,7 @@ class Bench:
     def _install_ruff(self) -> None:
         """Install ruff in the container environment"""
         try:
-            self.compose_project.docker.compose.exec(
+            self.docker_client.compose.exec(
                 service="frappe",
                 command="/workspace/frappe-bench/env/bin/pip install ruff",
                 user='frappe',
@@ -1314,24 +1426,70 @@ class Bench:
         return True
 
     def ensure_workers_running_if_available(self):
-        if self.workers.compose_project.compose_file_manager.exists():
-            if not self.workers.compose_project.running:
-                if self.compose_project.running:
-                    self.workers.compose_project.start_service()
+        if self.workers.compose_file_manager.exists():
+            # Check if workers are running
+            services = self.workers.compose_file_manager.get_services_list()
+            containers = self.workers.compose_file_manager.get_container_names().values()
+            try:
+                all_statuses = self.workers.docker_client.compose.get_all_services_status()
+                running_statuses = {
+                    status["Service"]: status["State"]
+                    for status in all_statuses
+                    if status.get("Name") in containers
+                }
+                workers_running = all(running_statuses.get(s) == "running" for s in services)
+            except DockerException:
+                workers_running = False
+            
+            if not workers_running:
+                if self.running:
+                    output = self.workers.docker_client.compose.up(services=[], detach=True, pull="never",
+                                                                    force_recreate=False, stream=self.quiet)
+                    if self.quiet:
+                        richprint.live_lines(output, padding=(0, 0, 0, 2))
 
     def ensure_admin_tools_running_if_available(self):
-        if self.admin_tools.compose_project.compose_file_manager.exists():
+        if self.admin_tools.compose_file_manager.exists():
             if self.bench_config.admin_tools:
-                if not self.admin_tools.compose_project.running:
-                    if self.compose_project.running:
+                # Check if admin tools is running
+                admin_tools_running = False
+                try:
+                    services = self.admin_tools.compose_file_manager.get_services_list()
+                    containers = self.admin_tools.compose_file_manager.get_container_names().values()
+                    all_statuses = self.admin_tools.docker_client.compose.get_all_services_status()
+                    running_statuses = {
+                        status["Service"]: status["State"]
+                        for status in all_statuses
+                        if status.get("Name") in containers
+                    }
+                    admin_tools_running = all(
+                        running_statuses.get(service) == "running"
+                        for service in services
+                    )
+                except Exception:
+                    admin_tools_running = False
+                
+                if not admin_tools_running:
+                    if self.running:
                         self.admin_tools.enable()
             else:
                 atleast_one_service_running = False
 
-                running_services = self.admin_tools.compose_project.get_services_running_status()
-                for service in running_services:
-                    if service == 'running':
-                        atleast_one_service_running = True
+                # Get admin tools running services
+                try:
+                    services = self.admin_tools.compose_file_manager.get_services_list()
+                    containers = self.admin_tools.compose_file_manager.get_container_names().values()
+                    all_statuses = self.admin_tools.docker_client.compose.get_all_services_status()
+                    running_services = {
+                        status["Service"]: status["State"]
+                        for status in all_statuses
+                        if status.get("Name") in containers
+                    }
+                    for service in running_services:
+                        if service == 'running':
+                            atleast_one_service_running = True
+                except Exception:
+                    atleast_one_service_running = False
 
                 if atleast_one_service_running:
                     self.admin_tools.disable()
@@ -1343,7 +1501,7 @@ class Bench:
 
     def frappe_service_run_command(self, command: str):
         try:
-            self.compose_project.docker.compose.exec('frappe', command, user='frappe', stream=False)
+            self.docker_client.compose.exec('frappe', command, user='frappe', stream=False)
         except DockerException as e:
             raise BenchException("frappe", f"Faild to run {command} in frappe service.")
 
@@ -1375,7 +1533,7 @@ class Bench:
         dev_packages = self.get_apps_dev_requirements()
         remove_command = '/workspace/frappe-bench/env/bin/python -m pip uninstall --yes ' + " ".join(dev_packages)
         try:
-            self.compose_project.docker.compose.exec('frappe', command=remove_command, user='frappe', stream=False)
+            self.docker_client.compose.exec('frappe', command=remove_command, user='frappe', stream=False)
         except DockerException as e:
             raise BenchFailedToRemoveDevPackages(self.name)
         richprint.print("Removed dev packages from env.")
@@ -1387,7 +1545,7 @@ class Bench:
             dev_packages
         )
         try:
-            self.compose_project.docker.compose.exec('frappe', command=install_command, user='frappe', stream=False)
+            self.docker_client.compose.exec('frappe', command=install_command, user='frappe', stream=False)
         except DockerException as e:
             raise BenchFailedToRemoveDevPackages(self.name)
         richprint.print("Installed dev packages in env.")
@@ -1467,7 +1625,7 @@ class Bench:
         for i in range(timeout):
             try:
                 status_command = 'supervisorctl -c /opt/user/supervisord.conf status all'
-                output = self.compose_project.docker.compose.exec('frappe', status_command, user='frappe', stream=False)
+                output = self.docker_client.compose.exec('frappe', status_command, user='frappe', stream=False)
                 return True
             except DockerException as e:
                 if any('frappe-bench' in s for s in e.output.combined):
@@ -1505,14 +1663,14 @@ class Bench:
         richprint.print(f"Reset bench site {self.name}")
 
     def restart_supervisor_service(
-        self, service: str, compose_project_obj: Optional[ComposeProject] = None, timeout: int = 30, interval: int = 1
+        self, service: str, docker_client_obj: Optional['DockerClient'] = None, timeout: int = 30, interval: int = 1
     ):
         socket_path = f"/fm-sockets/{service}.sock"
 
         # Wait for supervisor socket file to be created in container
         for _ in range(timeout):
             try:
-                self.compose_project.docker.compose.exec(
+                self.docker_client.compose.exec(
                     service=service,
                     user='frappe',
                     command=f"test -e {socket_path}",
@@ -1530,10 +1688,20 @@ class Bench:
         restart_supervisor_command = 'supervisorctl -c /opt/user/supervisord.conf restart all'
         exception = BenchOperationException(self.name, message=f'Failed to restart supervisor for {service} service')
 
-        if not compose_project_obj:
-            compose_project_obj = self.compose_project
+        if not docker_client_obj:
+            docker_client_obj = self.docker_client
 
-        if not compose_project_obj.is_service_running(service):
+        # Check if service is running
+        try:
+            all_statuses = docker_client_obj.compose.get_all_services_status()
+            service_running = any(
+                status["Service"] == service and status["State"] == "running"
+                for status in all_statuses
+            )
+        except DockerException:
+            service_running = False
+
+        if not service_running:
             richprint.error(text=f'Service [blue]{service}[/blue] not running.')
             return False
 
@@ -1541,7 +1709,7 @@ class Bench:
             command=restart_supervisor_command,
             raise_exception_obj=exception,
             service=service,
-            compose_project_obj=compose_project_obj,
+            docker_client_obj=docker_client_obj,
         )
         return True
 
@@ -1569,7 +1737,9 @@ class Bench:
             SiteServicesEnum.redis_socketio.value,
         ]
         richprint.change_head(f"Restarting redis services - {' '.join(redis_services)}")
-        self.compose_project.restart_service(services=redis_services)
+        output = self.docker_client.compose.restart(services=redis_services, stream=self.quiet)
+        if self.quiet:
+            richprint.live_lines(output, padding=(0, 0, 0, 2))
         richprint.print(f"Restarted redis services - {' '.join(redis_services)}")
 
     def restart_workers_containers_services(self):
@@ -1584,9 +1754,9 @@ class Bench:
             if is_restarted:
                 richprint.print(f"Restarted worker services - {service}")
 
-        worker_services = self.workers.compose_project.compose_file_manager.get_services_list()
+        worker_services = self.workers.compose_file_manager.get_services_list()
         for service in worker_services:
             richprint.change_head(f"Restarting worker service - {service}")
-            is_restarted = self.restart_supervisor_service(service, compose_project_obj=self.workers.compose_project)
+            is_restarted = self.restart_supervisor_service(service, docker_client_obj=self.workers.docker_client)
             if is_restarted:
                 richprint.print(f"Restarted worker services - {service}")
