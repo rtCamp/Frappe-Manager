@@ -135,8 +135,8 @@ class BenchConfigFileNotFound(BenchException):
 class BenchConfigValidationError(BenchException):
     def __init__(self, bench_name, config_path, message="FM bench config not valid at {}"):
         self.bench_name = bench_name
-        self.conig_path = config_path
-        self.message = message.format(self.conig_path)
+        self.config_path = config_path
+        self.message = message.format(self.config_path)
         super().__init__(self.bench_name, self.message)
 
 

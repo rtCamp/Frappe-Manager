@@ -27,7 +27,7 @@ from frappe_manager.services_manager.services_exceptions import (
     ServicesException,
     ServicesNotCreated,
 )
-from frappe_manager.site_manager.site_exceptions import BenchDockerComposeFileNotFound
+from frappe_manager.site_manager.exceptions import BenchDockerComposeFileNotFound
 from frappe_manager.utils.docker import host_run_cp
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.utils.helpers import get_container_name_prefix, get_unix_groups, random_password_generate

@@ -13,7 +13,7 @@ from pathlib import Path
 import json
 from rich.table import Table
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.site_manager.site_exceptions import BenchException
+from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.docker import DockerException
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate

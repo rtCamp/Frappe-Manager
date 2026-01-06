@@ -24,7 +24,7 @@ import copy
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.logger import log
 from frappe_manager.site_manager.bench_config import FMBenchEnvType
-from frappe_manager.site_manager.site_exceptions import BenchOperationException
+from frappe_manager.site_manager.exceptions import BenchOperationException
 from frappe_manager import STABLE_APP_BRANCH_MAPPING_LIST
 
 if TYPE_CHECKING:

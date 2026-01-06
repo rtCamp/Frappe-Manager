@@ -8,7 +8,7 @@ from typing import Optional
 from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.site_manager.site_exceptions import BenchException
+from frappe_manager.site_manager.exceptions import BenchException
 
 
 def generate_services_table(services_status: dict):

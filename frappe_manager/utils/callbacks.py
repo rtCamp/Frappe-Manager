@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import typer
 from typing import List, Optional, Set
-from frappe_manager.site_manager.site_exceptions import BenchNotFoundError
+from frappe_manager.site_manager.exceptions import BenchNotFoundError
 from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_CACHE_PATH, CLI_RECENT_USED_SITES_CACHE_PATH, STABLE_APP_BRANCH_MAPPING_LIST, DEFAULT_EXTENSIONS

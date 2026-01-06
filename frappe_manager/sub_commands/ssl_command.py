@@ -3,7 +3,7 @@ from typing import Annotated, Optional
 from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.site import Bench
-from frappe_manager.site_manager.site_exceptions import BenchSSLCertificateNotIssued
+from frappe_manager.site_manager.exceptions import BenchSSLCertificateNotIssued
 from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotDueForRenewalError
 from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
 from frappe_manager.display_manager.DisplayManager import richprint

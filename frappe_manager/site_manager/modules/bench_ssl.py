@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, List
 from frappe_manager.site_manager.bench_config import SSLCertificate
 from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
 from frappe_manager.ssl_manager.certificate import SUPPORTED_SSL_TYPES
-from frappe_manager.site_manager.site_exceptions import (
+from frappe_manager.site_manager.exceptions import (
     BenchSSLCertificateAlreadyIssued,
     BenchSSLCertificateNotIssued,
     BenchServiceNotRunning,

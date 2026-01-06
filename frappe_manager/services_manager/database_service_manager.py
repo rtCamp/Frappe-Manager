@@ -19,7 +19,7 @@ from frappe_manager.display_manager.DisplayManager import richprint
 from pydantic import BaseModel
 
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.site_manager.site_exceptions import BenchException
+from frappe_manager.site_manager.exceptions import BenchException
 
 
 # TODO this class will be used for validation for main config

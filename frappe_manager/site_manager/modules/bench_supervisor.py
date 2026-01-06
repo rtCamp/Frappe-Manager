@@ -12,7 +12,7 @@ from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.logger import log
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
-from frappe_manager.site_manager.site_exceptions import BenchOperationException
+from frappe_manager.site_manager.exceptions import BenchOperationException
 
 
 class BenchSupervisor:
@@ -158,7 +158,7 @@ class BenchSupervisor:
         Raises:
             BenchOperationException: If supervisor socket not created
         """
-        from frappe_manager.site_manager.site_exceptions import BenchFrappeServiceSupervisorNotRunning
+        from frappe_manager.site_manager.exceptions import BenchFrappeServiceSupervisorNotRunning
         
         if not self.is_supervisord_running():
             raise BenchFrappeServiceSupervisorNotRunning(self.bench_name)
@@ -246,7 +246,7 @@ class BenchSupervisor:
         try:
             self.docker_client.compose.exec('frappe', command, user='frappe', stream=False)
         except DockerException as e:
-            from frappe_manager.site_manager.site_exceptions import BenchException
+            from frappe_manager.site_manager.exceptions import BenchException
             raise BenchException("frappe", f"Failed to run {command} in frappe service.")
     
     def setup_supervisor(self, bench_path, force: bool = False) -> None:

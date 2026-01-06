@@ -18,7 +18,7 @@ from typing import List, TYPE_CHECKING, Optional, Any
 
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker.docker_exceptions import DockerException
-from frappe_manager.site_manager.site_exceptions import (
+from frappe_manager.site_manager.exceptions import (
     BenchNotRunning,
     BenchAttachTocontainerFailed,
     BenchFailedToRemoveDevPackages,

@@ -18,7 +18,7 @@ from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager import VSCODE_LAUNCH_JSON, VSCODE_SETTINGS_JSON, VSCODE_TASKS_JSON
 from frappe_manager.site_manager.modules.bench_admin_tools import BenchAdminTools
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
-from frappe_manager.site_manager.site_exceptions import (
+from frappe_manager.site_manager.exceptions import (
     BenchAttachTocontainerFailed,
     BenchException,
     BenchFailedToRemoveDevPackages,

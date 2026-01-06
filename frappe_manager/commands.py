@@ -1,5 +1,5 @@
 from pathlib import Path
-from frappe_manager.site_manager.site_exceptions import BenchNotRunning
+from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.utils.site import pull_docker_images
 import typer
 import os

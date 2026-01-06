@@ -14,7 +14,7 @@ from typing import List, TYPE_CHECKING
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.migration_manager.backup_manager import BackupManager
-from frappe_manager.site_manager.site_exceptions import (
+from frappe_manager.site_manager.exceptions import (
     BenchOperationException,
     BenchWorkersSupervisorConfigurtionNotFoundError
 )

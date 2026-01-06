@@ -19,7 +19,7 @@ from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger import log
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import BenchConfig
-from frappe_manager.site_manager.site_exceptions import (
+from frappe_manager.site_manager.exceptions import (
     BenchOperationBenchSiteCreateFailed,
     BenchOperationException,
     BenchOperationWaitForRequiredServiceFailed,

@@ -18,7 +18,7 @@ from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger import log
 from frappe_manager.site_manager.bench_config import BenchConfig
-from frappe_manager.site_manager.site_exceptions import (
+from frappe_manager.site_manager.exceptions import (
     BenchOperationBenchAppInSiteFailed,
     BenchOperationBenchBuildFailed,
     BenchOperationBenchInstallAppInPythonEnvFailed,

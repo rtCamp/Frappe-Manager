@@ -16,7 +16,7 @@ from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker import DockerException
-from frappe_manager.site_manager.site_exceptions import AdminToolsFailedToStart, BenchException
+from frappe_manager.site_manager.exceptions import AdminToolsFailedToStart, BenchException
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version, get_template_path
 
 if TYPE_CHECKING:

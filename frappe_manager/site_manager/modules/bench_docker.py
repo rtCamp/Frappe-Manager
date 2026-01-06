@@ -398,7 +398,7 @@ class BenchDockerOps:
             >>> docker_ops.check_required_docker_images_available()
         """
         from frappe_manager.utils.site import get_all_docker_images
-        from frappe_manager.site_manager.site_exceptions import BenchOperationRequiredDockerImagesNotAvailable
+        from frappe_manager.site_manager.exceptions import BenchOperationRequiredDockerImagesNotAvailable
         
         richprint.change_head("Checking required docker images availability")
         fm_images = get_all_docker_images()
