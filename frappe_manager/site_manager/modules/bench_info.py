@@ -22,8 +22,8 @@ from frappe_manager.utils.site import generate_services_table
 if TYPE_CHECKING:
     from frappe_manager.site_manager.bench_config import BenchConfig
     from frappe_manager.services_manager.services import ServicesManager
-    from frappe_manager.site_manager.workers_manager.SiteWorker import BenchWorkers
-    from frappe_manager.site_manager.admin_tools import AdminTools
+    from frappe_manager.site_manager.modules.bench_workers import BenchWorkers
+    from frappe_manager.site_manager.modules.bench_admin_tools import BenchAdminTools
     from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
 
 
@@ -45,7 +45,7 @@ class BenchInfo:
         bench_config: "BenchConfig",
         services: "ServicesManager",
         workers: "BenchWorkers",
-        admin_tools: "AdminTools",
+        admin_tools: "BenchAdminTools",
         certificate_manager: "SSLCertificateManager",
         get_db_connection_info_fn,
         has_certificate_fn,

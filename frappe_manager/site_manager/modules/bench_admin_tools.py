@@ -1,3 +1,13 @@
+"""
+Bench Admin Tools Module
+
+Handles admin tools (Mailpit, Adminer) management including:
+- Docker compose generation and lifecycle
+- Nginx location configuration
+- HTTP authentication setup
+- Mailpit integration with Frappe
+"""
+
 import json
 import os
 from pathlib import Path
@@ -13,10 +23,10 @@ if TYPE_CHECKING:
     from frappe_manager.site_manager.site import Bench
 
 
-class AdminTools:
+class BenchAdminTools:
     def __init__(self, bench: 'Bench', nginx_proxy: Any, verbose: bool = True):
         """
-        Initialize AdminTools.
+        Initialize BenchAdminTools.
         
         Args:
             bench: The Bench instance

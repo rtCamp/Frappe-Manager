@@ -16,7 +16,7 @@ from frappe_manager.logger import log
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager import VSCODE_LAUNCH_JSON, VSCODE_SETTINGS_JSON, VSCODE_TASKS_JSON
-from frappe_manager.site_manager.admin_tools import AdminTools
+from frappe_manager.site_manager.modules.bench_admin_tools import BenchAdminTools
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.site_manager.site_exceptions import (
     BenchAttachTocontainerFailed,
@@ -30,7 +30,7 @@ from frappe_manager.site_manager.site_exceptions import (
     BenchSSLCertificateNotIssued,
     BenchServiceNotRunning,
 )
-from frappe_manager.site_manager.workers_manager.SiteWorker import BenchWorkers
+from frappe_manager.site_manager.modules.bench_workers import BenchWorkers
 from frappe_manager.site_manager.modules.bench_docker import BenchDockerOps
 from frappe_manager.site_manager.modules.bench_supervisor import BenchSupervisor
 from frappe_manager.site_manager.modules.bench_ssl import BenchSSL
@@ -119,7 +119,7 @@ class Bench:
             'reload': self.bench_nginx_controller.reload,
         })()
         
-        self.admin_tools: AdminTools = AdminTools(self, self.proxy_manager)
+        self.admin_tools = BenchAdminTools(self, self.proxy_manager)
 
         # Initialize SSL certificate manager with dependency injection
         # Get global nginx-proxy storage config from services

@@ -1,22 +1,192 @@
 """
-BenchWorkerCoordinator Module
+Bench Workers Module
 
-Handles worker coordination for the bench including:
-- Worker compose file synchronization
+Provides worker management for the bench including:
+- Worker compose file generation and management (BenchWorkers)
+- Worker coordination and lifecycle (BenchWorkerCoordinator)
 - Supervisor configuration backup and restore
-- Worker startup checks
-- Worker service restarts
+- Worker startup checks and service restarts
 """
 
-from typing import TYPE_CHECKING
+from copy import deepcopy
+from pathlib import Path
+from typing import List, TYPE_CHECKING
+from frappe_manager.docker import ComposeFile, DockerClient, DockerException
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.migration_manager.backup_manager import BackupManager
-from frappe_manager.docker import DockerException
-from frappe_manager.site_manager.site_exceptions import BenchOperationException
+from frappe_manager.site_manager.site_exceptions import (
+    BenchOperationException,
+    BenchWorkersSupervisorConfigurtionNotFoundError
+)
+from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version
+from frappe_manager.utils.site import is_default_worker
 from frappe_manager import SiteServicesEnum
 
 if TYPE_CHECKING:
-    from frappe_manager.site_manager.workers_manager.SiteWorker import BenchWorkers
+    from frappe_manager.site_manager.site import Bench
+
+
+class BenchWorkers:
+    """
+    Manages worker compose file generation and configuration.
+    
+    Responsibilities:
+    - Generate worker compose files based on supervisor configuration
+    - Manage worker service definitions
+    - Handle custom and default workers
+    - Clean up worker compose files when no longer needed
+    """
+    
+    def __init__(self, bench: 'Bench', verbose: bool = True):
+        """
+        Initialize BenchWorkers.
+        
+        Args:
+            bench: The Bench instance
+            verbose: Whether to show verbose output
+        """
+        self.bench = bench
+        self.compose_path = self.bench.path / "docker-compose.workers.yml"
+        self.config_dir = self.bench.path / "workspace" / "frappe-bench" / "config"
+        self.supervisor_config_path = self.config_dir / "supervisor.conf"
+        self.quiet = not verbose
+        self.compose_file_manager = ComposeFile(self.compose_path, template_name='docker-compose.workers.tmpl')
+        self.docker_client = DockerClient(compose_file_path=self.compose_path)
+
+    def get_expected_workers(self, include_default_workers: bool = True, include_custom_workers: bool = True) -> List[str]:
+        """
+        Get list of expected workers from supervisor configuration.
+        
+        Args:
+            include_default_workers: Whether to include default workers (short, long)
+            include_custom_workers: Whether to include custom workers
+            
+        Returns:
+            Sorted list of worker service names
+            
+        Raises:
+            BenchWorkersSupervisorConfigurtionNotFoundError: If no worker configs found
+        """
+        richprint.change_head("Checking workers info.")
+
+        workers_supervisor_conf_paths = []
+
+        for file_path in self.config_dir.iterdir():
+            file_path_abs = str(file_path.absolute())
+            if file_path.is_file():
+                if file_path_abs.endswith(".workers.fm.supervisor.conf"):
+                    workers_supervisor_conf_paths.append(file_path)
+
+        if len(workers_supervisor_conf_paths) == 0:
+            raise BenchWorkersSupervisorConfigurtionNotFoundError(self.bench.name, self.config_dir)
+
+        workers_expected_service_names = []
+
+        for worker_name in workers_supervisor_conf_paths:
+            worker_name = worker_name.name
+            worker_name = worker_name.replace("frappe-bench-frappe-", "")
+            worker_name = worker_name.replace(".workers.fm.supervisor.conf", "")
+
+            if is_default_worker(worker_name):
+                if include_default_workers:
+                    workers_expected_service_names.append(worker_name)
+            else:
+                if include_custom_workers:
+                    workers_expected_service_names.append(worker_name)
+
+        workers_expected_service_names.sort()
+
+        return workers_expected_service_names
+
+    def is_new_workers_added(self, include_default_workers: bool = False) -> bool:
+        """
+        Check if worker configuration has changed.
+        
+        Args:
+            include_default_workers: Whether to include default workers in comparison
+            
+        Returns:
+            True if workers configuration matches expected, False otherwise
+        """
+        if not self.compose_file_manager.is_template_loaded:
+            prev_workers = self.compose_file_manager.get_services_list()
+            prev_workers.sort()
+            expected_workers = self.get_expected_workers(include_default_workers=include_default_workers)
+
+            # get custom workers from common_site_config.json
+            common_site_config_data = self.bench.get_common_bench_config()
+
+            if 'workers' in common_site_config_data:
+                custom_workers: List[str] = common_site_config_data['workers'].keys()
+                for worker in custom_workers:
+                    worker = f'{worker}-worker'
+                    if worker not in prev_workers:
+                        return False
+            return prev_workers == expected_workers
+
+        else:
+            return False
+
+    def generate_compose(self, include_default_workers: bool = True, include_custom_workers: bool = True) -> bool:
+        """
+        Generate worker compose file from template.
+        
+        Args:
+            include_default_workers: Whether to include default workers
+            include_custom_workers: Whether to include custom workers
+            
+        Returns:
+            True if workers were configured and need starting, False otherwise
+        """
+        richprint.change_head("Generating workers compose configuration")
+
+        if not self.compose_path.exists():
+            richprint.print("Workers compose not present. Generating new configuration...")
+        else:
+            richprint.print("Workers configuration changed. Recreating compose...")
+
+        # create compose file for workers
+        self.compose_file_manager.yml = self.compose_file_manager.load_template()
+        richprint.print("Loaded compose template")
+
+        template_worker_config = self.compose_file_manager.yml["services"]["worker-name"]
+        del self.compose_file_manager.yml["services"]["worker-name"]
+
+        workers_expected_service_names = self.get_expected_workers(
+            include_default_workers=include_default_workers,
+            include_custom_workers=include_custom_workers
+        )
+
+        if len(workers_expected_service_names) > 0:
+            richprint.print(f"Configuring {len(workers_expected_service_names)} workers")
+            import os
+            for worker in workers_expected_service_names:
+                worker_config = deepcopy(template_worker_config)
+
+                # setting environments
+                worker_config["environment"]["USERID"] = os.getuid()
+                worker_config["environment"]["USERGROUP"] = os.getgid()
+                worker_config["environment"]["WORKER_NAME"] = worker
+
+                self.compose_file_manager.yml["services"][worker] = worker_config
+
+            # Use new with_prefix and with_version methods to set all configurations atomically
+            self.compose_file_manager \
+                .with_prefix(get_container_name_prefix(self.bench.name), 'site-network') \
+                .with_version(get_current_fm_version()) \
+                .commit()
+            richprint.print("Workers configuration generated successfully")
+            return True
+
+        else:
+            if self.compose_file_manager.exists():
+                richprint.print("No workers found, cleaning up existing configuration")
+                output = self.docker_client.compose.down(remove_orphans=True, volumes=False, timeout=5, stream=True)
+                if not self.quiet:
+                    richprint.live_lines(output, padding=(0, 0, 0, 2))
+                self.compose_file_manager.compose_path.unlink()
+
+            return False
 
 
 class BenchWorkerCoordinator:
