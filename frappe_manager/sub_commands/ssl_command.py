@@ -1,7 +1,7 @@
 import typer
 from typing import Annotated, Optional
 from frappe_manager import CLI_BENCHES_DIRECTORY
-from frappe_manager.site_manager.SiteManager import BenchesManager
+from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.site_manager.site_exceptions import BenchSSLCertificateNotIssued
 from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotDueForRenewalError
@@ -45,10 +45,10 @@ def renew(
     """Renew bench ssl certficate."""
 
     services_manager = ctx.obj["services"]
-    benches = BenchesManager(CLI_BENCHES_DIRECTORY, services=services_manager)
+    bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager)
 
     if all:
-        sites_list = benches.get_all_bench().keys()
+        sites_list = bench_service.get_bench_names()
     else:
         sites_list = [benchname]
 

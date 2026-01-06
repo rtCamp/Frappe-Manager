@@ -9,7 +9,7 @@ from typing import Annotated, List, Optional
 from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.ngrok import create_tunnel
 from frappe_manager.services_manager.services_exceptions import ServicesNotCreated
-from frappe_manager.site_manager.SiteManager import BenchesManager
+from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager import (
     CLI_BENCH_CONFIG_FILE_NAME,
@@ -200,10 +200,8 @@ def create(
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
     verbose = ctx.obj['verbose']
 
-    benches = BenchesManager(CLI_BENCHES_DIRECTORY, services=services_manager, verbose=verbose)
-    benches.set_typer_context(ctx)
-
-    bench_path = benches.root_path / benchname
+    bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose)
+    bench_path = bench_service.benches_directory / benchname
     bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
 
     if ssl == SUPPORTED_SSL_TYPES.le:
@@ -283,13 +281,7 @@ def create(
         alias_domains=alias_domains if alias_domains else [],
     )
 
-    compose_path = bench_path / 'docker-compose.yml'
-    compose_file_manager = ComposeFile(compose_path)
-    docker_client = DockerClient(compose_file_path=compose_path)
-
-    bench: Bench = Bench(bench_path, benchname, bench_config, compose_file_manager, docker_client, services_manager)
-    benches.add_bench(bench)
-    benches.create_benches(is_template_bench=template)
+    bench_service.create_bench(benchname, bench_config, is_template=template)
 
 
 @app.command()
@@ -308,52 +300,8 @@ def delete(
     if benchname:
         services_manager = ctx.obj["services"]
         verbose = ctx.obj['verbose']
-        benches = BenchesManager(CLI_BENCHES_DIRECTORY, services=services_manager, verbose=verbose)
-        benches.set_typer_context(ctx)
-
-        bench_path: Path = benches.root_path / benchname
-        bench_compose_path = bench_path / 'docker-compose.yml'
-        compose_file_manager = ComposeFile(bench_compose_path)
-        docker_client = DockerClient(compose_file_path=bench_compose_path)
-
-        bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
-        # try using bench object if not then create bench
-
-        if not bench_config_path.exists():
-            uid: int = os.getuid()
-            gid: int = os.getgid()
-
-            # generate fake bench
-            fake_config = BenchConfig(
-                name=benchname,
-                userid=uid,
-                usergroup=gid,
-                apps_list=[],
-                frappe_branch=STABLE_APP_BRANCH_MAPPING_LIST['frappe'],
-                developer_mode=False,
-                # TODO do something about this forcefully delete maybe
-                admin_tools=False,
-                admin_pass='pass',
-                environment_type=FMBenchEnvType.dev,
-                ssl=SSLCertificate(domain=benchname, ssl_type=SUPPORTED_SSL_TYPES.none),
-                root_path=bench_config_path,
-            )
-
-            bench = Bench(
-                bench_path,
-                benchname,
-                fake_config,
-                compose_file_manager,
-                docker_client,
-                services=services_manager,
-                workers_check=False,
-            )
-
-        else:
-            bench = Bench.get_object(benchname, services=services_manager, workers_check=False, admin_tools_check=False)
-
-        benches.add_bench(bench)
-        benches.remove_benches()
+        bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose)
+        bench_service.delete_bench(benchname, force=force)
 
 
 @app.command()
@@ -362,9 +310,10 @@ def list(ctx: typer.Context):
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    benches = BenchesManager(CLI_BENCHES_DIRECTORY, services=services_manager, verbose=verbose)
-    benches.set_typer_context(ctx)
-    benches.list_benches()
+    bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose)
+    table = bench_service.list_benches_table()
+    if table.row_count:
+        richprint.stdout.print(table)
 
 
 @app.command()
@@ -426,9 +375,7 @@ def stop(
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
     bench = Bench.get_object(benchname, services_manager)
-    benches = BenchesManager(CLI_BENCHES_DIRECTORY, services=services_manager, verbose=verbose)
-    benches.add_bench(bench)
-    benches.stop_benches()
+    bench.stop()
 
 
 @app.command()
