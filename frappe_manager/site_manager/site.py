@@ -8,7 +8,6 @@ import json
 import subprocess
 from typing import Any, Dict, List, Optional
 from pathlib import Path
-from frappe_manager.site_manager.bench_operations import BenchOperations
 from rich.table import Table
 from frappe_manager.docker import DockerException
 from frappe_manager.docker import ComposeFile, DockerClient
@@ -39,6 +38,9 @@ from frappe_manager.site_manager.modules.bench_devtools import BenchDevTools
 from frappe_manager.site_manager.modules.bench_database import BenchDatabase
 from frappe_manager.site_manager.modules.bench_info import BenchInfo
 from frappe_manager.site_manager.modules.bench_workers import BenchWorkerCoordinator
+from frappe_manager.site_manager.modules.bench_site import BenchSiteManager
+from frappe_manager.site_manager.modules.bench_app import BenchAppManager
+from frappe_manager.site_manager.modules.bench_orchestrator import BenchOrchestrator
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.proxy_storage import ProxyStoragePaths
@@ -57,6 +59,7 @@ from frappe_manager.utils.helpers import (
 )
 from frappe_manager.utils.docker import host_run_cp
 from frappe_manager import (
+    STABLE_APP_BRANCH_MAPPING_LIST,
     CLI_BENCH_CONFIG_FILE_NAME,
     CLI_BENCHES_DIRECTORY,
     CLI_DIR,
@@ -178,7 +181,25 @@ class Bench:
             set_common_bench_config_fn=self.set_common_bench_config,
         )
         
-        self.benchops = BenchOperations(self)
+        # Initialize Site Manager module
+        self.site_manager = BenchSiteManager(
+            bench_name=name,
+            bench_path=path,
+            docker_client=docker_client,
+            bench_config=bench_config,
+            services=services,
+            quiet=self.quiet,
+        )
+        
+        # Initialize App Manager module
+        self.app_manager = BenchAppManager(
+            bench_name=name,
+            bench_path=path,
+            docker_client=docker_client,
+            bench_config=bench_config,
+            quiet=self.quiet,
+        )
+        
         self.workers = BenchWorkers(self, not verbose)
         
         # Initialize Info module
@@ -200,11 +221,15 @@ class Bench:
         self.worker_coordinator = BenchWorkerCoordinator(
             bench_name=name,
             workers=self.workers,
-            benchops=self.benchops,
+            supervisor=self.supervisor,
+            bench_path=self.path,
             restart_supervisor_service_fn=self.restart_supervisor_service,
             is_running_fn=lambda: self.running,
             quiet=self.quiet,
         )
+        
+        # Initialize Orchestrator for complex workflows
+        self.orchestrator = BenchOrchestrator(self)
 
         if workers_check:
             self.ensure_workers_running_if_available()
@@ -301,90 +326,12 @@ class Bench:
         Creates a new bench using the provided template inputs.
 
         Args:
-            template_inputs (dict): A dictionary containing the template inputs.
+            is_template_bench: If True, creates a minimal bench without full site setup
 
         Returns:
             None
         """
-        self.benchops.check_required_docker_images_available()
-
-        try:
-            richprint.change_head("Creating Bench Directory")
-            self.path.mkdir(parents=True, exist_ok=True)
-
-            richprint.change_head("Generating bench compose")
-            self.generate_compose(self.bench_config.export_to_compose_inputs())
-            self.create_compose_dirs()
-
-            if is_template_bench:
-                global_db_info = self.services.database_manager.database_server_info
-                self.sync_bench_common_site_config(global_db_info.host, global_db_info.port)
-                self.save_bench_config()
-                richprint.print(f"Created template bench: {self.name}", emoji_code=":white_check_mark:")
-                return
-
-            richprint.change_head("Starting bench services")
-            output = self.docker_client.compose.up(services=[], detach=True, pull="never",
-                                                     force_recreate=True, stream=self.quiet)
-            if self.quiet:
-                richprint.live_lines(output, padding=(0, 0, 0, 2))
-            richprint.print("Started bench services.")
-
-            richprint.change_head("Creating bench and bench site.")
-            self.benchops.create_fm_bench()
-            self.sync_bench_config_configuration()
-
-            self.switch_bench_env()
-
-            richprint.change_head("Configuring bench workers.")
-            self.sync_workers_compose(force_recreate=True, setup_supervisor=False)
-            richprint.change_head("Configuring bench workers.")
-            richprint.update_live()
-
-            self.save_bench_config()
-
-            richprint.change_head("Commencing site status check")
-
-            # check if bench is created
-            if not self.is_bench_created():
-                raise Exception("Bench site is inactive or unresponsive.")
-
-            richprint.print("Bench site is active and responding.")
-
-            self.logger.info(f"{self.name}: Bench site is active and responding.")
-
-            self.info()
-
-            if ".localhost" not in self.name:
-                richprint.print(
-                    "Please note that You will have to add a host entry to your system's hosts file to access the bench locally."
-                )
-
-        except Exception as e:
-            richprint.stop()
-
-            richprint.error(f"[red][bold]Error Occured: [/bold][/red]{e}")
-
-            exception_traceback_str = capture_and_format_exception()
-
-            logger = log.get_logger()
-
-            logger.error(f"{self.name}: NOT WORKING\n Exception: {exception_traceback_str}")
-
-            log_path = CLI_DIR / "logs" / "fm.log"
-
-            error_message = [
-                "There has been some error creating/starting the bench.",
-                f":mag: Please check the logs at {log_path}",
-            ]
-
-            richprint.error("\n".join(error_message))
-
-            if self.exists:
-                remove_status = self.remove_bench(default_choice=False)
-
-                if not remove_status:
-                    self.info()
+        self.orchestrator.create_bench(is_template_bench)
 
     def set_common_bench_config(self, config: dict):
         """
@@ -461,69 +408,18 @@ class Bench:
         sync_dev_packages: bool = False,
     ):
         """
-        Starts the bench.
+        Starts the bench with various configuration options.
         """
-
-        self.benchops.check_required_docker_images_available()
-
-        # Reconfigure common_site_config.json if required
-        if reconfigure_common_site_config:
-            richprint.print("Reconfiguring common_site_config with defaults")
-            global_db_info = self.services.database_manager.database_server_info
-            self.sync_bench_common_site_config(global_db_info.host, global_db_info.port)
-
-        richprint.change_head("Starting bench services")
-
-        self.docker_ops.start(services=[], force_recreate=force, pull="never")
-
-        # start admin-tools if exists
-        if self.admin_tools.compose_file_manager.compose_path.exists():
-            richprint.change_head("Starting admin tools services")
-            self.admin_tools.enable(force_recreate_container=force)
-            richprint.print("Started admin tools services.")
-
-            # Check if nginx service is stopped and restart if needed
-            if not self._is_service_running('nginx'):
-                self.docker_ops.start(services=['nginx'], force_recreate=False, pull="never")
-
-        self.benchops.is_required_services_available()
-
-        # Reconfigure supervisord if requested
-        if reconfigure_supervisor:
-            richprint.print("Reconfiguring supervisord")
-            self.benchops.setup_supervisor(force=True)
-
-        # Reconfigure workers if requested
-        if reconfigure_workers:
-            richprint.print("Reconfiguring workers")
-            self.sync_workers_compose(include_default_workers=include_default_workers, include_custom_workers=include_custom_workers)
-
-        # Sync dev packages if requested
-        if sync_dev_packages:
-            richprint.print("Syncing dev packages")
-            if self.bench_config.environment_type == FMBenchEnvType.dev:
-                self.install_dev_packages()
-            else:
-                self.remove_dev_packages()
-
-        self.switch_bench_env()
-
-        # Sync bench config changes if requested
-        if sync_bench_config_changes:
-            richprint.print("Syncing bench configuration changes")
-            self.sync_bench_config_configuration()
-
-        # start workers if exists
-        if self.workers.compose_file_manager.exists():
-            richprint.change_head("Starting bench workers services")
-            output = self.workers.docker_client.compose.up(services=[], detach=True, pull="never",
-                                                            force_recreate=force, stream=self.quiet)
-            if self.quiet:
-                richprint.live_lines(output, padding=(0, 0, 0, 2))
-            richprint.print("Started bench workers services.")
-
-        self.save_bench_config()
-        richprint.print("Started bench services.")
+        self.orchestrator.start_bench(
+            force=force,
+            sync_bench_config_changes=sync_bench_config_changes,
+            reconfigure_workers=reconfigure_workers,
+            include_default_workers=include_default_workers,
+            include_custom_workers=include_custom_workers,
+            reconfigure_supervisor=reconfigure_supervisor,
+            reconfigure_common_site_config=reconfigure_common_site_config,
+            sync_dev_packages=sync_dev_packages,
+        )
 
     def frappe_logs_till_start(self):
         """
@@ -705,118 +601,7 @@ class Bench:
             ValueError: If attempting to remove primary domain
             Exception: If certificate generation fails (config is rolled back)
         """
-        # Backup current alias domains for rollback
-        backup_aliases = copy.deepcopy(self.bench_config.alias_domains or [])
-        current_aliases = set(backup_aliases)
-        
-        # Validate and prepare updates
-        add_list = add_domains if add_domains else []
-        remove_list = remove_domains if remove_domains else []
-        
-        # Validation: Check for primary domain in operations
-        if self.name in add_list:
-            richprint.warning(f"Skipping '{self.name}' - primary domain cannot be added as alias.")
-            add_list = [d for d in add_list if d != self.name]
-        
-        if self.name in remove_list:
-            richprint.stop()
-            raise ValueError(
-                f"Cannot remove primary domain '{self.name}'. Only alias domains can be removed."
-            )
-        
-        # Add domains
-        added_domains = []
-        for domain in add_list:
-            if domain in current_aliases:
-                richprint.warning(f"Domain '{domain}' is already an alias. Skipping.")
-            else:
-                current_aliases.add(domain)
-                added_domains.append(domain)
-        
-        # Check for wildcard domains and warn about DNS-01 requirement
-        for domain in added_domains:
-            if domain.startswith('*.'):
-                richprint.warning(
-                    f"Wildcard domain '{domain}' requires DNS-01 challenge and Cloudflare credentials."
-                )
-        
-        # Remove domains
-        removed_domains = []
-        for domain in remove_list:
-            if domain not in current_aliases:
-                richprint.warning(f"Domain '{domain}' is not an alias. Skipping.")
-            else:
-                current_aliases.remove(domain)
-                removed_domains.append(domain)
-        
-        # Check if any changes were made
-        if not added_domains and not removed_domains:
-            richprint.print("No changes to apply.")
-            return
-        
-        # Display changes
-        if added_domains:
-            richprint.print(f"Adding aliases: {', '.join(added_domains)}")
-        if removed_domains:
-            richprint.print(f"Removing aliases: {', '.join(removed_domains)}")
-        
-        # Update alias list - only at bench level now
-        updated_aliases = sorted(list(current_aliases))
-        self.bench_config.alias_domains = updated_aliases
-        
-        try:
-            # Only regenerate certificate if SSL is active
-            if self.has_certificate():
-                richprint.change_head("Regenerating SSL certificate with updated domains")
-                self.certificate_manager.generate_certificate(self.bench_config.alias_domains)
-                richprint.print("Certificate regenerated successfully.")
-            
-            # Always save config and restart services
-            richprint.change_head("Saving configuration")
-            self.save_bench_config()
-            richprint.print("Configuration saved.")
-            
-            richprint.change_head("Updating services")
-            output = self.docker_client.compose.stop(services=[], timeout=10, stream=self.quiet)
-            if self.quiet:
-                richprint.live_lines(output, padding=(0, 0, 0, 2))
-            
-            # Delete nginx config to force regeneration with new domains
-            nginx_config_path = self.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
-            if nginx_config_path.exists():
-                nginx_config_path.unlink()
-            
-            self.generate_compose(self.bench_config.export_to_compose_inputs())
-            output = self.docker_client.compose.up(services=[], detach=True, pull="never",
-                                                     force_recreate=True, stream=self.quiet)
-            if self.quiet:
-                richprint.live_lines(output, padding=(0, 0, 0, 2))
-            
-            # Start admin tools if they exist
-            if self.admin_tools.compose_file_manager.compose_path.exists():
-                self.admin_tools.enable(force_recreate_container=True)
-            
-            # Ensure required services are available
-            self.benchops.is_required_services_available()
-            
-            # Start Frappe supervisor processes (critical for app to be accessible)
-            self.switch_bench_env()
-            
-            # Start workers if they exist
-            if self.workers.compose_file_manager.exists():
-                output = self.workers.docker_client.compose.up(services=[], detach=True, pull="never",
-                                                                force_recreate=True, stream=self.quiet)
-                if self.quiet:
-                    richprint.live_lines(output, padding=(0, 0, 0, 2))
-            
-            richprint.print("Services restarted with updated configuration.")
-            
-        except Exception as e:
-            # Rollback on failure
-            self.bench_config.alias_domains = backup_aliases
-            richprint.stop()
-            self.logger.error(f"Failed to update alias domains: {e}")
-            raise Exception(f"Failed to update alias domains: {e}")
+        self.orchestrator.update_alias_domains(add_domains, remove_domains)
 
     def info(self):
         """
@@ -1049,7 +834,7 @@ class Bench:
 
         richprint.change_head(f"Resetting bench site {self.name}")
 
-        self.benchops.reset_bench_site(admin_pass)
+        self.site_manager.reset_bench_site(admin_pass)
         self.set_bench_site_config({'admin_password': admin_pass})
 
         richprint.print(f"Reset bench site {self.name}")

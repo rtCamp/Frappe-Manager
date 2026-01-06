@@ -17,7 +17,6 @@ from frappe_manager import SiteServicesEnum
 
 if TYPE_CHECKING:
     from frappe_manager.site_manager.workers_manager.SiteWorker import BenchWorkers
-    from frappe_manager.site_manager.bench_operations import BenchOperations
 
 
 class BenchWorkerCoordinator:
@@ -35,7 +34,8 @@ class BenchWorkerCoordinator:
         self,
         bench_name: str,
         workers: "BenchWorkers",
-        benchops: "BenchOperations",
+        supervisor,
+        bench_path,
         restart_supervisor_service_fn,
         is_running_fn,
         quiet: bool = False,
@@ -46,14 +46,16 @@ class BenchWorkerCoordinator:
         Args:
             bench_name: Name of the bench
             workers: BenchWorkers instance (from workers_manager)
-            benchops: BenchOperations instance for supervisor setup
+            supervisor: BenchSupervisor instance for supervisor setup
+            bench_path: Path to bench directory
             restart_supervisor_service_fn: Callable to restart supervisor service
             is_running_fn: Callable to check if bench is running
             quiet: Whether to suppress output
         """
         self.bench_name = bench_name
         self.workers = workers
-        self.benchops = benchops
+        self.supervisor = supervisor
+        self.bench_path = bench_path
         self.restart_supervisor_service = restart_supervisor_service_fn
         self.is_running = is_running_fn
         self.quiet = quiet
@@ -77,7 +79,7 @@ class BenchWorkerCoordinator:
         if setup_supervisor:
             workers_backup_manager = self.backup_workers_supervisor_conf()
             try:
-                self.benchops.setup_supervisor(force=True)
+                self.supervisor.setup_supervisor(self.bench_path, force=True)
             except BenchOperationException as e:
                 self.backup_restore_workers_supervisor(workers_backup_manager)
 

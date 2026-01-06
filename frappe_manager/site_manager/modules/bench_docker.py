@@ -372,3 +372,51 @@ class BenchDockerOps:
             exec_args['user'] = user
         
         return self.docker_client.compose.exec(**exec_args)
+    
+    def check_required_docker_images_available(self) -> None:
+        """
+        Check if all required Docker images are available locally.
+        
+        This method verifies that all images needed for the bench are
+        present on the system before attempting to start containers.
+        
+        Raises:
+            BenchOperationRequiredDockerImagesNotAvailable: If any required images are missing
+            
+        Example:
+            >>> docker_ops.check_required_docker_images_available()
+        """
+        from frappe_manager.utils.site import get_all_docker_images
+        from frappe_manager.site_manager.site_exceptions import BenchOperationRequiredDockerImagesNotAvailable
+        
+        richprint.change_head("Checking required docker images availability")
+        fm_images = get_all_docker_images()
+        system_available_images = self.docker_client.images()
+        
+        not_available_images = []
+        
+        for key, value in fm_images.items():
+            name = value['name']
+            tag = value['tag']
+            
+            found = False
+            
+            for item in system_available_images:
+                if item.get('Repository') == name and item.get('Tag') == tag:
+                    found = True
+                    break
+            
+            if not found:
+                image = f"{name}:{tag}"
+                not_available_images.append(image)
+        
+        # Remove duplicates
+        not_available_images = list(dict.fromkeys(not_available_images))
+        
+        if not_available_images:
+            for image in not_available_images:
+                richprint.error(f"Docker image '{image}' is not available locally")
+            
+            # Get bench name from config
+            bench_name = self.config.container_name_prefix.replace('-', '.')
+            raise BenchOperationRequiredDockerImagesNotAvailable(bench_name, 'fm self update-images')

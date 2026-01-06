@@ -165,10 +165,12 @@ def parameters_to_options(param: dict, exclude: list = []) -> list:
     # remove the self parameter
     temp_param: dict = dict(param)
 
-    del temp_param["self"]
+    if "self" in temp_param:
+        del temp_param["self"]
 
     for key in exclude:
-        del temp_param[key]
+        if key in temp_param:
+            del temp_param[key]
 
     params: list = []
 

@@ -248,3 +248,123 @@ class BenchSupervisor:
         except DockerException as e:
             from frappe_manager.site_manager.site_exceptions import BenchException
             raise BenchException("frappe", f"Failed to run {command} in frappe service.")
+    
+    def setup_supervisor(self, bench_path, force: bool = False) -> None:
+        """
+        Set up supervisor configuration for the bench.
+        
+        Generates supervisor.conf and splits it into individual service configs.
+        
+        Args:
+            bench_path: Path to the bench directory
+            force: Force regeneration even if config exists
+            
+        Raises:
+            BenchOperationException: If supervisor setup fails
+            
+        Example:
+            >>> supervisor.setup_supervisor(Path("/path/to/bench"), force=True)
+        """
+        from pathlib import Path
+        
+        frappe_bench_dir = bench_path / "workspace" / "frappe-bench"
+        config_dir_path: Path = frappe_bench_dir / "config"
+        supervisor_conf_path: Path = config_dir_path / "supervisor.conf"
+        bench_cli_cmd = ['/opt/user/.bin/bench_orig']
+        
+        richprint.change_head("Checking supervisor configuration")
+        if not supervisor_conf_path.exists() or force:
+            richprint.change_head("Configuring supervisor configs")
+            
+            bench_setup_supervisor_command = bench_cli_cmd + [
+                "setup supervisor --skip-redis --skip-supervisord --yes --user frappe"
+            ]
+            
+            bench_setup_supervisor_command = " ".join(bench_setup_supervisor_command)
+            bench_setup_supervisor_exception = BenchOperationException(
+                self.bench_name, "Failed to configure supervisor."
+            )
+            
+            # Execute command
+            command = f"/bin/bash -c 'source /etc/bash.bashrc; {bench_setup_supervisor_command}'"
+            try:
+                output = self.docker_client.compose.exec(
+                    service='frappe',
+                    command=command,
+                    user='frappe',
+                    workdir="/workspace/frappe-bench",
+                    stream=False
+                )
+            except DockerException as e:
+                bench_setup_supervisor_exception.set_output(e.output)
+                raise bench_setup_supervisor_exception
+            
+            self.split_supervisor_config(bench_path)
+            richprint.print("Configured supervisor configs")
+    
+    def split_supervisor_config(self, bench_path) -> None:
+        """
+        Split supervisor.conf into individual service configuration files.
+        
+        This method reads the monolithic supervisor.conf and splits it into
+        separate files for each service (web, workers, etc.). It also handles
+        symlinks and adjusts worker counts based on CPU.
+        
+        Args:
+            bench_path: Path to the bench directory
+            
+        Example:
+            >>> supervisor.split_supervisor_config(Path("/path/to/bench"))
+        """
+        import configparser
+        import os
+        import re
+        from pathlib import Path
+        
+        frappe_bench_dir = bench_path / "workspace" / "frappe-bench"
+        supervisor_conf_path: Path = frappe_bench_dir / "config" / "supervisor.conf"
+        config = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
+        config.read_string(supervisor_conf_path.read_text())
+        
+        handle_symlink_frappe_dir = False
+        
+        if frappe_bench_dir.is_symlink():
+            handle_symlink_frappe_dir = True
+            symlink_target = str(frappe_bench_dir.readlink())
+            symlink_name = frappe_bench_dir.name
+        
+        for section_name in config.sections():
+            if "group:" not in section_name:
+                section_config = configparser.ConfigParser(interpolation=None)
+                section_config.add_section(section_name)
+                for key, value in config.items(section_name):
+                    if handle_symlink_frappe_dir:
+                        to_replace = str(frappe_bench_dir.readlink())
+                        
+                        if to_replace in value:
+                            value = value.replace(to_replace, frappe_bench_dir.name)
+                    
+                    if "frappe-web" in section_name:
+                        if key == "command":
+                            value = value.replace("127.0.0.1:80", "0.0.0.0:80")
+                            cpu_count = os.cpu_count() or 2
+                            workers = (cpu_count * 2) + 1
+                            value = re.sub(r'-w\s+\d+', f'-w {workers}', value)
+                    
+                    section_config.set(section_name, key, value)
+                
+                section_name_delimeter = '-frappe-'
+                
+                if '-node-' in section_name:
+                    section_name_delimeter = '-node-'
+                
+                file_name_prefix = section_name.split(section_name_delimeter)[-1]
+                file_name = file_name_prefix + ".fm.supervisor.conf"
+                if "worker" in section_name:
+                    file_name = file_name_prefix + ".workers.fm.supervisor.conf"
+                
+                new_file: Path = supervisor_conf_path.parent / file_name
+                with open(new_file, "w") as section_file:
+                    section_config.write(section_file)
+                
+                self.logger.info(f"Split supervisor conf {section_name} => {file_name}")
