@@ -78,7 +78,7 @@ class BenchWorkers:
                     workers_supervisor_conf_paths.append(file_path)
 
         if len(workers_supervisor_conf_paths) == 0:
-            raise BenchWorkersSupervisorConfigurtionNotFoundError(self.bench.name, self.config_dir)
+            raise BenchWorkersSupervisorConfigurtionNotFoundError(self.bench.name, str(self.config_dir))
 
         workers_expected_service_names = []
 

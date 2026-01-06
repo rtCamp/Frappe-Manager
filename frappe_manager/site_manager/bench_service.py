@@ -322,6 +322,8 @@ class BenchService:
             environment_type='dev',
             ssl=SSLCertificate(domain=bench_name, ssl_type=SUPPORTED_SSL_TYPES.none),
             root_path=bench_path / "bench_config.toml",
+            admin_tools_username=None,
+            admin_tools_password=None,
         )
         
         return Bench(
