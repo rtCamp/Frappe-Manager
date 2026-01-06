@@ -10,7 +10,7 @@ separation of concerns.
 
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Literal, Union, overload, cast
 
 from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.display_manager.DisplayManager import richprint
@@ -173,16 +173,16 @@ class BenchSiteManager:
         Raises:
             BenchOperationWaitForRequiredServiceFailed: If service is not available
         """
-        return self._container_run(
+        return cast(SubprocessOutput, self._container_run(
             f"wait-for-it -t {timeout} {host}:{port}",
             raise_exception_obj=BenchOperationWaitForRequiredServiceFailed(
                 bench_name=self.bench_name, 
                 host=host, 
-                port=port, 
+                port=str(port), 
                 timeout=timeout
             ),
             capture_output=True,
-        )
+        ))
     
     def setup_frappe_server_config(self) -> None:
         """
@@ -200,16 +200,16 @@ class BenchSiteManager:
         import re
         
         # Check if bench serve supports --host flag
-        bench_serve_help_output: Optional[SubprocessOutput] = self._container_run(
+        bench_serve_help_output = cast(SubprocessOutput, self._container_run(
             " ".join(self.bench_cli_cmd + ["serve --help"]), 
             capture_output=True
-        )
+        ))
         
         # Get current dev server script
-        bench_dev_server_script_output = self._container_run(
+        bench_dev_server_script_output = cast(SubprocessOutput, self._container_run(
             "cat /opt/user/bench-dev-server", 
             capture_output=True
-        )
+        ))
         
         # Join with newline to preserve formatting
         bench_dev_server_script = "\n".join(bench_dev_server_script_output.combined)
@@ -328,7 +328,7 @@ class BenchSiteManager:
         user: str = "frappe",
         workdir: str = "/workspace/frappe-bench",
         service: str = 'frappe',
-    ):
+    ) -> Union[SubprocessOutput, None]:
         """
         Execute a command inside the bench container.
         
@@ -355,21 +355,21 @@ class BenchSiteManager:
         
         try:
             if capture_output:
-                output: SubprocessOutput = self.docker_client.compose.exec(
+                output = self.docker_client.compose.exec(
                     service=service, 
                     command=command, 
                     user=user, 
                     workdir=workdir, 
-                    stream=not capture_output
+                    stream=False
                 )
                 return output
             else:
-                output: Iterable[Tuple[str, bytes]] = self.docker_client.compose.exec(
+                output = self.docker_client.compose.exec(
                     service=service, 
                     command=command, 
                     workdir=workdir, 
-                    user=user, 
-                    stream=not capture_output
+                    user=user,
+                    stream=True
                 )
                 richprint.live_lines(output)
         

@@ -19,7 +19,7 @@ from rich.table import Table
 from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.site import Bench
-from frappe_manager.site_manager.bench_config import BenchConfig
+from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.logger import log
 
@@ -319,7 +319,7 @@ class BenchService:
             developer_mode=False,
             admin_tools=False,
             admin_pass='pass',
-            environment_type='dev',
+            environment_type=FMBenchEnvType.dev,
             ssl=SSLCertificate(domain=bench_name, ssl_type=SUPPORTED_SSL_TYPES.none),
             root_path=bench_path / "bench_config.toml",
             admin_tools_username=None,

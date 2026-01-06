@@ -14,7 +14,7 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import List, TYPE_CHECKING
+from typing import List, TYPE_CHECKING, Optional, Any
 
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker.docker_exceptions import DockerException
@@ -67,7 +67,7 @@ class BenchDevTools:
         self._is_running = is_running_fn
         self._switch_bench_env = switch_bench_env_fn
         self.quiet = quiet
-        self.logger = None  # Set externally if needed
+        self.logger: Optional[Any] = None  # Set externally if needed
 
     def get_apps_dev_requirements(self) -> List[str]:
         """

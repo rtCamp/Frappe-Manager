@@ -10,7 +10,7 @@ separation of concerns.
 
 from collections.abc import Iterable
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Literal
 
 from frappe_manager import STABLE_APP_BRANCH_MAPPING_LIST
 from frappe_manager.display_manager.DisplayManager import richprint
@@ -96,8 +96,8 @@ class BenchAppManager:
     
     def install_apps(
         self, 
-        apps_list: List[Dict[str, str]], 
-        already_installed_apps: Dict[str, str] = None
+        apps_list: List[Dict[str, Optional[str]]], 
+        already_installed_apps: Optional[Dict[str, str]] = None
     ) -> None:
         """
         Install multiple apps to the bench environment.
@@ -133,7 +133,10 @@ class BenchAppManager:
         
         # Install apps from the list
         for app_info in apps_list:
-            app = app_info["app"]
+            app = app_info.get("app")
+            if not app:
+                continue  # Skip if app name is None
+                
             branch = app_info.get("branch")
             
             status_txt = f"Building and Installing app {app} in env."
@@ -144,12 +147,13 @@ class BenchAppManager:
             
             # Skip if already installed with same branch
             if app in already_installed_apps.keys():
-                if already_installed_apps[app] == branch:
+                installed_branch = already_installed_apps.get(app)
+                if installed_branch == branch:
                     richprint.print(f"Skipped installation of prebaked app [blue]{app} -> {branch}[/blue].")
                     continue
                 
-                if not branch:
-                    branch = already_installed_apps[app]
+                if not branch and installed_branch:
+                    branch = installed_branch
             
             self.install_app_to_env(app, branch)
             
@@ -434,21 +438,21 @@ class BenchAppManager:
         
         try:
             if capture_output:
-                output: SubprocessOutput = self.docker_client.compose.exec(
+                output = self.docker_client.compose.exec(
                     service=service,
                     command=command,
                     user=user,
                     workdir=workdir,
-                    stream=not capture_output
+                    stream=False
                 )
                 return output
             else:
-                output: Iterable[Tuple[str, bytes]] = self.docker_client.compose.exec(
+                output = self.docker_client.compose.exec(
                     service=service,
                     command=command,
                     workdir=workdir,
                     user=user,
-                    stream=not capture_output
+                    stream=True
                 )
                 richprint.live_lines(output)
         

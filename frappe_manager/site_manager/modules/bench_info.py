@@ -16,6 +16,7 @@ from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.site_manager.site_exceptions import BenchException
 from frappe_manager.docker import DockerException
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.utils.helpers import format_ssl_certificate_time_remaining
 from frappe_manager.utils.site import generate_services_table
 
@@ -166,9 +167,12 @@ class BenchInfo:
 
         ssl_service_type = f'{self.bench_config.ssl.ssl_type.value}'
         if self.bench_config.ssl.ssl_type == SUPPORTED_SSL_TYPES.le:
-            ssl_service_type = (
-                f'[{self.bench_config.ssl.preferred_challenge.value}] {self.bench_config.ssl.ssl_type.value}'
-            )
+            if isinstance(self.bench_config.ssl, LetsencryptSSLCertificate):
+                ssl_service_type = (
+                    f'[{self.bench_config.ssl.preferred_challenge.value}] {self.bench_config.ssl.ssl_type.value}'
+                )
+            else:
+                ssl_service_type = f'{self.bench_config.ssl.ssl_type.value}'
 
         is_running = self.is_running()
         status = "Active" if is_running else "Inactive"

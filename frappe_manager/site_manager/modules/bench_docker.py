@@ -6,7 +6,7 @@ Extracted from the monolithic Bench class for better separation of concerns.
 """
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, Literal, cast, Iterable, Tuple
 
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker import DockerClient, DockerException
@@ -176,10 +176,10 @@ class BenchDockerOps:
         return True
     
     def start(
-        self,
+        self, 
         services: Optional[list] = None,
         force_recreate: bool = False,
-        pull: str = "never"
+        pull: Literal["missing", "never", "always"] = "never"
     ) -> None:
         """
         Start bench services.
@@ -191,15 +191,23 @@ class BenchDockerOps:
         """
         richprint.change_head("Starting bench services")
         
-        output = self.docker_client.compose.up(
-            services=services or [],
-            detach=True,
-            pull=pull,
-            force_recreate=force_recreate,
-            stream=self.quiet
-        )
         if self.quiet:
+            output = self.docker_client.compose.up(
+                services=services or [],
+                detach=True,
+                pull=pull,
+                force_recreate=force_recreate,
+                stream=True
+            )
             richprint.live_lines(output, padding=(0, 0, 0, 2))
+        else:
+            self.docker_client.compose.up(
+                services=services or [],
+                detach=True,
+                pull=pull,
+                force_recreate=force_recreate,
+                stream=False
+            )
         
         richprint.print("Started bench services.")
     
@@ -302,12 +310,15 @@ class BenchDockerOps:
         """
         Retrieve and print the logs of the 'frappe' service until supervisor starts.
         """
-        output = self.docker_client.compose.logs(
-            services=["frappe"],
-            no_log_prefix=True,
-            no_color=True,
-            follow=True,
-            stream=True,
+        output = cast(
+            Iterable[Tuple[str, bytes]],
+            self.docker_client.compose.logs(
+                services=["frappe"],
+                no_log_prefix=True,
+                no_color=True,
+                follow=True,
+                stream=True,
+            )
         )
         
         if self.quiet:

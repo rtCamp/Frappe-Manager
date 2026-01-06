@@ -507,7 +507,7 @@ class Bench:
                         image=frappe_image,
                         entrypoint="/bin/sh",
                         command="-c 'chown -R frappe:frappe .'",
-                        volume=f"{self.path}/workspace:/workspace",
+                        volume=[f"{self.path}/workspace:/workspace"],
                         stream=False,
                     )
                     shutil.rmtree(self.path)
@@ -865,7 +865,6 @@ class Bench:
         redis_services = [
             SiteServicesEnum.redis_cache.value,
             SiteServicesEnum.redis_queue.value,
-            SiteServicesEnum.redis_socketio.value,
         ]
         richprint.change_head(f"Restarting redis services - {' '.join(redis_services)}")
         self.docker_ops.restart_services(redis_services)
