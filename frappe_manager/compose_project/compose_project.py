@@ -1,4 +1,3 @@
-import json
 from typing import List
 from rich.text import Text
 from frappe_manager.docker import ComposeFile
@@ -9,7 +8,7 @@ from frappe_manager.compose_project.exceptions import (
     DockerComposeProjectFailedToStartError,
     DockerComposeProjectFailedToStopError,
 )
-from frappe_manager.docker import DockerClient
+from frappe_manager.docker import DockerClient, DockerComposeWrapper
 from frappe_manager.docker import DockerException
 from frappe_manager.display_manager.DisplayManager import richprint
 
@@ -19,17 +18,30 @@ class ComposeProject:
         self.compose_file_manager: ComposeFile = compose_file_manager
         self.docker: DockerClient = DockerClient(compose_file_path=self.compose_file_manager.compose_path)
         self.quiet = not verbose
+        
+        # Type assertion: compose is always initialized when compose_file_path is provided
+        assert self.docker.compose is not None, "DockerClient.compose must be initialized with compose_file_path"
+
+    @property
+    def compose(self) -> DockerComposeWrapper:
+        """Get the docker compose wrapper with proper type narrowing."""
+        assert self.docker.compose is not None
+        return self.docker.compose
+
+    def _handle_stream_output(self, output):
+        """Helper to handle streaming output if in quiet mode."""
+        if self.quiet:
+            richprint.live_lines(output, padding=(0, 0, 0, 2))
 
     def start_service(self, services: List[str] = [], force_recreate: bool = False):
         """
         Starts the specific compose service.
         """
         try:
-            output = self.docker.compose.up(
+            output = self.compose.up(
                 services=services, detach=True, pull="never", force_recreate=force_recreate, stream=self.quiet
             )
-            if self.quiet:
-                richprint.live_lines(output, padding=(0, 0, 0, 2))
+            self._handle_stream_output(output)
         except DockerException as e:
             raise DockerComposeProjectFailedToStartError(self.compose_file_manager.compose_path, services)
 
@@ -38,9 +50,8 @@ class ComposeProject:
         Stops the specific compose service.
         """
         try:
-            output = self.docker.compose.stop(services=services, timeout=timeout, stream=self.quiet)
-            if self.quiet:
-                richprint.live_lines(output, padding=(0, 0, 0, 2))
+            output = self.compose.stop(services=services, timeout=timeout, stream=self.quiet)
+            self._handle_stream_output(output)
         except DockerException as e:
             raise DockerComposeProjectFailedToStopError(
                 self.compose_file_manager.compose_path, self.compose_file_manager.get_services_list()
@@ -56,7 +67,7 @@ class ComposeProject:
             timeout (int, optional): Timeout in seconds for stopping the containers. Defaults to 5.
         """
         try:
-            output = self.docker.compose.down(
+            output = self.compose.down(
                 remove_orphans=remove_ophans,
                 volumes=volumes,
                 timeout=timeout,
@@ -73,10 +84,9 @@ class ComposeProject:
         Pull docker images.
         """
         try:
-            output = self.docker.compose.pull(stream=self.quiet)
+            output = self.compose.pull(stream=self.quiet)
             richprint.stdout.clear_live()
-            if self.quiet:
-                richprint.live_lines(output, padding=(0, 0, 0, 2))
+            self._handle_stream_output(output)
         except DockerException as e:
             raise DockerComposeProjectFailedToPullImagesError(
                 self.compose_file_manager.compose_path, self.compose_file_manager.get_services_list()
@@ -90,7 +100,7 @@ class ComposeProject:
             service (str): The name of the service.
             follow (bool, optional): Whether to continuously follow the logs. Defaults to False.
         """
-        output = self.docker.compose.logs(services=[service], no_log_prefix=True, follow=follow, stream=True)
+        output = self.compose.logs(services=[service], no_log_prefix=True, follow=follow, stream=True)
         for source, line in output:
             line = Text.from_ansi(line.decode())
             if source == "stdout":
@@ -126,26 +136,19 @@ class ComposeProject:
             A dictionary containing the running status of services.
             The keys are the service names, and the values are the container states.
         """
+        # Use new API method which handles JSON parsing and filtering
         services = self.compose_file_manager.get_services_list()
         containers = self.compose_file_manager.get_container_names().values()
-        services_status = {}
+        
         try:
-            output = self.docker.compose.ps(service=services, format="json", all=True, stream=True)
-            status: list = []
-            for source, line in output:
-                if source == "stdout":
-                    current_status = json.loads(line.decode())
-                    if type(current_status) == dict:
-                        status.append(current_status)
-                    else:
-                        status += current_status
-
-            # this is done to exclude docker runs using docker compose run command
-            for container in status:
-                if container["Name"] in containers:
-                    services_status[container["Service"]] = container["State"]
-            return services_status
-        except DockerException as e:
+            all_statuses = self.compose.get_all_services_status()
+            # Filter to only include our managed containers
+            return {
+                status["Service"]: status["State"]
+                for status in all_statuses
+                if status.get("Name") in containers
+            }
+        except DockerException:
             return {}
 
     def get_host_port_binds(self):
@@ -156,53 +159,46 @@ class ComposeProject:
             list: A list of published ports on the host.
         """
         try:
-            output = self.docker.compose.ps(all=True, format="json", stream=True)
-            status: list = []
-            for source, line in output:
-                if source == "stdout":
-                    current_status = json.loads(line.decode())
-                    if type(current_status) == dict:
-                        status.append(current_status)
-                    else:
-                        status += current_status
-
-            ports_info = []
-            for container in status:
-                try:
-                    port_info = container["Publishers"]
-                    if port_info:
-                        ports_info = ports_info + port_info
-                except KeyError as e:
-                    pass
-
+            # Use get_all_services_status() which already parses JSON
+            all_statuses = self.compose.get_all_services_status()
+            
+            # Extract all published ports from container publishers
             published_ports = set()
-            for port in ports_info:
-                try:
-                    published_port = port["PublishedPort"]
-                    if published_port > 0:
-                        published_ports.add(published_port)
-                except KeyError as e:
-                    pass
+            for status in all_statuses:
+                publishers = status.get("Publishers", [])
+                if publishers:
+                    for port_info in publishers:
+                        published_port = port_info.get("PublishedPort", 0)
+                        if published_port > 0:
+                            published_ports.add(published_port)
+            
             return list(published_ports)
-
-        except DockerException as e:
+        except DockerException:
             return []
 
     def is_service_running(self, service):
-        running_status = self.get_services_running_status()
-        try:
-            if running_status[service] == "running":
-                return True
-            else:
-                return False
-        except KeyError:
-            return False
+        """
+        Check if a specific service is running.
+        
+        Args:
+            service: Name of the service to check
+            
+        Returns:
+            bool: True if service is running, False otherwise
+        """
+        # Use new API convenience method
+        return self.compose.is_service_running(service)
 
     def restart_service(self, services: List[str] = []):
+        """
+        Restart specific compose services.
+        
+        Args:
+            services: List of service names to restart
+        """
         try:
-            output = self.docker.compose.restart(services=services, stream=self.quiet)
-            if self.quiet:
-                richprint.live_lines(output, padding=(0, 0, 0, 2))
+            output = self.compose.restart(services=services, stream=self.quiet)
+            self._handle_stream_output(output)
         except DockerException as e:
             raise DockerComposeProjectFailedToRestartError(
                 self.compose_file_manager.compose_path, self.compose_file_manager.get_services_list()
