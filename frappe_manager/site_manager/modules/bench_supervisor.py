@@ -8,7 +8,8 @@ Extracted from the monolithic Bench class for better separation of concerns.
 import time
 from typing import Optional
 
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.logger import log
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
@@ -22,7 +23,8 @@ class BenchSupervisor:
         self,
         docker_client: DockerClient,
         config: BenchConfig,
-        bench_name: str
+        bench_name: str,
+        output_handler: OutputHandler | None = None,
     ):
         """
         Initialize BenchSupervisor.
@@ -31,11 +33,13 @@ class BenchSupervisor:
             docker_client: Docker client for operations
             config: Bench configuration
             bench_name: Name of the bench
+            output_handler: Optional output handler for displaying information
         """
         self.docker_client = docker_client
         self.config = config
         self.bench_name = bench_name
         self.logger = log.get_logger()
+        self.output = output_handler or RichOutputHandler()
     
     def is_supervisord_running(self, interval: int = 2, timeout: int = 30) -> bool:
         """
@@ -123,7 +127,7 @@ class BenchSupervisor:
             service_running = False
         
         if not service_running:
-            richprint.error(text=f'Service [blue]{service}[/blue] not running.')
+            self.output.error(text=f'Service [blue]{service}[/blue] not running.')
             return False
         
         # Execute restart command
@@ -186,7 +190,7 @@ class BenchSupervisor:
         supervisorctl_command = f"supervisorctl -s unix:///{socket_path} "
         
         if self.config.environment_type == FMBenchEnvType.dev:
-            richprint.change_head(f"Configuring and starting {self.config.environment_type.value} services")
+            self.output.change_head(f"Configuring and starting {self.config.environment_type.value} services")
             
             stop_command = supervisorctl_command + "stop all"
             self._run_frappe_command(stop_command)
@@ -206,10 +210,10 @@ class BenchSupervisor:
             start_command = supervisorctl_command + "start all"
             self._run_frappe_command(start_command)
             
-            richprint.print(f"Configured and Started {self.config.environment_type.value} services.")
+            self.output.print(f"Configured and Started {self.config.environment_type.value} services.")
             
         elif self.config.environment_type == FMBenchEnvType.prod:
-            richprint.change_head(f"Configuring and starting {self.config.environment_type.value} services")
+            self.output.change_head(f"Configuring and starting {self.config.environment_type.value} services")
             
             stop_command = supervisorctl_command + "stop all"
             self._run_frappe_command(stop_command)
@@ -231,7 +235,7 @@ class BenchSupervisor:
             start_command = supervisorctl_command + "start all"
             self._run_frappe_command(start_command)
             
-            richprint.print(f"Configured and Started {self.config.environment_type.value} services.")
+            self.output.print(f"Configured and Started {self.config.environment_type.value} services.")
     
     def _run_frappe_command(self, command: str) -> None:
         """
@@ -272,9 +276,9 @@ class BenchSupervisor:
         supervisor_conf_path: Path = config_dir_path / "supervisor.conf"
         bench_cli_cmd = ['/opt/user/.bin/bench_orig']
         
-        richprint.change_head("Checking supervisor configuration")
+        self.output.change_head("Checking supervisor configuration")
         if not supervisor_conf_path.exists() or force:
-            richprint.change_head("Configuring supervisor configs")
+            self.output.change_head("Configuring supervisor configs")
             
             bench_setup_supervisor_command = bench_cli_cmd + [
                 "setup supervisor --skip-redis --skip-supervisord --yes --user frappe"
@@ -300,7 +304,7 @@ class BenchSupervisor:
                 raise bench_setup_supervisor_exception
             
             self.split_supervisor_config(bench_path)
-            richprint.print("Configured supervisor configs")
+            self.output.print("Configured supervisor configs")
     
     def split_supervisor_config(self, bench_path) -> None:
         """

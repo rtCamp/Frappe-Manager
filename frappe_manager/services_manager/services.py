@@ -1,13 +1,17 @@
-import shutil
-import platform
 import os
-from jinja2 import Template
-import typer
+import platform
+import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Any
+from typing import Any
+
+import typer
+from jinja2 import Template
 
 from frappe_manager import CLI_DIR, CLI_SERVICES_DIRECTORY
+from frappe_manager.docker import ComposeFile, DockerClient, DockerException
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.database_service_manager import (
     DatabaseServerServiceInfo,
     DatabaseServiceManager,
@@ -18,18 +22,16 @@ from frappe_manager.services_manager.services_exceptions import (
     ServicesException,
     ServicesNotCreated,
 )
-from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.docker import ComposeFile, DockerClient, DockerException
-from frappe_manager.ssl_manager.proxy_storage import ProxyStoragePaths
 from frappe_manager.ssl_manager.nginx_controller import NginxController
+from frappe_manager.ssl_manager.proxy_storage import ProxyStoragePaths
+from frappe_manager.utils.docker import host_run_cp
 from frappe_manager.utils.helpers import (
+    check_and_display_port_status,
     get_current_fm_version,
     get_template_path,
-    random_password_generate,
-    check_and_display_port_status,
     get_unix_groups,
+    random_password_generate,
 )
-from frappe_manager.utils.docker import host_run_cp
 
 
 class ServicesManager:
@@ -37,16 +39,18 @@ class ServicesManager:
         self,
         path=CLI_SERVICES_DIRECTORY,
         verbose: bool = False,
+        output_handler: OutputHandler | None = None,
     ) -> None:
         self.path = path
         self.quiet = not verbose
         self.compose_path = self.path / "docker-compose.yml"
-        self.typer_context: Optional[typer.Context] = None
+        self.typer_context: typer.Context | None = None
+        self.output = output_handler or RichOutputHandler()
 
     def entrypoint_checks(self, start=False):
         if not self.path.exists():
             try:
-                richprint.print(
+                self.output.print(
                     f"Creating global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
                     emoji_code=":construction:",
                 )
@@ -55,24 +59,24 @@ class ServicesManager:
 
             except Exception as e:
                 raise ServicesNotCreated(
-                    f"Not able to create global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue]."
+                    f"Not able to create global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
                 )
 
             # Pull images
             output = self.docker_client.compose.pull(stream=False)
 
-            richprint.print(
-                f"Created global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue]."
+            self.output.print(
+                f"Created global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
             )
 
             if start:
                 output = self.docker_client.compose.up(services=[], detach=True, pull="never", stream=self.quiet)
                 if self.quiet:
-                    richprint.live_lines(output, padding=(0, 0, 0, 2))
+                    self.output.live_lines(output, padding=(0, 0, 0, 2))
 
         if not self.compose_path.exists():
             raise ServicesComposeNotExist(
-                f"Seems like global services has taken a down. No compose file found at {self.compose_path}."
+                f"Seems like global services has taken a down. No compose file found at {self.compose_path}.",
             )
 
         if start:
@@ -82,25 +86,24 @@ class ServicesManager:
                 containers = self.compose_file_manager.get_container_names().values()
                 all_statuses = self.docker_client.compose.get_all_services_status()
                 running_statuses = {
-                    status["Service"]: status["State"]
-                    for status in all_statuses
-                    if status.get("Name") in containers
+                    status["Service"]: status["State"] for status in all_statuses if status.get("Name") in containers
                 }
                 all_running = all(running_statuses.get(s) == "running" for s in services)
-                
+
                 if not all_running:
                     self.are_ports_free()
-                    richprint.print(
-                        f"Started non running global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue]."
+                    self.output.print(
+                        f"Started non running global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
                     )
                     output = self.docker_client.compose.up(services=[], detach=True, pull="never", stream=self.quiet)
                     if self.quiet:
-                        richprint.live_lines(output, padding=(0, 0, 0, 2))
+                        self.output.live_lines(output, padding=(0, 0, 0, 2))
 
         self.database_manager: DatabaseServiceManager = MariaDBManager(
-            DatabaseServerServiceInfo.import_from_compose_file('global-db', self.compose_file_manager),
+            DatabaseServerServiceInfo.import_from_compose_file("global-db", self.compose_file_manager),
             self.compose_file_manager,
-            self.docker_client
+            self.docker_client,
+            output_handler=self.output,
         )
 
     def init(self):
@@ -114,27 +117,31 @@ class ServicesManager:
 
         self.compose_file_manager = ComposeFile(self.compose_path, template_name=template_name)
         self.docker_client = DockerClient(compose_file_path=self.compose_path)
-        
+
         # Initialize nginx-proxy components
-        self.proxy_storage = ProxyStoragePaths('global-nginx-proxy', self.compose_file_manager)
-        self.nginx_controller = NginxController('global-nginx-proxy', self.compose_file_manager, self.docker_client)
-        
+        self.proxy_storage = ProxyStoragePaths("global-nginx-proxy", self.compose_file_manager)
+        self.nginx_controller = NginxController("global-nginx-proxy", self.compose_file_manager, self.docker_client)
+
         # For backward compatibility
         # TODO: Remove this when all code is updated
-        self.proxy_manager = type('ProxyManager', (), {
-            'dirs': self.proxy_storage.dirs,
-            'restart': self.nginx_controller.restart,
-            'reload': self.nginx_controller.reload
-        })()
+        self.proxy_manager = type(
+            "ProxyManager",
+            (),
+            {
+                "dirs": self.proxy_storage.dirs,
+                "restart": self.nginx_controller.restart,
+                "reload": self.nginx_controller.reload,
+            },
+        )()
 
-        self.fm_headers_path: Path = self.proxy_storage.dirs.confd.host / 'fm_headers.conf'
+        self.fm_headers_path: Path = self.proxy_storage.dirs.confd.host / "fm_headers.conf"
         self.set_frappe_headers_conf()
 
     def set_frappe_headers_conf(self):
         if self.fm_headers_path.parent.exists():
-            template_path: Path = get_template_path('fm_headers.conf.tmpl')
+            template_path: Path = get_template_path("fm_headers.conf.tmpl")
             template = Template(template_path.read_text())
-            output = template.render(current_version=f'v{get_current_fm_version()}')
+            output = template.render(current_version=f"v{get_current_fm_version()}")
             self.fm_headers_path.write_text(output)
 
     def set_typer_context(self, ctx: typer.Context):
@@ -146,11 +153,11 @@ class ServicesManager:
     def create(self, backup: bool = False, clean_install: bool = True):
         envs = {
             "global-db": {
-                "MYSQL_ROOT_PASSWORD_FILE": '/run/secrets/db_root_password',
+                "MYSQL_ROOT_PASSWORD_FILE": "/run/secrets/db_root_password",
                 "MYSQL_DATABASE": "root",
                 "MYSQL_USER": "admin",
-                "MYSQL_PASSWORD_FILE": '/run/secrets/db_password',
-            }
+                "MYSQL_PASSWORD_FILE": "/run/secrets/db_password",
+            },
         }
         current_system = platform.system()
         inputs: dict[str, Any] = {"environment": envs}
@@ -159,7 +166,7 @@ class ServicesManager:
                 "global-db": {
                     "uid": os.getuid(),
                     "gid": os.getgid(),
-                }
+                },
             }
 
             if not current_system == "Darwin":
@@ -171,7 +178,7 @@ class ServicesManager:
             inputs["user"] = user
         except KeyError:
             raise ServicesException(
-                "docker group not found in system. Please add docker group to the system and current user to the docker group."
+                "docker group not found in system. Please add docker group to the system and current user to the docker group.",
             )
 
         if backup:
@@ -205,8 +212,8 @@ class ServicesManager:
         self.generate_compose(inputs)
 
         if current_system == "Darwin":
-            self.compose_file_manager.remove_container_user('global-nginx-proxy')
-            self.compose_file_manager.remove_container_user('global-db')
+            self.compose_file_manager.remove_container_user("global-nginx-proxy")
+            self.compose_file_manager.remove_container_user("global-db")
         else:
             dirs_to_create.append("mariadb/data")
 
@@ -219,8 +226,8 @@ class ServicesManager:
                 raise ServicesNotCreated(f"Failed to create global services required dir {temp_dir.absolute()}.")
 
         # populate secrets for db
-        db_password_path = self.path / 'secrets' / 'db_password.txt'
-        db_root_password_path = self.path / 'secrets' / 'db_root_password.txt'
+        db_password_path = self.path / "secrets" / "db_password.txt"
+        db_root_password_path = self.path / "secrets" / "db_root_password.txt"
 
         db_password_path.write_text(random_password_generate(password_length=16, symbols=True))
         db_root_password_path.write_text(random_password_generate(password_length=24, symbols=True))
@@ -237,10 +244,8 @@ class ServicesManager:
 
         self.set_frappe_headers_conf()
 
-        self.compose_file_manager.set_secret_file_path('db_password', str(db_password_path.absolute()))
-        self.compose_file_manager.set_secret_file_path(
-            'db_root_password', str(db_root_password_path.absolute())
-        )
+        self.compose_file_manager.set_secret_file_path("db_password", str(db_password_path.absolute()))
+        self.compose_file_manager.set_secret_file_path("db_root_password", str(db_root_password_path.absolute()))
         self.compose_file_manager.write_to_file()
 
         if clean_install:
@@ -257,13 +262,13 @@ class ServicesManager:
             environments = inputs.get("environment")
             labels = inputs.get("labels")
             users = None
-            
+
             # Convert user format if present
             if "user" in inputs:
                 users = {}
                 for container_name, user_data in inputs["user"].items():
                     users[container_name] = (user_data["uid"], user_data["gid"])
-            
+
             # Use fluent interface to set all configurations atomically
             cf = self.compose_file_manager
             if environments:
@@ -272,17 +277,17 @@ class ServicesManager:
                 cf.with_labels(labels)
             if users:
                 cf.with_users(users)
-            
+
             # Commit changes if any were made
             if environments or labels or users:
                 cf.commit()
 
         # TODO do something about this exception
         except Exception as e:
-            raise ServicesNotCreated(f"Not able to generate global services compose file.")
+            raise ServicesNotCreated("Not able to generate global services compose file.")
 
     def shell(self, container: str, user: str | None = None):
-        richprint.stop()
+        self.output.stop()
         shell_path = "/bin/bash"
         try:
             if user:
@@ -290,7 +295,7 @@ class ServicesManager:
             else:
                 self.docker_client.compose.exec(container, command=shell_path, capture_output=False)
         except DockerException as e:
-            richprint.warning(f"Shell exited with error code: {e.output.exit_code}")
+            self.output.warning(f"Shell exited with error code: {e.output.exit_code}")
 
     def remove_itself(self):
         shutil.rmtree(self.path)
@@ -300,7 +305,7 @@ class ServicesManager:
         all_statuses = self.docker_client.compose.get_all_services_status()
         containers = self.compose_file_manager.get_container_names()
         service_container = containers.get(service)
-        
+
         for status in all_statuses:
             if status.get("Name") == service_container:
                 return status.get("State") == "running"
@@ -310,43 +315,43 @@ class ServicesManager:
         """Start services."""
         services = services or []
         output = self.docker_client.compose.up(
-            services=services, 
-            detach=True, 
-            pull="never", 
+            services=services,
+            detach=True,
+            pull="never",
             force_recreate=force_recreate,
-            stream=self.quiet
+            stream=self.quiet,
         )
         if self.quiet:
-            richprint.live_lines(output, padding=(0, 0, 0, 2))
+            self.output.live_lines(output, padding=(0, 0, 0, 2))
 
     def stop_service(self, services: list[str] | None = None, timeout: int = 10):
         """Stop services."""
         services = services or []
         output = self.docker_client.compose.stop(services=services, timeout=timeout, stream=self.quiet)
         if self.quiet:
-            richprint.live_lines(output, padding=(0, 0, 0, 2))
+            self.output.live_lines(output, padding=(0, 0, 0, 2))
 
     def restart_service(self, services: list[str] | None = None):
         """Restart services."""
         services = services or []
         output = self.docker_client.compose.restart(services=services, stream=self.quiet)
         if self.quiet:
-            richprint.live_lines(output, padding=(0, 0, 0, 2))
+            self.output.live_lines(output, padding=(0, 0, 0, 2))
 
     def are_ports_free(self):
         ports = [80, 443]
-        richprint.change_head(f"Verifying ports {', '.join(map(str, ports))} availability.")
+        self.output.change_head(f"Verifying ports {', '.join(map(str, ports))} availability.")
         # Get host port bindings from compose file
         docker_used_ports = []
         services = self.compose_file_manager.get_services_list()
         for service in services:
-            ports_config = self.compose_file_manager.yml.get('services', {}).get(service, {}).get('ports', [])
+            ports_config = self.compose_file_manager.yml.get("services", {}).get(service, {}).get("ports", [])
             for port in ports_config:
-                if isinstance(port, str) and ':' in port:
-                    host_port = port.split(':')[0]
+                if isinstance(port, str) and ":" in port:
+                    host_port = port.split(":")[0]
                     try:
                         docker_used_ports.append(int(host_port))
                     except ValueError:
                         pass
         check_and_display_port_status(ports, exclude=docker_used_ports)
-        richprint.print(f"Global services will utilize ports {', '.join(map(str, ports))}.")
+        self.output.print(f"Global services will utilize ports {', '.join(map(str, ports))}.")

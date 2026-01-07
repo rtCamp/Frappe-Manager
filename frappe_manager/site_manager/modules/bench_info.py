@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING, List, Dict, Any
 from pathlib import Path
 import json
 from rich.table import Table
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.docker import DockerException
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
@@ -52,6 +53,7 @@ class BenchInfo:
         has_certificate_fn,
         is_running_fn,
         get_services_running_status_fn,
+        output_handler: OutputHandler | None = None,
     ):
         """
         Initialize BenchInfo module.
@@ -68,6 +70,7 @@ class BenchInfo:
             has_certificate_fn: Callable to check if certificate exists
             is_running_fn: Callable to check if bench is running
             get_services_running_status_fn: Callable to get services status
+            output_handler: Optional output handler for displaying information
         """
         self.bench_name = bench_name
         self.bench_path = bench_path
@@ -80,6 +83,7 @@ class BenchInfo:
         self.has_certificate = has_certificate_fn
         self.is_running = is_running_fn
         self.get_services_running_status = get_services_running_status_fn
+        self.output = output_handler or RichOutputHandler()
 
     def get_common_config(self) -> dict:
         """
@@ -148,7 +152,7 @@ class BenchInfo:
         This includes: URL, root path, status, credentials, database info, 
         SSL status, admin tools, installed apps, and running services.
         """
-        richprint.change_head("Getting bench info")
+        self.output.change_head("Getting bench info")
         bench_db_info = self.get_db_connection_info()
 
         db_user = bench_db_info["name"]
@@ -284,4 +288,7 @@ class BenchInfo:
             bench_admin_table = generate_services_table(running_bench_admin_tools)
             bench_info_table.add_row("Bench Admin Tools", bench_admin_table)
 
-        richprint.stdout.print(bench_info_table)
+        # Use Rich's Console directly for printing the table
+        from rich.console import Console
+        console = Console()
+        console.print(bench_info_table)

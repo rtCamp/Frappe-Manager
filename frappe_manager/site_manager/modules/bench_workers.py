@@ -12,7 +12,8 @@ from copy import deepcopy
 from pathlib import Path
 from typing import List, TYPE_CHECKING
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.site_manager.exceptions import (
     BenchOperationException,
@@ -37,19 +38,21 @@ class BenchWorkers:
     - Clean up worker compose files when no longer needed
     """
     
-    def __init__(self, bench: 'Bench', verbose: bool = True):
+    def __init__(self, bench: 'Bench', verbose: bool = True, output_handler: OutputHandler | None = None):
         """
         Initialize BenchWorkers.
         
         Args:
             bench: The Bench instance
             verbose: Whether to show verbose output
+            output_handler: Handler for output operations
         """
         self.bench = bench
         self.compose_path = self.bench.path / "docker-compose.workers.yml"
         self.config_dir = self.bench.path / "workspace" / "frappe-bench" / "config"
         self.supervisor_config_path = self.config_dir / "supervisor.conf"
         self.quiet = not verbose
+        self.output = output_handler or RichOutputHandler()
         self.compose_file_manager = ComposeFile(self.compose_path, template_name='docker-compose.workers.tmpl')
         self.docker_client = DockerClient(compose_file_path=self.compose_path)
 
@@ -67,7 +70,7 @@ class BenchWorkers:
         Raises:
             BenchWorkersSupervisorConfigurtionNotFoundError: If no worker configs found
         """
-        richprint.change_head("Checking workers info.")
+        self.output.change_head("Checking workers info.")
 
         workers_supervisor_conf_paths = []
 
@@ -138,16 +141,16 @@ class BenchWorkers:
         Returns:
             True if workers were configured and need starting, False otherwise
         """
-        richprint.change_head("Generating workers compose configuration")
+        self.output.change_head("Generating workers compose configuration")
 
         if not self.compose_path.exists():
-            richprint.print("Workers compose not present. Generating new configuration...")
+            self.output.print("Workers compose not present. Generating new configuration...")
         else:
-            richprint.print("Workers configuration changed. Recreating compose...")
+            self.output.print("Workers configuration changed. Recreating compose...")
 
         # create compose file for workers
         self.compose_file_manager.yml = self.compose_file_manager.load_template()
-        richprint.print("Loaded compose template")
+        self.output.print("Loaded compose template")
 
         template_worker_config = self.compose_file_manager.yml["services"]["worker-name"]
         del self.compose_file_manager.yml["services"]["worker-name"]
@@ -158,7 +161,7 @@ class BenchWorkers:
         )
 
         if len(workers_expected_service_names) > 0:
-            richprint.print(f"Configuring {len(workers_expected_service_names)} workers")
+            self.output.print(f"Configuring {len(workers_expected_service_names)} workers")
             import os
             for worker in workers_expected_service_names:
                 worker_config = deepcopy(template_worker_config)
@@ -175,15 +178,15 @@ class BenchWorkers:
                 .with_prefix(get_container_name_prefix(self.bench.name), 'site-network') \
                 .with_version(get_current_fm_version()) \
                 .commit()
-            richprint.print("Workers configuration generated successfully")
+            self.output.print("Workers configuration generated successfully")
             return True
 
         else:
             if self.compose_file_manager.exists():
-                richprint.print("No workers found, cleaning up existing configuration")
+                self.output.print("No workers found, cleaning up existing configuration")
                 output = self.docker_client.compose.down(remove_orphans=True, volumes=False, timeout=5, stream=True)
                 if not self.quiet:
-                    richprint.live_lines(output, padding=(0, 0, 0, 2))
+                    self.output.live_lines(output, padding=(0, 0, 0, 2))
                 self.compose_file_manager.compose_path.unlink()
 
             return False
@@ -209,6 +212,7 @@ class BenchWorkerCoordinator:
         restart_supervisor_service_fn,
         is_running_fn,
         quiet: bool = False,
+        output_handler: OutputHandler | None = None,
     ):
         """
         Initialize BenchWorkerCoordinator module.
@@ -221,6 +225,7 @@ class BenchWorkerCoordinator:
             restart_supervisor_service_fn: Callable to restart supervisor service
             is_running_fn: Callable to check if bench is running
             quiet: Whether to suppress output
+            output_handler: Handler for output operations
         """
         self.bench_name = bench_name
         self.workers = workers
@@ -229,6 +234,7 @@ class BenchWorkerCoordinator:
         self.restart_supervisor_service = restart_supervisor_service_fn
         self.is_running = is_running_fn
         self.quiet = quiet
+        self.output = output_handler or RichOutputHandler()
 
     def sync_workers_compose(
         self,
@@ -258,7 +264,7 @@ class BenchWorkerCoordinator:
         )
 
         if are_workers_not_changed:
-            richprint.print("Workers configuration remains unchanged.")
+            self.output.print("Workers configuration remains unchanged.")
             return
 
         start_required = self.workers.generate_compose(
@@ -275,7 +281,7 @@ class BenchWorkerCoordinator:
                 stream=self.quiet
             )
             if self.quiet:
-                richprint.live_lines(output, padding=(0, 0, 0, 2))
+                self.output.live_lines(output, padding=(0, 0, 0, 2))
 
     def backup_restore_workers_supervisor(self, backup_manager: BackupManager):
         """
@@ -284,7 +290,7 @@ class BenchWorkerCoordinator:
         Args:
             backup_manager: BackupManager instance containing backups
         """
-        richprint.print("Rolling back to previous workers configuration.")
+        self.output.print("Rolling back to previous workers configuration.")
         for backup in backup_manager.backups:
             backup_manager.restore(backup, force=True)
 
@@ -340,7 +346,7 @@ class BenchWorkerCoordinator:
                         stream=self.quiet
                     )
                     if self.quiet:
-                        richprint.live_lines(output, padding=(0, 0, 0, 2))
+                        self.output.live_lines(output, padding=(0, 0, 0, 2))
 
     def restart_workers_containers_services(self):
         """Restart workers and schedule containers."""
@@ -348,18 +354,18 @@ class BenchWorkerCoordinator:
         worker_services = [SiteServicesEnum.schedule.value]
 
         for service in worker_services:
-            richprint.change_head(f"Restarting worker service - {service}")
+            self.output.change_head(f"Restarting worker service - {service}")
             is_restarted = self.restart_supervisor_service(service)
             if is_restarted:
-                richprint.print(f"Restarted worker services - {service}")
+                self.output.print(f"Restarted worker services - {service}")
 
         # Restart worker containers
         worker_services = self.workers.compose_file_manager.get_services_list()
         for service in worker_services:
-            richprint.change_head(f"Restarting worker service - {service}")
+            self.output.change_head(f"Restarting worker service - {service}")
             is_restarted = self.restart_supervisor_service(
                 service,
                 docker_client_obj=self.workers.docker_client
             )
             if is_restarted:
-                richprint.print(f"Restarted worker services - {service}")
+                self.output.print(f"Restarted worker services - {service}")

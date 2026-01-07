@@ -11,7 +11,8 @@ from pathlib import Path
 from rich.table import Table
 from frappe_manager.docker import DockerException
 from frappe_manager.docker import ComposeFile, DockerClient
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.logger import log
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.services_manager.services import ServicesManager
@@ -80,10 +81,12 @@ class Bench:
         workers_check: bool = True,
         admin_tools_check: bool = True,
         verbose: bool = False,
+        output_handler: OutputHandler | None = None,
     ) -> None:
         self.path = path
         self.name = name
         self.quiet = not verbose
+        self.output = output_handler or RichOutputHandler()
         self.services = services
         self.backup_path = self.path / 'backups'
         self.bench_config: BenchConfig = bench_config
@@ -99,12 +102,14 @@ class Bench:
             compose_file_manager=compose_file_manager,
             config=bench_config,
             path=path,
-            quiet=self.quiet
+            quiet=self.quiet,
+            output_handler=self.output,
         )
         self.supervisor = BenchSupervisor(
             docker_client=docker_client,
             config=bench_config,
-            bench_name=name
+            bench_name=name,
+            output_handler=self.output,
         )
         
         # Initialize local nginx proxy components
@@ -170,6 +175,7 @@ class Bench:
             is_running_fn=lambda: self.running,
             switch_bench_env_fn=self.switch_bench_env,
             quiet=self.quiet,
+            output_handler=self.output,
         )
         self.devtools.logger = self.logger
         
@@ -179,6 +185,7 @@ class Bench:
             bench_path=path,
             services=services,
             set_common_bench_config_fn=self.set_common_bench_config,
+            output_handler=self.output,
         )
         
         # Initialize Site Manager module
@@ -189,6 +196,7 @@ class Bench:
             bench_config=bench_config,
             services=services,
             quiet=self.quiet,
+            output_handler=self.output,
         )
         
         # Initialize App Manager module
@@ -198,9 +206,10 @@ class Bench:
             docker_client=docker_client,
             bench_config=bench_config,
             quiet=self.quiet,
+            output_handler=self.output,
         )
         
-        self.workers = BenchWorkers(self, not verbose)
+        self.workers = BenchWorkers(self, not verbose, output_handler=self.output)
         
         # Initialize Info module
         self.info_display = BenchInfo(
@@ -215,6 +224,7 @@ class Bench:
             has_certificate_fn=lambda: self.has_certificate(),
             is_running_fn=lambda: self.running,
             get_services_running_status_fn=self._get_services_running_status,
+            output_handler=self.output,
         )
         
         # Initialize WorkerCoordinator module
@@ -226,10 +236,11 @@ class Bench:
             restart_supervisor_service_fn=self.restart_supervisor_service,
             is_running_fn=lambda: self.running,
             quiet=self.quiet,
+            output_handler=self.output,
         )
         
         # Initialize Orchestrator for complex workflows
-        self.orchestrator = BenchOrchestrator(self)
+        self.orchestrator = BenchOrchestrator(self, output_handler=self.output)
 
         if workers_check:
             self.ensure_workers_running_if_available()
@@ -291,7 +302,7 @@ class Bench:
         # ssl
         certificate_updated = self.update_certificate(self.bench_config.ssl, raise_error=False)
         if certificate_updated:
-            richprint.print("Certificate Updated.")
+            self.output.print("Certificate Updated.")
 
         # admin tools
         if self.bench_config.admin_tools:
@@ -299,23 +310,23 @@ class Bench:
                 self.sync_admin_tools_compose()
             else:
                 self.admin_tools.enable(force_configure=True)
-            richprint.print("Enabled Admin-tools.")
+            self.output.print("Enabled Admin-tools.")
 
         else:
             if not self.admin_tools.compose_file_manager.compose_path.exists():
-                richprint.print("Admin tools is already disabled.")
+                self.output.print("Admin tools is already disabled.")
             else:
                 self.admin_tools.disable()
-                richprint.print("Disabled Admin-tools.")
+                self.output.print("Disabled Admin-tools.")
 
-        richprint.change_head("Restarting frappe server")
+        self.output.change_head("Restarting frappe server")
         self.restart_supervisor_service('frappe')
-        richprint.print("Restarted frappe server")
+        self.output.print("Restarted frappe server")
 
     def save_bench_config(self):
-        richprint.change_head("Saving bench config changes")
+        self.output.change_head("Saving bench config changes")
         self.bench_config.export_to_toml(self.bench_config.root_path)
-        richprint.print("Saved bench config.")
+        self.output.print("Saved bench config.")
 
     @property
     def exists(self):
@@ -437,22 +448,22 @@ class Bench:
         Returns:
             bool: True if the site is successfully stopped, False otherwise.
         """
-        richprint.change_head("Stopping bench services")
+        self.output.change_head("Stopping bench services")
         self.docker_ops.stop(timeout=10)
-        richprint.print("Stopped bench services.")
+        self.output.print("Stopped bench services.")
 
         if self.workers.compose_file_manager.exists():
-            richprint.change_head("Starting bench workers services")
+            self.output.change_head("Starting bench workers services")
             output = self.workers.docker_client.compose.stop(services=[], timeout=10, stream=self.quiet)
             if self.quiet:
-                richprint.live_lines(output, padding=(0, 0, 0, 2))
-            richprint.print("Started bench workers services")
+                self.output.live_lines(output, padding=(0, 0, 0, 2))
+            self.output.print("Started bench workers services")
 
         # stop admin_tools if exists
         if self.admin_tools.compose_file_manager.exists():
-            richprint.change_head("Stopped bench admin tools services")
+            self.output.change_head("Stopped bench admin tools services")
             self.admin_tools.disable()
-            richprint.print("Stopped bench admin tools services.")
+            self.output.print("Stopped bench admin tools services.")
 
     def remove_containers_and_dirs(self):
         """
@@ -464,22 +475,22 @@ class Bench:
         """
         # TODO handle low level errors like read only, write only, etc.
         if self.compose_file_manager.exists():
-            richprint.change_head("Removing bench containers.")
+            self.output.change_head("Removing bench containers.")
             self.docker_ops.remove_containers(remove_volumes=True, timeout=5)
-            richprint.print("Removed bench containers.")
+            self.output.print("Removed bench containers.")
         else:
-            richprint.warning('Bench compose file not found. Skipping containers removal.')
+            self.output.warning('Bench compose file not found. Skipping containers removal.')
 
         if self.workers.compose_file_manager.exists():
-            richprint.change_head("Removing bench workers containers.")
+            self.output.change_head("Removing bench workers containers.")
             output = self.workers.docker_client.compose.down(remove_orphans=True, volumes=True, timeout=5, stream=True)
-            richprint.live_lines(output, padding=(0, 0, 0, 2))
-            richprint.print("Removed bench workers containers.")
+            self.output.live_lines(output, padding=(0, 0, 0, 2))
+            self.output.print("Removed bench workers containers.")
         else:
-            richprint.warning('Bench workers compose file not found. Skipping containers removal.')
+            self.output.warning('Bench workers compose file not found. Skipping containers removal.')
 
         if self.admin_tools.compose_file_manager.exists():
-            richprint.change_head("Removing bench admin tools containers.")
+            self.output.change_head("Removing bench admin tools containers.")
             # down_service equivalent: stop + remove containers + volumes
             try:
                 self.admin_tools.docker_client.compose.down(
@@ -490,11 +501,11 @@ class Bench:
                 )
             except Exception:
                 pass  # Best effort cleanup
-            richprint.print("Removed bench admin tools containers.")
+            self.output.print("Removed bench admin tools containers.")
         else:
-            richprint.warning('Bench admin tools compose file not found. Skipping containers removal.')
+            self.output.warning('Bench admin tools compose file not found. Skipping containers removal.')
 
-        richprint.change_head("Removing all bench files and directories.")
+        self.output.change_head("Removing all bench files and directories.")
         try:
             shutil.rmtree(self.path)
         except PermissionError:
@@ -514,7 +525,7 @@ class Bench:
             except Exception:
                 raise BenchRemoveDirectoryError(self.name, self.path)
 
-        richprint.print("Removed all bench files and directories.")
+        self.output.print("Removed all bench files and directories.")
 
     def is_bench_created(self, retry=60, interval=1) -> bool:
         curl_command = 'curl -I --max-time {retry} --connect-timeout {retry} {headers} {url}'
@@ -638,7 +649,7 @@ class Bench:
             num_log_files = len(log_file_paths)
 
             if num_log_files == 0:
-                richprint.print("[yellow]No log files found.[/yellow]")
+                self.output.print("[yellow]No log files found.[/yellow]")
                 return
 
             # Open log files and create generators
@@ -670,19 +681,21 @@ class Bench:
             follow (bool): Whether to continuously follow the logs or not.
             service (str, optional): The name of the service to display logs for. If not provided, logs for the entire site will be displayed.
         """
-        richprint.change_head("Showing logs")
+        self.output.change_head("Showing logs")
         try:
             if not service:
                 self.handle_frappe_server_file_logs(follow=follow)
             else:
                 if not self._is_service_running(service):
-                    richprint.exit(
+                    self.output.stop()
+                    self.output.error(
                         f"Cannot show logs. [blue]{self.name}[/blue]'s compose service '{service}' not running!"
                     )
+                    return
                 self.docker_ops.logs(services=[service.value], follow=follow)
 
         except KeyboardInterrupt:
-            richprint.stdout.print("Detected CTRL+C. Exiting..")
+            print("Detected CTRL+C. Exiting..")
 
     def attach_to_bench(self, user: str, extensions: List[str], workdir: str, debugger: bool = False) -> None:
         """
@@ -718,18 +731,18 @@ class Bench:
         if default_choice:
             params['default'] = 'no'
 
-        continue_remove = richprint.prompt_ask(**params)
+        continue_remove = self.output.prompt_ask(**params)
 
         if continue_remove == "no":
             return False
 
-        richprint.start("Removing bench")
+        self.output.start("Removing bench")
 
         try:
             self.remove_certificate()
         except Exception as e:
             # self.logger.exception(e)
-            richprint.warning(str(e))
+            self.output.warning(str(e))
 
         self.remove_database_and_user()
         self.remove_containers_and_dirs()
@@ -821,23 +834,23 @@ class Bench:
                 site_config = self.get_bench_site_config()
                 if 'admin_password' in site_config:
                     admin_pass = site_config['admin_password']
-                    richprint.print("Using admin_password defined in site_config.json")
+                    self.output.print("Using admin_password defined in site_config.json")
 
             if not admin_pass:
                 common_site_config = self.get_common_bench_config()
                 if 'admin_password' in common_site_config:
                     admin_pass = common_site_config['admin_password']
-                    richprint.print("Using admin_password defined in common_site_config.json")
+                    self.output.print("Using admin_password defined in common_site_config.json")
 
         if not admin_pass:
-            admin_pass = richprint.prompt_ask(prompt=f"Please enter admin password for site {self.name}")
+            admin_pass = self.output.prompt_ask(prompt=f"Please enter admin password for site {self.name}")
 
-        richprint.change_head(f"Resetting bench site {self.name}")
+        self.output.change_head(f"Resetting bench site {self.name}")
 
         self.site_manager.reset_bench_site(admin_pass)
         self.set_bench_site_config({'admin_password': admin_pass})
 
-        richprint.print(f"Reset bench site {self.name}")
+        self.output.print(f"Reset bench site {self.name}")
 
     def restart_supervisor_service(
         self, service: str, docker_client_obj: Optional['DockerClient'] = None, timeout: int = 30, interval: int = 1
@@ -854,10 +867,10 @@ class Bench:
         ]
 
         for service in web_services:
-            richprint.change_head(f"Restarting web services - {service}")
+            self.output.change_head(f"Restarting web services - {service}")
             is_restarted = self.restart_supervisor_service(service)
             if is_restarted:
-                richprint.print(f"Restarted web services - {service}")
+                self.output.print(f"Restarted web services - {service}")
 
     def restart_redis_services_containers(self):
         """Restarts redis containers"""
@@ -866,9 +879,9 @@ class Bench:
             SiteServicesEnum.redis_cache.value,
             SiteServicesEnum.redis_queue.value,
         ]
-        richprint.change_head(f"Restarting redis services - {' '.join(redis_services)}")
+        self.output.change_head(f"Restarting redis services - {' '.join(redis_services)}")
         self.docker_ops.restart_services(redis_services)
-        richprint.print(f"Restarted redis services - {' '.join(redis_services)}")
+        self.output.print(f"Restarted redis services - {' '.join(redis_services)}")
 
     def restart_workers_containers_services(self):
         """Restarts workers and schedule containers"""

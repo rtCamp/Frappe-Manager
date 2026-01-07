@@ -20,7 +20,8 @@ from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.logger import log
 
 
@@ -46,7 +47,8 @@ class BenchService:
         self,
         benches_directory: Path,
         services: ServicesManager,
-        verbose: bool = False
+        verbose: bool = False,
+        output_handler: OutputHandler | None = None,
     ):
         """
         Initialize bench service.
@@ -55,10 +57,12 @@ class BenchService:
             benches_directory: Path to directory containing benches
             services: Global services manager
             verbose: Enable verbose output
+            output_handler: Handler for output operations
         """
         self.benches_directory = benches_directory
         self.services = services
         self.verbose = verbose
+        self.output = output_handler or RichOutputHandler()
         self.logger = log.get_logger()
     
     def get_bench(
@@ -172,11 +176,11 @@ class BenchService:
         
         # If force is True, skip confirmation prompt
         if force:
-            richprint.start("Removing bench")
+            self.output.start("Removing bench")
             try:
                 bench.remove_certificate()
             except Exception as e:
-                richprint.warning(str(e))
+                self.output.warning(str(e))
             
             bench.remove_database_and_user()
             bench.remove_containers_and_dirs()
@@ -236,18 +240,25 @@ class BenchService:
         
         Example:
             >>> table = service.list_benches_table()
-            >>> richprint.stdout.print(table)
+            >>> self.output.print(table)
         """
-        richprint.change_head("Generating bench list")
+        self.output.change_head("Generating bench list")
         
         bench_dict = self.discover_benches()
         
         if not bench_dict:
-            richprint.exit(
+            self.output.stop()
+            self.output.print(
                 "Seems like you haven't created any sites yet. "
                 "To create a bench, use the command: 'fm create <benchname>'.",
                 emoji_code=":white_check_mark:",
             )
+            # Return empty table since there are no benches
+            table = Table(show_lines=True, show_header=True, highlight=True)
+            table.add_column("Site")
+            table.add_column("Status", vertical="middle")
+            table.add_column("Path")
+            return table
         
         table = Table(show_lines=True, show_header=True, highlight=True)
         table.add_column("Site")
@@ -275,15 +286,15 @@ class BenchService:
                 status_data = f"[{status_color}]{status_msg}[/{status_color}]"
                 
                 table.add_row(row_data, status_data, path_data, style=f"{status_color}")
-                richprint.update_live(table, padding=(0, 0, 0, 0))
+                self.output.update_live(table, padding=(0, 0, 0, 0))
                 
             except FileNotFoundError as e:
-                richprint.warning(
+                self.output.warning(
                     f'[red][bold]{bench_name}[/bold][/red] : '
                     f'Bench config not found at {e.filename}'
                 )
         
-        richprint.stop()
+        self.output.stop()
         return table
     
     def _create_cleanup_bench(self, bench_name: str) -> Bench:

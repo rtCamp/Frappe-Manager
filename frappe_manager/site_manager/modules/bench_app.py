@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Literal
 
 from frappe_manager import STABLE_APP_BRANCH_MAPPING_LIST
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger import log
@@ -72,6 +73,7 @@ class BenchAppManager:
         docker_client: DockerClient,
         bench_config: BenchConfig,
         quiet: bool = False,
+        output_handler: OutputHandler | None = None,
     ):
         """
         Initialize BenchAppManager.
@@ -82,12 +84,14 @@ class BenchAppManager:
             docker_client: Docker client for container operations
             bench_config: Bench configuration object
             quiet: Whether to suppress output (default: False)
+            output_handler: Handler for output operations
         """
         self.bench_name = bench_name
         self.bench_path = bench_path
         self.docker_client = docker_client
         self.bench_config = bench_config
         self.quiet = quiet
+        self.output = output_handler or RichOutputHandler()
         self.logger = log.get_logger()
         
         # Derived paths and commands
@@ -127,9 +131,9 @@ class BenchAppManager:
                 continue
             
             if app not in to_install_apps:
-                richprint.change_head(f"Removing prebaked app {app} from python env.")
+                self.output.change_head(f"Removing prebaked app {app} from python env.")
                 self.remove_app_from_env(app)
-                richprint.print(f"Removed prebaked app {app}")
+                self.output.print(f"Removed prebaked app {app}")
         
         # Install apps from the list
         for app_info in apps_list:
@@ -143,13 +147,13 @@ class BenchAppManager:
             if branch:
                 status_txt = f"Building and Installing app {app} -> {branch}."
             
-            richprint.change_head(status_txt)
+            self.output.change_head(status_txt)
             
             # Skip if already installed with same branch
             if app in already_installed_apps.keys():
                 installed_branch = already_installed_apps.get(app)
                 if installed_branch == branch:
-                    richprint.print(f"Skipped installation of prebaked app [blue]{app} -> {branch}[/blue].")
+                    self.output.print(f"Skipped installation of prebaked app [blue]{app} -> {branch}[/blue].")
                     continue
                 
                 if not branch and installed_branch:
@@ -157,7 +161,7 @@ class BenchAppManager:
             
             self.install_app_to_env(app, branch)
             
-            richprint.print(f"Builded and Installed app [blue]{app}{' -> ' + branch if branch else ''}[/blue] in env.")
+            self.output.print(f"Builded and Installed app [blue]{app}{' -> ' + branch if branch else ''}[/blue] in env.")
     
     def install_app_to_env(
         self,
@@ -301,9 +305,9 @@ class BenchAppManager:
             site_name = self.bench_name
         
         for app in self.get_installed_apps_list():
-            richprint.change_head(f"Installing app {app.name} in site.")
+            self.output.change_head(f"Installing app {app.name} in site.")
             self.install_app_to_site(app.name, site_name)
-            richprint.print(f"Installed app {app.name} in site.")
+            self.output.print(f"Installed app {app.name} in site.")
     
     def build(self, app_list: Optional[List[str]] = None) -> None:
         """
@@ -362,13 +366,13 @@ class BenchAppManager:
             ... )
         """
         if prebaked_branch and branch == prebaked_branch:
-            richprint.print(f"App {app} is already on branch {branch}")
+            self.output.print(f"App {app} is already on branch {branch}")
             return
         
-        richprint.change_head(f"Changing {app} app's branch to {branch}")
+        self.output.change_head(f"Changing {app} app's branch to {branch}")
         
         if prebaked_branch:
-            richprint.change_head(
+            self.output.change_head(
                 f"Changing prebaked {app} app's branch {prebaked_branch} -> {branch}"
             )
         
@@ -383,7 +387,7 @@ class BenchAppManager:
         
         self._container_run(command=change_branch_command, raise_exception_obj=exception)
         
-        richprint.print(f"Changed {app} app's branch to {branch}")
+        self.output.print(f"Changed {app} app's branch to {branch}")
     
     def get_installed_apps_list(self) -> List[Path]:
         """
@@ -454,7 +458,7 @@ class BenchAppManager:
                     user=user,
                     stream=True
                 )
-                richprint.live_lines(output)
+                self.output.live_lines(output)
         
         except DockerException as e:
             if raise_exception_obj:

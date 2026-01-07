@@ -14,10 +14,10 @@ from pathlib import Path
 class SSLStorageConfig:
     """
     Configuration for SSL certificate storage locations.
-    
+
     This class holds all path information needed for certificate management,
     separating configuration from business logic and making the system more testable.
-    
+
     Attributes:
         ssl_dir: Root directory where certbot stores certificates (host filesystem)
         ssl_dir_container: Root directory where certbot stores certificates (container filesystem)
@@ -26,42 +26,42 @@ class SSLStorageConfig:
         webroot_dir: Directory for HTTP-01 challenge files (host filesystem)
         validate_on_init: Whether to validate paths exist during initialization (default: False)
     """
-    
+
     ssl_dir: Path
     """Root directory where certbot stores certificates (host filesystem)"""
-    
+
     ssl_dir_container: Path
     """Root directory where certbot stores certificates (container filesystem)"""
-    
+
     certs_dir: Path
     """Directory where nginx-proxy looks for certificates (host filesystem)"""
-    
+
     certs_dir_container: Path
     """Directory where nginx-proxy looks for certificates (container filesystem)"""
-    
+
     webroot_dir: Path
     """Directory for HTTP-01 challenge files (host filesystem)"""
-    
+
     validate_on_init: bool = False
     """Whether to validate paths exist during initialization"""
-    
+
     def __post_init__(self):
         """Validate paths if requested."""
         if self.validate_on_init:
             self.validate()
-    
+
     def validate(self) -> None:
         """
         Validate that the configuration is valid.
-        
+
         Raises:
             ValueError: If any required path is invalid or doesn't exist
         """
         if not self.ssl_dir.exists():
             raise ValueError(f"SSL root directory does not exist: {self.ssl_dir}")
-        
+
         if not self.certs_dir.exists():
             raise ValueError(f"Certificates directory does not exist: {self.certs_dir}")
-        
+
         if not self.webroot_dir.exists():
             raise ValueError(f"Webroot directory does not exist: {self.webroot_dir}")

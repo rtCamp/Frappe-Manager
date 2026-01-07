@@ -22,16 +22,16 @@ class TestSSLStorageConfigInitialization:
         certs_dir.mkdir()
         webroot_dir = tmp_path / "webroot"
         webroot_dir.mkdir()
-        
+
         config = SSLStorageConfig(
             ssl_dir=ssl_dir,
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=certs_dir,
             certs_dir_container=Path("/etc/nginx/certs"),
             webroot_dir=webroot_dir,
-            validate_on_init=False
+            validate_on_init=False,
         )
-        
+
         assert config.ssl_dir == ssl_dir
         assert config.ssl_dir_container == Path("/etc/nginx/ssl")
         assert config.certs_dir == certs_dir
@@ -47,9 +47,9 @@ class TestSSLStorageConfigInitialization:
             certs_dir=tmp_path / "nonexistent_certs",
             certs_dir_container=Path("/etc/nginx/certs"),
             webroot_dir=tmp_path / "nonexistent_webroot",
-            validate_on_init=False
+            validate_on_init=False,
         )
-        
+
         # Should not raise error even though paths don't exist
         assert config.ssl_dir == tmp_path / "nonexistent_ssl"
 
@@ -61,15 +61,15 @@ class TestSSLStorageConfigInitialization:
         certs_dir.mkdir()
         webroot_dir = tmp_path / "webroot"
         webroot_dir.mkdir()
-        
+
         config = SSLStorageConfig(
             ssl_dir=ssl_dir,
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=certs_dir,
             certs_dir_container=Path("/etc/nginx/certs"),
-            webroot_dir=webroot_dir
+            webroot_dir=webroot_dir,
         )
-        
+
         assert isinstance(config.ssl_dir, Path)
         assert isinstance(config.ssl_dir_container, Path)
         assert isinstance(config.certs_dir, Path)
@@ -83,9 +83,9 @@ class TestSSLStorageConfigInitialization:
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=tmp_path / "certs",
             certs_dir_container=Path("/etc/nginx/certs"),
-            webroot_dir=tmp_path / "webroot"
+            webroot_dir=tmp_path / "webroot",
         )
-        
+
         assert config.validate_on_init is False
 
 
@@ -101,7 +101,7 @@ class TestSSLStorageConfigValidationSuccess:
         certs_dir.mkdir()
         webroot_dir = tmp_path / "webroot"
         webroot_dir.mkdir()
-        
+
         # Should not raise error
         config = SSLStorageConfig(
             ssl_dir=ssl_dir,
@@ -109,9 +109,9 @@ class TestSSLStorageConfigValidationSuccess:
             certs_dir=certs_dir,
             certs_dir_container=Path("/etc/nginx/certs"),
             webroot_dir=webroot_dir,
-            validate_on_init=True
+            validate_on_init=True,
         )
-        
+
         assert config.ssl_dir.exists()
         assert config.certs_dir.exists()
         assert config.webroot_dir.exists()
@@ -124,16 +124,16 @@ class TestSSLStorageConfigValidationSuccess:
         certs_dir.mkdir()
         webroot_dir = tmp_path / "webroot"
         webroot_dir.mkdir()
-        
+
         config = SSLStorageConfig(
             ssl_dir=ssl_dir,
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=certs_dir,
             certs_dir_container=Path("/etc/nginx/certs"),
             webroot_dir=webroot_dir,
-            validate_on_init=False
+            validate_on_init=False,
         )
-        
+
         # Should not raise error
         config.validate()
 
@@ -147,7 +147,7 @@ class TestSSLStorageConfigValidationFailures:
         certs_dir.mkdir()
         webroot_dir = tmp_path / "webroot"
         webroot_dir.mkdir()
-        
+
         with pytest.raises(ValueError) as exc_info:
             SSLStorageConfig(
                 ssl_dir=tmp_path / "nonexistent_ssl",
@@ -155,9 +155,9 @@ class TestSSLStorageConfigValidationFailures:
                 certs_dir=certs_dir,
                 certs_dir_container=Path("/etc/nginx/certs"),
                 webroot_dir=webroot_dir,
-                validate_on_init=True
+                validate_on_init=True,
             )
-        
+
         assert "SSL root directory does not exist" in str(exc_info.value)
 
     def test_validate_on_init_missing_certs_dir_raises_error(self, tmp_path):
@@ -166,7 +166,7 @@ class TestSSLStorageConfigValidationFailures:
         ssl_dir.mkdir()
         webroot_dir = tmp_path / "webroot"
         webroot_dir.mkdir()
-        
+
         with pytest.raises(ValueError) as exc_info:
             SSLStorageConfig(
                 ssl_dir=ssl_dir,
@@ -174,9 +174,9 @@ class TestSSLStorageConfigValidationFailures:
                 certs_dir=tmp_path / "nonexistent_certs",
                 certs_dir_container=Path("/etc/nginx/certs"),
                 webroot_dir=webroot_dir,
-                validate_on_init=True
+                validate_on_init=True,
             )
-        
+
         assert "Certificates directory does not exist" in str(exc_info.value)
 
     def test_validate_on_init_missing_webroot_dir_raises_error(self, tmp_path):
@@ -185,7 +185,7 @@ class TestSSLStorageConfigValidationFailures:
         ssl_dir.mkdir()
         certs_dir = tmp_path / "certs"
         certs_dir.mkdir()
-        
+
         with pytest.raises(ValueError) as exc_info:
             SSLStorageConfig(
                 ssl_dir=ssl_dir,
@@ -193,9 +193,9 @@ class TestSSLStorageConfigValidationFailures:
                 certs_dir=certs_dir,
                 certs_dir_container=Path("/etc/nginx/certs"),
                 webroot_dir=tmp_path / "nonexistent_webroot",
-                validate_on_init=True
+                validate_on_init=True,
             )
-        
+
         assert "Webroot directory does not exist" in str(exc_info.value)
 
     def test_explicit_validate_with_missing_paths_raises_error(self, tmp_path):
@@ -206,9 +206,9 @@ class TestSSLStorageConfigValidationFailures:
             certs_dir=tmp_path / "nonexistent_certs",
             certs_dir_container=Path("/etc/nginx/certs"),
             webroot_dir=tmp_path / "nonexistent_webroot",
-            validate_on_init=False
+            validate_on_init=False,
         )
-        
+
         with pytest.raises(ValueError):
             config.validate()
 
@@ -224,16 +224,16 @@ class TestSSLStorageConfigUsageScenarios:
         certs_dir.mkdir(parents=True)
         webroot_dir = tmp_path / "nginx" / "webroot"
         webroot_dir.mkdir(parents=True)
-        
+
         config = SSLStorageConfig(
             ssl_dir=ssl_dir,
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=certs_dir,
             certs_dir_container=Path("/etc/nginx/certs"),
             webroot_dir=webroot_dir,
-            validate_on_init=True
+            validate_on_init=True,
         )
-        
+
         assert config.ssl_dir.exists()
         assert "nginx" in str(config.ssl_dir)
 
@@ -245,16 +245,16 @@ class TestSSLStorageConfigUsageScenarios:
         certs_dir.mkdir()
         webroot_dir = tmp_path / "host_webroot"
         webroot_dir.mkdir()
-        
+
         config = SSLStorageConfig(
             ssl_dir=ssl_dir,
             ssl_dir_container=Path("/container/ssl"),
             certs_dir=certs_dir,
             certs_dir_container=Path("/container/certs"),
             webroot_dir=webroot_dir,
-            validate_on_init=True
+            validate_on_init=True,
         )
-        
+
         # Container paths should be different from host paths
         assert config.ssl_dir != config.ssl_dir_container
         assert config.certs_dir != config.certs_dir_container
@@ -268,18 +268,18 @@ class TestSSLStorageConfigUsageScenarios:
             certs_dir=tmp_path / "certs",
             certs_dir_container=Path("/etc/nginx/certs"),
             webroot_dir=tmp_path / "webroot",
-            validate_on_init=False
+            validate_on_init=False,
         )
-        
+
         # Directories don't exist yet - validation would fail
         with pytest.raises(ValueError):
             config.validate()
-        
+
         # Create directories
         config.ssl_dir.mkdir()
         config.certs_dir.mkdir()
         config.webroot_dir.mkdir()
-        
+
         # Now validation should succeed
         config.validate()
 
@@ -291,23 +291,23 @@ class TestSSLStorageConfigUsageScenarios:
         certs_dir.mkdir()
         webroot_dir = tmp_path / "webroot"
         webroot_dir.mkdir()
-        
+
         config1 = SSLStorageConfig(
             ssl_dir=ssl_dir,
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=certs_dir,
             certs_dir_container=Path("/etc/nginx/certs"),
-            webroot_dir=webroot_dir
+            webroot_dir=webroot_dir,
         )
-        
+
         config2 = SSLStorageConfig(
             ssl_dir=ssl_dir,
             ssl_dir_container=Path("/container/ssl"),  # Different container path
             certs_dir=certs_dir,
             certs_dir_container=Path("/container/certs"),
-            webroot_dir=webroot_dir
+            webroot_dir=webroot_dir,
         )
-        
+
         # Both configs share same host paths
         assert config1.ssl_dir == config2.ssl_dir
         # But have different container paths

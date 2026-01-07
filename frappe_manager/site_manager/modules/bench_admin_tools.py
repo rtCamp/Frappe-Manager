@@ -14,7 +14,8 @@ from pathlib import Path
 from typing import Any, TYPE_CHECKING
 from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.docker import ComposeFile, DockerClient
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.docker import DockerException
 from frappe_manager.site_manager.exceptions import AdminToolsFailedToStart, BenchException
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version, get_template_path
@@ -24,7 +25,7 @@ if TYPE_CHECKING:
 
 
 class BenchAdminTools:
-    def __init__(self, bench: 'Bench', nginx_proxy: Any, verbose: bool = True):
+    def __init__(self, bench: 'Bench', nginx_proxy: Any, verbose: bool = True, output_handler: OutputHandler | None = None):
         """
         Initialize BenchAdminTools.
         
@@ -32,11 +33,13 @@ class BenchAdminTools:
             bench: The Bench instance
             nginx_proxy: Nginx proxy manager
             verbose: Whether to show verbose output
+            output_handler: Optional output handler for displaying information
         """
         self.bench = bench
         self.compose_path = bench.path / "docker-compose.admin-tools.yml"
         self.bench_name = bench.name
         self.quiet = not verbose
+        self.output = output_handler or RichOutputHandler()
         
         # Create ComposeFile manager for admin-tools compose file
         self.compose_file_manager = ComposeFile(
@@ -63,9 +66,9 @@ class BenchAdminTools:
         )
 
     def create(self, db_host: str):
-        richprint.change_head("Generating admin tools configuration")
+        self.output.change_head("Generating admin tools configuration")
         self.generate_compose(db_host)
-        richprint.print("Generating admin tools configuration: Done")
+        self.output.print("Generating admin tools configuration: Done")
 
     def _generate_credentials(self) -> tuple[str, str]:
         """Generate or retrieve admin credentials"""
@@ -145,7 +148,7 @@ class BenchAdminTools:
         self._get_common_site_config_path().write_text(json.dumps(config))
 
     def configure_mailpit_as_default_server(self):
-        richprint.change_head("Configuring Mailpit as default mail server.")
+        self.output.change_head("Configuring Mailpit as default mail server.")
         current_common_site_config = self._get_common_site_config()
 
         new_conf = {
@@ -162,10 +165,10 @@ class BenchAdminTools:
                 current_common_site_config[key] = value
 
         self._save_common_site_config(current_common_site_config)
-        richprint.print("Configured Mailpit as default mail server.")
+        self.output.print("Configured Mailpit as default mail server.")
 
     def remove_mailpit_as_default_server(self):
-        richprint.change_head("Removing Mailpit as default mail server.")
+        self.output.change_head("Removing Mailpit as default mail server.")
         current_common_site_config = self._get_common_site_config()
 
         new_conf = {
@@ -184,7 +187,7 @@ class BenchAdminTools:
             del current_common_site_config[key]
 
         self._save_common_site_config(current_common_site_config)
-        richprint.print("Removed Mailpit as default mail server.")
+        self.output.print("Removed Mailpit as default mail server.")
 
     def wait_till_services_started(self, interval=2, timeout=30):
         admin_tools_services = ['mailpit:8025', 'adminer:8080']
@@ -218,7 +221,7 @@ class BenchAdminTools:
                 stream=self.quiet
             )
             if self.quiet:
-                richprint.live_lines(output, padding=(0, 0, 0, 2))
+                self.output.live_lines(output, padding=(0, 0, 0, 2))
         except DockerException as e:
             from frappe_manager.compose_project.exceptions import DockerComposeProjectFailedToStartError
             raise DockerComposeProjectFailedToStartError(self.compose_path, [])
@@ -236,7 +239,7 @@ class BenchAdminTools:
         try:
             output = self.docker_client.compose.stop(services=[], timeout=2, stream=self.quiet)
             if self.quiet:
-                richprint.live_lines(output, padding=(0, 0, 0, 2))
+                self.output.live_lines(output, padding=(0, 0, 0, 2))
         except DockerException as e:
             from frappe_manager.compose_project.exceptions import DockerComposeProjectFailedToStopError
             raise DockerComposeProjectFailedToStopError(self.compose_path, self.compose_file_manager.get_services_list())

@@ -45,6 +45,11 @@ ignore = [
     "E501",    # Line too long (handled by formatter)
     "C901",    # Function is too complex
     "PLR0913", # Too many arguments to function call
+    "FBT001",  # Boolean positional argument (matches existing DisplayManager API)
+    "FBT002",  # Boolean default positional argument (matches existing DisplayManager API)
+    "ARG002",  # Unused method argument (required by interface/ABC)
+    "BLE001",  # Catching broad exception (intentional for robustness)
+    "S110",    # Try-except-pass (intentional no-op in silent handler)
 ]
 fixable = ["ALL"]
 unfixable = []

@@ -8,7 +8,8 @@ Extracted from the monolithic Bench class for better separation of concerns.
 from pathlib import Path
 from typing import Any, Dict, Optional, Literal, cast, Iterable, Tuple
 
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.docker.compose_file import ComposeFile
 from frappe_manager.logger import log
@@ -27,7 +28,8 @@ class BenchDockerOps:
         compose_file_manager: ComposeFile,
         config: BenchConfig,
         path: Path,
-        quiet: bool = False
+        quiet: bool = False,
+        output_handler: OutputHandler | None = None,
     ):
         """
         Initialize BenchDockerOps.
@@ -38,12 +40,14 @@ class BenchDockerOps:
             config: Bench configuration
             path: Path to bench directory
             quiet: Whether to suppress output
+            output_handler: Handler for output operations
         """
         self.docker_client = docker_client
         self.compose_file_manager = compose_file_manager
         self.config = config
         self.path = path
         self.quiet = quiet
+        self.output = output_handler or RichOutputHandler()
         self.logger = log.get_logger()
     
     def _is_service_running(self, service: str) -> bool:
@@ -129,7 +133,7 @@ class BenchDockerOps:
         Returns:
             True if directories are created successfully
         """
-        richprint.change_head("Creating required directories")
+        self.output.change_head("Creating required directories")
         
         frappe_image: str = self.compose_file_manager.yml["services"]["frappe"]["image"]
         frappe_image = frappe_image.replace('-frappe', '-prebake')
@@ -171,7 +175,7 @@ class BenchDockerOps:
             new_dir = nginx_dir / directory
             new_dir.mkdir(parents=True, exist_ok=True)
         
-        richprint.print("Created all required directories.")
+        self.output.print("Created all required directories.")
         
         return True
     
@@ -189,7 +193,7 @@ class BenchDockerOps:
             force_recreate: Force recreate containers
             pull: Pull policy (never, always, missing)
         """
-        richprint.change_head("Starting bench services")
+        self.output.change_head("Starting bench services")
         
         if self.quiet:
             output = self.docker_client.compose.up(
@@ -199,7 +203,7 @@ class BenchDockerOps:
                 force_recreate=force_recreate,
                 stream=True
             )
-            richprint.live_lines(output, padding=(0, 0, 0, 2))
+            self.output.live_lines(output, padding=(0, 0, 0, 2))
         else:
             self.docker_client.compose.up(
                 services=services or [],
@@ -209,7 +213,7 @@ class BenchDockerOps:
                 stream=False
             )
         
-        richprint.print("Started bench services.")
+        self.output.print("Started bench services.")
     
     def stop(self, timeout: int = 10) -> None:
         """
@@ -218,11 +222,11 @@ class BenchDockerOps:
         Args:
             timeout: Timeout in seconds for stopping containers
         """
-        richprint.change_head("Stopping bench services")
+        self.output.change_head("Stopping bench services")
         output = self.docker_client.compose.stop(services=[], timeout=timeout, stream=self.quiet)
         if self.quiet:
-            richprint.live_lines(output, padding=(0, 0, 0, 2))
-        richprint.print("Stopped bench services.")
+            self.output.live_lines(output, padding=(0, 0, 0, 2))
+        self.output.print("Stopped bench services.")
     
     def remove_containers(self, remove_volumes: bool = True, timeout: int = 5) -> None:
         """
@@ -233,17 +237,17 @@ class BenchDockerOps:
             timeout: Timeout for removal
         """
         if self.compose_file_manager.exists():
-            richprint.change_head("Removing bench containers.")
+            self.output.change_head("Removing bench containers.")
             output = self.docker_client.compose.down(
                 remove_orphans=True,
                 volumes=remove_volumes,
                 timeout=timeout,
                 stream=True
             )
-            richprint.live_lines(output, padding=(0, 0, 0, 2))
-            richprint.print("Removed bench containers.")
+            self.output.live_lines(output, padding=(0, 0, 0, 2))
+            self.output.print("Removed bench containers.")
         else:
-            richprint.warning('Bench compose file not found. Skipping containers removal.')
+            self.output.warning('Bench compose file not found. Skipping containers removal.')
     
     def shell(self, compose_service: str, user: str | None = None) -> None:
         """
@@ -253,17 +257,19 @@ class BenchDockerOps:
             compose_service: The name of the service
             user: The name of the user (defaults to "frappe" for frappe service)
         """
-        richprint.change_head("Spawning shell")
+        self.output.change_head("Spawning shell")
         
         if compose_service == "frappe" and not user:
             user = "frappe"
         
         if not self._is_service_running(compose_service):
-            richprint.exit(
+            self.output.stop()
+            self.output.error(
                 f"Cannot spawn shell. Compose service '{compose_service}' not running!"
             )
+            return
         
-        richprint.stop()
+        self.output.stop()
         
         non_bash_supported = ["redis-cache", "redis-queue"]
         
@@ -283,7 +289,7 @@ class BenchDockerOps:
         try:
             self.docker_client.compose.exec(**exec_args)
         except DockerException as e:
-            richprint.warning(f"Shell exited with error code: {e.output.exit_code}")
+            self.output.warning(f"Shell exited with error code: {e.output.exit_code}")
     
     def logs(self, services: Optional[list] = None, follow: bool = False) -> None:
         """
@@ -293,18 +299,20 @@ class BenchDockerOps:
             services: List of services to show logs for (None for all)
             follow: Whether to follow logs continuously
         """
-        richprint.change_head("Showing logs")
+        self.output.change_head("Showing logs")
         
         services_list = services or []
         if services_list and not self._is_service_running(services_list[0]):
-            richprint.exit(f"Cannot show logs. Service '{services_list[0]}' not running!")
+            self.output.stop()
+            self.output.error(f"Cannot show logs. Service '{services_list[0]}' not running!")
+            return
         
         output = self.docker_client.compose.logs(
             services=services_list,
             follow=follow,
             stream=True
         )
-        richprint.live_lines(output, padding=(0, 0, 0, 2))
+        self.output.live_lines(output, padding=(0, 0, 0, 2))
     
     def frappe_logs_till_start(self) -> None:
         """
@@ -322,7 +330,7 @@ class BenchDockerOps:
         )
         
         if self.quiet:
-            richprint.live_lines(
+            self.output.live_lines(
                 output,
                 padding=(0, 0, 0, 2),
                 stop_string="INFO supervisord started with pid",
@@ -337,7 +345,8 @@ class BenchDockerOps:
                     if "[==".lower() in line.lower():
                         print(line)
                         continue
-                    richprint.stdout.print(line)
+                    # Use regular print for stdout to maintain format
+                    print(line, end='')
                     if "INFO supervisord started with pid".lower() in line.lower():
                         break
     
@@ -348,11 +357,11 @@ class BenchDockerOps:
         Args:
             services: List of service names to restart
         """
-        richprint.change_head(f"Restarting services - {' '.join(services)}")
+        self.output.change_head(f"Restarting services - {' '.join(services)}")
         output = self.docker_client.compose.restart(services=services, stream=self.quiet)
         if self.quiet:
-            richprint.live_lines(output, padding=(0, 0, 0, 2))
-        richprint.print(f"Restarted services - {' '.join(services)}")
+            self.output.live_lines(output, padding=(0, 0, 0, 2))
+        self.output.print(f"Restarted services - {' '.join(services)}")
     
     def exec_command(
         self,
@@ -400,7 +409,7 @@ class BenchDockerOps:
         from frappe_manager.utils.site import get_all_docker_images
         from frappe_manager.site_manager.exceptions import BenchOperationRequiredDockerImagesNotAvailable
         
-        richprint.change_head("Checking required docker images availability")
+        self.output.change_head("Checking required docker images availability")
         fm_images = get_all_docker_images()
         system_available_images = self.docker_client.images()
         
@@ -426,7 +435,7 @@ class BenchDockerOps:
         
         if not_available_images:
             for image in not_available_images:
-                richprint.error(f"Docker image '{image}' is not available locally")
+                self.output.error(f"Docker image '{image}' is not available locally")
             
             # Get bench name from config
             bench_name = self.config.container_name_prefix.replace('-', '.')

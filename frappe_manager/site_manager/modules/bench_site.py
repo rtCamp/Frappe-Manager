@@ -13,7 +13,8 @@ from pathlib import Path
 from typing import Optional, Tuple, Literal, Union, overload, cast
 
 from frappe_manager import CLI_DEFAULT_DELIMETER
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger import log
@@ -73,6 +74,7 @@ class BenchSiteManager:
         bench_config: BenchConfig,
         services: ServicesManager,
         quiet: bool = False,
+        output_handler: OutputHandler | None = None,
     ):
         """
         Initialize BenchSiteManager.
@@ -84,6 +86,7 @@ class BenchSiteManager:
             bench_config: Bench configuration object
             services: Services manager providing database/Redis access
             quiet: Whether to suppress output (default: False)
+            output_handler: Optional output handler for displaying information
         """
         self.bench_name = bench_name
         self.bench_path = bench_path
@@ -92,6 +95,7 @@ class BenchSiteManager:
         self.services = services
         self.quiet = quiet
         self.logger = log.get_logger()
+        self.output = output_handler or RichOutputHandler()
         
         # Derived paths and commands
         self.frappe_bench_dir: Path = bench_path / "workspace" / "frappe-bench"
@@ -134,7 +138,7 @@ class BenchSiteManager:
         Example:
             >>> site_manager.wait_for_required_services(timeout=60)
         """
-        richprint.change_head("Checking if required services are available.")
+        self.output.change_head("Checking if required services are available.")
         
         # Build required services map
         required_services = {
@@ -156,7 +160,7 @@ class BenchSiteManager:
                 service_name = command_output.split(' ')[0]
                 simplified_service_name = service_name.split(":")[0]
                 simplified_service_name = simplified_service_name.split(CLI_DEFAULT_DELIMETER)[-1]
-                richprint.print(command_output.replace(service_name, simplified_service_name), highlight=False)
+                self.output.print(command_output.replace(service_name, simplified_service_name), highlight=False)
     
     def _wait_for_service(self, host: str, port: int, timeout: int = 120) -> SubprocessOutput:
         """
@@ -371,7 +375,7 @@ class BenchSiteManager:
                     user=user,
                     stream=True
                 )
-                richprint.live_lines(output)
+                self.output.live_lines(output)
         
         except DockerException as e:
             if raise_exception_obj:

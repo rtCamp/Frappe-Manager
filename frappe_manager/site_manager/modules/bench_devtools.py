@@ -16,7 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, TYPE_CHECKING, Optional, Any
 
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.site_manager.exceptions import (
     BenchNotRunning,
@@ -47,6 +48,7 @@ class BenchDevTools:
         is_running_fn,
         switch_bench_env_fn,
         quiet: bool = False,
+        output_handler: OutputHandler | None = None,
     ):
         """
         Initialize BenchDevTools module.
@@ -59,6 +61,7 @@ class BenchDevTools:
             is_running_fn: Function to check if bench is running
             switch_bench_env_fn: Function to switch bench environment
             quiet: Whether to suppress output
+            output_handler: Handler for output operations
         """
         self.docker_client = docker_client
         self.compose_file_manager = compose_file_manager
@@ -67,6 +70,7 @@ class BenchDevTools:
         self._is_running = is_running_fn
         self._switch_bench_env = switch_bench_env_fn
         self.quiet = quiet
+        self.output = output_handler or RichOutputHandler()
         self.logger: Optional[Any] = None  # Set externally if needed
 
     def get_apps_dev_requirements(self) -> List[str]:
@@ -96,18 +100,18 @@ class BenchDevTools:
 
     def remove_dev_packages(self):
         """Remove dev packages from the bench environment."""
-        richprint.change_head("Removing dev packages from env.")
+        self.output.change_head("Removing dev packages from env.")
         dev_packages = self.get_apps_dev_requirements()
         remove_command = '/workspace/frappe-bench/env/bin/python -m pip uninstall --yes ' + " ".join(dev_packages)
         try:
             self.docker_client.compose.exec('frappe', command=remove_command, user='frappe', stream=False)
         except DockerException as e:
             raise BenchFailedToRemoveDevPackages(self.bench_name)
-        richprint.print("Removed dev packages from env.")
+        self.output.print("Removed dev packages from env.")
 
     def install_dev_packages(self):
         """Install dev packages in the bench environment."""
-        richprint.change_head("Installing dev packages in env.")
+        self.output.change_head("Installing dev packages in env.")
         dev_packages = self.get_apps_dev_requirements()
         install_command = '/workspace/frappe-bench/env/bin/python -m pip install --quiet --upgrade ' + " ".join(
             dev_packages
@@ -116,7 +120,7 @@ class BenchDevTools:
             self.docker_client.compose.exec('frappe', command=install_command, user='frappe', stream=False)
         except DockerException as e:
             raise BenchFailedToRemoveDevPackages(self.bench_name)
-        richprint.print("Installed dev packages in env.")
+        self.output.print("Installed dev packages in env.")
 
     def attach_to_bench(self, user: str, extensions: List[str], workdir: str, debugger: bool = False) -> None:
         """
@@ -154,7 +158,8 @@ class BenchDevTools:
         """Verify VS Code is installed and accessible."""
         vscode_path = shutil.which("code")
         if not vscode_path:
-            richprint.exit("Visual Studio Code binary i.e 'code' is not accessible via cli.")
+            self.output.stop()
+            self.output.error("Visual Studio Code binary i.e 'code' is not accessible via cli.")
 
     def _get_frappe_container_name(self) -> str:
         """Get the frappe container name and encode it."""
@@ -207,25 +212,25 @@ class BenchDevTools:
 
     def _apply_new_config(self, labels: dict) -> None:
         """Apply new container configuration."""
-        richprint.change_head("Configuration changed, regenerating label in bench compose")
+        self.output.change_head("Configuration changed, regenerating label in bench compose")
         self.compose_file_manager.configure_service("frappe", labels=labels)
-        richprint.print("Regenerated bench compose.")
+        self.output.print("Regenerated bench compose.")
         output = self.docker_client.compose.up(services=['frappe'], detach=True, pull="never",
                                                  force_recreate=False, stream=self.quiet)
         if self.quiet:
-            richprint.live_lines(output, padding=(0, 0, 0, 2))
+            self.output.live_lines(output, padding=(0, 0, 0, 2))
         self._switch_bench_env()
 
     def _setup_debugger_config(self, workdir: str) -> None:
         """Setup debugger configuration if workdir is in workspace."""
         workdir = workdir.strip('/')
         if not workdir.startswith('workspace'):
-            richprint.warning("Debugger configuration is only supported for workspace directory") 
+            self.output.warning("Debugger configuration is only supported for workspace directory") 
             return
 
         self._sync_vscode_config_files(workdir)
         self._install_ruff()
-        richprint.print("Synced vscode debugger configuration.")
+        self.output.print("Synced vscode debugger configuration.")
 
     def _sync_vscode_config_files(self, workdir: str) -> None:
         """Sync VS Code configuration files."""
@@ -249,7 +254,7 @@ class BenchDevTools:
         """Backup existing config file."""
         backup_path = file_path.parent / f"{file_path.stem}.{datetime.now().strftime('%d-%b-%y--%H-%M-%S')}.json"
         shutil.copy2(file_path, backup_path)
-        richprint.print(f"Backup previous '{file_path.name}' : {backup_path}")
+        self.output.print(f"Backup previous '{file_path.name}' : {backup_path}")
 
     def _write_config_file(self, file_path: Path, content: dict) -> None:
         """Write new config file."""
@@ -268,11 +273,11 @@ class BenchDevTools:
         except DockerException as e:
             if self.logger:
                 self.logger.error(f"ruff installation exception: {capture_and_format_exception()}")
-            richprint.warning("Not able to install ruff in env.")
+            self.output.warning("Not able to install ruff in env.")
 
     def _attach_to_container(self, vscode_cmd: str) -> None:
         """Attach to the container using VS Code."""
-        richprint.change_head("Attaching to Container")
+        self.output.change_head("Attaching to Container")
         output = subprocess.run(vscode_cmd, shell=True)
 
         if output.returncode != 0:

@@ -1,8 +1,14 @@
-import time
 import json
+import time
 from pathlib import Path
-from typing import Dict, Any, Optional, Protocol, List, Union
+from typing import Any, Protocol
+
+from pydantic import BaseModel
+
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
+from frappe_manager.docker.subprocess_output import SubprocessOutput
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.services_exceptions import (
     DatabaseServiceDBCreateFailed,
     DatabaseServiceDBExportFailed,
@@ -15,10 +21,6 @@ from frappe_manager.services_manager.services_exceptions import (
     DatabaseServiceStartTimeout,
     DatabaseServiceUserRemoveFailError,
 )
-from frappe_manager.display_manager.DisplayManager import richprint
-from pydantic import BaseModel
-
-from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.site_manager.exceptions import BenchException
 
 
@@ -28,44 +30,48 @@ class DatabaseServerServiceInfo(BaseModel):
     user: str
     port: int
     password: str
-    name: Optional[str] = None
+    name: str | None = None
 
     @classmethod
-    def import_from_compose_file(cls, compose_service_name: str, compose_file_manager: ComposeFile, raise_exception: bool = True):
+    def import_from_compose_file(
+        cls,
+        compose_service_name: str,
+        compose_file_manager: ComposeFile,
+        raise_exception: bool = True,
+    ):
         """
         Provides info about a database server
         """
         compose_service_envs = compose_file_manager.get_envs(container=compose_service_name)
 
-        info: Dict[str, Any] = {}
-        info["user"] = 'root'
+        info: dict[str, Any] = {}
+        info["user"] = "root"
         # this also being considered as servicename
         info["host"] = compose_service_name
         info["port"] = 3306
 
         # TODO use fm main config here
         # secrets or password ?
-        if 'MYSQL_ROOT_PASSWORD_FILE' in compose_service_envs:
-            password_path: Path = compose_file_manager.get_secret_file_path('db_root_password')
+        if "MYSQL_ROOT_PASSWORD_FILE" in compose_service_envs:
+            password_path: Path = compose_file_manager.get_secret_file_path("db_root_password")
             info["password"] = password_path.read_text()
-        elif 'MYSQL_ROOT_PASSWORD' in compose_service_envs:
-            info["password"] = compose_service_envs['MYSQL_ROOT_PASSWORD']
-        else:
-            if raise_exception:
-                raise DatabaseServicePasswordNotFound(compose_service_name)
+        elif "MYSQL_ROOT_PASSWORD" in compose_service_envs:
+            info["password"] = compose_service_envs["MYSQL_ROOT_PASSWORD"]
+        elif raise_exception:
+            raise DatabaseServicePasswordNotFound(compose_service_name)
 
         return cls(**info)
 
     @classmethod
-    def import_from_bench(cls,bench_name: str, bench_path: Path, raise_exception = False):
+    def import_from_bench(cls, bench_name: str, bench_path: Path, raise_exception=False):
         """
         Provides info about a database server
         """
 
         site_config_file: Path = bench_path / "workspace" / "frappe-bench" / "sites" / bench_name / "site_config.json"
-        common_site_config_file: Path = bench_path / "workspace" / "frappe-bench" / "sites" / 'common_site_config.json'
+        common_site_config_file: Path = bench_path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
 
-        info: Dict[str, Any] = {}
+        info: dict[str, Any] = {}
 
         info["name"] = str(bench_name).replace(".", "-")
         info["user"] = str(bench_name).replace(".", "-")
@@ -73,14 +79,14 @@ class DatabaseServerServiceInfo(BaseModel):
         info["password"] = None
 
         if common_site_config_file.exists():
-            with open(common_site_config_file, "r") as f:
+            with open(common_site_config_file) as f:
                 common_site_config = json.load(f)
                 if common_site_config:
                     info["host"] = common_site_config.get("db_host")
                     info["port"] = common_site_config.get("db_port")
 
         if site_config_file.exists():
-            with open(site_config_file, "r") as f:
+            with open(site_config_file) as f:
                 site_config = json.load(f)
                 if site_config:
                     info["host"] = site_config.get("db_host")
@@ -89,7 +95,10 @@ class DatabaseServerServiceInfo(BaseModel):
                     info["password"] = site_config["db_password"]
 
         if raise_exception and not info["passoword"]:
-            raise BenchException(bench_name,f"Password for the db user doesn't exits in either {common_site_config_file.name},{site_config_file.name}")
+            raise BenchException(
+                bench_name,
+                f"Password for the db user doesn't exits in either {common_site_config_file.name},{site_config_file.name}",
+            )
 
         return cls(**info)
 
@@ -99,11 +108,16 @@ class DatabaseServiceManager(Protocol):
     compose_file_manager: ComposeFile
     docker_client: DockerClient
 
-    def __init__(self, database_server_info: DatabaseServerServiceInfo, compose_file_manager: ComposeFile, docker_client: DockerClient) -> None: ...
+    def __init__(
+        self,
+        database_server_info: DatabaseServerServiceInfo,
+        compose_file_manager: ComposeFile,
+        docker_client: DockerClient,
+    ) -> None: ...
 
-    def remove_user(self, db_user: str, db_user_host: str = '%', remove_all_host: bool = False): ...
+    def remove_user(self, db_user: str, db_user_host: str = "%", remove_all_host: bool = False): ...
 
-    def add_user(self, db_user: str, db_pass: str, db_user_host: str = '%', force: bool = False, timeout=25): ...
+    def add_user(self, db_user: str, db_pass: str, db_user_host: str = "%", force: bool = False, timeout=25): ...
 
     def grant_user_privilages(self, db_user: str, db_name: str): ...
 
@@ -124,7 +138,8 @@ class MariaDBManager(DatabaseServiceManager):
         database_server_info: DatabaseServerServiceInfo,
         compose_file_manager: ComposeFile,
         docker_client: DockerClient,
-        run_on_compose_service: Optional[str] = None,
+        run_on_compose_service: str | None = None,
+        output_handler: OutputHandler | None = None,
     ) -> None:
         """
         Database manager
@@ -132,6 +147,7 @@ class MariaDBManager(DatabaseServiceManager):
         self.database_server_info: DatabaseServerServiceInfo = database_server_info
         self.compose_file_manager: ComposeFile = compose_file_manager
         self.docker_client: DockerClient = docker_client
+        self.output = output_handler or RichOutputHandler()
 
         if not run_on_compose_service:
             self.run_on_compose_service: str = self.database_server_info.host
@@ -139,7 +155,7 @@ class MariaDBManager(DatabaseServiceManager):
             self.run_on_compose_service: str = run_on_compose_service
 
         self.base_command = f"/usr/bin/mariadb -u{self.database_server_info.user} -p'{self.database_server_info.password}' -P{self.database_server_info.port} -h{self.database_server_info.host} "
-        self.base_query = '-e '
+        self.base_query = "-e "
         self.quiet = True
 
     def _is_service_running(self, service: str) -> bool:
@@ -147,38 +163,45 @@ class MariaDBManager(DatabaseServiceManager):
         all_statuses = self.docker_client.compose.get_all_services_status()
         containers = self.compose_file_manager.get_container_names()
         service_container = containers.get(service)
-        
+
         for status in all_statuses:
             if status.get("Name") == service_container:
                 return status.get("State") == "running"
         return False
 
-    def _compose_exec_or_run(self, command: str, stream: bool = False, user: str = None, rm: bool = False, entrypoint: str = None):
+    def _compose_exec_or_run(
+        self,
+        command: str,
+        stream: bool = False,
+        user: str = None,
+        rm: bool = False,
+        entrypoint: str = None,
+    ):
         """
         Executes a command using compose.exec if the service is running,
         otherwise uses compose.run.
         """
         if self._is_service_running(self.run_on_compose_service):
-            return self.docker_client.compose.exec(
-                self.run_on_compose_service, command=command, stream=stream
-            )
-        else:
-            return self.docker_client.compose.run(
-                self.run_on_compose_service,
-                # command=command,
-                stream=stream,
-                user=user,
-                rm=rm,
-                entrypoint=command,
-            )
+            return self.docker_client.compose.exec(self.run_on_compose_service, command=command, stream=stream)
+        return self.docker_client.compose.run(
+            self.run_on_compose_service,
+            # command=command,
+            stream=stream,
+            user=user,
+            rm=rm,
+            entrypoint=command,
+        )
 
     def db_run_query(
-        self, query: str, raise_exception_obj: Optional[DatabaseServiceException] = None, capture_output: bool = False
+        self,
+        query: str,
+        raise_exception_obj: DatabaseServiceException | None = None,
+        capture_output: bool = False,
     ):
         base_command = self.base_command
 
         if capture_output:
-            base_command += '--batch --skip-column-names '
+            base_command += "--batch --skip-column-names "
 
         db_query = base_command + self.base_query + query
 
@@ -191,7 +214,7 @@ class MariaDBManager(DatabaseServiceManager):
             )
             if capture_output:
                 return output
-            richprint.live_lines(output)
+            self.output.live_lines(output)
         except DockerException as e:
             if raise_exception_obj:
                 raise raise_exception_obj
@@ -216,25 +239,27 @@ class MariaDBManager(DatabaseServiceManager):
                 rm=True,
                 entrypoint=None,
             )
-            return 'mysqld is alive' in " ".join(output.stdout)
+            return "mysqld is alive" in " ".join(output.stdout)
         except DockerException as e:
             return False
 
-    def get_db_users(self) -> Dict[str, str]:
-        show_db_user_command = f"'SELECT User, Host FROM mysql.user;'"
-        exception = DatabaseServiceException(self.database_server_info.host, 'Failed to determine mysql users.')
+    def get_db_users(self) -> dict[str, str]:
+        show_db_user_command = "'SELECT User, Host FROM mysql.user;'"
+        exception = DatabaseServiceException(self.database_server_info.host, "Failed to determine mysql users.")
         output: SubprocessOutput = self.db_run_query(
-            show_db_user_command, raise_exception_obj=exception, capture_output=True
+            show_db_user_command,
+            raise_exception_obj=exception,
+            capture_output=True,
         )
-        user_list: Dict[str, str] = {}
+        user_list: dict[str, str] = {}
         for line in output.stdout:
-            username, host = line.split('\t')
+            username, host = line.split("\t")
             user_list[username] = host
         return user_list
 
-    def check_user_exists(self, username: str, host: Optional[str] = None) -> bool:
+    def check_user_exists(self, username: str, host: str | None = None) -> bool:
         user_list = self.get_db_users()
-        if not username in user_list:
+        if username not in user_list:
             return False
         if not host:
             return True
@@ -242,10 +267,11 @@ class MariaDBManager(DatabaseServiceManager):
             return False
         return True
 
-    def get_all_databases(self) -> List[str]:
-        db_exits_commmand = f"'SHOW DATABASES;'"
+    def get_all_databases(self) -> list[str]:
+        db_exits_commmand = "'SHOW DATABASES;'"
         db_exits_exception = DatabaseServiceException(
-            self.database_server_info.host, 'Failed to get list of all databases.'
+            self.database_server_info.host,
+            "Failed to get list of all databases.",
         )
         try:
             output: SubprocessOutput = self.db_run_query(db_exits_commmand, capture_output=True)
@@ -259,8 +285,7 @@ class MariaDBManager(DatabaseServiceManager):
         databases = self.get_all_databases()
         return db_name in databases
 
-
-    def remove_user(self, db_user: str, db_user_host: str = '%', remove_all_host: bool = False):
+    def remove_user(self, db_user: str, db_user_host: str = "%", remove_all_host: bool = False):
         users = {db_user: db_user_host}
 
         if remove_all_host:
@@ -280,24 +305,26 @@ class MariaDBManager(DatabaseServiceManager):
     def grant_user_privilages(self, db_user: str, db_name: str):
         grant_user_command = f"'GRANT ALL PRIVILEGES ON `{db_name}`.* TO `{db_user}`@`%`;'"
         grant_user_exception = DatabaseServiceException(
-            self.database_server_info.host, f'Failed to grant prvilages for user {db_user} on {db_name}.'
+            self.database_server_info.host,
+            f"Failed to grant prvilages for user {db_user} on {db_name}.",
         )
         self.db_run_query(grant_user_command, grant_user_exception)
 
-    def add_user(self, db_user: str, db_pass: str, db_user_host: str = '%', force: bool = False, timeout=25):
+    def add_user(self, db_user: str, db_pass: str, db_user_host: str = "%", force: bool = False, timeout=25):
         if self.check_user_exists(db_user, db_user_host):
             if force:
                 self.remove_user(db_user, db_user_host)
             else:
                 raise DatabaseServiceException(
-                    self.run_on_compose_service, f'User {db_user} for {db_user_host} already exists.'
+                    self.run_on_compose_service,
+                    f"User {db_user} for {db_user_host} already exists.",
                 )
 
         add_user_command = f"'CREATE USER `{db_user}`@`%` IDENTIFIED BY \"{db_pass}\";'"
-        add_user_exception = DatabaseServiceException(self.database_server_info.host, f'Failed to add user {db_user}.')
+        add_user_exception = DatabaseServiceException(self.database_server_info.host, f"Failed to add user {db_user}.")
         self.db_run_query(add_user_command, add_user_exception)
 
-    def db_export(self, db_name: str, export_file_path: Union[str, Path]):
+    def db_export(self, db_name: str, export_file_path: str | Path):
         if not self.check_db_exists(db_name):
             raise DatabaseServiceDBNotFoundError(db_name, self.run_on_compose_service)
 

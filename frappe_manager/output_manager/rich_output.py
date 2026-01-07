@@ -1,0 +1,147 @@
+"""
+Rich terminal output handler.
+
+This implementation wraps the existing DisplayManager (richprint) to provide
+backward compatibility while implementing the OutputHandler interface.
+"""
+
+from collections.abc import Iterator
+from typing import Any
+
+from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager.base import OutputHandler
+
+
+class RichOutputHandler(OutputHandler):
+    """
+    Output handler that uses Rich terminal formatting via the existing DisplayManager.
+
+    This handler wraps the existing richprint instance, allowing business logic
+    to use the abstract OutputHandler interface while maintaining the current
+    CLI behavior.
+    """
+
+    def __init__(self):
+        """Initialize the Rich output handler."""
+        self._richprint = richprint
+
+    def start(self, text: str) -> None:
+        """
+        Start a new operation with a status message.
+
+        Args:
+            text: The initial status message to display
+        """
+        self._richprint.start(text)
+
+    def change_head(self, text: str, style: str | None = None) -> None:
+        """
+        Update the current operation status message.
+
+        Args:
+            text: The new status message
+            style: Optional Rich style string (e.g., "blue bold")
+        """
+        self._richprint.change_head(text, style=style)
+
+    def update_head(self, text: str) -> None:
+        """
+        Update the head text and print the previous head.
+
+        Args:
+            text: The new head text
+        """
+        self._richprint.update_head(text)
+
+    def stop(self) -> None:
+        """
+        Stop the current operation status display.
+        """
+        self._richprint.stop()
+
+    def print(self, text: str, emoji_code: str = ":zap:", prefix: str | None = None, **kwargs) -> None:
+        """
+        Print a message with optional emoji and prefix.
+
+        Args:
+            text: The message to print
+            emoji_code: Emoji code to display (e.g., ":zap:")
+            prefix: Optional prefix for the message
+            **kwargs: Additional Rich print arguments
+        """
+        self._richprint.print(text, emoji_code=emoji_code, prefix=prefix, **kwargs)
+
+    def error(self, text: str, exception: Exception | None = None, emoji_code: str = ":no_entry:") -> None:
+        """
+        Display an error message.
+
+        Args:
+            text: The error message
+            exception: Optional exception to raise after displaying
+            emoji_code: Emoji code to display (e.g., ":no_entry:")
+        """
+        self._richprint.error(text, exception=exception, emoji_code=emoji_code)
+
+    def warning(self, text: str, emoji_code: str = ":warning:") -> None:
+        """
+        Display a warning message.
+
+        Args:
+            text: The warning message
+            emoji_code: Emoji code to display (e.g., ":warning:")
+        """
+        self._richprint.warning(text, emoji_code=emoji_code)
+
+    def live_lines(
+        self,
+        data: Iterator[tuple[str, bytes]],
+        stdout: bool = True,
+        stderr: bool = True,
+        lines: int = 4,
+        padding: tuple[int, int, int, int] = (0, 0, 0, 2),
+        stop_string: str | None = None,
+        log_prefix: str = "=>",
+    ) -> None:
+        """
+        Display live streaming output from a process.
+
+        Args:
+            data: Iterator yielding (source, line) tuples where source is "stdout" or "stderr"
+            stdout: Whether to display stdout lines
+            stderr: Whether to display stderr lines
+            lines: Maximum number of lines to display
+            padding: Padding around displayed lines (top, right, bottom, left)
+            stop_string: String that stops display when found
+            log_prefix: Prefix for each line
+        """
+        self._richprint.live_lines(
+            data=data,
+            stdout=stdout,
+            stderr=stderr,
+            lines=lines,
+            padding=padding,
+            stop_string=stop_string,
+            log_prefix=log_prefix,
+        )
+
+    def update_live(self, renderable: Any = None, padding: tuple[int, int, int, int] = (0, 0, 0, 0)) -> None:
+        """
+        Update the live display with new content.
+
+        Args:
+            renderable: Rich renderable object to display
+            padding: Padding around content (top, right, bottom, left)
+        """
+        self._richprint.update_live(renderable=renderable, padding=padding)
+
+    def prompt_ask(self, **kwargs) -> str:
+        """
+        Prompt the user for input.
+
+        Args:
+            **kwargs: Arguments passed to Rich Prompt.ask()
+
+        Returns:
+            The user's input as a string
+        """
+        return self._richprint.prompt_ask(**kwargs)

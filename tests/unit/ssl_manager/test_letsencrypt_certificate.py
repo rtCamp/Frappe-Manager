@@ -24,9 +24,9 @@ class TestHTTP01Challenge:
             domain="example.com",
             ssl_type=SUPPORTED_SSL_TYPES.le,
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
-            email="admin@example.com"
+            email="admin@example.com",
         )
-        
+
         assert cert.domain == "example.com"
         assert cert.preferred_challenge == LETSENCRYPT_PREFERRED_CHALLENGE.http01
         assert cert.email == "admin@example.com"
@@ -40,22 +40,22 @@ class TestHTTP01Challenge:
             ssl_type=SUPPORTED_SSL_TYPES.le,
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
             email="admin@example.com",
-            api_token="optional_token"
+            api_token="optional_token",
         )
-        
+
         assert cert.api_token == "optional_token"
 
     def test_http01_inherits_from_ssl_certificate(self):
         """Test that LetsencryptSSLCertificate inherits from SSLCertificate."""
         from frappe_manager.ssl_manager.certificate import SSLCertificate
-        
+
         cert = LetsencryptSSLCertificate(
             domain="example.com",
             ssl_type=SUPPORTED_SSL_TYPES.le,
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
-            email="admin@example.com"
+            email="admin@example.com",
         )
-        
+
         assert isinstance(cert, SSLCertificate)
 
     def test_http01_toml_exclude_correct(self):
@@ -64,9 +64,9 @@ class TestHTTP01Challenge:
             domain="example.com",
             ssl_type=SUPPORTED_SSL_TYPES.le,
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
-            email="admin@example.com"
+            email="admin@example.com",
         )
-        
+
         assert 'domain' in cert.toml_exclude
         assert 'toml_exclude' in cert.toml_exclude
 
@@ -81,9 +81,9 @@ class TestDNS01ChallengeValidation:
             ssl_type=SUPPORTED_SSL_TYPES.le,
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
             email="admin@example.com",
-            api_token="test_token_123"
+            api_token="test_token_123",
         )
-        
+
         assert cert.api_token == "test_token_123"
         assert cert.api_key is None
 
@@ -94,9 +94,9 @@ class TestDNS01ChallengeValidation:
             ssl_type=SUPPORTED_SSL_TYPES.le,
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
             email="admin@example.com",
-            api_key="test_key_456"
+            api_key="test_key_456",
         )
-        
+
         assert cert.api_key == "test_key_456"
         assert cert.api_token is None
 
@@ -108,9 +108,9 @@ class TestDNS01ChallengeValidation:
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
             email="admin@example.com",
             api_token="test_token_123",
-            api_key="test_key_456"
+            api_key="test_key_456",
         )
-        
+
         assert cert.api_token == "test_token_123"
         assert cert.api_key == "test_key_456"
 
@@ -121,7 +121,7 @@ class TestDNS01ChallengeValidation:
                 domain="example.com",
                 ssl_type=SUPPORTED_SSL_TYPES.le,
                 preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
-                email="admin@example.com"
+                email="admin@example.com",
             )
 
     def test_dns01_with_none_api_token_and_key_raises_exception(self):
@@ -133,7 +133,7 @@ class TestDNS01ChallengeValidation:
                 preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
                 email="admin@example.com",
                 api_token=None,
-                api_key=None
+                api_key=None,
             )
 
     def test_dns01_with_empty_string_credentials_raises_exception(self):
@@ -146,7 +146,7 @@ class TestDNS01ChallengeValidation:
                 preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
                 email="admin@example.com",
                 api_token="",
-                api_key=""
+                api_key="",
             )
 
     def test_model_validator_called_after_initialization(self):
@@ -157,7 +157,7 @@ class TestDNS01ChallengeValidation:
                 domain="example.com",
                 ssl_type=SUPPORTED_SSL_TYPES.le,
                 preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
-                email="admin@example.com"
+                email="admin@example.com",
             )
 
     def test_challenge_type_enum_validation(self):
@@ -167,7 +167,7 @@ class TestDNS01ChallengeValidation:
                 domain="example.com",
                 ssl_type=SUPPORTED_SSL_TYPES.le,
                 preferred_challenge="invalid_challenge",
-                email="admin@example.com"
+                email="admin@example.com",
             )
 
 
@@ -181,9 +181,9 @@ class TestEmailValidation:
             domain="example.com",
             ssl_type=SUPPORTED_SSL_TYPES.le,
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
-            email=email
+            email=email,
         )
-        
+
         assert cert.email == email
 
     @pytest.mark.parametrize("email", INVALID_EMAILS)
@@ -194,9 +194,9 @@ class TestEmailValidation:
                 domain="example.com",
                 ssl_type=SUPPORTED_SSL_TYPES.le,
                 preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
-                email=email
+                email=email,
             )
-        
+
         # Error should mention email field
         assert 'email' in str(exc_info.value).lower()
 
@@ -206,9 +206,9 @@ class TestEmailValidation:
             LetsencryptSSLCertificate(
                 domain="example.com",
                 ssl_type=SUPPORTED_SSL_TYPES.le,
-                preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.http01
+                preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
             )
-        
+
         assert 'email' in str(exc_info.value).lower()
 
 
@@ -217,56 +217,56 @@ class TestGetCloudflareCredentials:
 
     def test_get_credentials_with_api_key_only(self, mocker):
         """Test credentials output with API key only."""
-        mock_richprint = mocker.patch('frappe_manager.ssl_manager.letsencrypt_certificate.richprint')
-        
+        mock_output = mocker.Mock()
+
         cert = LetsencryptSSLCertificate(
             domain="example.com",
             ssl_type=SUPPORTED_SSL_TYPES.le,
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
             email="admin@example.com",
-            api_key="test_api_key"
+            api_key="test_api_key",
         )
-        
-        creds = cert.get_cloudflare_dns_credentials()
-        
+
+        creds = cert.get_cloudflare_dns_credentials(output_handler=mock_output)
+
         assert "dns_cloudflare_email = admin@example.com" in creds
         assert "dns_cloudflare_api_key = test_api_key" in creds
         assert "dns_cloudflare_api_token" not in creds
-        mock_richprint.print.assert_called_with('Using Cloudflare GLOBAL API KEY')
+        mock_output.print.assert_called_with('Using Cloudflare GLOBAL API KEY')
 
     def test_get_credentials_with_api_token_only(self, mocker):
         """Test credentials output with API token only."""
-        mock_richprint = mocker.patch('frappe_manager.ssl_manager.letsencrypt_certificate.richprint')
-        
+        mock_output = mocker.Mock()
+
         cert = LetsencryptSSLCertificate(
             domain="example.com",
             ssl_type=SUPPORTED_SSL_TYPES.le,
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
             email="admin@example.com",
-            api_token="test_api_token"
+            api_token="test_api_token",
         )
-        
-        creds = cert.get_cloudflare_dns_credentials()
-        
+
+        creds = cert.get_cloudflare_dns_credentials(output_handler=mock_output)
+
         assert "dns_cloudflare_api_token = test_api_token" in creds
         assert "dns_cloudflare_api_key" not in creds
-        mock_richprint.print.assert_called_with('Using Cloudflare API Token')
+        mock_output.print.assert_called_with('Using Cloudflare API Token')
 
     def test_get_credentials_with_both_credentials(self, mocker):
         """Test credentials output with both API key and token."""
-        mock_richprint = mocker.patch('frappe_manager.ssl_manager.letsencrypt_certificate.richprint')
-        
+        mock_output = mocker.Mock()
+
         cert = LetsencryptSSLCertificate(
             domain="example.com",
             ssl_type=SUPPORTED_SSL_TYPES.le,
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
             email="admin@example.com",
             api_token="test_token",
-            api_key="test_key"
+            api_key="test_key",
         )
-        
-        creds = cert.get_cloudflare_dns_credentials()
-        
+
+        creds = cert.get_cloudflare_dns_credentials(output_handler=mock_output)
+
         # When both are present, both should be in output
         assert "dns_cloudflare_email" in creds
         assert "dns_cloudflare_api_key" in creds
@@ -279,13 +279,13 @@ class TestGetCloudflareCredentials:
             domain="example.com",
             ssl_type=SUPPORTED_SSL_TYPES.le,
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
-            email="admin@example.com"
+            email="admin@example.com",
         )
-        
+
         # Manually set to have no credentials
         cert.api_token = None
         cert.api_key = None
-        
+
         with pytest.raises(SSLDNSChallengeCredentailsNotFound):
             cert.get_cloudflare_dns_credentials()
 
@@ -296,11 +296,11 @@ class TestGetCloudflareCredentials:
             ssl_type=SUPPORTED_SSL_TYPES.le,
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
             email="test@example.com",
-            api_token="my_token"
+            api_token="my_token",
         )
-        
+
         creds = cert.get_cloudflare_dns_credentials()
-        
+
         # Should be proper format with newlines
         lines = [line for line in creds.split('\n') if line.strip()]
         assert len(lines) >= 1
@@ -316,9 +316,9 @@ class TestLetsencryptCertificateFieldsAndInheritance:
             domain="example.com",
             ssl_type=SUPPORTED_SSL_TYPES.le,
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
-            email="admin@example.com"
+            email="admin@example.com",
         )
-        
+
         assert hasattr(cert, 'domain')
         assert hasattr(cert, 'ssl_type')
         assert hasattr(cert, 'preferred_challenge')
@@ -334,9 +334,9 @@ class TestLetsencryptCertificateFieldsAndInheritance:
             domain="example.com",
             ssl_type=SUPPORTED_SSL_TYPES.le,
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
-            email="admin@example.com"
+            email="admin@example.com",
         )
-        
+
         assert cert.ssl_type == SUPPORTED_SSL_TYPES.le
         assert cert.ssl_type.value == "letsencrypt"
 
@@ -347,11 +347,11 @@ class TestLetsencryptCertificateFieldsAndInheritance:
             ssl_type=SUPPORTED_SSL_TYPES.le,
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
             email="admin@example.com",
-            api_token="test_token"
+            api_token="test_token",
         )
-        
+
         data = cert.model_dump()
-        
+
         assert 'preferred_challenge' in data
         assert 'email' in data
         assert data['preferred_challenge'] == LETSENCRYPT_PREFERRED_CHALLENGE.dns01
@@ -363,9 +363,9 @@ class TestLetsencryptCertificateFieldsAndInheritance:
             ssl_type=SUPPORTED_SSL_TYPES.le,
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
             email="admin@example.com",
-            api_token="test_token"
+            api_token="test_token",
         )
-        
+
         assert cert.domain == "*.example.com"
         assert cert.preferred_challenge == LETSENCRYPT_PREFERRED_CHALLENGE.dns01
 
@@ -376,7 +376,7 @@ class TestLetsencryptCertificateFieldsAndInheritance:
             ssl_type=SUPPORTED_SSL_TYPES.le,
             preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
             email="admin@example.com",
-            hsts="max-age=31536000"
+            hsts="max-age=31536000",
         )
-        
+
         assert cert.hsts == "max-age=31536000"

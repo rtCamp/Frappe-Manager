@@ -1,6 +1,6 @@
-from typing import List
+
 from rich.text import Text
-from frappe_manager.docker import ComposeFile
+
 from frappe_manager.compose_project.exceptions import (
     DockerComposeProjectFailedToPullImagesError,
     DockerComposeProjectFailedToRemoveError,
@@ -8,17 +8,20 @@ from frappe_manager.compose_project.exceptions import (
     DockerComposeProjectFailedToStartError,
     DockerComposeProjectFailedToStopError,
 )
-from frappe_manager.docker import DockerClient, DockerComposeWrapper
-from frappe_manager.docker import DockerException
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.docker import ComposeFile, DockerClient, DockerComposeWrapper, DockerException
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 
 
 class ComposeProject:
-    def __init__(self, compose_file_manager: ComposeFile, verbose: bool = False):
+    def __init__(
+        self, compose_file_manager: ComposeFile, verbose: bool = False, output_handler: OutputHandler | None = None,
+    ):
         self.compose_file_manager: ComposeFile = compose_file_manager
         self.docker: DockerClient = DockerClient(compose_file_path=self.compose_file_manager.compose_path)
         self.quiet = not verbose
-        
+        self.output = output_handler or RichOutputHandler()
+
         # Type assertion: compose is always initialized when compose_file_path is provided
         assert self.docker.compose is not None, "DockerClient.compose must be initialized with compose_file_path"
 
@@ -31,21 +34,21 @@ class ComposeProject:
     def _handle_stream_output(self, output):
         """Helper to handle streaming output if in quiet mode."""
         if self.quiet:
-            richprint.live_lines(output, padding=(0, 0, 0, 2))
+            self.output.live_lines(output, padding=(0, 0, 0, 2))
 
-    def start_service(self, services: List[str] = [], force_recreate: bool = False):
+    def start_service(self, services: list[str] = [], force_recreate: bool = False):
         """
         Starts the specific compose service.
         """
         try:
             output = self.compose.up(
-                services=services, detach=True, pull="never", force_recreate=force_recreate, stream=self.quiet
+                services=services, detach=True, pull="never", force_recreate=force_recreate, stream=self.quiet,
             )
             self._handle_stream_output(output)
         except DockerException as e:
             raise DockerComposeProjectFailedToStartError(self.compose_file_manager.compose_path, services)
 
-    def stop_service(self, services: List[str] = [], timeout: int = 100):
+    def stop_service(self, services: list[str] = [], timeout: int = 100):
         """
         Stops the specific compose service.
         """
@@ -54,7 +57,7 @@ class ComposeProject:
             self._handle_stream_output(output)
         except DockerException as e:
             raise DockerComposeProjectFailedToStopError(
-                self.compose_file_manager.compose_path, self.compose_file_manager.get_services_list()
+                self.compose_file_manager.compose_path, self.compose_file_manager.get_services_list(),
             )
 
     def down_service(self, remove_ophans=True, volumes=True, timeout=5):
@@ -73,10 +76,10 @@ class ComposeProject:
                 timeout=timeout,
                 stream=True,
             )
-            richprint.live_lines(output, padding=(0, 0, 0, 2))
+            self.output.live_lines(output, padding=(0, 0, 0, 2))
         except DockerException as e:
             raise DockerComposeProjectFailedToRemoveError(
-                self.compose_file_manager.compose_path, self.compose_file_manager.get_services_list()
+                self.compose_file_manager.compose_path, self.compose_file_manager.get_services_list(),
             )
 
     def pull_images(self):
@@ -85,11 +88,10 @@ class ComposeProject:
         """
         try:
             output = self.compose.pull(stream=self.quiet)
-            richprint.stdout.clear_live()
             self._handle_stream_output(output)
         except DockerException as e:
             raise DockerComposeProjectFailedToPullImagesError(
-                self.compose_file_manager.compose_path, self.compose_file_manager.get_services_list()
+                self.compose_file_manager.compose_path, self.compose_file_manager.get_services_list(),
             )
 
     def logs(self, service: str, follow: bool = False):
@@ -104,7 +106,7 @@ class ComposeProject:
         for source, line in output:
             line = Text.from_ansi(line.decode())
             if source == "stdout":
-                richprint.stdout.print(line)
+                self.output.print(str(line))
 
     @property
     def running(self) -> bool:
@@ -139,15 +141,11 @@ class ComposeProject:
         # Use new API method which handles JSON parsing and filtering
         services = self.compose_file_manager.get_services_list()
         containers = self.compose_file_manager.get_container_names().values()
-        
+
         try:
             all_statuses = self.compose.get_all_services_status()
             # Filter to only include our managed containers
-            return {
-                status["Service"]: status["State"]
-                for status in all_statuses
-                if status.get("Name") in containers
-            }
+            return {status["Service"]: status["State"] for status in all_statuses if status.get("Name") in containers}
         except DockerException:
             return {}
 
@@ -161,7 +159,7 @@ class ComposeProject:
         try:
             # Use get_all_services_status() which already parses JSON
             all_statuses = self.compose.get_all_services_status()
-            
+
             # Extract all published ports from container publishers
             published_ports = set()
             for status in all_statuses:
@@ -171,7 +169,7 @@ class ComposeProject:
                         published_port = port_info.get("PublishedPort", 0)
                         if published_port > 0:
                             published_ports.add(published_port)
-            
+
             return list(published_ports)
         except DockerException:
             return []
@@ -179,20 +177,20 @@ class ComposeProject:
     def is_service_running(self, service):
         """
         Check if a specific service is running.
-        
+
         Args:
             service: Name of the service to check
-            
+
         Returns:
             bool: True if service is running, False otherwise
         """
         # Use new API convenience method
         return self.compose.is_service_running(service)
 
-    def restart_service(self, services: List[str] = []):
+    def restart_service(self, services: list[str] = []):
         """
         Restart specific compose services.
-        
+
         Args:
             services: List of service names to restart
         """
@@ -201,5 +199,5 @@ class ComposeProject:
             self._handle_stream_output(output)
         except DockerException as e:
             raise DockerComposeProjectFailedToRestartError(
-                self.compose_file_manager.compose_path, self.compose_file_manager.get_services_list()
+                self.compose_file_manager.compose_path, self.compose_file_manager.get_services_list(),
             )

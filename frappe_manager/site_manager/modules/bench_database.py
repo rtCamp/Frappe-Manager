@@ -9,7 +9,8 @@ Handles database operations for the bench including:
 
 from typing import TYPE_CHECKING
 from pathlib import Path
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.utils.site import get_bench_db_connection_info
 from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.utils.helpers import get_container_name_prefix
@@ -35,6 +36,7 @@ class BenchDatabase:
         bench_path: Path,
         services: "ServicesManager",
         set_common_bench_config_fn,
+        output_handler: OutputHandler | None = None,
     ):
         """
         Initialize BenchDatabase module.
@@ -44,11 +46,13 @@ class BenchDatabase:
             bench_path: Path to bench directory
             services: Services manager instance
             set_common_bench_config_fn: Callable to set common bench config
+            output_handler: Optional output handler for displaying information
         """
         self.bench_name = bench_name
         self.bench_path = bench_path
         self.services = services
         self.set_common_bench_config = set_common_bench_config_fn
+        self.output = output_handler or RichOutputHandler()
 
     def get_connection_info(self) -> dict:
         """
@@ -67,7 +71,7 @@ class BenchDatabase:
         from the global database service.
         """
         bench_db_info = self.get_connection_info()
-        richprint.change_head("Removing bench db and db users from global-db")
+        self.output.change_head("Removing bench db and db users from global-db")
         
         if "name" in bench_db_info:
             db_name = bench_db_info["name"]
@@ -75,17 +79,17 @@ class BenchDatabase:
 
             # Remove database
             if not self.services.database_manager.check_db_exists(db_name):
-                richprint.warning(f"global-db: Bench db [blue]{db_name}[/blue] not found. Skipping...")
+                self.output.warning(f"global-db: Bench db [blue]{db_name}[/blue] not found. Skipping...")
             else:
                 self.services.database_manager.remove_db(db_name)
-                richprint.print(f"global-db: Removed bench db [blue]{db_name}[/blue].")
+                self.output.print(f"global-db: Removed bench db [blue]{db_name}[/blue].")
 
             # Remove user
             if not self.services.database_manager.check_user_exists(db_user):
-                richprint.warning(f"global-db: Bench db user [blue]{db_user}[/blue] not found. Skipping...")
+                self.output.warning(f"global-db: Bench db user [blue]{db_user}[/blue] not found. Skipping...")
             else:
                 self.services.database_manager.remove_user(db_user, remove_all_host=True)
-                richprint.print(f"global-db: Removed bench db users [blue]{db_user}[/blue].")
+                self.output.print(f"global-db: Removed bench db users [blue]{db_user}[/blue].")
 
     def sync_common_site_config(self, services_db_host: str, services_db_port: int):
         """
