@@ -124,7 +124,7 @@ class Bench:
             'reload': self.bench_nginx_controller.reload,
         })()
         
-        self.admin_tools = BenchAdminTools(self, self.proxy_manager)
+        self.admin_tools = BenchAdminTools(self, self.proxy_manager, verbose=verbose, output_handler=self.output)
 
         # Initialize SSL certificate manager with dependency injection
         # Get global nginx-proxy storage config from services
@@ -143,10 +143,11 @@ class Bench:
         if self.bench_config.ssl.ssl_type == SUPPORTED_SSL_TYPES.le:
             certificate_service = LetsEncryptCertificateService(
                 ssl_storage_config.ssl_dir,
-                webroot_dir
+                webroot_dir,
+                output_handler=self.output,
             )
         else:
-            certificate_service = NoOpCertificateService(Path('/dev/null'))
+            certificate_service = NoOpCertificateService(Path('/dev/null'), output_handler=self.output)
         
         # Create link manager and nginx controller
         link_manager = CertificateLinkManager(ssl_storage_config)
@@ -258,6 +259,7 @@ class Bench:
         workers_check: bool = False,
         admin_tools_check: bool = False,
         verbose: bool = False,
+        output_handler: OutputHandler | None = None,
     ) -> 'Bench':
         if domain_level(bench_name) == 0:
             bench_name = bench_name + ".localhost"
@@ -280,6 +282,11 @@ class Bench:
             'workers_check': workers_check,
             'admin_tools_check': admin_tools_check,
         }
+        
+        # Add output_handler if provided
+        if output_handler is not None:
+            parms['output_handler'] = output_handler
+            
         return cls(**parms)
 
     def _is_service_running(self, service: str) -> bool:
@@ -688,7 +695,7 @@ class Bench:
             else:
                 if not self._is_service_running(service):
                     self.output.stop()
-                    self.output.error(
+                    self.output.display_error(
                         f"Cannot show logs. [blue]{self.name}[/blue]'s compose service '{service}' not running!"
                     )
                     return

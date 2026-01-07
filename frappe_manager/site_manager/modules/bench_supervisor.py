@@ -127,7 +127,7 @@ class BenchSupervisor:
             service_running = False
         
         if not service_running:
-            self.output.error(text=f'Service [blue]{service}[/blue] not running.')
+            self.output.display_error(text=f'Service [blue]{service}[/blue] not running.')
             return False
         
         # Execute restart command

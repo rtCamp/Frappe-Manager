@@ -53,8 +53,18 @@ class TestOutputHandlerInterface:
             def print(self, text: str, emoji_code=":zap:", prefix=None, **kwargs) -> None:
                 pass
             
-            def error(self, text: str, exception=None, emoji_code=":no_entry:") -> None:
+            def debug(self, text: str, emoji_code=":bug:", **kwargs) -> None:
                 pass
+            
+            def info(self, text: str, emoji_code=":information:", **kwargs) -> None:
+                pass
+            
+            def display_error(self, text: str, emoji_code=":no_entry:") -> None:
+                pass
+            
+            def error(self, text: str, exception: Exception, emoji_code=":no_entry:") -> None:
+                if exception:
+                    raise exception
             
             def warning(self, text: str, emoji_code=":warning:") -> None:
                 pass

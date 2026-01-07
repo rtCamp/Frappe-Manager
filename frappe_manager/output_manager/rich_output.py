@@ -21,8 +21,14 @@ class RichOutputHandler(OutputHandler):
     CLI behavior.
     """
 
-    def __init__(self):
-        """Initialize the Rich output handler."""
+    def __init__(self, verbose: bool = False):
+        """
+        Initialize the Rich output handler.
+
+        Args:
+            verbose: Show info and debug level messages
+        """
+        super().__init__(verbose)
         self._richprint = richprint
 
     def start(self, text: str) -> None:
@@ -71,14 +77,54 @@ class RichOutputHandler(OutputHandler):
         """
         self._richprint.print(text, emoji_code=emoji_code, prefix=prefix, **kwargs)
 
-    def error(self, text: str, exception: Exception | None = None, emoji_code: str = ":no_entry:") -> None:
+    def debug(self, text: str, emoji_code: str = ":bug:", **kwargs) -> None:
         """
-        Display an error message.
+        Display debug message if verbose mode is enabled.
+
+        Args:
+            text: Debug message
+            emoji_code: Emoji code to display (e.g., ":bug:")
+            **kwargs: Additional Rich print arguments
+        """
+        if self.verbose:
+            self._richprint.print(text, emoji_code=emoji_code, **kwargs)
+
+    def info(self, text: str, emoji_code: str = ":information:", **kwargs) -> None:
+        """
+        Display info message if verbose mode is enabled.
+
+        Args:
+            text: Info message
+            emoji_code: Emoji code to display (e.g., ":information:")
+            **kwargs: Additional Rich print arguments
+        """
+        if self.verbose:
+            self._richprint.print(text, emoji_code=emoji_code, **kwargs)
+
+    def display_error(self, text: str, emoji_code: str = ":no_entry:") -> None:
+        """
+        Display error message without raising exception.
 
         Args:
             text: The error message
-            exception: Optional exception to raise after displaying
             emoji_code: Emoji code to display (e.g., ":no_entry:")
+        """
+        self._richprint.print(text, emoji_code=emoji_code)
+
+    def error(self, text: str, exception: Exception, emoji_code: str = ":no_entry:") -> None:
+        """
+        Display an error message and raise the exception.
+
+        This method always raises the provided exception after displaying the error message.
+        Use display_error() if you want to display an error without raising an exception.
+
+        Args:
+            text: The error message
+            exception: Exception to raise after displaying (required)
+            emoji_code: Emoji code to display (e.g., ":no_entry:")
+        
+        Raises:
+            Exception: Always raises the provided exception
         """
         self._richprint.error(text, exception=exception, emoji_code=emoji_code)
 

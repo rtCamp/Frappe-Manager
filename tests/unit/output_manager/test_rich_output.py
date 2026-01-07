@@ -72,16 +72,15 @@ class TestRichOutputHandlerDelegation:
         assert "highlight" in call_kwargs
 
     @patch('frappe_manager.output_manager.rich_output.richprint')
-    def test_error_delegates_to_richprint(self, mock_richprint):
-        """error() delegates to richprint.error()."""
+    def test_display_error_delegates_to_richprint(self, mock_richprint):
+        """display_error() delegates to richprint.print()."""
         handler = RichOutputHandler()
         handler._richprint = mock_richprint
         
-        handler.error("Error message", emoji_code=":no_entry:")
+        handler.display_error("Error message", emoji_code=":no_entry:")
         
-        mock_richprint.error.assert_called_once_with(
+        mock_richprint.print.assert_called_once_with(
             "Error message",
-            exception=None,
             emoji_code=":no_entry:"
         )
 
@@ -278,13 +277,13 @@ class TestRichOutputHandlerDefaultParameters:
 
     @patch('frappe_manager.output_manager.rich_output.richprint')
     def test_error_default_emoji_code(self, mock_richprint):
-        """error() uses default emoji_code if not provided."""
+        """display_error() uses default emoji_code if not provided."""
         handler = RichOutputHandler()
         handler._richprint = mock_richprint
         
-        handler.error("Error")
+        handler.display_error("Error")
         
-        call_kwargs = mock_richprint.error.call_args.kwargs
+        call_kwargs = mock_richprint.print.call_args.kwargs
         assert call_kwargs.get("emoji_code") == ":no_entry:"
 
     @patch('frappe_manager.output_manager.rich_output.richprint')

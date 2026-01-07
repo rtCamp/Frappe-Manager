@@ -205,7 +205,7 @@ class BenchOrchestrator:
         bench = self.bench
 
         self.output.stop()
-        self.output.error(f"[red][bold]Error Occured: [/bold][/red]{exception}")
+        self.output.display_error(f"[red][bold]Error Occured: [/bold][/red]{exception}")
 
         exception_traceback_str = capture_and_format_exception()
         self.logger.error(f"{bench.name}: NOT WORKING\n Exception: {exception_traceback_str}")
@@ -215,7 +215,7 @@ class BenchOrchestrator:
             "There has been some error creating/starting the bench.",
             f":mag: Please check the logs at {log_path}",
         ]
-        self.output.error("\n".join(error_message))
+        self.output.display_error("\n".join(error_message))
 
         if bench.exists:
             remove_status = bench.remove_bench(default_choice=False)

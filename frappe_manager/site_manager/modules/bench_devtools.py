@@ -159,7 +159,7 @@ class BenchDevTools:
         vscode_path = shutil.which("code")
         if not vscode_path:
             self.output.stop()
-            self.output.error("Visual Studio Code binary i.e 'code' is not accessible via cli.")
+            self.output.display_error("Visual Studio Code binary i.e 'code' is not accessible via cli.")
 
     def _get_frappe_container_name(self) -> str:
         """Get the frappe container name and encode it."""

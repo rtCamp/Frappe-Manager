@@ -19,6 +19,15 @@ class OutputHandler(ABC):
     presentation layer.
     """
 
+    def __init__(self, verbose: bool = False):
+        """
+        Initialize output handler with verbosity settings.
+
+        Args:
+            verbose: Show info and debug level messages
+        """
+        self.verbose = verbose
+
     @abstractmethod
     def start(self, text: str) -> None:
         """
@@ -66,14 +75,52 @@ class OutputHandler(ABC):
         """
 
     @abstractmethod
-    def error(self, text: str, exception: Exception | None = None, emoji_code: str = ":no_entry:") -> None:
+    def debug(self, text: str, emoji_code: str = ":bug:", **kwargs) -> None:
         """
-        Display an error message.
+        Display debug message (only shown if verbose=True).
+
+        Args:
+            text: Debug message
+            emoji_code: Optional emoji code
+            **kwargs: Additional implementation-specific arguments
+        """
+
+    @abstractmethod
+    def info(self, text: str, emoji_code: str = ":information:", **kwargs) -> None:
+        """
+        Display info message (only shown if verbose=True).
+
+        Args:
+            text: Info message
+            emoji_code: Optional emoji code
+            **kwargs: Additional implementation-specific arguments
+        """
+
+    @abstractmethod
+    def display_error(self, text: str, emoji_code: str = ":no_entry:") -> None:
+        """
+        Display error message without raising exception.
+
+        Args:
+            text: Error message
+            emoji_code: Optional emoji code
+        """
+
+    @abstractmethod
+    def error(self, text: str, exception: Exception, emoji_code: str = ":no_entry:") -> None:
+        """
+        Display an error message and raise the exception.
+
+        This method always raises the provided exception after displaying the error message.
+        Use display_error() if you want to display an error without raising an exception.
 
         Args:
             text: The error message
-            exception: Optional exception to raise after displaying
+            exception: Exception to raise after displaying (required)
             emoji_code: Optional emoji code (implementation-specific)
+        
+        Raises:
+            Exception: Always raises the provided exception
         """
 
     @abstractmethod

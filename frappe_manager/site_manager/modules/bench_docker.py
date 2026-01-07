@@ -264,7 +264,7 @@ class BenchDockerOps:
         
         if not self._is_service_running(compose_service):
             self.output.stop()
-            self.output.error(
+            self.output.display_error(
                 f"Cannot spawn shell. Compose service '{compose_service}' not running!"
             )
             return
@@ -304,7 +304,7 @@ class BenchDockerOps:
         services_list = services or []
         if services_list and not self._is_service_running(services_list[0]):
             self.output.stop()
-            self.output.error(f"Cannot show logs. Service '{services_list[0]}' not running!")
+            self.output.display_error(f"Cannot show logs. Service '{services_list[0]}' not running!")
             return
         
         output = self.docker_client.compose.logs(
@@ -435,7 +435,7 @@ class BenchDockerOps:
         
         if not_available_images:
             for image in not_available_images:
-                self.output.error(f"Docker image '{image}' is not available locally")
+                self.output.display_error(f"Docker image '{image}' is not available locally")
             
             # Get bench name from config
             bench_name = self.config.container_name_prefix.replace('-', '.')

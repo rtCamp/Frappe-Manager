@@ -22,6 +22,7 @@ from frappe_manager import (
 )
 from frappe_manager.docker import DockerClient
 from frappe_manager.logger import log
+from frappe_manager.logger.context import LoggerContext
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.site_manager.site import Bench
@@ -51,6 +52,9 @@ from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.docker import ComposeFile
 from email_validator import validate_email
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.output_manager.logging_output import LoggingOutputHandler
 
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
 app.add_typer(services_root_command, name="services", help="Handle global services.")
@@ -58,18 +62,94 @@ app.add_typer(self_app, name="self", help="Perform operations related to the [bo
 app.add_typer(ssl_root_command, name="ssl", help="Perform operations related to ssl.")
 
 
+def get_output_handler(ctx: typer.Context, context: Optional[LoggerContext] = None) -> OutputHandler:
+    """
+    Create output handler based on context settings.
+
+    This function creates a LoggingOutputHandler that wraps RichOutputHandler,
+    automatically logging all user-facing output to the file logger with optional context.
+
+    Args:
+        ctx: Typer context with log_level and verbose settings
+        context: Optional LoggerContext for contextual logging (bench, operation, etc.)
+
+    Returns:
+        LoggingOutputHandler wrapping RichOutputHandler with contextual logging
+    """
+    from frappe_manager.logger import ContextualLogger
+    
+    verbose = ctx.obj.get("verbose", False)
+
+    # Create base handler with verbose setting
+    rich = RichOutputHandler(verbose=verbose)
+
+    # Get base logger
+    base_logger = log.get_logger()
+    
+    # Wrap with context (empty context if not provided)
+    contextual_logger = ContextualLogger(base_logger, context)
+    
+    # Wrap with logging for automatic file logging
+    output = LoggingOutputHandler(rich, contextual_logger)
+
+    return output
+
+
 @app.callback()
 def app_callback(
     ctx: typer.Context,
-    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output.")] = False,
+    verbose: Annotated[
+        int, typer.Option("--verbose", "-v", count=True, help="Increase verbosity (-v for info, -vv for debug)")
+    ] = 0,
+    log_level: Annotated[
+        Optional[str],
+        typer.Option("--log-level", help="Set log level explicitly (debug|info|warning|error)"),
+    ] = None,
     version: Annotated[
         Optional[bool], typer.Option("--version", "-V", help="Show Version.", callback=version_callback)
     ] = None,
 ):
     """
     Frappe-Manager for creating frappe development environments.
+
+    Verbosity options:
+        -v: Info level (show detailed messages)
+        -vv: Debug level (show all messages including debug)
+        --log-level: Explicit log level (overrides -v)
+
+    Examples:
+        fm create test              # WARNING level (default)
+        fm create test -v           # INFO level
+        fm create test -vv          # DEBUG level
+        fm create test --log-level debug  # DEBUG level (explicit)
     """
     ctx.obj = {}
+
+    # Determine effective log level
+    if log_level:
+        # Explicit --log-level takes precedence
+        level_name = log_level.upper()
+
+        # Validate log level
+        valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
+        if level_name not in valid_levels:
+            richprint.error(
+                f"Invalid log level: {log_level}. Must be one of: {', '.join(valid_levels).lower()}"
+            )
+            raise typer.Exit(1)
+    else:
+        # Map -v count to log level
+        level_map = {
+            0: "WARNING",  # Default
+            1: "INFO",  # -v
+            2: "DEBUG",  # -vv or more
+        }
+        level_name = level_map.get(min(verbose, 2), "WARNING")
+
+    # Store in context for commands
+    ctx.obj["log_level"] = level_name
+    ctx.obj["verbose"] = level_name in ["INFO", "DEBUG"]
+
     help_called = is_cli_help_called(ctx)
     ctx.obj["is_help_called"] = help_called
 
@@ -92,12 +172,19 @@ def app_callback(
         # logging
         global logger
         logger = log.get_logger()
+
+        # Configure Python logger level based on CLI flags
+        import logging
+
+        logger.setLevel(getattr(logging, level_name))
+
         logger.info("")
         logger.info(f"{':' * 20}FM Invoked{':' * 20}")
         logger.info("")
 
         # logging command provided by user
         logger.info(f"RUNNING COMMAND: {' '.join(sys.argv[1:])}")
+        logger.info(f"LOG LEVEL: {level_name}")
         logger.info("-" * 20)
 
         # check docker daemon service
@@ -129,7 +216,7 @@ def app_callback(
             raise typer.Exit(0)  # Exit gracefully since rollback is intentional
 
         services_manager: ServicesManager = ServicesManager(
-            verbose=verbose,
+            verbose=ctx.obj["verbose"],
             invoked_subcommand=ctx.invoked_subcommand,
         )
 
@@ -142,7 +229,6 @@ def app_callback(
             richprint.exit(f"Not able to create services. {e}")
 
         ctx.obj["services"] = services_manager
-        ctx.obj["verbose"] = verbose
         ctx.obj['fm_config_manager'] = fm_config_manager
 
 
@@ -203,7 +289,10 @@ def create(
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
     verbose = ctx.obj['verbose']
 
-    bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose)
+    # Create context for this operation
+    context = LoggerContext(bench=benchname, operation="create")
+    output = get_output_handler(ctx, context=context)
+    bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
     bench_path = bench_service.benches_directory / benchname
     bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
 
@@ -303,7 +392,11 @@ def delete(
     if benchname:
         services_manager = ctx.obj["services"]
         verbose = ctx.obj['verbose']
-        bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose)
+        
+        # Create context for this operation
+        context = LoggerContext(bench=benchname, operation="delete")
+        output = get_output_handler(ctx, context=context)
+        bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
         bench_service.delete_bench(benchname, force=force)
 
 
@@ -313,7 +406,11 @@ def list(ctx: typer.Context):
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose)
+    
+    # Create context for this operation
+    context = LoggerContext(operation="list")
+    output = get_output_handler(ctx, context=context)
+    bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
     table = bench_service.list_benches_table()
     if table.row_count:
         richprint.stdout.print(table)
@@ -349,7 +446,11 @@ def start(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    
+    # Create output handler with context for logging
+    context = LoggerContext(bench=benchname, operation="start")
+    output = get_output_handler(ctx, context=context)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     bench.start(
         force=force,
@@ -377,7 +478,11 @@ def stop(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    
+    # Create output handler with context for logging
+    context = LoggerContext(bench=benchname, operation="stop")
+    output = get_output_handler(ctx, context=context)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
     bench.stop()
 
 
@@ -413,7 +518,11 @@ def code(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    
+    # Create output handler with context for logging
+    context = LoggerContext(bench=benchname, operation="code")
+    output = get_output_handler(ctx, context=context)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     if force_start:
         bench.start()
@@ -439,7 +548,11 @@ def logs(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    
+    # Create output handler with context for logging
+    context = LoggerContext(bench=benchname, operation="logs")
+    output = get_output_handler(ctx, context=context)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
     bench.logs(follow, service)
 
 
@@ -461,7 +574,11 @@ def shell(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    
+    # Create output handler with context for logging
+    context = LoggerContext(bench=benchname, operation="shell")
+    output = get_output_handler(ctx, context=context)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
     bench.shell(SiteServicesEnum(service).value, user)
 
 
@@ -479,7 +596,11 @@ def info(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    
+    # Create output handler with context for logging
+    context = LoggerContext(bench=benchname, operation="info")
+    output = get_output_handler(ctx, context=context)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
     bench.info()
 
 
@@ -541,7 +662,11 @@ def update(
     """Update bench."""
 
     services_manager = ctx.obj["services"]
-    bench = Bench.get_object(benchname, services_manager)
+    
+    # Create output handler with context for logging
+    context = LoggerContext(bench=benchname, operation="update")
+    output = get_output_handler(ctx, context=context)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
 
     bench_config_save = False
@@ -683,7 +808,11 @@ def reset(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    
+    # Create output handler with context for logging
+    context = LoggerContext(bench=benchname, operation="reset")
+    output = get_output_handler(ctx, context=context)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
     bench.reset(admin_pass)
 
 
@@ -713,7 +842,11 @@ def restart(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    
+    # Create output handler with context for logging
+    context = LoggerContext(bench=benchname, operation="restart")
+    output = get_output_handler(ctx, context=context)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     if web:
         bench.restart_web_containers_services()
@@ -742,7 +875,11 @@ def ngrok(
     """Create ngrok tunnel for the bench."""
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    bench = Bench.get_object(benchname, services_manager)
+    
+    # Create output handler with context for logging
+    context = LoggerContext(bench=benchname, operation="ngrok")
+    output = get_output_handler(ctx, context=context)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     if not bench.running:
         raise BenchNotRunning(bench_name=bench.name)

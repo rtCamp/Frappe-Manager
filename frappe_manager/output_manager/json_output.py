@@ -60,11 +60,32 @@ class JSONOutputHandler(OutputHandler):
     as dictionaries or JSON strings.
     """
 
-    def __init__(self):
-        """Initialize the JSON output handler."""
+    def __init__(self, verbose: bool = False, persist_to_file: Any = None):
+        """
+        Initialize the JSON output handler.
+
+        Args:
+            verbose: Capture info and debug level messages
+            persist_to_file: Optional file path to persist events (JSONL format)
+        """
+        super().__init__(verbose)
         self.events: list[OutputEvent] = []
         self._current_head: str | None = None
         self._is_started: bool = False
+        self.persist_file = persist_to_file
+
+    def _add_event(self, event: OutputEvent) -> None:
+        """
+        Add event to list and optionally persist to file.
+
+        Args:
+            event: OutputEvent to add
+        """
+        self.events.append(event)
+
+        if self.persist_file:
+            with open(self.persist_file, "a") as f:
+                f.write(event.to_json() + "\n")
 
     def start(self, text: str) -> None:
         """
@@ -75,7 +96,7 @@ class JSONOutputHandler(OutputHandler):
         """
         self._current_head = text
         self._is_started = True
-        self.events.append(OutputEvent("start", {"text": text}))
+        self._add_event(OutputEvent("start", {"text": text}))
 
     def change_head(self, text: str, style: str | None = None) -> None:
         """
@@ -87,7 +108,7 @@ class JSONOutputHandler(OutputHandler):
         """
         previous_head = self._current_head
         self._current_head = text
-        self.events.append(
+        self._add_event(
             OutputEvent("change_head", {"text": text, "previous": previous_head, "style": style}),
         )
 
@@ -100,14 +121,14 @@ class JSONOutputHandler(OutputHandler):
         """
         previous_head = self._current_head
         self._current_head = text
-        self.events.append(OutputEvent("update_head", {"text": text, "previous": previous_head}))
+        self._add_event(OutputEvent("update_head", {"text": text, "previous": previous_head}))
 
     def stop(self) -> None:
         """
         Stop the current operation status display.
         """
         self._is_started = False
-        self.events.append(OutputEvent("stop", {}))
+        self._add_event(OutputEvent("stop", {}))
 
     def print(self, text: str, emoji_code: str = ":zap:", prefix: str | None = None, **kwargs) -> None:
         """
@@ -119,35 +140,73 @@ class JSONOutputHandler(OutputHandler):
             prefix: Optional prefix for the message
             **kwargs: Additional arguments (captured in data)
         """
-        self.events.append(
+        self._add_event(
             OutputEvent(
                 "print",
                 {"text": text, "emoji_code": emoji_code, "prefix": prefix, "kwargs": kwargs},
             ),
         )
 
-    def error(self, text: str, exception: Exception | None = None, emoji_code: str = ":no_entry:") -> None:
+    def debug(self, text: str, emoji_code: str = ":bug:", **kwargs) -> None:
         """
-        Display an error message.
+        Capture debug message if debug mode is enabled.
+
+        Args:
+            text: Debug message
+            emoji_code: Emoji code (captured but not rendered)
+            **kwargs: Additional arguments (captured in data)
+        """
+        if self.verbose:
+            self._add_event(OutputEvent("debug", {"text": text, "emoji_code": emoji_code, "kwargs": kwargs}))
+
+    def info(self, text: str, emoji_code: str = ":information:", **kwargs) -> None:
+        """
+        Capture info message if verbose mode is enabled.
+
+        Args:
+            text: Info message
+            emoji_code: Emoji code (captured but not rendered)
+            **kwargs: Additional arguments (captured in data)
+        """
+        if self.verbose:
+            self._add_event(OutputEvent("info", {"text": text, "emoji_code": emoji_code, "kwargs": kwargs}))
+
+    def display_error(self, text: str, emoji_code: str = ":no_entry:") -> None:
+        """
+        Capture error message without raising exception.
+
+        Args:
+            text: Error message
+            emoji_code: Emoji code (captured but not rendered)
+        """
+        self._add_event(OutputEvent("display_error", {"text": text, "emoji_code": emoji_code}))
+
+    def error(self, text: str, exception: Exception, emoji_code: str = ":no_entry:") -> None:
+        """
+        Display an error message and raise the exception.
+
+        This method always raises the provided exception after capturing the event.
 
         Args:
             text: The error message
-            exception: Optional exception to raise after capturing
+            exception: Exception to raise after capturing (required)
             emoji_code: Emoji code (captured but not rendered)
+        
+        Raises:
+            Exception: Always raises the provided exception
         """
-        self.events.append(
+        self._add_event(
             OutputEvent(
                 "error",
                 {
                     "text": text,
                     "emoji_code": emoji_code,
-                    "exception": str(exception) if exception else None,
-                    "exception_type": type(exception).__name__ if exception else None,
+                    "exception": str(exception),
+                    "exception_type": type(exception).__name__,
                 },
             ),
         )
-        if exception:
-            raise exception
+        raise exception
 
     def warning(self, text: str, emoji_code: str = ":warning:") -> None:
         """
@@ -157,7 +216,7 @@ class JSONOutputHandler(OutputHandler):
             text: The warning message
             emoji_code: Emoji code (captured but not rendered)
         """
-        self.events.append(OutputEvent("warning", {"text": text, "emoji_code": emoji_code}))
+        self._add_event(OutputEvent("warning", {"text": text, "emoji_code": emoji_code}))
 
     def live_lines(
         self,
@@ -199,7 +258,7 @@ class JSONOutputHandler(OutputHandler):
             if stop_string and stop_string.lower() in decoded_line.lower():
                 break
 
-        self.events.append(
+        self._add_event(
             OutputEvent(
                 "live_lines",
                 {
@@ -221,7 +280,7 @@ class JSONOutputHandler(OutputHandler):
             renderable: Content to display (captured as string)
             padding: Padding (ignored in JSON output)
         """
-        self.events.append(
+        self._add_event(
             OutputEvent("update_live", {"renderable": str(renderable) if renderable else None, "padding": padding}),
         )
 
@@ -238,7 +297,7 @@ class JSONOutputHandler(OutputHandler):
         Returns:
             Empty string (no actual user input in JSON mode)
         """
-        self.events.append(OutputEvent("prompt_ask", {"kwargs": kwargs}))
+        self._add_event(OutputEvent("prompt_ask", {"kwargs": kwargs}))
         return ""
 
     def get_events(self) -> list[dict]:

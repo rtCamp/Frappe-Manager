@@ -90,18 +90,17 @@ class TestJSONOutputHandlerBasics:
         assert event.data["emoji_code"] == ":rocket:"
         assert event.data["prefix"] == "PREFIX"
 
-    def test_error_captures_event(self):
-        """error() captures an error event."""
+    def test_display_error_captures_event(self):
+        """display_error() captures an error event without raising."""
         handler = JSONOutputHandler()
         
-        handler.error("Error message", emoji_code=":no_entry:")
+        handler.display_error("Error message", emoji_code=":no_entry:")
         
         assert len(handler.events) == 1
         event = handler.events[0]
-        assert event.event_type == "error"
+        assert event.event_type == "display_error"
         assert event.data["text"] == "Error message"
         assert event.data["emoji_code"] == ":no_entry:"
-        assert event.data["exception"] is None
 
     def test_error_with_exception_raises(self):
         """error() with exception raises after capturing."""

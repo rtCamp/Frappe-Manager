@@ -21,8 +21,17 @@ class SilentOutputHandler(OutputHandler):
     - Automated scripts
     - Performance testing
 
-    All methods are no-ops except prompt_ask which returns empty string.
+    All methods are no-ops except error() which still raises exceptions.
     """
+
+    def __init__(self, verbose: bool = False):
+        """
+        Initialize silent handler (verbose parameter is ignored).
+
+        Args:
+            verbose: Ignored (always silent)
+        """
+        super().__init__(verbose)
 
     def start(self, text: str) -> None:
         """
@@ -65,17 +74,50 @@ class SilentOutputHandler(OutputHandler):
             **kwargs: Additional arguments (ignored)
         """
 
-    def error(self, text: str, exception: Exception | None = None, emoji_code: str = ":no_entry:") -> None:
+    def debug(self, text: str, emoji_code: str = ":bug:", **kwargs) -> None:
         """
-        Display an error message (no-op, but still raises exception if provided).
+        Debug message (no-op).
+
+        Args:
+            text: Debug message (ignored)
+            emoji_code: Emoji code (ignored)
+            **kwargs: Additional arguments (ignored)
+        """
+
+    def info(self, text: str, emoji_code: str = ":information:", **kwargs) -> None:
+        """
+        Info message (no-op).
+
+        Args:
+            text: Info message (ignored)
+            emoji_code: Emoji code (ignored)
+            **kwargs: Additional arguments (ignored)
+        """
+
+    def display_error(self, text: str, emoji_code: str = ":no_entry:") -> None:
+        """
+        Display error (no-op).
+
+        Args:
+            text: Error message (ignored)
+            emoji_code: Emoji code (ignored)
+        """
+
+    def error(self, text: str, exception: Exception, emoji_code: str = ":no_entry:") -> None:
+        """
+        Display an error message and raise the exception.
+
+        This method always raises the provided exception (no-op for display).
 
         Args:
             text: The error message (ignored)
-            exception: Optional exception to raise
+            exception: Exception to raise (required)
             emoji_code: Emoji code (ignored)
+        
+        Raises:
+            Exception: Always raises the provided exception
         """
-        if exception:
-            raise exception
+        raise exception
 
     def warning(self, text: str, emoji_code: str = ":warning:") -> None:
         """

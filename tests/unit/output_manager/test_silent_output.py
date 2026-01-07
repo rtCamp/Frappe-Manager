@@ -39,11 +39,11 @@ class TestSilentOutputHandlerBasics:
         handler.print("Test message", emoji_code=":rocket:", prefix="PREFIX")
         # No output expected
 
-    def test_error_is_silent(self):
-        """error() produces no output but doesn't raise."""
+    def test_display_error_is_silent(self):
+        """display_error() produces no output and doesn't raise."""
         handler = SilentOutputHandler()
         
-        handler.error("Error message")
+        handler.display_error("Error message")
         # No output, no exception
 
     def test_error_with_exception_still_raises(self):
@@ -158,7 +158,7 @@ class TestSilentOutputHandlerCompleteSequence:
         handler = SilentOutputHandler()
         
         handler.start("Operation")
-        handler.error("Non-fatal error")  # No exception
+        handler.display_error("Non-fatal error")  # No exception
         handler.warning("Warning")
         handler.stop()
         

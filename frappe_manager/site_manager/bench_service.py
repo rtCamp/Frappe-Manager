@@ -98,6 +98,7 @@ class BenchService:
             workers_check=workers_check,
             admin_tools_check=admin_tools_check,
             verbose=self.verbose,
+            output_handler=self.output,
         )
     
     def create_bench(
@@ -141,6 +142,7 @@ class BenchService:
             docker_client=docker_client,
             services=self.services,
             verbose=self.verbose,
+            output_handler=self.output,
         )
         
         bench.create(is_template_bench=is_template)
@@ -347,4 +349,5 @@ class BenchService:
             workers_check=False,
             admin_tools_check=False,
             verbose=self.verbose,
+            output_handler=self.output,
         )
