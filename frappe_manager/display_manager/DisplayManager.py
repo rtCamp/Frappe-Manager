@@ -1,16 +1,15 @@
-from rich.console import Console, Group
-from rich.prompt import Prompt
-from rich.style import Style
-from rich.theme import Theme
-from rich.spinner import Spinner
-from rich.live import Live
-from rich.text import Text
-from rich.padding import Padding
-from rich.table import Table
+from collections import deque
 
 import typer
-from collections import deque
-from typing import Optional
+from rich.console import Console, Group
+from rich.live import Live
+from rich.padding import Padding
+from rich.prompt import Prompt
+from rich.spinner import Spinner
+from rich.style import Style
+from rich.table import Table
+from rich.text import Text
+from rich.theme import Theme
 
 error = Style()
 theme = Theme({"errors": error})
@@ -19,11 +18,12 @@ theme = Theme({"errors": error})
 class DisplayManager:
     def __init__(self):
         self.stdout = Console()
-        # self.stderr = Console(stderr=True)
+        self.stderr = Console(stderr=True)
         self.previous_head = None
         self.current_head = None
         self.spinner = Spinner(text=self.current_head, name="dots2", speed=1)
-        self.live = Live(self.spinner, console=self.stdout, transient=True)
+        # Use stderr for Live display so it coordinates with logging output
+        self.live = Live(self.spinner, console=self.stderr, transient=True)
 
     def start(self, text: str):
         """
@@ -40,15 +40,18 @@ class DisplayManager:
         self.live.start(refresh=True)
         self.live.update(self.spinner, refresh=True)
 
-    def error(self, text: str, exception: Optional[Exception] = None, emoji_code: str = ":no_entry:"):
+    def error(self, text: str, exception: Exception | None = None, emoji_code: str = ":no_entry:"):
         """
         Display an error message with an optional emoji code.
+        Uses stderr to coordinate with Live display.
 
         Args:
             text (str): The error message to display.
-            emoji_code (str, optional): The emoji code to display before the error message. Defaults to ':stop_sign:'.
+            exception (Exception | None): Optional exception to raise after displaying.
+            emoji_code (str, optional): The emoji code to display before the error message. Defaults to ':no_entry:'.
         """
-        self.stdout.print(f"{emoji_code} {text}")
+        # Use stderr console to coordinate with Live display
+        self.stderr.print(f"{emoji_code} {text}")
 
         if exception:
             raise exception
@@ -56,6 +59,7 @@ class DisplayManager:
     def warning(self, text: str, emoji_code: str = ":warning: "):
         """
         Display a warning message with an optional emoji code.
+        Uses stderr to coordinate with Live display.
 
         Args:
             text (str): The warning message to display.
@@ -64,15 +68,17 @@ class DisplayManager:
         Returns:
             None
         """
-        self.stdout.print(f"{emoji_code} {text}")
+        # Use stderr console to coordinate with Live display
+        self.stderr.print(f"{emoji_code} {text}")
 
     def exit(self, text: str, emoji_code: str = ":no_entry:", os_exit=False, error_msg=None):
         """
         Exits the display manager and prints the given text with an optional emoji code and error message.
+        Uses stderr to coordinate with Live display.
 
         Args:
             text (str): The text to be printed.
-            emoji_code (str, optional): The emoji code to be displayed before the text. Default is ":stop_sign:".
+            emoji_code (str, optional): The emoji code to be displayed before the text. Default is ":no_entry:".
             os_exit (bool, optional): If True, the program will exit with status code 1. Default is False.
             error_msg (str, optional): The error message to be displayed after the text. Default is None.
         """
@@ -82,27 +88,31 @@ class DisplayManager:
         if error_msg:
             to_print = f"{emoji_code} {text}\n Error : {error_msg}"
 
-        self.stdout.print(to_print)
+        # Use stderr console to coordinate with Live display
+        self.stderr.print(to_print)
 
         if os_exit:
             exit(1)
 
         raise typer.Exit(1)
 
-    def print(self, text: str, emoji_code: str = ":zap:", prefix: Optional[str] = None, **kwargs):
+    def print(self, text: str, emoji_code: str = ":zap:", prefix: str | None = None, **kwargs):
         """
         Prints the given text with an optional emoji code.
+        Uses stderr to coordinate with Live display spinner.
 
         Args:
             text (str): The text to be printed.
-            emoji_code (str, optional): The emoji code to be displayed before the text. Defaults to ":white_check_mark:".
+            emoji_code (str, optional): The emoji code to be displayed before the text. Defaults to ":zap:".
+            prefix (str, optional): Optional prefix to add before the text.
         """
         msg = f"{emoji_code} {text}"
 
         if prefix:
             msg = f"{emoji_code} {prefix} {text}"
 
-        self.stdout.print(msg, **kwargs)
+        # Use stderr console to coordinate with Live display
+        self.stderr.print(msg, **kwargs)
 
     def update_head(self, text: str):
         """
@@ -123,10 +133,10 @@ class DisplayManager:
         self.spinner.update()
         self.live.stop()
         value = Prompt.ask(**args, console=self.stdout)
-        self.start('Working')
+        self.start("Working")
         return value
 
-    def change_head(self, text: str, style: Optional[str] = 'blue bold'):
+    def change_head(self, text: str, style: str | None = "blue bold"):
         """
         Change the head text and update the spinner and live display.
 
@@ -169,7 +179,7 @@ class DisplayManager:
         stderr: bool = True,
         lines: int = 4,
         padding: tuple = (0, 0, 0, 2),
-        stop_string: Optional[str] = None,
+        stop_string: str | None = None,
         log_prefix: str = "=>",
     ):
         """
@@ -194,7 +204,7 @@ class DisplayManager:
                 line = line.decode()
                 # print(' --',line)
 
-                if "[==".lower() in line.lower() or 'Updating files:'.lower() in line.lower():
+                if "[==".lower() in line.lower() or "Updating files:".lower() in line.lower():
                     continue
 
                 if source == "stdout" and stdout:
@@ -210,7 +220,7 @@ class DisplayManager:
                 table.add_column()
 
                 for linex in list(displayed_lines):
-                    prefix_text = Text(log_prefix + ' ', no_wrap=True)
+                    prefix_text = Text(log_prefix + " ", no_wrap=True)
                     table_line = Text.from_ansi(linex)
                     prefix_text.append_text(table_line)
                     table.add_row(prefix_text)

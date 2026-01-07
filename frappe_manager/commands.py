@@ -77,7 +77,7 @@ def get_output_handler(ctx: typer.Context, context: Optional[LoggerContext] = No
         LoggingOutputHandler wrapping RichOutputHandler with contextual logging
     """
     from frappe_manager.logger import ContextualLogger
-    
+
     verbose = ctx.obj.get("verbose", False)
 
     # Create base handler with verbose setting
@@ -85,10 +85,10 @@ def get_output_handler(ctx: typer.Context, context: Optional[LoggerContext] = No
 
     # Get base logger
     base_logger = log.get_logger()
-    
+
     # Wrap with context (empty context if not provided)
     contextual_logger = ContextualLogger(base_logger, context)
-    
+
     # Wrap with logging for automatic file logging
     output = LoggingOutputHandler(rich, contextual_logger)
 
@@ -133,9 +133,7 @@ def app_callback(
         # Validate log level
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
         if level_name not in valid_levels:
-            richprint.error(
-                f"Invalid log level: {log_level}. Must be one of: {', '.join(valid_levels).lower()}"
-            )
+            richprint.error(f"Invalid log level: {log_level}. Must be one of: {', '.join(valid_levels).lower()}")
             raise typer.Exit(1)
     else:
         # Map -v count to log level
@@ -171,7 +169,8 @@ def app_callback(
 
         # logging
         global logger
-        logger = log.get_logger()
+        console_level = level_name if ctx.obj["verbose"] else None
+        logger = log.get_logger(console_level=console_level)
 
         # Configure Python logger level based on CLI flags
         import logging
@@ -306,7 +305,7 @@ def create(
                     raise typer.BadParameter(
                         "Wildcard domains require dns01 challenge. "
                         "Please specify --letsencrypt-preferred-challenge dns01",
-                        param_hint='--letsencrypt-preferred-challenge'
+                        param_hint='--letsencrypt-preferred-challenge',
                     )
                 # Ensure DNS credentials are available
                 if not fm_config_manager.letsencrypt.api_token and not fm_config_manager.letsencrypt.api_key:
@@ -314,9 +313,9 @@ def create(
                     raise typer.BadParameter(
                         "Wildcard domains require Cloudflare DNS credentials. "
                         "Please configure api_token or api_key in fm_config.toml or ensure they are set globally.",
-                        param_hint='--alias-domains'
+                        param_hint='--alias-domains',
                     )
-        
+
         if not letsencrypt_preferred_challenge:
             if fm_config_manager.letsencrypt.exists:
                 if letsencrypt_preferred_challenge is None:
@@ -350,7 +349,7 @@ def create(
 
     elif ssl == SUPPORTED_SSL_TYPES.none:
         ssl_certificate = SSLCertificate(
-            domain=benchname, 
+            domain=benchname,
             ssl_type=ssl,
         )
 
@@ -392,7 +391,7 @@ def delete(
     if benchname:
         services_manager = ctx.obj["services"]
         verbose = ctx.obj['verbose']
-        
+
         # Create context for this operation
         context = LoggerContext(bench=benchname, operation="delete")
         output = get_output_handler(ctx, context=context)
@@ -406,7 +405,7 @@ def list(ctx: typer.Context):
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    
+
     # Create context for this operation
     context = LoggerContext(operation="list")
     output = get_output_handler(ctx, context=context)
@@ -446,7 +445,7 @@ def start(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    
+
     # Create output handler with context for logging
     context = LoggerContext(bench=benchname, operation="start")
     output = get_output_handler(ctx, context=context)
@@ -478,7 +477,7 @@ def stop(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    
+
     # Create output handler with context for logging
     context = LoggerContext(bench=benchname, operation="stop")
     output = get_output_handler(ctx, context=context)
@@ -518,7 +517,7 @@ def code(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    
+
     # Create output handler with context for logging
     context = LoggerContext(bench=benchname, operation="code")
     output = get_output_handler(ctx, context=context)
@@ -548,7 +547,7 @@ def logs(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    
+
     # Create output handler with context for logging
     context = LoggerContext(bench=benchname, operation="logs")
     output = get_output_handler(ctx, context=context)
@@ -574,7 +573,7 @@ def shell(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    
+
     # Create output handler with context for logging
     context = LoggerContext(bench=benchname, operation="shell")
     output = get_output_handler(ctx, context=context)
@@ -596,7 +595,7 @@ def info(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    
+
     # Create output handler with context for logging
     context = LoggerContext(bench=benchname, operation="info")
     output = get_output_handler(ctx, context=context)
@@ -662,7 +661,7 @@ def update(
     """Update bench."""
 
     services_manager = ctx.obj["services"]
-    
+
     # Create output handler with context for logging
     context = LoggerContext(bench=benchname, operation="update")
     output = get_output_handler(ctx, context=context)
@@ -760,10 +759,7 @@ def update(
             richprint.print("Enabled Admin-tools.")
 
         elif admin_tools == EnableDisableOptionsEnum.disable:
-            if (
-                not bench.admin_tools.compose_file_manager.compose_path.exists()
-                or not bench.bench_config.admin_tools
-            ):
+            if not bench.admin_tools.compose_file_manager.compose_path.exists() or not bench.bench_config.admin_tools:
                 richprint.print("Admin tools is already disabled.")
                 return
             else:
@@ -775,17 +771,17 @@ def update(
     if add_alias or remove_alias:
         add_domains_list = add_alias if add_alias else []
         remove_domains_list = remove_alias if remove_alias else []
-        
+
         richprint.change_head("Updating alias domains")
         bench.update_alias_domains(add_domains=add_domains_list, remove_domains=remove_domains_list)
         richprint.print("Alias domains updated successfully.")
-        
+
         # Only show certificate expiry if SSL is active
         if bench.has_certificate():
             richprint.print(
                 f"SSL Certificate will expire in {format_ssl_certificate_time_remaining(bench.certificate_manager.get_certificate_expiry())}"
             )
-    
+
     if bench_config_save:
         bench.save_bench_config()
 
@@ -808,7 +804,7 @@ def reset(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    
+
     # Create output handler with context for logging
     context = LoggerContext(bench=benchname, operation="reset")
     output = get_output_handler(ctx, context=context)
@@ -842,7 +838,7 @@ def restart(
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    
+
     # Create output handler with context for logging
     context = LoggerContext(bench=benchname, operation="restart")
     output = get_output_handler(ctx, context=context)
@@ -875,7 +871,7 @@ def ngrok(
     """Create ngrok tunnel for the bench."""
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
-    
+
     # Create output handler with context for logging
     context = LoggerContext(bench=benchname, operation="ngrok")
     output = get_output_handler(ctx, context=context)
