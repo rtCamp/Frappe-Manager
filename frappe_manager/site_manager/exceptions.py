@@ -6,7 +6,6 @@ from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.utils import helpers
 from rich.box import Box
 from rich.style import Style
-from typer import Option
 
 
 class BenchException(Exception):

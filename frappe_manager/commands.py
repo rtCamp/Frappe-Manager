@@ -128,8 +128,10 @@ def app_callback(
             richprint.print(f"Rolled back to previous version of fm {migrations.prev_version}.")
             raise typer.Exit(0)  # Exit gracefully since rollback is intentional
 
-        services_manager: ServicesManager = ServicesManager(verbose=verbose)
-        services_manager.set_typer_context(ctx)
+        services_manager: ServicesManager = ServicesManager(
+            verbose=verbose,
+            invoked_subcommand=ctx.invoked_subcommand,
+        )
 
         services_manager.init()
 

@@ -3,9 +3,8 @@ import platform
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
-import typer
 from jinja2 import Template
 
 from frappe_manager import CLI_DIR, CLI_SERVICES_DIRECTORY
@@ -39,12 +38,13 @@ class ServicesManager:
         self,
         path=CLI_SERVICES_DIRECTORY,
         verbose: bool = False,
+        invoked_subcommand: Optional[str] = None,
         output_handler: OutputHandler | None = None,
     ) -> None:
         self.path = path
         self.quiet = not verbose
         self.compose_path = self.path / "docker-compose.yml"
-        self.typer_context: typer.Context | None = None
+        self.invoked_subcommand = invoked_subcommand
         self.output = output_handler or RichOutputHandler()
 
     def entrypoint_checks(self, start=False):
@@ -80,7 +80,7 @@ class ServicesManager:
             )
 
         if start:
-            if not self.typer_context.invoked_subcommand == "service":
+            if not self.invoked_subcommand == "service":
                 # Check if services are running
                 services = self.compose_file_manager.get_services_list()
                 containers = self.compose_file_manager.get_container_names().values()
@@ -143,12 +143,6 @@ class ServicesManager:
             template = Template(template_path.read_text())
             output = template.render(current_version=f"v{get_current_fm_version()}")
             self.fm_headers_path.write_text(output)
-
-    def set_typer_context(self, ctx: typer.Context):
-        """
-        The function sets the typer context
-        """
-        self.typer_context = ctx
 
     def create(self, backup: bool = False, clean_install: bool = True):
         envs = {
