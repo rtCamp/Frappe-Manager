@@ -5,6 +5,7 @@ import typer
 import typer
 
 from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.exceptions import OperationAborted
 from frappe_manager.utils.helpers import get_current_fm_version, install_package
 from frappe_manager.utils.site import pull_docker_images
 
@@ -29,7 +30,8 @@ def update(ctx: typer.Context):
             if continue_update == 'yes':
                 install_package("frappe-manager", latest_version)
     except Exception as e:
-        richprint.exit(f"Error occured while updating the app : {e}")
+        richprint.error(f"Error occurred while updating the app: {e}")
+        raise typer.Exit(1)
 
 @self_app.command('update-images')
 def update_images(

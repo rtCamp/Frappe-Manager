@@ -5,7 +5,7 @@ from frappe_manager import CLI_LOG_DIRECTORY
 import shutil
 import gzip
 from typing import Dict, Optional
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.exceptions import ConfigurationError
 
 # Define MESSAGE log level
 CLEANUP = 25
@@ -42,7 +42,9 @@ def get_logger(log_dir=CLI_LOG_DIRECTORY, log_file_name='fm') -> logging.Logger:
     try:
         log_dir.mkdir(parents=False, exist_ok=True)
     except PermissionError as e:
-        richprint.exit(f"Logging not working. {e}", os_exit=True)
+        # Use print since logger hasn't been initialized yet
+        print(f"FATAL: Logging not working. {e}")
+        raise ConfigurationError(f"Logging not working: {e}", details={"log_dir": str(log_dir)})
 
     # Create logger object and set the format for logging and other attributes
     if loggers.get(log_file_name):

@@ -19,6 +19,7 @@ from rich.console import Console
 from rich.traceback import Traceback
 from frappe_manager.logger import log
 from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.exceptions import ServiceNotAvailable
 from frappe_manager.site_manager import PREBAKED_SITE_APPS
 from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_DEFAULT_DELIMETER, CLI_SITE_NAME_DELIMETER
 
@@ -117,8 +118,10 @@ def check_and_display_port_status(ports_to_check: list, exclude=[]):
     if ports_to_check:
         already_binded = check_ports(ports_to_check)
         if already_binded:
-            richprint.exit(
-                f"Ports {', '.join(map(str, already_binded))} {'are' if len(already_binded) > 1 else 'is'} currently in use. Please free up these ports."
+            error_msg = f"Ports {', '.join(map(str, already_binded))} {'are' if len(already_binded) > 1 else 'is'} currently in use. Please free up these ports."
+            richprint.error(error_msg)
+            raise ServiceNotAvailable(
+                "Required ports are currently in use", details={"ports": already_binded}
             )
 
 

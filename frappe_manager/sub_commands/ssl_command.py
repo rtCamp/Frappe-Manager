@@ -7,6 +7,7 @@ from frappe_manager.site_manager.exceptions import BenchSSLCertificateNotIssued
 from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotDueForRenewalError
 from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
 from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.exceptions import SSLCertificateError
 
 ssl_root_command = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
 
@@ -28,7 +29,10 @@ def delete(
     richprint.change_head("Removing SSL certificate")
 
     if not bench.has_certificate():
-        richprint.exit(f"{benchname} doesn't have SSL certificate issued.")
+        richprint.error(f"{benchname} doesn't have SSL certificate issued.")
+        raise SSLCertificateError(
+            "Bench doesn't have SSL certificate issued.", details={"bench": benchname}
+        )
     bench.remove_certificate()
     richprint.print("Removed SSL certificate.")
 

@@ -30,6 +30,7 @@ from frappe_manager.services_manager.services_exceptions import (
 from frappe_manager.site_manager.exceptions import BenchDockerComposeFileNotFound
 from frappe_manager.utils.docker import host_run_cp
 from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.exceptions import MigrationError
 from frappe_manager.utils.helpers import get_container_name_prefix, get_unix_groups, random_password_generate
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.migration_manager.version import Version
@@ -405,7 +406,11 @@ class MigrationV0100(MigrationBase):
             try:
                 temp_dir.mkdir(parents=True, exist_ok=True)
             except Exception as e:
-                richprint.exit(f"Failed to create global services bind mount directories. Error: {e}")
+                richprint.error(f"Failed to create global services bind mount directories. Error: {e}")
+                raise MigrationError(
+                    f"Failed to create global services bind mount directories: {e}",
+                    details={"directory": str(temp_dir), "version": str(self.version)},
+                )
 
         # populate secrets for db
         db_password_path = self.services_manager.services_path / 'secrets' / 'db_password.txt'

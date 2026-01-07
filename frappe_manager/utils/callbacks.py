@@ -160,7 +160,7 @@ def sitename_callback(sitename: Optional[str]):
             richprint.start("working")
 
     if sitename is None:
-        richprint.exit("Invalid selection. Must match existing sites")
+        raise typer.BadParameter("Invalid selection. Must match existing sites")
 
     sitename = validate_sitename(sitename)
 
@@ -240,7 +240,7 @@ def create_command_sitename_callback(sitename: str):
     bench_path = CLI_BENCHES_DIRECTORY / sitename
 
     if bench_path.exists():
-        richprint.exit(f"The bench '{sitename}' already exists at {bench_path}. Aborting operation.")
+        raise typer.BadParameter(f"The bench '{sitename}' already exists at {bench_path}. Aborting operation.")
 
     return sitename
 

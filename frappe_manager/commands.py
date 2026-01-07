@@ -125,7 +125,8 @@ def app_callback(
         migration_status = migrations.execute()
 
         if not migration_status:
-            richprint.exit(f"Rollbacked to previous version of fm {migrations.prev_version}.")
+            richprint.print(f"Rolled back to previous version of fm {migrations.prev_version}.")
+            raise typer.Exit(0)  # Exit gracefully since rollback is intentional
 
         services_manager: ServicesManager = ServicesManager(verbose=verbose)
         services_manager.set_typer_context(ctx)

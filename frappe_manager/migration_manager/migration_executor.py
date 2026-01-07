@@ -97,10 +97,11 @@ class MigrationExecutor:
 
             if continue_migration == "no":
                 install_package("frappe-manager", str(self.prev_version.version))
-                richprint.exit(
+                richprint.print(
                     f"Successfully installed [bold][blue]Frappe-Manager[/blue][/bold] version: v{str(self.prev_version.version)}",
                     emoji_code=":white_check_mark:",
                 )
+                return False  # Return False to indicate migration was aborted
 
         rollback = False
         archive = False
@@ -214,7 +215,8 @@ class MigrationExecutor:
                 f"Installing [bold][blue]Frappe-Manager[/blue][/bold] version: v{str(self.rollback_version.version)}"
             )
             install_package("frappe-manager", str(self.rollback_version.version))
-            richprint.exit("Rollback complete.", emoji_code=':back:')
+            richprint.print("Rollback complete.", emoji_code=':back:')
+            return False  # Return False to indicate rollback occurred
 
         self.fm_config_manager.version = self.current_version
         self.fm_config_manager.export_to_toml()
