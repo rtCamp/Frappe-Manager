@@ -97,7 +97,7 @@ class MigrationBase(ABC):
 
             self.migration_executor.set_bench_data(bench, migration_version=self.version)
             try:
-                self.bench_basic_backup(bench)
+                # self.bench_basic_backup(bench)
                 self.migrate_bench(bench)
             except Exception as e:
                 traceback_str = capture_and_format_exception()
