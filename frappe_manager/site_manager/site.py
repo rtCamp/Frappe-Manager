@@ -1176,7 +1176,7 @@ class Bench:
         try:
             self.compose_project.docker.compose.exec('frappe', command, user='frappe', stream=False)
         except DockerException as e:
-            raise BenchException("frappe", f"Faild to run {command} in frappe service.")
+            raise BenchException("frappe", f"Failed to run {command} in frappe service.")
 
     def check_admin_password(self, password: str) -> Optional[bool]:
         """Verify administrator password using Frappe's check_password function.
