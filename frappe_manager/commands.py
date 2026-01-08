@@ -5,6 +5,8 @@ import typer
 import os
 import sys
 import shutil
+import secrets
+import string
 from typing import Annotated, List, Optional
 from frappe_manager.compose_project.compose_project import ComposeProject
 from frappe_manager.ngrok import create_tunnel
@@ -175,9 +177,9 @@ def create(
     ] = "version-15",
     template: Annotated[bool, typer.Option(help="Create template bench.")] = False,
     admin_pass: Annotated[
-        str,
-        typer.Option(help="Password for the 'Administrator' User."),
-    ] = "admin",
+        Optional[str],
+        typer.Option(help="Password for the 'Administrator' User. If not provided, a secure random password will be generated."),
+    ] = None,
     ssl: Annotated[
         SUPPORTED_SSL_TYPES, typer.Option(help="Enable https", show_default=True)
     ] = SUPPORTED_SSL_TYPES.none,
@@ -236,6 +238,10 @@ def create(
         developer_mode_status = True
     elif developer_mode == EnableDisableOptionsEnum.disable:
         developer_mode_status = False
+
+    if admin_pass is None:
+        alphabet = string.ascii_letters + string.digits
+        admin_pass = ''.join(secrets.choice(alphabet) for _ in range(16))
 
     bench_config: BenchConfig = BenchConfig(
         name=benchname,
