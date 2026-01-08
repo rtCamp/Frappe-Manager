@@ -1206,7 +1206,7 @@ class Bench:
             if 'Administrator' in output_text:
                 return True
             
-            return None
+            return False
         
         except DockerException as e:
             error_text = ''.join([line.decode() if isinstance(line, bytes) else line for line in e.output.stdout])
