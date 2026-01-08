@@ -723,6 +723,14 @@ class Bench:
 
         if 'admin_password' in site_config:
             admin_pass = site_config['admin_password']
+            if self.compose_project.running:
+                check_result = self.check_admin_password(admin_pass)
+                if check_result is True:
+                    admin_pass += " [green](verified)[/green]"
+                elif check_result is False:
+                    admin_pass += " [red](Wrong Password)[/red]"
+                else:
+                    admin_pass += " [yellow](unable to verify)[/yellow]"
 
         ssl_service_type = f'{self.bench_config.ssl.ssl_type.value}'
 
@@ -1169,6 +1177,49 @@ class Bench:
             self.compose_project.docker.compose.exec('frappe', command, user='frappe', stream=False)
         except DockerException as e:
             raise BenchException("frappe", f"Faild to run {command} in frappe service.")
+
+    def check_admin_password(self, password: str) -> Optional[bool]:
+        """Verify administrator password using Frappe's check_password function.
+        
+        Returns:
+            True: Password is valid
+            False: Password is invalid
+            None: Verification couldn't be performed
+        """
+        if not self.compose_project.running:
+            return None
+        
+        try:
+            escaped_password = password.replace('"', '\\"')
+            args_str = f'(\\"Administrator\\", \\"{escaped_password}\\")'
+            command = f'bench --site {self.name} execute frappe.utils.password.check_password --args "{args_str}"'
+            
+            output = self.benchops.container_run(
+                command=command,
+                service='frappe',
+                user='frappe',
+                capture_output=True
+            )
+            
+            output_text = ''.join([line.decode() if isinstance(line, bytes) else line for line in output.stdout])
+            
+            if 'Administrator' in output_text:
+                return True
+            
+            return None
+        
+        except DockerException as e:
+            error_text = ''.join([line.decode() if isinstance(line, bytes) else line for line in e.output.stdout])
+            
+            if 'Incorrect User or Password' in error_text or 'AuthenticationError' in error_text:
+                return False
+            
+            self.logger.debug(f"Password check failed: {e}")
+            return None
+                    
+        except Exception as e:
+            self.logger.debug(f"Password check failed: {e}")
+            return None
 
     def get_apps_dev_requirements(self) -> List[str]:
         """Parse pip requirement string to package name and version"""
