@@ -66,6 +66,8 @@
 ## 🚀 Quick Start
 
 ```bash
+# Make pipx accessible
+pipx ensurepath
 # Install Frappe Manager (stable)
 pipx install frappe-manager 
 
