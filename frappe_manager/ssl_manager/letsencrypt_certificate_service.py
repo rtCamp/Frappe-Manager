@@ -92,7 +92,15 @@ class LetsEncryptCertificateService(SSLCertificateService):
         remove_certificate_config.func(remove_certificate_config, plugins)
         self.output.print("Removed Letsencrypt certificate")
 
-    def generate_certificate(self, certificate: LetsencryptSSLCertificate, alias_domains: list[str] | None = None):
+    def generate_certificate(self, certificate: LetsencryptSSLCertificate):
+        """
+        Generate individual certificate for a single domain using certbot.
+
+        Each certificate is issued for a single domain only (no SANs).
+
+        Args:
+            certificate: Certificate configuration
+        """
         gen_command: str = self.base_command + " certonly "
 
         self.output.print(f"Using Let's Encrypt {certificate.preferred_challenge.value} challenge.")
@@ -121,14 +129,8 @@ class LetsEncryptCertificateService(SSLCertificateService):
             gen_command += " --test-cert"
             self.output.print("[yellow]⚠️  Using Let's Encrypt STAGING server (test certificates)[/yellow]")
 
-        # Build list of all domains: primary + alias domains
-        all_domains = [f"{certificate.domain}"]
-        if alias_domains:
-            all_domains.extend(alias_domains)
-
-        # Add all domains to certificate
-        for domain in all_domains:
-            gen_command += f" -d '{domain}'"
+        # Generate certificate for single domain only
+        gen_command += f" -d '{certificate.domain}'"
 
         try:
             self.output.change_head("Getting Letsencrypt certificate")

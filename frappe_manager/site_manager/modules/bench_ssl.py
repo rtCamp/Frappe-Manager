@@ -44,15 +44,6 @@ class BenchSSL:
         self.bench_name = bench_name
         self._is_service_running = is_service_running_fn
 
-    def create_certificate(self, alias_domains: List[str]) -> None:
-        """
-        Create SSL certificate for the bench.
-
-        Args:
-            alias_domains: List of alias domains for the certificate
-        """
-        self.certificate_manager.generate_certificate(alias_domains)
-
     def create_individual_certificates(self) -> None:
         """
         Create individual SSL certificates for all domains.
@@ -71,24 +62,21 @@ class BenchSSL:
         """
         return self.certificate_manager.has_certificate()
 
-    def remove_certificate(self, alias_domains: List[str]) -> None:
+    def remove_certificate(self, domain: str | None = None) -> None:
         """
         Remove SSL certificate from the bench.
 
         Args:
-            alias_domains: List of alias domains to remove from certificate
+            domain: Domain to remove certificate for. If None, removes primary certificate.
         """
-        self.certificate_manager.remove_certificate(alias_domains)
+        self.certificate_manager.remove_certificate(domain)
 
-    def update_certificate(
-        self, certificate: SSLCertificate, alias_domains: List[str], raise_error: bool = True
-    ) -> bool:
+    def update_certificate(self, certificate: SSLCertificate, raise_error: bool = True) -> bool:
         """
         Update SSL certificate configuration.
 
         Args:
             certificate: New certificate configuration
-            alias_domains: List of alias domains for the certificate
             raise_error: Whether to raise error on failures
 
         Returns:
@@ -103,12 +91,12 @@ class BenchSSL:
                 if raise_error:
                     raise BenchSSLCertificateAlreadyIssued(self.bench_name)
             else:
-                # Update primary certificate by regenerating
-                self.create_certificate(alias_domains)
+                # Update primary certificate by regenerating all certificates
+                self.create_individual_certificates()
 
         elif certificate.ssl_type == SUPPORTED_SSL_TYPES.none:
             if self.has_certificate():
-                self.remove_certificate(alias_domains)
+                self.remove_certificate()
             else:
                 if not raise_error:
                     return True
@@ -116,12 +104,13 @@ class BenchSSL:
 
         return True
 
-    def renew_certificate(self, alias_domains: List[str]) -> None:
+    def renew_certificate(self, domain: str | None = None, dry_run: bool = False) -> None:
         """
         Renew existing SSL certificate.
 
         Args:
-            alias_domains: List of alias domains for the certificate
+            domain: Domain to renew certificate for. If None, renews primary certificate.
+            dry_run: If True, uses Let's Encrypt staging server and skips system modifications
 
         Raises:
             BenchSSLCertificateNotIssued: If no certificate exists
@@ -133,4 +122,26 @@ class BenchSSL:
         if not self._is_service_running('nginx'):
             raise BenchServiceNotRunning(self.bench_name, 'nginx')
 
-        self.certificate_manager.renew_certificate(alias_domains)
+        self.certificate_manager.renew_certificate(domain, dry_run=dry_run)
+
+    def renew_all_certificates(self, dry_run: bool = False) -> None:
+        """
+        Renew all SSL certificates for the bench.
+
+        This renews all certificates that are due for renewal.
+        Certificates not due for renewal are skipped.
+
+        Args:
+            dry_run: If True, uses Let's Encrypt staging server and skips system modifications
+
+        Raises:
+            BenchSSLCertificateNotIssued: If no certificates exist
+            BenchServiceNotRunning: If nginx service is not running
+        """
+        if not self.has_certificate():
+            raise BenchSSLCertificateNotIssued(self.bench_name)
+
+        if not self._is_service_running('nginx'):
+            raise BenchServiceNotRunning(self.bench_name, 'nginx')
+
+        self.certificate_manager.renew_all_certificates(dry_run=dry_run)

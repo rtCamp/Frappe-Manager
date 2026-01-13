@@ -281,15 +281,60 @@
     "renew": {
       "examples": [
         {
-          "desc": "Renew all certificates.",
-          "code": " --all",
-          "benchname": ""
+          "desc": "Renew all certificates for {benchname}.",
+          "code": ""
         },
         {
-          "desc": "Renew specific {benchname} ssl certificate.",
-          "code": ""
+          "desc": "Renew certificate for specific domain on {benchname}.",
+          "code": " www.example.com"
+        },
+        {
+          "desc": "Renew all certificates for all benches.",
+          "code": " --all",
+          "benchname": ""
         }
       ]
+    },
+    "dns-config": {
+      "cloudflare": {
+        "examples": [
+          {
+            "desc": "Configure global Cloudflare credentials using API Token (recommended).",
+            "code": " --api-token YOUR_CLOUDFLARE_API_TOKEN",
+            "benchname": ""
+          },
+          {
+            "desc": "Configure global Cloudflare credentials using API Key (legacy).",
+            "code": " --api-key YOUR_API_KEY --email admin@example.com",
+            "benchname": ""
+          },
+          {
+            "desc": "Configure bench-specific Cloudflare credentials (overrides global).",
+            "code": " <benchname> --api-token BENCH_SPECIFIC_TOKEN",
+            "benchname": ""
+          },
+          {
+            "desc": "Show global Cloudflare DNS credentials configuration.",
+            "code": " --show",
+            "benchname": ""
+          },
+          {
+            "desc": "Show bench-specific Cloudflare DNS credentials.",
+            "code": " <benchname> --show",
+            "benchname": ""
+          },
+          {
+            "desc": "Remove global Cloudflare DNS credentials.",
+            "code": " --remove",
+            "benchname": ""
+          },
+          {
+            "desc": "Remove bench-specific Cloudflare DNS credentials.",
+            "code": " <benchname> --remove",
+            "benchname": ""
+          }
+        ]
+      }
     }
   },
   "self": {

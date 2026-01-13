@@ -2,7 +2,7 @@
 Factory for creating SSL certificate service instances.
 
 This module provides a factory function that creates the appropriate SSL certificate
-service based on certificate configuration, following the dependency injection pattern.
+service based on certificate configuration (acme_client), following the dependency injection pattern.
 """
 
 from pathlib import Path
@@ -25,8 +25,10 @@ def create_certificate_service(
     """
     Create an appropriate SSL certificate service based on certificate configuration.
 
-    This factory function encapsulates the logic for choosing the right service
-    implementation based on the certificate type and configuration.
+    This factory function chooses the service based on acme_client field:
+    - "acme.sh" -> AcmeShCertificateService
+    - "certbot" -> LetsEncryptCertificateService
+    - None/disabled -> NoOpCertificateService
 
     Args:
         certificate: The SSL certificate to create a service for
@@ -37,33 +39,40 @@ def create_certificate_service(
         An SSL certificate service instance appropriate for the certificate
 
     Raises:
-        ValueError: If certificate type is unsupported
+        ValueError: If certificate configuration is invalid
     """
-    # Disabled/no-op certificates
-    if certificate.ssl_type == SUPPORTED_SSL_TYPES.none:
+    # Check if SSL is disabled (for backward compatibility with ssl_type field)
+    if hasattr(certificate, 'ssl_type') and certificate.ssl_type == SUPPORTED_SSL_TYPES.none:
         return NoOpCertificateService(
             root_dir=storage_config.ssl_dir,
             output_handler=output_handler,
         )
 
-    # Let's Encrypt certificates
-    if certificate.ssl_type == SUPPORTED_SSL_TYPES.le:
-        # Check if it's a custom domain with CNAME delegation or if acme.sh is explicitly requested
-        if (isinstance(certificate, CustomDomainCertificate) and certificate.delegation_cname) or (
-            hasattr(certificate, 'acme_client') and certificate.acme_client == "acme.sh"
-        ):
-            # Use acme.sh for CNAME delegation support or when explicitly requested
-            return AcmeShCertificateService(
-                ssl_service_dir=storage_config.ssl_dir,
-                webroot_dir=storage_config.webroot_dir,
-                output_handler=output_handler,
-            )
+    # Check if certificate is explicitly disabled via enabled field
+    if hasattr(certificate, 'enabled') and not certificate.enabled:
+        return NoOpCertificateService(
+            root_dir=storage_config.ssl_dir,
+            output_handler=output_handler,
+        )
 
-        # Use certbot for standard Let's Encrypt
+    # Determine service based on acme_client field
+    acme_client = getattr(certificate, 'acme_client', 'acme.sh')  # Default to acme.sh
+
+    if acme_client == "acme.sh":
+        # Use acme.sh service
+        return AcmeShCertificateService(
+            ssl_service_dir=storage_config.ssl_dir,
+            webroot_dir=storage_config.webroot_dir,
+            output_handler=output_handler,
+        )
+
+    elif acme_client == "certbot":
+        # Use certbot service
         return LetsEncryptCertificateService(
             ssl_service_dir=storage_config.ssl_dir,
             webroot_dir=storage_config.webroot_dir,
             output_handler=output_handler,
         )
 
-    raise ValueError(f"Unsupported SSL certificate type: {certificate.ssl_type}")
+    else:
+        raise ValueError(f"Unsupported ACME client: {acme_client}. Supported: 'certbot', 'acme.sh'")

@@ -7,12 +7,19 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class SSLCertificateService(Protocol):
+    """
+    Protocol for SSL certificate service implementations.
+
+    All certificate services generate individual certificates (one domain per certificate).
+    SAN certificates are deprecated.
+    """
+
     root_dir: Path
 
     def renew_certificate(self, certificate: "SSLCertificate") -> bool: ...
 
     def remove_certificate(self, certificate: "SSLCertificate") -> bool: ...
 
-    def generate_certificate(
-        self, certificate: "SSLCertificate", alias_domains: list[str] | None = None,
-    ) -> tuple[Path, Path]: ...
+    def generate_certificate(self, certificate: "SSLCertificate") -> tuple[Path, Path]:
+        """Generate individual certificate for a single domain (no SANs)."""
+        ...

@@ -584,25 +584,25 @@ class Bench:
         return self.database.get_connection_info()
 
     def create_certificate(self):
-        self.ssl.create_certificate(self.bench_config.alias_domains)
+        self.ssl.create_individual_certificates()
         self.save_bench_config()
 
     def has_certificate(self):
         return self.ssl.has_certificate()
 
     def remove_certificate(self):
-        self.ssl.remove_certificate(self.bench_config.alias_domains)
+        self.ssl.remove_certificate()
         self.bench_config.set_primary_certificate(SSLCertificate(domain=self.name, ssl_type=SUPPORTED_SSL_TYPES.none))
         self.save_bench_config()
 
     def update_certificate(self, certificate: SSLCertificate, raise_error: bool = True):
-        result = self.ssl.update_certificate(certificate, self.bench_config.alias_domains, raise_error)
+        result = self.ssl.update_certificate(certificate, raise_error)
         if result:
             self.bench_config.set_primary_certificate(certificate)
         return result
 
     def renew_certificate(self):
-        return self.ssl.renew_certificate(self.bench_config.alias_domains)
+        return self.ssl.renew_certificate()
 
     def update_alias_domains(self, add_domains: Optional[List[str]] = None, remove_domains: Optional[List[str]] = None):
         """

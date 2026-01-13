@@ -130,17 +130,14 @@ class AcmeShCertificateService:
 
         return result
 
-    def generate_certificate(
-        self, certificate: SSLCertificate, alias_domains: list[str] | None = None
-    ) -> Tuple[Path, Path]:
+    def generate_certificate(self, certificate: SSLCertificate) -> Tuple[Path, Path]:
         """
-        Issue certificate using acme.sh.
+        Issue individual certificate using acme.sh.
 
-        Implements SSLCertificateService protocol signature.
+        Each certificate is issued for a single domain only (no SANs).
 
         Args:
             certificate: Certificate configuration
-            alias_domains: Optional list of alias domains (for SAN certificate)
 
         Returns:
             Tuple of (privkey_path, fullchain_path)
@@ -175,11 +172,6 @@ class AcmeShCertificateService:
         # Add email from certificate configuration
         if hasattr(certificate, 'email') and certificate.email:
             args.extend(["--accountemail", certificate.email])
-
-        # Add alias domains as additional SANs
-        if alias_domains:
-            for alias in alias_domains:
-                args.extend(["-d", alias])
 
         env = {}
 

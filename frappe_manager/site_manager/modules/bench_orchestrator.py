@@ -97,7 +97,11 @@ class BenchOrchestrator:
 
             self.output.change_head("Starting bench services")
             output = bench.docker_client.compose.up(
-                services=[], detach=True, pull="never", force_recreate=True, stream=bench.quiet,
+                services=[],
+                detach=True,
+                pull="never",
+                force_recreate=True,
+                stream=bench.quiet,
             )
             if bench.quiet:
                 self.output.live_lines(output, padding=(0, 0, 0, 2))
@@ -192,7 +196,11 @@ class BenchOrchestrator:
         command = f"/bin/bash -c 'source /etc/bash.bashrc; {command}'"
         try:
             bench.docker_client.compose.exec(
-                service="frappe", command=command, user="frappe", workdir="/workspace/frappe-bench", stream=False,
+                service="frappe",
+                command=command,
+                user="frappe",
+                workdir="/workspace/frappe-bench",
+                stream=False,
             )
         except Exception:
             raise BenchOperationException(bench.name, "Failed to remove /workspace/frappe-bench/archived directory.")
@@ -287,7 +295,8 @@ class BenchOrchestrator:
         if reconfigure_workers:
             self.output.print("Reconfiguring workers")
             bench.sync_workers_compose(
-                include_default_workers=include_default_workers, include_custom_workers=include_custom_workers,
+                include_default_workers=include_default_workers,
+                include_custom_workers=include_custom_workers,
             )
 
         # Sync dev packages if requested
@@ -309,7 +318,11 @@ class BenchOrchestrator:
         if bench.workers.compose_file_manager.exists():
             self.output.change_head("Starting bench workers services")
             output = bench.workers.docker_client.compose.up(
-                services=[], detach=True, pull="never", force_recreate=force, stream=bench.quiet,
+                services=[],
+                detach=True,
+                pull="never",
+                force_recreate=force,
+                stream=bench.quiet,
             )
             if bench.quiet:
                 self.output.live_lines(output, padding=(0, 0, 0, 2))
@@ -401,7 +414,7 @@ class BenchOrchestrator:
             # Only regenerate certificate if SSL is active
             if bench.has_certificate():
                 self.output.change_head("Regenerating SSL certificate with updated domains")
-                bench.certificate_manager.generate_certificate(bench.bench_config.alias_domains)
+                bench.certificate_manager.generate_all_certificates()
                 self.output.print("Certificate regenerated successfully.")
 
             # Always save config and restart services
@@ -434,7 +447,11 @@ class BenchOrchestrator:
 
         bench.generate_compose(bench.bench_config.export_to_compose_inputs())
         output = bench.docker_client.compose.up(
-            services=[], detach=True, pull="never", force_recreate=True, stream=bench.quiet,
+            services=[],
+            detach=True,
+            pull="never",
+            force_recreate=True,
+            stream=bench.quiet,
         )
         if bench.quiet:
             self.output.live_lines(output, padding=(0, 0, 0, 2))
@@ -452,7 +469,11 @@ class BenchOrchestrator:
         # Start workers if they exist
         if bench.workers.compose_file_manager.exists():
             output = bench.workers.docker_client.compose.up(
-                services=[], detach=True, pull="never", force_recreate=True, stream=bench.quiet,
+                services=[],
+                detach=True,
+                pull="never",
+                force_recreate=True,
+                stream=bench.quiet,
             )
             if bench.quiet:
                 self.output.live_lines(output, padding=(0, 0, 0, 2))

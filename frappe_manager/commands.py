@@ -273,7 +273,7 @@ def create(
     alias_domains: Annotated[
         Optional[str],
         typer.Option(
-            help="Comma-separated list of alias domains for the site (e.g., 'www.example.com,api.example.com'). These domains will be configured as network aliases for accessing the site. If SSL is enabled, they will also be included as Subject Alternative Names (SAN) in the SSL certificate. Wildcard domains (e.g., '*.example.com') require dns01 challenge and SSL.",
+            help="Comma-separated list of alias domains for the site (e.g., 'www.example.com,api.example.com'). These domains will be configured as network aliases for accessing the site. Each domain will receive its own individual SSL certificate (not combined into SAN). Wildcard domains (e.g., '*.example.com') require dns01 challenge and SSL.",
             callback=alias_domains_validation_callback,
             show_default=False,
         ),
@@ -308,43 +308,38 @@ def create(
                         param_hint='--letsencrypt-preferred-challenge',
                     )
                 # Ensure DNS credentials are available
-                if not fm_config_manager.letsencrypt.api_token and not fm_config_manager.letsencrypt.api_key:
+                if not fm_config_manager.cloudflare.api_token and not fm_config_manager.cloudflare.api_key:
                     richprint.stop()
                     raise typer.BadParameter(
                         "Wildcard domains require Cloudflare DNS credentials. "
-                        "Please configure api_token or api_key in fm_config.toml or ensure they are set globally.",
+                        "Please configure [cloudflare] section with api_token or api_key in ~/frappe/fm_config.toml",
                         param_hint='--alias-domains',
                     )
 
         if not letsencrypt_preferred_challenge:
-            if fm_config_manager.letsencrypt.exists:
+            if fm_config_manager.cloudflare.exists:
                 if letsencrypt_preferred_challenge is None:
                     letsencrypt_preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
 
             if not letsencrypt_preferred_challenge:
                 letsencrypt_preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.http01
 
-        if fm_config_manager.letsencrypt.email == 'dummy@fm.fm' or fm_config_manager.letsencrypt.email is None:
-            if not letsencrypt_email:
-                richprint.stop()
-                raise typer.BadParameter("No email provided, required by certbot.", param_hint='--letsencrypt-email')
-            else:
-                email = letsencrypt_email
-
-            validate_email(email, check_deliverability=False)
-        else:
-            richprint.print(
-                "Defaulting to Let's Encrypt email from [blue]fm_config.toml[/blue] since [blue]'--letsencrypt-email'[/blue] is not given."
+        if not letsencrypt_email:
+            richprint.stop()
+            raise typer.BadParameter(
+                "Email is required for Let's Encrypt certificate registration.", param_hint='--letsencrypt-email'
             )
-            email = fm_config_manager.letsencrypt.email
+
+        email = letsencrypt_email
+        validate_email(email, check_deliverability=False)
 
         ssl_certificate = LetsencryptSSLCertificate(
             domain=benchname,
             ssl_type=ssl,
             email=email,
             preferred_challenge=letsencrypt_preferred_challenge,
-            api_key=fm_config_manager.letsencrypt.api_key,
-            api_token=fm_config_manager.letsencrypt.api_token,
+            api_key=fm_config_manager.cloudflare.api_key,
+            api_token=fm_config_manager.cloudflare.api_token,
         )
 
     elif ssl == SUPPORTED_SSL_TYPES.none:
@@ -699,36 +694,26 @@ def update(
 
         if ssl == SUPPORTED_SSL_TYPES.le:
             if not letsencrypt_preferred_challenge:
-                if fm_config_manager.letsencrypt.exists:
-                    if letsencrypt_preferred_challenge is None:
-                        letsencrypt_preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
-
                 if not letsencrypt_preferred_challenge:
                     letsencrypt_preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.http01
 
-            if fm_config_manager.letsencrypt.email == 'dummy@fm.fm' or fm_config_manager.letsencrypt.email is None:
-                if not letsencrypt_email:
-                    richprint.stop()
-                    raise typer.BadParameter(
-                        "No email provided, required by certbot.", param_hint='--letsencrypt-email'
-                    )
-                else:
-                    email = letsencrypt_email
-
-                validate_email(email, check_deliverability=False)
-            else:
-                richprint.print(
-                    "Defaulting to Let's Encrypt email from [blue]fm_config.toml[/blue] since [blue]'--letsencrypt-email'[/blue] is not given."
+            # Email is now required via --letsencrypt-email flag (no global default)
+            if not letsencrypt_email:
+                richprint.stop()
+                raise typer.BadParameter(
+                    "Email is required for Let's Encrypt certificates.", param_hint='--letsencrypt-email'
                 )
-                email = fm_config_manager.letsencrypt.email
+
+            email = letsencrypt_email
+            validate_email(email, check_deliverability=False)
 
             new_ssl_certificate = LetsencryptSSLCertificate(
                 domain=benchname,
                 ssl_type=ssl,
                 email=email,
                 preferred_challenge=letsencrypt_preferred_challenge,
-                api_key=fm_config_manager.letsencrypt.api_key,
-                api_token=fm_config_manager.letsencrypt.api_token,
+                api_key=fm_config_manager.cloudflare.api_key,
+                api_token=fm_config_manager.cloudflare.api_token,
             )
 
             # Auto-include existing alias domains (no need to copy to certificate, they're at bench level)

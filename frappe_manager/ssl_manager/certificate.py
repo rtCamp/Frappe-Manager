@@ -29,7 +29,7 @@ class SSLCertificate(BaseModel):
     ssl_type: SUPPORTED_SSL_TYPES
     challenge_type: LETSENCRYPT_PREFERRED_CHALLENGE = LETSENCRYPT_PREFERRED_CHALLENGE.http01
     enabled: bool = True
-    acme_client: str = "certbot"  # "certbot" or "acme.sh"
+    acme_client: str = "acme.sh"  # "certbot" or "acme.sh" (default: acme.sh)
     hsts: str = "off"
 
     # System state fields (populated after certificate issuance)

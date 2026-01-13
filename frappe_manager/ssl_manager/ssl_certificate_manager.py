@@ -10,6 +10,8 @@ The manager supports multiple certificates per bench, allowing different domains
 to use different certificate types and validation methods.
 """
 
+import os
+import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Callable
@@ -108,20 +110,20 @@ class SSLCertificateManager:
         """
         return self.certificates[0] if self.certificates else None
 
-    def add_certificate(self, certificate: SSLCertificate, alias_domains: list[str] | None = None):
+    def add_certificate(self, certificate: SSLCertificate, dry_run: bool = False):
         """
         Add a new certificate and issue it.
 
         This method:
         1. Checks if certificate already exists
         2. Creates appropriate service for the certificate
-        3. Generates the certificate
-        4. Adds it to the managed certificates list
-        5. Persists the config via callback
+        3. Generates individual certificate (no SANs)
+        4. (Dry run mode) Uses staging server, skips symlinks, nginx restart, and config save
+        5. (Normal mode) Creates symlinks, restarts nginx, persists config
 
         Args:
             certificate: Certificate configuration to add
-            alias_domains: Optional list of alias domains to include
+            dry_run: If True, uses Let's Encrypt staging server and skips system modifications
 
         Raises:
             ValueError: If certificate for domain already exists
@@ -140,29 +142,73 @@ class SSLCertificateManager:
                 "Cannot add certificate: service_factory, storage_config, and output_handler are required"
             )
 
-        # Generate the certificate
-        privkey_path, fullchain_path = service.generate_certificate(certificate, alias_domains)
+        original_staging = None
+        if dry_run:
+            self.output_handler.print("[bold yellow]🧪 DRY RUN MODE: Using Let's Encrypt staging server[/bold yellow]")
+            self.output_handler.print(
+                "[dim]No system modifications will be made (no symlinks, nginx restart, or config save)[/dim]"
+            )
 
-        # Create symlinks for nginx-proxy
-        self.link_manager.link_certificate(
-            cert_type=certificate.ssl_type.value,
-            domain=certificate.domain,
-            privkey_path=privkey_path,
-            fullchain_path=fullchain_path,
-            alias_domains=alias_domains,
-        )
+            # Set staging environment variable
+            original_staging = os.environ.get("FM_LETSENCRYPT_STAGING")
+            os.environ["FM_LETSENCRYPT_STAGING"] = "1"
 
-        # Add to managed certificates
-        self.certificates.append(certificate)
+        try:
+            # Generate individual certificate (no SANs)
+            privkey_path, fullchain_path = service.generate_certificate(certificate)
 
-        # Restart nginx to pick up new certificate
-        self.nginx_controller.restart()
+            # Determine actual cert_type from the returned path
+            ssl_dir = self.storage_config.ssl_dir
+            try:
+                relative_path = privkey_path.relative_to(ssl_dir)
+                actual_cert_type = relative_path.parts[0]
+            except (ValueError, IndexError):
+                actual_cert_type = getattr(certificate, 'acme_client', 'letsencrypt')
 
-        # Persist config if callback provided
-        if self.config_save_callback:
-            self.config_save_callback()
+            if dry_run:
+                self.output_handler.print(
+                    f"✅ [green]Certificate validated successfully for {certificate.domain}[/green]"
+                )
+                self.output_handler.print(f"[dim]Staging certificate: {fullchain_path}[/dim]")
 
-    def remove_certificate_by_domain(self, domain: str, alias_domains: list[str] | None = None):
+                # Clean up staging certificate
+                cert_dir = privkey_path.parent
+                if cert_dir.exists() and cert_dir.is_relative_to(ssl_dir):
+                    self.output_handler.print(f"[dim]Cleaning up staging certificate from {cert_dir}[/dim]")
+                    shutil.rmtree(cert_dir, ignore_errors=True)
+
+                self.output_handler.print("[yellow]⏭️  Skipped: Creating symlinks (dry run)[/yellow]")
+                self.output_handler.print("[yellow]⏭️  Skipped: Restarting nginx (dry run)[/yellow]")
+                self.output_handler.print("[yellow]⏭️  Skipped: Saving configuration (dry run)[/yellow]")
+            else:
+                # Create symlinks for nginx-proxy (individual cert, no alias_domains)
+                self.link_manager.link_certificate(
+                    cert_type=actual_cert_type,
+                    domain=certificate.domain,
+                    privkey_path=privkey_path,
+                    fullchain_path=fullchain_path,
+                    alias_domains=None,
+                )
+
+                # Add to managed certificates
+                self.certificates.append(certificate)
+
+                # Restart nginx to pick up new certificate
+                self.nginx_controller.restart()
+
+                # Persist config if callback provided
+                if self.config_save_callback:
+                    self.config_save_callback()
+
+        finally:
+            if dry_run:
+                # Restore original staging setting
+                if original_staging is not None:
+                    os.environ["FM_LETSENCRYPT_STAGING"] = original_staging
+                else:
+                    os.environ.pop("FM_LETSENCRYPT_STAGING", None)
+
+    def remove_certificate_by_domain(self, domain: str):
         """
         Remove a certificate by domain name.
 
@@ -175,7 +221,6 @@ class SSLCertificateManager:
 
         Args:
             domain: Domain name of certificate to remove
-            alias_domains: Optional list of alias domains to also remove symlinks for
 
         Raises:
             SSLCertificateNotFoundError: If no certificate exists for domain
@@ -195,8 +240,8 @@ class SSLCertificateManager:
         if not service:
             raise RuntimeError(f"No service found for domain {domain}")
 
-        # Remove symlinks first
-        self.link_manager.unlink_certificate(domain, alias_domains)
+        # Remove symlinks (individual cert, no alias_domains)
+        self.link_manager.unlink_certificate(domain, alias_domains=None)
 
         # Remove actual certificate files
         service.remove_certificate(cert_to_remove)
@@ -347,52 +392,6 @@ class SSLCertificateManager:
 
         return not expiry_date_with_threshold > today_date
 
-    def generate_certificate(self, alias_domains: list[str] | None = None, domain: str | None = None):
-        """
-        Generate a new SSL certificate for a domain.
-
-        This creates a new certificate, sets up symlinks for the domain and any
-        alias domains, and restarts nginx to apply the changes.
-
-        Args:
-            alias_domains: Optional list of alias domains to include in certificate
-            domain: Domain to generate certificate for. If None, uses primary certificate.
-        """
-        if domain is None:
-            primary = self.get_primary_certificate()
-            if not primary:
-                raise ValueError("No primary certificate configured")
-            certificate = primary
-        else:
-            # Find certificate for this domain
-            certificate = None
-            for cert in self.certificates:
-                if cert.domain == domain:
-                    certificate = cert
-                    break
-            if not certificate:
-                raise SSLCertificateNotFoundError(domain)
-
-        # Get service for this certificate
-        service = self.services.get(certificate.domain)
-        if not service:
-            raise RuntimeError(f"No service found for domain {certificate.domain}")
-
-        # Generate certificate files
-        privkey_path, fullchain_path = service.generate_certificate(certificate, alias_domains)
-
-        # Create symlinks for nginx-proxy
-        self.link_manager.link_certificate(
-            cert_type=certificate.ssl_type.value,
-            domain=certificate.domain,
-            privkey_path=privkey_path,
-            fullchain_path=fullchain_path,
-            alias_domains=alias_domains,
-        )
-
-        # Restart nginx to pick up new certificate
-        self.nginx_controller.restart()
-
     def generate_all_certificates(self):
         """
         Generate individual SSL certificates for ALL configured certificates.
@@ -418,9 +417,9 @@ class SSLCertificateManager:
             if not service:
                 raise RuntimeError(f"No service found for domain {certificate.domain}")
 
-            # Generate certificate for this domain ONLY (no alias_domains)
+            # Generate certificate for this domain ONLY (individual cert)
             self.output_handler.print(f"Generating certificate for {certificate.domain}")
-            privkey_path, fullchain_path = service.generate_certificate(certificate, alias_domains=None)
+            privkey_path, fullchain_path = service.generate_certificate(certificate)
 
             # Determine actual cert_type from the returned path
             # (e.g., letsencrypt service stores in "letsencrypt", acmesh stores in "acmesh")
@@ -446,16 +445,16 @@ class SSLCertificateManager:
         self.nginx_controller.restart()
         self.output_handler.print("All individual certificates generated successfully")
 
-    def renew_certificate(self, alias_domains: list[str] | None = None, domain: str | None = None):
+    def renew_certificate(self, domain: str | None = None, dry_run: bool = False):
         """
         Renew an existing SSL certificate.
 
-        This renews the certificate if it's due for renewal, updates symlinks
-        to handle any new alias domains, and restarts nginx.
+        This renews the certificate if it's due for renewal, updates symlinks,
+        and restarts nginx.
 
         Args:
-            alias_domains: Optional list of alias domains (may have changed since generation)
             domain: Domain to renew. If None, uses primary certificate.
+            dry_run: If True, uses Let's Encrypt staging server and skips system modifications
 
         Raises:
             SSLCertificateNotDueForRenewalError: If certificate doesn't need renewal yet
@@ -485,36 +484,166 @@ class SSLCertificateManager:
         if not service:
             raise RuntimeError(f"No service found for domain {certificate.domain}")
 
-        # Renew the certificate
-        service.renew_certificate(certificate)
+        original_staging = None
+        if dry_run:
+            self.output_handler.print("[bold yellow]🧪 DRY RUN MODE: Using Let's Encrypt staging server[/bold yellow]")
+            self.output_handler.print("[dim]No system modifications will be made (no symlinks or nginx restart)[/dim]")
 
-        # Recreate symlinks to ensure alias domains are covered
-        # This handles cases where alias domains were added after initial generation
+            # Set staging environment variable
+            original_staging = os.environ.get("FM_LETSENCRYPT_STAGING")
+            os.environ["FM_LETSENCRYPT_STAGING"] = "1"
+
         try:
-            privkey_path, fullchain_path = self.get_certificate_paths(certificate.domain)
-            self.link_manager.link_certificate(
-                cert_type=certificate.ssl_type.value,
-                domain=certificate.domain,
-                privkey_path=privkey_path,
-                fullchain_path=fullchain_path,
-                alias_domains=alias_domains,
-            )
-        except Exception:
-            # If symlink recreation fails, renewal still succeeded
-            pass
+            # Renew the certificate
+            service.renew_certificate(certificate)
 
-        # Restart nginx to pick up renewed certificate
-        self.nginx_controller.restart()
+            if dry_run:
+                self.output_handler.print(
+                    f"✅ [green]Certificate renewal validated successfully for {certificate.domain}[/green]"
+                )
+                self.output_handler.print("[yellow]⏭️  Skipped: Updating symlinks (dry run)[/yellow]")
+                self.output_handler.print("[yellow]⏭️  Skipped: Restarting nginx (dry run)[/yellow]")
+            else:
+                # Recreate symlinks for this domain
+                try:
+                    privkey_path, fullchain_path = self.get_certificate_paths(certificate.domain)
+                    # Determine actual cert_type from path
+                    ssl_dir = self.storage_config.ssl_dir
+                    try:
+                        relative_path = privkey_path.relative_to(ssl_dir)
+                        actual_cert_type = relative_path.parts[0]
+                    except (ValueError, IndexError):
+                        actual_cert_type = getattr(certificate, 'acme_client', 'letsencrypt')
 
-    def remove_certificate(self, alias_domains: list[str] | None = None, domain: str | None = None):
+                    self.link_manager.link_certificate(
+                        cert_type=actual_cert_type,
+                        domain=certificate.domain,
+                        privkey_path=privkey_path,
+                        fullchain_path=fullchain_path,
+                        alias_domains=None,
+                    )
+                except Exception:
+                    # If symlink recreation fails, renewal still succeeded
+                    pass
+
+                # Restart nginx to pick up renewed certificate
+                self.nginx_controller.restart()
+
+        finally:
+            if dry_run:
+                # Restore original staging setting
+                if original_staging is not None:
+                    os.environ["FM_LETSENCRYPT_STAGING"] = original_staging
+                else:
+                    os.environ.pop("FM_LETSENCRYPT_STAGING", None)
+
+    def renew_all_certificates(self, dry_run: bool = False):
+        """
+        Renew all SSL certificates that are due for renewal.
+
+        This method iterates through all configured certificates and renews
+        those that are due for renewal. Certificates not due for renewal are
+        skipped with a warning. After all renewals, nginx is restarted once.
+
+        Args:
+            dry_run: If True, uses Let's Encrypt staging server and skips system modifications
+
+        Raises:
+            SSLCertificateNotFoundError: If any certificate doesn't exist
+        """
+        if not self.certificates:
+            raise ValueError("No certificates configured")
+
+        self.output_handler.change_head("Renewing certificates for all domains")
+
+        original_staging = None
+        if dry_run:
+            self.output_handler.print("[bold yellow]🧪 DRY RUN MODE: Using Let's Encrypt staging server[/bold yellow]")
+            self.output_handler.print("[dim]No system modifications will be made (no symlinks or nginx restart)[/dim]")
+
+            # Set staging environment variable
+            original_staging = os.environ.get("FM_LETSENCRYPT_STAGING")
+            os.environ["FM_LETSENCRYPT_STAGING"] = "1"
+
+        renewed_count = 0
+        skipped_count = 0
+
+        try:
+            for certificate in self.certificates:
+                try:
+                    # Check if certificate needs renewal
+                    if not self.needs_renewal(certificate.domain):
+                        expiry_date = self.get_certificate_expiry(certificate.domain)
+                        self.output_handler.print(
+                            f"⏭️  Skipping {certificate.domain} (expires {expiry_date.strftime('%Y-%m-%d')})"
+                        )
+                        skipped_count += 1
+                        continue
+
+                    # Get service for this certificate
+                    service = self.services.get(certificate.domain)
+                    if not service:
+                        raise RuntimeError(f"No service found for domain {certificate.domain}")
+
+                    # Renew the certificate
+                    self.output_handler.print(f"🔄 Renewing certificate for {certificate.domain}")
+                    service.renew_certificate(certificate)
+
+                    if not dry_run:
+                        # Recreate symlinks for this domain
+                        try:
+                            privkey_path, fullchain_path = self.get_certificate_paths(certificate.domain)
+                            # Determine actual cert_type from path
+                            ssl_dir = self.storage_config.ssl_dir
+                            try:
+                                relative_path = privkey_path.relative_to(ssl_dir)
+                                actual_cert_type = relative_path.parts[0]
+                            except (ValueError, IndexError):
+                                actual_cert_type = getattr(certificate, 'acme_client', 'letsencrypt')
+
+                            self.link_manager.link_certificate(
+                                cert_type=actual_cert_type,
+                                domain=certificate.domain,
+                                privkey_path=privkey_path,
+                                fullchain_path=fullchain_path,
+                                alias_domains=None,
+                            )
+                        except Exception:
+                            # If symlink recreation fails, renewal still succeeded
+                            pass
+
+                    self.output_handler.print(f"✅ Successfully renewed {certificate.domain}")
+                    renewed_count += 1
+
+                except SSLCertificateNotDueForRenewalError as e:
+                    self.output_handler.print(f"⏭️  {e}")
+                    skipped_count += 1
+                except Exception as e:
+                    self.output_handler.print(f"❌ Failed to renew {certificate.domain}: {e}")
+
+            # Restart nginx once after all renewals
+            if renewed_count > 0:
+                if dry_run:
+                    self.output_handler.print("[yellow]⏭️  Skipped: Restarting nginx (dry run)[/yellow]")
+                else:
+                    self.nginx_controller.restart()
+                self.output_handler.print(f"Renewal complete: {renewed_count} renewed, {skipped_count} skipped")
+
+        finally:
+            if dry_run:
+                # Restore original staging setting
+                if original_staging is not None:
+                    os.environ["FM_LETSENCRYPT_STAGING"] = original_staging
+                else:
+                    os.environ.pop("FM_LETSENCRYPT_STAGING", None)
+
+    def remove_certificate(self, domain: str | None = None):
         """
         Remove an SSL certificate and its symlinks.
 
-        This removes the certificate files, all associated symlinks (including
-        alias domains), and restarts nginx.
+        This removes the certificate files, all associated symlinks, and restarts nginx.
 
         Args:
-            alias_domains: Optional list of alias domains to also remove symlinks for
             domain: Domain to remove. If None, uses primary certificate.
         """
         if domain is None:
@@ -538,7 +667,7 @@ class SSLCertificateManager:
             raise RuntimeError(f"No service found for domain {certificate.domain}")
 
         # Remove symlinks first
-        self.link_manager.unlink_certificate(certificate.domain, alias_domains)
+        self.link_manager.unlink_certificate(certificate.domain, None)
 
         # Remove actual certificate files
         service.remove_certificate(certificate)
