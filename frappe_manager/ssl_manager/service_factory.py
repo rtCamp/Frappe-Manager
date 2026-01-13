@@ -10,7 +10,8 @@ from pathlib import Path
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.acmesh_certificate_service import AcmeShCertificateService
-from frappe_manager.ssl_manager.certificate import CustomDomainCertificate, SSLCertificate
+from frappe_manager.ssl_manager.certificate import SSLCertificate
+from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate_service import LetsEncryptCertificateService
 from frappe_manager.ssl_manager.no_op_certificate_service import NoOpCertificateService
 from frappe_manager.ssl_manager.ssl_certificate_service import SSLCertificateService

@@ -55,7 +55,11 @@ def ssl_certificate_from_toml_data(ssl_data: Dict, domain: str) -> SSLCertificat
 
         fm_config_manager = FMConfigManager.import_from_toml()
 
-        pref_challenge_data = ssl_data.get("preferred_challenge", None)
+        # Read challenge_type (new field) or preferred_challenge (backward compat)
+        challenge_type = ssl_data.get("challenge_type", None)
+        if not challenge_type:
+            # Fall back to preferred_challenge for backward compatibility
+            challenge_type = ssl_data.get("preferred_challenge", None)
 
         api_token = ssl_data.get('api_token', None)
         if not api_token:
@@ -65,13 +69,12 @@ def ssl_certificate_from_toml_data(ssl_data: Dict, domain: str) -> SSLCertificat
         if not api_key:
             api_key = fm_config_manager.cloudflare.api_key
 
-        if not pref_challenge_data:
+        # If no challenge type specified, infer from available credentials
+        if not challenge_type:
             if fm_config_manager.cloudflare.exists:
-                preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
+                challenge_type = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
             else:
-                preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.http01
-        else:
-            preferred_challenge = pref_challenge_data
+                challenge_type = LETSENCRYPT_PREFERRED_CHALLENGE.http01
 
         # Read acme_client field (defaults to "acme.sh" if not specified)
         acme_client = ssl_data.get('acme_client', 'acme.sh')
@@ -80,7 +83,7 @@ def ssl_certificate_from_toml_data(ssl_data: Dict, domain: str) -> SSLCertificat
             domain=domain,
             ssl_type=ssl_type,
             email=email,
-            preferred_challenge=preferred_challenge,
+            challenge_type=challenge_type,
             api_key=api_key,
             api_token=api_token,
             acme_client=acme_client,

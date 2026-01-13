@@ -14,7 +14,7 @@ Example external_domains.toml structure:
     ssl_type = "letsencrypt"
     email = "admin@example.com"
     added_at = "2026-01-14T12:00:00"
-    preferred_challenge = "http01"
+    challenge_type = "http01"
     acme_client = "acme.sh"
 """
 
@@ -25,7 +25,8 @@ from typing import Optional
 import tomlkit
 
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES, LETSENCRYPT_PREFERRED_CHALLENGE
-from frappe_manager.ssl_manager.certificate import SSLCertificate, CustomDomainCertificate
+from frappe_manager.ssl_manager.certificate import SSLCertificate
+from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 
 
@@ -39,7 +40,7 @@ class ExternalDomainConfig:
         ssl_type: Certificate type (always "letsencrypt" for now)
         email: Email address for Let's Encrypt notifications
         added_at: ISO 8601 timestamp when certificate was added
-        preferred_challenge: Challenge type ("http01" or "dns01")
+        challenge_type: Challenge type ("http01" or "dns01")
         delegation_cname: Optional CNAME for DNS-01 delegation
         acme_client: ACME client to use ("acme.sh" or "certbot")
     """
@@ -48,7 +49,7 @@ class ExternalDomainConfig:
     ssl_type: str
     email: str
     added_at: str
-    preferred_challenge: str
+    challenge_type: str  # Changed from preferred_challenge to challenge_type
     delegation_cname: Optional[str] = None
     acme_client: str = "acme.sh"
 
@@ -104,6 +105,10 @@ class ExternalDomainConfigManager:
 
         for key, value in data.get("domains", {}).items():
             try:
+                # Backward compatibility: rename preferred_challenge to challenge_type
+                if "preferred_challenge" in value and "challenge_type" not in value:
+                    value["challenge_type"] = value.pop("preferred_challenge")
+
                 domains[value["domain"]] = ExternalDomainConfig(**value)
             except (KeyError, TypeError):
                 # Skip invalid entries
@@ -130,7 +135,7 @@ class ExternalDomainConfigManager:
             domain_table["ssl_type"] = config.ssl_type
             domain_table["email"] = config.email
             domain_table["added_at"] = config.added_at
-            domain_table["preferred_challenge"] = config.preferred_challenge
+            domain_table["challenge_type"] = config.challenge_type
             domain_table["acme_client"] = config.acme_client
 
             if config.delegation_cname:
@@ -233,10 +238,10 @@ class ExternalDomainConfigManager:
             return None
 
         # Parse challenge type
-        if config.preferred_challenge == "dns01":
-            preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
+        if config.challenge_type == "dns01":
+            challenge_type = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
         else:
-            preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.http01
+            challenge_type = LETSENCRYPT_PREFERRED_CHALLENGE.http01
 
         # Create certificate object with CNAME delegation if present
         if config.delegation_cname:
@@ -244,7 +249,7 @@ class ExternalDomainConfigManager:
                 domain=config.domain,
                 ssl_type=SUPPORTED_SSL_TYPES.le,
                 email=config.email,
-                preferred_challenge=preferred_challenge,
+                challenge_type=challenge_type,
                 delegation_cname=config.delegation_cname,
                 acme_client=config.acme_client,
             )
@@ -253,7 +258,7 @@ class ExternalDomainConfigManager:
                 domain=config.domain,
                 ssl_type=SUPPORTED_SSL_TYPES.le,
                 email=config.email,
-                preferred_challenge=preferred_challenge,
+                challenge_type=challenge_type,
                 acme_client=config.acme_client,
             )
 

@@ -7,8 +7,8 @@ from frappe_manager.site_manager.site import Bench
 from frappe_manager.site_manager.bench_config import DNSProviderConfig
 from frappe_manager.site_manager.exceptions import BenchSSLCertificateNotIssued
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES, DNS_PROVIDER
-from frappe_manager.ssl_manager.certificate import SSLCertificate, CustomDomainCertificate
-from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
+from frappe_manager.ssl_manager.certificate import SSLCertificate
+from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate, CustomDomainCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateNotDueForRenewalError,
     SSLCertificateNotFoundError,
@@ -274,6 +274,20 @@ def add_certificate(
             help="Manage SSL for external (non-bench) Docker project. Use with docker network 'fm-global-frontend-network'.",
         ),
     ] = False,
+    skip_dns_check: Annotated[
+        bool,
+        typer.Option(
+            "--skip-dns-check",
+            help="Skip DNS validation before certificate generation (use if DNS will be configured later).",
+        ),
+    ] = False,
+    wait_for_dns: Annotated[
+        bool,
+        typer.Option(
+            "--wait-for-dns",
+            help="Wait for DNS propagation (polls every 30s for up to 5 minutes).",
+        ),
+    ] = False,
 ):
     """
     Add SSL certificate for a domain.
@@ -309,7 +323,7 @@ def add_certificate(
             output.print("Usage: fm ssl add --standalone <domain> --email <email>", emoji_code="")
             raise typer.Exit(1)
 
-        _add_external_certificate(ctx, actual_domain, email, challenge, cname, dry_run)
+        _add_external_certificate(ctx, actual_domain, email, challenge, cname, dry_run, skip_dns_check, wait_for_dns)
     else:
         # Bench mode: both benchname and domain required
         if not benchname or not domain:
@@ -380,7 +394,7 @@ def _add_bench_certificate(
                 domain=domain,
                 ssl_type=SUPPORTED_SSL_TYPES.le,
                 email=email,
-                preferred_challenge=preferred_challenge,
+                challenge_type=preferred_challenge,
                 delegation_cname=cname,
             )
             output.print(f"Using CNAME delegation: {cname}", emoji_code=":information:")
@@ -390,7 +404,7 @@ def _add_bench_certificate(
                 domain=domain,
                 ssl_type=SUPPORTED_SSL_TYPES.le,
                 email=email,
-                preferred_challenge=preferred_challenge,
+                challenge_type=preferred_challenge,
             )
 
         # Add certificate via manager
@@ -416,6 +430,8 @@ def _add_external_certificate(
     challenge: str,
     cname: Optional[str],
     dry_run: bool,
+    skip_dns_check: bool = False,
+    wait_for_dns: bool = False,
 ):
     """Add SSL certificate for external (non-bench) domain."""
 
@@ -472,6 +488,64 @@ def _add_external_certificate(
                 delegation_cname=cname,
             )
             output.print(f"Using CNAME delegation: {cname}", emoji_code=":information:")
+
+            # Validate CNAME before proceeding (unless skipped)
+            if not skip_dns_check:
+                from frappe_manager.ssl_manager.dns_validator import DNSValidator
+
+                output.change_head(f"Validating DNS configuration for {domain}")
+                validator = DNSValidator(output_handler=output)
+
+                # If wait_for_dns is True, poll for propagation
+                if wait_for_dns:
+                    propagation = validator.wait_for_cname_propagation(
+                        domain=domain,
+                        challenge_alias=cname,
+                        timeout=300,  # 5 minutes
+                        check_interval=30,  # 30 seconds
+                    )
+
+                    if not propagation.propagated:
+                        output.display_error("DNS propagation timeout")
+                        output.print("", emoji_code="")
+                        output.print(f"CNAME record did not propagate within 5 minutes.", emoji_code="")
+                        output.print(f"Expected CNAME:", emoji_code="")
+                        output.print(f"  _acme-challenge.{domain}  →  _acme-challenge.{cname}", emoji_code="")
+                        output.print("", emoji_code="")
+                        output.print("Please verify your DNS configuration and try again.", emoji_code="")
+                        raise typer.Exit(1)
+
+                    output.print(f"✓ {propagation.message}", emoji_code=":white_check_mark:")
+                else:
+                    # Single validation check (no waiting)
+                    validation = validator.validate_cname_for_acme(domain, cname)
+
+                    if not validation.valid:
+                        output.display_error("DNS validation failed")
+                        output.print("", emoji_code="")
+                        output.print(f"Domain: {domain}", emoji_code="")
+                        output.print(f"Expected CNAME:", emoji_code="")
+                        output.print(f"  _acme-challenge.{domain}  →  _acme-challenge.{cname}", emoji_code="")
+
+                        if validation.actual_value:
+                            output.print("", emoji_code="")
+                            output.print(f"Current CNAME:", emoji_code="")
+                            output.print(f"  _acme-challenge.{domain}  →  {validation.actual_value}", emoji_code="")
+                            output.print("", emoji_code="")
+                            output.print("The CNAME record exists but points to the wrong target.", emoji_code="")
+                        else:
+                            output.print("", emoji_code="")
+                            output.print("CNAME record not found.", emoji_code="")
+
+                        output.print("", emoji_code="")
+                        output.print("Please update your DNS to match the expected value above.", emoji_code="")
+                        output.print("DNS changes may take up to 5 minutes to propagate.", emoji_code="")
+                        output.print("", emoji_code="")
+                        output.print("To skip this check, use: --skip-dns-check", emoji_code="")
+                        output.print("To wait for propagation, use: --wait-for-dns", emoji_code="")
+                        raise typer.Exit(1)
+
+                    output.print("✓ CNAME record verified", emoji_code=":white_check_mark:")
         else:
             cert = LetsencryptSSLCertificate(
                 domain=domain,
@@ -479,6 +553,21 @@ def _add_external_certificate(
                 email=email,
                 challenge_type=preferred_challenge,
             )
+
+            # Validate A record for HTTP-01 challenges (warning only, non-fatal)
+            if not skip_dns_check and preferred_challenge == LETSENCRYPT_PREFERRED_CHALLENGE.http01:
+                from frappe_manager.ssl_manager.dns_validator import DNSValidator
+
+                output.change_head(f"Checking DNS configuration for {domain}")
+                validator = DNSValidator(output_handler=output)
+                validation = validator.validate_a_record(domain)
+
+                if validation.valid:
+                    output.print(f"✓ Domain resolves to {validation.actual_value}", emoji_code=":white_check_mark:")
+                else:
+                    output.warning(f"Domain {domain} doesn't have an A record")
+                    output.print(f"HTTP-01 challenge may fail if DNS is not configured correctly.", emoji_code="")
+                    output.print(f"Make sure {domain} points to this server's IP address.", emoji_code="")
 
         # Initialize SSL infrastructure (same paths as bench mode)
         global_proxy_storage = services_manager.proxy_storage
@@ -530,7 +619,19 @@ def _add_external_certificate(
         )
 
         # Step 3: Generate certificate (HTTP-01 challenge will now work)
-        cert_manager.add_certificate(cert, dry_run=dry_run)
+        try:
+            cert_manager.add_certificate(cert, dry_run=dry_run)
+        except Exception as cert_error:
+            # Certificate generation failed - clean up nginx config
+            output.change_head("Cleaning up after certificate generation failure")
+            try:
+                standalone_nginx.remove_config(domain)
+                nginx_controller.reload()
+                output.print("Cleaned up nginx configuration", emoji_code=":white_check_mark:")
+            except Exception as cleanup_error:
+                output.debug(f"Failed to clean up nginx config: {cleanup_error}")
+            # Re-raise the original certificate error
+            raise cert_error
 
         # Step 4: Update nginx config to enable HTTPS
         output.change_head("Enabling HTTPS for {domain}")
@@ -549,7 +650,7 @@ def _add_external_certificate(
                     ssl_type="letsencrypt",
                     email=email,
                     added_at=datetime.now().isoformat(),
-                    preferred_challenge=challenge.lower(),
+                    challenge_type=challenge.lower(),
                     delegation_cname=cname,
                     acme_client="acme.sh",
                 )

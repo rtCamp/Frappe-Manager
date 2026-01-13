@@ -103,36 +103,3 @@ class SSLCertificate(BaseModel):
 
         delta = expiry - now
         return delta.days
-
-
-class CustomDomainCertificate(SSLCertificate):
-    """
-    Certificate for custom domain with CNAME delegation.
-
-    Used for delegated DNS validation pattern where user creates CNAME
-    pointing to a domain we control.
-
-    Example:
-        User domain: a.gg.com
-        CNAME: a.gg.com → a-gg-com.fm.com
-        Challenge validation: _acme-challenge.a-gg-com.fm.com
-
-    This allows issuing certificates for customer domains without requiring
-    direct access to their DNS provider.
-    """
-
-    delegation_cname: Optional[str] = None  # e.g., a-gg-com.fm.com
-
-    def get_delegation_subdomain(self) -> str:
-        """
-        Generate delegation subdomain from domain name.
-
-        Converts dots to hyphens for use in delegation CNAME.
-
-        Example:
-            a.gg.com -> a-gg-com
-
-        Returns:
-            Hyphenated domain name suitable for subdomain use
-        """
-        return self.domain.replace(".", "-")
