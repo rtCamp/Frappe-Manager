@@ -1,6 +1,7 @@
 import typer
+from datetime import datetime
 from typing import Annotated, Optional
-from frappe_manager import CLI_BENCHES_DIRECTORY
+from frappe_manager import CLI_BENCHES_DIRECTORY, SSL_RENEW_BEFORE_DAYS
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.site_manager.bench_config import DNSProviderConfig
@@ -12,6 +13,12 @@ from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateNotDueForRenewalError,
     SSLCertificateNotFoundError,
 )
+from frappe_manager.ssl_manager.external_domain_manager import ExternalDomainConfigManager, ExternalDomainConfig
+from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
+from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkManager
+from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
+from frappe_manager.ssl_manager.service_factory import create_certificate_service
+from frappe_manager.ssl_manager.standalone_nginx_config_manager import StandaloneNginxConfigManager
 from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.exceptions import SSLCertificateError
@@ -91,13 +98,16 @@ def renew(
     ctx: typer.Context,
     benchname: Annotated[
         Optional[str],
-        typer.Argument(help="Name of the bench.", autocompletion=sites_autocompletion_callback),
+        typer.Argument(
+            help="Name of the bench (omit for standalone mode).", autocompletion=sites_autocompletion_callback
+        ),
     ] = None,
     domain: Annotated[
         Optional[str],
-        typer.Argument(help="Specific domain to renew. If omitted, renews all certificates for the bench."),
+        typer.Argument(help="Specific domain to renew. If omitted, renews all certificates for the bench/standalone."),
     ] = None,
     all: Annotated[bool, typer.Option(help="Renew ssl cert for all benches.")] = False,
+    standalone: Annotated[bool, typer.Option("--standalone", help="Renew certificates for external domains")] = False,
     dry_run: Annotated[
         bool,
         typer.Option("--dry-run", help="Test renewal using Let's Encrypt staging server without modifying the system."),
@@ -106,52 +116,78 @@ def renew(
     """
     Renew SSL certificates.
 
-    Examples:
+    [bold cyan]Bench mode examples:[/bold cyan]
     - Renew all certificates for a bench: fm ssl renew mysite.local
     - Renew specific domain: fm ssl renew mysite.local www.mysite.local
     - Renew all benches: fm ssl renew --all
     - Test renewal without modifications: fm ssl renew mysite.local --dry-run
+
+    [bold cyan]Standalone mode examples:[/bold cyan]
+    - Renew specific external domain: fm ssl renew --standalone myapp.com
+    - Renew all external domains: fm ssl renew --standalone --all
     """
 
-    services_manager = ctx.obj["services"]
-    bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager)
-
-    if all:
-        sites_list = bench_service.get_bench_names()
+    if standalone:
+        if all:
+            _renew_all_external_certificates(ctx, dry_run)
+        else:
+            actual_domain = domain if domain else benchname
+            if not actual_domain:
+                context = LoggerContext(operation="ssl-renew-external")
+                output = get_output_handler(ctx, context=context)
+                output.display_error("Domain required for standalone renewal")
+                output.print("Usage: fm ssl renew --standalone <domain>", emoji_code="")
+                output.print("Or renew all: fm ssl renew --standalone --all", emoji_code="")
+                raise typer.Exit(1)
+            _renew_external_certificate(ctx, actual_domain, dry_run)
     else:
-        sites_list = [benchname]
+        # Existing bench renewal logic
+        services_manager = ctx.obj["services"]
+        bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager)
 
-    for benchname in sites_list:
-        # Create output handler with context for logging
-        context = LoggerContext(bench=benchname, operation="ssl-renew")
-        output = get_output_handler(ctx, context=context)
-        bench = Bench.get_object(benchname, services_manager, output_handler=output)
+        if all:
+            sites_list = bench_service.get_bench_names()
+        else:
+            if not benchname:
+                context = LoggerContext(operation="ssl-renew")
+                output = get_output_handler(ctx, context=context)
+                output.display_error("Benchname required in bench mode")
+                output.print("Usage: fm ssl renew <benchname> [domain]", emoji_code="")
+                output.print("For external domains: fm ssl renew --standalone <domain>", emoji_code="")
+                raise typer.Exit(1)
+            sites_list = [benchname]
 
-        output.change_head(f"Renew certificate for {benchname}")
-        try:
-            if domain:
-                # Validate domain has a certificate configured
-                cert_domains = [cert.domain for cert in bench.certificate_manager.certificates]
-                if domain not in cert_domains:
-                    output.display_error(
-                        f"No SSL certificate found for domain '{domain}'.\n"
-                        f"Configured certificates: {', '.join(cert_domains) if cert_domains else 'None'}\n"
-                        f"To add a certificate, use: fm ssl add {benchname} {domain} --email YOUR_EMAIL"
-                    )
-                    raise typer.Exit(1)
+        for benchname in sites_list:
+            # Create output handler with context for logging
+            context = LoggerContext(bench=benchname, operation="ssl-renew")
+            output = get_output_handler(ctx, context=context)
+            bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
-                # Renew specific domain certificate
-                bench.ssl.renew_certificate(domain, dry_run=dry_run)
-                if not dry_run:
-                    output.print(f"Certificate renewed for {domain}", emoji_code=":white_check_mark:")
-            else:
-                # Renew all certificates for the bench
-                bench.ssl.renew_all_certificates(dry_run=dry_run)
-        except (BenchSSLCertificateNotIssued, SSLCertificateNotDueForRenewalError) as e:
-            output.warning(e.message)
+            output.change_head(f"Renew certificate for {benchname}")
+            try:
+                if domain:
+                    # Validate domain has a certificate configured
+                    cert_domains = [cert.domain for cert in bench.certificate_manager.certificates]
+                    if domain not in cert_domains:
+                        output.display_error(
+                            f"No SSL certificate found for domain '{domain}'.\n"
+                            f"Configured certificates: {', '.join(cert_domains) if cert_domains else 'None'}\n"
+                            f"To add a certificate, use: fm ssl add {benchname} {domain} --email YOUR_EMAIL"
+                        )
+                        raise typer.Exit(1)
 
-        except Exception as e:
-            output.warning(str(e))
+                    # Renew specific domain certificate
+                    bench.ssl.renew_certificate(domain, dry_run=dry_run)
+                    if not dry_run:
+                        output.print(f"Certificate renewed for {domain}", emoji_code=":white_check_mark:")
+                else:
+                    # Renew all certificates for the bench
+                    bench.ssl.renew_all_certificates(dry_run=dry_run)
+            except (BenchSSLCertificateNotIssued, SSLCertificateNotDueForRenewalError) as e:
+                output.warning(e.message)
+
+            except Exception as e:
+                output.warning(str(e))
 
 
 @ssl_root_command.command(name="list")
@@ -160,79 +196,58 @@ def list_certificates(
     benchname: Annotated[
         Optional[str],
         typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
+            help="Name of the bench (omit for standalone mode).", autocompletion=sites_autocompletion_callback
         ),
     ] = None,
+    standalone: Annotated[
+        bool,
+        typer.Option("--standalone", help="List certificates for external (non-bench) domains"),
+    ] = False,
+    all: Annotated[
+        bool,
+        typer.Option("--all", help="List all certificates (bench + external)"),
+    ] = False,
 ):
-    """List all SSL certificates for a bench."""
+    """
+    List SSL certificates.
 
-    services_manager = ctx.obj["services"]
+    [bold cyan]Bench mode (default):[/bold cyan]
+      fm ssl list <benchname>
 
-    # Create output handler with context for logging
-    context = LoggerContext(bench=benchname, operation="ssl-list")
-    output = get_output_handler(ctx, context=context)
-    bench = Bench.get_object(benchname, services_manager, output_handler=output)
+    [bold cyan]Standalone mode (external domains):[/bold cyan]
+      fm ssl list --standalone
 
-    # Get all configured domains (primary + aliases)
-    all_domains = bench.bench_config.get_all_domains()
+    [bold cyan]All certificates:[/bold cyan]
+      fm ssl list --all
+    """
 
-    # Get certificate list from manager
-    certs = bench.certificate_manager.list_certificates()
+    if all:
+        _list_all_certificates(ctx)
+    elif standalone:
+        _list_external_certificates(ctx)
+    else:
+        if not benchname:
+            context = LoggerContext(operation="ssl-list")
+            output = get_output_handler(ctx, context=context)
+            output.display_error("Benchname required in bench mode")
+            output.print("Usage: fm ssl list <benchname>", emoji_code="")
+            output.print("For external certificates: fm ssl list --standalone", emoji_code="")
+            output.print("For all certificates: fm ssl list --all", emoji_code="")
+            raise typer.Exit(1)
 
-    # Create a mapping of domain -> certificate info
-    cert_map = {cert['domain']: cert for cert in certs}
-
-    # Create table for display
-    table = Table(title=f"SSL Configuration for '{benchname}'", show_header=True, header_style="bold magenta")
-    table.add_column("Domain", style="cyan")
-    table.add_column("Type", style="yellow")
-    table.add_column("Status", style="green")
-    table.add_column("Expiry", style="blue")
-    table.add_column("Days Left", justify="right")
-    table.add_column("Renewal", style="red")
-
-    # Show all domains, whether they have certificates or not
-    for domain in all_domains:
-        if domain in cert_map:
-            # Domain has a certificate configured
-            cert = cert_map[domain]
-            ssl_type = cert['ssl_type']
-            status = "✅ Issued" if cert['exists'] else "❌ Not Issued"
-
-            if cert['exists'] and cert['expiry_date']:
-                expiry = cert['expiry_date'].strftime('%Y-%m-%d %H:%M')
-                days_left = str(cert['days_until_expiry'])
-                renewal = "⚠️ DUE" if cert['needs_renewal'] else "✓ OK"
-            else:
-                expiry = "N/A"
-                days_left = "N/A"
-                renewal = "N/A"
-        else:
-            # Domain has no certificate configured
-            ssl_type = "none"
-            status = "⚪ No SSL"
-            expiry = "N/A"
-            days_left = "N/A"
-            renewal = "N/A"
-
-        table.add_row(domain, ssl_type, status, expiry, days_left, renewal)
-
-    # Stop the live display before printing the table
-    output.stop()
-    # Print table using richprint stdout directly since it's structured data
-    richprint.stdout.print(table)
+        _list_bench_certificates(ctx, benchname)
 
 
 @ssl_root_command.command(name="add")
 def add_certificate(
     ctx: typer.Context,
     benchname: Annotated[
-        str,
+        Optional[str],
         typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
+            help="Name of the bench (omit for standalone mode).", autocompletion=sites_autocompletion_callback
         ),
-    ],
-    domain: Annotated[str, typer.Argument(help="Domain name for the certificate")],
+    ] = None,
+    domain: Annotated[Optional[str], typer.Argument(help="Domain name for the certificate")] = None,
     email: Annotated[
         Optional[str],
         typer.Option("--email", "-e", help="Email address for Let's Encrypt notifications"),
@@ -252,14 +267,72 @@ def add_certificate(
             help="Test certificate generation using Let's Encrypt staging server without adding it to the system.",
         ),
     ] = False,
+    standalone: Annotated[
+        bool,
+        typer.Option(
+            "--standalone",
+            help="Manage SSL for external (non-bench) Docker project. Use with docker network 'fm-global-frontend-network'.",
+        ),
+    ] = False,
 ):
     """
-    Add a new SSL certificate for a custom domain.
+    Add SSL certificate for a domain.
+
+    [bold cyan]Bench mode (default):[/bold cyan]
+      fm ssl add <benchname> <domain> --email <email>
+
+    [bold cyan]Standalone mode (external Docker projects):[/bold cyan]
+      fm ssl add --standalone <domain> --email <email>
+
+    [dim]Standalone mode allows managing SSL for any Docker project using FM's nginx-proxy.[/dim]
 
     Use --dry-run to test certificate generation with Let's Encrypt staging server
     before committing to production. This validates DNS/HTTP configuration without
     rate limits or system modifications.
     """
+
+    if standalone:
+        # Standalone mode: domain can be first arg (as benchname) or second arg
+        actual_domain = domain if domain else benchname
+
+        if not actual_domain:
+            context = LoggerContext(operation="ssl-add-external")
+            output = get_output_handler(ctx, context=context)
+            output.display_error("Domain is required in standalone mode")
+            output.print("Usage: fm ssl add --standalone <domain> --email <email>", emoji_code="")
+            raise typer.Exit(1)
+
+        if benchname and domain:
+            context = LoggerContext(operation="ssl-add-external")
+            output = get_output_handler(ctx, context=context)
+            output.display_error("Cannot specify both benchname and domain in standalone mode")
+            output.print("Usage: fm ssl add --standalone <domain> --email <email>", emoji_code="")
+            raise typer.Exit(1)
+
+        _add_external_certificate(ctx, actual_domain, email, challenge, cname, dry_run)
+    else:
+        # Bench mode: both benchname and domain required
+        if not benchname or not domain:
+            context = LoggerContext(operation="ssl-add")
+            output = get_output_handler(ctx, context=context)
+            output.display_error("Both benchname and domain are required in bench mode")
+            output.print("Usage: fm ssl add <benchname> <domain> --email <email>", emoji_code="")
+            output.print("For external projects, use: fm ssl add --standalone <domain> --email <email>", emoji_code="")
+            raise typer.Exit(1)
+
+        _add_bench_certificate(ctx, benchname, domain, email, challenge, cname, dry_run)
+
+
+def _add_bench_certificate(
+    ctx: typer.Context,
+    benchname: str,
+    domain: str,
+    email: Optional[str],
+    challenge: str,
+    cname: Optional[str],
+    dry_run: bool,
+):
+    """Add SSL certificate for a bench domain (existing logic extracted)."""
 
     services_manager = ctx.obj["services"]
 
@@ -336,22 +409,240 @@ def add_certificate(
         raise typer.Exit(1)
 
 
+def _add_external_certificate(
+    ctx: typer.Context,
+    domain: str,
+    email: Optional[str],
+    challenge: str,
+    cname: Optional[str],
+    dry_run: bool,
+):
+    """Add SSL certificate for external (non-bench) domain."""
+
+    services_manager = ctx.obj["services"]
+    context = LoggerContext(operation="ssl-add-external")
+    output = get_output_handler(ctx, context=context)
+
+    # Initialize external domain manager
+    external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
+    external_manager = ExternalDomainConfigManager(external_config_path)
+
+    # Check if domain already exists in external domains
+    if external_manager.domain_exists(domain):
+        output.display_error(f"Certificate already exists for external domain '{domain}'")
+        output.print("To update certificate:", emoji_code="")
+        output.print(f"  1. Remove existing: fm ssl remove --standalone {domain}", emoji_code="")
+        output.print(f"  2. Add new: fm ssl add --standalone {domain} --email <email>", emoji_code="")
+        raise typer.Exit(1)
+
+    # Validate email
+    if not email:
+        output.display_error("Email is required for Let's Encrypt certificates")
+        output.print(f"Usage: fm ssl add --standalone {domain} --email <email>", emoji_code="")
+        raise typer.Exit(1)
+
+    # Parse challenge type
+    if challenge.lower() == "dns01":
+        preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
+    elif challenge.lower() == "http01":
+        preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.http01
+    else:
+        output.display_error(f"Invalid challenge type: {challenge}")
+        output.print("Supported challenges: http01, dns01", emoji_code="")
+        raise typer.Exit(1)
+
+    # Validate CNAME only with DNS-01
+    if cname and preferred_challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
+        output.display_error("CNAME delegation (--cname) requires DNS-01 challenge")
+        output.print(
+            f"Usage: fm ssl add --standalone {domain} --email <email> --challenge dns01 --cname <cname>", emoji_code=""
+        )
+        raise typer.Exit(1)
+
+    output.change_head(f"Adding SSL certificate for {domain} (standalone mode)")
+
+    try:
+        # Create certificate object
+        if cname:
+            cert = CustomDomainCertificate(
+                domain=domain,
+                ssl_type=SUPPORTED_SSL_TYPES.le,
+                email=email,
+                challenge_type=preferred_challenge,
+                delegation_cname=cname,
+            )
+            output.print(f"Using CNAME delegation: {cname}", emoji_code=":information:")
+        else:
+            cert = LetsencryptSSLCertificate(
+                domain=domain,
+                ssl_type=SUPPORTED_SSL_TYPES.le,
+                email=email,
+                challenge_type=preferred_challenge,
+            )
+
+        # Initialize SSL infrastructure (same paths as bench mode)
+        global_proxy_storage = services_manager.proxy_storage
+
+        storage_config = SSLStorageConfig(
+            ssl_dir=global_proxy_storage.dirs.ssl.host,
+            ssl_dir_container=global_proxy_storage.dirs.ssl.container,
+            certs_dir=global_proxy_storage.dirs.certs.host,
+            certs_dir_container=global_proxy_storage.dirs.certs.container,
+            vhostd_dir=global_proxy_storage.dirs.vhostd.host,
+            webroot_dir=global_proxy_storage.dirs.html.host,  # For HTTP-01 challenge
+        )
+
+        # Create dependencies
+        link_manager = CertificateLinkManager(storage_config)
+        nginx_controller = services_manager.nginx_controller
+
+        # Create standalone nginx config manager for external domains
+        standalone_nginx = StandaloneNginxConfigManager(
+            conf_dir=global_proxy_storage.dirs.confd.host,
+            webroot_dir_container=global_proxy_storage.dirs.html.container,
+            certs_dir_container=global_proxy_storage.dirs.certs.container,
+        )
+
+        # Step 1: Create HTTP-only nginx config (for ACME challenge)
+        output.change_head(f"Setting up nginx configuration for {domain}")
+        standalone_nginx.create_http_config(domain)
+        output.print("Created HTTP configuration for ACME challenge", emoji_code=":white_check_mark:")
+
+        # Step 2: Reload nginx to apply the config
+        output.change_head("Reloading nginx to apply configuration")
+        nginx_controller.reload()
+        output.print("Nginx reloaded successfully", emoji_code=":white_check_mark:")
+
+        # Create service factory
+        def certificate_service_factory(cert, storage_cfg, output_handler):
+            return create_certificate_service(cert, storage_cfg, output_handler)
+
+        # Create certificate manager WITHOUT config_save_callback
+        # (no bench config to save for external domains)
+        cert_manager = SSLCertificateManager(
+            certificates=[],  # Start with empty list, we'll add the cert next
+            service_factory=certificate_service_factory,
+            link_manager=link_manager,
+            nginx_controller=nginx_controller,
+            storage_config=storage_config,
+            output_handler=output,
+            config_save_callback=None,  # No bench config callback
+        )
+
+        # Step 3: Generate certificate (HTTP-01 challenge will now work)
+        cert_manager.add_certificate(cert, dry_run=dry_run)
+
+        # Step 4: Update nginx config to enable HTTPS
+        output.change_head("Enabling HTTPS for {domain}")
+        standalone_nginx.create_https_config(domain)
+        output.print("Created HTTPS configuration", emoji_code=":white_check_mark:")
+
+        # Step 5: Reload nginx again to enable HTTPS
+        nginx_controller.reload()
+        output.print("Nginx reloaded with HTTPS enabled", emoji_code=":white_check_mark:")
+
+        if not dry_run:
+            # Save to external domains config
+            external_manager.add_domain(
+                ExternalDomainConfig(
+                    domain=domain,
+                    ssl_type="letsencrypt",
+                    email=email,
+                    added_at=datetime.now().isoformat(),
+                    preferred_challenge=challenge.lower(),
+                    delegation_cname=cname,
+                    acme_client="acme.sh",
+                )
+            )
+
+            output.print(f"SSL certificate added for {domain}", emoji_code=":white_check_mark:")
+            output.print("Certificate configured successfully", emoji_code=":zap:")
+            output.print("", emoji_code="")
+            output.print("[bold cyan]To use this certificate in your Docker project:[/bold cyan]", emoji_code="")
+            output.print("", emoji_code="")
+            output.print("1. Add to your docker-compose.yml:", emoji_code="")
+            output.print("", emoji_code="")
+            output.print("   services:", emoji_code="")
+            output.print("     your-app:", emoji_code="")
+            output.print("       environment:", emoji_code="")
+            output.print(f"         VIRTUAL_HOST: {domain}", emoji_code="")
+            output.print("         VIRTUAL_PORT: 80  # Your app's port", emoji_code="")
+            output.print("       networks:", emoji_code="")
+            output.print("         - fm-global-frontend-network", emoji_code="")
+            output.print("", emoji_code="")
+            output.print("   networks:", emoji_code="")
+            output.print("     fm-global-frontend-network:", emoji_code="")
+            output.print("       external: true", emoji_code="")
+            output.print("", emoji_code="")
+            output.print("2. Start your project:", emoji_code="")
+            output.print("   docker compose up -d", emoji_code="")
+            output.print("", emoji_code="")
+            output.print(f"3. Access your app at: https://{domain}", emoji_code="")
+
+    except ValueError as e:
+        output.display_error(f"Failed to add certificate: {e}")
+        raise typer.Exit(1)
+    except Exception as e:
+        output.display_error(f"Failed to add certificate: {e}")
+        raise typer.Exit(1)
+
+
 @ssl_root_command.command(name="remove")
 def remove_certificate(
     ctx: typer.Context,
     benchname: Annotated[
-        str,
+        Optional[str],
         typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
+            help="Name of the bench (omit for standalone mode).", autocompletion=sites_autocompletion_callback
         ),
-    ],
-    domain: Annotated[str, typer.Argument(help="Domain name of the certificate to remove")],
+    ] = None,
+    domain: Annotated[Optional[str], typer.Argument(help="Domain name of the certificate to remove")] = None,
     force: Annotated[
         bool,
         typer.Option("--force", "-f", help="Force removal without confirmation"),
     ] = False,
+    standalone: Annotated[
+        bool,
+        typer.Option("--standalone", help="Remove certificate for external (non-bench) domain"),
+    ] = False,
 ):
-    """Remove an SSL certificate for a specific domain."""
+    """
+    Remove SSL certificate for a domain.
+
+    [bold cyan]Bench mode (default):[/bold cyan]
+      fm ssl remove <benchname> <domain>
+
+    [bold cyan]Standalone mode (external Docker projects):[/bold cyan]
+      fm ssl remove --standalone <domain>
+    """
+
+    if standalone:
+        # Standalone mode: domain can be first arg (as benchname) or second arg
+        actual_domain = domain if domain else benchname
+
+        if not actual_domain:
+            context = LoggerContext(operation="ssl-remove-external")
+            output = get_output_handler(ctx, context=context)
+            output.display_error("Domain is required in standalone mode")
+            output.print("Usage: fm ssl remove --standalone <domain>", emoji_code="")
+            raise typer.Exit(1)
+
+        _remove_external_certificate(ctx, actual_domain, force)
+    else:
+        # Bench mode: both benchname and domain required
+        if not benchname or not domain:
+            context = LoggerContext(operation="ssl-remove")
+            output = get_output_handler(ctx, context=context)
+            output.display_error("Both benchname and domain are required in bench mode")
+            output.print("Usage: fm ssl remove <benchname> <domain>", emoji_code="")
+            output.print("For external projects, use: fm ssl remove --standalone <domain>", emoji_code="")
+            raise typer.Exit(1)
+
+        _remove_bench_certificate(ctx, benchname, domain, force)
+
+
+def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, force: bool):
+    """Remove SSL certificate for a bench domain (existing logic extracted)."""
 
     services_manager = ctx.obj["services"]
 
@@ -393,6 +684,444 @@ def remove_certificate(
         output.display_error(f"Failed to remove certificate: {e}")
         output.display_error(f"Error details: {str(e)}")
         raise typer.Exit(1)
+
+
+def _remove_external_certificate(ctx: typer.Context, domain: str, force: bool):
+    """Remove SSL certificate for external domain."""
+
+    services_manager = ctx.obj["services"]
+    context = LoggerContext(operation="ssl-remove-external")
+    output = get_output_handler(ctx, context=context)
+
+    # Initialize external domain manager
+    external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
+    external_manager = ExternalDomainConfigManager(external_config_path)
+
+    # Check if domain exists
+    if not external_manager.domain_exists(domain):
+        output.display_error(f"No external certificate found for domain '{domain}'")
+        output.print("To list external certificates: fm ssl list --standalone", emoji_code="")
+        raise typer.Exit(1)
+
+    # Confirm removal unless forced
+    if not force:
+        output.stop()
+        confirm = typer.confirm(f"Remove SSL certificate for {domain}?")
+        if not confirm:
+            output.print("Cancelled.", emoji_code=":x:")
+            raise typer.Exit(0)
+
+    output.change_head(f"Removing SSL certificate for {domain}")
+
+    try:
+        # Get certificate config
+        cert_config = external_manager.get_domain(domain)
+        if not cert_config:
+            raise ValueError(f"Domain config not found for {domain}")
+
+        # Convert to certificate object
+        cert = external_manager.to_ssl_certificate(domain)
+        if not cert:
+            raise ValueError(f"Could not create certificate object for {domain}")
+
+        # Initialize SSL infrastructure
+        global_proxy_storage = services_manager.proxy_storage
+
+        storage_config = SSLStorageConfig(
+            ssl_dir=global_proxy_storage.dirs.ssl.host,
+            ssl_dir_container=global_proxy_storage.dirs.ssl.container,
+            certs_dir=global_proxy_storage.dirs.certs.host,
+            certs_dir_container=global_proxy_storage.dirs.certs.container,
+            vhostd_dir=global_proxy_storage.dirs.vhostd.host,
+            webroot_dir=global_proxy_storage.dirs.html.host,
+        )
+
+        link_manager = CertificateLinkManager(storage_config)
+        nginx_controller = services_manager.nginx_controller
+
+        # Create standalone nginx config manager
+        standalone_nginx = StandaloneNginxConfigManager(
+            conf_dir=global_proxy_storage.dirs.confd.host,
+            webroot_dir_container=global_proxy_storage.dirs.html.container,
+            certs_dir_container=global_proxy_storage.dirs.certs.container,
+        )
+
+        def certificate_service_factory(cert, storage_cfg, output_handler):
+            return create_certificate_service(cert, storage_cfg, output_handler)
+
+        # Create certificate manager
+        cert_manager = SSLCertificateManager(
+            certificates=[cert],
+            service_factory=certificate_service_factory,
+            link_manager=link_manager,
+            nginx_controller=nginx_controller,
+            storage_config=storage_config,
+            output_handler=output,
+            config_save_callback=None,
+        )
+
+        # Remove certificate (removes symlinks, vhost.d, and cert files)
+        cert_manager.remove_certificate_by_domain(domain)
+
+        # Remove standalone nginx configuration
+        output.change_head(f"Removing nginx configuration for {domain}")
+        standalone_nginx.remove_config(domain)
+        output.print("Removed nginx configuration", emoji_code=":white_check_mark:")
+
+        # Reload nginx
+        nginx_controller.reload()
+        output.print("Nginx reloaded", emoji_code=":white_check_mark:")
+
+        # Remove from external domains config
+        external_manager.remove_domain(domain)
+
+        output.print(f"SSL certificate removed for {domain}", emoji_code=":white_check_mark:")
+
+    except Exception as e:
+        output.display_error(f"Failed to remove certificate: {e}")
+        raise typer.Exit(1)
+
+
+def _list_bench_certificates(ctx: typer.Context, benchname: str):
+    """List all SSL certificates for a bench (existing logic extracted)."""
+
+    services_manager = ctx.obj["services"]
+
+    # Create output handler with context for logging
+    context = LoggerContext(bench=benchname, operation="ssl-list")
+    output = get_output_handler(ctx, context=context)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
+
+    # Get all configured domains (primary + aliases)
+    all_domains = bench.bench_config.get_all_domains()
+
+    # Get certificate list from manager
+    certs = bench.certificate_manager.list_certificates()
+
+    # Create a mapping of domain -> certificate info
+    cert_map = {cert['domain']: cert for cert in certs}
+
+    # Create table for display
+    from rich.table import Table
+
+    table = Table(title=f"SSL Configuration for '{benchname}'", show_header=True, header_style="bold magenta")
+    table.add_column("Domain", style="cyan")
+    table.add_column("Type", style="yellow")
+    table.add_column("Status", style="green")
+    table.add_column("Expiry", style="blue")
+    table.add_column("Days Left", justify="right")
+    table.add_column("Renewal", style="red")
+
+    # Show all domains, whether they have certificates or not
+    for domain in all_domains:
+        if domain in cert_map:
+            # Domain has a certificate configured
+            cert = cert_map[domain]
+            ssl_type = cert['ssl_type']
+            status = "✅ Issued" if cert['exists'] else "❌ Not Issued"
+
+            if cert['exists'] and cert['expiry_date']:
+                expiry = cert['expiry_date'].strftime('%Y-%m-%d %H:%M')
+                days_left = str(cert['days_until_expiry'])
+                renewal = "⚠️ DUE" if cert['needs_renewal'] else "✓ OK"
+            else:
+                expiry = "N/A"
+                days_left = "N/A"
+                renewal = "N/A"
+        else:
+            # Domain has no certificate configured
+            ssl_type = "none"
+            status = "⚪ No SSL"
+            expiry = "N/A"
+            days_left = "N/A"
+            renewal = "N/A"
+
+        table.add_row(domain, ssl_type, status, expiry, days_left, renewal)
+
+    # Stop the live display before printing the table
+    output.stop()
+    # Print table using richprint stdout directly since it's structured data
+    richprint.stdout.print(table)
+
+
+def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
+    """
+    Detect domains being proxied by nginx-proxy that are NOT Frappe benches.
+
+    Returns list of domain names found in nginx config that:
+    - Have active backends (VIRTUAL_HOST containers)
+    - Are not managed by FM benches
+    """
+    try:
+        # Get nginx-proxy container
+        nginx_container_name = services_manager.compose_file_manager.get_container_names().get("global-nginx-proxy")
+        if not nginx_container_name:
+            return []
+
+        # Read default.conf which docker-gen generates
+        import subprocess
+
+        result = subprocess.run(
+            ["docker", "exec", nginx_container_name, "cat", "/etc/nginx/conf.d/default.conf"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        if result.returncode != 0:
+            return []
+
+        # Parse upstream blocks to find domains
+        # Format: "# domain.com/"
+        # Followed by: "upstream domain.com {"
+        import re
+
+        domain_pattern = r'^# (.+?)/$'
+
+        detected_domains = set()
+        for line in result.stdout.split('\n'):
+            match = re.match(domain_pattern, line)
+            if match:
+                domain = match.group(1)
+                detected_domains.add(domain)
+
+        # Filter out bench domains
+        bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager)
+        benches = bench_service.get_bench_names()
+
+        bench_domains = set()
+        for bench_name in benches:
+            try:
+                bench = Bench.get_object(bench_name, services_manager, output_handler=None)
+                bench_domains.update(bench.bench_config.get_all_domains())
+            except Exception:
+                continue
+
+        # Return only non-bench domains
+        non_bench_domains = detected_domains - bench_domains
+        return sorted(list(non_bench_domains))
+
+    except Exception as e:
+        # Silently fail if we can't detect domains
+        return []
+
+
+def _list_external_certificates(ctx: typer.Context):
+    """List all external domain SSL certificates and detected non-SSL domains."""
+
+    services_manager = ctx.obj["services"]
+    context = LoggerContext(operation="ssl-list-external")
+    output = get_output_handler(ctx, context=context)
+
+    # Initialize external domain manager
+    external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
+    external_manager = ExternalDomainConfigManager(external_config_path)
+
+    # Get all external domains with SSL certificates
+    external_domains = external_manager.list_domains()
+
+    # Get domains being proxied but without SSL
+    detected_domains = _get_non_bench_domains_from_nginx(services_manager)
+
+    # Filter out domains that already have SSL certificates
+    external_domain_names = {d.domain for d in external_domains}
+    non_ssl_domains = [d for d in detected_domains if d not in external_domain_names]
+
+    if not external_domains and not non_ssl_domains:
+        output.print("No external domains or SSL certificates configured", emoji_code=":information:")
+        output.print("", emoji_code="")
+        output.print("To add an external certificate:", emoji_code="")
+        output.print("  fm ssl add --standalone <domain> --email <email>", emoji_code="")
+        return
+
+    # Initialize SSL infrastructure to check certificate status
+    global_proxy_storage = services_manager.proxy_storage
+    storage_config = SSLStorageConfig(
+        ssl_dir=global_proxy_storage.dirs.ssl.host,
+        ssl_dir_container=global_proxy_storage.dirs.ssl.container,
+        certs_dir=global_proxy_storage.dirs.certs.host,
+        certs_dir_container=global_proxy_storage.dirs.certs.container,
+        vhostd_dir=global_proxy_storage.dirs.vhostd.host,
+        webroot_dir=global_proxy_storage.dirs.html.host,
+    )
+
+    link_manager = CertificateLinkManager(storage_config)
+
+    # Create table
+    from rich.table import Table
+
+    table = Table(title="External Domains & SSL Certificates", show_header=True, header_style="bold magenta")
+    table.add_column("Domain", style="cyan")
+    table.add_column("Type", style="yellow")
+    table.add_column("Status", style="green")
+    table.add_column("Expiry", style="blue")
+    table.add_column("Days Left", justify="right")
+    table.add_column("Renewal", style="red")
+
+    # Add SSL-enabled domains
+    for domain_config in external_domains:
+        domain = domain_config.domain
+        ssl_type = domain_config.ssl_type
+
+        # Check if certificate files exist
+        try:
+            privkey_path, fullchain_path = link_manager.get_certificate_paths(domain)
+
+            # Get expiry info
+            from frappe_manager.utils.helpers import get_certificate_expiry_date
+
+            expiry_date = get_certificate_expiry_date(fullchain_path)
+            if expiry_date:
+                expiry = expiry_date.strftime('%Y-%m-%d %H:%M')
+                # Make datetime.now() timezone-aware to match expiry_date
+                from datetime import timezone
+
+                now = datetime.now(timezone.utc)
+                days_left = (expiry_date - now).days
+                needs_renewal = days_left <= SSL_RENEW_BEFORE_DAYS
+                renewal = "⚠️ DUE" if needs_renewal else "✓ OK"
+                status = "✅ Issued"
+            else:
+                expiry = "N/A"
+                days_left = "N/A"
+                renewal = "N/A"
+                status = "⚠️ Unknown"
+        except Exception as e:
+            output.debug(f"Error getting certificate status for {domain}: {e}")
+            status = "❌ Missing"
+            expiry = "N/A"
+            days_left = "N/A"
+            renewal = "N/A"
+
+        table.add_row(domain, ssl_type, status, expiry, str(days_left), renewal)
+
+    # Add detected non-SSL domains
+    for domain in non_ssl_domains:
+        table.add_row(domain, "none", "🔓 No SSL", "N/A", "N/A", "N/A")
+
+    # Stop live display and print table
+    output.stop()
+    richprint.stdout.print(table)
+
+    # Show helpful message if there are non-SSL domains
+    if non_ssl_domains:
+        richprint.stdout.print("\n[yellow]💡 Tip: Add SSL certificates for non-SSL domains:[/yellow]")
+        richprint.stdout.print(f"[dim]  fm ssl add --standalone <domain> --email <email>[/dim]")
+
+
+def _list_all_certificates(ctx: typer.Context):
+    """List all SSL certificates (bench + external)."""
+
+    services_manager = ctx.obj["services"]
+
+    # List external certificates
+    richprint.stdout.print("\n[bold cyan]═══ External Certificates ═══[/bold cyan]\n")
+    _list_external_certificates(ctx)
+
+    # List bench certificates
+    richprint.stdout.print("\n[bold cyan]═══ Bench Certificates ═══[/bold cyan]\n")
+
+    # Get all benches and list their certs
+    bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager)
+    benches = bench_service.get_bench_names()
+
+    if not benches:
+        richprint.stdout.print("No benches found", emoji_code=":information:")
+    else:
+        for bench_name in benches:
+            richprint.stdout.print(f"\n[bold]Bench: {bench_name}[/bold]")
+            _list_bench_certificates(ctx, bench_name)
+
+
+def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool):
+    """Renew SSL certificate for a specific external domain."""
+
+    services_manager = ctx.obj["services"]
+    context = LoggerContext(operation="ssl-renew-external")
+    output = get_output_handler(ctx, context=context)
+
+    # Initialize external domain manager
+    external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
+    external_manager = ExternalDomainConfigManager(external_config_path)
+
+    # Check if domain exists
+    if not external_manager.domain_exists(domain):
+        output.display_error(f"No external certificate found for domain '{domain}'")
+        output.print("To list external certificates: fm ssl list --standalone", emoji_code="")
+        raise typer.Exit(1)
+
+    output.change_head(f"Renewing certificate for {domain}")
+
+    try:
+        # Get certificate object
+        cert = external_manager.to_ssl_certificate(domain)
+        if not cert:
+            raise ValueError(f"Could not create certificate object for {domain}")
+
+        # Initialize SSL infrastructure
+        global_proxy_storage = services_manager.proxy_storage
+
+        storage_config = SSLStorageConfig(
+            ssl_dir=global_proxy_storage.dirs.ssl.host,
+            ssl_dir_container=global_proxy_storage.dirs.ssl.container,
+            certs_dir=global_proxy_storage.dirs.certs.host,
+            certs_dir_container=global_proxy_storage.dirs.certs.container,
+            vhostd_dir=global_proxy_storage.dirs.vhostd.host,
+            webroot_dir=global_proxy_storage.dirs.html.host,
+        )
+
+        link_manager = CertificateLinkManager(storage_config)
+        nginx_controller = services_manager.nginx_controller
+
+        def certificate_service_factory(cert, storage_cfg, output_handler):
+            return create_certificate_service(cert, storage_cfg, output_handler)
+
+        # Create certificate manager
+        cert_manager = SSLCertificateManager(
+            certificates=[cert],
+            service_factory=certificate_service_factory,
+            link_manager=link_manager,
+            nginx_controller=nginx_controller,
+            storage_config=storage_config,
+            output_handler=output,
+            config_save_callback=None,
+        )
+
+        # Renew certificate
+        cert_manager.renew_certificate(domain=domain, dry_run=dry_run)
+        output.print(f"Certificate renewal for {domain} completed", emoji_code=":white_check_mark:")
+
+    except Exception as e:
+        output.display_error(f"Failed to renew certificate: {e}")
+        raise typer.Exit(1)
+
+
+def _renew_all_external_certificates(ctx: typer.Context, dry_run: bool):
+    """Renew all external domain SSL certificates."""
+
+    services_manager = ctx.obj["services"]
+    context = LoggerContext(operation="ssl-renew-external-all")
+    output = get_output_handler(ctx, context=context)
+
+    # Initialize external domain manager
+    external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
+    external_manager = ExternalDomainConfigManager(external_config_path)
+
+    # Get all external domains
+    external_domains = external_manager.list_domains()
+
+    if not external_domains:
+        output.print("No external SSL certificates to renew", emoji_code=":information:")
+        return
+
+    output.change_head(f"Renewing {len(external_domains)} external certificate(s)")
+
+    for domain_config in external_domains:
+        domain = domain_config.domain
+        try:
+            _renew_external_certificate(ctx, domain, dry_run)
+        except Exception as e:
+            output.warning(f"Failed to renew {domain}: {e}")
 
 
 # ============================================================================

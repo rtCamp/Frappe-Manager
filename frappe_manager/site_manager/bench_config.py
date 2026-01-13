@@ -371,6 +371,7 @@ class BenchConfig(BaseModel):
                 "SITENAME": domains_string,
                 "VIRTUAL_HOST": domains_string,
                 "VIRTUAL_PORT": 80,
+                "HTTPS_METHOD": "noredirect",
                 "HSTS": self.get_primary_certificate().hsts,
             },
             "worker": {

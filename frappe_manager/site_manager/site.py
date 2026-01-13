@@ -139,6 +139,7 @@ class Bench:
             ssl_dir_container=global_proxy_storage.dirs.ssl.container,
             certs_dir=global_proxy_storage.dirs.certs.host,
             certs_dir_container=global_proxy_storage.dirs.certs.container,
+            vhostd_dir=global_proxy_storage.dirs.vhostd.host,
             webroot_dir=webroot_dir,
         )
 

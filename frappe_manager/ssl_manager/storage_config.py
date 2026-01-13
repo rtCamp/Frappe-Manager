@@ -23,6 +23,7 @@ class SSLStorageConfig:
         ssl_dir_container: Root directory where certbot stores certificates (container filesystem)
         certs_dir: Directory where nginx-proxy looks for certificates (host filesystem)
         certs_dir_container: Directory where nginx-proxy looks for certificates (container filesystem)
+        vhostd_dir: Directory for nginx-proxy vhost.d configuration files (host filesystem)
         webroot_dir: Directory for HTTP-01 challenge files (host filesystem)
         validate_on_init: Whether to validate paths exist during initialization (default: False)
     """
@@ -38,6 +39,9 @@ class SSLStorageConfig:
 
     certs_dir_container: Path
     """Directory where nginx-proxy looks for certificates (container filesystem)"""
+
+    vhostd_dir: Path
+    """Directory for nginx-proxy vhost.d configuration files (host filesystem)"""
 
     webroot_dir: Path
     """Directory for HTTP-01 challenge files (host filesystem)"""
@@ -62,6 +66,9 @@ class SSLStorageConfig:
 
         if not self.certs_dir.exists():
             raise ValueError(f"Certificates directory does not exist: {self.certs_dir}")
+
+        if not self.vhostd_dir.exists():
+            raise ValueError(f"vhost.d directory does not exist: {self.vhostd_dir}")
 
         if not self.webroot_dir.exists():
             raise ValueError(f"Webroot directory does not exist: {self.webroot_dir}")

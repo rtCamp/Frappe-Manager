@@ -27,6 +27,7 @@ from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkM
 from frappe_manager.ssl_manager.nginx_controller import NginxController
 from frappe_manager.ssl_manager.ssl_certificate_service import SSLCertificateService
 from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
+from frappe_manager.ssl_manager.vhost_config_manager import VhostConfigManager
 from frappe_manager.utils.helpers import get_certificate_expiry_date
 
 
@@ -44,6 +45,7 @@ class SSLCertificateManager:
         service_factory: Factory function to create certificate services
         link_manager: Manages symlinks between cert files and nginx-proxy
         nginx_controller: Controls nginx service operations
+        vhost_manager: Manages per-domain HTTPS redirect configuration
         storage_config: Storage configuration for SSL operations
         config_save_callback: Callback to persist config changes to bench_config.toml
         output_handler: Output handler for user-facing messages
@@ -95,6 +97,9 @@ class SSLCertificateManager:
         self.link_manager = link_manager
         self.nginx_controller = nginx_controller
         self.config_save_callback = config_save_callback
+
+        # Initialize vhost config manager for per-domain HTTPS redirect control
+        self.vhost_manager = VhostConfigManager(storage_config.vhostd_dir)
 
         # Create services for all certificates
         self.services: dict[str, SSLCertificateService] = {}
@@ -178,6 +183,7 @@ class SSLCertificateManager:
                     shutil.rmtree(cert_dir, ignore_errors=True)
 
                 self.output_handler.print("[yellow]⏭️  Skipped: Creating symlinks (dry run)[/yellow]")
+                self.output_handler.print("[yellow]⏭️  Skipped: Creating vhost.d redirect config (dry run)[/yellow]")
                 self.output_handler.print("[yellow]⏭️  Skipped: Restarting nginx (dry run)[/yellow]")
                 self.output_handler.print("[yellow]⏭️  Skipped: Saving configuration (dry run)[/yellow]")
             else:
@@ -189,6 +195,10 @@ class SSLCertificateManager:
                     fullchain_path=fullchain_path,
                     alias_domains=None,
                 )
+
+                # Enable HTTPS redirect for this domain now that it has a certificate
+                self.vhost_manager.enable_https_redirect(certificate.domain)
+                self.output_handler.print(f"Created vhost.d redirect config for {certificate.domain}")
 
                 # Add to managed certificates
                 self.certificates.append(certificate)
@@ -242,6 +252,9 @@ class SSLCertificateManager:
 
         # Remove symlinks (individual cert, no alias_domains)
         self.link_manager.unlink_certificate(domain, alias_domains=None)
+
+        # Disable HTTPS redirect for this domain (remove vhost.d config)
+        self.vhost_manager.disable_https_redirect(domain)
 
         # Remove actual certificate files
         service.remove_certificate(cert_to_remove)
@@ -440,6 +453,10 @@ class SSLCertificateManager:
                 fullchain_path=fullchain_path,
                 alias_domains=None,
             )
+
+            # Enable HTTPS redirect for this domain
+            self.vhost_manager.enable_https_redirect(certificate.domain)
+            self.output_handler.print(f"Created vhost.d redirect config for {certificate.domain}")
 
         # Restart nginx once after all certificates are generated
         self.nginx_controller.restart()
@@ -668,6 +685,9 @@ class SSLCertificateManager:
 
         # Remove symlinks first
         self.link_manager.unlink_certificate(certificate.domain, None)
+
+        # Disable HTTPS redirect for this domain (remove vhost.d config)
+        self.vhost_manager.disable_https_redirect(certificate.domain)
 
         # Remove actual certificate files
         service.remove_certificate(certificate)
