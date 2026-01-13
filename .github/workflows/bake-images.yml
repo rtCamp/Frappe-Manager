@@ -98,7 +98,7 @@ jobs:
 
       - name: Build and push Docker image (non-frappe)
         if: matrix.service_name != 'frappe'
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v6
         with:
           context: Docker/${{ matrix.service_name }}/.
           push: true
@@ -110,7 +110,7 @@ jobs:
 
       - name: Build and push prebake image
         if: matrix.service_name == 'frappe'
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v6
         with:
           context: Docker/${{ matrix.service_name }}/.
           push: true
@@ -123,7 +123,7 @@ jobs:
 
       - name: Build and push fm image
         if: matrix.service_name == 'frappe'
-        uses: docker/build-push-action@v4
+        uses: docker/build-push-action@v6
         with:
           context: Docker/${{ matrix.service_name }}/.
           push: true
