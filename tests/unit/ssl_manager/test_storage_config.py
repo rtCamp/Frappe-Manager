@@ -28,6 +28,7 @@ class TestSSLStorageConfigInitialization:
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=certs_dir,
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=webroot_dir,
             validate_on_init=False,
         )
@@ -46,6 +47,7 @@ class TestSSLStorageConfigInitialization:
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=tmp_path / "nonexistent_certs",
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "nonexistent_webroot",
             validate_on_init=False,
         )
@@ -67,6 +69,7 @@ class TestSSLStorageConfigInitialization:
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=certs_dir,
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=webroot_dir,
         )
 
@@ -83,6 +86,7 @@ class TestSSLStorageConfigInitialization:
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=tmp_path / "certs",
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
         )
 
@@ -108,6 +112,7 @@ class TestSSLStorageConfigValidationSuccess:
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=certs_dir,
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=webroot_dir,
             validate_on_init=True,
         )
@@ -130,6 +135,7 @@ class TestSSLStorageConfigValidationSuccess:
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=certs_dir,
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=webroot_dir,
             validate_on_init=False,
         )
@@ -154,6 +160,7 @@ class TestSSLStorageConfigValidationFailures:
                 ssl_dir_container=Path("/etc/nginx/ssl"),
                 certs_dir=certs_dir,
                 certs_dir_container=Path("/etc/nginx/certs"),
+                vhostd_dir=tmp_path / "vhostd",
                 webroot_dir=webroot_dir,
                 validate_on_init=True,
             )
@@ -173,6 +180,7 @@ class TestSSLStorageConfigValidationFailures:
                 ssl_dir_container=Path("/etc/nginx/ssl"),
                 certs_dir=tmp_path / "nonexistent_certs",
                 certs_dir_container=Path("/etc/nginx/certs"),
+                vhostd_dir=tmp_path / "vhostd",
                 webroot_dir=webroot_dir,
                 validate_on_init=True,
             )
@@ -192,6 +200,7 @@ class TestSSLStorageConfigValidationFailures:
                 ssl_dir_container=Path("/etc/nginx/ssl"),
                 certs_dir=certs_dir,
                 certs_dir_container=Path("/etc/nginx/certs"),
+                vhostd_dir=tmp_path / "vhostd",
                 webroot_dir=tmp_path / "nonexistent_webroot",
                 validate_on_init=True,
             )
@@ -205,6 +214,7 @@ class TestSSLStorageConfigValidationFailures:
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=tmp_path / "nonexistent_certs",
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "nonexistent_webroot",
             validate_on_init=False,
         )
@@ -230,6 +240,7 @@ class TestSSLStorageConfigUsageScenarios:
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=certs_dir,
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=webroot_dir,
             validate_on_init=True,
         )
@@ -248,11 +259,12 @@ class TestSSLStorageConfigUsageScenarios:
 
         config = SSLStorageConfig(
             ssl_dir=ssl_dir,
-            ssl_dir_container=Path("/container/ssl"),
+            ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=certs_dir,
-            certs_dir_container=Path("/container/certs"),
+            certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=webroot_dir,
-            validate_on_init=True,
+            validate_on_init=False,
         )
 
         # Container paths should be different from host paths
@@ -267,6 +279,7 @@ class TestSSLStorageConfigUsageScenarios:
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=tmp_path / "certs",
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
             validate_on_init=False,
         )
@@ -297,6 +310,7 @@ class TestSSLStorageConfigUsageScenarios:
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=certs_dir,
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=webroot_dir,
         )
 
@@ -305,6 +319,7 @@ class TestSSLStorageConfigUsageScenarios:
             ssl_dir_container=Path("/container/ssl"),  # Different container path
             certs_dir=certs_dir,
             certs_dir_container=Path("/container/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=webroot_dir,
         )
 

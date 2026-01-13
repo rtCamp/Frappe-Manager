@@ -77,7 +77,7 @@ def mock_letsencrypt_certificate_http01():
     return LetsencryptSSLCertificate(
         domain="example.com",
         ssl_type=SUPPORTED_SSL_TYPES.le,
-        preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
+        challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
         email="admin@example.com",
         hsts="off",
     )
@@ -89,7 +89,7 @@ def mock_letsencrypt_certificate_dns01():
     return LetsencryptSSLCertificate(
         domain="example.com",
         ssl_type=SUPPORTED_SSL_TYPES.le,
-        preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
+        challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
         email="admin@example.com",
         api_token="test_cloudflare_token_123",
         hsts="off",
@@ -102,7 +102,7 @@ def mock_letsencrypt_certificate_dns01_with_key():
     return LetsencryptSSLCertificate(
         domain="example.com",
         ssl_type=SUPPORTED_SSL_TYPES.le,
-        preferred_challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
+        challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
         email="admin@example.com",
         api_key="test_cloudflare_global_key_456",
         hsts="off",
@@ -151,6 +151,7 @@ def mock_storage_config(tmp_path):
         "ssl_dir": tmp_path / "ssl",
         "certs_dir": tmp_path / "certs",
         "webroot_dir": tmp_path / "webroot",
+        "vhostd_dir": tmp_path / "vhostd",
     }
 
     # Create directories
@@ -162,6 +163,7 @@ def mock_storage_config(tmp_path):
         ssl_dir_container=Path("/etc/nginx/ssl"),
         certs_dir=paths["certs_dir"],
         certs_dir_container=Path("/etc/nginx/certs"),
+        vhostd_dir=paths["vhostd_dir"],
         webroot_dir=paths["webroot_dir"],
         validate_on_init=False,
     )

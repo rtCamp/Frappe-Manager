@@ -22,6 +22,7 @@ class TestCertificateLinkManagerInitialization:
             certs_dir=tmp_path / "certs",
             ssl_dir_container=Path("/etc/letsencrypt"),
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
         )
 
@@ -40,6 +41,7 @@ class TestCertificateLinkManagerInitialization:
             certs_dir=tmp_path / "certs",
             ssl_dir_container=Path("/etc/letsencrypt"),
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
         )
 
@@ -56,6 +58,7 @@ class TestCertificateLinkManagerInitialization:
             certs_dir=tmp_path / "certs",
             ssl_dir_container=Path("/etc/letsencrypt"),
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
         )
 
@@ -72,6 +75,7 @@ class TestCertificateLinkManagerInitialization:
             certs_dir=tmp_path / "certs",
             ssl_dir_container=Path("/etc/letsencrypt"),
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
         )
 
@@ -94,6 +98,7 @@ class TestCertificateLinkManagerLinkCertificate:
             certs_dir=tmp_path / "certs",
             ssl_dir_container=Path("/etc/letsencrypt"),
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
         )
 
@@ -136,6 +141,7 @@ class TestCertificateLinkManagerLinkCertificate:
             certs_dir=tmp_path / "certs",
             ssl_dir_container=Path("/etc/letsencrypt"),
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
         )
 
@@ -183,6 +189,7 @@ class TestCertificateLinkManagerLinkCertificate:
             certs_dir=tmp_path / "certs",
             ssl_dir_container=Path("/etc/letsencrypt"),
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
         )
 
@@ -220,6 +227,7 @@ class TestCertificateLinkManagerUnlinkCertificate:
             certs_dir=tmp_path / "certs",
             ssl_dir_container=Path("/etc/letsencrypt"),
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
         )
 
@@ -249,6 +257,7 @@ class TestCertificateLinkManagerUnlinkCertificate:
             certs_dir=tmp_path / "certs",
             ssl_dir_container=Path("/etc/letsencrypt"),
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
         )
 
@@ -277,6 +286,7 @@ class TestCertificateLinkManagerUnlinkCertificate:
             certs_dir=tmp_path / "certs",
             ssl_dir_container=Path("/etc/letsencrypt"),
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
         )
 
@@ -301,6 +311,7 @@ class TestCertificateLinkManagerGetCertificatePaths:
             certs_dir=tmp_path / "certs",
             ssl_dir_container=Path("/etc/letsencrypt"),
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
         )
 
@@ -341,6 +352,7 @@ class TestCertificateLinkManagerGetCertificatePaths:
             certs_dir=tmp_path / "certs",
             ssl_dir_container=Path("/etc/letsencrypt"),
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
         )
 
@@ -363,6 +375,7 @@ class TestCertificateLinkManagerPathConversion:
             certs_dir=tmp_path / "certs",
             ssl_dir_container=Path("/etc/letsencrypt"),
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
         )
 
@@ -384,6 +397,7 @@ class TestCertificateLinkManagerPathConversion:
             certs_dir=tmp_path / "certs",
             ssl_dir_container=Path("/etc/letsencrypt"),
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
         )
 
@@ -409,6 +423,7 @@ class TestCertificateLinkManagerSafeUnlink:
             certs_dir=tmp_path / "certs",
             ssl_dir_container=Path("/etc/letsencrypt"),
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
         )
 
@@ -431,6 +446,7 @@ class TestCertificateLinkManagerSafeUnlink:
             certs_dir=tmp_path / "certs",
             ssl_dir_container=Path("/etc/letsencrypt"),
             certs_dir_container=Path("/etc/nginx/certs"),
+            vhostd_dir=tmp_path / "vhostd",
             webroot_dir=tmp_path / "webroot",
         )
 
