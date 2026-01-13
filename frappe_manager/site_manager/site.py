@@ -49,8 +49,7 @@ from frappe_manager.ssl_manager.nginx_controller import NginxController
 from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
 from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
 from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkManager
-from frappe_manager.ssl_manager.letsencrypt_certificate_service import LetsEncryptCertificateService
-from frappe_manager.ssl_manager.no_op_certificate_service import NoOpCertificateService
+from frappe_manager.ssl_manager.service_factory import create_certificate_service
 from frappe_manager.utils.helpers import (
     capture_and_format_exception,
     format_ssl_certificate_time_remaining,
@@ -91,11 +90,11 @@ class Bench:
         self.backup_path = self.path / 'backups'
         self.bench_config: BenchConfig = bench_config
         self.logger = log.get_logger()
-        
+
         # Store compose_file_manager and docker_client directly
         self.compose_file_manager = compose_file_manager
         self.docker_client = docker_client
-        
+
         # Initialize specialized modules
         self.docker_ops = BenchDockerOps(
             docker_client=docker_client,
@@ -111,26 +110,30 @@ class Bench:
             bench_name=name,
             output_handler=self.output,
         )
-        
+
         # Initialize local nginx proxy components
         self.bench_proxy_storage = ProxyStoragePaths('nginx', self.compose_file_manager)
         self.bench_nginx_controller = NginxController('nginx', self.compose_file_manager, self.docker_client)
-        
+
         # For backward compatibility with admin_tools
         # Create a simple proxy manager object with required attributes
-        self.proxy_manager = type('ProxyManager', (), {
-            'dirs': self.bench_proxy_storage.dirs,
-            'restart': self.bench_nginx_controller.restart,
-            'reload': self.bench_nginx_controller.reload,
-        })()
-        
+        self.proxy_manager = type(
+            'ProxyManager',
+            (),
+            {
+                'dirs': self.bench_proxy_storage.dirs,
+                'restart': self.bench_nginx_controller.restart,
+                'reload': self.bench_nginx_controller.reload,
+            },
+        )()
+
         self.admin_tools = BenchAdminTools(self, self.proxy_manager, verbose=verbose, output_handler=self.output)
 
         # Initialize SSL certificate manager with dependency injection
         # Get global nginx-proxy storage config from services
         global_proxy_storage = services.proxy_storage
         webroot_dir = self.bench_proxy_storage.dirs.html.host
-        
+
         ssl_storage_config = SSLStorageConfig(
             ssl_dir=global_proxy_storage.dirs.ssl.host,
             ssl_dir_container=global_proxy_storage.dirs.ssl.container,
@@ -138,35 +141,32 @@ class Bench:
             certs_dir_container=global_proxy_storage.dirs.certs.container,
             webroot_dir=webroot_dir,
         )
-        
-        # Create certificate service based on SSL type
-        if self.bench_config.ssl.ssl_type == SUPPORTED_SSL_TYPES.le:
-            certificate_service = LetsEncryptCertificateService(
-                ssl_storage_config.ssl_dir,
-                webroot_dir,
-                output_handler=self.output,
-            )
-        else:
-            certificate_service = NoOpCertificateService(Path('/dev/null'), output_handler=self.output)
-        
-        # Create link manager and nginx controller
+
+        # Create link manager
         link_manager = CertificateLinkManager(ssl_storage_config)
-        
-        # Initialize certificate manager
+
+        # Initialize multi-certificate manager with service factory
+        # The factory will create appropriate services (certbot, acme.sh, etc.) for each certificate
+        def certificate_service_factory(cert, storage_cfg, output_handler):
+            return create_certificate_service(cert, storage_cfg, output_handler)
+
         self.certificate_manager = SSLCertificateManager(
-            certificate=self.bench_config.ssl,
-            service=certificate_service,
+            certificates=self.bench_config.ssl_certificates,
+            service_factory=certificate_service_factory,
             link_manager=link_manager,
             nginx_controller=services.nginx_controller,
+            storage_config=ssl_storage_config,
+            config_save_callback=self.save_bench_config,
+            output_handler=self.output,
         )
-        
+
         # Initialize SSL module
         self.ssl = BenchSSL(
             certificate_manager=self.certificate_manager,
             bench_name=name,
             is_service_running_fn=self._is_service_running,
         )
-        
+
         # Initialize DevTools module
         self.devtools = BenchDevTools(
             docker_client=docker_client,
@@ -179,7 +179,7 @@ class Bench:
             output_handler=self.output,
         )
         self.devtools.logger = self.logger
-        
+
         # Initialize Database module
         self.database = BenchDatabase(
             bench_name=name,
@@ -188,7 +188,7 @@ class Bench:
             set_common_bench_config_fn=self.set_common_bench_config,
             output_handler=self.output,
         )
-        
+
         # Initialize Site Manager module
         self.site_manager = BenchSiteManager(
             bench_name=name,
@@ -199,7 +199,7 @@ class Bench:
             quiet=self.quiet,
             output_handler=self.output,
         )
-        
+
         # Initialize App Manager module
         self.app_manager = BenchAppManager(
             bench_name=name,
@@ -209,9 +209,9 @@ class Bench:
             quiet=self.quiet,
             output_handler=self.output,
         )
-        
+
         self.workers = BenchWorkers(self, not verbose, output_handler=self.output)
-        
+
         # Initialize Info module
         self.info_display = BenchInfo(
             bench_name=name,
@@ -227,7 +227,7 @@ class Bench:
             get_services_running_status_fn=self._get_services_running_status,
             output_handler=self.output,
         )
-        
+
         # Initialize WorkerCoordinator module
         self.worker_coordinator = BenchWorkerCoordinator(
             bench_name=name,
@@ -239,7 +239,7 @@ class Bench:
             quiet=self.quiet,
             output_handler=self.output,
         )
-        
+
         # Initialize Orchestrator for complex workflows
         self.orchestrator = BenchOrchestrator(self, output_handler=self.output)
 
@@ -282,11 +282,11 @@ class Bench:
             'workers_check': workers_check,
             'admin_tools_check': admin_tools_check,
         }
-        
+
         # Add output_handler if provided
         if output_handler is not None:
             parms['output_handler'] = output_handler
-            
+
         return cls(**parms)
 
     def _is_service_running(self, service: str) -> bool:
@@ -307,7 +307,7 @@ class Bench:
         self.set_common_bench_config({'developer_mode': self.bench_config.developer_mode})
 
         # ssl
-        certificate_updated = self.update_certificate(self.bench_config.ssl, raise_error=False)
+        certificate_updated = self.update_certificate(self.bench_config.get_primary_certificate(), raise_error=False)
         if certificate_updated:
             self.output.print("Certificate Updated.")
 
@@ -420,7 +420,7 @@ class Bench:
         sync_bench_config_changes: bool = False,
         reconfigure_workers: bool = False,
         include_default_workers=False,
-        include_custom_workers = False,
+        include_custom_workers=False,
         reconfigure_supervisor: bool = False,
         reconfigure_common_site_config: bool = False,
         sync_dev_packages: bool = False,
@@ -500,12 +500,7 @@ class Bench:
             self.output.change_head("Removing bench admin tools containers.")
             # down_service equivalent: stop + remove containers + volumes
             try:
-                self.admin_tools.docker_client.compose.down(
-                    remove_orphans=True,
-                    volumes=True,
-                    timeout=5,
-                    stream=True
-                )
+                self.admin_tools.docker_client.compose.down(remove_orphans=True, volumes=True, timeout=5, stream=True)
             except Exception:
                 pass  # Best effort cleanup
             self.output.print("Removed bench admin tools containers.")
@@ -558,12 +553,18 @@ class Bench:
                 time.sleep(interval)
         return False
 
-    def sync_workers_compose(self, force_recreate: bool = False, setup_supervisor: bool = True, include_default_workers: bool = True, include_custom_workers: bool = True):
+    def sync_workers_compose(
+        self,
+        force_recreate: bool = False,
+        setup_supervisor: bool = True,
+        include_default_workers: bool = True,
+        include_custom_workers: bool = True,
+    ):
         self.worker_coordinator.sync_workers_compose(
             force_recreate=force_recreate,
             setup_supervisor=setup_supervisor,
             include_default_workers=include_default_workers,
-            include_custom_workers=include_custom_workers
+            include_custom_workers=include_custom_workers,
         )
 
     def backup_restore_workers_supervisor(self, backup_manager: BackupManager):
@@ -591,13 +592,13 @@ class Bench:
 
     def remove_certificate(self):
         self.ssl.remove_certificate(self.bench_config.alias_domains)
-        self.bench_config.ssl = SSLCertificate(domain=self.name, ssl_type=SUPPORTED_SSL_TYPES.none)
+        self.bench_config.set_primary_certificate(SSLCertificate(domain=self.name, ssl_type=SUPPORTED_SSL_TYPES.none))
         self.save_bench_config()
 
     def update_certificate(self, certificate: SSLCertificate, raise_error: bool = True):
         result = self.ssl.update_certificate(certificate, self.bench_config.alias_domains, raise_error)
         if result:
-            self.bench_config.ssl = certificate
+            self.bench_config.set_primary_certificate(certificate)
         return result
 
     def renew_certificate(self):
@@ -606,15 +607,15 @@ class Bench:
     def update_alias_domains(self, add_domains: Optional[List[str]] = None, remove_domains: Optional[List[str]] = None):
         """
         Update alias domains for the bench with atomic rollback support.
-        
+
         Works independently of SSL status:
         - If SSL is active: regenerates certificate with updated domains
         - If SSL is inactive: updates config only
-        
+
         Args:
             add_domains: List of domains to add as aliases
             remove_domains: List of domains to remove from aliases
-            
+
         Raises:
             ValueError: If attempting to remove primary domain
             Exception: If certificate generation fails (config is rolled back)
@@ -710,7 +711,7 @@ class Bench:
 
         Args:
             user: Username to be used in the container
-            extensions: List of VS Code extensions to install 
+            extensions: List of VS Code extensions to install
             workdir: Working directory path inside container
             debugger: Whether to setup debugging configuration
 
@@ -772,13 +773,10 @@ class Bench:
                         for status in all_statuses
                         if status.get("Name") in containers
                     }
-                    admin_tools_running = all(
-                        running_statuses.get(service) == "running"
-                        for service in services
-                    )
+                    admin_tools_running = all(running_statuses.get(service) == "running" for service in services)
                 except Exception:
                     admin_tools_running = False
-                
+
                 if not admin_tools_running:
                     if self.running:
                         self.admin_tools.enable()

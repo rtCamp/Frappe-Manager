@@ -2,6 +2,7 @@ from enum import Enum
 import os
 from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo
 import tomlkit
+from tomlkit.items import Array as TOMLArray
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
@@ -18,11 +19,56 @@ class FMBenchEnvType(str, Enum):
     dev = 'dev'
 
 
+def ssl_certificate_from_toml_data(ssl_data: Dict, domain: str) -> SSLCertificate:
+    """Parse a single certificate from TOML data."""
+    ssl_type = ssl_data.get('ssl_type', SUPPORTED_SSL_TYPES.none)
+
+    if ssl_type == SUPPORTED_SSL_TYPES.le:
+        email = ssl_data.get('email', None)
+
+        fm_config_manager = FMConfigManager.import_from_toml()
+
+        pref_challenge_data = ssl_data.get("preferred_challenge", None)
+
+        api_token = ssl_data.get('api_token', None)
+        if not api_token:
+            api_token = fm_config_manager.letsencrypt.api_token
+
+        api_key = ssl_data.get('api_key', None)
+        if not api_key:
+            api_key = fm_config_manager.letsencrypt.api_key
+
+        if not pref_challenge_data:
+            if fm_config_manager.letsencrypt.exists:
+                preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
+            else:
+                preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.http01
+        else:
+            preferred_challenge = pref_challenge_data
+
+        # Read acme_client field (defaults to "certbot" if not specified)
+        acme_client = ssl_data.get('acme_client', 'certbot')
+
+        return LetsencryptSSLCertificate(
+            domain=domain,
+            ssl_type=ssl_type,
+            email=email,
+            preferred_challenge=preferred_challenge,
+            api_key=api_key,
+            api_token=api_token,
+            acme_client=acme_client,
+        )
+    else:
+        return SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none)
+
+
 def ssl_certificate_to_toml_doc(cert: SSLCertificate) -> Optional[tomlkit.TOMLDocument]:
+    """Convert a single certificate to TOML document."""
     if cert.ssl_type == SUPPORTED_SSL_TYPES.none:
         return None
 
-    model_dict = cert.model_dump(exclude=cert.toml_exclude, exclude_none=True)
+    # Explicitly exclude only the computed field, but INCLUDE domain
+    model_dict = cert.model_dump(exclude={'toml_exclude'}, exclude_none=True)
     toml_doc = tomlkit.document()
 
     for key, value in model_dict.items():
@@ -33,12 +79,27 @@ def ssl_certificate_to_toml_doc(cert: SSLCertificate) -> Optional[tomlkit.TOMLDo
     return toml_doc
 
 
+def ssl_certificates_to_toml_array(certs: List[SSLCertificate]) -> TOMLArray:
+    """Convert a list of certificates to TOML array-of-tables."""
+    # Use aot() for array-of-tables format [[ssl_certificates]]
+    toml_aot = tomlkit.aot()
+    for cert in certs:
+        if cert.ssl_type != SUPPORTED_SSL_TYPES.none:
+            cert_doc = ssl_certificate_to_toml_doc(cert)
+            if cert_doc:
+                toml_aot.append(cert_doc)
+    return toml_aot
+
+
 class BenchConfig(BaseModel):
     name: str = Field(..., description="The name of the bench")
     developer_mode: bool = Field(..., description="Whether developer mode is enabled")
     admin_tools: bool = Field(..., description="Whether admin tools are enabled")
     environment_type: FMBenchEnvType = Field(..., description="The type of environment")
-    ssl: SSLCertificate = Field(..., description="The SSL certificate")
+
+    # Multi-certificate support
+    ssl_certificates: List[SSLCertificate] = Field(default=[], description="List of SSL certificates for this bench")
+
     alias_domains: List[str] = Field(default=[], description="List of alias domains for the bench")
 
     frappe_branch: str = Field(
@@ -52,6 +113,59 @@ class BenchConfig(BaseModel):
     admin_tools_username: Optional[str] = Field(None, description="Username for admin tools basic auth")
     admin_tools_password: Optional[str] = Field(None, description="Password for admin tools basic auth")
 
+    def get_primary_certificate(self) -> SSLCertificate:
+        """
+        Get the primary SSL certificate.
+
+        Returns the first certificate in ssl_certificates list, or creates a default
+        disabled certificate if the list is empty.
+        """
+        if self.ssl_certificates:
+            return self.ssl_certificates[0]
+
+        # Return default disabled certificate
+        return SSLCertificate(domain=self.name, ssl_type=SUPPORTED_SSL_TYPES.none)
+
+    def set_primary_certificate(self, certificate: SSLCertificate):
+        """
+        Set the primary SSL certificate.
+
+        Updates the first certificate in the list, or creates a new list with this certificate.
+        """
+        if self.ssl_certificates:
+            self.ssl_certificates[0] = certificate
+        else:
+            self.ssl_certificates = [certificate]
+
+    def create_individual_certificates(self, template_certificate: SSLCertificate) -> None:
+        """
+        Create individual certificate entries for primary domain and all alias domains.
+
+        This replaces any existing certificates with individual certificate entries
+        for each domain (primary + aliases), using the template certificate as a base.
+
+        Args:
+            template_certificate: Certificate configuration to use as template
+                                 (email, acme_client, ssl_type, etc.)
+        """
+        from copy import deepcopy
+
+        new_certificates = []
+
+        # Create certificate for primary domain
+        primary_cert = deepcopy(template_certificate)
+        primary_cert.domain = self.name
+        new_certificates.append(primary_cert)
+
+        # Create individual certificates for each alias domain
+        for alias_domain in self.alias_domains:
+            alias_cert = deepcopy(template_certificate)
+            alias_cert.domain = alias_domain
+            new_certificates.append(alias_cert)
+
+        # Replace all certificates with individual ones
+        self.ssl_certificates = new_certificates
+
     @property
     def db_name(self):
         return self.name.replace(".", "-")
@@ -61,11 +175,9 @@ class BenchConfig(BaseModel):
         return get_container_name_prefix(self.name)
 
     def export_to_toml(self, path: Path) -> bool:
-        ssl_toml_doc: Optional[tomlkit.TOMLDocument] = None
-
-        # check if it's SSLCertificate if not then its
-        ssl_toml_doc = ssl_certificate_to_toml_doc(self.ssl)
-
+        """
+        Export bench configuration to TOML file.
+        """
         exclude = {
             'root_path',
             'mariadb_root_pass',
@@ -77,14 +189,21 @@ class BenchConfig(BaseModel):
             'admin_pass',
         }
 
-        if ssl_toml_doc is None:
-            exclude.add('ssl')
-
         # Convert the BenchConfig instance to a dictionary
         bench_dict = self.model_dump(exclude=exclude, exclude_none=True)
 
-        if ssl_toml_doc:
-            bench_dict['ssl'] = ssl_toml_doc
+        # Handle SSL certificates
+        if self.ssl_certificates:
+            # Export as array
+            certs_array = ssl_certificates_to_toml_array(self.ssl_certificates)
+            if len(certs_array) > 0:
+                bench_dict['ssl_certificates'] = certs_array
+            else:
+                # No active certificates, remove the key
+                bench_dict.pop('ssl_certificates', None)
+        else:
+            # No certificates at all
+            bench_dict.pop('ssl_certificates', None)
 
         # Serialize the dictionary to a TOML string
         # Create a TOML document from the dictionary
@@ -104,53 +223,36 @@ class BenchConfig(BaseModel):
 
     @classmethod
     def import_from_toml(cls, path: Path) -> "BenchConfig":
-        data = tomlkit.parse(path.read_text())
+        """
+        Import bench configuration from TOML file.
 
+        Automatically migrates legacy single-certificate format (ssl key) to new
+        multi-certificate format (ssl_certificates array).
+        """
+        data = tomlkit.parse(path.read_text())
         data['root_path'] = str(path)
 
+        domain: str = data.get('name', '')
+        ssl_certificates_list: List[SSLCertificate] = []
+
+        # Check for new multi-cert format
+        ssl_certificates_data = data.get('ssl_certificates', None)
+        if ssl_certificates_data and isinstance(ssl_certificates_data, list):
+            # Parse multi-certificate format
+            for cert_data in ssl_certificates_data:
+                cert_domain = cert_data.get('domain', domain)
+                ssl_cert = ssl_certificate_from_toml_data(cert_data, cert_domain)
+                ssl_certificates_list.append(ssl_cert)
+
+        # Check for legacy single-cert format and migrate it
         ssl_data = data.get('ssl', None)
+        if ssl_data and not ssl_certificates_list:
+            # Migrate from legacy format
+            ssl_cert = ssl_certificate_from_toml_data(ssl_data, domain)
+            ssl_certificates_list.append(ssl_cert)
 
-        if ssl_data:
-            domain: str = data.get('name', '')  # Set domain from main data if necessary
-            ssl_type = ssl_data.get('ssl_type', SUPPORTED_SSL_TYPES.none)
-
-            if ssl_type == SUPPORTED_SSL_TYPES.le:
-                email = ssl_data.get('email', None)
-
-                fm_config_manager = FMConfigManager.import_from_toml()
-
-                pref_challenge_data = ssl_data.get("preferred_challenge", None)
-
-                api_token = ssl_data.get('api_token', None)
-
-                if not api_token:
-                    api_token = fm_config_manager.letsencrypt.api_token
-
-                api_key = ssl_data.get('api_key', None)
-
-                if not api_key:
-                    api_key = fm_config_manager.letsencrypt.api_key
-
-                if not pref_challenge_data:
-                    if fm_config_manager.letsencrypt.exists:
-                        preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
-                    else:
-                        preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.http01
-                else:
-                    preferred_challenge = pref_challenge_data
-
-                ssl_instance = LetsencryptSSLCertificate(
-                    domain=domain,
-                    ssl_type=ssl_type,
-                    email=email,
-                    preferred_challenge=preferred_challenge,
-                    api_key=api_key,
-                    api_token=api_token,
-                )
-            else:
-                ssl_instance = SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none)
-        else:
-            ssl_instance = SSLCertificate(domain=data.get('name', ''), ssl_type=SUPPORTED_SSL_TYPES.none)
+        # If no certificates found at all, start with empty list
+        # (default cert will be created via get_primary_certificate() when needed)
 
         # Read alias_domains from root level only
         alias_domains_list = data.get('alias_domains', [])
@@ -161,14 +263,13 @@ class BenchConfig(BaseModel):
             'admin_tools': data.get('admin_tools', False),
             'environment_type': data.get('environment_type', None),
             'root_path': data.get('root_path', None),
-            'ssl': ssl_instance,
+            'ssl_certificates': ssl_certificates_list,
             'alias_domains': alias_domains_list,
             'admin_tools_username': data.get('admin_tools_username', None),
             'admin_tools_password': data.get('admin_tools_password', None),
         }
 
         bench_config_instance = cls(**input_data)
-
         return bench_config_instance
 
     def get_commmon_site_config_data(self, db_server_info: DatabaseServerServiceInfo) -> Dict[str, Any]:
@@ -204,7 +305,7 @@ class BenchConfig(BaseModel):
                 "SITENAME": domains_string,
                 "VIRTUAL_HOST": domains_string,
                 "VIRTUAL_PORT": 80,
-                "HSTS": self.ssl.hsts,
+                "HSTS": self.get_primary_certificate().hsts,
             },
             "worker": {
                 "USERID": self.userid,

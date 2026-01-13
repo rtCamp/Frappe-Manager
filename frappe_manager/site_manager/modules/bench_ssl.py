@@ -2,7 +2,7 @@
 
 This module handles all SSL certificate operations for a bench including:
 - Creating certificates
-- Checking certificate existence  
+- Checking certificate existence
 - Removing certificates
 - Updating certificates
 - Renewing certificates
@@ -53,6 +53,15 @@ class BenchSSL:
         """
         self.certificate_manager.generate_certificate(alias_domains)
 
+    def create_individual_certificates(self) -> None:
+        """
+        Create individual SSL certificates for all domains.
+
+        This generates separate certificates for the primary domain and each
+        alias domain, rather than a single SAN certificate covering all domains.
+        """
+        self.certificate_manager.generate_all_certificates()
+
     def has_certificate(self) -> bool:
         """
         Check if bench has an SSL certificate.
@@ -94,7 +103,7 @@ class BenchSSL:
                 if raise_error:
                     raise BenchSSLCertificateAlreadyIssued(self.bench_name)
             else:
-                self.certificate_manager.set_certificate(certificate)
+                # Update primary certificate by regenerating
                 self.create_certificate(alias_domains)
 
         elif certificate.ssl_type == SUPPORTED_SSL_TYPES.none:

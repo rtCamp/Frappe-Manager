@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 class BenchInfo:
     """
     Manages information retrieval and display for a bench.
-    
+
     Responsibilities:
     - Display comprehensive bench information
     - Read configuration files
@@ -57,7 +57,7 @@ class BenchInfo:
     ):
         """
         Initialize BenchInfo module.
-        
+
         Args:
             bench_name: Name of the bench
             bench_path: Path to bench directory
@@ -88,10 +88,10 @@ class BenchInfo:
     def get_common_config(self) -> dict:
         """
         Get common site configuration from common_site_config.json.
-        
+
         Returns:
             dict: Common site configuration
-            
+
         Raises:
             BenchException: If common_site_config.json not found
         """
@@ -103,10 +103,10 @@ class BenchInfo:
     def get_site_config(self) -> dict:
         """
         Get site-specific configuration from site_config.json.
-        
+
         Returns:
             dict: Site configuration
-            
+
         Raises:
             BenchException: If site_config.json not found
         """
@@ -118,7 +118,7 @@ class BenchInfo:
     def get_installed_apps_list(self) -> Dict[str, Any]:
         """
         Get list of installed apps from apps.json.
-        
+
         Returns:
             dict: Installed apps data with versions, or empty dict if not found
         """
@@ -132,7 +132,7 @@ class BenchInfo:
     def get_log_file_paths(self) -> List[Path]:
         """
         Get log file paths based on environment type.
-        
+
         Returns:
             list: List of log file paths
         """
@@ -148,8 +148,8 @@ class BenchInfo:
     def display_info(self) -> None:
         """
         Retrieve and display comprehensive information about the bench.
-        
-        This includes: URL, root path, status, credentials, database info, 
+
+        This includes: URL, root path, status, credentials, database info,
         SSL status, admin tools, installed apps, and running services.
         """
         self.output.change_head("Getting bench info")
@@ -169,14 +169,13 @@ class BenchInfo:
         if 'admin_password' in site_config:
             admin_pass = site_config['admin_password']
 
-        ssl_service_type = f'{self.bench_config.ssl.ssl_type.value}'
-        if self.bench_config.ssl.ssl_type == SUPPORTED_SSL_TYPES.le:
-            if isinstance(self.bench_config.ssl, LetsencryptSSLCertificate):
-                ssl_service_type = (
-                    f'[{self.bench_config.ssl.preferred_challenge.value}] {self.bench_config.ssl.ssl_type.value}'
-                )
+        ssl_cert = self.bench_config.get_primary_certificate()
+        ssl_service_type = f'{ssl_cert.ssl_type.value}'
+        if ssl_cert.ssl_type == SUPPORTED_SSL_TYPES.le:
+            if isinstance(ssl_cert, LetsencryptSSLCertificate):
+                ssl_service_type = f'[{ssl_cert.preferred_challenge.value}] {ssl_cert.ssl_type.value}'
             else:
-                ssl_service_type = f'{self.bench_config.ssl.ssl_type.value}'
+                ssl_service_type = f'{ssl_cert.ssl_type.value}'
 
         is_running = self.is_running()
         status = "Active" if is_running else "Inactive"
@@ -202,12 +201,12 @@ class BenchInfo:
                 else 'Not Enabled'
             ),
         }
-        
+
         # Add alias domains if present (independent of SSL status)
         if self.bench_config.alias_domains:
             alias_list = '\n'.join(sorted(self.bench_config.alias_domains))
             data['Alias Domains'] = alias_list
-        
+
         if not self.bench_config.admin_tools:
             data['Admin Tools'] = 'Not Enabled'
         else:
@@ -228,6 +227,7 @@ class BenchInfo:
 
             # Combine table and auth info
             from rich.console import Group
+
             data['Admin Tools'] = Group(admin_tools_Table, auth_info)
 
         bench_info_table.add_column(no_wrap=True)
@@ -247,20 +247,18 @@ class BenchInfo:
             bench_info_table.add_row("Bench Apps", bench_apps_list_table)
 
         running_bench_services = self.get_services_running_status()
-        
+
         # Get workers status using docker_client
         try:
             services = self.workers.compose_file_manager.get_services_list()
             containers = self.workers.compose_file_manager.get_container_names().values()
             all_statuses = self.workers.docker_client.compose.get_all_services_status()
             running_bench_workers = {
-                status["Service"]: status["State"]
-                for status in all_statuses
-                if status.get("Name") in containers
+                status["Service"]: status["State"] for status in all_statuses if status.get("Name") in containers
             }
         except DockerException:
             running_bench_workers = {}
-        
+
         # Get admin tools services status directly from docker_client
         running_bench_admin_tools = {}
         if self.admin_tools.compose_file_manager.exists():
@@ -269,9 +267,7 @@ class BenchInfo:
                 containers = self.admin_tools.compose_file_manager.get_container_names().values()
                 all_statuses = self.admin_tools.docker_client.compose.get_all_services_status()
                 running_bench_admin_tools = {
-                    status["Service"]: status["State"]
-                    for status in all_statuses
-                    if status.get("Name") in containers
+                    status["Service"]: status["State"] for status in all_statuses if status.get("Name") in containers
                 }
             except Exception:
                 running_bench_admin_tools = {}
@@ -290,5 +286,6 @@ class BenchInfo:
 
         # Use Rich's Console directly for printing the table
         from rich.console import Console
+
         console = Console()
         console.print(bench_info_table)

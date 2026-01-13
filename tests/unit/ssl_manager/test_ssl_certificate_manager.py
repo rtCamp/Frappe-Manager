@@ -20,76 +20,89 @@ class TestSSLCertificateManagerInitialization:
     """Tests for SSLCertificateManager initialization."""
 
     def test_init_stores_all_dependencies(
-        self, mock_certificate, mock_ssl_service, mock_link_manager, mock_nginx_controller
+        self,
+        mock_certificate,
+        mock_ssl_service,
+        mock_storage_config,
+        mock_link_manager,
+        mock_nginx_controller,
+        mock_output_handler,
     ):
         """Test that initialization stores all dependencies."""
+
+        def service_factory(cert, storage_cfg, output_handler):
+            return mock_ssl_service
+
         manager = SSLCertificateManager(
-            certificate=mock_certificate,
-            service=mock_ssl_service,
+            certificates=[mock_certificate],
+            service_factory=service_factory,
             link_manager=mock_link_manager,
             nginx_controller=mock_nginx_controller,
+            storage_config=mock_storage_config,
+            output_handler=mock_output_handler,
         )
 
-        assert manager.certificate == mock_certificate
-        assert manager.service == mock_ssl_service
+        assert mock_certificate in manager.certificates
         assert manager.link_manager == mock_link_manager
         assert manager.nginx_controller == mock_nginx_controller
+        assert manager.storage_config == mock_storage_config
+        assert manager.output_handler == mock_output_handler
 
-    def test_init_raises_if_certificate_is_none(self, mock_ssl_service, mock_link_manager, mock_nginx_controller):
-        """Test that initialization raises ValueError if certificate is None."""
-        with pytest.raises(ValueError, match="Certificate configuration is required"):
-            SSLCertificateManager(
-                certificate=None,
-                service=mock_ssl_service,
-                link_manager=mock_link_manager,
-                nginx_controller=mock_nginx_controller,
-            )
+    def test_init_with_empty_certificate_list(
+        self, mock_ssl_service, mock_storage_config, mock_link_manager, mock_nginx_controller, mock_output_handler
+    ):
+        """Test that initialization works with empty certificate list."""
 
-    def test_init_raises_if_service_is_none(self, mock_certificate, mock_link_manager, mock_nginx_controller):
-        """Test that initialization raises ValueError if service is None."""
-        with pytest.raises(ValueError, match="Certificate service is required"):
-            SSLCertificateManager(
-                certificate=mock_certificate,
-                service=None,
-                link_manager=mock_link_manager,
-                nginx_controller=mock_nginx_controller,
-            )
+        def service_factory(cert, storage_cfg, output_handler):
+            return mock_ssl_service
 
-    def test_init_raises_if_link_manager_is_none(self, mock_certificate, mock_ssl_service, mock_nginx_controller):
+        manager = SSLCertificateManager(
+            certificates=[],
+            service_factory=service_factory,
+            link_manager=mock_link_manager,
+            nginx_controller=mock_nginx_controller,
+            storage_config=mock_storage_config,
+            output_handler=mock_output_handler,
+        )
+
+        assert manager.certificates == []
+        assert manager.get_primary_certificate() is None
+
+    def test_init_raises_if_link_manager_is_none(
+        self, mock_certificate, mock_ssl_service, mock_storage_config, mock_nginx_controller, mock_output_handler
+    ):
         """Test that initialization raises ValueError if link_manager is None."""
+
+        def service_factory(cert, storage_cfg, output_handler):
+            return mock_ssl_service
+
         with pytest.raises(ValueError, match="Certificate link manager is required"):
             SSLCertificateManager(
-                certificate=mock_certificate,
-                service=mock_ssl_service,
+                certificates=[mock_certificate],
+                service_factory=service_factory,
                 link_manager=None,
                 nginx_controller=mock_nginx_controller,
+                storage_config=mock_storage_config,
+                output_handler=mock_output_handler,
             )
 
-    def test_init_raises_if_nginx_controller_is_none(self, mock_certificate, mock_ssl_service, mock_link_manager):
+    def test_init_raises_if_nginx_controller_is_none(
+        self, mock_certificate, mock_ssl_service, mock_storage_config, mock_link_manager, mock_output_handler
+    ):
         """Test that initialization raises ValueError if nginx_controller is None."""
+
+        def service_factory(cert, storage_cfg, output_handler):
+            return mock_ssl_service
+
         with pytest.raises(ValueError, match="Nginx controller is required"):
             SSLCertificateManager(
-                certificate=mock_certificate,
-                service=mock_ssl_service,
+                certificates=[mock_certificate],
+                service_factory=service_factory,
                 link_manager=mock_link_manager,
                 nginx_controller=None,
+                storage_config=mock_storage_config,
+                output_handler=mock_output_handler,
             )
-
-
-class TestSSLCertificateManagerSetCertificate:
-    """Tests for SSLCertificateManager.set_certificate method."""
-
-    def test_set_certificate_updates_certificate(self, ssl_certificate_manager):
-        """Test that set_certificate updates the certificate configuration."""
-        from frappe_manager.ssl_manager.certificate import SSLCertificate
-        from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
-
-        new_certificate = SSLCertificate(domain="newdomain.com", ssl_type=SUPPORTED_SSL_TYPES.le)
-
-        ssl_certificate_manager.set_certificate(new_certificate)
-
-        assert ssl_certificate_manager.certificate == new_certificate
-        assert ssl_certificate_manager.certificate.domain == "newdomain.com"
 
 
 class TestSSLCertificateManagerHasCertificate:
@@ -116,6 +129,18 @@ class TestSSLCertificateManagerHasCertificate:
 
         assert result is False
 
+    def test_has_certificate_with_specific_domain(self, ssl_certificate_manager):
+        """Test that has_certificate works with specific domain parameter."""
+        ssl_certificate_manager.link_manager.get_certificate_paths.return_value = (
+            Path("/privkey.pem"),
+            Path("/fullchain.pem"),
+        )
+
+        result = ssl_certificate_manager.has_certificate(domain="example.com")
+
+        assert result is True
+        ssl_certificate_manager.link_manager.get_certificate_paths.assert_called_with("example.com")
+
 
 class TestSSLCertificateManagerGetCertificatePaths:
     """Tests for SSLCertificateManager.get_certificate_paths method."""
@@ -128,9 +153,8 @@ class TestSSLCertificateManagerGetCertificatePaths:
         result = ssl_certificate_manager.get_certificate_paths()
 
         assert result == expected_paths
-        ssl_certificate_manager.link_manager.get_certificate_paths.assert_called_once_with(
-            ssl_certificate_manager.certificate.domain
-        )
+        primary_cert = ssl_certificate_manager.get_primary_certificate()
+        ssl_certificate_manager.link_manager.get_certificate_paths.assert_called_once_with(primary_cert.domain)
 
     def test_get_certificate_paths_raises_not_found_error(self, ssl_certificate_manager):
         """Test that get_certificate_paths raises SSLCertificateNotFoundError."""
@@ -139,7 +163,18 @@ class TestSSLCertificateManagerGetCertificatePaths:
         with pytest.raises(SSLCertificateNotFoundError) as exc_info:
             ssl_certificate_manager.get_certificate_paths()
 
-        assert ssl_certificate_manager.certificate.domain in str(exc_info.value)
+        primary_cert = ssl_certificate_manager.get_primary_certificate()
+        assert primary_cert.domain in str(exc_info.value)
+
+    def test_get_certificate_paths_with_specific_domain(self, ssl_certificate_manager):
+        """Test that get_certificate_paths works with specific domain parameter."""
+        expected_paths = (Path("/privkey.pem"), Path("/fullchain.pem"))
+        ssl_certificate_manager.link_manager.get_certificate_paths.return_value = expected_paths
+
+        result = ssl_certificate_manager.get_certificate_paths(domain="custom.com")
+
+        assert result == expected_paths
+        ssl_certificate_manager.link_manager.get_certificate_paths.assert_called_once_with("custom.com")
 
 
 class TestSSLCertificateManagerGetCertificateExpiry:

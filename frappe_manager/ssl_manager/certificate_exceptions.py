@@ -47,8 +47,12 @@ class SSLCertificateGenerateFailed(Exception):
 
     def __init__(
         self,
+        domain: str | None = None,
     ):
-        self.message = "Certificate generation failed."
+        if domain:
+            self.message = f"Certificate generation failed for {domain}."
+        else:
+            self.message = "Certificate generation failed."
         super().__init__(self.message)
 
 
