@@ -147,7 +147,7 @@ class Bench:
         link_manager = CertificateLinkManager(ssl_storage_config)
 
         # Initialize multi-certificate manager with service factory
-        # The factory will create appropriate services (certbot, acme.sh, etc.) for each certificate
+        # The factory will create appropriate certificate services (acme.sh) for each certificate
         def certificate_service_factory(cert, storage_cfg, output_handler):
             return create_certificate_service(cert, storage_cfg, output_handler)
 
