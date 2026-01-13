@@ -54,7 +54,7 @@ jobs:
         mv target/release/pyapp ../fm && chmod +x ../fm
 
     - name: Upload Artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: frappe_manager-${{ env.PYAPP_PROJECT_VERSION }}-linux-amd64
         path: |
