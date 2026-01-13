@@ -103,6 +103,8 @@ class TestSSLStorageConfigValidationSuccess:
         ssl_dir.mkdir()
         certs_dir = tmp_path / "certs"
         certs_dir.mkdir()
+        vhostd_dir = tmp_path / "vhostd"
+        vhostd_dir.mkdir()
         webroot_dir = tmp_path / "webroot"
         webroot_dir.mkdir()
 
@@ -112,13 +114,14 @@ class TestSSLStorageConfigValidationSuccess:
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=certs_dir,
             certs_dir_container=Path("/etc/nginx/certs"),
-            vhostd_dir=tmp_path / "vhostd",
+            vhostd_dir=vhostd_dir,
             webroot_dir=webroot_dir,
             validate_on_init=True,
         )
 
         assert config.ssl_dir.exists()
         assert config.certs_dir.exists()
+        assert config.vhostd_dir.exists()
         assert config.webroot_dir.exists()
 
     def test_explicit_validate_call_with_valid_paths(self, tmp_path):
@@ -127,6 +130,8 @@ class TestSSLStorageConfigValidationSuccess:
         ssl_dir.mkdir()
         certs_dir = tmp_path / "certs"
         certs_dir.mkdir()
+        vhostd_dir = tmp_path / "vhostd"
+        vhostd_dir.mkdir()
         webroot_dir = tmp_path / "webroot"
         webroot_dir.mkdir()
 
@@ -135,7 +140,7 @@ class TestSSLStorageConfigValidationSuccess:
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=certs_dir,
             certs_dir_container=Path("/etc/nginx/certs"),
-            vhostd_dir=tmp_path / "vhostd",
+            vhostd_dir=vhostd_dir,
             webroot_dir=webroot_dir,
             validate_on_init=False,
         )
@@ -193,6 +198,8 @@ class TestSSLStorageConfigValidationFailures:
         ssl_dir.mkdir()
         certs_dir = tmp_path / "certs"
         certs_dir.mkdir()
+        vhostd_dir = tmp_path / "vhostd"
+        vhostd_dir.mkdir()
 
         with pytest.raises(ValueError) as exc_info:
             SSLStorageConfig(
@@ -200,7 +207,7 @@ class TestSSLStorageConfigValidationFailures:
                 ssl_dir_container=Path("/etc/nginx/ssl"),
                 certs_dir=certs_dir,
                 certs_dir_container=Path("/etc/nginx/certs"),
-                vhostd_dir=tmp_path / "vhostd",
+                vhostd_dir=vhostd_dir,
                 webroot_dir=tmp_path / "nonexistent_webroot",
                 validate_on_init=True,
             )
@@ -232,6 +239,8 @@ class TestSSLStorageConfigUsageScenarios:
         ssl_dir.mkdir(parents=True)
         certs_dir = tmp_path / "nginx" / "certs"
         certs_dir.mkdir(parents=True)
+        vhostd_dir = tmp_path / "nginx" / "vhostd"
+        vhostd_dir.mkdir(parents=True)
         webroot_dir = tmp_path / "nginx" / "webroot"
         webroot_dir.mkdir(parents=True)
 
@@ -240,7 +249,7 @@ class TestSSLStorageConfigUsageScenarios:
             ssl_dir_container=Path("/etc/nginx/ssl"),
             certs_dir=certs_dir,
             certs_dir_container=Path("/etc/nginx/certs"),
-            vhostd_dir=tmp_path / "vhostd",
+            vhostd_dir=vhostd_dir,
             webroot_dir=webroot_dir,
             validate_on_init=True,
         )
@@ -291,6 +300,7 @@ class TestSSLStorageConfigUsageScenarios:
         # Create directories
         config.ssl_dir.mkdir()
         config.certs_dir.mkdir()
+        config.vhostd_dir.mkdir()
         config.webroot_dir.mkdir()
 
         # Now validation should succeed

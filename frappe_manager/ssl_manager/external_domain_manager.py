@@ -42,7 +42,7 @@ class ExternalDomainConfig:
         added_at: ISO 8601 timestamp when certificate was added
         challenge_type: Challenge type ("http01" or "dns01")
         delegation_cname: Optional CNAME for DNS-01 delegation
-        acme_client: ACME client to use ("acme.sh" or "certbot")
+        acme_client: ACME client to use (currently only "acme.sh" is supported)
     """
 
     domain: str

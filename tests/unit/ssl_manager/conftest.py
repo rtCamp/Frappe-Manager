@@ -311,40 +311,6 @@ def sample_expiry_date():
     return datetime.now() + timedelta(days=30)
 
 
-@pytest.fixture
-def mock_certbot_modules(mocker):
-    """Mocks all certbot internal modules for testing LetsEncrypt service."""
-    mocks = {
-        'cli': mocker.patch('frappe_manager.ssl_manager.letsencrypt_certificate_service.cli'),
-        'storage': mocker.patch('frappe_manager.ssl_manager.letsencrypt_certificate_service.storage'),
-        'plugins_disco': mocker.patch('frappe_manager.ssl_manager.letsencrypt_certificate_service.plugins_disco'),
-        'display_obj': mocker.patch('frappe_manager.ssl_manager.letsencrypt_certificate_service.display_obj'),
-        'crypto_util': mocker.patch('frappe_manager.ssl_manager.letsencrypt_certificate_service.crypto_util'),
-        'make_or_verify_needed_dirs': mocker.patch(
-            'frappe_manager.ssl_manager.letsencrypt_certificate_service.make_or_verify_needed_dirs'
-        ),
-    }
-
-    # Setup default behaviors
-    mock_config = MagicMock()
-    mock_config.func = MagicMock()
-    mocks['cli'].prepare_and_parse_args.return_value = mock_config
-
-    mock_plugins = MagicMock()
-    mocks['plugins_disco'].PluginsRegistry.find_all.return_value = mock_plugins
-
-    # Mock storage for get_certificate_paths
-    mock_renewal_cert = MagicMock()
-    mock_renewal_cert.lineagename = "example.com"
-    mock_renewal_cert.key_path = "/tmp/ssl/privkey.pem"
-    mock_renewal_cert.fullchain_path = "/tmp/ssl/fullchain.pem"
-
-    mocks['storage'].renewal_conf_files.return_value = ["/tmp/renewal/example.com.conf"]
-    mocks['storage'].RenewableCert.return_value = mock_renewal_cert
-
-    return mocks
-
-
 @pytest.fixture(autouse=True)
 def reset_env_vars(monkeypatch):
     """

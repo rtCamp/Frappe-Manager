@@ -19,8 +19,8 @@ class SSLStorageConfig:
     separating configuration from business logic and making the system more testable.
 
     Attributes:
-        ssl_dir: Root directory where certbot stores certificates (host filesystem)
-        ssl_dir_container: Root directory where certbot stores certificates (container filesystem)
+        ssl_dir: Root directory where ACME client stores certificates (host filesystem)
+        ssl_dir_container: Root directory where ACME client stores certificates (container filesystem)
         certs_dir: Directory where nginx-proxy looks for certificates (host filesystem)
         certs_dir_container: Directory where nginx-proxy looks for certificates (container filesystem)
         vhostd_dir: Directory for nginx-proxy vhost.d configuration files (host filesystem)
@@ -29,10 +29,10 @@ class SSLStorageConfig:
     """
 
     ssl_dir: Path
-    """Root directory where certbot stores certificates (host filesystem)"""
+    """Root directory where ACME client stores certificates (host filesystem)"""
 
     ssl_dir_container: Path
-    """Root directory where certbot stores certificates (container filesystem)"""
+    """Root directory where ACME client stores certificates (container filesystem)"""
 
     certs_dir: Path
     """Directory where nginx-proxy looks for certificates (host filesystem)"""
