@@ -66,34 +66,6 @@ def get_output_handler(ctx: typer.Context, context: Optional[LoggerContext] = No
 
 
 @ssl_root_command.command()
-def delete(
-    ctx: typer.Context,
-    benchname: Annotated[
-        Optional[str],
-        typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
-        ),
-    ] = None,
-):
-    """Delete bench ssl certficate."""
-
-    services_manager = ctx.obj["services"]
-
-    # Create output handler with context for logging
-    context = LoggerContext(bench=benchname, operation="ssl-delete")
-    output = get_output_handler(ctx, context=context)
-    bench = Bench.get_object(benchname, services_manager, output_handler=output)
-
-    output.change_head("Removing SSL certificate")
-
-    if not bench.has_certificate():
-        output.display_error(f"{benchname} doesn't have SSL certificate issued.")
-        raise SSLCertificateError("Bench doesn't have SSL certificate issued.", details={"bench": benchname})
-    bench.remove_certificate()
-    output.print("Removed SSL certificate.", emoji_code=":white_check_mark:")
-
-
-@ssl_root_command.command()
 def renew(
     ctx: typer.Context,
     benchname: Annotated[
