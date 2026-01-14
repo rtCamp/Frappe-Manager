@@ -1285,6 +1285,102 @@ def dns_config_cloudflare(
     _configure_dns_credentials(ctx, provider_name, benchname, api_token, api_key, email)
 
 
+@ssl_root_command.command(name="acme-sh", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def acmesh_passthrough(
+    ctx: typer.Context,
+):
+    """
+    Run acme.sh commands directly with FM's environment (advanced users).
+
+    This command provides direct access to acme.sh for advanced operations like:
+    - Listing certificates: fm ssl acme-sh --list
+    - Checking certificate info: fm ssl acme-sh --info -d example.com
+    - Manual operations: fm ssl acme-sh --revoke -d example.com
+    - Debugging: fm ssl acme-sh --version
+
+    [bold yellow]⚠️  Advanced users only![/bold yellow]
+    This bypasses FM's certificate management. Use 'fm ssl add/remove/renew' for normal operations.
+
+    [bold cyan]Examples:[/bold cyan]
+    - Show acme.sh help: fm ssl acme-sh
+    - List all certificates: fm ssl acme-sh --list
+    - Show certificate info: fm ssl acme-sh --info -d example.com
+    - Check acme.sh version: fm ssl acme-sh --version
+    - Upgrade acme.sh: fm ssl acme-sh --upgrade
+    - Force renew: fm ssl acme-sh --renew -d example.com --force
+
+    [bold]Note:[/bold] All acme.sh commands run with:
+    - --home set to FM's SSL directory
+    - LE_WORKING_DIR set automatically
+    - Full access to FM's certificate storage
+    """
+    import os
+    from frappe_manager.utils.subprocess import stream_command_output
+
+    # Get arguments passed to acme.sh (everything after 'acme-sh')
+    args = ctx.args
+
+    # Get services manager and output handler
+    services_manager = ctx.obj["services"]
+    output = get_output_handler(ctx)
+
+    # Get SSL paths from proxy storage
+    global_proxy_storage = services_manager.proxy_storage
+    ssl_dir = global_proxy_storage.dirs.ssl.host
+    acmesh_home = ssl_dir / "acmesh" / ".acme.sh"
+    acmesh_bin = acmesh_home / "acme.sh"
+
+    # Check if acme.sh is installed
+    if not acmesh_bin.exists():
+        output.display_error("acme.sh is not installed yet")
+        output.info("Run 'fm ssl add <benchname> <domain>' to install acme.sh first")
+        raise typer.Exit(1)
+
+    # Build command
+    cmd = [str(acmesh_bin), "--home", str(acmesh_home)]
+
+    # If no args provided, show help
+    if not args:
+        cmd.append("--help")
+    else:
+        cmd.extend(args)
+
+    # Build environment
+    env = os.environ.copy()
+    env["LE_WORKING_DIR"] = str(acmesh_home)
+
+    output.change_head("Running acme.sh")
+    output.info(f"Command: acme.sh {' '.join(args or ['--help'])}")
+    output.info(f"Home: {acmesh_home}")
+    output.print("")
+
+    # Stream output directly to user
+    exit_code_holder = [0]
+
+    def stream_with_exit_tracking():
+        """Generator that tracks exit code while yielding output."""
+        for source, line in stream_command_output(cmd, env=env, cwd=None):
+            if source == "exit_code":
+                exit_code_holder[0] = int(line.decode())
+            yield source, line
+
+    # Display all output (print directly for raw acme.sh output)
+    for source, line in stream_with_exit_tracking():
+        if source in ("stdout", "stderr"):
+            # Print directly without prefix for raw acme.sh output
+            decoded = line.decode()
+            print(decoded, flush=True)
+
+    # Exit with acme.sh's exit code
+    if exit_code_holder[0] != 0:
+        output.print("")
+        output.display_error(f"acme.sh exited with code {exit_code_holder[0]}")
+        raise typer.Exit(exit_code_holder[0])
+    else:
+        output.print("")
+        output.print("Command completed successfully", emoji_code=":white_check_mark:")
+
+
 # Register dns-config as subcommand of ssl
 ssl_root_command.add_typer(dns_config_command, name="dns-config", help="Configure DNS provider credentials")
 
