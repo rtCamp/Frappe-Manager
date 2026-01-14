@@ -11,30 +11,20 @@ admin_tools = false
 # Sets the bench environment to either "prod" (production) or "dev" (development).
 environment_type = "prod"
 
-[ssl]
-# Sets the SSL type to be used by the bench, in this case, "letsencrypt" for Let's Encrypt.
-ssl_type = "letsencrypt"
+# SSL certificates configuration
+# Certificates are managed via: fm ssl add <bench> <domain>
+# Let's Encrypt discontinued email notifications in June 2025
+#
+# Example SSL certificate configuration:
+# [[ssl_certificates]]
+# domain = "fm.com"
+# ssl_type = "letsencrypt"
+# challenge_type = "http01"
+# acme_client = "acme.sh"
+# hsts = "off"
 
-# Controls the HSTS (HTTP Strict Transport Security) header used by the bench.
-# When set to "off", the HSTS header will not be included.
-hsts = "off"
-
-# Specifies the preferred Certbot challenge method to be used for Let's Encrypt certificate validation.
-preferred_challenge = "http01"
-
-# The email address associated with Let's Encrypt.
-# This is used for notifications, recovery, and is used with `api_key` for the Global API key of Cloudflare.
-# For more information, see [this documentation](https://certbot-dns-cloudflare.readthedocs.io/en/stable/#certbot-cloudflare-key-ini).
-email = "cloudflare@example.com"
-
-# Cloudflare Global API Key for Let's Encrypt DNS01 Challenge.
-api_token = "0123456789abcdef0123456789abcdef01234567"
-
-# Cloudflare API token for Let's Encrypt DNS01 Challenge.
-api_key = "0123456789abcdef0123456789abcdef01234"
-
-# (Optional) Additional domains (aliases) to be included in the SSL certificate.
-# These domains will be added as Subject Alternative Names (SAN) to the certificate.
+# (Optional) Additional domains (aliases) for the bench.
+# These domains will be served by the bench but require separate SSL certificates.
 # Example: alias_domains = ["www.fm.com", "api.fm.com"]
 # Note: Wildcard domains (e.g., "*.fm.com") require dns01 challenge.
 # alias_domains = []

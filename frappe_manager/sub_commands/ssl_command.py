@@ -144,7 +144,7 @@ def renew(
                         output.display_error(
                             f"No SSL certificate found for domain '{domain}'.\n"
                             f"Configured certificates: {', '.join(cert_domains) if cert_domains else 'None'}\n"
-                            f"To add a certificate, use: fm ssl add {benchname} {domain} --email YOUR_EMAIL"
+                            f"To add a certificate, use: fm ssl add {benchname} {domain}"
                         )
                         raise typer.Exit(1)
 
@@ -220,10 +220,6 @@ def add_certificate(
         ),
     ] = None,
     domain: Annotated[Optional[str], typer.Argument(help="Domain name for the certificate")] = None,
-    email: Annotated[
-        Optional[str],
-        typer.Option("--email", "-e", help="Email address for Let's Encrypt notifications"),
-    ] = None,
     challenge: Annotated[
         Optional[str],
         typer.Option("--challenge", "-c", help="Challenge type: http01 or dns01 (default: http01)"),
@@ -265,10 +261,10 @@ def add_certificate(
     Add SSL certificate for a domain.
 
     [bold cyan]Bench mode (default):[/bold cyan]
-      fm ssl add <benchname> <domain> --email <email>
+      fm ssl add <benchname> <domain>
 
     [bold cyan]Standalone mode (external Docker projects):[/bold cyan]
-      fm ssl add --standalone <domain> --email <email>
+      fm ssl add --standalone <domain>
 
     [dim]Standalone mode allows managing SSL for any Docker project using FM's nginx-proxy.[/dim]
 
@@ -285,35 +281,36 @@ def add_certificate(
             context = LoggerContext(operation="ssl-add-external")
             output = get_output_handler(ctx, context=context)
             output.display_error("Domain is required in standalone mode")
-            output.print("Usage: fm ssl add --standalone <domain> --email <email>", emoji_code="")
+            output.print("Usage: fm ssl add --standalone <domain>", emoji_code="")
             raise typer.Exit(1)
 
         if benchname and domain:
             context = LoggerContext(operation="ssl-add-external")
             output = get_output_handler(ctx, context=context)
             output.display_error("Cannot specify both benchname and domain in standalone mode")
-            output.print("Usage: fm ssl add --standalone <domain> --email <email>", emoji_code="")
+            output.print("Usage: fm ssl add --standalone <domain>", emoji_code="")
             raise typer.Exit(1)
 
-        _add_external_certificate(ctx, actual_domain, email, challenge, cname, dry_run, skip_dns_check, wait_for_dns)
+        _add_external_certificate(
+            ctx, actual_domain, challenge or "http01", cname, dry_run, skip_dns_check, wait_for_dns
+        )
     else:
         # Bench mode: both benchname and domain required
         if not benchname or not domain:
             context = LoggerContext(operation="ssl-add")
             output = get_output_handler(ctx, context=context)
             output.display_error("Both benchname and domain are required in bench mode")
-            output.print("Usage: fm ssl add <benchname> <domain> --email <email>", emoji_code="")
-            output.print("For external projects, use: fm ssl add --standalone <domain> --email <email>", emoji_code="")
+            output.print("Usage: fm ssl add <benchname> <domain>", emoji_code="")
+            output.print("For external projects, use: fm ssl add --standalone <domain>", emoji_code="")
             raise typer.Exit(1)
 
-        _add_bench_certificate(ctx, benchname, domain, email, challenge, cname, dry_run)
+        _add_bench_certificate(ctx, benchname, domain, challenge or "http01", cname, dry_run)
 
 
 def _add_bench_certificate(
     ctx: typer.Context,
     benchname: str,
     domain: str,
-    email: Optional[str],
     challenge: str,
     cname: Optional[str],
     dry_run: bool,
@@ -337,10 +334,7 @@ def _add_bench_certificate(
         )
         raise typer.Exit(1)
 
-    # Validate inputs
-    if not email:
-        output.display_error("Email is required for Let's Encrypt certificates. Use --email option.")
-        raise typer.Exit(1)
+    # Email validation removed - Let's Encrypt discontinued email notifications (June 2025)
 
     # Parse challenge type
     if challenge.lower() == "dns01":
@@ -365,7 +359,10 @@ def _add_bench_certificate(
             cert = CustomDomainCertificate(
                 domain=domain,
                 ssl_type=SUPPORTED_SSL_TYPES.le,
-                email=email,
+                # Email removed - Let's Encrypt discontinued notifications (June 2025)
+                # Cloudflare credentials loaded from FM config at runtime
+                api_token=None,
+                api_key=None,
                 challenge_type=preferred_challenge,
                 delegation_cname=cname,
             )
@@ -375,7 +372,10 @@ def _add_bench_certificate(
             cert = LetsencryptSSLCertificate(
                 domain=domain,
                 ssl_type=SUPPORTED_SSL_TYPES.le,
-                email=email,
+                # Email removed - Let's Encrypt discontinued notifications (June 2025)
+                # Cloudflare credentials loaded from FM config at runtime
+                api_token=None,
+                api_key=None,
                 challenge_type=preferred_challenge,
             )
 
@@ -398,7 +398,6 @@ def _add_bench_certificate(
 def _add_external_certificate(
     ctx: typer.Context,
     domain: str,
-    email: Optional[str],
     challenge: str,
     cname: Optional[str],
     dry_run: bool,
@@ -420,14 +419,10 @@ def _add_external_certificate(
         output.display_error(f"Certificate already exists for external domain '{domain}'")
         output.print("To update certificate:", emoji_code="")
         output.print(f"  1. Remove existing: fm ssl remove --standalone {domain}", emoji_code="")
-        output.print(f"  2. Add new: fm ssl add --standalone {domain} --email <email>", emoji_code="")
+        output.print(f"  2. Add new: fm ssl add --standalone {domain}", emoji_code="")
         raise typer.Exit(1)
 
-    # Validate email
-    if not email:
-        output.display_error("Email is required for Let's Encrypt certificates")
-        output.print(f"Usage: fm ssl add --standalone {domain} --email <email>", emoji_code="")
-        raise typer.Exit(1)
+    # Email validation removed - Let's Encrypt discontinued email notifications (June 2025)
 
     # Parse challenge type
     if challenge.lower() == "dns01":
@@ -442,9 +437,7 @@ def _add_external_certificate(
     # Validate CNAME only with DNS-01
     if cname and preferred_challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
         output.display_error("CNAME delegation (--cname) requires DNS-01 challenge")
-        output.print(
-            f"Usage: fm ssl add --standalone {domain} --email <email> --challenge dns01 --cname <cname>", emoji_code=""
-        )
+        output.print(f"Usage: fm ssl add --standalone {domain} --challenge dns01 --cname <cname>", emoji_code="")
         raise typer.Exit(1)
 
     output.change_head(f"Adding SSL certificate for {domain} (standalone mode)")
@@ -455,7 +448,10 @@ def _add_external_certificate(
             cert = CustomDomainCertificate(
                 domain=domain,
                 ssl_type=SUPPORTED_SSL_TYPES.le,
-                email=email,
+                # Email removed - Let's Encrypt discontinued notifications (June 2025)
+                # Cloudflare credentials loaded from FM config at runtime
+                api_token=None,
+                api_key=None,
                 challenge_type=preferred_challenge,
                 delegation_cname=cname,
             )
@@ -522,7 +518,10 @@ def _add_external_certificate(
             cert = LetsencryptSSLCertificate(
                 domain=domain,
                 ssl_type=SUPPORTED_SSL_TYPES.le,
-                email=email,
+                # Email removed - Let's Encrypt discontinued notifications (June 2025)
+                # Cloudflare credentials loaded from FM config at runtime
+                api_token=None,
+                api_key=None,
                 challenge_type=preferred_challenge,
             )
 
@@ -620,7 +619,7 @@ def _add_external_certificate(
                 ExternalDomainConfig(
                     domain=domain,
                     ssl_type="letsencrypt",
-                    email=email,
+                    # Email removed - Let's Encrypt discontinued notifications (June 2025)
                     added_at=datetime.now().isoformat(),
                     challenge_type=challenge.lower(),
                     delegation_cname=cname,
@@ -1007,7 +1006,7 @@ def _list_external_certificates(ctx: typer.Context):
         output.print("No external domains or SSL certificates configured", emoji_code=":information:")
         output.print("", emoji_code="")
         output.print("To add an external certificate:", emoji_code="")
-        output.print("  fm ssl add --standalone <domain> --email <email>", emoji_code="")
+        output.print("  fm ssl add --standalone <domain>", emoji_code="")
         return
 
     # Initialize SSL infrastructure to check certificate status
@@ -1082,7 +1081,7 @@ def _list_external_certificates(ctx: typer.Context):
     # Show helpful message if there are non-SSL domains
     if non_ssl_domains:
         richprint.stdout.print("\n[yellow]💡 Tip: Add SSL certificates for non-SSL domains:[/yellow]")
-        richprint.stdout.print(f"[dim]  fm ssl add --standalone <domain> --email <email>[/dim]")
+        richprint.stdout.print(f"[dim]  fm ssl add --standalone <domain>[/dim]")
 
 
 def _list_all_certificates(ctx: typer.Context):
@@ -1102,7 +1101,7 @@ def _list_all_certificates(ctx: typer.Context):
     benches = bench_service.get_bench_names()
 
     if not benches:
-        richprint.stdout.print("No benches found", emoji_code=":information:")
+        richprint.stdout.print("ℹ️  No benches found")
     else:
         for bench_name in benches:
             richprint.stdout.print(f"\n[bold]Bench: {bench_name}[/bold]")

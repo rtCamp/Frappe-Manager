@@ -51,7 +51,9 @@ def ssl_certificate_from_toml_data(ssl_data: Dict, domain: str) -> SSLCertificat
     ssl_type = ssl_data.get('ssl_type', SUPPORTED_SSL_TYPES.none)
 
     if ssl_type == SUPPORTED_SSL_TYPES.le:
-        email = ssl_data.get('email', None)
+        # Email field removed - Let's Encrypt discontinued notifications (June 2025)
+        # Remove email from TOML data if present (backward compatibility)
+        ssl_data.pop('email', None)
 
         fm_config_manager = FMConfigManager.import_from_toml()
 
@@ -82,7 +84,7 @@ def ssl_certificate_from_toml_data(ssl_data: Dict, domain: str) -> SSLCertificat
         return LetsencryptSSLCertificate(
             domain=domain,
             ssl_type=ssl_type,
-            email=email,
+            # Email removed - credentials loaded from FM config
             challenge_type=challenge_type,
             api_key=api_key,
             api_token=api_token,

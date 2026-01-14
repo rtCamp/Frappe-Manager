@@ -1,5 +1,5 @@
 from typing import Optional
-from pydantic import EmailStr, Field, model_validator
+from pydantic import Field, model_validator
 
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
@@ -9,7 +9,7 @@ from frappe_manager.ssl_manager.certificate_exceptions import SSLDNSChallengeCre
 
 
 class LetsencryptSSLCertificate(SSLCertificate):
-    email: EmailStr = Field(..., description="Email used for Let's Encrypt notifications.")
+    # Email field removed - Let's Encrypt discontinued email notifications (June 2025)
     api_token: str | None = Field(None, description="Cloudflare API token.")
     api_key: str | None = Field(None, description="Cloudflare Global API Key.")
     toml_exclude: set | None = {"domain", "toml_exclude"}
@@ -28,24 +28,6 @@ class LetsencryptSSLCertificate(SSLCertificate):
         # Skip validation - credentials are loaded dynamically from FM config
         # The acme.sh service will validate credentials when generating the cert
         return self
-
-    def get_cloudflare_dns_credentials(self, output_handler: OutputHandler | None = None) -> str:
-        output = output_handler or RichOutputHandler()
-        creds: list[str] = []
-
-        if self.api_key:
-            output.print("Using Cloudflare GLOBAL API KEY")
-            creds.append(f"dns_cloudflare_email = {self.email}\n")
-            creds.append(f"dns_cloudflare_api_key = {self.api_key}\n")
-
-        if self.api_token:
-            output.print("Using Cloudflare API Token")
-            creds.append(f"dns_cloudflare_api_token = {self.api_token}\n")
-
-        if not creds:
-            raise SSLDNSChallengeCredentailsNotFound()
-
-        return "\n".join(creds)
 
 
 class CustomDomainCertificate(LetsencryptSSLCertificate):

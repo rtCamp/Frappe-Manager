@@ -84,8 +84,8 @@ class AcmeShCertificateService:
 
         self.output.change_head("Installing acme.sh")
         try:
-            # Install acme.sh with minimal registration (email will be updated on first certificate)
-            # Using noreply email to avoid example.com restriction
+            # Install acme.sh with default noreply email
+            # Email notifications discontinued by Let's Encrypt (June 2025)
             install_cmd = f"curl -s https://get.acme.sh | sh -s email=noreply@acme.sh --home {self.acmesh_home}"
             result = subprocess.run(install_cmd, shell=True, check=True, capture_output=True, text=True)
             self.output.print("acme.sh installed successfully")
@@ -170,9 +170,8 @@ class AcmeShCertificateService:
         # Add debug flag for verbose output
         args.append("--debug")
 
-        # Add email from certificate configuration
-        if hasattr(certificate, 'email') and certificate.email:
-            args.extend(["--accountemail", certificate.email])
+        # Email handling removed - Let's Encrypt discontinued email notifications (June 2025)
+        # acme.sh account uses default noreply@acme.sh
 
         env = {}
 

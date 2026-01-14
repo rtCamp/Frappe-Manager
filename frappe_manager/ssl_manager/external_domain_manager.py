@@ -12,7 +12,6 @@ Example external_domains.toml structure:
     [domains.myapp_example_com]
     domain = "myapp.example.com"
     ssl_type = "letsencrypt"
-    email = "admin@example.com"
     added_at = "2026-01-14T12:00:00"
     challenge_type = "http01"
     acme_client = "acme.sh"
@@ -38,7 +37,6 @@ class ExternalDomainConfig:
     Attributes:
         domain: The domain name (e.g., "myapp.example.com")
         ssl_type: Certificate type (always "letsencrypt" for now)
-        email: Email address for Let's Encrypt notifications
         added_at: ISO 8601 timestamp when certificate was added
         challenge_type: Challenge type ("http01" or "dns01")
         delegation_cname: Optional CNAME for DNS-01 delegation
@@ -47,7 +45,6 @@ class ExternalDomainConfig:
 
     domain: str
     ssl_type: str
-    email: str
     added_at: str
     challenge_type: str  # Changed from preferred_challenge to challenge_type
     delegation_cname: Optional[str] = None
@@ -109,6 +106,9 @@ class ExternalDomainConfigManager:
                 if "preferred_challenge" in value and "challenge_type" not in value:
                     value["challenge_type"] = value.pop("preferred_challenge")
 
+                # Backward compatibility: remove email field if present (discontinued June 2025)
+                value.pop("email", None)
+
                 domains[value["domain"]] = ExternalDomainConfig(**value)
             except (KeyError, TypeError):
                 # Skip invalid entries
@@ -133,7 +133,7 @@ class ExternalDomainConfigManager:
             domain_table = tomlkit.table()
             domain_table["domain"] = config.domain
             domain_table["ssl_type"] = config.ssl_type
-            domain_table["email"] = config.email
+            # Email field removed - Let's Encrypt discontinued notifications (June 2025)
             domain_table["added_at"] = config.added_at
             domain_table["challenge_type"] = config.challenge_type
             domain_table["acme_client"] = config.acme_client
@@ -248,7 +248,10 @@ class ExternalDomainConfigManager:
             return CustomDomainCertificate(
                 domain=config.domain,
                 ssl_type=SUPPORTED_SSL_TYPES.le,
-                email=config.email,
+                # Email removed - Let's Encrypt discontinued notifications (June 2025)
+                # Cloudflare credentials loaded from FM config at runtime
+                api_token=None,
+                api_key=None,
                 challenge_type=challenge_type,
                 delegation_cname=config.delegation_cname,
                 acme_client=config.acme_client,
@@ -257,7 +260,10 @@ class ExternalDomainConfigManager:
             return LetsencryptSSLCertificate(
                 domain=config.domain,
                 ssl_type=SUPPORTED_SSL_TYPES.le,
-                email=config.email,
+                # Email removed - Let's Encrypt discontinued notifications (June 2025)
+                # Cloudflare credentials loaded from FM config at runtime
+                api_token=None,
+                api_key=None,
                 challenge_type=challenge_type,
                 acme_client=config.acme_client,
             )

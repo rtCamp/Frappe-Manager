@@ -11,7 +11,6 @@ from unittest.mock import patch
 
 from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateNotFoundError,
-    SSLCertificateEmailNotFoundError,
     SSLDNSChallengeCredentailsNotFound,
     SSLCertificateChallengeFailed,
     SSLCertificateGenerateFailed,
@@ -51,24 +50,6 @@ class TestSSLCertificateNotFoundError:
             raise SSLCertificateNotFoundError("example.com")
 
         assert "example.com" in str(exc_info.value)
-
-
-class TestSSLCertificateEmailNotFoundError:
-    """Tests for SSLCertificateEmailNotFoundError exception."""
-
-    def test_exception_message_format(self):
-        """Test that exception message is formatted correctly."""
-        domain = "example.com"
-        exception = SSLCertificateEmailNotFoundError(domain)
-
-        assert "Please provide email using flag" in exception.message
-
-    def test_domain_attribute_accessible(self):
-        """Test that domain attribute is accessible."""
-        domain = "test.com"
-        exception = SSLCertificateEmailNotFoundError(domain)
-
-        assert exception.domain == domain
 
 
 class TestSSLDNSChallengeCredentailsNotFound:
@@ -207,7 +188,6 @@ class TestExceptionInheritance:
         """Test that all custom exceptions inherit from Exception."""
         exceptions = [
             SSLCertificateNotFoundError("test.com"),
-            SSLCertificateEmailNotFoundError("test.com"),
             SSLDNSChallengeCredentailsNotFound(),
             SSLCertificateChallengeFailed("http01"),
             SSLCertificateGenerateFailed(),
@@ -235,7 +215,6 @@ class TestExceptionInheritance:
 
             exceptions = [
                 SSLCertificateNotFoundError(domain),
-                SSLCertificateEmailNotFoundError(domain),
                 SSLDNSChallengeCredentailsNotFound(),
                 SSLCertificateChallengeFailed("http01"),
                 SSLCertificateGenerateFailed(),

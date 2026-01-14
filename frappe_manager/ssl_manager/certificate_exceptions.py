@@ -13,15 +13,6 @@ class SSLCertificateNotFoundError(Exception):
         super().__init__(self.message)
 
 
-class SSLCertificateEmailNotFoundError(Exception):
-    """Exception raised when a certificate is not found."""
-
-    def __init__(self, domain, message="Please provide email using flag '"):
-        self.domain = domain
-        self.message = message.format(self.domain)
-        super().__init__(self.message)
-
-
 class SSLDNSChallengeCredentailsNotFound(Exception):
     """Exception raised for dns method required credential not found."""
 

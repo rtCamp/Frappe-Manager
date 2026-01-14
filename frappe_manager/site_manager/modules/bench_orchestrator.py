@@ -334,22 +334,11 @@ class BenchOrchestrator:
     def update_alias_domains(self, add_domains: list[str] | None = None, remove_domains: list[str] | None = None):
         """
         Update alias domains for the bench.
-
-        This method updates the list of alias domains configured for the bench:
-        - Validates domain operations
         - Updates alias configuration
         - Restarts services with new configuration
 
         SSL certificates are NOT automatically generated for new alias domains.
-        Users must explicitly add SSL certificates using: fm ssl add <bench> <domain> --email <email>
-
-        Args:
-            add_domains: List of domains to add as aliases
-            remove_domains: List of domains to remove from aliases
-
-        Raises:
-            ValueError: If attempting to remove primary domain
-            Exception: If configuration update fails (config is rolled back)
+        Users must explicitly add SSL certificates using: fm ssl add <bench> <domain>
         """
         bench = self.bench
 
@@ -421,7 +410,7 @@ class BenchOrchestrator:
                 self.output.print("")
                 self.output.print("To add SSL certificates for new alias domains, use:", emoji_code="")
                 for domain in added_domains:
-                    self.output.print(f"  fm ssl add {bench.name} {domain} --email <your-email>", emoji_code="")
+                    self.output.print(f"  fm ssl add {bench.name} {domain}", emoji_code="")
 
         except Exception as e:
             # Rollback on failure
