@@ -20,6 +20,7 @@ from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateGenerateFailed,
     SSLCertificateNotFoundError,
 )
+from frappe_manager.utils.subprocess import stream_command_output
 
 
 class AcmeShCertificateService:
@@ -88,6 +89,18 @@ class AcmeShCertificateService:
             # Email notifications discontinued by Let's Encrypt (June 2025)
             install_cmd = f"curl -s https://get.acme.sh | sh -s email=noreply@acme.sh --home {self.acmesh_home}"
             result = subprocess.run(install_cmd, shell=True, check=True, capture_output=True, text=True)
+
+            # Enable logging in account.conf (commented out by default)
+            # This ensures all acme.sh operations are logged to acme.sh.log for debugging
+            account_conf = self.acmesh_home / "account.conf"
+            if account_conf.exists():
+                content = account_conf.read_text()
+                # Uncomment LOG_FILE and LOG_LEVEL if they are commented
+                content = content.replace("#LOG_FILE=", "LOG_FILE=")
+                content = content.replace("#LOG_LEVEL=", "LOG_LEVEL=")
+                account_conf.write_text(content)
+                self.output.debug(f"Enabled logging in {account_conf}")
+
             self.output.print("acme.sh installed successfully")
             AcmeShCertificateService._acmesh_installed = True
         except subprocess.CalledProcessError as e:
@@ -130,6 +143,56 @@ class AcmeShCertificateService:
                 self.output.debug(f"acme.sh output: {result.stdout}")
 
         return result
+
+    def _stream_acmesh_command(
+        self, args: list, env: Optional[Dict[str, str]] = None, show_live_output: bool = True
+    ) -> int:
+        """
+        Run acme.sh command with live output streaming from stdout/stderr.
+
+        This method streams stdout/stderr in real-time to the user while the command runs,
+        providing feedback during long-running operations (certificate generation, DNS propagation).
+        Uses a rolling window display (shows last 5 lines) that updates as new output arrives.
+        acme.sh outputs debug info to stderr when --debug flag is used.
+
+        Args:
+            args: Command arguments (without acme.sh binary path)
+            env: Additional environment variables
+            show_live_output: Whether to display live output (default True)
+
+        Returns:
+            Exit code of the command
+        """
+        cmd = [str(self.acmesh_bin)] + args
+        self.output.debug(f"Running acme.sh with streaming: {' '.join(args)}")
+
+        # Build environment
+        command_env = os.environ.copy()
+        command_env["LE_WORKING_DIR"] = str(self.acmesh_home)
+        if env:
+            command_env.update(env)
+
+        if show_live_output:
+            # Use closure to track exit code while streaming
+            exit_code_holder = [0]
+
+            def stream_with_exit_tracking():
+                """Generator that tracks exit code while yielding output."""
+                for source, line in stream_command_output(cmd, env=command_env, cwd=None):
+                    if source == "exit_code":
+                        exit_code_holder[0] = int(line.decode())
+                    yield source, line
+
+            # Display with rolling window (last 5 lines)
+            self.output.live_lines(stream_with_exit_tracking(), padding=(0, 0, 0, 2), lines=5)
+            return exit_code_holder[0]
+        else:
+            # No output display - just run and return exit code
+            exit_code = 0
+            for source, line in stream_command_output(cmd, env=command_env, cwd=None):
+                if source == "exit_code":
+                    exit_code = int(line.decode())
+            return exit_code
 
     def generate_certificate(self, certificate: SSLCertificate) -> Tuple[Path, Path]:
         """
@@ -202,13 +265,12 @@ class AcmeShCertificateService:
                 # Standard DNS challenge
                 args.extend(["--dns", "dns_cf"])
 
-        # Run certificate issuance
-        result = self._run_acmesh_command(args, env=env)
+        # Run certificate issuance with live output streaming
+        exit_code = self._stream_acmesh_command(args, env=env, show_live_output=True)
 
-        if result.returncode != 0:
+        if exit_code != 0:
             error_msg = f"Certificate generation failed for {certificate.domain}"
             self.output.display_error(error_msg)
-            self.output.debug(f"acme.sh stderr: {result.stderr}")
             raise SSLCertificateGenerateFailed(certificate.domain)
 
         # Get certificate paths from acme.sh home directory
@@ -272,11 +334,14 @@ class AcmeShCertificateService:
         if use_staging:
             args.append("--staging")
 
-        result = self._run_acmesh_command(args)
+        # Add debug flag for verbose output
+        args.append("--debug")
 
-        if result.returncode != 0:
+        # Run renewal with live output streaming
+        exit_code = self._stream_acmesh_command(args, show_live_output=True)
+
+        if exit_code != 0:
             self.output.display_error(f"Certificate renewal failed for {certificate.domain}")
-            self.output.debug(f"acme.sh stderr: {result.stderr}")
             return False
 
         # Copy renewed certificates to service directory

@@ -1,36 +1,15 @@
 from logging import Logger
 import os
 from pathlib import Path
-from queue import Queue
-from subprocess import PIPE, Popen, run
-from threading import Thread
+from subprocess import run
 from typing import Dict, Iterable, Tuple, Union, Optional
 from frappe_manager.logger import log
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker.subprocess_output import SubprocessOutput
+from frappe_manager.utils.subprocess import stream_command_output
 
 process_opened = []
-
-
-def reader(pipe, pipe_name, queue):
-    """
-    Reads lines from a pipe and puts them into a queue.
-
-    Args:
-        pipe (file-like object): The pipe to read from.
-        pipe_name (str): The name of the pipe.
-        queue (Queue): The queue to put the lines into.
-    """
-    logger = log.get_logger()
-    try:
-        with pipe:
-            for line in iter(pipe.readline, b""):
-                queue_line = line.decode().strip('\n')
-                logger.debug(queue_line)
-                queue.put((pipe_name, str(queue_line).encode()))
-    finally:
-        queue.put(None)
 
 
 def stream_stdout_and_stderr(
@@ -40,11 +19,16 @@ def stream_stdout_and_stderr(
     env: Optional[Dict[str, str]] = None,
 ) -> Iterable[Tuple[str, bytes]]:
     """
-    Executes a command in Docker and streams the stdout and stderr outputs.
+    Executes a Docker command and streams the stdout and stderr outputs.
+
+    This is a Docker-specific wrapper around the generic stream_command_output()
+    that adds DockerException handling for failed commands.
 
     Args:
-        full_cmd (list): The command to be executed in Docker.
-        env (Dict[str, str], optional): Environment variables to be passed to the Docker container. Defaults to None.
+        full_cmd (list): The Docker command to be executed.
+        cwd (Optional[str]): Working directory for command execution.
+        logger (Optional[Logger]): Logger instance (unused, kept for compatibility).
+        env (Dict[str, str], optional): Environment variables. Defaults to None.
 
     Yields:
         Tuple[str, bytes]: A tuple containing the source ("stdout" or "stderr") and the output line.
@@ -55,47 +39,19 @@ def stream_stdout_and_stderr(
     Returns:
         Iterable[Tuple[str, bytes]]: An iterable of tuples containing the source and output line.
     """
-    logger = log.get_logger()
-    logger.debug('- -' * 10)
-    logger.debug(f"COMMAND: {' '.join(full_cmd)}")
-
-    if env is None:
-        subprocess_env = None
-    else:
-        subprocess_env = dict(os.environ)
-        subprocess_env.update(env)
-
-    full_cmd = list(map(str, full_cmd))
-    process = Popen(full_cmd, stdout=PIPE, stderr=PIPE, env=subprocess_env, cwd=cwd)
-
-    process_opened.append(process.pid)
-
-    q = Queue()
-
-    # we use deamon threads to avoid hanging if the user uses ctrl+c
-    th = Thread(target=reader, args=[process.stdout, "stdout", q])
-    th.daemon = True
-    th.start()
-    th = Thread(target=reader, args=[process.stderr, "stderr", q])
-    th.daemon = True
-    th.start()
-
     output = []
-    for _ in range(2):
-        for source, line in iter(q.get, None):
-            output.append((source, line))
-            yield source, line
 
-    exit_code = process.wait()
+    # Use generic subprocess streaming
+    for source, line in stream_command_output(full_cmd, env=env, cwd=cwd):
+        output.append((source, line))
 
-    logger.debug(f"RETURN CODE: {exit_code}")
-    logger.debug('- -' * 10)
+        # Check for exit code and raise DockerException if command failed
+        if source == "exit_code":
+            exit_code = int(line.decode())
+            if exit_code != 0:
+                raise DockerException(full_cmd, SubprocessOutput.from_output(output))
 
-    output.append(('exit_code', str(exit_code).encode()))
-    yield ("exit_code", str(exit_code).encode())
-
-    if exit_code != 0:
-        raise DockerException(full_cmd, SubprocessOutput.from_output(output))
+        yield source, line
 
 
 def run_command_with_exit_code(
@@ -280,16 +236,17 @@ def host_run_cp(image: str, source: str, destination: str, docker):
                 source_container=container.name,
                 stream=False,
             )
-        
+
         # Check if the destination file exists
         if not Path(destination).exists():
             raise Exception(f"{destination} not found.")
-        
+
         richprint.change_head(f"Populated {dest_path.name} directory.")
-        
+
     except DockerException as e:
         # Clean up destination if copy failed
         if dest_path.exists():
             import shutil
+
             shutil.rmtree(dest_path)
         raise Exception(f"Failed to copy files from {source} to {destination}.") from e
