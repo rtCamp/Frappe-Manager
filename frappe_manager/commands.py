@@ -487,7 +487,7 @@ def logs(
     bench.logs(follow, service)
 
 
-@app.command()
+@app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
 def shell(
     ctx: typer.Context,
     benchname: Annotated[
@@ -496,12 +496,29 @@ def shell(
             help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
         ),
     ] = None,
+    command: Annotated[
+        Optional[str], typer.Option("-c", "--command", help="Execute a single command and exit.")
+    ] = None,
     user: Annotated[Optional[str], typer.Option(help="Connect as this user.", show_default=False)] = None,
     service: Annotated[
         SiteServicesEnum, typer.Option(help="Specify compose service name for which to spawn shell.")
     ] = SiteServicesEnum.frappe,
 ):
-    """Spawn shell for the give bench."""
+    """
+    Spawn shell for the bench or execute a command.
+
+    [bold cyan]Interactive shell mode:[/bold cyan]
+      fm shell mysite              # Spawn interactive shell
+      fm shell mysite --user root  # Spawn shell as root user
+
+    [bold cyan]Command execution mode:[/bold cyan]
+      fm shell mysite -c "python --version"        # Execute single command
+      fm shell mysite -- python --version          # Execute command (passthrough syntax)
+      fm shell mysite -- bench --version           # Run bench commands
+      fm shell mysite -c "ls -la /workspace"       # Execute shell commands
+
+    Exit code from the executed command is preserved for scripting.
+    """
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
@@ -510,7 +527,28 @@ def shell(
     context = LoggerContext(bench=benchname, operation="shell")
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
-    bench.shell(SiteServicesEnum(service).value, user)
+
+    # Check if we have passthrough arguments (-- syntax)
+    passthrough_args = ctx.args if ctx.args else None
+
+    # Determine mode: interactive or command execution
+    if command or passthrough_args:
+        # Command execution mode
+        if passthrough_args:
+            # Use passthrough arguments (everything after --)
+            exec_command = " ".join(passthrough_args)
+        else:
+            # Use -c command
+            exec_command = command
+
+        exit_code = bench.execute_command(SiteServicesEnum(service).value, exec_command, user)
+
+        # Exit with the command's exit code
+        if exit_code != 0:
+            raise typer.Exit(exit_code)
+    else:
+        # Interactive shell mode (original behavior)
+        bench.shell(SiteServicesEnum(service).value, user)
 
 
 @app.command()

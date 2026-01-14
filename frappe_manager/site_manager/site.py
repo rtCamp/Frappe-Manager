@@ -652,6 +652,20 @@ class Bench:
         """
         return self.docker_ops.shell(compose_service, user)
 
+    def execute_command(self, compose_service: str, command: str, user: str | None = None) -> int:
+        """
+        Execute a single command in the specified service and return exit code.
+
+        Args:
+            compose_service: The name of the service
+            command: The command to execute
+            user: The name of the user (defaults to "frappe" for frappe service)
+
+        Returns:
+            Exit code of the executed command
+        """
+        return self.docker_ops.execute_command(compose_service, command, user)
+
     def get_log_file_paths(self):
         return self.info_display.get_log_file_paths()
 
