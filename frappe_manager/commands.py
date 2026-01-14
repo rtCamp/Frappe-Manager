@@ -26,9 +26,6 @@ from frappe_manager.logger.context import LoggerContext
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.site_manager.site import Bench
-from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
-from frappe_manager.ssl_manager.certificate import SSLCertificate
-from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.utils.callbacks import (
     apps_list_validation_callback,
     create_command_sitename_callback,
@@ -40,7 +37,6 @@ from frappe_manager.utils.callbacks import (
     alias_domains_validation_callback,
 )
 from frappe_manager.utils.helpers import (
-    format_ssl_certificate_time_remaining,
     is_cli_help_called,
     get_current_fm_version,
 )
@@ -51,7 +47,6 @@ from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.docker import ComposeFile
-from email_validator import validate_email
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.output_manager.logging_output import LoggingOutputHandler
@@ -248,14 +243,6 @@ def create(
     environment: Annotated[
         FMBenchEnvType, typer.Option("--environment", "-e", help="Select bench environment type.")
     ] = FMBenchEnvType.dev,
-    letsencrypt_preferred_challenge: Annotated[
-        Optional[LETSENCRYPT_PREFERRED_CHALLENGE],
-        typer.Option(help="Select preferred letsencrypt challenge.", show_default=False),
-    ] = None,
-    letsencrypt_email: Annotated[
-        Optional[str],
-        typer.Option(help="Specify email for letsencrypt", show_default=False),
-    ] = None,
     developer_mode: Annotated[
         EnableDisableOptionsEnum, typer.Option(help="Toggle frappe developer mode.")
     ] = EnableDisableOptionsEnum.disable,
@@ -267,13 +254,10 @@ def create(
         str,
         typer.Option(help="Password for the 'Administrator' User."),
     ] = "admin",
-    ssl: Annotated[
-        SUPPORTED_SSL_TYPES, typer.Option(help="Enable https", show_default=True)
-    ] = SUPPORTED_SSL_TYPES.none,
     alias_domains: Annotated[
         Optional[str],
         typer.Option(
-            help="Comma-separated list of alias domains for the site (e.g., 'www.example.com,api.example.com'). These domains will be configured as network aliases for accessing the site. Each domain will receive its own individual SSL certificate (not combined into SAN). Wildcard domains (e.g., '*.example.com') require dns01 challenge and SSL.",
+            help="Comma-separated list of alias domains for the site (e.g., 'www.example.com,api.example.com'). These domains will be configured as network aliases for accessing the site. Use 'fm ssl add' to configure SSL certificates for domains.",
             callback=alias_domains_validation_callback,
             show_default=False,
         ),
@@ -285,7 +269,6 @@ def create(
     """
 
     services_manager: ServicesManager = ctx.obj["services"]
-    fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
     verbose = ctx.obj['verbose']
 
     # Create context for this operation
@@ -294,59 +277,6 @@ def create(
     bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
     bench_path = bench_service.benches_directory / benchname
     bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
-
-    if ssl == SUPPORTED_SSL_TYPES.le:
-        # Check if alias_domains contains wildcards and enforce dns01 challenge
-        if alias_domains:
-            has_wildcard = any(domain.startswith('*.') for domain in alias_domains)
-            if has_wildcard:
-                if letsencrypt_preferred_challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
-                    richprint.stop()
-                    raise typer.BadParameter(
-                        "Wildcard domains require dns01 challenge. "
-                        "Please specify --letsencrypt-preferred-challenge dns01",
-                        param_hint='--letsencrypt-preferred-challenge',
-                    )
-                # Ensure DNS credentials are available
-                if not fm_config_manager.cloudflare.api_token and not fm_config_manager.cloudflare.api_key:
-                    richprint.stop()
-                    raise typer.BadParameter(
-                        "Wildcard domains require Cloudflare DNS credentials. "
-                        "Please configure [cloudflare] section with api_token or api_key in ~/frappe/fm_config.toml",
-                        param_hint='--alias-domains',
-                    )
-
-        if not letsencrypt_preferred_challenge:
-            if fm_config_manager.cloudflare.exists:
-                if letsencrypt_preferred_challenge is None:
-                    letsencrypt_preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
-
-            if not letsencrypt_preferred_challenge:
-                letsencrypt_preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.http01
-
-        if not letsencrypt_email:
-            richprint.stop()
-            raise typer.BadParameter(
-                "Email is required for Let's Encrypt certificate registration.", param_hint='--letsencrypt-email'
-            )
-
-        email = letsencrypt_email
-        validate_email(email, check_deliverability=False)
-
-        ssl_certificate = LetsencryptSSLCertificate(
-            domain=benchname,
-            ssl_type=ssl,
-            email=email,
-            preferred_challenge=letsencrypt_preferred_challenge,
-            api_key=fm_config_manager.cloudflare.api_key,
-            api_token=fm_config_manager.cloudflare.api_token,
-        )
-
-    elif ssl == SUPPORTED_SSL_TYPES.none:
-        ssl_certificate = SSLCertificate(
-            domain=benchname,
-            ssl_type=ssl,
-        )
 
     if developer_mode == EnableDisableOptionsEnum.enable:
         developer_mode_status = True
@@ -363,7 +293,7 @@ def create(
         # TODO get this info from services, maybe ?
         environment_type=environment,
         root_path=bench_config_path,
-        ssl=ssl_certificate,
+        ssl_certificates=[],  # No SSL certificates by default, use 'fm ssl add' to add them
         alias_domains=alias_domains if alias_domains else [],
     )
 
@@ -614,18 +544,9 @@ def update(
             help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
         ),
     ] = None,
-    ssl: Annotated[Optional[SUPPORTED_SSL_TYPES], typer.Option(help="Enable SSL.", show_default=False)] = None,
     admin_tools: Annotated[
         Optional[EnableDisableOptionsEnum],
         typer.Option("--admin-tools", help="Toggle admin-tools.", show_default=False),
-    ] = None,
-    letsencrypt_preferred_challenge: Annotated[
-        Optional[LETSENCRYPT_PREFERRED_CHALLENGE],
-        typer.Option(help="Select preferred letsencrypt challenge.", show_default=False),
-    ] = None,
-    letsencrypt_email: Annotated[
-        Optional[str],
-        typer.Option(help="Specify email for letsencrypt", show_default=False),
     ] = None,
     environment: Annotated[
         Optional[FMBenchEnvType],
@@ -668,7 +589,6 @@ def update(
     context = LoggerContext(bench=benchname, operation="update")
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
-    fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
 
     bench_config_save = False
 
@@ -695,47 +615,6 @@ def update(
         bench.switch_bench_env()
         richprint.print(f"Switched bench environemnt to {environment.value}.")
         bench_config_save = True
-
-    if ssl:
-        new_ssl_certificate = SSLCertificate(domain=benchname, ssl_type=SUPPORTED_SSL_TYPES.none)
-
-        if ssl == SUPPORTED_SSL_TYPES.le:
-            if not letsencrypt_preferred_challenge:
-                if not letsencrypt_preferred_challenge:
-                    letsencrypt_preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.http01
-
-            # Email is now required via --letsencrypt-email flag (no global default)
-            if not letsencrypt_email:
-                richprint.stop()
-                raise typer.BadParameter(
-                    "Email is required for Let's Encrypt certificates.", param_hint='--letsencrypt-email'
-                )
-
-            email = letsencrypt_email
-            validate_email(email, check_deliverability=False)
-
-            new_ssl_certificate = LetsencryptSSLCertificate(
-                domain=benchname,
-                ssl_type=ssl,
-                email=email,
-                preferred_challenge=letsencrypt_preferred_challenge,
-                api_key=fm_config_manager.cloudflare.api_key,
-                api_token=fm_config_manager.cloudflare.api_token,
-            )
-
-            # Auto-include existing alias domains (no need to copy to certificate, they're at bench level)
-            if bench.bench_config.alias_domains:
-                alias_list = ', '.join(bench.bench_config.alias_domains)
-                richprint.print(f"Including alias domains: {alias_list}")
-
-        richprint.print("Updating Certificate.")
-        bench.update_certificate(new_ssl_certificate)
-        richprint.print("Certificate Updated.")
-
-        if bench.has_certificate():
-            richprint.print(
-                f"SSL Certificate will expire in {format_ssl_certificate_time_remaining(bench.certificate_manager.get_certificate_expiry())}"
-            )
 
     if admin_tools:
         if admin_tools == EnableDisableOptionsEnum.enable:
@@ -767,12 +646,6 @@ def update(
         richprint.change_head("Updating alias domains")
         bench.update_alias_domains(add_domains=add_domains_list, remove_domains=remove_domains_list)
         richprint.print("Alias domains updated successfully.")
-
-        # Only show certificate expiry if SSL is active
-        if bench.has_certificate():
-            richprint.print(
-                f"SSL Certificate will expire in {format_ssl_certificate_time_remaining(bench.certificate_manager.get_certificate_expiry())}"
-            )
 
     if bench_config_save:
         bench.save_bench_config()

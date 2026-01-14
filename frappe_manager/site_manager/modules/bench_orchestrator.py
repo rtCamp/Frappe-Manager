@@ -333,17 +333,15 @@ class BenchOrchestrator:
 
     def update_alias_domains(self, add_domains: list[str] | None = None, remove_domains: list[str] | None = None):
         """
-        Orchestrate alias domain updates with certificate regeneration.
+        Update alias domains for the bench.
 
-        This method coordinates updating alias domains for a bench:
+        This method updates the list of alias domains configured for the bench:
         - Validates domain operations
         - Updates alias configuration
-        - Regenerates SSL certificates if needed
         - Restarts services with new configuration
 
-        Works independently of SSL status:
-        - If SSL is active: regenerates certificate with updated domains
-        - If SSL is inactive: updates config only
+        SSL certificates are NOT automatically generated for new alias domains.
+        Users must explicitly add SSL certificates using: fm ssl add <bench> <domain> --email <email>
 
         Args:
             add_domains: List of domains to add as aliases
@@ -351,7 +349,7 @@ class BenchOrchestrator:
 
         Raises:
             ValueError: If attempting to remove primary domain
-            Exception: If certificate generation fails (config is rolled back)
+            Exception: If configuration update fails (config is rolled back)
         """
         bench = self.bench
 
@@ -411,18 +409,19 @@ class BenchOrchestrator:
         bench.bench_config.alias_domains = updated_aliases
 
         try:
-            # Only regenerate certificate if SSL is active
-            if bench.has_certificate():
-                self.output.change_head("Regenerating SSL certificate with updated domains")
-                bench.certificate_manager.generate_all_certificates()
-                self.output.print("Certificate regenerated successfully.")
-
-            # Always save config and restart services
+            # Save config and restart services
             self.output.change_head("Saving configuration")
             bench.save_bench_config()
             self.output.print("Configuration saved.")
 
             self._restart_services_with_updated_config()
+
+            # Inform user about SSL certificate management
+            if added_domains:
+                self.output.print("")
+                self.output.print("To add SSL certificates for new alias domains, use:", emoji_code="")
+                for domain in added_domains:
+                    self.output.print(f"  fm ssl add {bench.name} {domain} --email <your-email>", emoji_code="")
 
         except Exception as e:
             # Rollback on failure

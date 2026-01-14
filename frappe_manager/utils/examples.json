@@ -22,23 +22,7 @@
         "code": " -e prod"
       },
       {
-        "desc": "Enable Admin Tools.",
-        "code": " --admin-tools enable"
-      },
-      {
-        "desc": "Enable HTTPS using HTTP01 Let's Encrypt challenge certificate.",
-        "code": " --ssl letsencrypt --letsencrypt-preferred-challenge http01 --letsencrypt-email cloudflare@example.com"
-      },
-      {
-        "desc": "Enable HTTPS using DNS01 Let's Encrypt challenge certificate.",
-        "code": " --ssl letsencrypt --letsencrypt-preferred-challenge dns01"
-      },
-      {
-        "desc": "Create site with SSL and alias domains.",
-        "code": " --ssl letsencrypt --letsencrypt-preferred-challenge http01 --letsencrypt-email admin@example.com --alias-domains www.example.com,api.example.com"
-      },
-      {
-        "desc": "Create site with alias domains (without SSL).",
+        "desc": "Create site with alias domains.",
         "code": " --alias-domains www.example.com,api.example.com"
       }
     ]
@@ -169,18 +153,6 @@
   },
   "update": {
     "examples": [
-      {
-        "desc": "Enable SSL.",
-        "code": " --ssl letsencrypt"
-      },
-      {
-        "desc": "Enable HTTPS using HTTP01 Let's Encrypt challenge certificate.",
-        "code": " --ssl letsencrypt --letsencrypt-preferred-challenge http01 --letsencrypt-email cloudflare@example.com"
-      },
-      {
-        "desc": "Enable HTTPS using DNS01 Let's Encrypt challenge certificate.",
-        "code": " --ssl letsencrypt --letsencrypt-preferred-challenge dns01"
-      },
       {
         "desc": "Toggle admin-tools enable.",
         "code": " --admin-tools enable"
