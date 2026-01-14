@@ -139,6 +139,8 @@ class BenchConfig(BaseModel):
 
     alias_domains: List[str] = Field(default=[], description="List of alias domains for the bench")
 
+    upload_limit: str = Field(default="50M", description="Maximum upload size (e.g., '50M', '100M', '500M', '1G')")
+
     frappe_branch: str = Field(
         default=STABLE_APP_BRANCH_MAPPING_LIST['frappe'], description="The branch of Frappe to use"
     )
@@ -336,6 +338,7 @@ class BenchConfig(BaseModel):
             'ssl_certificates': ssl_certificates_list,
             'dns_providers': dns_providers_dict if dns_providers_dict else None,
             'alias_domains': alias_domains_list,
+            'upload_limit': data.get('upload_limit', '50M'),
             'admin_tools_username': data.get('admin_tools_username', None),
             'admin_tools_password': data.get('admin_tools_password', None),
         }
@@ -378,6 +381,7 @@ class BenchConfig(BaseModel):
                 "VIRTUAL_PORT": 80,
                 "HTTPS_METHOD": "noredirect",
                 "HSTS": self.get_primary_certificate().hsts,
+                "CLIENT_MAX_BODY_SIZE": self.upload_limit.lower(),
             },
             "worker": {
                 "USERID": self.userid,

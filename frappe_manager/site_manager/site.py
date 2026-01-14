@@ -42,6 +42,7 @@ from frappe_manager.site_manager.modules.bench_workers import BenchWorkerCoordin
 from frappe_manager.site_manager.modules.bench_site import BenchSiteManager
 from frappe_manager.site_manager.modules.bench_app import BenchAppManager
 from frappe_manager.site_manager.modules.bench_orchestrator import BenchOrchestrator
+from frappe_manager.site_manager.modules.upload_limit_manager import UploadLimitManager
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.proxy_storage import ProxyStoragePaths
@@ -975,3 +976,104 @@ class Bench:
     def restart_workers_containers_services(self):
         """Restarts workers and schedule containers"""
         self.worker_coordinator.restart_workers_containers_services()
+
+    def update_upload_limit(self, upload_limit: str):
+        """
+        Update upload size limit across all three required locations:
+        1. site_config.json (max_file_size in bytes)
+        2. Bench nginx config (via template regeneration)
+        3. nginx-proxy vhost.d files (for all domains)
+
+        Args:
+            upload_limit: Size string (e.g., "50M", "100M", "1G")
+
+        Raises:
+            BenchException: If format is invalid or operation fails
+        """
+        from frappe_manager.site_manager.modules.upload_limit_manager import UploadLimitManager
+        import re
+
+        # Validate format (e.g., "50M", "100M", "500M", "1G")
+        if not re.match(r'^\d+[MG]$', upload_limit, re.IGNORECASE):
+            raise BenchException(
+                self.name, message=f"Invalid upload limit format: '{upload_limit}'. Use format like '50M' or '1G'"
+            )
+
+        # 1. Update site_config.json (convert to bytes)
+        size_bytes = self._parse_size_to_bytes(upload_limit)
+        self.set_bench_site_config({'max_file_size': size_bytes})
+        self.output.print(f"Updated site_config.json (max_file_size: {size_bytes} bytes)")
+
+        # 2. Update BenchConfig (will affect nginx template on restart)
+        self.bench_config.upload_limit = upload_limit.upper()
+        self.save_bench_config()
+        self.output.print(f"Updated bench configuration")
+
+        # 2b. Regenerate docker-compose to include new environment variable
+        inputs = self.bench_config.export_to_compose_inputs()
+        self.generate_compose(inputs)
+        self.output.print(f"Regenerated docker-compose configuration")
+
+        # 3. Create custom nginx config file for bench nginx
+        custom_conf_dir = self.path / "configs" / "nginx" / "conf" / "custom"
+        custom_conf_dir.mkdir(parents=True, exist_ok=True)
+        upload_limit_conf = custom_conf_dir / "upload-limit.conf"
+        upload_limit_conf.write_text(f"client_max_body_size {upload_limit.lower()};\n")
+        self.output.print("Created custom nginx configuration")
+
+        # 4. Reload bench nginx to apply configuration
+        self.bench_nginx_controller.reload()
+
+        # 5. Update nginx-proxy vhost.d for all domains (primary + aliases)
+        all_domains = [self.name] + self.bench_config.alias_domains
+        vhostd_dir = self.services.path / "nginx-proxy" / "vhostd"
+
+        if vhostd_dir.exists():
+            upload_mgr = UploadLimitManager(vhostd_dir)
+            upload_mgr.set_upload_limit_for_domains(all_domains, upload_limit.lower())
+            self.output.print(f"Updated nginx-proxy vhost.d for {len(all_domains)} domain(s)")
+
+        # 6. Reload nginx-proxy to pick up vhost.d changes
+        if self.services.is_service_running("global-nginx-proxy"):
+            self.services.nginx_controller.reload()
+
+        self.output.print(
+            f"Upload size limit updated to {upload_limit} (site_config: {size_bytes} bytes, nginx: {upload_limit.lower()})"
+        )
+
+    def _parse_size_to_bytes(self, size_str: str) -> int:
+        """
+        Convert size string (e.g., '50M', '1G') to bytes for Frappe site_config.json.
+
+        Args:
+            size_str: Size string (e.g., "50M", "1G")
+
+        Returns:
+            Size in bytes (integer)
+
+        Raises:
+            BenchException: If format is invalid
+
+        Examples:
+            "50M" -> 52428800 (50 * 1024 * 1024)
+            "1G"  -> 1073741824 (1 * 1024 * 1024 * 1024)
+        """
+        import re
+
+        match = re.match(r'^(\d+)([MG])$', size_str, re.IGNORECASE)
+        if not match:
+            raise BenchException(
+                self.name,
+                message=f"Invalid size format: '{size_str}'. Expected format: <number><unit> (e.g., '50M', '1G')",
+            )
+
+        value = int(match.group(1))
+        unit = match.group(2).upper()
+
+        if unit == 'M':
+            return value * 1024 * 1024  # Convert MB to bytes
+        elif unit == 'G':
+            return value * 1024 * 1024 * 1024  # Convert GB to bytes
+
+        # Should never reach here due to regex validation
+        raise BenchException(self.name, message=f"Unsupported unit: {unit}")

@@ -618,6 +618,14 @@ def update(
             show_default=False,
         ),
     ] = None,
+    upload_limit: Annotated[
+        Optional[str],
+        typer.Option(
+            "--upload-limit",
+            help="Set maximum upload size for files (e.g., '50M', '100M', '500M', '1G')",
+            show_default=False,
+        ),
+    ] = None,
 ):
     """Update bench."""
 
@@ -684,6 +692,12 @@ def update(
         richprint.change_head("Updating alias domains")
         bench.update_alias_domains(add_domains=add_domains_list, remove_domains=remove_domains_list)
         richprint.print("Alias domains updated successfully.")
+
+    # Handle upload limit update
+    if upload_limit:
+        richprint.change_head(f"Updating upload size limit to {upload_limit}")
+        bench.update_upload_limit(upload_limit)
+        # Note: bench_config already saved by update_upload_limit(), no need to set bench_config_save
 
     if bench_config_save:
         bench.save_bench_config()
