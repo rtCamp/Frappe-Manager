@@ -109,6 +109,31 @@ def mock_letsencrypt_certificate_dns01_with_key():
     )
 
 
+@pytest.fixture
+def mock_http_certificate():
+    """Returns a certificate configured for HTTP-01 challenge (alias for http01)."""
+    return LetsencryptSSLCertificate(
+        domain="example.com",
+        ssl_type=SUPPORTED_SSL_TYPES.le,
+        challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
+        email="admin@example.com",
+        hsts="off",
+    )
+
+
+@pytest.fixture
+def mock_dns_certificate():
+    """Returns a certificate configured for DNS-01 challenge (alias for dns01)."""
+    return LetsencryptSSLCertificate(
+        domain="example.com",
+        ssl_type=SUPPORTED_SSL_TYPES.le,
+        challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
+        email="admin@example.com",
+        api_token="test_cloudflare_token_123",
+        hsts="off",
+    )
+
+
 # ============================================================================
 # Storage Fixtures
 # ============================================================================
