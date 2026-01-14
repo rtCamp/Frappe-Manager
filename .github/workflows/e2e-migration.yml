@@ -42,7 +42,7 @@ jobs:
             docker load < /tmp/docker-images/images.tar
           fi
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-ver }}
 
@@ -105,7 +105,7 @@ jobs:
             docker load < /tmp/docker-images/images.tar
           fi
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-ver }}
 
