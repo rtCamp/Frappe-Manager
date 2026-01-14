@@ -23,7 +23,7 @@ jobs:
         # os: [self-hosted-arm64, ubuntu-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Cache Docker images
         id: cache-docker-images
@@ -86,7 +86,7 @@ jobs:
         # os: [self-hosted-arm64, ubuntu-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Cache Docker images
         id: cache-docker-images
