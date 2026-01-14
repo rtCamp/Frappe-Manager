@@ -905,9 +905,10 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
     # Create table for display
     from rich.table import Table
 
-    table = Table(title=f"SSL Configuration for '{benchname}'", show_header=True, header_style="bold magenta")
+    table = Table(show_header=True, header_style="bold magenta")
     table.add_column("Domain", style="cyan")
     table.add_column("Type", style="yellow")
+    table.add_column("Challenge", style="magenta")
     table.add_column("Status", style="green")
     table.add_column("Expiry", style="blue")
     table.add_column("Days Left", justify="right")
@@ -919,6 +920,7 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
             # Domain has a certificate configured
             cert = cert_map[domain]
             ssl_type = cert['ssl_type']
+            challenge_type = cert.get('challenge_type', 'N/A')
             status = "✅ Issued" if cert['exists'] else "❌ Not Issued"
 
             if cert['exists'] and cert['expiry_date']:
@@ -932,12 +934,13 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
         else:
             # Domain has no certificate configured
             ssl_type = "none"
+            challenge_type = "N/A"
             status = "⚪ No SSL"
             expiry = "N/A"
             days_left = "N/A"
             renewal = "N/A"
 
-        table.add_row(domain, ssl_type, status, expiry, days_left, renewal)
+        table.add_row(domain, ssl_type, challenge_type, status, expiry, days_left, renewal)
 
     # Stop the live display before printing the table
     output.stop()

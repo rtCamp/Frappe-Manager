@@ -322,7 +322,7 @@ class AcmeShCertificateService:
 
         result = self._run_acmesh_command(args)
 
-        # Also remove from service directory
+        # Remove from service directory
         cert_dir = self.root_dir / certificate.domain
         if cert_dir.exists():
             try:
@@ -330,6 +330,16 @@ class AcmeShCertificateService:
                 self.output.debug(f"Removed certificate directory: {cert_dir}")
             except Exception as e:
                 self.output.display_error(f"Failed to remove directory {cert_dir}: {e}")
+
+        # Also remove acme.sh internal directory (.acme.sh/<domain>_ecc)
+        # acme.sh --remove only renames the config to .conf.removed, it doesn't delete the directory
+        acmesh_internal_dir = self.acmesh_home / f"{certificate.domain}_ecc"
+        if acmesh_internal_dir.exists():
+            try:
+                shutil.rmtree(acmesh_internal_dir)
+                self.output.debug(f"Removed acme.sh internal directory: {acmesh_internal_dir}")
+            except Exception as e:
+                self.output.warning(f"Failed to remove acme.sh directory {acmesh_internal_dir}: {e}")
 
         success = result.returncode == 0
         if success:

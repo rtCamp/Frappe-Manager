@@ -28,21 +28,21 @@ from frappe_manager.logger import log
 class BenchService:
     """
     Service layer for bench operations.
-    
+
     Provides high-level operations for managing benches without exposing
     internal implementation details to the CLI layer.
-    
+
     Attributes:
         benches_directory: Root directory containing all benches
         services: Global services manager instance
         verbose: Whether to enable verbose output
-    
+
     Example:
         >>> service = BenchService(CLI_BENCHES_DIRECTORY, services_manager)
         >>> bench = service.get_bench("mysite.localhost")
         >>> benches = service.list_benches()
     """
-    
+
     def __init__(
         self,
         benches_directory: Path,
@@ -52,7 +52,7 @@ class BenchService:
     ):
         """
         Initialize bench service.
-        
+
         Args:
             benches_directory: Path to directory containing benches
             services: Global services manager
@@ -64,7 +64,7 @@ class BenchService:
         self.verbose = verbose
         self.output = output_handler or RichOutputHandler()
         self.logger = log.get_logger()
-    
+
     def get_bench(
         self,
         bench_name: str,
@@ -73,21 +73,21 @@ class BenchService:
     ) -> Bench:
         """
         Get a bench instance by name.
-        
+
         This is a convenience method that wraps Bench.get_object() with
         the service's configuration.
-        
+
         Args:
             bench_name: Name of the bench to retrieve
             workers_check: Whether to check worker status
             admin_tools_check: Whether to check admin tools status
-        
+
         Returns:
             Bench instance
-        
+
         Raises:
             FileNotFoundError: If bench config not found
-            
+
         Example:
             >>> bench = service.get_bench("mysite.localhost")
             >>> bench.start()
@@ -100,7 +100,7 @@ class BenchService:
             verbose=self.verbose,
             output_handler=self.output,
         )
-    
+
     def create_bench(
         self,
         bench_name: str,
@@ -109,31 +109,31 @@ class BenchService:
     ) -> Bench:
         """
         Create a new bench.
-        
+
         Handles all the setup for creating a new bench including:
         - Creating directory structure
         - Initializing docker compose files
         - Creating bench instance
         - Running bench creation process
-        
+
         Args:
             bench_name: Name for the new bench
             bench_config: Configuration for the bench
             is_template: Whether to create a template bench
-        
+
         Returns:
             Created Bench instance
-        
+
         Example:
             >>> config = BenchConfig(name="site.localhost", ...)
             >>> bench = service.create_bench("site.localhost", config)
         """
         bench_path = self.benches_directory / bench_name
         compose_path = bench_path / 'docker-compose.yml'
-        
+
         compose_file_manager = ComposeFile(compose_path)
         docker_client = DockerClient(compose_file_path=compose_path)
-        
+
         bench = Bench(
             path=bench_path,
             name=bench_name,
@@ -144,38 +144,37 @@ class BenchService:
             verbose=self.verbose,
             output_handler=self.output,
         )
-        
+
         bench.create(is_template_bench=is_template)
         return bench
-    
+
     def delete_bench(
         self,
         bench_name: str,
         force: bool = False,
+        delete_db_from_global_db: bool | None = None,
     ) -> bool:
         """
         Delete a bench.
-        
+
         Args:
             bench_name: Name of bench to delete
             force: Skip confirmation prompt
-        
+            delete_db_from_global_db: Whether to delete DB from global-db.
+                                     If None, prompts interactively when DB is in global-db.
+
         Returns:
             True if bench was deleted, False if user cancelled
-        
+
         Example:
             >>> deleted = service.delete_bench("old.localhost", force=True)
         """
         try:
-            bench = self.get_bench(
-                bench_name,
-                workers_check=False,
-                admin_tools_check=False
-            )
+            bench = self.get_bench(bench_name, workers_check=False, admin_tools_check=False)
         except FileNotFoundError:
             # Bench config not found, try to create a minimal bench for cleanup
             bench = self._create_cleanup_bench(bench_name)
-        
+
         # If force is True, skip confirmation prompt
         if force:
             self.output.start("Removing bench")
@@ -183,71 +182,73 @@ class BenchService:
                 bench.remove_certificate()
             except Exception as e:
                 self.output.warning(str(e))
-            
-            bench.remove_database_and_user()
+
+            # Handle database deletion
+            self._handle_database_deletion(bench, delete_db_from_global_db)
+
             bench.remove_containers_and_dirs()
             return True
         else:
             # Use the standard remove_bench with prompt
-            return bench.remove_bench()
-    
+            return bench.remove_bench(delete_db_from_global_db=delete_db_from_global_db)
+
     def discover_benches(self) -> dict[str, Path]:
         """
         Discover all benches in the benches directory.
-        
+
         Returns:
             Dictionary mapping bench names to their docker-compose.yml paths
-        
+
         Example:
             >>> benches = service.discover_benches()
             >>> print(f"Found {len(benches)} benches")
         """
         benches = {}
-        
+
         if not self.benches_directory.exists():
             return benches
-        
+
         for bench_dir in self.benches_directory.iterdir():
             if not bench_dir.is_dir():
                 continue
-            
+
             bench_name = bench_dir.name
             compose_file = bench_dir / "docker-compose.yml"
-            
+
             if compose_file.exists():
                 benches[bench_name] = compose_file
-        
+
         return benches
-    
+
     def get_bench_names(self) -> list[str]:
         """
         Get list of all bench names.
-        
+
         Returns:
             List of bench names
-        
+
         Example:
             >>> names = service.get_bench_names()
             >>> for name in names:
             ...     bench = service.get_bench(name)
         """
         return list(self.discover_benches().keys())
-    
+
     def list_benches_table(self) -> Table:
         """
         Generate a formatted table of all benches.
-        
+
         Returns:
             Rich Table object with bench information
-        
+
         Example:
             >>> table = service.list_benches_table()
             >>> self.output.print(table)
         """
         self.output.change_head("Generating bench list")
-        
+
         bench_dict = self.discover_benches()
-        
+
         if not bench_dict:
             self.output.stop()
             self.output.print(
@@ -261,53 +262,46 @@ class BenchService:
             table.add_column("Status", vertical="middle")
             table.add_column("Path")
             return table
-        
+
         table = Table(show_lines=True, show_header=True, highlight=True)
         table.add_column("Site")
         table.add_column("Status", vertical="middle")
         table.add_column("Path")
-        
+
         for bench_name in bench_dict.keys():
             try:
-                bench = self.get_bench(
-                    bench_name,
-                    workers_check=False,
-                    admin_tools_check=False
-                )
-                
+                bench = self.get_bench(bench_name, workers_check=False, admin_tools_check=False)
+
                 row_data = f"[link=http://{bench.name}]{bench.name}[/link]"
                 path_data = f"[link=file://{bench.path}]{bench.path}[/link]"
-                
+
                 status_color = "white"
                 status_msg = "Inactive"
-                
+
                 if bench.running:
                     status_color = "green"
                     status_msg = "Active"
-                
+
                 status_data = f"[{status_color}]{status_msg}[/{status_color}]"
-                
+
                 table.add_row(row_data, status_data, path_data, style=f"{status_color}")
                 self.output.update_live(table, padding=(0, 0, 0, 0))
-                
+
             except FileNotFoundError as e:
-                self.output.warning(
-                    f'[red][bold]{bench_name}[/bold][/red] : '
-                    f'Bench config not found at {e.filename}'
-                )
-        
+                self.output.warning(f'[red][bold]{bench_name}[/bold][/red] : Bench config not found at {e.filename}')
+
         self.output.stop()
         return table
-    
+
     def _create_cleanup_bench(self, bench_name: str) -> Bench:
         """
         Create a minimal bench instance for cleanup purposes.
-        
+
         Used when bench config is missing but we need to clean up containers/files.
-        
+
         Args:
             bench_name: Name of bench to clean up
-        
+
         Returns:
             Minimal Bench instance
         """
@@ -315,13 +309,13 @@ class BenchService:
         from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
         from frappe_manager.ssl_manager.certificate import SSLCertificate
         import os
-        
+
         bench_path = self.benches_directory / bench_name
         compose_path = bench_path / 'docker-compose.yml'
-        
+
         compose_file_manager = ComposeFile(compose_path)
         docker_client = DockerClient(compose_file_path=compose_path)
-        
+
         # Create minimal config for cleanup
         fake_config = BenchConfig(
             name=bench_name,
@@ -338,7 +332,7 @@ class BenchService:
             admin_tools_username=None,
             admin_tools_password=None,
         )
-        
+
         return Bench(
             path=bench_path,
             name=bench_name,
@@ -351,3 +345,61 @@ class BenchService:
             verbose=self.verbose,
             output_handler=self.output,
         )
+
+    def _is_using_global_db(self, bench: Bench) -> bool:
+        """
+        Check if bench is using FM's managed global-db service.
+
+        Args:
+            bench: Bench instance to check
+
+        Returns:
+            True if bench uses global-db, False otherwise
+        """
+        try:
+            db_info = bench.database.get_connection_info()
+            db_host = db_info.get("host", "")
+
+            # Check if the database host is global-db
+            # FM's global-db service is accessed via the container name "global-db"
+            return db_host == "global-db"
+        except Exception:
+            # If we can't determine, assume it's not global-db
+            return False
+
+    def _handle_database_deletion(self, bench: Bench, delete_db_from_global_db: bool | None):
+        """
+        Handle database deletion based on user preference and database location.
+
+        Args:
+            bench: Bench instance
+            delete_db_from_global_db: User preference for database deletion.
+                                     None = prompt if using global-db
+                                     True = delete from global-db
+                                     False = don't delete from global-db
+        """
+        is_global_db = self._is_using_global_db(bench)
+
+        # If not using global-db, always skip database deletion
+        if not is_global_db:
+            self.output.print("Bench is not using FM's managed global-db. Skipping database deletion.")
+            return
+
+        # If using global-db, determine whether to delete
+        should_delete = delete_db_from_global_db
+
+        # If not specified, prompt the user
+        if should_delete is None:
+            params = {
+                'prompt': f"🗄️  Do you want to remove the database '[bold]{bench.name}[/bold]' from global-db?",
+                'choices': ["yes", "no"],
+                'default': 'yes',
+            }
+            choice = self.output.prompt_ask(**params)
+            should_delete = choice == "yes"
+
+        # Perform deletion if requested
+        if should_delete:
+            bench.remove_database_and_user()
+        else:
+            self.output.print("Skipping database deletion from global-db.")

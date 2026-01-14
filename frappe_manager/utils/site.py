@@ -191,6 +191,11 @@ def get_bench_db_connection_info(bench_name: str, bench_path: Path):
                 db_info["name"] = site_config["db_name"]
                 db_info["user"] = site_config["db_name"]
                 db_info["password"] = site_config["db_password"]
+                # site_config.json takes priority over common_site_config.json
+                if "db_host" in site_config:
+                    db_info["host"] = site_config["db_host"]
+                if "db_port" in site_config:
+                    db_info["port"] = site_config["db_port"]
 
     return db_info
 
@@ -211,12 +216,7 @@ def get_all_docker_images():
     with open(get_frappe_manager_own_files('images-tag.json')) as f:
         image_tags = json.load(f)
         prebake_tag = image_tags.get('prebake')
-        images.update({
-            'prebake': {
-                'name': 'ghcr.io/rtcamp/frappe-manager-prebake',
-                'tag': prebake_tag
-            }
-        })
+        images.update({'prebake': {'name': 'ghcr.io/rtcamp/frappe-manager-prebake', 'tag': prebake_tag}})
     images.update(services_manager_compose_file_manager.get_all_images())
     images.update(admin_tools_manager_compose_file_manager.get_all_images())
 
@@ -234,7 +234,6 @@ def pull_docker_images() -> bool:
     for _service, image_info in images.items():
         image = f"{image_info['name']}:{image_info['tag']}"
         images_list.append(image)
-
 
     # remove duplicates
     images_list = list(dict.fromkeys(images_list))
@@ -271,7 +270,7 @@ def get_sitename_from_current_path() -> Optional[str]:
         return sitename
 
 
-def is_default_worker(worker_name:str) -> bool:
+def is_default_worker(worker_name: str) -> bool:
     default_workers = ['long-worker', 'short-worker']
 
     for dw in default_workers:

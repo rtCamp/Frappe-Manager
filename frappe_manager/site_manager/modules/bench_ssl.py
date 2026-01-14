@@ -71,6 +71,16 @@ class BenchSSL:
         """
         self.certificate_manager.remove_certificate(domain)
 
+    def remove_all_certificates(self) -> None:
+        """
+        Remove ALL SSL certificates from the bench.
+
+        This removes all certificates for the primary domain and all alias domains,
+        including their symlinks, vhost configs, and acme.sh configurations.
+        This is useful for complete cleanup when deleting a bench.
+        """
+        self.certificate_manager.remove_all_certificates()
+
     def update_certificate(self, certificate: SSLCertificate, raise_error: bool = True) -> bool:
         """
         Update SSL certificate configuration.

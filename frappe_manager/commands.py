@@ -380,6 +380,13 @@ def delete(
         ),
     ] = None,
     force: Annotated[bool, typer.Option("--force", "-f", help="Force delete bench.")] = False,
+    delete_db_from_global_db: Annotated[
+        Optional[bool],
+        typer.Option(
+            "--delete-db-from-global-db/--no-delete-db-from-global-db",
+            help="Delete database from global-db. If not specified, prompts interactively when DB is in global-db.",
+        ),
+    ] = None,
 ):
     """Delete a bench."""
 
@@ -391,7 +398,7 @@ def delete(
         context = LoggerContext(bench=benchname, operation="delete")
         output = get_output_handler(ctx, context=context)
         bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
-        bench_service.delete_bench(benchname, force=force)
+        bench_service.delete_bench(benchname, force=force, delete_db_from_global_db=delete_db_from_global_db)
 
 
 @app.command()

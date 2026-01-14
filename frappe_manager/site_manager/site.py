@@ -592,8 +592,16 @@ class Bench:
         return self.ssl.has_certificate()
 
     def remove_certificate(self):
-        self.ssl.remove_certificate()
-        self.bench_config.set_primary_certificate(SSLCertificate(domain=self.name, ssl_type=SUPPORTED_SSL_TYPES.none))
+        """
+        Remove ALL SSL certificates for this bench.
+
+        This removes certificates for the primary domain and all alias domains,
+        including their symlinks, vhost configs, and acme.sh configurations.
+        Then clears the certificate list in bench_config.
+        """
+        self.ssl.remove_all_certificates()
+        # Clear all certificates from config
+        self.bench_config.ssl_certificates = []
         self.save_bench_config()
 
     def update_certificate(self, certificate: SSLCertificate, raise_error: bool = True):
@@ -728,9 +736,14 @@ class Bench:
         """
         self.database.remove_database_and_user()
 
-    def remove_bench(self, default_choice: bool = True):
+    def remove_bench(self, default_choice: bool = True, delete_db_from_global_db: bool | None = None):
         """
-        Removes the site.
+        Removes the bench.
+
+        Args:
+            default_choice: If True, defaults to 'no' for confirmation prompt
+            delete_db_from_global_db: Whether to delete DB from global-db.
+                                     If None, prompts interactively when DB is in global-db.
         """
 
         params: Dict[str, Any] = {}
@@ -753,9 +766,65 @@ class Bench:
             # self.logger.exception(e)
             self.output.warning(str(e))
 
-        self.remove_database_and_user()
+        # Handle database deletion based on configuration
+        self._handle_database_deletion(delete_db_from_global_db)
+
         self.remove_containers_and_dirs()
         return True
+
+    def _is_using_global_db(self) -> bool:
+        """
+        Check if bench is using FM's managed global-db service.
+
+        Returns:
+            True if bench uses global-db, False otherwise
+        """
+        try:
+            db_info = self.database.get_connection_info()
+            db_host = db_info.get("host", "")
+
+            # Check if the database host is global-db
+            # FM's global-db service is accessed via the container name "global-db"
+            return db_host == "global-db"
+        except Exception:
+            # If we can't determine, assume it's not global-db
+            return False
+
+    def _handle_database_deletion(self, delete_db_from_global_db: bool | None):
+        """
+        Handle database deletion based on user preference and database location.
+
+        Args:
+            delete_db_from_global_db: User preference for database deletion.
+                                     None = prompt if using global-db
+                                     True = delete from global-db
+                                     False = don't delete from global-db
+        """
+        is_global_db = self._is_using_global_db()
+
+        # If not using global-db, always skip database deletion
+        if not is_global_db:
+            self.output.print("Bench is not using FM's managed global-db. Skipping database deletion.")
+            return
+
+        # If using global-db, determine whether to delete
+        should_delete = delete_db_from_global_db
+
+        # If not specified, prompt the user
+        if should_delete is None:
+            params = {
+                'prompt': f"🗄️  Do you want to remove the database '[bold]{self.name}[/bold]' from global-db?",
+                'choices': ["yes", "no"],
+                'default': 'yes',
+            }
+            choice = self.output.prompt_ask(**params)
+            should_delete = choice == "yes"
+
+        # Perform deletion if requested
+        if should_delete:
+            self.remove_database_and_user()
+        else:
+            self.output.print("Skipping database deletion from global-db.")
 
     def ensure_workers_running_if_available(self):
         self.worker_coordinator.ensure_workers_running_if_available()

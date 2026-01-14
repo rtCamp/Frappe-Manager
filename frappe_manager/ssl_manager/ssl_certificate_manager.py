@@ -278,6 +278,7 @@ class SSLCertificateManager:
             List of dictionaries with certificate information:
             - domain: Certificate domain
             - ssl_type: Certificate type (letsencrypt, etc.)
+            - challenge_type: Challenge type (http01 or dns01)
             - exists: Whether certificate files exist
             - expiry_date: Certificate expiry date (if exists)
             - needs_renewal: Whether certificate needs renewal
@@ -288,6 +289,7 @@ class SSLCertificateManager:
             info = {
                 'domain': cert.domain,
                 'ssl_type': cert.ssl_type.value,
+                'challenge_type': cert.challenge_type.value,
                 'exists': False,
                 'expiry_date': None,
                 'needs_renewal': False,
@@ -694,3 +696,68 @@ class SSLCertificateManager:
 
         # Restart nginx to apply changes
         self.nginx_controller.restart()
+
+    def remove_all_certificates(self):
+        """
+        Remove ALL SSL certificates managed by this manager.
+
+        This removes all certificate files, symlinks, vhost configs, and acme.sh
+        configurations for every certificate in the certificates list. This is
+        useful for cleanup when deleting a bench entirely.
+
+        The nginx service is restarted once after all certificates are removed.
+        """
+        if not self.certificates:
+            self.output_handler.print("No certificates to remove")
+            return
+
+        self.output_handler.change_head(f"Removing all SSL certificates ({len(self.certificates)} total)")
+
+        removed_count = 0
+        failed_domains = []
+
+        for certificate in self.certificates[:]:  # Create a copy to iterate over
+            try:
+                self.output_handler.print(f"Removing certificate for {certificate.domain}")
+
+                # Get service for this certificate
+                service = self.services.get(certificate.domain)
+                if not service:
+                    self.output_handler.warning(f"No service found for domain {certificate.domain}, skipping")
+                    continue
+
+                # Remove symlinks
+                try:
+                    self.link_manager.unlink_certificate(certificate.domain, None)
+                except Exception as e:
+                    self.output_handler.warning(f"Failed to remove symlinks for {certificate.domain}: {e}")
+
+                # Disable HTTPS redirect for this domain (remove vhost.d config)
+                try:
+                    self.vhost_manager.disable_https_redirect(certificate.domain)
+                except Exception as e:
+                    self.output_handler.warning(f"Failed to remove vhost config for {certificate.domain}: {e}")
+
+                # Remove actual certificate files and acme.sh configuration
+                try:
+                    service.remove_certificate(certificate)
+                    removed_count += 1
+                except Exception as e:
+                    self.output_handler.warning(f"Failed to remove certificate files for {certificate.domain}: {e}")
+                    failed_domains.append(certificate.domain)
+
+            except Exception as e:
+                self.output_handler.warning(f"Error removing certificate for {certificate.domain}: {e}")
+                failed_domains.append(certificate.domain)
+
+        # Restart nginx once after all removals
+        try:
+            self.nginx_controller.restart()
+        except Exception as e:
+            self.output_handler.warning(f"Failed to restart nginx: {e}")
+
+        # Report results
+        if removed_count > 0:
+            self.output_handler.print(f"Successfully removed {removed_count} certificate(s)")
+        if failed_domains:
+            self.output_handler.warning(f"Failed to remove certificates for: {', '.join(failed_domains)}")
