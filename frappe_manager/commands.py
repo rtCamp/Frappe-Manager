@@ -30,7 +30,6 @@ from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import (
     apps_list_validation_callback,
     create_command_sitename_callback,
-    frappe_branch_validation_callback,
     sites_autocompletion_callback,
     version_callback,
     sitename_callback,
@@ -247,9 +246,6 @@ def create(
     developer_mode: Annotated[
         EnableDisableOptionsEnum, typer.Option(help="Toggle frappe developer mode.")
     ] = EnableDisableOptionsEnum.disable,
-    frappe_branch: Annotated[
-        str, typer.Option(help="Specify the branch name for frappe app", callback=frappe_branch_validation_callback)
-    ] = "version-15",
     template: Annotated[bool, typer.Option(help="Create template bench.")] = False,
     admin_pass: Annotated[
         str,
@@ -308,10 +304,31 @@ def create(
     elif developer_mode == EnableDisableOptionsEnum.disable:
         developer_mode_status = False
 
+    # Ensure frappe is always first in apps_list
+    # If user didn't specify frappe, add default version
+    # If user specified frappe, move it to first position
+    final_apps_list = []
+    frappe_app = None
+    other_apps = []
+
+    for app_dict in apps:
+        app_name = app_dict.get("app", "")
+        # Check if this is the frappe app (exact match or org/frappe format)
+        if app_name == "frappe" or app_name.endswith("/frappe"):
+            frappe_app = app_dict
+        else:
+            other_apps.append(app_dict)
+
+    # If frappe not specified, add default version
+    if frappe_app is None:
+        frappe_app = {"app": "frappe", "branch": STABLE_APP_BRANCH_MAPPING_LIST['frappe']}
+
+    # Build final apps list: frappe first, then others in order
+    final_apps_list = [frappe_app] + other_apps
+
     bench_config: BenchConfig = BenchConfig(
         name=benchname,
-        apps_list=apps,
-        frappe_branch=frappe_branch,
+        apps_list=final_apps_list,
         developer_mode=True if environment == FMBenchEnvType.dev else developer_mode_status,
         admin_tools=True if environment == FMBenchEnvType.dev else False,
         admin_pass=admin_pass,

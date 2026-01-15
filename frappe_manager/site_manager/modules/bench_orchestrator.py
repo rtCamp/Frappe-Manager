@@ -126,9 +126,16 @@ class BenchOrchestrator:
             bench.supervisor.setup_supervisor(bench.path, force=True)
 
             # Change frappe branch if needed
+            # Extract frappe branch from apps_list (frappe is always first)
+            frappe_branch = STABLE_APP_BRANCH_MAPPING_LIST.get("frappe")  # Default
+            if bench.bench_config.apps_list:
+                frappe_app = bench.bench_config.apps_list[0]  # Frappe is always first
+                if frappe_app.get("app") in ["frappe", "frappe/frappe"]:
+                    frappe_branch = frappe_app.get("branch") or frappe_branch
+
             bench.app_manager.change_app_branch(
                 app="frappe",
-                branch=bench.bench_config.frappe_branch,
+                branch=frappe_branch,
                 prebaked_branch=STABLE_APP_BRANCH_MAPPING_LIST.get("frappe"),
             )
 

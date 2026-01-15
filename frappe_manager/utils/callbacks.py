@@ -43,10 +43,8 @@ def apps_list_validation_callback(value: List[str] | None):
 
     if value:
         for app in value:
-            # Check for 'frappe' app (should not be manually installed)
-            app_lower = app.lower().split(':')[0].split('#')[0]
-            if app_lower == "frappe" or app_lower == "frappe/frappe":
-                raise typer.BadParameter("'frappe' app should not be included here - it's installed by default.")
+            # Allow frappe app now - it can be specified via --apps
+            # No need to check and reject frappe anymore
 
             # Handle HTTP/HTTPS URLs
             if "https://" in app or "http://" in app:

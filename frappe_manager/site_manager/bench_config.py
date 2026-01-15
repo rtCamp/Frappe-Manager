@@ -311,9 +311,6 @@ class BenchConfig(BaseModel):
 
     upload_limit: str = Field(default="50M", description="Maximum upload size (e.g., '50M', '100M', '500M', '1G')")
 
-    frappe_branch: str = Field(
-        default=STABLE_APP_BRANCH_MAPPING_LIST['frappe'], description="The branch of Frappe to use"
-    )
     admin_pass: str = Field('admin', description="The admin password")
     root_path: Path = Field(..., description="The root path")
     apps_list: List[Dict[str, Optional[str]]] = Field(default=[], description="List of apps")
