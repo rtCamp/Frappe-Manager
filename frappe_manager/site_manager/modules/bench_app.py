@@ -12,7 +12,6 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Literal
 
-from frappe_manager import STABLE_APP_BRANCH_MAPPING_LIST
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.docker import DockerClient, DockerException
@@ -97,86 +96,302 @@ class BenchAppManager:
 
         # Derived paths and commands
         self.frappe_bench_dir: Path = bench_path / "workspace" / "frappe-bench"
-        self.bench_cli_cmd = ['/opt/user/.bin/bench_orig']
+        self.bench_cli_cmd = ['/usr/local/bin/bench']
+
+    def setup_python_and_node_environments(self) -> bool:
+        """
+        Setup Python and Node.js environments for the bench.
+
+        This method:
+        1. Installs the required Python version via UV if not already present
+        2. Creates venv with UV using that Python version
+        3. Installs Node version via fnm if not present
+        4. Sets fnm default to use that Node version
+
+        Returns:
+            bool: True if venv was recreated (requiring app reinstallation), False otherwise
+        """
+        from frappe_manager.site_manager.bench_config import (
+            parse_python_version_for_runtime,
+            parse_node_version_for_runtime,
+        )
+
+        venv_recreated = False
+        python_version_requirement = self.bench_config.python_version
+        node_version_requirement = self.bench_config.node_version
+
+        if python_version_requirement:
+            self.output.change_head(f"Checking Python version compatibility")
+            try:
+                check_current_version_cmd = "/workspace/frappe-bench/env/bin/python --version"
+                result = self._container_run(check_current_version_cmd, capture_output=True, raise_exception_obj=None)
+
+                if result and result.exit_code == 0:
+                    import re
+
+                    current_version_output = " ".join(result.combined)
+                    version_match = re.search(r"Python (\d+)\.(\d+)\.(\d+)", current_version_output)
+
+                    if version_match:
+                        current_major = int(version_match.group(1))
+                        current_minor = int(version_match.group(2))
+
+                        if self._python_version_satisfies_requirement(
+                            current_major, current_minor, python_version_requirement
+                        ):
+                            self.output.print(
+                                f"Current Python {current_major}.{current_minor} satisfies requirement {python_version_requirement}"
+                            )
+                            python_version_requirement = None
+                        else:
+                            self.output.print(
+                                f"Python {current_major}.{current_minor} does not satisfy {python_version_requirement}, will recreate venv"
+                            )
+
+            except Exception as e:
+                self.logger.debug(f"Could not check current Python version: {e}")
+
+        if python_version_requirement:
+            python_version = parse_python_version_for_runtime(python_version_requirement)
+            if python_version:
+                self.output.change_head(f"Setting up Python environment for requirement: {python_version_requirement}")
+                try:
+                    scan_pythons_cmd = """
+if [ -d /workspace/.uv/python ]; then
+    for dir in /workspace/.uv/python/cpython-*; do
+        if [ -d "$dir" ]; then
+            basename "$dir"
+        fi
+    done 2>/dev/null | sort -u
+fi
+"""
+                    result = self._container_run(scan_pythons_cmd, capture_output=True, raise_exception_obj=None)
+
+                    selected_python_full = None
+                    selected_version = None
+                    if result and result.exit_code == 0:
+                        import re
+
+                        candidates = []
+
+                        for line in result.combined:
+                            if '/usr/bin' in line or 'download available' in line:
+                                continue
+
+                            match = re.search(r'cpython-(\d+)\.(\d+)\.(\d+)', line)
+                            if match:
+                                major = int(match.group(1))
+                                minor = int(match.group(2))
+                                patch = int(match.group(3))
+                                if self._python_version_satisfies_requirement(major, minor, python_version_requirement):
+                                    candidates.append((major, minor, patch, f"cpython-{major}.{minor}.{patch}"))
+
+                        if candidates:
+                            candidates.sort(reverse=True)
+                            selected_version = candidates[0]
+                            selected_python_full = selected_version[3]
+                            self.output.print(
+                                f"Found UV-managed Python {selected_version[0]}.{selected_version[1]}.{selected_version[2]} satisfying {python_version_requirement}"
+                            )
+
+                    if not selected_python_full:
+                        self.output.print(f"Installing UV-managed Python {python_version}...")
+                        install_cmd = f"uv python install cpython-{python_version}"
+                        self._container_run(install_cmd, raise_exception_obj=None)
+                        selected_python_full = f"cpython-{python_version}"
+                        self.output.print(f"Installed UV-managed Python {python_version}")
+
+                    self.output.change_head(f"Creating virtual environment with {selected_python_full}")
+                    recreate_venv_cmd = f"""
+                    cd /workspace/frappe-bench
+                    if [ -d env ]; then
+                        mv env env.bak || rm -rf env.bak
+                    fi
+                    uv venv env --python {selected_python_full} --seed --link-mode=copy
+                    """
+                    self._container_run(recreate_venv_cmd, raise_exception_obj=None)
+                    selected_version_str = (
+                        f"{selected_version[0]}.{selected_version[1]}.{selected_version[2]}"
+                        if selected_version
+                        else selected_python_full
+                    )
+                    self.output.print(f"Created virtual environment with Python {selected_version_str}")
+                    venv_recreated = True
+
+                except Exception as e:
+                    self.output.warning(f"Failed to setup Python {python_version}: {e}")
+                    self.output.warning("Continuing with default Python version")
+
+        node_version_requirement = self.bench_config.node_version
+        if node_version_requirement:
+            self.output.change_head(f"Checking Node version compatibility")
+            try:
+                check_current_node_cmd = "node --version"
+                result = self._container_run(check_current_node_cmd, capture_output=True, raise_exception_obj=None)
+
+                if result and result.exit_code == 0:
+                    import re
+
+                    current_node_output = " ".join(result.combined)
+                    version_match = re.search(r"v(\d+)", current_node_output)
+
+                    if version_match:
+                        current_major = int(version_match.group(1))
+
+                        if self._node_version_satisfies_requirement(current_major, node_version_requirement):
+                            self.output.print(
+                                f"Current Node {current_major} satisfies requirement {node_version_requirement}"
+                            )
+                            node_version_requirement = None
+                        else:
+                            self.output.print(
+                                f"Node {current_major} does not satisfy {node_version_requirement}, will setup"
+                            )
+
+            except Exception as e:
+                self.logger.debug(f"Could not check current Node version: {e}")
+
+        if node_version_requirement:
+            node_version = parse_node_version_for_runtime(node_version_requirement)
+            if node_version:
+                self.output.change_head(f"Setting up Node {node_version} environment")
+                try:
+                    check_cmd = f"fnm list | grep 'v{node_version}' || true"
+                    result = self._container_run(check_cmd, capture_output=True, raise_exception_obj=None)
+
+                    needs_install = True
+                    if result and result.combined:
+                        output_text = " ".join(result.combined)
+                        if f"v{node_version}" in output_text:
+                            needs_install = False
+                            self.output.print(f"Node {node_version} already installed")
+
+                    if needs_install:
+                        self.output.print(f"Installing Node {node_version} via fnm...")
+                        install_cmd = f"fnm install {node_version}"
+                        install_result = self._container_run(install_cmd, capture_output=True, raise_exception_obj=None)
+                        if install_result and install_result.exit_code == 0:
+                            self.output.print(f"Installed Node {node_version}")
+                        else:
+                            raise Exception(
+                                f"fnm install {node_version} failed with exit code {install_result.exit_code if install_result else 'unknown'}"
+                            )
+
+                    set_default_cmd = f"fnm default {node_version}"
+                    default_result = self._container_run(set_default_cmd, capture_output=True, raise_exception_obj=None)
+                    if default_result and default_result.exit_code == 0:
+                        self.output.print(f"Set Node {node_version} as default")
+                    else:
+                        self.output.warning(f"Could not set Node {node_version} as default, but continuing")
+
+                    yarn_check = f"test -f /workspace/.fnm/node-versions/v{node_version}/installation/bin/yarn || npm install -g yarn"
+                    self._container_run(yarn_check, capture_output=True, raise_exception_obj=None)
+                    self.output.print(f"Ensured yarn is installed for Node {node_version}")
+
+                except Exception as e:
+                    self.output.warning(f"Failed to setup Node {node_version}: {e}")
+                    self.output.warning("Continuing with default Node version")
+
+        return venv_recreated
+
+    def _python_version_satisfies_requirement(self, current_major: int, current_minor: int, requirement: str) -> bool:
+        import re
+
+        requirement = requirement.strip()
+        current_version = f"{current_major}.{current_minor}"
+
+        if ">=" in requirement and "<" in requirement:
+            match_min = re.search(r">=(\d+)\.(\d+)", requirement)
+            match_max = re.search(r"<(\d+)\.(\d+)", requirement)
+
+            if match_min and match_max:
+                min_major, min_minor = int(match_min.group(1)), int(match_min.group(2))
+                max_major, max_minor = int(match_max.group(1)), int(match_max.group(2))
+
+                if current_major > min_major or (current_major == min_major and current_minor >= min_minor):
+                    if current_major < max_major or (current_major == max_major and current_minor < max_minor):
+                        return True
+
+        elif requirement.startswith("^"):
+            match = re.search(r"\^(\d+)\.(\d+)", requirement)
+            if match:
+                req_major, req_minor = int(match.group(1)), int(match.group(2))
+                return current_major == req_major and current_minor >= req_minor
+
+        elif re.match(r"^\d+\.\d+$", requirement):
+            return current_version == requirement
+
+        return False
+
+    def _node_version_satisfies_requirement(self, current_major: int, requirement: str) -> bool:
+        import re
+
+        requirement = requirement.strip()
+
+        if ">=" in requirement:
+            match = re.search(r">=(\d+)", requirement)
+            if match:
+                min_major = int(match.group(1))
+                return current_major >= min_major
+
+        elif requirement.startswith("^"):
+            match = re.search(r"\^(\d+)", requirement)
+            if match:
+                req_major = int(match.group(1))
+                return current_major == req_major
+
+        elif re.match(r"^\d+$", requirement):
+            return current_major == int(requirement)
+
+        return False
 
     def install_apps(
         self,
         apps_list: List[Dict[str, Optional[str]]],
-        already_installed_apps: Optional[Dict[str, str]] = None,
         github_token: Optional[str] = None,
         use_uv: bool = True,
+        force_reinstall: bool = False,
+        clone_only: bool = False,
+        skip_clone: bool = False,
     ) -> None:
-        """
-        Install multiple apps to the bench environment using parallel cloning and UV.
-
-        NEW IMPLEMENTATION - 4 PHASES:
-        1. Clone all apps in parallel (on host)
-        2. Install Python deps with UV (in container)
-        3. Install Node deps (in container)
-        4. Build assets (in container)
-
-        This is significantly faster than the old sequential approach:
-        - Parallel cloning: 2-3x faster
-        - UV for Python deps: 3-5x faster
-        - Total: 2-3x faster bench creation
-
-        Args:
-            apps_list: List of dicts with 'app' and 'branch' keys
-            already_installed_apps: Dict of already installed apps with branches
-            github_token: GitHub personal access token for private repositories
-            use_uv: Use UV for faster Python package installation (with fallback to pip)
-
-        Example:
-            >>> app_manager.install_apps([
-            ...     {"app": "frappe", "branch": "version-15"},
-            ...     {"app": "erpnext", "branch": "version-15"},
-            ... ], github_token="ghp_xxxxx")
-        """
-        if already_installed_apps is None:
-            already_installed_apps = STABLE_APP_BRANCH_MAPPING_LIST
-
-        # Convert to AppConfig objects
-        apps_config = self._convert_to_app_configs(apps_list, github_token)
-
-        # Remove prebaked apps not in install list
-        self._remove_unwanted_prebaked_apps(apps_config, already_installed_apps)
-
-        # Filter apps that need installation
-        apps_to_install = self._filter_apps_to_install(apps_config, already_installed_apps)
-
-        if not apps_to_install:
-            self.output.print("All apps already installed")
+        if not apps_list:
+            self.output.print("No apps to install")
             return
 
-        # PHASE 1: Parallel clone all apps (ON HOST)
-        self.output.change_head(f"Cloning {len(apps_to_install)} apps in parallel")
-        try:
-            cloner = AppCloner(
-                apps_dir=self.frappe_bench_dir / "apps",
-                github_token=github_token,
-                output_handler=self.output,
-            )
-            cloned_apps = cloner.clone_apps_parallel(apps_to_install)
-            self.output.print(f"Cloned {len(cloned_apps)} apps successfully")
+        apps_config = self._convert_to_app_configs(apps_list, github_token)
 
-            # Update apps.txt to register newly cloned apps
-            self._update_apps_txt(apps_to_install)
-        except AppClonerError as e:
-            raise BenchOperationBenchInstallAppInPythonEnvFailed(
-                bench_name=self.bench_name, app_name="multiple apps"
-            ) from e
+        if not apps_config:
+            self.output.print("No valid apps to install")
+            return
 
-        # PHASE 2: Install Python dependencies with UV (IN CONTAINER)
+        if not skip_clone:
+            self.output.change_head(f"Cloning {len(apps_config)} apps in parallel")
+            try:
+                cloner = AppCloner(
+                    apps_dir=self.frappe_bench_dir / "apps",
+                    github_token=github_token,
+                    output_handler=self.output,
+                )
+                cloned_apps = cloner.clone_apps_parallel(apps_config)
+                self.output.print(f"Cloned {len(cloned_apps)} apps successfully")
+
+                self._update_apps_txt(apps_config)
+            except AppClonerError as e:
+                raise BenchOperationBenchInstallAppInPythonEnvFailed(
+                    bench_name=self.bench_name, app_name="multiple apps"
+                ) from e
+
+        if clone_only:
+            return
+
         self.output.change_head("Installing Python dependencies")
-        self._install_python_deps_with_uv(apps_to_install, use_uv=use_uv)
+        self._install_python_deps_with_uv(apps_config, use_uv=use_uv)
         self.output.print("Installed Python dependencies")
 
-        # PHASE 3: Install Node dependencies (IN CONTAINER)
         self.output.change_head("Installing Node dependencies")
         self._install_node_deps()
         self.output.print("Installed Node dependencies")
 
-        # PHASE 4: Build frontend assets (IN CONTAINER)
         self.output.change_head("Building frontend assets")
         self.build()
         self.output.print("Built frontend assets")
@@ -197,36 +412,16 @@ class BenchAppManager:
                 continue
         return configs
 
-    def _remove_unwanted_prebaked_apps(self, apps_config: List[AppConfig], already_installed: Dict[str, str]) -> None:
-        """Remove prebaked apps not in the install list."""
-        to_install_apps = [app.name for app in apps_config]
+    def _create_venv(self) -> None:
+        venv_path = "/workspace/frappe-bench/env"
+        create_venv_cmd = f"uv venv {venv_path} --python 3.12"
 
-        for app, branch in already_installed.items():
-            if app == 'frappe':
-                continue
-
-            if app not in to_install_apps:
-                self.output.change_head(f"Removing prebaked app {app}")
-                self.remove_app_from_env(app)
-                self.output.print(f"Removed prebaked app {app}")
-
-    def _filter_apps_to_install(
-        self, apps_config: List[AppConfig], already_installed: Dict[str, str]
-    ) -> List[AppConfig]:
-        """Filter apps that need installation."""
-        apps_to_install = []
-
-        for app in apps_config:
-            # Skip if already installed with same branch
-            if app.name in already_installed:
-                installed_branch = already_installed.get(app.name)
-                if installed_branch == app.ref:
-                    self.output.print(f"Skipped installation of prebaked app [blue]{app.name} -> {app.ref}[/blue]")
-                    continue
-
-            apps_to_install.append(app)
-
-        return apps_to_install
+        try:
+            self._container_run(create_venv_cmd, raise_exception_obj=None)
+        except Exception as e:
+            self.logger.warning(f"Failed to create venv with UV: {e}, trying python -m venv")
+            create_venv_cmd = f"python3.12 -m venv {venv_path}"
+            self._container_run(create_venv_cmd, raise_exception_obj=None)
 
     def _install_python_deps_with_uv(self, apps: List[AppConfig], use_uv: bool = True) -> None:
         """
@@ -466,50 +661,6 @@ class BenchAppManager:
         build_cmd = " ".join(build_cmd)
         self._container_run(build_cmd, build_exception)
 
-    def change_app_branch(
-        self,
-        app: str,
-        branch: str,
-        prebaked_branch: Optional[str] = None,
-    ) -> None:
-        """
-        Change the branch of an installed app.
-
-        This method changes the git branch of a prebaked app in the bench.
-
-        Args:
-            app: App name
-            branch: Target branch
-            prebaked_branch: Current prebaked branch (for comparison)
-
-        Raises:
-            BenchOperationFrappeBranchChangeFailed: If branch change fails
-
-        Example:
-            >>> app_manager.change_app_branch(
-            ...     "frappe",
-            ...     "version-15",
-            ...     prebaked_branch="version-14"
-            ... )
-        """
-        if prebaked_branch and branch == prebaked_branch:
-            self.output.print(f"App {app} is already on branch {branch}")
-            return
-
-        self.output.change_head(f"Changing {app} app's branch to {branch}")
-
-        if prebaked_branch:
-            self.output.change_head(f"Changing prebaked {app} app's branch {prebaked_branch} -> {branch}")
-
-        change_branch_command = self.bench_cli_cmd + [f"get-app --overwrite --branch {branch} {app}"]
-        change_branch_command = " ".join(change_branch_command)
-
-        exception = BenchOperationFrappeBranchChangeFailed(bench_name=self.bench_name, app=app, branch=branch)
-
-        self._container_run(command=change_branch_command, raise_exception_obj=exception)
-
-        self.output.print(f"Changed {app} app's branch to {branch}")
-
     def get_installed_apps_list(self) -> List[Path]:
         """
         Get list of installed apps in the bench.
@@ -558,8 +709,8 @@ class BenchAppManager:
             BenchOperationException: If command fails and raise_exception_obj is provided
             DockerException: If command fails and no exception object provided
         """
-        # Wrap command in bash with proper environment
-        command = f"/bin/bash -c 'source /etc/bash.bashrc; {command}'"
+        # Wrap command in bash - ENV variables (FNM_DIR, UV_PYTHON_PATH) are already set in Dockerfile
+        command = f"/bin/bash -c '{command}'"
 
         try:
             if capture_output:

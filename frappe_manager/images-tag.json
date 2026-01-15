@@ -1,5 +1,4 @@
 {
-"frappe": "v0.18.0",
-"prebake": "v0.18.0",
+"frappe": "v0.18.0-modern-tooling",
 "nginx": "v0.18.0"
 }

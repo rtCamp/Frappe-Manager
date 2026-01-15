@@ -127,18 +127,25 @@ class BenchDockerOps:
         """
         self.output.change_head("Creating required directories")
 
-        frappe_image: str = self.compose_file_manager.yml["services"]["frappe"]["image"]
-        frappe_image = frappe_image.replace('-frappe', '-prebake')
-
         workspace_path = self.path / "workspace"
-        workspace_path_abs = str(workspace_path.absolute())
+        workspace_path.mkdir(parents=True, exist_ok=True)
 
-        host_run_cp(
-            frappe_image,
-            source="/workspace",
-            destination=workspace_path_abs,
-            docker=self.docker_client,
-        )
+        frappe_bench_dir = workspace_path / "frappe-bench"
+        frappe_bench_dir.mkdir(parents=True, exist_ok=True)
+
+        (frappe_bench_dir / "sites").mkdir(parents=True, exist_ok=True)
+        (frappe_bench_dir / "apps").mkdir(parents=True, exist_ok=True)
+        (frappe_bench_dir / "logs").mkdir(parents=True, exist_ok=True)
+        (frappe_bench_dir / "config").mkdir(parents=True, exist_ok=True)
+        (frappe_bench_dir / "config" / "pids").mkdir(parents=True, exist_ok=True)
+
+        apps_txt = frappe_bench_dir / "sites" / "apps.txt"
+        if not apps_txt.exists():
+            apps_txt.write_text("frappe\n")
+
+        common_site_config = frappe_bench_dir / "sites" / "common_site_config.json"
+        if not common_site_config.exists():
+            common_site_config.write_text("{}")
 
         configs_path = self.path / "configs"
         configs_path.mkdir(parents=True, exist_ok=True)
@@ -166,6 +173,31 @@ class BenchDockerOps:
         for directory in nginx_subdirs:
             new_dir = nginx_dir / directory
             new_dir.mkdir(parents=True, exist_ok=True)
+
+        # Copy prebaked Python and Node from Docker image to host workspace
+        frappe_image = self.compose_file_manager.yml["services"]["frappe"]["image"]
+
+        # Copy prebaked UV Python installations
+        uv_dir = workspace_path / ".uv"
+        if not uv_dir.exists():
+            uv_dir_abs = str(uv_dir.absolute())
+            host_run_cp(
+                frappe_image,
+                source="/workspace/.uv",
+                destination=uv_dir_abs,
+                docker=self.docker_client,
+            )
+
+        # Copy prebaked FNM Node installations
+        fnm_dir = workspace_path / ".fnm"
+        if not fnm_dir.exists():
+            fnm_dir_abs = str(fnm_dir.absolute())
+            host_run_cp(
+                frappe_image,
+                source="/workspace/.fnm",
+                destination=fnm_dir_abs,
+                docker=self.docker_client,
+            )
 
         self.output.print("Created all required directories.")
 

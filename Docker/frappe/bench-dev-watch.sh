@@ -1,13 +1,11 @@
 #!/bin/bash
 
-source /etc/bash.bashrc
-
 cleanup() {
-    echo "Received signal SIGTERM, stopping..."
-    if [ -n "$running_script_pid" ]; then
-        kill -s SIGKILL "$running_script_pid"
-    fi
-    exit 0
+	echo "Received signal SIGTERM, stopping..."
+	if [ -n "$running_script_pid" ]; then
+		kill -s SIGKILL "$running_script_pid"
+	fi
+	exit 0
 }
 
 trap cleanup SIGTERM

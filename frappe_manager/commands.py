@@ -269,6 +269,22 @@ def create(
             show_default=False,
         ),
     ] = None,
+    python_version: Annotated[
+        Optional[str],
+        typer.Option(
+            "--python",
+            help="Override Python version (e.g., '3.11', '3.10'). By default, auto-detected from frappe app's pyproject.toml.",
+            show_default=False,
+        ),
+    ] = None,
+    node_version: Annotated[
+        Optional[str],
+        typer.Option(
+            "--node",
+            help="Override Node version (e.g., '18', '20'). By default, auto-detected from frappe app's package.json.",
+            show_default=False,
+        ),
+    ] = None,
 ):
     """
     Create a new bench.
@@ -339,6 +355,8 @@ def create(
         alias_domains=alias_domains if alias_domains else [],
         github_token=github_token,  # NEW: GitHub token for private repos
         use_uv=True,  # NEW: Always use UV with automatic fallback
+        python_version=python_version,  # NEW: User-specified Python version override
+        node_version=node_version,  # NEW: User-specified Node version override
     )
 
     # Validate repositories exist BEFORE creating any infrastructure

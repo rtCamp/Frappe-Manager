@@ -67,6 +67,167 @@ def extract_app_python_module_name(app_path: Path) -> str:
     return app_path.name
 
 
+def extract_python_version_requirement(frappe_app_path: Path) -> Optional[str]:
+    """
+    Extract Python version requirement from frappe app's pyproject.toml.
+
+    Reads the [project] requires-python field or [tool.poetry.dependencies] python field.
+
+    Args:
+        frappe_app_path: Path to the frappe app directory
+
+    Returns:
+        Python version requirement string (e.g., ">=3.10,<3.14") or None if not found
+    """
+    pyproject = frappe_app_path / "pyproject.toml"
+    if not pyproject.exists():
+        return None
+
+    try:
+        import json
+
+        data = tomlkit.parse(pyproject.read_text())
+
+        # Check [project] requires-python (PEP 621 standard)
+        if "project" in data and "requires-python" in data["project"]:
+            return str(data["project"]["requires-python"])
+
+        # Check [tool.poetry.dependencies] python (Poetry format)
+        if "tool" in data and "poetry" in data["tool"]:
+            if "dependencies" in data["tool"]["poetry"]:
+                if "python" in data["tool"]["poetry"]["dependencies"]:
+                    python_dep = data["tool"]["poetry"]["dependencies"]["python"]
+                    # Poetry format can be string or dict
+                    if isinstance(python_dep, str):
+                        return python_dep
+                    elif isinstance(python_dep, dict) and "version" in python_dep:
+                        return str(python_dep["version"])
+
+        return None
+    except Exception:
+        return None
+
+
+def extract_node_version_requirement(frappe_app_path: Path) -> Optional[str]:
+    """
+    Extract Node version requirement from frappe app's package.json.
+
+    Reads the engines.node field.
+
+    Args:
+        frappe_app_path: Path to the frappe app directory
+
+    Returns:
+        Node version requirement string (e.g., ">=18") or None if not found
+    """
+    package_json = frappe_app_path / "package.json"
+    if not package_json.exists():
+        return None
+
+    try:
+        import json
+
+        data = json.loads(package_json.read_text())
+
+        # Check engines.node
+        if "engines" in data and "node" in data["engines"]:
+            return str(data["engines"]["node"])
+
+        return None
+    except Exception:
+        return None
+
+
+def parse_python_version_for_runtime(version_requirement: Optional[str]) -> Optional[str]:
+    """
+    Parse Python version requirement string to extract a usable Python version.
+
+    Handles various formats:
+    - ">=3.10,<3.14" -> "3.10"
+    - ">=3.14,<3.15" -> "3.14"
+    - "^3.11" -> "3.11"
+    - "3.11" -> "3.11"
+    - "3.10.5" -> "3.10"
+
+    Strategy: Extract the minimum compatible version for maximum compatibility.
+
+    Args:
+        version_requirement: Version requirement string from pyproject.toml
+
+    Returns:
+        Python version string suitable for UV (e.g., "3.10", "3.14")
+        Returns None if parsing fails
+    """
+    if not version_requirement:
+        return None
+
+    try:
+        import re
+
+        # Remove whitespace
+        version_str = version_requirement.strip()
+
+        # Handle poetry caret (^3.11 -> 3.11)
+        if version_str.startswith("^"):
+            version_str = version_str[1:]
+
+        # Extract version numbers using regex
+        # Match patterns like: >=3.10, 3.10.5, 3.10
+        match = re.search(r"(\d+)\.(\d+)(?:\.\d+)?", version_str)
+        if match:
+            major = match.group(1)
+            minor = match.group(2)
+            return f"{major}.{minor}"
+
+        return None
+    except Exception:
+        return None
+
+
+def parse_node_version_for_runtime(version_requirement: Optional[str]) -> Optional[str]:
+    """
+    Parse Node version requirement string to extract a usable Node version.
+
+    Handles various formats:
+    - ">=18" -> "18"
+    - ">=24" -> "24"
+    - "^18.0.0" -> "18"
+    - "18.x" -> "18"
+    - "18.12.0" -> "18"
+
+    Strategy: Extract the major version for fnm compatibility.
+
+    Args:
+        version_requirement: Version requirement string from package.json
+
+    Returns:
+        Node major version string suitable for fnm (e.g., "18", "24")
+        Returns None if parsing fails
+    """
+    if not version_requirement:
+        return None
+
+    try:
+        import re
+
+        # Remove whitespace
+        version_str = version_requirement.strip()
+
+        # Handle poetry/npm caret (^18.0.0 -> 18.0.0)
+        if version_str.startswith("^"):
+            version_str = version_str[1:]
+
+        # Extract major version number
+        # Match patterns like: >=18, 18.12.0, 18.x, 18
+        match = re.search(r"(\d+)", version_str)
+        if match:
+            return match.group(1)
+
+        return None
+    except Exception:
+        return None
+
+
 class FMBenchEnvType(str, Enum):
     prod = 'prod'
     dev = 'dev'
@@ -326,6 +487,12 @@ class BenchConfig(BaseModel):
     use_uv: bool = Field(
         True, description="Use UV for faster Python package installation (with automatic fallback to pip)"
     )
+
+    # NEW: Auto-detected Python and Node version requirements from frappe
+    python_version: Optional[str] = Field(
+        None, description="Python version requirement from frappe app (e.g., '>=3.10,<3.14')"
+    )
+    node_version: Optional[str] = Field(None, description="Node version requirement from frappe app (e.g., '>=18')")
 
     def get_apps_config(self) -> List[AppConfig]:
         """

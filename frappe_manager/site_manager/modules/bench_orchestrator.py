@@ -20,7 +20,6 @@ By centralizing orchestration logic here, we maintain separation of concerns:
 import copy
 from typing import TYPE_CHECKING
 
-from frappe_manager import STABLE_APP_BRANCH_MAPPING_LIST
 from frappe_manager.logger import log
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
@@ -125,34 +124,48 @@ class BenchOrchestrator:
             # Setup supervisor
             bench.supervisor.setup_supervisor(bench.path, force=True)
 
-            # Change frappe branch if needed
-            # Extract frappe branch from apps_list (frappe is always first)
-            frappe_branch = STABLE_APP_BRANCH_MAPPING_LIST.get("frappe")  # Default
-            if bench.bench_config.apps_list:
-                frappe_app = bench.bench_config.apps_list[0]  # Frappe is always first
-                if frappe_app.get("app") in ["frappe", "frappe/frappe"]:
-                    frappe_branch = frappe_app.get("branch") or frappe_branch
-
-            bench.app_manager.change_app_branch(
-                app="frappe",
-                branch=frappe_branch,
-                prebaked_branch=STABLE_APP_BRANCH_MAPPING_LIST.get("frappe"),
+            from frappe_manager.site_manager.bench_config import (
+                extract_python_version_requirement,
+                extract_node_version_requirement,
             )
 
-            # Wait for required services
             bench.site_manager.wait_for_required_services()
 
-            # Install apps to environment (NEW: With github_token and use_uv support)
             bench.app_manager.install_apps(
                 bench.bench_config.apps_list,
                 github_token=bench.bench_config.github_token,
                 use_uv=bench.bench_config.use_uv,
+                clone_only=True,
             )
 
-            # Remove archived directory
-            self._remove_archived_directory()
+            frappe_app_path = bench.path / "workspace" / "frappe-bench" / "apps" / "frappe"
+            if frappe_app_path.exists():
+                if not bench.bench_config.python_version:
+                    detected_python = extract_python_version_requirement(frappe_app_path)
+                    if detected_python:
+                        bench.bench_config.python_version = detected_python
+                        self.output.print(f"Detected Python version requirement: {detected_python}")
+                        self.logger.info(f"{bench.name}: Auto-detected Python version: {detected_python}")
 
-            # Create bench site
+                if not bench.bench_config.node_version:
+                    detected_node = extract_node_version_requirement(frappe_app_path)
+                    if detected_node:
+                        bench.bench_config.node_version = detected_node
+                        self.output.print(f"Detected Node version requirement: {detected_node}")
+                        self.logger.info(f"{bench.name}: Auto-detected Node version: {detected_node}")
+
+            # Setup Python/Node environments if versions specified
+            if bench.bench_config.python_version or bench.bench_config.node_version:
+                bench.app_manager.setup_python_and_node_environments()
+
+            self.output.print("Installing dependencies for all apps...")
+            bench.app_manager.install_apps(
+                bench.bench_config.apps_list,
+                github_token=bench.bench_config.github_token,
+                use_uv=bench.bench_config.use_uv,
+                skip_clone=True,
+            )
+
             self.output.change_head(f"Creating bench site {bench.name}")
             bench.site_manager.create_bench_site()
             self.output.print(f"Created bench site {bench.name}")
@@ -199,22 +212,6 @@ class BenchOrchestrator:
         bench.sync_bench_common_site_config(global_db_info.host, global_db_info.port)
         bench.save_bench_config()
         self.output.print(f"Created template bench: {bench.name}", emoji_code=":white_check_mark:")
-
-    def _remove_archived_directory(self):
-        """Remove the archived directory from frappe-bench workspace."""
-        bench = self.bench
-        command = "rm -rf /workspace/frappe-bench/archived"
-        command = f"/bin/bash -c 'source /etc/bash.bashrc; {command}'"
-        try:
-            bench.docker_client.compose.exec(
-                service="frappe",
-                command=command,
-                user="frappe",
-                workdir="/workspace/frappe-bench",
-                stream=False,
-            )
-        except Exception:
-            raise BenchOperationException(bench.name, "Failed to remove /workspace/frappe-bench/archived directory.")
 
     def _handle_creation_failure(self, exception: Exception):
         """Handle failures during bench creation with cleanup."""

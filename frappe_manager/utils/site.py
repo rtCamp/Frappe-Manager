@@ -213,10 +213,6 @@ def get_all_docker_images():
 
     images = temp_bench_compose_file_manager.get_all_images()
 
-    with open(get_frappe_manager_own_files('images-tag.json')) as f:
-        image_tags = json.load(f)
-        prebake_tag = image_tags.get('prebake')
-        images.update({'prebake': {'name': 'ghcr.io/rtcamp/frappe-manager-prebake', 'tag': prebake_tag}})
     images.update(services_manager_compose_file_manager.get_all_images())
     images.update(admin_tools_manager_compose_file_manager.get_all_images())
 
