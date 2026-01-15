@@ -135,8 +135,12 @@ class BenchOrchestrator:
             # Wait for required services
             bench.site_manager.wait_for_required_services()
 
-            # Install apps to environment
-            bench.app_manager.install_apps(bench.bench_config.apps_list)
+            # Install apps to environment (NEW: With github_token and use_uv support)
+            bench.app_manager.install_apps(
+                bench.bench_config.apps_list,
+                github_token=bench.bench_config.github_token,
+                use_uv=bench.bench_config.use_uv,
+            )
 
             # Remove archived directory
             self._remove_archived_directory()

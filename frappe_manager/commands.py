@@ -10,6 +10,7 @@ from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.ngrok import create_tunnel
 from frappe_manager.services_manager.services_exceptions import ServicesNotCreated
 from frappe_manager.site_manager.bench_service import BenchService
+from frappe_manager.site_manager.modules.app_cloner import AppCloner
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager import (
     CLI_BENCH_CONFIG_FILE_NAME,
@@ -262,10 +263,34 @@ def create(
             show_default=False,
         ),
     ] = None,
+    github_token: Annotated[
+        Optional[str],
+        typer.Option(
+            "--github-token",
+            "-t",
+            help="GitHub personal access token for private repositories. Can also be set via GITHUB_TOKEN environment variable.",
+            envvar="GITHUB_TOKEN",
+            show_default=False,
+        ),
+    ] = None,
 ):
-    # TODO Create markdown table for the below help
     """
     Create a new bench.
+
+    Examples:
+
+        # Create bench with public apps
+        fm create mybench.localhost --apps erpnext:version-15 --apps hrms:version-15
+
+        # Create bench with private apps (using environment variable)
+        export GITHUB_TOKEN=ghp_xxxxxxxxxxxxx
+        fm create mybench.localhost --apps mycompany/private-app:main
+
+        # Create bench with private apps (using CLI option)
+        fm create mybench.localhost --apps mycompany/private-app:main --github-token ghp_xxxxxxxxxxxxx
+
+        # Create bench with subdirectory app (monorepo)
+        fm create mybench.localhost --apps frappe/frappe:version-15#apps/frappe
     """
 
     services_manager: ServicesManager = ctx.obj["services"]
@@ -295,7 +320,26 @@ def create(
         root_path=bench_config_path,
         ssl_certificates=[],  # No SSL certificates by default, use 'fm ssl add' to add them
         alias_domains=alias_domains if alias_domains else [],
+        github_token=github_token,  # NEW: GitHub token for private repos
+        use_uv=True,  # NEW: Always use UV with automatic fallback
     )
+
+    # Validate repositories exist BEFORE creating any infrastructure
+    # This prevents failed bench creation due to invalid repos
+    if apps:
+        output.info("Validating app repositories...")
+        apps_config = bench_config.get_apps_config()
+        valid, errors = AppCloner.validate_repos_exist(apps_config, github_token)
+
+        if not valid:
+            output.display_error("Repository validation failed:")
+            for error in errors:
+                output.display_error(f"  {error}")
+            output.display_error("\nPlease check the repository names, branches, and authentication.")
+            output.display_error("For private repos, use --github-token or set GITHUB_TOKEN environment variable.")
+            raise typer.Exit(1)
+
+        output.print(f"✓ Validated {len(apps_config)} app repositories")
 
     bench_service.create_bench(benchname, bench_config, is_template=template)
 

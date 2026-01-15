@@ -1,11 +1,12 @@
 from enum import Enum
 import os
+import re
 from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo
 import tomlkit
 from tomlkit.items import Array as TOMLArray
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 from frappe_manager import CLI_DEFAULT_DELIMETER, STABLE_APP_BRANCH_MAPPING_LIST
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
@@ -14,9 +15,178 @@ from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCer
 from frappe_manager.utils.helpers import get_container_name_prefix
 
 
+def extract_app_python_module_name(app_path: Path) -> str:
+    """
+    Extract Python module name from pyproject.toml or hooks.py.
+
+    This is critical for subdirectory apps where the directory name may not match
+    the Python module name. For example:
+    - Directory: frappe-consent-management (with dashes)
+    - Python module: frappe_consent_management (with underscores)
+
+    Priority order:
+    1. pyproject.toml [project] name field
+    2. hooks.py app_name variable
+    3. Fallback to directory name
+
+    Args:
+        app_path: Path to the app directory
+
+    Returns:
+        Python module name (e.g., "frappe_consent_management")
+    """
+    # Try pyproject.toml first (most reliable)
+    pyproject = app_path / "pyproject.toml"
+    if pyproject.exists():
+        try:
+            data = tomlkit.parse(pyproject.read_text())
+            if "project" in data and "name" in data["project"]:
+                return data["project"]["name"]
+        except Exception:
+            pass  # Fall through to next method
+
+    # Try hooks.py (Frappe convention)
+    # Search for hooks.py in immediate subdirectories (frappe convention: app_name/hooks.py)
+    hooks_files = list(app_path.glob("*/hooks.py"))
+
+    # Filter to only top-level hooks.py (not nested deeper)
+    top_level_hooks = [f for f in hooks_files if len(f.relative_to(app_path).parts) == 2]
+
+    if top_level_hooks:
+        try:
+            hooks_py = top_level_hooks[0]
+            content = hooks_py.read_text()
+            # Match: app_name = "module_name"
+            match = re.search(r'app_name\s*=\s*["\']([^"\']+)["\']', content)
+            if match:
+                return match.group(1)
+        except Exception:
+            pass  # Fall through to fallback
+
+    # Fallback: use directory name
+    return app_path.name
+
+
 class FMBenchEnvType(str, Enum):
     prod = 'prod'
     dev = 'dev'
+
+
+class AppConfig(BaseModel):
+    """
+    Configuration for a single Frappe app.
+
+    Supports multiple input formats:
+    - Simple: "erpnext:version-15"
+    - Repo: "frappe/erpnext:version-15"
+    - Full URL: "https://github.com/frappe/erpnext:version-15"
+    - Subdirectory: "frappe/frappe:version-15#apps/frappe"
+    """
+
+    name: str = Field(..., description="App name (e.g., 'erpnext')")
+    repo: str = Field(..., description="GitHub repo (e.g., 'frappe/erpnext')")
+    ref: Optional[str] = Field(None, description="Branch, tag, or commit SHA")
+    repo_url: Optional[str] = Field(None, description="Full repo URL (auto-generated)")
+    shallow_clone: bool = Field(True, description="Use shallow clone (depth=1)")
+    subdir_path: Optional[str] = Field(None, description="Subdirectory path for monorepo apps")
+    symlink: bool = Field(False, description="Use symlink for subdirectory apps")
+
+    @property
+    def is_commit(self) -> bool:
+        """Check if ref is a commit SHA (40 hex characters)."""
+        if self.ref is None:
+            return False
+        return len(self.ref) == 40 and all(c in '0123456789abcdef' for c in self.ref.lower())
+
+    @classmethod
+    def from_string(cls, app_string: str, github_token: Optional[str] = None) -> 'AppConfig':
+        """
+        Parse app string into AppConfig.
+
+        Formats:
+        - "erpnext" → frappe/erpnext:default-branch
+        - "erpnext:version-15" → frappe/erpnext:version-15
+        - "frappe/erpnext:version-15" → frappe/erpnext:version-15
+        - "mycompany/custom-app:main" → mycompany/custom-app:main
+        - "frappe/frappe:version-15#apps/frappe" → subdirectory app
+
+        Args:
+            app_string: String describing the app to install
+            github_token: Optional GitHub token for private repos
+
+        Returns:
+            AppConfig instance
+        """
+        # Split on '#' for subdirectory
+        if '#' in app_string:
+            app_part, subdir_path = app_string.split('#', 1)
+        else:
+            app_part = app_string
+            subdir_path = None
+
+        # Split on ':' for branch/ref
+        if ':' in app_part:
+            repo_part, ref = app_part.split(':', 1)
+        else:
+            repo_part = app_part
+            ref = None
+
+        # Parse repo (e.g., "frappe/erpnext" or just "erpnext")
+        if '/' in repo_part:
+            repo = repo_part
+            name = repo_part.split('/')[-1]
+        else:
+            name = repo_part
+            repo = f"frappe/{name}"  # Default to frappe org
+
+        # Override name if subdirectory specified
+        if subdir_path:
+            # Extract the actual app name from subdirectory path
+            # e.g., "apps/frappe" → "frappe"
+            name = subdir_path.split('/')[-1]
+
+        # Generate repo URL
+        repo_url = None
+        if github_token:
+            repo_url = f"https://{github_token}@github.com/{repo}.git"
+        else:
+            repo_url = f"https://github.com/{repo}.git"
+
+        return cls(
+            name=name,
+            repo=repo,
+            ref=ref,
+            repo_url=repo_url,
+            shallow_clone=True,  # Default to shallow clone
+            subdir_path=subdir_path,
+            symlink=False,  # Default to copy mode
+        )
+
+    @classmethod
+    def from_dict(cls, app_dict: Dict[str, Optional[str]], github_token: Optional[str] = None) -> 'AppConfig':
+        """
+        Convert from simple dict format to AppConfig.
+
+        Args:
+            app_dict: {"app": "erpnext", "branch": "version-15"}
+            github_token: Optional GitHub token
+
+        Returns:
+            AppConfig instance
+        """
+        app_name = app_dict.get("app")
+        if not app_name:
+            raise ValueError("app_dict must contain 'app' key with non-empty value")
+
+        branch = app_dict.get("branch")
+
+        # Build app string (app_name is guaranteed to be str at this point)
+        if branch:
+            app_string: str = f"{app_name}:{branch}"
+        else:
+            app_string: str = app_name
+
+        return cls.from_string(app_string, github_token=github_token)
 
 
 class DNSProviderConfig(BaseModel):
@@ -151,6 +321,29 @@ class BenchConfig(BaseModel):
     usergroup: int = Field(default_factory=os.getgid, description="The group ID of the current process")
     admin_tools_username: Optional[str] = Field(None, description="Username for admin tools basic auth")
     admin_tools_password: Optional[str] = Field(None, description="Password for admin tools basic auth")
+
+    # NEW: GitHub token for private repositories
+    github_token: Optional[str] = Field(None, description="GitHub personal access token for private repositories")
+
+    # NEW: UV installation preference (always True, with fallback)
+    use_uv: bool = Field(
+        True, description="Use UV for faster Python package installation (with automatic fallback to pip)"
+    )
+
+    def get_apps_config(self) -> List[AppConfig]:
+        """
+        Convert apps_list to AppConfig objects.
+
+        Handles conversion from simple format to detailed AppConfig.
+
+        Returns:
+            List of AppConfig objects
+        """
+        configs = []
+        for app_dict in self.apps_list:
+            config = AppConfig.from_dict(app_dict, github_token=self.github_token)
+            configs.append(config)
+        return configs
 
     def get_primary_certificate(self) -> SSLCertificate:
         """
