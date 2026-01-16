@@ -142,7 +142,6 @@ class BenchOrchestrator:
 
         bench.generate_compose(compose_inputs)
         bench.create_compose_dirs()
-        self.output.print("Created bench structure")
 
     def _phase2_initialize_bench(self) -> None:
         """Phase 2: Initialize bench using docker compose run (no persistent containers)"""
@@ -167,14 +166,11 @@ class BenchOrchestrator:
             clone_only=True,
             use_run=True,
         )
-        self.output.print("Cloned apps")
 
         self._detect_python_node_versions()
 
         if bench.bench_config.python_version or bench.bench_config.node_version:
-            self.output.change_head("Setting up Python and Node environments")
             bench.app_manager.setup_python_and_node_environments(use_run=True)
-            self.output.print("Setup Python and Node environments")
 
         self.output.change_head("Installing dependencies for all apps")
         bench.app_manager.install_apps(
@@ -184,9 +180,6 @@ class BenchOrchestrator:
             skip_clone=True,
             use_run=True,
         )
-        self.output.print("Installed dependencies")
-
-        self.output.print("Bench initialization complete")
 
     def _detect_python_node_versions(self) -> None:
         """Detect Python and Node version requirements from frappe app"""
@@ -272,11 +265,9 @@ class BenchOrchestrator:
 
         self.output.change_head(f"Creating bench site {bench.name}")
         bench.site_manager.create_bench_site()
-        self.output.print(f"Created bench site {bench.name}")
 
         self.output.change_head("Installing apps to site")
         bench.app_manager.install_apps_to_site()
-        self.output.print("Installed apps to site")
 
         bench.set_bench_site_config({"admin_password": bench.bench_config.admin_pass})
         bench.sync_bench_config_configuration()

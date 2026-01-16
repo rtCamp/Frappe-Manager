@@ -332,10 +332,12 @@ class Bench:
         self.restart_supervisor_service('frappe')
         self.output.print("Restarted frappe server")
 
-    def save_bench_config(self):
-        self.output.change_head("Saving bench config changes")
+    def save_bench_config(self, print_message: bool = True):
+        if print_message:
+            self.output.change_head("Saving bench config changes")
         self.bench_config.export_to_toml(self.bench_config.root_path)
-        self.output.print("Saved bench config.")
+        if print_message:
+            self.output.print("Saved bench config.")
 
     @property
     def exists(self):

@@ -100,8 +100,9 @@ class BenchSSL:
             if self.has_certificate():
                 if raise_error:
                     raise BenchSSLCertificateAlreadyIssued(self.bench_name)
+                else:
+                    return False
             else:
-                # Update primary certificate by regenerating all certificates
                 self.create_individual_certificates()
 
         elif certificate.ssl_type == SUPPORTED_SSL_TYPES.none:
@@ -109,7 +110,7 @@ class BenchSSL:
                 self.remove_certificate()
             else:
                 if not raise_error:
-                    return True
+                    return False
                 raise BenchSSLCertificateNotIssued(self.bench_name)
 
         return True

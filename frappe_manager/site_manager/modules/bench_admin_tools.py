@@ -25,10 +25,12 @@ if TYPE_CHECKING:
 
 
 class BenchAdminTools:
-    def __init__(self, bench: 'Bench', nginx_proxy: Any, verbose: bool = True, output_handler: OutputHandler | None = None):
+    def __init__(
+        self, bench: 'Bench', nginx_proxy: Any, verbose: bool = True, output_handler: OutputHandler | None = None
+    ):
         """
         Initialize BenchAdminTools.
-        
+
         Args:
             bench: The Bench instance
             nginx_proxy: Nginx proxy manager
@@ -40,16 +42,13 @@ class BenchAdminTools:
         self.bench_name = bench.name
         self.quiet = not verbose
         self.output = output_handler or RichOutputHandler()
-        
+
         # Create ComposeFile manager for admin-tools compose file
-        self.compose_file_manager = ComposeFile(
-            self.compose_path, 
-            template_name='docker-compose.admin-tools.tmpl'
-        )
-        
+        self.compose_file_manager = ComposeFile(self.compose_path, template_name='docker-compose.admin-tools.tmpl')
+
         # Create DockerClient with admin-tools compose file
         self.docker_client = DockerClient(compose_file_path=self.compose_path)
-        
+
         self.nginx_proxy = nginx_proxy
         self.nginx_config_location_path: Path = self.nginx_proxy.dirs.conf.host / 'custom' / 'admin-tools.conf'
         self.http_auth_path: Path = self.nginx_proxy.dirs.conf.host / 'http_auth'
@@ -62,7 +61,7 @@ class BenchAdminTools:
             prefix=get_container_name_prefix(self.bench_name),
             version=get_current_fm_version(),
             envs={"adminer": {"ADMINER_DEFAULT_SERVER": db_host}},
-            network_name='site-network'
+            network_name='site-network',
         )
 
     def create(self, db_host: str):
@@ -73,7 +72,7 @@ class BenchAdminTools:
     def _generate_credentials(self) -> tuple[str, str]:
         """Generate or retrieve admin credentials"""
         import secrets
-        
+
         # Use existing credentials from bench config or generate new ones
         username = self.bench.bench_config.admin_tools_username or "admin"
         password = self.bench.bench_config.admin_tools_password
@@ -83,7 +82,7 @@ class BenchAdminTools:
             # Store new credentials in bench config
             self.bench.bench_config.admin_tools_username = username
             self.bench.bench_config.admin_tools_password = password
-            self.bench.save_bench_config()
+            self.bench.save_bench_config(print_message=False)
 
         return username, password
 
@@ -93,6 +92,7 @@ class BenchAdminTools:
 
         # Generate and save htpasswd file
         from passlib.apache import HtpasswdFile
+
         auth_file = self.http_auth_path / f'{self.bench_name}-admin-tools.htpasswd'
 
         if not self.http_auth_path.exists():
@@ -133,7 +133,7 @@ class BenchAdminTools:
         # Remove credentials from bench config
         self.bench.bench_config.admin_tools_username = None
         self.bench.bench_config.admin_tools_password = None
-        self.bench.save_bench_config()
+        self.bench.save_bench_config(print_message=False)
 
     def _get_common_site_config_path(self) -> Path:
         return self.compose_path.parent / "workspace/frappe-bench/sites/common_site_config.json"
@@ -197,9 +197,7 @@ class BenchAdminTools:
             for i in range(timeout):
                 try:
                     check_command = f"wait-for-it -t {interval} {get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}{tool}"
-                    self.bench.docker_client.compose.exec(
-                        service='nginx', command=check_command, stream=False
-                    )
+                    self.bench.docker_client.compose.exec(service='nginx', command=check_command, stream=False)
 
                     running = True
                     break
@@ -214,18 +212,15 @@ class BenchAdminTools:
         # Use docker_client directly instead of compose_project wrapper
         try:
             output = self.docker_client.compose.up(
-                services=[],
-                detach=True,
-                pull="never",
-                force_recreate=force_recreate_container,
-                stream=self.quiet
+                services=[], detach=True, pull="never", force_recreate=force_recreate_container, stream=self.quiet
             )
             if self.quiet:
                 self.output.live_lines(output, padding=(0, 0, 0, 2))
         except DockerException as e:
             from frappe_manager.compose_project.exceptions import DockerComposeProjectFailedToStartError
+
             raise DockerComposeProjectFailedToStartError(self.compose_path, [])
-        
+
         self.wait_till_services_started()
         self.save_nginx_location_config()
         self.nginx_proxy.reload()
@@ -242,8 +237,11 @@ class BenchAdminTools:
                 self.output.live_lines(output, padding=(0, 0, 0, 2))
         except DockerException as e:
             from frappe_manager.compose_project.exceptions import DockerComposeProjectFailedToStopError
-            raise DockerComposeProjectFailedToStopError(self.compose_path, self.compose_file_manager.get_services_list())
-        
+
+            raise DockerComposeProjectFailedToStopError(
+                self.compose_path, self.compose_file_manager.get_services_list()
+            )
+
         self.remove_nginx_location_config()
         self.nginx_proxy.reload()
 
