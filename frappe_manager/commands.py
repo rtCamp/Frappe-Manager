@@ -737,7 +737,12 @@ def update(
     if environment:
         richprint.change_head(f"Switching bench environemnt to {environment.value}")
         bench.bench_config.environment_type = environment
-        bench.switch_bench_env()
+
+        bench.generate_compose(bench.bench_config.export_to_compose_inputs())
+
+        richprint.print("Restarting containers to apply environment change...")
+        bench.docker_client.compose.restart(timeout=10)
+
         richprint.print(f"Switched bench environemnt to {environment.value}.")
         bench_config_save = True
 

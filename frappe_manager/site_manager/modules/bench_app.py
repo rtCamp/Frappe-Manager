@@ -8,9 +8,9 @@ Extracted from the monolithic Bench class and BenchOperations for better
 separation of concerns.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Literal
+from typing import Dict, List, Optional, Tuple, Literal, cast
 
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
@@ -98,7 +98,7 @@ class BenchAppManager:
         self.frappe_bench_dir: Path = bench_path / "workspace" / "frappe-bench"
         self.bench_cli_cmd = ['/usr/local/bin/bench']
 
-    def setup_python_and_node_environments(self) -> bool:
+    def setup_python_and_node_environments(self, use_run: bool = False) -> bool:
         """
         Setup Python and Node.js environments for the bench.
 
@@ -124,7 +124,9 @@ class BenchAppManager:
             self.output.change_head(f"Checking Python version compatibility")
             try:
                 check_current_version_cmd = "/workspace/frappe-bench/env/bin/python --version"
-                result = self._container_run(check_current_version_cmd, capture_output=True, raise_exception_obj=None)
+                result = self._container_run(
+                    check_current_version_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run
+                )
 
                 if result and result.exit_code == 0:
                     import re
@@ -165,7 +167,9 @@ if [ -d /workspace/.uv/python ]; then
     done 2>/dev/null | sort -u
 fi
 """
-                    result = self._container_run(scan_pythons_cmd, capture_output=True, raise_exception_obj=None)
+                    result = self._container_run(
+                        scan_pythons_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run
+                    )
 
                     selected_python_full = None
                     selected_version = None
@@ -197,7 +201,7 @@ fi
                     if not selected_python_full:
                         self.output.print(f"Installing UV-managed Python {python_version}...")
                         install_cmd = f"uv python install cpython-{python_version}"
-                        self._container_run(install_cmd, raise_exception_obj=None)
+                        self._container_run(install_cmd, raise_exception_obj=None, use_run=use_run)
                         selected_python_full = f"cpython-{python_version}"
                         self.output.print(f"Installed UV-managed Python {python_version}")
 
@@ -209,7 +213,7 @@ fi
                     fi
                     uv venv env --python {selected_python_full} --seed --link-mode=copy
                     """
-                    self._container_run(recreate_venv_cmd, raise_exception_obj=None)
+                    self._container_run(recreate_venv_cmd, raise_exception_obj=None, use_run=use_run)
                     selected_version_str = (
                         f"{selected_version[0]}.{selected_version[1]}.{selected_version[2]}"
                         if selected_version
@@ -227,7 +231,9 @@ fi
             self.output.change_head(f"Checking Node version compatibility")
             try:
                 check_current_node_cmd = "node --version"
-                result = self._container_run(check_current_node_cmd, capture_output=True, raise_exception_obj=None)
+                result = self._container_run(
+                    check_current_node_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run
+                )
 
                 if result and result.exit_code == 0:
                     import re
@@ -257,7 +263,9 @@ fi
                 self.output.change_head(f"Setting up Node {node_version} environment")
                 try:
                     check_cmd = f"fnm list | grep 'v{node_version}' || true"
-                    result = self._container_run(check_cmd, capture_output=True, raise_exception_obj=None)
+                    result = self._container_run(
+                        check_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run
+                    )
 
                     needs_install = True
                     if result and result.combined:
@@ -269,7 +277,9 @@ fi
                     if needs_install:
                         self.output.print(f"Installing Node {node_version} via fnm...")
                         install_cmd = f"fnm install {node_version}"
-                        install_result = self._container_run(install_cmd, capture_output=True, raise_exception_obj=None)
+                        install_result = self._container_run(
+                            install_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run
+                        )
                         if install_result and install_result.exit_code == 0:
                             self.output.print(f"Installed Node {node_version}")
                         else:
@@ -278,14 +288,16 @@ fi
                             )
 
                     set_default_cmd = f"fnm default {node_version}"
-                    default_result = self._container_run(set_default_cmd, capture_output=True, raise_exception_obj=None)
+                    default_result = self._container_run(
+                        set_default_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run
+                    )
                     if default_result and default_result.exit_code == 0:
                         self.output.print(f"Set Node {node_version} as default")
                     else:
                         self.output.warning(f"Could not set Node {node_version} as default, but continuing")
 
                     yarn_check = f"test -f /workspace/.fnm/node-versions/v{node_version}/installation/bin/yarn || npm install -g yarn"
-                    self._container_run(yarn_check, capture_output=True, raise_exception_obj=None)
+                    self._container_run(yarn_check, capture_output=True, raise_exception_obj=None, use_run=use_run)
                     self.output.print(f"Ensured yarn is installed for Node {node_version}")
 
                 except Exception as e:
@@ -353,6 +365,7 @@ fi
         force_reinstall: bool = False,
         clone_only: bool = False,
         skip_clone: bool = False,
+        use_run: bool = False,
     ) -> None:
         if not apps_list:
             self.output.print("No apps to install")
@@ -385,15 +398,15 @@ fi
             return
 
         self.output.change_head("Installing Python dependencies")
-        self._install_python_deps_with_uv(apps_config, use_uv=use_uv)
+        self._install_python_deps_with_uv(apps_config, use_uv=use_uv, use_run=use_run)
         self.output.print("Installed Python dependencies")
 
         self.output.change_head("Installing Node dependencies")
-        self._install_node_deps()
+        self._install_node_deps(use_run=use_run)
         self.output.print("Installed Node dependencies")
 
         self.output.change_head("Building frontend assets")
-        self.build()
+        self.build(use_run=use_run)
         self.output.print("Built frontend assets")
 
     def _convert_to_app_configs(
@@ -423,7 +436,7 @@ fi
             create_venv_cmd = f"python3.12 -m venv {venv_path}"
             self._container_run(create_venv_cmd, raise_exception_obj=None)
 
-    def _install_python_deps_with_uv(self, apps: List[AppConfig], use_uv: bool = True) -> None:
+    def _install_python_deps_with_uv(self, apps: List[AppConfig], use_uv: bool = True, use_run: bool = False) -> None:
         """
         Install Python dependencies using UV (much faster than pip).
 
@@ -435,13 +448,10 @@ fi
         """
         if use_uv:
             try:
-                # Check if UV is available
                 check_cmd = "which uv"
-                self._container_run(check_cmd, capture_output=True, raise_exception_obj=None)
+                self._container_run(check_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run)
 
-                # Install each app with UV, targeting the bench virtual environment
                 for app in apps:
-                    # Use --python to specify the bench env's Python interpreter
                     install_cmd = [
                         "uv",
                         "pip",
@@ -453,20 +463,19 @@ fi
                         f"apps/{app.name}",
                     ]
                     install_cmd_str = " ".join(install_cmd)
-                    self._container_run(install_cmd_str, raise_exception_obj=None)
+                    self._container_run(install_cmd_str, raise_exception_obj=None, use_run=use_run)
 
                 return
             except Exception as e:
                 self.output.warning(f"UV installation failed, falling back to pip: {e}")
 
-        # Fallback to standard bench command
         install_cmd = " ".join(self.bench_cli_cmd + ["setup", "requirements", "--python"])
-        self._container_run(install_cmd)
+        self._container_run(install_cmd, use_run=use_run)
 
-    def _install_node_deps(self) -> None:
+    def _install_node_deps(self, use_run: bool = False) -> None:
         """Install Node.js dependencies for all apps."""
         node_cmd = " ".join(self.bench_cli_cmd + ["setup", "requirements", "--node"])
-        self._container_run(node_cmd)
+        self._container_run(node_cmd, use_run=use_run)
 
     def _update_apps_txt(self, apps: List[AppConfig]) -> None:
         """
@@ -634,7 +643,7 @@ fi
             self.install_app_to_site(app.name, site_name)
             self.output.print(f"Installed app {app.name} in site.")
 
-    def build(self, app_list: Optional[List[str]] = None) -> None:
+    def build(self, app_list: Optional[List[str]] = None, use_run: bool = False) -> None:
         """
         Build bench assets.
 
@@ -642,6 +651,7 @@ fi
 
         Args:
             app_list: List of specific apps to build. If None, builds all apps.
+            use_run: If True, use 'docker compose run --rm' instead of 'exec'
 
         Raises:
             BenchOperationBenchBuildFailed: If build fails
@@ -659,7 +669,7 @@ fi
         build_exception = BenchOperationBenchBuildFailed(bench_name=self.bench_name, apps=app_list)
 
         build_cmd = " ".join(build_cmd)
-        self._container_run(build_cmd, build_exception)
+        self._container_run(build_cmd, build_exception, use_run=use_run)
 
     def get_installed_apps_list(self) -> List[Path]:
         """
@@ -687,12 +697,13 @@ fi
         user: str = "frappe",
         workdir: str = "/workspace/frappe-bench",
         service: str = 'frappe',
-    ):
+        use_run: bool = False,
+    ) -> Optional[SubprocessOutput]:
         """
         Execute a command inside the bench container.
 
         This is an internal helper method that wraps docker_client.compose.exec
-        with appropriate error handling and output streaming.
+        or docker_client.compose.run depending on use_run parameter.
 
         Args:
             command: Shell command to execute
@@ -701,6 +712,7 @@ fi
             user: User to run command as (default: frappe)
             workdir: Working directory (default: /workspace/frappe-bench)
             service: Docker service name (default: frappe)
+            use_run: If True, use 'docker compose run --rm' instead of 'exec' (default: False)
 
         Returns:
             SubprocessOutput if capture_output=True, None otherwise
@@ -709,20 +721,54 @@ fi
             BenchOperationException: If command fails and raise_exception_obj is provided
             DockerException: If command fails and no exception object provided
         """
-        # Wrap command in bash - ENV variables (FNM_DIR, UV_PYTHON_PATH) are already set in Dockerfile
-        command = f"/bin/bash -c '{command}'"
-
         try:
-            if capture_output:
-                output = self.docker_client.compose.exec(
-                    service=service, command=command, user=user, workdir=workdir, stream=False
-                )
-                return output
+            if use_run:
+                wrapped_command = f"cd {workdir} && {command}"
+                run_command = f"-c '{wrapped_command}'"
+                if capture_output:
+                    output = cast(
+                        SubprocessOutput,
+                        self.docker_client.compose.run(
+                            service=service,
+                            command=run_command,
+                            entrypoint="/bin/bash",
+                            user=user,
+                            rm=True,
+                            stream=False,
+                        ),
+                    )
+                    return output
+                else:
+                    output = cast(
+                        Iterator[Tuple[str, bytes]],
+                        self.docker_client.compose.run(
+                            service=service,
+                            command=run_command,
+                            entrypoint="/bin/bash",
+                            user=user,
+                            rm=True,
+                            stream=True,
+                        ),
+                    )
+                    self.output.live_lines(output)
             else:
-                output = self.docker_client.compose.exec(
-                    service=service, command=command, workdir=workdir, user=user, stream=True
-                )
-                self.output.live_lines(output)
+                exec_command = f"/bin/bash -c '{command}'"
+                if capture_output:
+                    output = cast(
+                        SubprocessOutput,
+                        self.docker_client.compose.exec(
+                            service=service, command=exec_command, user=user, workdir=workdir, stream=False
+                        ),
+                    )
+                    return output
+                else:
+                    output = cast(
+                        Iterator[Tuple[str, bytes]],
+                        self.docker_client.compose.exec(
+                            service=service, command=exec_command, workdir=workdir, user=user, stream=True
+                        ),
+                    )
+                    self.output.live_lines(output)
 
         except DockerException as e:
             if raise_exception_obj:

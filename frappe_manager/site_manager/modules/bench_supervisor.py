@@ -227,7 +227,7 @@ class BenchSupervisor:
 
             raise BenchException("frappe", f"Failed to run {command} in frappe service.")
 
-    def setup_supervisor(self, bench_path, force: bool = False) -> None:
+    def setup_supervisor(self, bench_path, force: bool = False, use_run: bool = False) -> None:
         """
         Set up supervisor configuration for the bench.
 
@@ -236,6 +236,7 @@ class BenchSupervisor:
         Args:
             bench_path: Path to the bench directory
             force: Force regeneration even if config exists
+            use_run: If True, use 'docker compose run --rm' instead of 'exec'
 
         Raises:
             BenchOperationException: If supervisor setup fails
@@ -263,11 +264,26 @@ class BenchSupervisor:
                 self.bench_name, "Failed to configure supervisor."
             )
 
-            command = f"/bin/bash -c '{bench_setup_supervisor_command}'"
             try:
-                output = self.docker_client.compose.exec(
-                    service='frappe', command=command, user='frappe', workdir="/workspace/frappe-bench", stream=False
-                )
+                if use_run:
+                    run_command = f"-c 'cd /workspace/frappe-bench && {bench_setup_supervisor_command}'"
+                    output = self.docker_client.compose.run(
+                        service='frappe',
+                        command=run_command,
+                        entrypoint="/bin/bash",
+                        user="frappe",
+                        rm=True,
+                        stream=False,
+                    )
+                else:
+                    command = f"/bin/bash -c '{bench_setup_supervisor_command}'"
+                    output = self.docker_client.compose.exec(
+                        service='frappe',
+                        command=command,
+                        user='frappe',
+                        workdir="/workspace/frappe-bench",
+                        stream=False,
+                    )
             except DockerException as e:
                 bench_setup_supervisor_exception.set_output(e.output)
                 raise bench_setup_supervisor_exception

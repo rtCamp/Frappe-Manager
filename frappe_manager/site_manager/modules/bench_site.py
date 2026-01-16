@@ -8,7 +8,7 @@ Extracted from the monolithic Bench class and BenchOperations for better
 separation of concerns.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Optional, Tuple, Literal, Union, overload, cast
 
@@ -183,51 +183,6 @@ class BenchSiteManager:
             ),
         )
 
-    def setup_frappe_server_config(self) -> None:
-        """
-        Configure the Frappe development server script.
-
-        This method modifies the bench-dev-server script to bind to 0.0.0.0
-        and the correct port, allowing external access to the development server.
-
-        Raises:
-            BenchOperationException: If configuration fails
-
-        Example:
-            >>> site_manager.setup_frappe_server_config()
-        """
-        import re
-
-        host_supported = False
-        try:
-            bench_serve_help_output = cast(
-                SubprocessOutput,
-                self._container_run(
-                    " ".join(self.bench_cli_cmd + ["serve --help"]), capture_output=True, raise_exception_obj=None
-                ),
-            )
-            if bench_serve_help_output:
-                host_supported = "host" in " ".join(bench_serve_help_output.combined)
-        except Exception:
-            self.logger.debug(f"{self.bench_name}: bench serve --help failed, assuming --host is not supported")
-
-        bench_dev_server_script_output = cast(
-            SubprocessOutput, self._container_run("cat /opt/user/bench-dev-server", capture_output=True)
-        )
-
-        bench_dev_server_script = "\n".join(bench_dev_server_script_output.combined)
-
-        if host_supported:
-            new_bench_dev_server_script = re.sub(r"--port \d+", "--host 0.0.0.0 --port 80", bench_dev_server_script)
-        else:
-            new_bench_dev_server_script = re.sub(r"--port \d+", "--port 80", bench_dev_server_script)
-
-        import base64
-
-        encoded_script = base64.b64encode(new_bench_dev_server_script.encode()).decode()
-        self._container_run(f"echo '{encoded_script}' | base64 -d > /opt/user/bench-dev-server.sh")
-        self._container_run("chmod +x /opt/user/bench-dev-server.sh", user='root')
-
     def create_bench_site(self, admin_pass: Optional[str] = None) -> None:
         """
         Create a new Frappe site in the bench.
@@ -324,12 +279,13 @@ class BenchSiteManager:
         user: str = "frappe",
         workdir: str = "/workspace/frappe-bench",
         service: str = 'frappe',
+        use_run: bool = False,
     ) -> Union[SubprocessOutput, None]:
         """
         Execute a command inside the bench container.
 
         This is an internal helper method that wraps docker_client.compose.exec
-        with appropriate error handling and output streaming.
+        or docker_client.compose.run depending on use_run parameter.
 
         Args:
             command: Shell command to execute
@@ -338,6 +294,7 @@ class BenchSiteManager:
             user: User to run command as (default: frappe)
             workdir: Working directory (default: /workspace/frappe-bench)
             service: Docker service name (default: frappe)
+            use_run: If True, use 'docker compose run --rm' instead of 'exec' (default: False)
 
         Returns:
             SubprocessOutput if capture_output=True, None otherwise
@@ -346,19 +303,54 @@ class BenchSiteManager:
             BenchOperationException: If command fails and raise_exception_obj is provided
             DockerException: If command fails and no exception object provided
         """
-        command = f"/bin/bash -c '{command}'"
-
         try:
-            if capture_output:
-                output = self.docker_client.compose.exec(
-                    service=service, command=command, user=user, workdir=workdir, stream=False
-                )
-                return output
+            if use_run:
+                wrapped_command = f"cd {workdir} && {command}"
+                run_command = f"-c '{wrapped_command}'"
+                if capture_output:
+                    output = cast(
+                        SubprocessOutput,
+                        self.docker_client.compose.run(
+                            service=service,
+                            command=run_command,
+                            entrypoint="/bin/bash",
+                            user=user,
+                            rm=True,
+                            stream=False,
+                        ),
+                    )
+                    return output
+                else:
+                    output = cast(
+                        Iterator[Tuple[str, bytes]],
+                        self.docker_client.compose.run(
+                            service=service,
+                            command=run_command,
+                            entrypoint="/bin/bash",
+                            user=user,
+                            rm=True,
+                            stream=True,
+                        ),
+                    )
+                    self.output.live_lines(output)
             else:
-                output = self.docker_client.compose.exec(
-                    service=service, command=command, workdir=workdir, user=user, stream=True
-                )
-                self.output.live_lines(output)
+                exec_command = f"/bin/bash -c '{command}'"
+                if capture_output:
+                    output = cast(
+                        SubprocessOutput,
+                        self.docker_client.compose.exec(
+                            service=service, command=exec_command, user=user, workdir=workdir, stream=False
+                        ),
+                    )
+                    return output
+                else:
+                    output = cast(
+                        Iterator[Tuple[str, bytes]],
+                        self.docker_client.compose.exec(
+                            service=service, command=exec_command, workdir=workdir, user=user, stream=True
+                        ),
+                    )
+                    self.output.live_lines(output)
 
         except DockerException as e:
             if raise_exception_obj:

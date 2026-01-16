@@ -6,7 +6,7 @@ allowing business logic to be independent of the presentation layer.
 """
 
 from abc import ABC, abstractmethod
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from typing import Any
 
 
@@ -118,7 +118,7 @@ class OutputHandler(ABC):
             text: The error message
             exception: Exception to raise after displaying (required)
             emoji_code: Optional emoji code (implementation-specific)
-        
+
         Raises:
             Exception: Always raises the provided exception
         """
@@ -136,7 +136,7 @@ class OutputHandler(ABC):
     @abstractmethod
     def live_lines(
         self,
-        data: Iterator[tuple[str, bytes]],
+        data: Iterable[tuple[str, bytes]],
         stdout: bool = True,
         stderr: bool = True,
         lines: int = 4,
@@ -148,7 +148,7 @@ class OutputHandler(ABC):
         Display live streaming output from a process.
 
         Args:
-            data: Iterator yielding (source, line) tuples where source is "stdout" or "stderr"
+            data: Iterable yielding (source, line) tuples where source is "stdout" or "stderr"
             stdout: Whether to display stdout lines
             stderr: Whether to display stderr lines
             lines: Maximum number of lines to display

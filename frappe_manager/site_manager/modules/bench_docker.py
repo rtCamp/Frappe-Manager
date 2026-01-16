@@ -7,7 +7,7 @@ Extracted from the monolithic Bench class for better separation of concerns.
 
 import sys
 from pathlib import Path
-from typing import Any, Dict, Optional, Literal, cast, Iterable, Tuple
+from typing import Any, Dict, Optional, Literal, cast, Iterable, Iterator, Tuple
 
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
@@ -223,7 +223,7 @@ class BenchDockerOps:
             output = self.docker_client.compose.up(
                 services=services or [], detach=True, pull=pull, force_recreate=force_recreate, stream=True
             )
-            self.output.live_lines(output, padding=(0, 0, 0, 2))
+            self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
         else:
             self.docker_client.compose.up(
                 services=services or [], detach=True, pull=pull, force_recreate=force_recreate, stream=False
@@ -241,7 +241,7 @@ class BenchDockerOps:
         self.output.change_head("Stopping bench services")
         output = self.docker_client.compose.stop(services=[], timeout=timeout, stream=self.quiet)
         if self.quiet:
-            self.output.live_lines(output, padding=(0, 0, 0, 2))
+            self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
         self.output.print("Stopped bench services.")
 
     def remove_containers(self, remove_volumes: bool = True, timeout: int = 5) -> None:
@@ -257,7 +257,7 @@ class BenchDockerOps:
             output = self.docker_client.compose.down(
                 remove_orphans=True, volumes=remove_volumes, timeout=timeout, stream=True
             )
-            self.output.live_lines(output, padding=(0, 0, 0, 2))
+            self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
             self.output.print("Removed bench containers.")
         else:
             self.output.warning('Bench compose file not found. Skipping containers removal.')
@@ -382,7 +382,7 @@ class BenchDockerOps:
             return
 
         output = self.docker_client.compose.logs(services=services_list, follow=follow, stream=True)
-        self.output.live_lines(output, padding=(0, 0, 0, 2))
+        self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
 
     def frappe_logs_till_start(self) -> None:
         """
@@ -401,7 +401,7 @@ class BenchDockerOps:
 
         if self.quiet:
             self.output.live_lines(
-                output,
+                cast(Iterator[Tuple[str, bytes]], output),
                 padding=(0, 0, 0, 2),
                 stop_string="INFO supervisord started with pid",
             )
@@ -430,7 +430,7 @@ class BenchDockerOps:
         self.output.change_head(f"Restarting services - {' '.join(services)}")
         output = self.docker_client.compose.restart(services=services, stream=self.quiet)
         if self.quiet:
-            self.output.live_lines(output, padding=(0, 0, 0, 2))
+            self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
         self.output.print(f"Restarted services - {' '.join(services)}")
 
     def exec_command(self, service: str, command: str, user: Optional[str] = None, stream: bool = False):

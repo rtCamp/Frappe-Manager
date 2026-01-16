@@ -6,7 +6,7 @@ import shlex
 import shutil
 import json
 import subprocess
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple, cast
 from pathlib import Path
 from rich.table import Table
 from frappe_manager.docker import DockerException
@@ -465,7 +465,7 @@ class Bench:
             self.output.change_head("Starting bench workers services")
             output = self.workers.docker_client.compose.stop(services=[], timeout=10, stream=self.quiet)
             if self.quiet:
-                self.output.live_lines(output, padding=(0, 0, 0, 2))
+                self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
             self.output.print("Started bench workers services")
 
         # stop admin_tools if exists
@@ -493,7 +493,7 @@ class Bench:
         if self.workers.compose_file_manager.exists():
             self.output.change_head("Removing bench workers containers.")
             output = self.workers.docker_client.compose.down(remove_orphans=True, volumes=True, timeout=5, stream=True)
-            self.output.live_lines(output, padding=(0, 0, 0, 2))
+            self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
             self.output.print("Removed bench workers containers.")
         else:
             self.output.warning('Bench workers compose file not found. Skipping containers removal.')
