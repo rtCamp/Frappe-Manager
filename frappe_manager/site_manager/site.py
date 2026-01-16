@@ -644,18 +644,27 @@ class Bench:
         """
         self.info_display.display_info()
 
-    def shell(self, compose_service: str, user: str | None):
+    def shell(self, compose_service: str, user: str | None, shell_path: str | None = None, use_run: bool = False):
         """
         Spawns a shell for the specified service and user.
 
         Args:
             service (str): The name of the service.
             user (str | None): The name of the user. If None, defaults to "frappe".
+            shell_path (str | None): Path to shell executable (e.g., /bin/sh, /bin/bash).
+            use_run (bool): Use 'docker compose run --rm' instead of 'docker compose exec'.
 
         """
-        return self.docker_ops.shell(compose_service, user)
+        return self.docker_ops.shell(compose_service, user, shell_path=shell_path, use_run=use_run)
 
-    def execute_command(self, compose_service: str, command: str, user: str | None = None) -> int:
+    def execute_command(
+        self,
+        compose_service: str,
+        command: str,
+        user: str | None = None,
+        shell_path: str | None = None,
+        use_run: bool = False,
+    ) -> int:
         """
         Execute a single command in the specified service and return exit code.
 
@@ -663,11 +672,13 @@ class Bench:
             compose_service: The name of the service
             command: The command to execute
             user: The name of the user (defaults to "frappe" for frappe service)
+            shell_path: Path to shell executable (e.g., /bin/sh, /bin/bash)
+            use_run: Use 'docker compose run --rm' instead of 'docker compose exec'
 
         Returns:
             Exit code of the executed command
         """
-        return self.docker_ops.execute_command(compose_service, command, user)
+        return self.docker_ops.execute_command(compose_service, command, user, shell_path=shell_path, use_run=use_run)
 
     def get_log_file_paths(self):
         return self.info_display.get_log_file_paths()
@@ -707,7 +718,7 @@ class Bench:
             for logfile in log_generators:
                 logfile.close()
 
-    def logs(self, follow: bool, service: Optional[SiteServicesEnum] = None):
+    def logs(self, follow: bool, service: Optional[str] = None):
         """
         Display logs for the site or a specific service.
 
@@ -726,7 +737,7 @@ class Bench:
                         f"Cannot show logs. [blue]{self.name}[/blue]'s compose service '{service}' not running!"
                     )
                     return
-                self.docker_ops.logs(services=[service.value], follow=follow)
+                self.docker_ops.logs(services=[service], follow=follow)
 
         except KeyboardInterrupt:
             print("Detected CTRL+C. Exiting..")
@@ -1079,3 +1090,33 @@ class Bench:
 
         # Should never reach here due to regex validation
         raise BenchException(self.name, message=f"Unsupported unit: {unit}")
+
+    def get_available_services(self) -> List[str]:
+        """
+        Get all available services from all compose files.
+
+        Dynamically discovers services from:
+        - docker-compose.yml (main services: frappe, nginx, redis, etc.)
+        - docker-compose.workers.yml (workers: schedule, default-worker, short-worker, long-worker, custom workers)
+        - docker-compose.admin-tools.yml (admin tools: adminer, mailpit)
+
+        Returns:
+            List of available service names across all compose files
+        """
+        services = []
+
+        # Get services from main compose file
+        if self.compose_file_manager.compose_path.exists():
+            services.extend(self.compose_file_manager.get_services_list())
+
+        # Get services from workers compose file
+        workers_compose_path = self.path / "docker-compose.workers.yml"
+        if workers_compose_path.exists():
+            services.extend(self.workers.compose_file_manager.get_services_list())
+
+        # Get services from admin tools compose file
+        admin_tools_compose_path = self.path / "docker-compose.admin-tools.yml"
+        if admin_tools_compose_path.exists():
+            services.extend(self.admin_tools.compose_file_manager.get_services_list())
+
+        return services

@@ -549,9 +549,7 @@ def logs(
             help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
         ),
     ] = None,
-    service: Annotated[
-        Optional[SiteServicesEnum], typer.Option(help="Specify compose service name to show container logs.")
-    ] = None,
+    service: Annotated[Optional[str], typer.Option(help="Specify compose service name to show container logs.")] = None,
     follow: Annotated[bool, typer.Option("--follow", "-f", help="Follow logs.")] = False,
 ):
     """Show frappe server logs or container logs for a given bench."""
@@ -563,6 +561,14 @@ def logs(
     context = LoggerContext(bench=benchname, operation="logs")
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
+
+    if service:
+        available_services = bench.get_available_services()
+        if service not in available_services:
+            output.display_error(f"Service '{service}' not found.")
+            output.print(f"Available services: {', '.join(sorted(available_services))}")
+            raise typer.Exit(1)
+
     bench.logs(follow, service)
 
 
@@ -579,9 +585,11 @@ def shell(
         Optional[str], typer.Option("-c", "--command", help="Execute a single command and exit.")
     ] = None,
     user: Annotated[Optional[str], typer.Option(help="Connect as this user.", show_default=False)] = None,
-    service: Annotated[
-        SiteServicesEnum, typer.Option(help="Specify compose service name for which to spawn shell.")
-    ] = SiteServicesEnum.frappe,
+    service: Annotated[str, typer.Option(help="Specify compose service name for which to spawn shell.")] = "frappe",
+    shell_path: Annotated[
+        Optional[str], typer.Option(help="Path to shell executable (e.g., /bin/sh, /bin/bash).")
+    ] = None,
+    run: Annotated[bool, typer.Option(help="Use 'docker compose run --rm' instead of 'docker compose exec'.")] = False,
 ):
     """
     Spawn shell for the bench or execute a command.
@@ -596,6 +604,10 @@ def shell(
       fm shell mysite -- bench --version           # Run bench commands
       fm shell mysite -c "ls -la /workspace"       # Execute shell commands
 
+    [bold cyan]Advanced options:[/bold cyan]
+      fm shell mysite --shell-path /bin/sh         # Use specific shell
+      fm shell mysite --run -c "python --version"  # Use docker compose run --rm
+
     Exit code from the executed command is preserved for scripting.
     """
 
@@ -606,6 +618,12 @@ def shell(
     context = LoggerContext(bench=benchname, operation="shell")
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
+
+    available_services = bench.get_available_services()
+    if service not in available_services:
+        output.display_error(f"Service '{service}' not found.")
+        output.print(f"Available services: {', '.join(sorted(available_services))}")
+        raise typer.Exit(1)
 
     # Check if we have passthrough arguments (-- syntax)
     passthrough_args = ctx.args if ctx.args else None
@@ -620,14 +638,14 @@ def shell(
             # Use -c command
             exec_command = command
 
-        exit_code = bench.execute_command(SiteServicesEnum(service).value, exec_command, user)
+        exit_code = bench.execute_command(service, exec_command, user, shell_path=shell_path, use_run=run)
 
         # Exit with the command's exit code
         if exit_code != 0:
             raise typer.Exit(exit_code)
     else:
         # Interactive shell mode (original behavior)
-        bench.shell(SiteServicesEnum(service).value, user)
+        bench.shell(service, user, shell_path=shell_path, use_run=run)
 
 
 @app.command()

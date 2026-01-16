@@ -61,11 +61,9 @@ DEFAULT_EXTENSIONS = [
     # Debugger
     "ms-python.debugpy",
     "rioj7.command-variable",
-
     # Python
     "ms-python.python",
     "charliermarsh.ruff",
-
     # JavaScript/Web
     "dbaeumer.vscode-eslint",
     "esbenp.prettier-vscode",
@@ -80,6 +78,11 @@ class SiteServicesEnum(str, Enum):
     redis_cache = "redis-cache"
     schedule = "schedule"
     socketio = "socketio"
+    default_worker = "default-worker"
+    short_worker = "short-worker"
+    long_worker = "long-worker"
+    adminer = "adminer"
+    mailpit = "mailpit"
 
 
 STABLE_APP_BRANCH_MAPPING_LIST = {

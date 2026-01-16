@@ -13,6 +13,7 @@ from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.docker.compose_file import ComposeFile
+from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger import log
 from frappe_manager.site_manager.bench_config import BenchConfig
 from frappe_manager.utils.docker import host_run_cp
@@ -262,47 +263,76 @@ class BenchDockerOps:
         else:
             self.output.warning('Bench compose file not found. Skipping containers removal.')
 
-    def shell(self, compose_service: str, user: str | None = None) -> None:
+    def shell(
+        self, compose_service: str, user: str | None = None, shell_path: str | None = None, use_run: bool = False
+    ) -> None:
         """
         Spawn a shell for the specified service.
 
         Args:
             compose_service: The name of the service
             user: The name of the user (defaults to "frappe" for frappe service)
+            shell_path: Path to shell executable (overrides auto-detection)
+            use_run: Use 'docker compose run --rm' instead of 'docker compose exec'
         """
         self.output.change_head("Spawning shell")
 
         if compose_service == "frappe" and not user:
             user = "frappe"
 
-        if not self._is_service_running(compose_service):
+        if not use_run and not self._is_service_running(compose_service):
             self.output.stop()
             self.output.display_error(f"Cannot spawn shell. Compose service '{compose_service}' not running!")
             return
 
         self.output.stop()
 
-        non_bash_supported = ["redis-cache", "redis-queue"]
+        if not shell_path:
+            non_bash_supported = ["redis-cache", "redis-queue", "adminer", "mailpit"]
+            shell_path = "/bin/bash" if compose_service not in non_bash_supported else "sh"
 
-        shell_path = "/bin/bash" if compose_service not in non_bash_supported else "sh"
+        if use_run:
+            run_args: Dict[str, Any] = {
+                "service": compose_service,
+                "rm": True,
+                "entrypoint": shell_path,
+            }
 
-        exec_args: Dict[str, Any] = {"service": compose_service, "command": shell_path}
+            if compose_service == "frappe":
+                run_args["entrypoint"] = "/usr/bin/zsh"
 
-        if compose_service == "frappe":
-            exec_args["command"] = "/usr/bin/zsh"
-            exec_args["workdir"] = "/workspace/frappe-bench"
+            if user:
+                run_args["user"] = user
 
-        if user:
-            exec_args["user"] = user
+            try:
+                self.docker_client.compose.run(**run_args)
+            except DockerException as e:
+                self.output.warning(f"Shell exited with error code: {e.output.exit_code}")
+        else:
+            exec_args: Dict[str, Any] = {"service": compose_service, "command": shell_path}
 
-        exec_args["capture_output"] = False
+            if compose_service == "frappe":
+                exec_args["command"] = "/usr/bin/zsh"
+                exec_args["workdir"] = "/workspace/frappe-bench"
 
-        try:
-            self.docker_client.compose.exec(**exec_args)
-        except DockerException as e:
-            self.output.warning(f"Shell exited with error code: {e.output.exit_code}")
+            if user:
+                exec_args["user"] = user
 
-    def execute_command(self, compose_service: str, command: str, user: str | None = None) -> int:
+            exec_args["capture_output"] = False
+
+            try:
+                self.docker_client.compose.exec(**exec_args)
+            except DockerException as e:
+                self.output.warning(f"Shell exited with error code: {e.output.exit_code}")
+
+    def execute_command(
+        self,
+        compose_service: str,
+        command: str,
+        user: str | None = None,
+        shell_path: str | None = None,
+        use_run: bool = False,
+    ) -> int:
         """
         Execute a single command in the specified service and return exit code.
 
@@ -310,6 +340,8 @@ class BenchDockerOps:
             compose_service: The name of the service
             command: The command to execute
             user: The name of the user (defaults to "frappe" for frappe service)
+            shell_path: Path to shell executable (overrides auto-detection)
+            use_run: Use 'docker compose run --rm' instead of 'docker compose exec'
 
         Returns:
             Exit code of the executed command
@@ -317,50 +349,80 @@ class BenchDockerOps:
         if compose_service == "frappe" and not user:
             user = "frappe"
 
-        if not self._is_service_running(compose_service):
+        if not use_run and not self._is_service_running(compose_service):
             self.output.display_error(f"Cannot execute command. Compose service '{compose_service}' not running!")
             return 1
 
-        # Determine shell to use
-        non_bash_supported = ["redis-cache", "redis-queue"]
-        shell_path = "/bin/bash" if compose_service not in non_bash_supported else "sh"
+        if not shell_path:
+            non_bash_supported = ["redis-cache", "redis-queue", "adminer", "mailpit"]
+            shell_path = "/bin/bash" if compose_service not in non_bash_supported else "sh"
 
-        # Execute command through shell with -c
-        exec_args: Dict[str, Any] = {
-            "service": compose_service,
-            "command": f'{shell_path} -c "{command}"',
-            "stream": False,
-            "capture_output": True,
-            "use_shlex_split": True,  # Split the shell -c command properly
-        }
+        if use_run:
+            run_args: Dict[str, Any] = {
+                "service": compose_service,
+                "command": f'-c "{command}"',
+                "rm": True,
+                "use_shlex_split": True,
+                "stream": False,
+                "entrypoint": shell_path,
+            }
 
-        if compose_service == "frappe":
-            exec_args["workdir"] = "/workspace/frappe-bench"
+            if user:
+                run_args["user"] = user
 
-        if user:
-            exec_args["user"] = user
+            try:
+                result = cast(SubprocessOutput, self.docker_client.compose.run(**run_args))
 
-        try:
-            result = self.docker_client.compose.exec(**exec_args)
+                if result.stdout:
+                    for line in result.stdout:
+                        print(line)
+                if result.stderr:
+                    for line in result.stderr:
+                        print(line, file=sys.stderr)
 
-            # Print stdout and stderr (result.stdout/stderr are lists of strings)
-            if result.stdout:
-                for line in result.stdout:
-                    print(line)
-            if result.stderr:
-                for line in result.stderr:
-                    print(line, file=sys.stderr)
+                return result.exit_code
+            except DockerException as e:
+                if e.output.stdout:
+                    for line in e.output.stdout:
+                        print(line)
+                if e.output.stderr:
+                    for line in e.output.stderr:
+                        print(line, file=sys.stderr)
+                return e.output.exit_code
+        else:
+            exec_args: Dict[str, Any] = {
+                "service": compose_service,
+                "command": f'{shell_path} -c "{command}"',
+                "stream": False,
+                "capture_output": True,
+                "use_shlex_split": True,
+            }
 
-            return result.exit_code
-        except DockerException as e:
-            # Command failed, print output and return exit code
-            if e.output.stdout:
-                for line in e.output.stdout:
-                    print(line)
-            if e.output.stderr:
-                for line in e.output.stderr:
-                    print(line, file=sys.stderr)
-            return e.output.exit_code
+            if compose_service == "frappe":
+                exec_args["workdir"] = "/workspace/frappe-bench"
+
+            if user:
+                exec_args["user"] = user
+
+            try:
+                result = self.docker_client.compose.exec(**exec_args)
+
+                if result.stdout:
+                    for line in result.stdout:
+                        print(line)
+                if result.stderr:
+                    for line in result.stderr:
+                        print(line, file=sys.stderr)
+
+                return result.exit_code
+            except DockerException as e:
+                if e.output.stdout:
+                    for line in e.output.stdout:
+                        print(line)
+                if e.output.stderr:
+                    for line in e.output.stderr:
+                        print(line, file=sys.stderr)
+                return e.output.exit_code
 
     def logs(self, services: Optional[list] = None, follow: bool = False) -> None:
         """
