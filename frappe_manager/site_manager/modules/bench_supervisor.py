@@ -340,6 +340,10 @@ class BenchSupervisor:
                             workers = (cpu_count * 2) + 1
                             value = re.sub(r'-w\s+\d+', f'-w {workers}', value)
 
+                    if "node-socketio" in section_name:
+                        if key == "command":
+                            value = re.sub(r'\S+/node\s+', '/workspace/.fnm/aliases/default/bin/node ', value)
+
                     section_config.set(section_name, key, value)
 
                 section_name_delimeter = '-frappe-'
