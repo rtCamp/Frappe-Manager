@@ -92,3 +92,8 @@ STABLE_APP_BRANCH_MAPPING_LIST = {
 class EnableDisableOptionsEnum(str, Enum):
     enable = "enable"
     disable = "disable"
+
+
+class EditorEnum(str, Enum):
+    vscode = "vscode"
+    antigravity = "antigravity"

@@ -17,7 +17,14 @@ from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.logger import log
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.services_manager.services import ServicesManager
-from frappe_manager.site_manager import VSCODE_LAUNCH_JSON, VSCODE_SETTINGS_JSON, VSCODE_TASKS_JSON
+from frappe_manager.site_manager import (
+    VSCODE_LAUNCH_JSON,
+    VSCODE_SETTINGS_JSON,
+    VSCODE_TASKS_JSON,
+    ANTIGRAVITY_LAUNCH_JSON,
+    ANTIGRAVITY_SETTINGS_JSON,
+    ANTIGRAVITY_TASKS_JSON,
+)
 from frappe_manager.site_manager.admin_tools import AdminTools
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.site_manager.site_exceptions import (
@@ -925,15 +932,16 @@ class Bench:
         except KeyboardInterrupt:
             richprint.stdout.print("Detected CTRL+C. Exiting..")
 
-    def attach_to_bench(self, user: str, extensions: List[str], workdir: str, debugger: bool = False) -> None:
+    def attach_to_bench(self, user: str, extensions: List[str], workdir: str, debugger: bool = False, editor: str = "vscode") -> None:
         """
-        Attaches to a running bench's container using Visual Studio Code Remote Containers extension.
+        Attaches to a running bench's container using specified editor.
 
         Args:
             user: Username to be used in the container
-            extensions: List of VS Code extensions to install 
+            extensions: List of VS Code extensions to install (only for vscode)
             workdir: Working directory path inside container
             debugger: Whether to setup debugging configuration
+            editor: Editor to use - "vscode" or "antigravity"
 
         Raises:
             BenchNotRunning: If the bench container is not running
@@ -942,14 +950,21 @@ class Bench:
 
         self._verify_bench_running()
 
+        if editor == "antigravity":
+            if debugger:
+                self._setup_debugger_config(workdir, editor)
+            self._attach_to_antigravity()
+            return
+
+        # VS Code specific logic
         if debugger:
-            self._setup_debugger_config(workdir)
+            self._setup_debugger_config(workdir, editor)
 
         self._verify_vscode_installed()
-        
+
         container_name = self._get_frappe_container_name()
         vscode_cmd = self._build_vscode_command(container_name, workdir)
-        
+
         self._update_container_config(user, sorted(extensions))
         self._attach_to_container(vscode_cmd)
 
@@ -1021,31 +1036,45 @@ class Bench:
         self.compose_project.start_service(['frappe'])
         self.switch_bench_env()
 
-    def _setup_debugger_config(self, workdir: str) -> None:
+    def _setup_debugger_config(self, workdir: str, editor: str = "vscode") -> None:
         """Setup debugger configuration if workdir is in workspace"""
         workdir = workdir.strip('/')
         if not workdir.startswith('workspace'):
-            richprint.warning("Debugger configuration is only supported for workspace directory") 
+            richprint.warning("Debugger configuration is only supported for workspace directory")
             return
 
-        self._sync_vscode_config_files(workdir)
+        self._sync_editor_config_files(workdir, editor)
         self._install_ruff()
-        richprint.print("Synced vscode debugger configuration.")
+        richprint.print(f"Synced {editor} debugger configuration.")
 
-    def _sync_vscode_config_files(self, workdir: str) -> None:
-        """Sync VS Code configuration files"""
+    def _sync_editor_config_files(self, workdir: str, editor: str) -> None:
+        """Sync editor configuration files"""
         workdir = workdir.strip('/')
-        vscode_dir = self.path / workdir / ".vscode"
-        vscode_dir.mkdir(exist_ok=True, parents=True)
 
-        config_files = {
-            "tasks": VSCODE_TASKS_JSON,
-            "launch": VSCODE_LAUNCH_JSON,
-            "settings": VSCODE_SETTINGS_JSON
-        }
+        # Determine config directory name based on editor
+        if editor == "vscode":
+            config_dir_name = ".vscode"
+            config_files = {
+                "tasks": VSCODE_TASKS_JSON,
+                "launch": VSCODE_LAUNCH_JSON,
+                "settings": VSCODE_SETTINGS_JSON
+            }
+        elif editor == "antigravity":
+            config_dir_name = ".antigravity"
+            config_files = {
+                "tasks": ANTIGRAVITY_TASKS_JSON,
+                "launch": ANTIGRAVITY_LAUNCH_JSON,
+                "settings": ANTIGRAVITY_SETTINGS_JSON
+            }
+        else:
+            richprint.warning(f"Unknown editor: {editor}")
+            return
+
+        config_dir = self.path / workdir / config_dir_name
+        config_dir.mkdir(exist_ok=True, parents=True)
 
         for filename, content in config_files.items():
-            file_path = vscode_dir / f"{filename}.json"
+            file_path = config_dir / f"{filename}.json"
             if file_path.exists():
                 self._backup_config_file(file_path)
             self._write_config_file(file_path, content)
@@ -1083,6 +1112,33 @@ class Bench:
             raise BenchAttachTocontainerFailed(self.name, 'frappe')
 
         richprint.print("Attached to frappe service container.")
+
+    def _attach_to_antigravity(self) -> None:
+        """Attach to the bench using Google Antigravity IDE"""
+        richprint.change_head("Launching Google Antigravity IDE")
+
+        # Verify antigravity is installed
+        antigravity_path = shutil.which("antigravity")
+        if not antigravity_path:
+            richprint.exit("Google Antigravity IDE binary i.e 'antigravity' is not accessible via cli.")
+
+        # Get container information
+        container_name = self._get_frappe_container_name()
+        workdir = "/workspace/frappe-bench"
+
+        # Build the antigravity command (similar to VS Code remote container)
+        antigravity_cmd = shlex.join([
+            antigravity_path,
+            f"--folder-uri=antigravity-remote://attached-container+{container_name}+{workdir}"
+        ])
+
+        richprint.print("Attaching to Container")
+        output = subprocess.run(antigravity_cmd, shell=True)
+
+        if output.returncode != 0:
+            raise BenchAttachTocontainerFailed(self.name, 'frappe')
+
+        richprint.print("Attached to frappe service container using Google Antigravity IDE.")
 
     def remove_database_and_user(self):
         """

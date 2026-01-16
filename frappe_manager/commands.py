@@ -17,6 +17,7 @@ from frappe_manager import (
     DEFAULT_EXTENSIONS,
     STABLE_APP_BRANCH_MAPPING_LIST,
     EnableDisableOptionsEnum,
+    EditorEnum,
     SiteServicesEnum,
     CLI_BENCHES_DIRECTORY,
 )
@@ -424,8 +425,11 @@ def code(
     workdir: Annotated[
         str, typer.Option("--work-dir", "-w", help="Set working directory in vscode.")
     ] = '/workspace/frappe-bench',
+    editor: Annotated[
+        EditorEnum, typer.Option("--editor", help="Choose editor to open bench with.")
+    ] = EditorEnum.vscode,
 ):
-    """Open bench in vscode."""
+    """Open bench in editor (vscode or antigravity)."""
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
@@ -434,7 +438,7 @@ def code(
     if force_start:
         bench.start()
 
-    bench.attach_to_bench(user=user, extensions=extensions, workdir=workdir, debugger=debugger)
+    bench.attach_to_bench(user=user, extensions=extensions, workdir=workdir, debugger=debugger, editor=editor.value)
 
 
 @app.command()

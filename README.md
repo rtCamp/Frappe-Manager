@@ -40,7 +40,8 @@
 <tr style="border: none;">
 <td style="border: none; vertical-align: top;">
 <h3>👨‍💻 Development Tools</h3>
-• VSCode integration with debugger support<br>
+• VSCode & Antigravity IDE integration<br>
+• Full debugger support for both editors<br>
 • Automatic environment switching between dev/prod
 </td>
 <td style="border: none; vertical-align: top;">
@@ -52,7 +53,7 @@
 <h3>🛠️ Admin Tools</h3>
 • Mailpit for email testing<br>
 • Redis Queue Dashboard<br>
-• Adminer for db management 
+• Adminer for db management
 </td>
 </tr>
 </table>
@@ -61,7 +62,7 @@
 
 - Python 3.11 or higher
 - Docker
-- VSCode (optional, for development features)
+- VSCode or Google Antigravity IDE (optional, for development features)
 
 ## 🚀 Quick Start
 
@@ -86,8 +87,11 @@ fm create mysite
 # Create a dev environment with ERPNext
 fm create devsite --apps erpnext:version-15 --environment dev
 
-# Start coding (in VSCode)
+# Start coding in VSCode (default)
 fm code devsite --debugger
+
+# Start coding in Google Antigravity IDE
+fm code devsite --editor antigravity --debugger
 ```
 
 ### Production Setup
@@ -116,6 +120,45 @@ fm info mysite       # View site info
 fm logs mysite -f    # View logs
 fm shell mysite      # Access shell
 ```
+
+### IDE Integration
+
+Frappe Manager supports multiple IDEs for development with full debugger support:
+
+#### VSCode (Default)
+```bash
+# Open in VSCode without debugger
+fm code mysite
+
+# Open in VSCode with debugger configuration
+fm code mysite --debugger
+
+# Specify user and working directory
+fm code mysite --user frappe --work-dir /workspace/frappe-bench --debugger
+```
+
+#### Google Antigravity IDE
+```bash
+# Open in Antigravity IDE
+fm code mysite --editor antigravity
+
+# Open in Antigravity IDE with debugger configuration
+fm code mysite --editor antigravity --debugger
+
+# Specify working directory
+fm code mysite --editor antigravity --work-dir /workspace/frappe-bench --debugger
+```
+
+**What gets configured with `--debugger` flag:**
+- **VSCode**: Creates `.vscode/` directory with `launch.json`, `tasks.json`, and `settings.json`
+- **Antigravity**: Creates `.antigravity/` directory with `launch.json`, `tasks.json`, and `settings.json`
+- Both include:
+  - Frappe server debug configuration
+  - Worker queue debugging
+  - Function execution debugging
+  - Python interpreter path
+  - Ruff formatter settings
+  - Pre-launch tasks to stop frappe server
 
 ## 📖 Documentation
 
