@@ -184,7 +184,7 @@ COPY --from=tooling /opt/uv-tools /opt/uv-tools
 COPY --from=tooling /etc/bash.bashrc /etc/bash.bashrc
 COPY --from=tooling /etc/zsh/zshrc /etc/zsh/zshrc
 
-# Setup fnm and python for interactive shells
+# Setup fnm and python for ALL shell types (login, non-login, interactive, non-interactive)
 RUN mkdir -p /etc/profile.d && \
     echo 'export FNM_DIR="/workspace/.fnm"' > /etc/profile.d/fnm.sh && \
     echo 'export FNM_MULTISHELL_PATH="/workspace/.fnm"' >> /etc/profile.d/fnm.sh && \

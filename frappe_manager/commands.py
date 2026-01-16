@@ -723,6 +723,30 @@ def update(
             show_default=False,
         ),
     ] = None,
+    python_version: Annotated[
+        Optional[str],
+        typer.Option(
+            "--python",
+            help="Update Python version (e.g., '3.11', '3.12', '>=3.11,<3.14'). Will recreate virtual environment.",
+            show_default=False,
+        ),
+    ] = None,
+    node_version: Annotated[
+        Optional[str],
+        typer.Option(
+            "--node",
+            help="Update Node version (e.g., '18', '20', '>=18'). Will install and set as default.",
+            show_default=False,
+        ),
+    ] = None,
+    skip_version_check: Annotated[
+        bool,
+        typer.Option(
+            "--skip-version-check",
+            help="Skip validation of Python/Node versions against Frappe requirements. Use with caution.",
+            show_default=False,
+        ),
+    ] = False,
 ):
     """Update bench."""
 
@@ -799,7 +823,94 @@ def update(
     if upload_limit:
         richprint.change_head(f"Updating upload size limit to {upload_limit}")
         bench.update_upload_limit(upload_limit)
-        # Note: bench_config already saved by update_upload_limit(), no need to set bench_config_save
+
+    if python_version or node_version:
+        from frappe_manager.site_manager.bench_config import (
+            extract_python_version_requirement,
+            extract_node_version_requirement,
+            validate_python_version_compatibility,
+            validate_node_version_compatibility,
+        )
+
+        frappe_app_path = bench.path / "workspace" / "frappe-bench" / "apps" / "frappe"
+
+        if python_version or node_version:
+            current_versions = bench.app_manager.get_current_runtime_versions(use_run=True)
+
+        if python_version:
+            old_python = current_versions.get('python') or "not set"
+
+            if frappe_app_path.exists() and not skip_version_check:
+                frappe_python_req = extract_python_version_requirement(frappe_app_path)
+                if frappe_python_req:
+                    richprint.print(f"Frappe requires Python: {frappe_python_req}")
+                    richprint.print(f"User requested Python: {python_version}")
+
+                    is_compatible, error_msg = validate_python_version_compatibility(python_version, frappe_python_req)
+                    if not is_compatible:
+                        richprint.error(f"❌ {error_msg}")
+                        richprint.print("Use --skip-version-check to bypass this validation (not recommended)")
+                        raise typer.Exit(code=1)
+
+            bench.bench_config.python_version = python_version
+            richprint.change_head("Updating Python version")
+            richprint.print(f"  Old: {old_python}")
+            richprint.print(f"  New: {python_version}")
+            bench_config_save = True
+
+        if node_version:
+            old_node = current_versions.get('node') or "not set"
+
+            if frappe_app_path.exists() and not skip_version_check:
+                frappe_node_req = extract_node_version_requirement(frappe_app_path)
+                if frappe_node_req:
+                    richprint.print(f"Frappe requires Node: {frappe_node_req}")
+                    richprint.print(f"User requested Node: {node_version}")
+
+                    is_compatible, error_msg = validate_node_version_compatibility(node_version, frappe_node_req)
+                    if not is_compatible:
+                        richprint.error(f"❌ {error_msg}")
+                        richprint.print("Use --skip-version-check to bypass this validation (not recommended)")
+                        raise typer.Exit(code=1)
+
+            bench.bench_config.node_version = node_version
+            richprint.change_head("Updating Node version")
+            richprint.print(f"  Old: {old_node}")
+            richprint.print(f"  New: {node_version}")
+            bench_config_save = True
+
+        bench.save_bench_config()
+        bench_config_save = False
+
+        richprint.change_head("Setting up new runtime environment")
+        venv_recreated = bench.app_manager.setup_python_and_node_environments(use_run=True)
+        richprint.print("Runtime versions updated successfully.")
+
+        if venv_recreated:
+            apps_txt_path = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
+            if apps_txt_path.exists():
+                installed_apps = [line.strip() for line in apps_txt_path.read_text().splitlines() if line.strip()]
+                apps_list = [{"app": app_name, "branch": None} for app_name in installed_apps]
+
+                richprint.change_head("Reinstalling apps into new virtual environment")
+                richprint.print(f"Found {len(apps_list)} installed apps: {', '.join(installed_apps)}")
+                bench.app_manager.install_apps(
+                    apps_list=apps_list,
+                    github_token=bench.bench_config.github_token,
+                    use_uv=bench.bench_config.use_uv,
+                    skip_clone=True,
+                    use_run=True,
+                )
+                richprint.print("All apps reinstalled successfully.")
+            else:
+                richprint.warning("No apps.txt found, skipping app reinstallation")
+
+        richprint.change_head("Restarting services to apply new runtime versions")
+        richprint.print("Restarting web services (frappe, socketio)...")
+        bench.restart_web_containers_services(use_container_restart=False)
+        richprint.print("Restarting worker services (schedule, workers)...")
+        bench.restart_workers_containers_services(use_container_restart=False)
+        richprint.print("All services restarted successfully.")
 
     if bench_config_save:
         bench.save_bench_config()
@@ -852,22 +963,52 @@ def restart(
         bool,
         typer.Option(help="Restart redis services."),
     ] = False,
+    container: Annotated[
+        bool,
+        typer.Option(
+            "--container",
+            help="Restart entire Docker container(s). Stops and starts the container.",
+        ),
+    ] = False,
+    supervisor: Annotated[
+        bool,
+        typer.Option(
+            "--supervisor",
+            help="Restart supervisor processes inside container. Faster than container restart.",
+        ),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option(
+            "--force",
+            help="Force restart: --supervisor uses stop+start (kills processes), --container uses timeout=0 (immediate kill).",
+        ),
+    ] = False,
 ):
     """Restart bench services."""
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
 
-    # Create output handler with context for logging
     context = LoggerContext(bench=benchname, operation="restart")
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
+    use_container_restart = container
+    use_supervisor_restart = supervisor
+
+    if not use_container_restart and not use_supervisor_restart:
+        use_supervisor_restart = True
+
+    if use_container_restart and use_supervisor_restart:
+        output.error("Cannot use both --container and --supervisor flags simultaneously")
+        raise typer.Exit(code=1)
+
     if web:
-        bench.restart_web_containers_services()
+        bench.restart_web_containers_services(use_container_restart=use_container_restart, force=force)
 
     if workers:
-        bench.restart_workers_containers_services()
+        bench.restart_workers_containers_services(use_container_restart=use_container_restart, force=force)
 
     if redis:
         bench.restart_redis_services_containers()

@@ -238,6 +238,7 @@ class Bench:
             bench_path=self.path,
             restart_supervisor_service_fn=self.restart_supervisor_service,
             is_running_fn=lambda: self.running,
+            docker_ops=self.docker_ops,
             quiet=self.quiet,
             output_handler=self.output,
         )
@@ -956,24 +957,37 @@ class Bench:
         self.output.print(f"Reset bench site {self.name}")
 
     def restart_supervisor_service(
-        self, service: str, docker_client_obj: Optional['DockerClient'] = None, timeout: int = 30, interval: int = 1
+        self,
+        service: str,
+        docker_client_obj: Optional[DockerClient] = None,
+        timeout: int = 30,
+        interval: int = 1,
+        force: bool = False,
     ):
-        return self.supervisor.restart_supervisor_service(service, docker_client_obj, timeout, interval)
+        return self.supervisor.restart_supervisor_service(service, docker_client_obj, timeout, interval, force)
 
-    def restart_web_containers_services(self):
-        """Restarts frappe server and socketio containers"""
+    def restart_web_containers_services(self, use_container_restart: bool = False, force: bool = False):
+        """
+        Restarts frappe server and socketio containers.
 
-        # restart frappe server and socketio
+        Args:
+            use_container_restart: If True, restart entire containers. If False, restart supervisor processes.
+            force: If True, use aggressive restart (timeout=0 for container, stop+start for supervisor).
+        """
         web_services = [
             SiteServicesEnum.frappe.value,
             SiteServicesEnum.socketio.value,
         ]
 
-        for service in web_services:
-            self.output.change_head(f"Restarting web services - {service}")
-            is_restarted = self.restart_supervisor_service(service)
-            if is_restarted:
-                self.output.print(f"Restarted web services - {service}")
+        if use_container_restart:
+            self.docker_ops.restart_services(web_services, force=force)
+        else:
+            for service in web_services:
+                self.output.change_head(f"Restarting web services - {service}")
+                is_restarted = self.restart_supervisor_service(service, force=force)
+                if is_restarted:
+                    action = "Stopped and started" if force else "Restarted"
+                    self.output.print(f"{action} supervisor processes - {service}")
 
     def restart_redis_services_containers(self):
         """Restarts redis containers"""
@@ -986,9 +1000,11 @@ class Bench:
         self.docker_ops.restart_services(redis_services)
         self.output.print(f"Restarted redis services - {' '.join(redis_services)}")
 
-    def restart_workers_containers_services(self):
+    def restart_workers_containers_services(self, use_container_restart: bool = False, force: bool = False):
         """Restarts workers and schedule containers"""
-        self.worker_coordinator.restart_workers_containers_services()
+        self.worker_coordinator.restart_workers_containers_services(
+            use_container_restart=use_container_restart, force=force
+        )
 
     def update_upload_limit(self, upload_limit: str):
         """

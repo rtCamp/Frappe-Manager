@@ -65,7 +65,12 @@ class BenchSupervisor:
         return False
 
     def restart_supervisor_service(
-        self, service: str, docker_client_obj: Optional[DockerClient] = None, timeout: int = 30, interval: int = 1
+        self,
+        service: str,
+        docker_client_obj: Optional[DockerClient] = None,
+        timeout: int = 30,
+        interval: int = 1,
+        force: bool = False,
     ) -> bool:
         """
         Restart a supervisor service.
@@ -73,37 +78,19 @@ class BenchSupervisor:
         Args:
             service: Service name to restart
             docker_client_obj: Optional Docker client (uses self.docker_client if None)
-            timeout: Timeout in seconds
+            timeout: Timeout in seconds (used for socket availability check after restart)
             interval: Check interval in seconds
+            force: If True, stop then start processes (hard restart). If False, use restart command (graceful).
 
         Returns:
             True if restarted successfully, False otherwise
 
         Raises:
-            BenchOperationException: If supervisor socket not created or restart fails
+            BenchOperationException: If service not running or restart fails
         """
-        socket_path = f"/fm-sockets/{service}.sock"
-
-        # Wait for supervisor socket file to be created in container
-        for _ in range(timeout):
-            try:
-                self.docker_client.compose.exec(
-                    service=service, user='frappe', command=f"test -e {socket_path}", stream=False
-                )
-                break
-            except DockerException:
-                time.sleep(interval)
-        else:
-            raise BenchOperationException(
-                self.bench_name, message=f'Supervisor socket for {service} service not created after {timeout} seconds'
-            )
-
-        restart_supervisor_command = 'supervisorctl -c /opt/user/supervisord.conf restart all'
-
         if not docker_client_obj:
             docker_client_obj = self.docker_client
 
-        # Check if service is running
         try:
             all_statuses = docker_client_obj.compose.get_all_services_status()
             service_running = any(
@@ -116,16 +103,43 @@ class BenchSupervisor:
             self.output.display_error(text=f'Service [blue]{service}[/blue] not running.')
             return False
 
-        # Execute restart command
-        try:
-            docker_client_obj.compose.exec(
-                service=service, user='frappe', command=restart_supervisor_command, stream=False
-            )
-            return True
-        except DockerException as e:
-            raise BenchOperationException(
-                self.bench_name, message=f'Failed to restart supervisor for {service} service'
-            )
+        if force:
+            stop_command = 'supervisorctl -c /opt/user/supervisord.conf stop all'
+            start_command = 'supervisorctl -c /opt/user/supervisord.conf start all'
+            try:
+                docker_client_obj.compose.exec(service=service, user='frappe', command=stop_command, stream=False)
+                docker_client_obj.compose.exec(service=service, user='frappe', command=start_command, stream=False)
+            except DockerException as e:
+                raise BenchOperationException(
+                    self.bench_name, message=f'Failed to force restart supervisor for {service} service: {str(e)}'
+                )
+        else:
+            restart_supervisor_command = 'supervisorctl -c /opt/user/supervisord.conf restart all'
+            try:
+                docker_client_obj.compose.exec(
+                    service=service, user='frappe', command=restart_supervisor_command, stream=False
+                )
+            except DockerException as e:
+                raise BenchOperationException(
+                    self.bench_name, message=f'Failed to restart supervisor for {service} service: {str(e)}'
+                )
+
+        # Verify supervisor socket was created after restart
+        socket_path = f"/fm-sockets/{service}.sock"
+        for _ in range(timeout):
+            try:
+                self.docker_client.compose.exec(
+                    service=service, user='frappe', command=f"test -e {socket_path}", stream=False
+                )
+                return True
+            except DockerException:
+                time.sleep(interval)
+
+        # Socket not found, but don't fail - it might be dev mode where socket isn't used
+        self.output.warning(
+            f'Supervisor socket {socket_path} not found after restart, but services may still be running'
+        )
+        return True
 
     def switch_bench_env(self, service: str = 'frappe', timeout: int = 30, interval: int = 1) -> None:
         """

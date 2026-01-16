@@ -17,7 +17,7 @@ from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.site_manager.exceptions import (
     BenchOperationException,
-    BenchWorkersSupervisorConfigurtionNotFoundError
+    BenchWorkersSupervisorConfigurtionNotFoundError,
 )
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version
 from frappe_manager.utils.site import is_default_worker
@@ -30,18 +30,18 @@ if TYPE_CHECKING:
 class BenchWorkers:
     """
     Manages worker compose file generation and configuration.
-    
+
     Responsibilities:
     - Generate worker compose files based on supervisor configuration
     - Manage worker service definitions
     - Handle custom and default workers
     - Clean up worker compose files when no longer needed
     """
-    
+
     def __init__(self, bench: 'Bench', verbose: bool = True, output_handler: OutputHandler | None = None):
         """
         Initialize BenchWorkers.
-        
+
         Args:
             bench: The Bench instance
             verbose: Whether to show verbose output
@@ -56,17 +56,19 @@ class BenchWorkers:
         self.compose_file_manager = ComposeFile(self.compose_path, template_name='docker-compose.workers.tmpl')
         self.docker_client = DockerClient(compose_file_path=self.compose_path)
 
-    def get_expected_workers(self, include_default_workers: bool = True, include_custom_workers: bool = True) -> List[str]:
+    def get_expected_workers(
+        self, include_default_workers: bool = True, include_custom_workers: bool = True
+    ) -> List[str]:
         """
         Get list of expected workers from supervisor configuration.
-        
+
         Args:
             include_default_workers: Whether to include default workers (short, long)
             include_custom_workers: Whether to include custom workers
-            
+
         Returns:
             Sorted list of worker service names
-            
+
         Raises:
             BenchWorkersSupervisorConfigurtionNotFoundError: If no worker configs found
         """
@@ -104,10 +106,10 @@ class BenchWorkers:
     def is_new_workers_added(self, include_default_workers: bool = False) -> bool:
         """
         Check if worker configuration has changed.
-        
+
         Args:
             include_default_workers: Whether to include default workers in comparison
-            
+
         Returns:
             True if workers configuration matches expected, False otherwise
         """
@@ -133,11 +135,11 @@ class BenchWorkers:
     def generate_compose(self, include_default_workers: bool = True, include_custom_workers: bool = True) -> bool:
         """
         Generate worker compose file from template.
-        
+
         Args:
             include_default_workers: Whether to include default workers
             include_custom_workers: Whether to include custom workers
-            
+
         Returns:
             True if workers were configured and need starting, False otherwise
         """
@@ -156,13 +158,13 @@ class BenchWorkers:
         del self.compose_file_manager.yml["services"]["worker-name"]
 
         workers_expected_service_names = self.get_expected_workers(
-            include_default_workers=include_default_workers,
-            include_custom_workers=include_custom_workers
+            include_default_workers=include_default_workers, include_custom_workers=include_custom_workers
         )
 
         if len(workers_expected_service_names) > 0:
             self.output.print(f"Configuring {len(workers_expected_service_names)} workers")
             import os
+
             for worker in workers_expected_service_names:
                 worker_config = deepcopy(template_worker_config)
 
@@ -174,10 +176,9 @@ class BenchWorkers:
                 self.compose_file_manager.yml["services"][worker] = worker_config
 
             # Use new with_prefix and with_version methods to set all configurations atomically
-            self.compose_file_manager \
-                .with_prefix(get_container_name_prefix(self.bench.name), 'site-network') \
-                .with_version(get_current_fm_version()) \
-                .commit()
+            self.compose_file_manager.with_prefix(
+                get_container_name_prefix(self.bench.name), 'site-network'
+            ).with_version(get_current_fm_version()).commit()
             self.output.print("Workers configuration generated successfully")
             return True
 
@@ -195,7 +196,7 @@ class BenchWorkers:
 class BenchWorkerCoordinator:
     """
     Coordinates worker processes for a bench.
-    
+
     Responsibilities:
     - Sync worker compose files
     - Backup and restore worker supervisor configs
@@ -211,12 +212,13 @@ class BenchWorkerCoordinator:
         bench_path,
         restart_supervisor_service_fn,
         is_running_fn,
+        docker_ops=None,
         quiet: bool = False,
         output_handler: OutputHandler | None = None,
     ):
         """
         Initialize BenchWorkerCoordinator module.
-        
+
         Args:
             bench_name: Name of the bench
             workers: BenchWorkers instance (from workers_manager)
@@ -224,6 +226,7 @@ class BenchWorkerCoordinator:
             bench_path: Path to bench directory
             restart_supervisor_service_fn: Callable to restart supervisor service
             is_running_fn: Callable to check if bench is running
+            docker_ops: BenchDockerOps instance for docker operations
             quiet: Whether to suppress output
             output_handler: Handler for output operations
         """
@@ -233,6 +236,7 @@ class BenchWorkerCoordinator:
         self.bench_path = bench_path
         self.restart_supervisor_service = restart_supervisor_service_fn
         self.is_running = is_running_fn
+        self.docker_ops = docker_ops
         self.quiet = quiet
         self.output = output_handler or RichOutputHandler()
 
@@ -241,11 +245,11 @@ class BenchWorkerCoordinator:
         force_recreate: bool = False,
         setup_supervisor: bool = True,
         include_default_workers: bool = True,
-        include_custom_workers: bool = True
+        include_custom_workers: bool = True,
     ):
         """
         Synchronize workers compose file and optionally setup supervisor.
-        
+
         Args:
             force_recreate: Force recreate containers
             setup_supervisor: Whether to setup supervisor
@@ -259,26 +263,19 @@ class BenchWorkerCoordinator:
             except BenchOperationException as e:
                 self.backup_restore_workers_supervisor(workers_backup_manager)
 
-        are_workers_not_changed = self.workers.is_new_workers_added(
-            include_default_workers=include_default_workers
-        )
+        are_workers_not_changed = self.workers.is_new_workers_added(include_default_workers=include_default_workers)
 
         if are_workers_not_changed:
             self.output.print("Workers configuration remains unchanged.")
             return
 
         start_required = self.workers.generate_compose(
-            include_default_workers=include_default_workers,
-            include_custom_workers=include_custom_workers
+            include_default_workers=include_default_workers, include_custom_workers=include_custom_workers
         )
 
         if start_required:
             output = self.workers.docker_client.compose.up(
-                services=[],
-                detach=True,
-                pull="never",
-                force_recreate=force_recreate,
-                stream=self.quiet
+                services=[], detach=True, pull="never", force_recreate=force_recreate, stream=self.quiet
             )
             if self.quiet:
                 self.output.live_lines(output, padding=(0, 0, 0, 2))
@@ -286,7 +283,7 @@ class BenchWorkerCoordinator:
     def backup_restore_workers_supervisor(self, backup_manager: BackupManager):
         """
         Restore workers supervisor configuration from backup.
-        
+
         Args:
             backup_manager: BackupManager instance containing backups
         """
@@ -297,7 +294,7 @@ class BenchWorkerCoordinator:
     def backup_workers_supervisor_conf(self) -> BackupManager:
         """
         Backup workers supervisor configuration files.
-        
+
         Returns:
             BackupManager: Manager containing backed up files
         """
@@ -328,44 +325,53 @@ class BenchWorkerCoordinator:
             try:
                 all_statuses = self.workers.docker_client.compose.get_all_services_status()
                 running_statuses = {
-                    status["Service"]: status["State"]
-                    for status in all_statuses
-                    if status.get("Name") in containers
+                    status["Service"]: status["State"] for status in all_statuses if status.get("Name") in containers
                 }
                 workers_running = all(running_statuses.get(s) == "running" for s in services)
             except DockerException:
                 workers_running = False
-            
+
             if not workers_running:
                 if self.is_running():
                     output = self.workers.docker_client.compose.up(
-                        services=[],
-                        detach=True,
-                        pull="never",
-                        force_recreate=False,
-                        stream=self.quiet
+                        services=[], detach=True, pull="never", force_recreate=False, stream=self.quiet
                     )
                     if self.quiet:
                         self.output.live_lines(output, padding=(0, 0, 0, 2))
 
-    def restart_workers_containers_services(self):
-        """Restart workers and schedule containers."""
-        # Restart scheduler
-        worker_services = [SiteServicesEnum.schedule.value]
+    def restart_workers_containers_services(self, use_container_restart: bool = False, force: bool = False):
+        """
+        Restart workers and schedule containers.
 
-        for service in worker_services:
-            self.output.change_head(f"Restarting worker service - {service}")
-            is_restarted = self.restart_supervisor_service(service)
-            if is_restarted:
-                self.output.print(f"Restarted worker services - {service}")
+        Args:
+            use_container_restart: If True, restart entire containers. If False, restart supervisor processes.
+            force: If True, use aggressive restart (timeout=0 for container, stop+start for supervisor).
+        """
+        scheduler_service = [SiteServicesEnum.schedule.value]
 
-        # Restart worker containers
+        if use_container_restart:
+            self.docker_ops.restart_services(scheduler_service, force=force)
+        else:
+            for service in scheduler_service:
+                self.output.change_head(f"Restarting worker service - {service}")
+                is_restarted = self.restart_supervisor_service(service, force=force)
+                if is_restarted:
+                    action = "Stopped and started" if force else "Restarted"
+                    self.output.print(f"{action} supervisor processes - {service}")
+
         worker_services = self.workers.compose_file_manager.get_services_list()
         for service in worker_services:
             self.output.change_head(f"Restarting worker service - {service}")
-            is_restarted = self.restart_supervisor_service(
-                service,
-                docker_client_obj=self.workers.docker_client
-            )
-            if is_restarted:
-                self.output.print(f"Restarted worker services - {service}")
+
+            if use_container_restart:
+                timeout = 0 if force else 100
+                self.workers.docker_client.compose.restart(services=[service], timeout=timeout)
+                action = "Force restarted" if force else "Restarted"
+                self.output.print(f"{action} container - {service}")
+            else:
+                is_restarted = self.restart_supervisor_service(
+                    service, docker_client_obj=self.workers.docker_client, force=force
+                )
+                if is_restarted:
+                    action = "Stopped and started" if force else "Restarted"
+                    self.output.print(f"{action} supervisor processes - {service}")

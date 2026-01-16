@@ -479,18 +479,21 @@ class BenchDockerOps:
                     if "INFO supervisord started with pid".lower() in line.lower():
                         break
 
-    def restart_services(self, services: list) -> None:
+    def restart_services(self, services: list, force: bool = False) -> None:
         """
         Restart specific services.
 
         Args:
             services: List of service names to restart
+            force: If True, use timeout=0 for immediate kill. If False, use default graceful timeout.
         """
+        timeout = 0 if force else 100
         self.output.change_head(f"Restarting services - {' '.join(services)}")
-        output = self.docker_client.compose.restart(services=services, stream=self.quiet)
+        output = self.docker_client.compose.restart(services=services, timeout=timeout, stream=self.quiet)
         if self.quiet:
             self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
-        self.output.print(f"Restarted services - {' '.join(services)}")
+        action = "Force restarted" if force else "Restarted"
+        self.output.print(f"{action} services - {' '.join(services)}")
 
     def exec_command(self, service: str, command: str, user: Optional[str] = None, stream: bool = False):
         """

@@ -98,6 +98,43 @@ class BenchAppManager:
         self.frappe_bench_dir: Path = bench_path / "workspace" / "frappe-bench"
         self.bench_cli_cmd = ['/usr/local/bin/bench']
 
+    def get_current_runtime_versions(self, use_run: bool = False) -> dict[str, str | None]:
+        """Get currently installed Python and Node versions from the container."""
+        import re
+
+        versions: dict[str, str | None] = {}
+        versions['python'] = None
+        versions['node'] = None
+
+        try:
+            result = self._container_run(
+                "/workspace/frappe-bench/env/bin/python --version",
+                capture_output=True,
+                raise_exception_obj=None,
+                use_run=use_run,
+            )
+            if result and result.exit_code == 0:
+                output = " ".join(result.combined)
+                match = re.search(r"Python (\d+\.\d+\.\d+)", output)
+                if match:
+                    versions['python'] = match.group(1)
+        except Exception:
+            pass
+
+        try:
+            result = self._container_run(
+                "node --version", capture_output=True, raise_exception_obj=None, use_run=use_run
+            )
+            if result and result.exit_code == 0:
+                output = " ".join(result.combined)
+                match = re.search(r"v(\d+\.\d+\.\d+)", output)
+                if match:
+                    versions['node'] = match.group(1)
+        except Exception:
+            pass
+
+        return versions
+
     def setup_python_and_node_environments(self, use_run: bool = False) -> bool:
         """
         Setup Python and Node.js environments for the bench.
@@ -109,7 +146,11 @@ class BenchAppManager:
         4. Sets fnm default to use that Node version
 
         Returns:
-            bool: True if venv was recreated (requiring app reinstallation), False otherwise
+            dict: {
+                'venv_recreated': bool,
+                'old_python_version': str or None,
+                'old_node_version': str or None
+            }
         """
         from frappe_manager.site_manager.bench_config import (
             parse_python_version_for_runtime,
@@ -259,10 +300,11 @@ fi
                     import re
 
                     current_node_output = " ".join(result.combined)
-                    version_match = re.search(r"v(\d+)", current_node_output)
+                    version_match = re.search(r"v(\d+\.\d+\.\d+)", current_node_output)
 
                     if version_match:
-                        current_major = int(version_match.group(1))
+                        full_version = version_match.group(1)
+                        current_major = int(full_version.split('.')[0])
 
                         if self._node_version_satisfies_requirement(current_major, node_version_requirement):
                             self.output.print(
@@ -709,6 +751,23 @@ fi
         apps_dirs: List[Path] = [item for item in apps_dir.iterdir() if item.is_dir()]
         return apps_dirs
 
+    def _filter_docker_warnings(self, output: SubprocessOutput) -> SubprocessOutput:
+        """Filter out Docker Compose warning messages from captured output."""
+        import re
+
+        if not output.combined:
+            return output
+
+        filtered_lines = []
+        docker_warning_pattern = re.compile(r'^time=".*?" level=(warning|info|error) msg=')
+
+        for line in output.combined:
+            if not docker_warning_pattern.match(line.strip()):
+                filtered_lines.append(line)
+
+        output.combined = filtered_lines
+        return output
+
     def _container_run(
         self,
         command: str,
@@ -757,6 +816,7 @@ fi
                             stream=False,
                         ),
                     )
+                    output = self._filter_docker_warnings(output)
                     return output
                 else:
                     output = cast(
@@ -780,6 +840,7 @@ fi
                             service=service, command=exec_command, user=user, workdir=workdir, stream=False
                         ),
                     )
+                    output = self._filter_docker_warnings(output)
                     return output
                 else:
                     output = cast(

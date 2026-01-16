@@ -228,6 +228,97 @@ def parse_node_version_for_runtime(version_requirement: Optional[str]) -> Option
         return None
 
 
+def validate_python_version_compatibility(user_version: str, frappe_requirement: str) -> tuple[bool, str]:
+    """
+    Validate if user-provided Python version is compatible with Frappe requirement.
+
+    Args:
+        user_version: User-provided version (e.g., "3.11", ">=3.10,<3.14")
+        frappe_requirement: Frappe's requirement (e.g., ">=3.14,<3.15")
+
+    Returns:
+        Tuple of (is_compatible, error_message)
+    """
+    import re
+
+    def parse_version_range(version_str: str) -> tuple[tuple[int, int] | None, tuple[int, int] | None]:
+        min_ver = None
+        max_ver = None
+
+        match_min = re.search(r">=(\d+)\.(\d+)", version_str)
+        if match_min:
+            min_ver = (int(match_min.group(1)), int(match_min.group(2)))
+
+        match_max = re.search(r"<(\d+)\.(\d+)", version_str)
+        if match_max:
+            max_ver = (int(match_max.group(1)), int(match_max.group(2)))
+
+        exact_match = re.match(r"^(\d+)\.(\d+)$", version_str.strip())
+        if exact_match:
+            ver = (int(exact_match.group(1)), int(exact_match.group(2)))
+            min_ver = ver
+            max_ver = (ver[0], ver[1] + 1)
+
+        return min_ver, max_ver
+
+    user_min, user_max = parse_version_range(user_version)
+    frappe_min, frappe_max = parse_version_range(frappe_requirement)
+
+    if not user_min:
+        return False, f"Could not parse user version: {user_version}"
+
+    if not frappe_min:
+        return True, ""
+
+    if frappe_max:
+        if user_min < frappe_min or (user_max and user_max > frappe_max):
+            return False, f"Python {user_version} is incompatible with Frappe requirement {frappe_requirement}"
+    else:
+        if user_min < frappe_min:
+            return False, f"Python {user_version} is incompatible with Frappe requirement {frappe_requirement}"
+
+    return True, ""
+
+
+def validate_node_version_compatibility(user_version: str, frappe_requirement: str) -> tuple[bool, str]:
+    """
+    Validate if user-provided Node version is compatible with Frappe requirement.
+
+    Args:
+        user_version: User-provided version (e.g., "18", ">=20")
+        frappe_requirement: Frappe's requirement (e.g., ">=24")
+
+    Returns:
+        Tuple of (is_compatible, error_message)
+    """
+    import re
+
+    def extract_min_version(version_str: str) -> int | None:
+        match = re.search(r">=?(\d+)", version_str)
+        if match:
+            return int(match.group(1))
+
+        exact_match = re.match(r"^(\d+)$", version_str.strip())
+        if exact_match:
+            return int(exact_match.group(1))
+
+        return None
+
+    user_min = extract_min_version(user_version)
+    frappe_min = extract_min_version(frappe_requirement)
+
+    if user_min is None:
+        return False, f"Could not parse user version: {user_version}"
+
+    if frappe_min is None:
+        return True, ""
+
+    if user_min < frappe_min:
+        return False, f"Node {user_version} is incompatible with Frappe requirement {frappe_requirement}"
+
+    return True, ""
+
+
 class FMBenchEnvType(str, Enum):
     prod = 'prod'
     dev = 'dev'
