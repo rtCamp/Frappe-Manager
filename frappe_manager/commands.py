@@ -963,6 +963,10 @@ def restart(
         bool,
         typer.Option(help="Restart redis services."),
     ] = False,
+    nginx: Annotated[
+        bool,
+        typer.Option(help="Restart nginx service."),
+    ] = False,
     container: Annotated[
         bool,
         typer.Option(
@@ -1012,6 +1016,9 @@ def restart(
 
     if redis:
         bench.restart_redis_services_containers()
+
+    if nginx:
+        bench.restart_nginx_service(force=force)
 
 
 @app.command()

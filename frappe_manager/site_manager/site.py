@@ -1000,6 +1000,19 @@ class Bench:
         self.docker_ops.restart_services(redis_services)
         self.output.print(f"Restarted redis services - {' '.join(redis_services)}")
 
+    def restart_nginx_service(self, force: bool = False):
+        """
+        Restarts nginx container.
+
+        Args:
+            force: If True, use timeout=0 for immediate kill. If False, use default graceful timeout.
+        """
+        nginx_service = [SiteServicesEnum.nginx.value]
+        self.output.change_head(f"Restarting nginx service")
+        self.docker_ops.restart_services(nginx_service, force=force)
+        action = "Force restarted" if force else "Restarted"
+        self.output.print(f"{action} nginx service")
+
     def restart_workers_containers_services(self, use_container_restart: bool = False, force: bool = False):
         """Restarts workers and schedule containers"""
         self.worker_coordinator.restart_workers_containers_services(
