@@ -325,9 +325,6 @@ class BenchDockerOps:
         non_bash_supported = ["redis-cache", "redis-queue"]
         shell_path = "/bin/bash" if compose_service not in non_bash_supported else "sh"
 
-        if compose_service == "frappe":
-            shell_path = "/usr/bin/zsh"
-
         # Execute command through shell with -c
         exec_args: Dict[str, Any] = {
             "service": compose_service,

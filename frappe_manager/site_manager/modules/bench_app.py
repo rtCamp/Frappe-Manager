@@ -188,7 +188,8 @@ fi
                                 minor = int(match.group(2))
                                 patch = int(match.group(3))
                                 if self._python_version_satisfies_requirement(major, minor, python_version_requirement):
-                                    candidates.append((major, minor, patch, f"cpython-{major}.{minor}.{patch}"))
+                                    # Store the FULL directory name with platform suffix, not just cpython-X.Y.Z
+                                    candidates.append((major, minor, patch, line.strip()))
 
                         if candidates:
                             candidates.sort(reverse=True)
@@ -202,8 +203,27 @@ fi
                         self.output.print(f"Installing UV-managed Python {python_version}...")
                         install_cmd = f"uv python install cpython-{python_version}"
                         self._container_run(install_cmd, raise_exception_obj=None, use_run=use_run)
-                        selected_python_full = f"cpython-{python_version}"
+
+                        detect_installed_cmd = (
+                            f"ls -1 /workspace/.uv/python/ | grep '^cpython-{python_version}' | sort -V | tail -1"
+                        )
+                        result = self._container_run(
+                            detect_installed_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run
+                        )
+                        if result and result.exit_code == 0 and result.combined:
+                            selected_python_full = result.combined[0].strip()
+                        else:
+                            selected_python_full = f"cpython-{python_version}"
+
                         self.output.print(f"Installed UV-managed Python {python_version}")
+
+                    if selected_python_full:
+                        update_symlink_cmd = f"""
+                        cd /workspace/.uv
+                        rm -f python-default
+                        ln -sf python/{selected_python_full} python-default
+                        """
+                        self._container_run(update_symlink_cmd, raise_exception_obj=None, use_run=use_run)
 
                     self.output.change_head(f"Creating virtual environment with {selected_python_full}")
                     recreate_venv_cmd = f"""
