@@ -130,6 +130,8 @@ class DisplayManager:
 
     def prompt_ask(self, **args):
         from InquirerPy import inquirer
+        from InquirerPy.utils import InquirerPyStyle
+        import re
 
         self.spinner.update()
         self.live.stop()
@@ -138,22 +140,37 @@ class DisplayManager:
         choices = args.get('choices')
         default = args.get('default')
 
+        prompt_clean = re.sub(r'\[/?[a-z]+\]', '', prompt)
+
+        custom_style = InquirerPyStyle(
+            {
+                "questionmark": "#e5c07b",
+                "answered_question": "",
+                "answer": "#61afef bold",
+                "pointer": "#61afef bold",
+                "highlighted": "#61afef bold",
+                "selected": "#e5c07b",
+            }
+        )
+
         if choices:
             value = inquirer.select(
-                message=prompt,
+                message=prompt_clean,
                 choices=choices,
                 default=default,
                 vi_mode=True,
-                qmark='🤔',
-                amark='✅',
+                qmark='',
+                amark='',
+                style=custom_style,
             ).execute()
         else:
             value = inquirer.text(
-                message=prompt,
+                message=prompt_clean,
                 default=default or '',
                 vi_mode=True,
-                qmark='🤔',
-                amark='✅',
+                qmark='',
+                amark='',
+                style=custom_style,
             ).execute()
 
         self.start("Working")
