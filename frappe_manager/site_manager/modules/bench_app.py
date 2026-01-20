@@ -236,11 +236,11 @@ fi
                             selected_version = candidates[0]
                             selected_python_full = selected_version[3]
                             self.output.print(
-                                f"Found UV-managed Python {selected_version[0]}.{selected_version[1]}.{selected_version[2]} satisfying {python_version_requirement}"
+                                f"Found Python {selected_version[0]}.{selected_version[1]}.{selected_version[2]} satisfying {python_version_requirement}"
                             )
 
                     if not selected_python_full:
-                        self.output.print(f"Installing UV-managed Python {python_version}...")
+                        self.output.print(f"Installing Python {python_version} via uv...")
                         install_cmd = f"uv python install cpython-{python_version}"
                         self._container_run(install_cmd, raise_exception_obj=None, use_run=use_run)
 
@@ -255,7 +255,7 @@ fi
                         else:
                             selected_python_full = f"cpython-{python_version}"
 
-                        self.output.print(f"Installed UV-managed Python {python_version}")
+                        self.output.print(f"Installed Python {python_version} via uv")
 
                     if selected_python_full:
                         update_symlink_cmd = f"""
@@ -342,7 +342,7 @@ fi
                             install_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run
                         )
                         if install_result and install_result.exit_code == 0:
-                            self.output.print(f"Installed Node {node_version}")
+                            self.output.print(f"Installed Node {node_version} via fnm")
                         else:
                             raise Exception(
                                 f"fnm install {node_version} failed with exit code {install_result.exit_code if install_result else 'unknown'}"
