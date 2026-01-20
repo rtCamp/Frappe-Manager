@@ -173,7 +173,7 @@ class BenchInfo:
         ssl_service_type = f'{ssl_cert.ssl_type.value}'
         if ssl_cert.ssl_type == SUPPORTED_SSL_TYPES.le:
             if isinstance(ssl_cert, LetsencryptSSLCertificate):
-                ssl_service_type = f'[{ssl_cert.preferred_challenge.value}] {ssl_cert.ssl_type.value}'
+                ssl_service_type = f'[{ssl_cert.challenge_type.value}] {ssl_cert.ssl_type.value}'
             else:
                 ssl_service_type = f'{ssl_cert.ssl_type.value}'
 
