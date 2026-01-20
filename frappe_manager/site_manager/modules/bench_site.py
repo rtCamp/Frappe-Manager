@@ -206,7 +206,8 @@ class BenchSiteManager:
         # Build new-site command
         new_site_command = self.bench_cli_cmd + ["new-site"]
         new_site_command += ["--db-root-password", self.services.database_manager.database_server_info.password]
-        new_site_command += ["--db-name", self.bench_config.db_name]
+        if self.bench_config.db_name:
+            new_site_command += ["--db-name", self.bench_config.db_name]
         new_site_command += ["--db-host", self.services.database_manager.database_server_info.host]
         new_site_command += ["--admin-password", admin_pass]
         new_site_command += ["--db-port", str(self.services.database_manager.database_server_info.port)]

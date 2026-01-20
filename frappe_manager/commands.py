@@ -1,6 +1,6 @@
 from pathlib import Path
 from frappe_manager.site_manager.exceptions import BenchNotRunning
-from frappe_manager.utils.site import pull_docker_images
+from frappe_manager.utils.site import pull_docker_images, validate_sitename
 import typer
 import os
 import sys
@@ -288,6 +288,8 @@ def create(
 
     services_manager: ServicesManager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
+
+    benchname = validate_sitename(benchname)
 
     # Create context for this operation
     context = LoggerContext(bench=benchname, operation="create")

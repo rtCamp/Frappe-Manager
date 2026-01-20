@@ -150,7 +150,7 @@ install_apps() {
 
 		if [[ ! "$is_app_installed" -gt 0 ]]; then
 			echo "remove app ${app_name}"
-			(bench rm --no-backup --force "${app_name}" || exit 0)
+			(/usr/local/bin/bench rm --no-backup --force "${app_name}" || exit 0)
 			apps_json=$(echo "$apps_json" | jq -rc --arg app_name "${app_name}" 'del(.[] | select(. == $app_name))')
 		fi
 	done

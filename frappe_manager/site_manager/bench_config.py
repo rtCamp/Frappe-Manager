@@ -585,7 +585,7 @@ class BenchConfig(BaseModel):
     node_version: Optional[str] = Field(None, description="Node version requirement from frappe app (e.g., '>=18')")
 
     # Database name (randomized on creation to avoid conflicts)
-    db_name: str = Field(..., description="Database name for this bench (auto-generated random string)")
+    db_name: Optional[str] = Field(None, description="Database name for this bench (auto-generated random string)")
 
     def get_apps_config(self) -> List[AppConfig]:
         """

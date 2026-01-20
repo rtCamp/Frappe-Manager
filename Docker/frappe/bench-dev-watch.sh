@@ -10,7 +10,7 @@ cleanup() {
 
 trap cleanup SIGTERM
 
-bench watch &
+/usr/local/bin/bench watch &
 
 running_script_pid=$!
 wait $running_script_pid

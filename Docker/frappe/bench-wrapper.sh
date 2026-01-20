@@ -278,7 +278,7 @@ elif [[ "$@" =~ ^stop[[:space:]]* ]]; then
 
 elif [[ -z "$@" ]]; then
 	log_message "Running bench without arguments followed by help message"
-	bench "$@"
+	/usr/local/bin/bench "$@"
 	show_fm_helper_commands
 
 	exit $?
@@ -388,7 +388,7 @@ elif [[ "$@" =~ ^worker[[:space:]]* ]]; then
         export PYTHONUNBUFFERED=1
 
         echo \"\$PPID\" > /tmp/bench_wrapper.pid
-        exec bench $*" \
+        exec /usr/local/bin/bench $*" \
 		2>>"$RQ_LOG_FILE" &
 
 	# Capture the Process ID (PID) of the background command
@@ -431,5 +431,5 @@ elif [[ "$@" =~ ^worker[[:space:]]* ]]; then
 	exit $EXIT_STATUS
 else
 	log_message "Executing 'bench $@'"
-	exec bench "$@"
+	exec /usr/local/bin/bench "$@"
 fi

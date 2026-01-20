@@ -11,7 +11,7 @@ cleanup() {
 trap cleanup SIGTERM
 
 fuser -k 80/tcp
-bench serve --port 80 &
+/usr/local/bin/bench serve --port 80 &
 
 running_script_pid=$!
 wait $running_script_pid

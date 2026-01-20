@@ -29,7 +29,7 @@ else
 
 		if [ ! -f /opt/user/bench-dev-server.sh ]; then
 			echo "Configuring bench dev server to bind 0.0.0.0:80"
-			if bench serve --help 2>/dev/null | grep -q "\-\-host"; then
+			if /usr/local/bin/bench serve --help 2>/dev/null | grep -q "\-\-host"; then
 				sed 's/--port [0-9]\+/--host 0.0.0.0 --port 80/' /opt/user/bench-dev-server >/opt/user/bench-dev-server.sh
 			else
 				sed 's/--port [0-9]\+/--port 80/' /opt/user/bench-dev-server >/opt/user/bench-dev-server.sh
