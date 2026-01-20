@@ -1,4 +1,5 @@
 from collections import deque
+import sys
 
 import typer
 from rich.console import Console, Group
@@ -20,7 +21,11 @@ class DisplayManager:
         self.stderr = Console(stderr=True)
         self.previous_head = None
         self.current_head = None
-        self.spinner = Spinner(text=self.current_head, name="dots2", speed=1)
+
+        # Detect TTY for interactive features
+        self._is_tty = sys.stdin.isatty() and sys.stdout.isatty()
+
+        self.spinner = Spinner(text=Text(""), name="dots2", speed=1)
         # Use stderr for Live display so it coordinates with logging output
         self.live = Live(self.spinner, console=self.stderr, transient=True)
 
@@ -36,8 +41,12 @@ class DisplayManager:
         """
         self.current_head = self.previous_head = Text(text=text, style="bold blue")
         self.spinner = Spinner(text=self.current_head, name="dots2", speed=1)
-        self.live.start(refresh=True)
-        self.live.update(self.spinner, refresh=True)
+
+        if self._is_tty:
+            self.live.start(refresh=True)
+            self.live.update(self.spinner, refresh=True)
+        else:
+            self.stderr.print(f"⚙️  {text}")
 
     def error(self, text: str, exception: Exception | None = None, emoji_code: str = ":no_entry:"):
         """
@@ -123,18 +132,17 @@ class DisplayManager:
         Returns:
             None
         """
+        if not self._is_tty:
+            self.stderr.print(f"⚙️  {text}")
+            return
+
         self.previous_head = self.current_head
         self.current_head = text
         self.live.console.print(self.previous_head, style="blue")
         self.spinner.update(text=Text(self.current_head, style="blue bold"), style="bold blue")
 
     def prompt_ask(self, **args):
-        from InquirerPy import inquirer
-        from InquirerPy.utils import InquirerPyStyle
         import re
-
-        self.spinner.update()
-        self.live.stop()
 
         prompt = args.get('prompt', 'Enter value')
         choices = args.get('choices')
@@ -142,39 +150,70 @@ class DisplayManager:
 
         prompt_clean = re.sub(r'\[/?[a-z]+\]', '', prompt)
 
-        custom_style = InquirerPyStyle(
-            {
-                "questionmark": "#e5c07b",
-                "answered_question": "",
-                "answer": "#61afef bold",
-                "pointer": "#61afef bold",
-                "highlighted": "#61afef bold",
-                "selected": "#e5c07b",
-            }
-        )
+        if self._is_tty:
+            from InquirerPy import inquirer
+            from InquirerPy.utils import InquirerPyStyle
 
-        if choices:
-            value = inquirer.select(
-                message=prompt_clean,
-                choices=choices,
-                default=default,
-                vi_mode=True,
-                qmark='',
-                amark='',
-                style=custom_style,
-            ).execute()
+            self.spinner.update()
+            self.live.stop()
+
+            custom_style = InquirerPyStyle(
+                {
+                    "questionmark": "#e5c07b",
+                    "answered_question": "",
+                    "answer": "#61afef bold",
+                    "pointer": "#61afef bold",
+                    "highlighted": "#61afef bold",
+                    "selected": "#e5c07b",
+                }
+            )
+
+            if choices:
+                value = inquirer.select(
+                    message=prompt_clean,
+                    choices=choices,
+                    default=default,
+                    vi_mode=True,
+                    qmark='',
+                    amark='',
+                    style=custom_style,
+                ).execute()
+            else:
+                value = inquirer.text(
+                    message=prompt_clean,
+                    default=default or '',
+                    vi_mode=True,
+                    qmark='',
+                    amark='',
+                    style=custom_style,
+                ).execute()
+
+            self.start("Working")
+            return value
         else:
-            value = inquirer.text(
-                message=prompt_clean,
-                default=default or '',
-                vi_mode=True,
-                qmark='',
-                amark='',
-                style=custom_style,
-            ).execute()
+            if choices:
+                choices_str = "/".join(str(c) for c in choices)
+                prompt_full = f"{prompt_clean} [{choices_str}]"
+                if default:
+                    prompt_full += f" (default: {default})"
+                prompt_full += ": "
 
-        self.start("Working")
-        return value
+                value = input(prompt_full).strip()
+                if not value and default:
+                    return default
+
+                if value not in choices:
+                    self.stderr.print(f"⚠️  Invalid choice '{value}', using default: {default}")
+                    return default or choices[0]
+                return value
+            else:
+                prompt_full = prompt_clean
+                if default:
+                    prompt_full += f" (default: {default})"
+                prompt_full += ": "
+
+                value = input(prompt_full).strip()
+                return value if value else (default or "")
 
     def change_head(self, text: str, style: str | None = "blue bold"):
         """
@@ -186,6 +225,10 @@ class DisplayManager:
         Returns:
             None
         """
+        if not self._is_tty:
+            self.stderr.print(f"⚙️  {text}")
+            return
+
         self.previous_head = self.current_head
         self.current_head = text
         if style:
@@ -202,6 +245,9 @@ class DisplayManager:
             renderable: The object to be rendered on the live display.
             padding: The padding values for the renderable object (top, right, bottom, left).
         """
+        if not self._is_tty:
+            return
+
         if renderable:
             if padding:
                 renderable = Padding(renderable, padding)
@@ -235,6 +281,28 @@ class DisplayManager:
             log_prefix: The prefix to add to each displayed line. Default is "=>".
             return_exit_code: Whether to return the exit code when stop_string is found. Default is False.
         """
+        if not self._is_tty:
+            while True:
+                try:
+                    source, line = next(data)
+                    line = line.decode()
+
+                    if "[==".lower() in line.lower() or "Updating files:".lower() in line.lower():
+                        continue
+
+                    should_print = (source == "stdout" and stdout) or (source == "stderr" and stderr)
+                    if should_print:
+                        self.stderr.print(f"{log_prefix} {line.rstrip()}")
+
+                    if stop_string and stop_string.lower() in line.lower():
+                        break
+
+                except KeyboardInterrupt:
+                    break
+                except StopIteration:
+                    break
+            return
+
         max_height = lines
         displayed_lines = deque(maxlen=max_height)
 
@@ -276,9 +344,10 @@ class DisplayManager:
                 break
 
     def stop(self):
-        self.spinner.update()
-        self.live.update(Text("", end=""))
-        self.live.stop()
+        if self._is_tty:
+            self.spinner.update()
+            self.live.update(Text("", end=""))
+            self.live.stop()
 
 
 richprint = DisplayManager()
