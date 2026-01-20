@@ -351,6 +351,12 @@ function configure_workspace() {
 		chown -R frappe:frappe /workspace/.fnm
 	fi
 
+	# Create .hushlogin to suppress sudo message
+	if [[ ! -f "/workspace/.hushlogin" ]]; then
+		touch /workspace/.hushlogin
+		chown frappe:frappe /workspace/.hushlogin
+	fi
+
 	chown -R "$USERID":"$USERGROUP" /opt
 
 	end_time=$(date +%s.%N)
