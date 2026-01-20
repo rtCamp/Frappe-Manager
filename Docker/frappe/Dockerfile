@@ -73,8 +73,8 @@ RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
 FROM base AS tooling
 
 ARG FNM_VERSION='1.38.1'
-ARG DEFAULT_PYTHON_VERSION='3.12.0'
-ARG DEFAULT_NODE_VERSION='22.18.0'
+ARG DEFAULT_PYTHON_VERSION='3.14.2'
+ARG DEFAULT_NODE_VERSION='24.11.0'
 SHELL ["/bin/bash", "-c"]
 
 ENV FNM_VERSION=${FNM_VERSION}
@@ -99,12 +99,12 @@ RUN mkdir -p /opt/user/conf.d && chown -R frappe:frappe /opt/user
 USER frappe
 WORKDIR /opt
 RUN touch /opt/user/.profile
-ENV ZSH=/workspace/.oh-my-zsh
+ENV ZSH=/opt/user/.oh-my-zsh
 ENV DISABLE_UPDATE_PROMPT=true
 RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
 RUN unset ZSH
 COPY --chown=frappe:frappe ./zshrc /opt/user/.zshrc
-COPY --chown=frappe:frappe ./fm.zsh-theme /workspace/.oh-my-zsh/custom/themes/fm.zsh-theme
+COPY --chown=frappe:frappe ./fm.zsh-theme /opt/user/.oh-my-zsh/custom/themes/fm.zsh-theme
 COPY --chown=frappe:frappe ./fmx /opt/user/fmx
 RUN mkdir -p /workspace
 

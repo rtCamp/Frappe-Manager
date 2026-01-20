@@ -86,9 +86,9 @@ class SiteServicesEnum(str, Enum):
 
 
 STABLE_APP_BRANCH_MAPPING_LIST = {
-    "frappe": "version-15",
-    "erpnext": "version-15",
-    "hrms": "version-15",
+    "frappe": "version-16",
+    "erpnext": "version-16",
+    "hrms": "version-16",
 }
 
 
