@@ -2,27 +2,31 @@
   "create": {
     "examples": [
       {
-        "desc": "Install Frappe with the stable {default_version} branch.",
+        "desc": "Create bench with frappe only",
         "code": ""
       },
       {
-        "desc": "Install Frappe with the develop branch.",
-        "code": " --frappe-branch develop"
-      },
-      {
-        "desc": "Install Frappe, ERPNext, and HRMS with the stable {default_version} branch.",
+        "desc": "Create bench with erpnext and hrms",
         "code": " --apps erpnext --apps hrms"
       },
       {
-        "desc": "Install Frappe[{default_version}], ERPNext[{default_version}], and HRMS[develop].",
-        "code": " --apps erpnext --apps hrms:develop"
-      },
-      {
-        "desc": "Use Frappe production mode based bench.",
+        "desc": "Create production bench",
         "code": " -e prod"
       },
       {
-        "desc": "Create site with alias domains.",
+        "desc": "Create bench with specific branch",
+        "code": " --apps erpnext:version-14"
+      },
+      {
+        "desc": "Create bench with private app",
+        "code": " --apps myorg/private-app --github-token ghp_xxx"
+      },
+      {
+        "desc": "Create bench with custom Python/Node versions",
+        "code": " --python 3.11 --node 20"
+      },
+      {
+        "desc": "Create bench with alias domains",
         "code": " --alias-domains www.example.com,api.example.com"
       }
     ]
@@ -30,15 +34,23 @@
   "delete": {
     "examples": [
       {
-        "desc": "Delete bench {benchname}",
+        "desc": "Delete bench",
         "code": ""
+      },
+      {
+        "desc": "Force delete without confirmation",
+        "code": " --force"
+      },
+      {
+        "desc": "Delete bench and its database from global-db",
+        "code": " --delete-db-from-global-db"
       }
     ]
   },
   "stop": {
     "examples": [
       {
-        "desc": "Stop bench {benchname}",
+        "desc": "Stop bench containers",
         "code": ""
       }
     ]
@@ -46,7 +58,7 @@
   "info": {
     "examples": [
       {
-        "desc": "Show information about bench {benchname}",
+        "desc": "Show bench details and configuration",
         "code": ""
       }
     ]
@@ -62,23 +74,23 @@
   "code": {
     "examples": [
       {
-        "desc": "Open the bench {benchname} in VSCode",
+        "desc": "Open bench in VSCode",
         "code": ""
       },
       {
-        "desc": "Open the bench {benchname} with force start",
-        "code": " -f"
-      },
-      {
-        "desc": "Add custom extension other than default available",
-        "code": " -e vscodevim.vim"
-      },
-      {
-        "desc": "Sync vscode frapep debugger configuration",
+        "desc": "Open bench with debugger config",
         "code": " -d"
       },
       {
-        "desc": "Use different workdir in vscode",
+        "desc": "Force start bench before opening",
+        "code": " -f"
+      },
+      {
+        "desc": "Add custom VSCode extension",
+        "code": " -e vscodevim.vim"
+      },
+      {
+        "desc": "Open with custom working directory",
         "code": " -w /workspace"
       }
     ]
@@ -86,108 +98,116 @@
   "logs": {
     "examples": [
       {
-        "desc": "Show logs of Frappe server",
+        "desc": "Show frappe server logs",
         "code": ""
       },
       {
-        "desc": "Show logs of Frappe server and follow",
-        "code": " --follow"
+        "desc": "Follow logs in real-time",
+        "code": " -f"
       },
       {
-        "desc": "Show logs of NGINX container and follow",
-        "code": " --service nginx --follow"
+        "desc": "Show nginx container logs",
+        "code": " --service nginx -f"
+      },
+      {
+        "desc": "Show redis logs",
+        "code": " --service redis-cache"
       }
     ]
   },
   "shell": {
     "examples": [
       {
-        "desc": "Spawn shell for bench {benchname}, user - 'frappe', service - 'frappe'",
+        "desc": "Open interactive shell as frappe user",
         "code": ""
       },
       {
-        "desc": "Spawn shell for bench {benchname}, user - 'root', service - 'frappe'",
+        "desc": "Open shell as root user",
         "code": " --user root"
       },
       {
-        "desc": "Spawn shell for bench {benchname}, user - 'root', service - 'nginx'",
+        "desc": "Execute single command",
+        "code": " -c \"bench --version\""
+      },
+      {
+        "desc": "Open shell in nginx container",
         "code": " --service nginx --user nginx"
+      },
+      {
+        "desc": "Run command with passthrough syntax",
+        "code": " -- bench migrate"
       }
     ]
   },
   "start": {
     "examples": [
       {
-        "desc": "Start bench {benchname}",
+        "desc": "Start bench containers",
         "code": ""
       },
       {
-        "desc": "Force recreate bench containers",
+        "desc": "Force recreate containers",
         "code": " --force"
       },
       {
-        "desc": "Sync bench configuration changes",
+        "desc": "Start and sync config changes",
         "code": " --sync-config"
       },
       {
-        "desc": "Reconfigure supervisor configuration",
-        "code": " --reconfigure-supervisor"
-      },
-      {
-        "desc": "Reconfigure common_site_config.json",
-        "code": " --reconfigure-common-site-config"
-      },
-      {
-        "desc": "Reconfigure workers configuration",
+        "desc": "Start and reconfigure workers",
         "code": " --reconfigure-workers"
       },
       {
-        "desc": "Sync dev packages",
-        "code": " --sync-dev-packages"
+        "desc": "Start with supervisor reconfiguration",
+        "code": " --reconfigure-supervisor"
       },
       {
-        "desc": "Start with multiple configurations",
-        "code": " --force --sync-config --reconfigure-workers"
+        "desc": "Start and sync dev packages",
+        "code": " --sync-dev-packages"
       }
     ]
   },
   "update": {
     "examples": [
       {
-        "desc": "Toggle admin-tools enable.",
+        "desc": "Enable admin tools (Mailpit, Adminer, Redis Dashboard)",
         "code": " --admin-tools enable"
       },
       {
-        "desc": "Toggle admin-tools disable.",
+        "desc": "Disable admin tools",
         "code": " --admin-tools disable"
       },
       {
-        "desc": "Switch to frappe production environment.",
+        "desc": "Switch to production environment",
         "code": " -e prod"
       },
       {
-        "desc": "Switch to frappe development environment.",
-        "code": " --environment dev"
+        "desc": "Switch to development environment",
+        "code": " -e dev"
       },
       {
-        "desc": "Enable frappe developer mode.",
+        "desc": "Enable developer mode",
         "code": " --developer-mode enable"
       },
       {
-        "desc": "Disable frappe developer mode.",
-        "code": " --developer-mode disable"
-      },
-      {
-        "desc": "Add alias domains to existing site.",
+        "desc": "Add alias domains",
         "code": " --add-alias www.example.com,api.example.com"
       },
       {
-        "desc": "Remove alias domain from site.",
+        "desc": "Remove alias domains",
         "code": " --remove-alias shop.example.com"
       },
       {
-        "desc": "Add and remove aliases in single command.",
-        "code": " --add-alias new.example.com --remove-alias old.example.com"
+        "desc": "Update Python version",
+        "code": " --python 3.11"
+      },
+      {
+        "desc": "Update Node version",
+        "code": " --node 20"
+      },
+      {
+        "desc": "Set upload size limit",
+        "code": " --upload-limit 100M"
       }
     ]
   },
@@ -332,20 +352,60 @@
   "reset": {
     "examples": [
       {
-        "desc": "Reset bench {benchname}",
+        "desc": "Drop database and reinstall all apps",
         "code": ""
+      },
+      {
+        "desc": "Reset with custom admin password",
+        "code": " --admin-pass newpassword"
       }
     ]
   },
   "restart": {
     "examples": [
       {
-        "desc": "Restart web services only",
-        "code": "--web"
+        "desc": "Restart web and workers (default)",
+        "code": ""
       },
       {
-        "desc": "Restart workers and web services",
-        "code": "--web --workers"
+        "desc": "Restart via container restart",
+        "code": " --container"
+      },
+      {
+        "desc": "Restart via supervisor (faster)",
+        "code": " --supervisor"
+      },
+      {
+        "desc": "Restart web services only",
+        "code": " --web --no-workers"
+      },
+      {
+        "desc": "Restart workers only",
+        "code": " --workers --no-web"
+      },
+      {
+        "desc": "Force restart (immediate kill)",
+        "code": " --force"
+      },
+      {
+        "desc": "Restart redis services",
+        "code": " --redis"
+      },
+      {
+        "desc": "Restart nginx service",
+        "code": " --nginx"
+      }
+    ]
+  },
+  "ngrok": {
+    "examples": [
+      {
+        "desc": "Create ngrok tunnel for bench",
+        "code": " --auth-token YOUR_TOKEN"
+      },
+      {
+        "desc": "Use saved auth token from config",
+        "code": ""
       }
     ]
   }

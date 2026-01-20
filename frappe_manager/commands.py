@@ -101,18 +101,10 @@ def app_callback(
     ] = None,
 ):
     """
-    Frappe-Manager for creating frappe development environments.
+    Docker Compose based CLI for managing Frappe benches.
 
-    Verbosity options:
-        -v: Info level (show detailed messages)
-        -vv: Debug level (show all messages including debug)
-        --log-level: Explicit log level (overrides -v)
-
-    Examples:
-        fm create test              # WARNING level (default)
-        fm create test -v           # INFO level
-        fm create test -vv          # DEBUG level
-        fm create test --log-level debug  # DEBUG level (explicit)
+    Create, manage, and develop isolated Frappe environments using containers.
+    Each bench runs independently with its own apps, database, and configuration.
     """
     ctx.obj = {}
 
@@ -225,32 +217,32 @@ def app_callback(
 @app.command(no_args_is_help=True)
 def create(
     ctx: typer.Context,
-    benchname: Annotated[str, typer.Argument(help="Name of the bench", callback=create_command_sitename_callback)],
+    benchname: Annotated[str, typer.Argument(help="Bench name")],
     apps: Annotated[
         List[str],
         typer.Option(
             "--apps",
             "-a",
-            help="FrappeVerse apps to install. App should be specified in format <appname>:<branch> or <appname>.",
+            help="Apps to install. Format: appname:branch or appname (e.g., erpnext:version-15)",
             callback=apps_list_validation_callback,
             show_default=False,
         ),
     ] = [],
     environment: Annotated[
-        FMBenchEnvType, typer.Option("--environment", "-e", help="Select bench environment type.")
+        FMBenchEnvType, typer.Option("--environment", "-e", help="Environment type (dev or prod)")
     ] = FMBenchEnvType.dev,
     developer_mode: Annotated[
-        EnableDisableOptionsEnum, typer.Option(help="Toggle frappe developer mode.")
+        EnableDisableOptionsEnum, typer.Option(help="Enable/disable developer mode")
     ] = EnableDisableOptionsEnum.disable,
-    template: Annotated[bool, typer.Option(help="Create template bench.")] = False,
+    template: Annotated[bool, typer.Option(help="Create as template bench")] = False,
     admin_pass: Annotated[
         str,
-        typer.Option(help="Password for the 'Administrator' User."),
+        typer.Option(help="Administrator password"),
     ] = "admin",
     alias_domains: Annotated[
         Optional[str],
         typer.Option(
-            help="Comma-separated list of alias domains for the site (e.g., 'www.example.com,api.example.com'). These domains will be configured as network aliases for accessing the site. Use 'fm ssl add' to configure SSL certificates for domains.",
+            help="Alias domains (comma-separated). Use 'fm ssl add' for SSL.",
             callback=alias_domains_validation_callback,
             show_default=False,
         ),
@@ -260,7 +252,7 @@ def create(
         typer.Option(
             "--github-token",
             "-t",
-            help="GitHub personal access token for private repositories. Can also be set via GITHUB_TOKEN environment variable.",
+            help="GitHub token for private repos (or use GITHUB_TOKEN env var)",
             envvar="GITHUB_TOKEN",
             show_default=False,
         ),
@@ -269,7 +261,7 @@ def create(
         Optional[str],
         typer.Option(
             "--python",
-            help="Override Python version (e.g., '3.11', '3.10'). By default, auto-detected from frappe app's pyproject.toml.",
+            help="Python version (e.g., '3.11'). Auto-detected by default.",
             show_default=False,
         ),
     ] = None,
@@ -277,28 +269,20 @@ def create(
         Optional[str],
         typer.Option(
             "--node",
-            help="Override Node version (e.g., '18', '20'). By default, auto-detected from frappe app's package.json.",
+            help="Node version (e.g., '18', '20'). Auto-detected by default.",
             show_default=False,
         ),
     ] = None,
 ):
     """
-    Create a new bench.
+    Create a new bench with apps.
 
     Examples:
 
-        # Create bench with public apps
-        fm create mybench.localhost --apps erpnext:version-15 --apps hrms:version-15
-
-        # Create bench with private apps (using environment variable)
-        export GITHUB_TOKEN=ghp_xxxxxxxxxxxxx
-        fm create mybench.localhost --apps mycompany/private-app:main
-
-        # Create bench with private apps (using CLI option)
-        fm create mybench.localhost --apps mycompany/private-app:main --github-token ghp_xxxxxxxxxxxxx
-
-        # Create bench with subdirectory app (monorepo)
-        fm create mybench.localhost --apps frappe/frappe:version-15#apps/frappe
+        fm create mybench
+        fm create mybench --apps erpnext:version-15 --apps hrms
+        fm create mybench --environment prod
+        fm create mybench --apps myorg/private-app:main --github-token ghp_xxx
     """
 
     services_manager: ServicesManager = ctx.obj["services"]
@@ -384,16 +368,24 @@ def delete(
             help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
         ),
     ] = None,
-    force: Annotated[bool, typer.Option("--force", "-f", help="Force delete bench.")] = False,
+    force: Annotated[bool, typer.Option("--force", "-f", help="Skip confirmation prompts")] = False,
     delete_db_from_global_db: Annotated[
         Optional[bool],
         typer.Option(
             "--delete-db-from-global-db/--no-delete-db-from-global-db",
-            help="Delete database from global-db. If not specified, prompts interactively when DB is in global-db.",
+            help="Delete database from global-db service",
         ),
     ] = None,
 ):
-    """Delete a bench."""
+    """
+    Delete a bench.
+
+    Examples:
+
+        fm delete mybench
+        fm delete mybench --force
+        fm delete mybench --delete-db-from-global-db
+    """
 
     if benchname:
         services_manager = ctx.obj["services"]
@@ -408,7 +400,13 @@ def delete(
 
 @app.command()
 def list(ctx: typer.Context):
-    """Lists all of the available benches."""
+    """
+    List all benches.
+
+    Examples:
+
+        fm list
+    """
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
@@ -431,24 +429,28 @@ def start(
             help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
         ),
     ] = None,
-    force: Annotated[bool, typer.Option("--force", "-f", help="Force recreate bench containers")] = False,
-    sync_bench_config_changes: Annotated[
-        bool, typer.Option("--sync-config", help="Sync bench configuration changes")
-    ] = False,
+    force: Annotated[bool, typer.Option("--force", "-f", help="Recreate containers")] = False,
+    sync_bench_config_changes: Annotated[bool, typer.Option("--sync-config", help="Sync config changes")] = False,
     reconfigure_supervisor: Annotated[
-        bool, typer.Option("--reconfigure-supervisor", help="Reconfigure supervisord configuration")
+        bool, typer.Option("--reconfigure-supervisor", help="Reconfigure supervisor")
     ] = False,
     reconfigure_common_site_config: Annotated[
-        bool, typer.Option("--reconfigure-common-site-config", help="Reconfigure common_site_config.json")
+        bool, typer.Option("--reconfigure-common-site-config", help="Reconfigure site config")
     ] = False,
-    reconfigure_workers: Annotated[
-        bool, typer.Option("--reconfigure-workers", help="Reconfigure workers configuration")
-    ] = False,
-    include_default_workers: Annotated[bool, typer.Option(help="Include default worker configuration")] = True,
-    include_custom_workers: Annotated[bool, typer.Option(help="Include custom worker configuration")] = True,
+    reconfigure_workers: Annotated[bool, typer.Option("--reconfigure-workers", help="Reconfigure workers")] = False,
+    include_default_workers: Annotated[bool, typer.Option(help="Include default workers")] = True,
+    include_custom_workers: Annotated[bool, typer.Option(help="Include custom workers")] = True,
     sync_dev_packages: Annotated[bool, typer.Option("--sync-dev-packages", help="Sync dev packages")] = False,
 ):
-    """Start a bench."""
+    """
+    Start a bench.
+
+    Examples:
+
+        fm start mybench
+        fm start mybench --force
+        fm start mybench --sync-config
+    """
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
@@ -501,23 +503,21 @@ def code(
             help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
         ),
     ] = None,
-    user: Annotated[str, typer.Option(help="Connect as this user.")] = "frappe",
+    user: Annotated[str, typer.Option(help="User to connect as")] = "frappe",
     extensions: Annotated[
         List[str],
         typer.Option(
             "--extension",
             "-e",
-            help="List of extensions to install in vscode at startup.Provide extension id eg: ms-python.python",
+            help="VSCode extensions to install (e.g., ms-python.python)",
             callback=code_command_extensions_callback,
             show_default=False,
         ),
     ] = DEFAULT_EXTENSIONS,
-    force_start: Annotated[
-        bool, typer.Option("--force-start", "-f", help="Force start the site before attaching to container.")
-    ] = False,
-    debugger: Annotated[bool, typer.Option("--debugger", "-d", help="Sync vscode debugger configuration.")] = False,
+    force_start: Annotated[bool, typer.Option("--force-start", "-f", help="Start bench before opening VSCode")] = False,
+    debugger: Annotated[bool, typer.Option("--debugger", "-d", help="Setup debugger config")] = False,
     workdir: Annotated[
-        str, typer.Option("--work-dir", "-w", help="Set working directory in vscode.")
+        str, typer.Option("--work-dir", "-w", help="Working directory in VSCode")
     ] = '/workspace/frappe-bench',
 ):
     """Open bench in vscode."""
@@ -545,10 +545,10 @@ def logs(
             help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
         ),
     ] = None,
-    service: Annotated[Optional[str], typer.Option(help="Specify compose service name to show container logs.")] = None,
-    follow: Annotated[bool, typer.Option("--follow", "-f", help="Follow logs.")] = False,
+    service: Annotated[Optional[str], typer.Option(help="Service name (frappe, nginx, redis-cache, etc.)")] = None,
+    follow: Annotated[bool, typer.Option("--follow", "-f", help="Follow logs in real-time")] = False,
 ):
-    """Show frappe server logs or container logs for a given bench."""
+    """Show bench logs (server or container)"""
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
@@ -577,15 +577,11 @@ def shell(
             help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
         ),
     ] = None,
-    command: Annotated[
-        Optional[str], typer.Option("-c", "--command", help="Execute a single command and exit.")
-    ] = None,
-    user: Annotated[Optional[str], typer.Option(help="Connect as this user.", show_default=False)] = None,
-    service: Annotated[str, typer.Option(help="Specify compose service name for which to spawn shell.")] = "frappe",
-    shell_path: Annotated[
-        Optional[str], typer.Option(help="Path to shell executable (e.g., /bin/sh, /bin/bash).")
-    ] = None,
-    run: Annotated[bool, typer.Option(help="Use 'docker compose run --rm' instead of 'docker compose exec'.")] = False,
+    command: Annotated[Optional[str], typer.Option("-c", "--command", help="Execute command and exit")] = None,
+    user: Annotated[Optional[str], typer.Option(help="User to connect as", show_default=False)] = None,
+    service: Annotated[str, typer.Option(help="Service to connect to")] = "frappe",
+    shell_path: Annotated[Optional[str], typer.Option(help="Shell path (e.g., /bin/bash, /bin/sh)")] = None,
+    run: Annotated[bool, typer.Option(help="Use 'docker compose run --rm'")] = False,
 ):
     """
     Spawn shell for the bench or execute a command.
@@ -654,7 +650,7 @@ def info(
         ),
     ] = None,
 ):
-    """Shows information about given bench."""
+    """Show bench information and configuration"""
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
@@ -744,7 +740,7 @@ def update(
         ),
     ] = False,
 ):
-    """Update bench."""
+    """Update bench configuration and settings"""
 
     services_manager = ctx.obj["services"]
 
@@ -926,7 +922,7 @@ def reset(
         typer.Option(help="Password for the 'Administrator' User."),
     ] = None,
 ):
-    """Reset bench site and reinstall all installed apps."""
+    """Drop database and reinstall all apps"""
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
@@ -985,7 +981,7 @@ def restart(
         ),
     ] = False,
 ):
-    """Restart bench services."""
+    """Restart bench services (web, workers, redis, nginx)"""
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
@@ -1031,7 +1027,7 @@ def ngrok(
         typer.Option("--auth-token", "-t", help="Ngrok authentication token", envvar="NGROK_AUTHTOKEN"),
     ] = None,
 ):
-    """Create ngrok tunnel for the bench."""
+    """Create ngrok tunnel for bench"""
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
 
