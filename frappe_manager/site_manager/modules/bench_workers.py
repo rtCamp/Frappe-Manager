@@ -319,7 +319,6 @@ class BenchWorkerCoordinator:
     def ensure_workers_running_if_available(self):
         """Ensure workers are running if compose file exists and bench is running."""
         if self.workers.compose_file_manager.exists():
-            # Check if workers are running
             services = self.workers.compose_file_manager.get_services_list()
             containers = self.workers.compose_file_manager.get_container_names().values()
             try:

@@ -94,7 +94,6 @@ class BenchAppManager:
         self.output = output_handler or RichOutputHandler()
         self.logger = log.get_logger()
 
-        # Derived paths and commands
         self.frappe_bench_dir: Path = bench_path / "workspace" / "frappe-bench"
         self.bench_cli_cmd = ['/usr/local/bin/bench']
 

@@ -71,7 +71,6 @@ class MigrationV0170(MigrationBase):
             if 'mail_server' in config_data:
                 config_data['mail_server'] = f"{get_container_name_prefix(bench.name)}__mailpit"
 
-            # Update the existing redis configuration
             config_data.update(common_site_config_data)
 
             with open(common_site_config_json, 'w') as f:
@@ -252,7 +251,6 @@ class MigrationV0170(MigrationBase):
                 username = 'admin'
                 password = secrets.token_urlsafe(16)
 
-                # Get current bench config and add admin tools credentials
                 bench_config_path = bench.path / 'bench_config.toml'
                 if bench_config_path.exists():
                     import tomlkit

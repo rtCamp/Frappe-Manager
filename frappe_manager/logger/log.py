@@ -71,7 +71,6 @@ class ConsoleLogFilter(logging.Filter):
             record.args = ()
             return True
 
-        # Handle COMMAND: lines - simplify docker compose commands
         if msg.startswith("COMMAND:"):
             simplified = self._simplify_command(msg)
             record.msg = f"[dim]{simplified}[/dim]"
@@ -165,18 +164,12 @@ def _add_console_handler(logger: logging.Logger, console_level: str) -> None:
         logger: The logger instance to add the handler to
         console_level: The logging level name (DEBUG, INFO, WARNING, ERROR)
     """
-    # Remove any existing RichHandler first
     for handler in logger.handlers[:]:
         if isinstance(handler, RichHandler):
             logger.removeHandler(handler)
 
-    # Get the rich console instances from richprint
-    # Using stderr console ensures logs go to stderr (standard practice: stdout for user output, stderr for diagnostics)
-    # However, we need to coordinate with Live display which uses stdout console
     from frappe_manager.display_manager.DisplayManager import richprint
 
-    # Create and add new RichHandler using richprint's stderr console
-    # This ensures proper coordination with Live display while keeping stderr separation
     console_handler = RichHandler(
         level=getattr(logging, console_level),
         rich_tracebacks=True,
@@ -189,7 +182,6 @@ def _add_console_handler(logger: logging.Logger, console_level: str) -> None:
     )
     console_handler.setFormatter(logging.Formatter("%(message)s"))
 
-    # Add filter to clean up console output for better readability
     console_handler.addFilter(ConsoleLogFilter())
 
     logger.addHandler(console_handler)

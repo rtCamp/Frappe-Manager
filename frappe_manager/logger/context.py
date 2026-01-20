@@ -92,7 +92,6 @@ class LoggerContext:
         if self.component:
             parts.append(f"component={self.component}")
         
-        # Add extra fields
         for key, value in self.extra.items():
             if value is not None:  # Skip None values
                 parts.append(f"{key}={value}")

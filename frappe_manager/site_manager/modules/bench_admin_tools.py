@@ -43,10 +43,8 @@ class BenchAdminTools:
         self.quiet = not verbose
         self.output = output_handler or RichOutputHandler()
 
-        # Create ComposeFile manager for admin-tools compose file
         self.compose_file_manager = ComposeFile(self.compose_path, template_name='docker-compose.admin-tools.tmpl')
 
-        # Create DockerClient with admin-tools compose file
         self.docker_client = DockerClient(compose_file_path=self.compose_path)
 
         self.nginx_proxy = nginx_proxy

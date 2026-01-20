@@ -432,7 +432,6 @@ class AppConfig(BaseModel):
 
         branch = app_dict.get("branch")
 
-        # Build app string (app_name is guaranteed to be str at this point)
         if branch:
             app_string: str = f"{app_name}:{branch}"
         else:
@@ -811,7 +810,6 @@ class BenchConfig(BaseModel):
         return common_site_config_data
 
     def export_to_compose_inputs(self):
-        # Build domains list: primary domain + alias domains
         all_domains = [self.name]
         if self.alias_domains:
             all_domains.extend(self.alias_domains)

@@ -58,7 +58,6 @@ def docker_command(
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(self, *args, **kwargs):
-            # Get bound arguments with defaults applied
             sig = inspect.signature(func)
             bound = sig.bind(self, *args, **kwargs)
             bound.apply_defaults()
@@ -66,10 +65,8 @@ def docker_command(
             parameters = dict(bound.arguments)
             stream = parameters.get('stream', False)
             
-            # Build command starting with subcommand
             cmd: list = [subcommand]
             
-            # Add positional parameters first
             for param_name in positional_params:
                 if param_name in parameters:
                     param_value = parameters[param_name]

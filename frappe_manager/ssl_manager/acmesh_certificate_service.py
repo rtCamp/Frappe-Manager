@@ -74,7 +74,6 @@ class AcmeShCertificateService:
 
         Uses class-level caching to avoid repeated installation checks.
         """
-        # Check class-level cache first
         if AcmeShCertificateService._acmesh_installed and self.acmesh_bin.exists():
             return
 
@@ -122,7 +121,6 @@ class AcmeShCertificateService:
         cmd = [str(self.acmesh_bin)] + args
         self.output.debug(f"Running acme.sh: {' '.join(args)}")
 
-        # Build environment
         command_env = os.environ.copy()
         command_env["LE_WORKING_DIR"] = str(self.acmesh_home)
 
@@ -212,7 +210,6 @@ class AcmeShCertificateService:
         """
         self.output.change_head(f"Generating SSL certificate for {certificate.domain}")
 
-        # Check for staging environment variable
         use_staging = os.getenv("FM_LETSENCRYPT_STAGING", "").lower() in ("1", "true", "yes")
         if use_staging:
             self.output.print("[yellow]⚠️  Using Let's Encrypt STAGING server (test certificates)[/yellow]")
@@ -226,7 +223,6 @@ class AcmeShCertificateService:
             "--force",  # Force issuance even if certificate exists
         ]
 
-        # Add staging flag if enabled
         if use_staging:
             args.append("--staging")
 
@@ -238,7 +234,6 @@ class AcmeShCertificateService:
 
         env = {}
 
-        # Handle challenge type
         if certificate.challenge_type.value == "http01":
             self.output.info(f"Using HTTP-01 challenge with webroot: {self.webroot_dir}")
             args.extend(["-w", str(self.webroot_dir)])
@@ -246,7 +241,6 @@ class AcmeShCertificateService:
         elif certificate.challenge_type.value == "dns01":
             self.output.info("Using DNS-01 challenge with Cloudflare")
 
-            # Get DNS credentials from ssl_utils
             from frappe_manager.ssl_manager.ssl_utils import get_dns_credentials_for_certificate
 
             try:
@@ -257,7 +251,6 @@ class AcmeShCertificateService:
                 self.output.display_error(f"Failed to get DNS credentials: {e}")
                 raise
 
-            # Handle challenge alias for delegated validation
             if isinstance(certificate, CustomDomainCertificate) and certificate.delegation_cname:
                 self.output.info(f"Using challenge alias: {certificate.delegation_cname}")
                 args.extend(["--dns", "dns_cf", "--challenge-alias", certificate.delegation_cname])

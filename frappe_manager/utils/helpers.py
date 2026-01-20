@@ -348,11 +348,9 @@ def create_symlink(source: Path, dest: Path):
 
     # Convert the source and destination to Path objects
 
-    # Remove the destination symlink/file/directory if it already exists
     if dest.exists() or dest.is_symlink():
         dest.unlink()
 
-    # Create a symlink at the destination pointing to the source
     dest.symlink_to(source)
 
 
@@ -378,7 +376,6 @@ def get_frappe_manager_own_files(file_path: str):
 def rich_object_to_string(obj) -> str:
     """Convert a rich Traceback object to a string."""
 
-    # Initialize a 'fake' console with StringIO to capture output
     capture_buffer = StringIO()
 
     fake_console = Console(force_terminal=False, file=capture_buffer)
@@ -392,9 +389,8 @@ def rich_object_to_string(obj) -> str:
 def capture_and_format_exception(traceback_max_frames: int = 100) -> str:
     """Capture the current exception and return a formatted traceback string."""
 
-    exc_type, exc_value, exc_traceback = sys.exc_info()  # Capture current exception info
-    # Create a Traceback object with rich formatting
-    #
+    exc_type, exc_value, exc_traceback = sys.exc_info()
+
     traceback = Traceback.from_exception(
         exc_type, exc_value, exc_traceback, show_locals=True, max_frames=traceback_max_frames
     )

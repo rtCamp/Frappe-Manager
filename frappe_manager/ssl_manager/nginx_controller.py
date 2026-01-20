@@ -53,7 +53,6 @@ class NginxController:
         """
         self.output.change_head("Reloading nginx")
 
-        # Check if service is running
         services = self.compose_file_manager.get_services_list()
         containers = self.compose_file_manager.get_container_names().values()
         all_statuses = self.docker_client.compose.get_all_services_status()
@@ -75,7 +74,6 @@ class NginxController:
         """
         self.output.change_head("Restarting nginx")
 
-        # Check if service is running
         services = self.compose_file_manager.get_services_list()
         containers = self.compose_file_manager.get_container_names().values()
         all_statuses = self.docker_client.compose.get_all_services_status()

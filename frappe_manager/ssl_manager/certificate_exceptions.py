@@ -48,6 +48,8 @@ class SSLCertificateGenerateFailed(Exception):
 
 
 class SSLCertificateNotDueForRenewalError(Exception):
+    """Exception raised when attempting to renew a certificate that is not due for renewal."""
+
     def __init__(
         self,
         domain,

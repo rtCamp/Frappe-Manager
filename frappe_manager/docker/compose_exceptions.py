@@ -2,6 +2,8 @@ from typing import Optional
 
 
 class ComposeFileException(Exception):
+    """Exception raised for Docker Compose file errors."""
+
     def __init__(self, error_msg: str, exception: Optional[Exception] = None):
         error_msg = f"{error_msg}"
         if exception:
@@ -10,6 +12,8 @@ class ComposeFileException(Exception):
 
 
 class ComposeServiceNotFound(Exception):
+    """Exception raised when a Docker Compose service is not found."""
+
     def __init__(self, service_name: str, message: str = 'Compose service not found.') -> None:
         self.msg = service_name + ' ' + message
         super().__init__(self.msg)

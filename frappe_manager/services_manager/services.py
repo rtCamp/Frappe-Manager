@@ -81,7 +81,6 @@ class ServicesManager:
 
         if start:
             if not self.invoked_subcommand == "service":
-                # Check if services are running
                 services = self.compose_file_manager.get_services_list()
                 containers = self.compose_file_manager.get_container_names().values()
                 all_statuses = self.docker_client.compose.get_all_services_status()
@@ -118,7 +117,6 @@ class ServicesManager:
         self.compose_file_manager = ComposeFile(self.compose_path, template_name=template_name)
         self.docker_client = DockerClient(compose_file_path=self.compose_path)
 
-        # Initialize nginx-proxy components
         self.proxy_storage = ProxyStoragePaths("global-nginx-proxy", self.compose_file_manager)
         self.nginx_controller = NginxController("global-nginx-proxy", self.compose_file_manager, self.docker_client)
 
@@ -335,7 +333,6 @@ class ServicesManager:
     def are_ports_free(self):
         ports = [80, 443]
         self.output.change_head(f"Verifying ports {', '.join(map(str, ports))} availability.")
-        # Get host port bindings from compose file
         docker_used_ports = []
         services = self.compose_file_manager.get_services_list()
         for service in services:

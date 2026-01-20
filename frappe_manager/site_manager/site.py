@@ -92,7 +92,6 @@ class Bench:
         self.bench_config: BenchConfig = bench_config
         self.logger = log.get_logger()
 
-        # Store compose_file_manager and docker_client directly
         self.compose_file_manager = compose_file_manager
         self.docker_client = docker_client
 
@@ -130,7 +129,6 @@ class Bench:
 
         self.admin_tools = BenchAdminTools(self, self.proxy_manager, verbose=verbose, output_handler=self.output)
 
-        # Initialize SSL certificate manager with dependency injection
         # Get global nginx-proxy storage config from services
         global_proxy_storage = services.proxy_storage
         webroot_dir = self.bench_proxy_storage.dirs.html.host
@@ -144,10 +142,8 @@ class Bench:
             webroot_dir=webroot_dir,
         )
 
-        # Create link manager
         link_manager = CertificateLinkManager(ssl_storage_config)
 
-        # Initialize multi-certificate manager with service factory
         # The factory will create appropriate certificate services (acme.sh) for each certificate
         def certificate_service_factory(cert, storage_cfg, output_handler):
             return create_certificate_service(cert, storage_cfg, output_handler)
@@ -162,14 +158,12 @@ class Bench:
             output_handler=self.output,
         )
 
-        # Initialize SSL module
         self.ssl = BenchSSL(
             certificate_manager=self.certificate_manager,
             bench_name=name,
             is_service_running_fn=self._is_service_running,
         )
 
-        # Initialize DevTools module
         self.devtools = BenchDevTools(
             docker_client=docker_client,
             compose_file_manager=compose_file_manager,
@@ -182,7 +176,6 @@ class Bench:
         )
         self.devtools.logger = self.logger
 
-        # Initialize Database module
         self.database = BenchDatabase(
             bench_name=name,
             bench_path=path,
@@ -191,7 +184,6 @@ class Bench:
             output_handler=self.output,
         )
 
-        # Initialize Site Manager module
         self.site_manager = BenchSiteManager(
             bench_name=name,
             bench_path=path,
@@ -202,7 +194,6 @@ class Bench:
             output_handler=self.output,
         )
 
-        # Initialize App Manager module
         self.app_manager = BenchAppManager(
             bench_name=name,
             bench_path=path,
@@ -214,7 +205,6 @@ class Bench:
 
         self.workers = BenchWorkers(self, not verbose, output_handler=self.output)
 
-        # Initialize Info module
         self.info_display = BenchInfo(
             bench_name=name,
             bench_path=path,
@@ -230,7 +220,6 @@ class Bench:
             output_handler=self.output,
         )
 
-        # Initialize WorkerCoordinator module
         self.worker_coordinator = BenchWorkerCoordinator(
             bench_name=name,
             workers=self.workers,
@@ -243,7 +232,7 @@ class Bench:
             output_handler=self.output,
         )
 
-        # Initialize Orchestrator for complex workflows
+        # For complex workflows
         self.orchestrator = BenchOrchestrator(self, output_handler=self.output)
 
         if workers_check:
@@ -409,15 +398,7 @@ class Bench:
         self.database.sync_common_site_config(services_db_host, services_db_port)
 
     def create_compose_dirs(self) -> bool:
-        """
-        Creates the necessary directories for the Compose setup.
-
-        Returns:
-            bool: True if the directories are created successfully, False otherwise.
-        """
         return self.docker_ops.create_compose_dirs()
-
-        return True
 
     def start(
         self,
@@ -792,7 +773,6 @@ class Bench:
         try:
             self.remove_certificate()
         except Exception as e:
-            # self.logger.exception(e)
             self.output.warning(str(e))
 
         # Handle database deletion based on configuration
@@ -812,11 +792,8 @@ class Bench:
             db_info = self.database.get_connection_info()
             db_host = db_info.get("host", "")
 
-            # Check if the database host is global-db
-            # FM's global-db service is accessed via the container name "global-db"
             return db_host == "global-db"
         except Exception:
-            # If we can't determine, assume it's not global-db
             return False
 
     def _handle_database_deletion(self, delete_db_from_global_db: bool | None):
@@ -831,15 +808,12 @@ class Bench:
         """
         is_global_db = self._is_using_global_db()
 
-        # If not using global-db, always skip database deletion
         if not is_global_db:
             self.output.print("Bench is not using FM's managed global-db. Skipping database deletion.")
             return
 
-        # If using global-db, determine whether to delete
         should_delete = delete_db_from_global_db
 
-        # If not specified, prompt the user
         if should_delete is None:
             params = {
                 'prompt': f"🗄️  Do you want to remove the database '[bold]{self.name}[/bold]' from global-db?",
@@ -849,7 +823,6 @@ class Bench:
             choice = self.output.prompt_ask(**params)
             should_delete = choice == "yes"
 
-        # Perform deletion if requested
         if should_delete:
             self.remove_database_and_user()
         else:
@@ -861,7 +834,6 @@ class Bench:
     def ensure_admin_tools_running_if_available(self):
         if self.admin_tools.compose_file_manager.exists():
             if self.bench_config.admin_tools:
-                # Check if admin tools is running
                 admin_tools_running = False
                 try:
                     services = self.admin_tools.compose_file_manager.get_services_list()
@@ -882,7 +854,6 @@ class Bench:
             else:
                 atleast_one_service_running = False
 
-                # Get admin tools running services
                 try:
                     services = self.admin_tools.compose_file_manager.get_services_list()
                     containers = self.admin_tools.compose_file_manager.get_container_names().values()

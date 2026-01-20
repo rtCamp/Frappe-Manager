@@ -4,6 +4,8 @@ from frappe_manager.docker.subprocess_output import SubprocessOutput
 
 
 class DockerException(Exception):
+    """Exception raised when Docker command execution fails."""
+
     def __init__(
         self,
         command_launched: List[str],

@@ -75,16 +75,12 @@ def get_output_handler(ctx: typer.Context, context: Optional[LoggerContext] = No
 
     verbose = ctx.obj.get("verbose", False)
 
-    # Create base handler with verbose setting
     rich = RichOutputHandler(verbose=verbose)
 
-    # Get base logger
     base_logger = log.get_logger()
 
-    # Wrap with context (empty context if not provided)
     contextual_logger = ContextualLogger(base_logger, context)
 
-    # Wrap with logging for automatic file logging
     output = LoggingOutputHandler(rich, contextual_logger)
 
     return output

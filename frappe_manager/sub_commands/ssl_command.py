@@ -50,10 +50,8 @@ def get_output_handler(ctx: typer.Context, context: Optional[LoggerContext] = No
     """
     verbose = ctx.obj.get('verbose', False)
 
-    # Create base handler with verbose setting
     rich = RichOutputHandler(verbose=verbose)
 
-    # Get base logger
     base_logger = log.get_logger()
 
     # Wrap with context (empty context if not provided)
@@ -130,7 +128,6 @@ def renew(
             sites_list = [benchname]
 
         for benchname in sites_list:
-            # Create output handler with context for logging
             context = LoggerContext(bench=benchname, operation="ssl-renew")
             output = get_output_handler(ctx, context=context)
             bench = Bench.get_object(benchname, services_manager, output_handler=output)
@@ -138,7 +135,6 @@ def renew(
             output.change_head(f"Renew certificate for {benchname}")
             try:
                 if domain:
-                    # Validate domain has a certificate configured
                     cert_domains = [cert.domain for cert in bench.certificate_manager.certificates]
                     if domain not in cert_domains:
                         output.display_error(
@@ -319,12 +315,10 @@ def _add_bench_certificate(
 
     services_manager = ctx.obj["services"]
 
-    # Create output handler with context for logging
     context = LoggerContext(bench=benchname, operation="ssl-add")
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
-    # Validate domain is configured for this bench
     allowed_domains = bench.bench_config.get_all_domains()
     if domain not in allowed_domains:
         output.display_error(
@@ -336,7 +330,6 @@ def _add_bench_certificate(
 
     # Email validation removed - Let's Encrypt discontinued email notifications (June 2025)
 
-    # Parse challenge type
     if challenge.lower() == "dns01":
         preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
     elif challenge.lower() == "http01":
@@ -345,7 +338,6 @@ def _add_bench_certificate(
         output.display_error(f"Invalid challenge type: {challenge}. Must be 'http01' or 'dns01'.")
         raise typer.Exit(1)
 
-    # Validate CNAME is only used with DNS-01
     if cname and preferred_challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
         output.display_error("CNAME delegation (--cname) can only be used with DNS-01 challenge.")
         raise typer.Exit(1)
@@ -353,7 +345,6 @@ def _add_bench_certificate(
     output.change_head(f"Adding SSL certificate for {domain}")
 
     try:
-        # Create certificate object
         if cname:
             # Custom domain with CNAME delegation
             cert = CustomDomainCertificate(
@@ -379,7 +370,6 @@ def _add_bench_certificate(
                 challenge_type=preferred_challenge,
             )
 
-        # Add certificate via manager
         bench.certificate_manager.add_certificate(cert, dry_run=dry_run)
 
         if not dry_run:
@@ -410,11 +400,9 @@ def _add_external_certificate(
     context = LoggerContext(operation="ssl-add-external")
     output = get_output_handler(ctx, context=context)
 
-    # Initialize external domain manager
     external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
     external_manager = ExternalDomainConfigManager(external_config_path)
 
-    # Check if domain already exists in external domains
     if external_manager.domain_exists(domain):
         output.display_error(f"Certificate already exists for external domain '{domain}'")
         output.print("To update certificate:", emoji_code="")
@@ -424,7 +412,6 @@ def _add_external_certificate(
 
     # Email validation removed - Let's Encrypt discontinued email notifications (June 2025)
 
-    # Parse challenge type
     if challenge.lower() == "dns01":
         preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
     elif challenge.lower() == "http01":
@@ -434,7 +421,6 @@ def _add_external_certificate(
         output.print("Supported challenges: http01, dns01", emoji_code="")
         raise typer.Exit(1)
 
-    # Validate CNAME only with DNS-01
     if cname and preferred_challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
         output.display_error("CNAME delegation (--cname) requires DNS-01 challenge")
         output.print(f"Usage: fm ssl add --standalone {domain} --challenge dns01 --cname <cname>", emoji_code="")
@@ -443,7 +429,6 @@ def _add_external_certificate(
     output.change_head(f"Adding SSL certificate for {domain} (standalone mode)")
 
     try:
-        # Create certificate object
         if cname:
             cert = CustomDomainCertificate(
                 domain=domain,
@@ -540,7 +525,6 @@ def _add_external_certificate(
                     output.print(f"HTTP-01 challenge may fail if DNS is not configured correctly.", emoji_code="")
                     output.print(f"Make sure {domain} points to this server's IP address.", emoji_code="")
 
-        # Initialize SSL infrastructure (same paths as bench mode)
         global_proxy_storage = services_manager.proxy_storage
 
         storage_config = SSLStorageConfig(
@@ -552,11 +536,9 @@ def _add_external_certificate(
             webroot_dir=global_proxy_storage.dirs.html.host,  # For HTTP-01 challenge
         )
 
-        # Create dependencies
         link_manager = CertificateLinkManager(storage_config)
         nginx_controller = services_manager.nginx_controller
 
-        # Create standalone nginx config manager for external domains
         standalone_nginx = StandaloneNginxConfigManager(
             conf_dir=global_proxy_storage.dirs.confd.host,
             webroot_dir_container=global_proxy_storage.dirs.html.container,
@@ -573,12 +555,9 @@ def _add_external_certificate(
         nginx_controller.reload()
         output.print("Nginx reloaded successfully", emoji_code=":white_check_mark:")
 
-        # Create service factory
         def certificate_service_factory(cert, storage_cfg, output_handler):
             return create_certificate_service(cert, storage_cfg, output_handler)
 
-        # Create certificate manager WITHOUT config_save_callback
-        # (no bench config to save for external domains)
         cert_manager = SSLCertificateManager(
             certificates=[],  # Start with empty list, we'll add the cert next
             service_factory=certificate_service_factory,
@@ -718,12 +697,10 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, f
 
     services_manager = ctx.obj["services"]
 
-    # Create output handler with context for logging
     context = LoggerContext(bench=benchname, operation="ssl-remove")
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
-    # Validate domain has a certificate configured
     cert_domains = [cert.domain for cert in bench.certificate_manager.certificates]
     if domain not in cert_domains:
         output.display_error(
@@ -744,7 +721,6 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, f
     output.change_head(f"Removing SSL certificate for {domain}")
 
     try:
-        # Remove certificate via manager
         bench.certificate_manager.remove_certificate_by_domain(domain)
 
         output.print(f"SSL certificate removed for {domain}", emoji_code=":white_check_mark:")
@@ -765,11 +741,9 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, force: bool):
     context = LoggerContext(operation="ssl-remove-external")
     output = get_output_handler(ctx, context=context)
 
-    # Initialize external domain manager
     external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
     external_manager = ExternalDomainConfigManager(external_config_path)
 
-    # Check if domain exists
     if not external_manager.domain_exists(domain):
         output.display_error(f"No external certificate found for domain '{domain}'")
         output.print("To list external certificates: fm ssl list --standalone", emoji_code="")
@@ -786,17 +760,14 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, force: bool):
     output.change_head(f"Removing SSL certificate for {domain}")
 
     try:
-        # Get certificate config
         cert_config = external_manager.get_domain(domain)
         if not cert_config:
             raise ValueError(f"Domain config not found for {domain}")
 
-        # Convert to certificate object
         cert = external_manager.to_ssl_certificate(domain)
         if not cert:
             raise ValueError(f"Could not create certificate object for {domain}")
 
-        # Initialize SSL infrastructure
         global_proxy_storage = services_manager.proxy_storage
 
         storage_config = SSLStorageConfig(
@@ -811,7 +782,6 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, force: bool):
         link_manager = CertificateLinkManager(storage_config)
         nginx_controller = services_manager.nginx_controller
 
-        # Create standalone nginx config manager
         standalone_nginx = StandaloneNginxConfigManager(
             conf_dir=global_proxy_storage.dirs.confd.host,
             webroot_dir_container=global_proxy_storage.dirs.html.container,
@@ -821,7 +791,6 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, force: bool):
         def certificate_service_factory(cert, storage_cfg, output_handler):
             return create_certificate_service(cert, storage_cfg, output_handler)
 
-        # Create certificate manager
         cert_manager = SSLCertificateManager(
             certificates=[cert],
             service_factory=certificate_service_factory,
@@ -859,21 +828,16 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
 
     services_manager = ctx.obj["services"]
 
-    # Create output handler with context for logging
     context = LoggerContext(bench=benchname, operation="ssl-list")
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
-    # Get all configured domains (primary + aliases)
     all_domains = bench.bench_config.get_all_domains()
 
-    # Get certificate list from manager
     certs = bench.certificate_manager.list_certificates()
 
-    # Create a mapping of domain -> certificate info
     cert_map = {cert['domain']: cert for cert in certs}
 
-    # Create table for display
     from rich.table import Table
 
     table = Table(show_header=True, header_style="bold magenta")
@@ -928,7 +892,6 @@ def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
     - Are not managed by FM benches
     """
     try:
-        # Get nginx-proxy container
         nginx_container_name = services_manager.compose_file_manager.get_container_names().get("global-nginx-proxy")
         if not nginx_container_name:
             return []
@@ -988,14 +951,11 @@ def _list_external_certificates(ctx: typer.Context):
     context = LoggerContext(operation="ssl-list-external")
     output = get_output_handler(ctx, context=context)
 
-    # Initialize external domain manager
     external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
     external_manager = ExternalDomainConfigManager(external_config_path)
 
-    # Get all external domains with SSL certificates
     external_domains = external_manager.list_domains()
 
-    # Get domains being proxied but without SSL
     detected_domains = _get_non_bench_domains_from_nginx(services_manager)
 
     # Filter out domains that already have SSL certificates
@@ -1009,7 +969,6 @@ def _list_external_certificates(ctx: typer.Context):
         output.print("  fm ssl add --standalone <domain>", emoji_code="")
         return
 
-    # Initialize SSL infrastructure to check certificate status
     global_proxy_storage = services_manager.proxy_storage
     storage_config = SSLStorageConfig(
         ssl_dir=global_proxy_storage.dirs.ssl.host,
@@ -1022,7 +981,6 @@ def _list_external_certificates(ctx: typer.Context):
 
     link_manager = CertificateLinkManager(storage_config)
 
-    # Create table
     from rich.table import Table
 
     table = Table(title="External Domains & SSL Certificates", show_header=True, header_style="bold magenta")
@@ -1038,11 +996,9 @@ def _list_external_certificates(ctx: typer.Context):
         domain = domain_config.domain
         ssl_type = domain_config.ssl_type
 
-        # Check if certificate files exist
         try:
             privkey_path, fullchain_path = link_manager.get_certificate_paths(domain)
 
-            # Get expiry info
             from frappe_manager.utils.helpers import get_certificate_expiry_date
 
             expiry_date = get_certificate_expiry_date(fullchain_path)
@@ -1096,7 +1052,6 @@ def _list_all_certificates(ctx: typer.Context):
     # List bench certificates
     richprint.stdout.print("\n[bold cyan]═══ Bench Certificates ═══[/bold cyan]\n")
 
-    # Get all benches and list their certs
     bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager)
     benches = bench_service.get_bench_names()
 
@@ -1115,11 +1070,9 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool):
     context = LoggerContext(operation="ssl-renew-external")
     output = get_output_handler(ctx, context=context)
 
-    # Initialize external domain manager
     external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
     external_manager = ExternalDomainConfigManager(external_config_path)
 
-    # Check if domain exists
     if not external_manager.domain_exists(domain):
         output.display_error(f"No external certificate found for domain '{domain}'")
         output.print("To list external certificates: fm ssl list --standalone", emoji_code="")
@@ -1128,12 +1081,10 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool):
     output.change_head(f"Renewing certificate for {domain}")
 
     try:
-        # Get certificate object
         cert = external_manager.to_ssl_certificate(domain)
         if not cert:
             raise ValueError(f"Could not create certificate object for {domain}")
 
-        # Initialize SSL infrastructure
         global_proxy_storage = services_manager.proxy_storage
 
         storage_config = SSLStorageConfig(
@@ -1151,7 +1102,6 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool):
         def certificate_service_factory(cert, storage_cfg, output_handler):
             return create_certificate_service(cert, storage_cfg, output_handler)
 
-        # Create certificate manager
         cert_manager = SSLCertificateManager(
             certificates=[cert],
             service_factory=certificate_service_factory,
@@ -1162,7 +1112,6 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool):
             config_save_callback=None,
         )
 
-        # Renew certificate
         cert_manager.renew_certificate(domain=domain, dry_run=dry_run)
         output.print(f"Certificate renewal for {domain} completed", emoji_code=":white_check_mark:")
 
@@ -1178,11 +1127,9 @@ def _renew_all_external_certificates(ctx: typer.Context, dry_run: bool):
     context = LoggerContext(operation="ssl-renew-external-all")
     output = get_output_handler(ctx, context=context)
 
-    # Initialize external domain manager
     external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
     external_manager = ExternalDomainConfigManager(external_config_path)
 
-    # Get all external domains
     external_domains = external_manager.list_domains()
 
     if not external_domains:
@@ -1317,26 +1264,21 @@ def acmesh_passthrough(
     import os
     from frappe_manager.utils.subprocess import stream_command_output
 
-    # Get arguments passed to acme.sh (everything after 'acme-sh')
     args = ctx.args
 
-    # Get services manager and output handler
     services_manager = ctx.obj["services"]
     output = get_output_handler(ctx)
 
-    # Get SSL paths from proxy storage
     global_proxy_storage = services_manager.proxy_storage
     ssl_dir = global_proxy_storage.dirs.ssl.host
     acmesh_home = ssl_dir / "acmesh" / ".acme.sh"
     acmesh_bin = acmesh_home / "acme.sh"
 
-    # Check if acme.sh is installed
     if not acmesh_bin.exists():
         output.display_error("acme.sh is not installed yet")
         output.info("Run 'fm ssl add <benchname> <domain>' to install acme.sh first")
         raise typer.Exit(1)
 
-    # Build command
     cmd = [str(acmesh_bin), "--home", str(acmesh_home)]
 
     # If no args provided, show help
@@ -1345,7 +1287,6 @@ def acmesh_passthrough(
     else:
         cmd.extend(args)
 
-    # Build environment
     env = os.environ.copy()
     env["LE_WORKING_DIR"] = str(acmesh_home)
 
@@ -1381,7 +1322,6 @@ def acmesh_passthrough(
         output.print("Command completed successfully", emoji_code=":white_check_mark:")
 
 
-# Register dns-config as subcommand of ssl
 ssl_root_command.add_typer(dns_config_command, name="dns-config", help="Configure DNS provider credentials")
 
 
@@ -1481,7 +1421,6 @@ def _configure_dns_credentials(
 
         output.change_head(f"Configuring {provider_name} credentials for bench '{benchname}'")
 
-        # Create or update dns_providers
         if not bench.bench_config.dns_providers:
             bench.bench_config.dns_providers = {}
 

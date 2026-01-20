@@ -526,7 +526,6 @@ class ComposeFile:
             # Convert DockerVolumeMount objects to strings
             volumes_list = [str(volume) for volume in volumes]
 
-            # Set the volumes for the service
             self.yml["services"][service]["volumes"] = volumes_list
         except KeyError as e:
             raise ComposeServiceNotFound(service_name=service)
@@ -542,11 +541,8 @@ class ComposeFile:
             volumes = self.yml.get('volumes', {})
             if volumes:
                 for volume_name in volumes:
-                    # Initialize the volume config if it's None
                     if volumes[volume_name] is None:
                         volumes[volume_name] = {}
-                        
-                    # Set the volume name with prefix
                     volumes[volume_name]['name'] = volume_prefix + CLI_DEFAULT_DELIMETER + volume_name
                     
         except KeyError as e:
@@ -854,7 +850,7 @@ class ComposeFile:
                     converted_users[service] = user_data
             self.set_all_users(converted_users)
         
-        # Set all prefix-related configs
+
         self.set_container_names(prefix)
         self.set_root_volumes_names(prefix)
         self.set_root_networks_name(network_name, prefix)

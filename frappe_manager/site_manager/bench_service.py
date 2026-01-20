@@ -172,10 +172,8 @@ class BenchService:
         try:
             bench = self.get_bench(bench_name, workers_check=False, admin_tools_check=False)
         except FileNotFoundError:
-            # Bench config not found, try to create a minimal bench for cleanup
             bench = self._create_cleanup_bench(bench_name)
 
-        # If force is True, skip confirmation prompt
         if force:
             self.output.start("Removing bench")
             try:
@@ -183,13 +181,11 @@ class BenchService:
             except Exception as e:
                 self.output.warning(str(e))
 
-            # Handle database deletion
             self._handle_database_deletion(bench, delete_db_from_global_db)
 
             bench.remove_containers_and_dirs()
             return True
         else:
-            # Use the standard remove_bench with prompt
             return bench.remove_bench(delete_db_from_global_db=delete_db_from_global_db)
 
     def discover_benches(self) -> dict[str, Path]:
@@ -256,7 +252,6 @@ class BenchService:
                 "To create a bench, use the command: 'fm create <benchname>'.",
                 emoji_code=":white_check_mark:",
             )
-            # Return empty table since there are no benches
             table = Table(show_lines=True, show_header=True, highlight=True)
             table.add_column("Site")
             table.add_column("Status", vertical="middle")
@@ -316,7 +311,6 @@ class BenchService:
         compose_file_manager = ComposeFile(compose_path)
         docker_client = DockerClient(compose_file_path=compose_path)
 
-        # Create minimal config for cleanup
         fake_config = BenchConfig(
             name=bench_name,
             userid=os.getuid(),
@@ -360,11 +354,8 @@ class BenchService:
             db_info = bench.database.get_connection_info()
             db_host = db_info.get("host", "")
 
-            # Check if the database host is global-db
-            # FM's global-db service is accessed via the container name "global-db"
             return db_host == "global-db"
         except Exception:
-            # If we can't determine, assume it's not global-db
             return False
 
     def _handle_database_deletion(self, bench: Bench, delete_db_from_global_db: bool | None):
@@ -380,15 +371,12 @@ class BenchService:
         """
         is_global_db = self._is_using_global_db(bench)
 
-        # If not using global-db, always skip database deletion
         if not is_global_db:
             self.output.print("Bench is not using FM's managed global-db. Skipping database deletion.")
             return
 
-        # If using global-db, determine whether to delete
         should_delete = delete_db_from_global_db
 
-        # If not specified, prompt the user
         if should_delete is None:
             params = {
                 'prompt': f"🗄️  Do you want to remove the database '[bold]{bench.name}[/bold]' from global-db?",
@@ -398,7 +386,6 @@ class BenchService:
             choice = self.output.prompt_ask(**params)
             should_delete = choice == "yes"
 
-        # Perform deletion if requested
         if should_delete:
             bench.remove_database_and_user()
         else:

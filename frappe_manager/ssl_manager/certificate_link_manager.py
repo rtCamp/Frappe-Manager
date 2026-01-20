@@ -86,14 +86,12 @@ class CertificateLinkManager:
         container_privkey_path = self._host_to_container_path(privkey_path, cert_type)
         container_fullchain_path = self._host_to_container_path(fullchain_path, cert_type)
 
-        # Create symlinks for primary domain
         primary_privkey_link = self.storage_config.certs_dir / f"{domain}.key"
         primary_fullchain_link = self.storage_config.certs_dir / f"{domain}.crt"
 
         create_symlink(container_privkey_path, primary_privkey_link)
         create_symlink(container_fullchain_path, primary_fullchain_link)
 
-        # Create symlinks for alias domains
         if alias_domains:
             for alias_domain in alias_domains:
                 alias_privkey_link = self.storage_config.certs_dir / f"{alias_domain}.key"
@@ -110,7 +108,6 @@ class CertificateLinkManager:
             domain: Primary domain name for the certificate
             alias_domains: Optional list of alias domains to also unlink
         """
-        # Remove primary domain symlinks
         primary_privkey_link = self.storage_config.certs_dir / f"{domain}.key"
         primary_fullchain_link = self.storage_config.certs_dir / f"{domain}.crt"
 

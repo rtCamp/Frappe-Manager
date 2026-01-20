@@ -101,12 +101,10 @@ class BenchDockerOps:
             for container_name, user_data in inputs["user"].items():
                 users[container_name] = (user_data["uid"], user_data["gid"])
 
-        # Build list of all domains for network aliases (primary + alias domains)
         network_aliases = [self.config.name]
         if self.config.alias_domains:
             network_aliases.extend(self.config.alias_domains)
 
-        # Set network aliases separately (not part of configure_bench)
         self.compose_file_manager.set_network_alias("nginx", "site-network", network_aliases)
 
         # Use configure_bench method to set all configurations atomically
@@ -552,13 +550,11 @@ class BenchDockerOps:
                 image = f"{name}:{tag}"
                 not_available_images.append(image)
 
-        # Remove duplicates
         not_available_images = list(dict.fromkeys(not_available_images))
 
         if not_available_images:
             for image in not_available_images:
                 self.output.display_error(f"Docker image '{image}' is not available locally")
 
-            # Get bench name from config
             bench_name = self.config.container_name_prefix.replace('-', '.')
             raise BenchOperationRequiredDockerImagesNotAvailable(bench_name, 'fm self update-images')

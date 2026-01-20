@@ -98,10 +98,8 @@ class SSLCertificateManager:
         self.nginx_controller = nginx_controller
         self.config_save_callback = config_save_callback
 
-        # Initialize vhost config manager for per-domain HTTPS redirect control
         self.vhost_manager = VhostConfigManager(storage_config.vhostd_dir)
 
-        # Create services for all certificates
         self.services: dict[str, SSLCertificateService] = {}
         for cert in self.certificates:
             self.services[cert.domain] = service_factory(cert, storage_config, output_handler)
@@ -138,7 +136,6 @@ class SSLCertificateManager:
         if any(cert.domain == certificate.domain for cert in self.certificates):
             raise ValueError(f"Certificate for {certificate.domain} already exists")
 
-        # Create service for this certificate
         if self.service_factory and self.storage_config and self.output_handler:
             service = self.service_factory(certificate, self.storage_config, self.output_handler)
             self.services[certificate.domain] = service
@@ -154,7 +151,6 @@ class SSLCertificateManager:
                 "[dim]No system modifications will be made (no symlinks, nginx restart, or config save)[/dim]"
             )
 
-            # Set staging environment variable
             original_staging = os.environ.get("FM_LETSENCRYPT_STAGING")
             os.environ["FM_LETSENCRYPT_STAGING"] = "1"
 
@@ -200,7 +196,6 @@ class SSLCertificateManager:
                 self.vhost_manager.enable_https_redirect(certificate.domain)
                 self.output_handler.print(f"Created vhost.d redirect config for {certificate.domain}")
 
-                # Add to managed certificates
                 self.certificates.append(certificate)
 
                 # Restart nginx to pick up new certificate
@@ -245,21 +240,17 @@ class SSLCertificateManager:
         if not cert_to_remove:
             raise SSLCertificateNotFoundError(domain)
 
-        # Get service for this certificate
         service = self.services.get(domain)
         if not service:
             raise RuntimeError(f"No service found for domain {domain}")
 
-        # Remove symlinks (individual cert, no alias_domains)
         self.link_manager.unlink_certificate(domain, alias_domains=None)
 
         # Disable HTTPS redirect for this domain (remove vhost.d config)
         self.vhost_manager.disable_https_redirect(domain)
 
-        # Remove actual certificate files
         service.remove_certificate(cert_to_remove)
 
-        # Remove from managed certificates and services
         self.certificates.remove(cert_to_remove)
         del self.services[domain]
 

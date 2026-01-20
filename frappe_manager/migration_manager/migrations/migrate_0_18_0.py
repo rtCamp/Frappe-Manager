@@ -39,13 +39,11 @@ class MigrationV0180(MigrationBase):
 
         richprint.change_head("Migrating bench compose")
         
-        # Remove redis-socketio service and volume
         if bench.compose_project.compose_file_manager.yml.get('services',{}).get('redis-socketio', None):
             del bench.compose_project.compose_file_manager.yml['services']['redis-socketio']
         if bench.compose_project.compose_file_manager.yml.get('volumes',{}).get('redis-socketio-data', None):
             del bench.compose_project.compose_file_manager.yml['volumes']['redis-socketio-data']
 
-        # Build tag updates dict
         tag_updates = {
             'frappe': self.version.version_string(),
             'socketio': self.version.version_string(),
@@ -62,7 +60,6 @@ class MigrationV0180(MigrationBase):
             ('redis-cache', '8-alpine'),
             ('ghcr.io/rtcamp/frappe-manager-prebake', self.version.version_string()),
         ]:
-            # Get full image name (handle special cases)
             if image_name in ['frappe', 'nginx']:
                 images_info = bench.compose_project.compose_file_manager.get_all_images()
                 full_image_name = images_info.get(image_name, {}).get('name', image_name)

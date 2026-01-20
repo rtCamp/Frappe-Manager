@@ -33,7 +33,6 @@ class BackupData:
 
         if self.prefix_timestamp:
             while True:
-                # Get current date and time
                 now = datetime.now()
                 # Format date and time
                 current_time = now.strftime('%d-%b-%y--%H-%M-%S')
