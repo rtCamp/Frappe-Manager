@@ -142,10 +142,10 @@ class BenchDevTools:
             self._setup_debugger_config(workdir)
 
         self._verify_vscode_installed()
-        
+
         container_name = self._get_frappe_container_name()
         vscode_cmd = self._build_vscode_command(container_name, workdir)
-        
+
         self._update_container_config(user, sorted(extensions))
         self._attach_to_container(vscode_cmd)
 
@@ -170,22 +170,21 @@ class BenchDevTools:
         """Build the VS Code remote container command."""
         vscode_path = shutil.which("code")
         assert vscode_path is not None, "VS Code binary not found"
-        return shlex.join([
-            vscode_path,
-            f"--folder-uri=vscode-remote://attached-container+{container_hex}+{workdir}"
-        ])
+        return shlex.join([vscode_path, f"--folder-uri=vscode-remote://attached-container+{container_hex}+{workdir}"])
 
     def _update_container_config(self, user: str, extensions: List[str]) -> None:
         """Update container configuration with user and extensions."""
-        base_config = [{
-            "remoteUser": user,
-            "remoteEnv": {"SHELL": "/bin/zsh"},
-            "customizations": {
-                "vscode": {
-                    "settings": VSCODE_SETTINGS_JSON,
-                }
+        base_config = [
+            {
+                "remoteUser": user,
+                "remoteEnv": {"SHELL": "/bin/bash"},
+                "customizations": {
+                    "vscode": {
+                        "settings": VSCODE_SETTINGS_JSON,
+                    }
+                },
             }
-        }]
+        ]
 
         config_with_extensions = copy.deepcopy(base_config)
         config_with_extensions[0]['customizations']['vscode']["extensions"] = extensions
@@ -193,7 +192,7 @@ class BenchDevTools:
         labels = {'devcontainer.metadata': json.dumps(config_with_extensions)}
 
         previous_config = self._get_previous_container_config()
-        
+
         if self._config_needs_update(previous_config, extensions, user):
             self._apply_new_config(labels)
 
@@ -215,8 +214,9 @@ class BenchDevTools:
         self.output.change_head("Configuration changed, regenerating label in bench compose")
         self.compose_file_manager.configure_service("frappe", labels=labels)
         self.output.print("Regenerated bench compose.")
-        output = self.docker_client.compose.up(services=['frappe'], detach=True, pull="never",
-                                                 force_recreate=False, stream=self.quiet)
+        output = self.docker_client.compose.up(
+            services=['frappe'], detach=True, pull="never", force_recreate=False, stream=self.quiet
+        )
         if self.quiet:
             self.output.live_lines(output, padding=(0, 0, 0, 2))
         self._switch_bench_env()
@@ -225,7 +225,7 @@ class BenchDevTools:
         """Setup debugger configuration if workdir is in workspace."""
         workdir = workdir.strip('/')
         if not workdir.startswith('workspace'):
-            self.output.warning("Debugger configuration is only supported for workspace directory") 
+            self.output.warning("Debugger configuration is only supported for workspace directory")
             return
 
         self._sync_vscode_config_files(workdir)
@@ -238,11 +238,7 @@ class BenchDevTools:
         vscode_dir = self.bench_path / workdir / ".vscode"
         vscode_dir.mkdir(exist_ok=True, parents=True)
 
-        config_files = {
-            "tasks": VSCODE_TASKS_JSON,
-            "launch": VSCODE_LAUNCH_JSON,
-            "settings": VSCODE_SETTINGS_JSON
-        }
+        config_files = {"tasks": VSCODE_TASKS_JSON, "launch": VSCODE_LAUNCH_JSON, "settings": VSCODE_SETTINGS_JSON}
 
         for filename, content in config_files.items():
             file_path = vscode_dir / f"{filename}.json"

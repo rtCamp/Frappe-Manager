@@ -297,7 +297,7 @@ class BenchDockerOps:
             }
 
             if compose_service == "frappe":
-                run_args["entrypoint"] = "/usr/bin/zsh"
+                run_args["entrypoint"] = "/bin/bash"
 
             if user:
                 run_args["user"] = user
@@ -310,7 +310,7 @@ class BenchDockerOps:
             exec_args: Dict[str, Any] = {"service": compose_service, "command": shell_path}
 
             if compose_service == "frappe":
-                exec_args["command"] = "/usr/bin/zsh"
+                exec_args["command"] = "/bin/bash"
                 exec_args["workdir"] = "/workspace/frappe-bench"
 
             if user:

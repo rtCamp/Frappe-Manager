@@ -62,7 +62,6 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
     jq \
     gosu \
     fonts-powerline \
-    zsh \
     file \
     unzip \
     && rm -rf /var/lib/apt/lists/*
@@ -85,7 +84,7 @@ ENV BENCH_USE_UV=true
 # setup user
 RUN export NAME='frappe' && \
     groupadd -g 1000 $NAME && \
-    useradd --no-log-init -r -m -u 1000 -g 1000 -G sudo -s /usr/bin/zsh -d /workspace "$NAME" && \
+    useradd --no-log-init -r -m -u 1000 -g 1000 -G sudo -s /bin/bash -d /workspace "$NAME" && \
     usermod -a -G tty "$NAME" && \
     echo "$NAME ALL=(ALL) NOPASSWD: ALL" >> /etc/sudoers
 
@@ -98,17 +97,16 @@ RUN mkdir -p /opt/user/conf.d && chown -R frappe:frappe /opt/user
 
 USER frappe
 WORKDIR /opt
-RUN touch /opt/user/.profile
-ENV ZSH=/opt/user/.oh-my-zsh
-ENV DISABLE_UPDATE_PROMPT=true
-RUN sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)" "" --unattended
-RUN unset ZSH
-COPY --chown=frappe:frappe ./zshrc /opt/user/.zshrc
-COPY --chown=frappe:frappe ./fm.zsh-theme /opt/user/.oh-my-zsh/custom/themes/fm.zsh-theme
 COPY --chown=frappe:frappe ./fmx /opt/user/fmx
 RUN mkdir -p /workspace
 
 USER root
+RUN mkdir -p /etc/bash.bashrc.d
+COPY ./bashrc /etc/bash.bashrc.d/fm.bashrc
+RUN echo '' >> /etc/bash.bashrc \
+    && echo 'if [ -f /etc/bash.bashrc.d/fm.bashrc ]; then' >> /etc/bash.bashrc \
+    && echo '    . /etc/bash.bashrc.d/fm.bashrc' >> /etc/bash.bashrc \
+    && echo 'fi' >> /etc/bash.bashrc
 # Install UV system-wide as root so it's available to all users
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
     && mv /root/.local/bin/uv /usr/local/bin/uv \
@@ -182,7 +180,6 @@ WORKDIR /workspace
 COPY --from=tooling --chown=frappe:frappe /opt/user /opt/user
 COPY --from=tooling /opt/uv-tools /opt/uv-tools
 COPY --from=tooling /etc/bash.bashrc /etc/bash.bashrc
-COPY --from=tooling /etc/zsh/zshrc /etc/zsh/zshrc
 
 # Setup fnm and python for ALL shell types (login, non-login, interactive, non-interactive)
 RUN mkdir -p /etc/profile.d && \
@@ -194,14 +191,6 @@ RUN mkdir -p /etc/profile.d && \
     echo 'fi' >> /etc/profile.d/fnm.sh && \
     chmod +x /etc/profile.d/fnm.sh && \
     echo '' >> /etc/bash.bashrc && \
-    echo '# Source fnm and python setup for non-login shells' >> /etc/bash.bashrc && \
-    echo 'if [ -f /etc/profile.d/fnm.sh ]; then' >> /etc/bash.bashrc && \
-    echo '    . /etc/profile.d/fnm.sh' >> /etc/bash.bashrc && \
-    echo 'fi' >> /etc/bash.bashrc && \
-    echo '' >> /etc/zsh/zshrc && \
-    echo '# Source fnm and python setup' >> /etc/zsh/zshrc && \
-    echo 'if [ -f /etc/profile.d/fnm.sh ]; then' >> /etc/zsh/zshrc && \
-    echo '    . /etc/profile.d/fnm.sh' >> /etc/zsh/zshrc && \
-    echo 'fi' >> /etc/zsh/zshrc
+    echo '. /etc/profile.d/fnm.sh' >> /etc/bash.bashrc
 
 ENTRYPOINT ["/bin/bash","/entrypoint.sh"]
