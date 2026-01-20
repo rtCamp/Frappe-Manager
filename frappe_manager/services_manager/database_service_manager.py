@@ -73,9 +73,6 @@ class DatabaseServerServiceInfo(BaseModel):
 
         info: dict[str, Any] = {}
 
-        info["name"] = str(bench_name).replace(".", "-")
-        info["user"] = str(bench_name).replace(".", "-")
-
         info["password"] = None
 
         if common_site_config_file.exists():

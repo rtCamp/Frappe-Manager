@@ -584,6 +584,9 @@ class BenchConfig(BaseModel):
     )
     node_version: Optional[str] = Field(None, description="Node version requirement from frappe app (e.g., '>=18')")
 
+    # Database name (randomized on creation to avoid conflicts)
+    db_name: str = Field(..., description="Database name for this bench (auto-generated random string)")
+
     def get_apps_config(self) -> List[AppConfig]:
         """
         Convert apps_list to AppConfig objects.
@@ -660,10 +663,6 @@ class BenchConfig(BaseModel):
 
         # Replace all certificates with individual ones
         self.ssl_certificates = new_certificates
-
-    @property
-    def db_name(self):
-        return self.name.replace(".", "-")
 
     @property
     def container_name_prefix(self):
@@ -788,6 +787,13 @@ class BenchConfig(BaseModel):
             'upload_limit': data.get('upload_limit', '50M'),
             'admin_tools_username': data.get('admin_tools_username', None),
             'admin_tools_password': data.get('admin_tools_password', None),
+            'admin_pass': data.get('admin_pass', 'admin'),
+            'apps_list': data.get('apps_list', []),
+            'github_token': data.get('github_token', None),
+            'use_uv': data.get('use_uv', True),
+            'python_version': data.get('python_version', None),
+            'node_version': data.get('node_version', None),
+            'db_name': data.get('db_name'),
         }
 
         bench_config_instance = cls(**input_data)

@@ -5,6 +5,7 @@ import typer
 import os
 import sys
 import shutil
+import secrets
 from typing import Annotated, List, Optional
 from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.ngrok import create_tunnel
@@ -322,21 +323,26 @@ def create(
     # Build final apps list: frappe first, then others in order
     final_apps_list = [frappe_app] + other_apps
 
+    sanitized_bench_name = benchname.replace(".", "_").replace("-", "_")
+    db_name = f"fm_{sanitized_bench_name}_{secrets.token_hex(8)}"
+
     bench_config: BenchConfig = BenchConfig(
         name=benchname,
         apps_list=final_apps_list,
         developer_mode=True if environment == FMBenchEnvType.dev else developer_mode_status,
         admin_tools=True if environment == FMBenchEnvType.dev else False,
         admin_pass=admin_pass,
-        # TODO get this info from services, maybe ?
         environment_type=environment,
         root_path=bench_config_path,
-        ssl_certificates=[],  # No SSL certificates by default, use 'fm ssl add' to add them
+        ssl_certificates=[],
         alias_domains=alias_domains if alias_domains else [],
-        github_token=github_token,  # NEW: GitHub token for private repos
-        use_uv=True,  # NEW: Always use UV with automatic fallback
-        python_version=python_version,  # NEW: User-specified Python version override
-        node_version=node_version,  # NEW: User-specified Node version override
+        github_token=github_token,
+        use_uv=True,
+        python_version=python_version,
+        node_version=node_version,
+        db_name=db_name,
+        admin_tools_username=None,
+        admin_tools_password=None,
     )
 
     # Validate repositories exist BEFORE creating any infrastructure
