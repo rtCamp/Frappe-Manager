@@ -172,7 +172,7 @@ def app_callback(
 
         # check docker daemon service
         if not DockerClient().server_running():
-            richprint.exit("Docker daemon not running. Please start docker service.")
+            richprint.exit("Docker daemon not running. Please start docker service")
 
         fm_config_manager: FMConfigManager = FMConfigManager.import_from_toml()
 
@@ -185,7 +185,7 @@ def app_callback(
 
                 if not completed_status:
                     shutil.rmtree(CLI_DIR)
-                    richprint.exit("Aborting. Not able to pull all required Docker images.")
+                    richprint.exit("Aborting. Not able to pull all required Docker images")
 
                 current_version = Version(get_current_fm_version())
                 fm_config_manager.version = current_version
@@ -195,7 +195,7 @@ def app_callback(
         migration_status = migrations.execute()
 
         if not migration_status:
-            richprint.print(f"Rolled back to previous version of fm {migrations.prev_version}.")
+            richprint.print(f"Rolled back to previous version of fm {migrations.prev_version}")
             raise typer.Exit(0)  # Exit gracefully since rollback is intentional
 
         services_manager: ServicesManager = ServicesManager(
@@ -350,7 +350,7 @@ def create(
     # Validate repositories exist BEFORE creating any infrastructure
     # This prevents failed bench creation due to invalid repos
     if apps:
-        output.info("Validating app repositories...")
+        output.info("Validating app repositories..")
         apps_config = bench_config.get_apps_config()
         valid, errors = AppCloner.validate_repos_exist(apps_config, github_token)
 
@@ -358,8 +358,8 @@ def create(
             output.display_error("Repository validation failed:")
             for error in errors:
                 output.display_error(f"  {error}")
-            output.display_error("\nPlease check the repository names, branches, and authentication.")
-            output.display_error("For private repos, use --github-token or set GITHUB_TOKEN environment variable.")
+            output.display_error("\nPlease check the repository names, branches, and authentication")
+            output.display_error("For private repos, use --github-token or set GITHUB_TOKEN environment variable")
             raise typer.Exit(1)
 
         output.print(f"✓ Validated {len(apps_config)} app repositories")
@@ -569,7 +569,7 @@ def logs(
     if service:
         available_services = bench.get_available_services()
         if service not in available_services:
-            output.display_error(f"Service '{service}' not found.")
+            output.display_error(f"Service '{service}' not found")
             output.print(f"Available services: {', '.join(sorted(available_services))}")
             raise typer.Exit(1)
 
@@ -621,7 +621,7 @@ def shell(
 
     available_services = bench.get_available_services()
     if service not in available_services:
-        output.display_error(f"Service '{service}' not found.")
+        output.display_error(f"Service '{service}' not found")
         output.print(f"Available services: {', '.join(sorted(available_services))}")
         raise typer.Exit(1)
 
@@ -765,14 +765,14 @@ def update(
     if developer_mode:
         if developer_mode == EnableDisableOptionsEnum.enable:
             bench.bench_config.developer_mode = True
-            richprint.print("Enabling frappe developer mode.")
+            richprint.print("Enabling frappe developer mode")
             bench.set_common_bench_config({'developer_mode': bench.bench_config.developer_mode})
-            richprint.print("Enabled frappe developer mode.")
+            richprint.print("Enabled frappe developer mode")
         elif developer_mode == EnableDisableOptionsEnum.disable:
             bench.bench_config.developer_mode = False
-            richprint.print("Disabling frappe developer mode.")
+            richprint.print("Disabling frappe developer mode")
             bench.set_common_bench_config({'developer_mode': bench.bench_config.developer_mode})
-            richprint.print("Enabled frappe developer mode.")
+            richprint.print("Enabled frappe developer mode")
 
         bench_config_save = True
 
@@ -782,10 +782,10 @@ def update(
 
         bench.generate_compose(bench.bench_config.export_to_compose_inputs())
 
-        richprint.print("Restarting containers to apply environment change...")
+        richprint.print("Restarting containers to apply environment change..")
         bench.docker_client.compose.restart(timeout=10)
 
-        richprint.print(f"Switched bench environemnt to {environment.value}.")
+        richprint.print(f"Switched bench environemnt to {environment.value}")
         bench_config_save = True
 
     if admin_tools:
@@ -799,11 +799,11 @@ def update(
                 bench.admin_tools.enable(force_configure=mailpit_as_default_mail_server)
 
             bench_config_save = True
-            richprint.print("Enabled Admin-tools.")
+            richprint.print("Enabled Admin-tools")
 
         elif admin_tools == EnableDisableOptionsEnum.disable:
             if not bench.admin_tools.compose_file_manager.compose_path.exists() or not bench.bench_config.admin_tools:
-                richprint.print("Admin tools is already disabled.")
+                richprint.print("Admin tools is already disabled")
                 return
             else:
                 bench.bench_config.admin_tools = False
@@ -817,7 +817,7 @@ def update(
 
         richprint.change_head("Updating alias domains")
         bench.update_alias_domains(add_domains=add_domains_list, remove_domains=remove_domains_list)
-        richprint.print("Alias domains updated successfully.")
+        richprint.print("Alias domains updated successfully")
 
     # Handle upload limit update
     if upload_limit:
@@ -884,7 +884,7 @@ def update(
 
         richprint.change_head("Setting up new runtime environment")
         venv_recreated = bench.app_manager.setup_python_and_node_environments(use_run=True)
-        richprint.print("Runtime versions updated successfully.")
+        richprint.print("Runtime versions updated successfully")
 
         if venv_recreated:
             apps_txt_path = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
@@ -901,16 +901,16 @@ def update(
                     skip_clone=True,
                     use_run=True,
                 )
-                richprint.print("All apps reinstalled successfully.")
+                richprint.print("All apps reinstalled successfully")
             else:
                 richprint.warning("No apps.txt found, skipping app reinstallation")
 
         richprint.change_head("Restarting services to apply new runtime versions")
-        richprint.print("Restarting web services (frappe, socketio)...")
+        richprint.print("Restarting web services (frappe, socketio)..")
         bench.restart_web_containers_services(use_container_restart=False)
-        richprint.print("Restarting worker services (schedule, workers)...")
+        richprint.print("Restarting worker services (schedule, workers)..")
         bench.restart_workers_containers_services(use_container_restart=False)
-        richprint.print("All services restarted successfully.")
+        richprint.print("All services restarted successfully")
 
     if bench_config_save:
         bench.save_bench_config()

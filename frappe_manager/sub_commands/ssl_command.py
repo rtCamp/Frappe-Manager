@@ -335,11 +335,11 @@ def _add_bench_certificate(
     elif challenge.lower() == "http01":
         preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.http01
     else:
-        output.display_error(f"Invalid challenge type: {challenge}. Must be 'http01' or 'dns01'.")
+        output.display_error(f"Invalid challenge type: {challenge}. Must be 'http01' or 'dns01'")
         raise typer.Exit(1)
 
     if cname and preferred_challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
-        output.display_error("CNAME delegation (--cname) can only be used with DNS-01 challenge.")
+        output.display_error("CNAME delegation (--cname) can only be used with DNS-01 challenge")
         raise typer.Exit(1)
 
     output.change_head(f"Adding SSL certificate for {domain}")

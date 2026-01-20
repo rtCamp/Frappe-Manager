@@ -15,7 +15,7 @@ class NoOpCertificateService(SSLCertificateService):
         pass
 
     def remove_certificate(self, certificate: "SSLCertificate"):
-        self.output.warning(f"{certificate.domain} doesn't have certificate issued.")
+        self.output.warning(f"{certificate.domain} doesn't have certificate issued")
 
     def generate_certificate(
         self, certificate: "SSLCertificate", alias_domains: list[str] | None = None,

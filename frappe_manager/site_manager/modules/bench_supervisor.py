@@ -197,7 +197,7 @@ class BenchSupervisor:
             start_command = supervisorctl_command + "start all"
             self._run_frappe_command(start_command)
 
-            self.output.print(f"Configured and Started {self.config.environment_type.value} services.")
+            self.output.print(f"Configured and Started {self.config.environment_type.value} services")
 
         elif self.config.environment_type == FMBenchEnvType.prod:
             self.output.change_head(f"Configuring and starting {self.config.environment_type.value} services")
@@ -222,7 +222,7 @@ class BenchSupervisor:
             start_command = supervisorctl_command + "start all"
             self._run_frappe_command(start_command)
 
-            self.output.print(f"Configured and Started {self.config.environment_type.value} services.")
+            self.output.print(f"Configured and Started {self.config.environment_type.value} services")
 
     def _run_frappe_command(self, command: str) -> None:
         """

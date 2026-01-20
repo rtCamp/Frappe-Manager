@@ -99,7 +99,7 @@ class MigrationV0130(MigrationBase):
         richprint.change_head("Migrating bench compose")
 
         if not bench.compose_project.compose_file_manager.exists():
-            richprint.print(f"Failed to migrate {bench.name} compose file.")
+            richprint.print(f"Failed to migrate {bench.name} compose file")
             raise MigrationExceptionInBench(f"{bench.compose_project.compose_file_manager.compose_path} not found.")
 
         # get all the payloads
@@ -196,7 +196,7 @@ class MigrationV0130(MigrationBase):
         with bench.compose_project.compose_file_manager as cf:
             cf.with_images(images_info).with_envs(envs).with_version(str(self.version)).commit()
 
-        richprint.print(f"Migrated [blue]{bench.name}[/blue] compose file.")
+        richprint.print(f"Migrated [blue]{bench.name}[/blue] compose file")
         self.migrate_workers_compose(bench)
 
     def migrate_workers_compose(self, bench: MigrationBench):
@@ -222,7 +222,7 @@ class MigrationV0130(MigrationBase):
             # Use with_version to set version and auto-save
             bench.compose_project.compose_file_manager.with_version(str(self.version)).commit()
 
-            richprint.print(f"Migrated [blue]{bench.name}[/blue] workers compose file.")
+            richprint.print(f"Migrated [blue]{bench.name}[/blue] workers compose file")
 
     def migrate_admin_tools_compose(self, bench: MigrationBench):
         richprint.change_head("Create Admin Tools")
@@ -283,4 +283,4 @@ class MigrationV0130(MigrationBase):
 
         common_bench_config_path.write_text(json.dumps(current_common_site_config))
 
-        richprint.change_head(f"Created {bench.name} Admin Tools.")
+        richprint.change_head(f"Created {bench.name} Admin Tools")

@@ -133,7 +133,7 @@ class MigrationV0180(MigrationBase):
         richprint.print(f"Migrated .zshrc")
 
         if not bench.compose_project.compose_file_manager.exists():
-            richprint.error(f"Failed to migrate {bench.name} compose file.")
+            richprint.error(f"Failed to migrate {bench.name} compose file")
             raise MigrationExceptionInBench(f"{bench.compose_project.compose_file_manager.compose_path} not found.")
 
         # /workspace/.pyenv
@@ -202,7 +202,7 @@ class MigrationV0180(MigrationBase):
                 new_version=str(self.version)
             )
 
-            richprint.print(f"Migrated [blue]{bench.name}[/blue] workers compose file.")
+            richprint.print(f"Migrated [blue]{bench.name}[/blue] workers compose file")
 
 
     def split_supervisor_config(self, bench: MigrationBench):

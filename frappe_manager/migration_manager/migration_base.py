@@ -51,7 +51,7 @@ class MigrationBase(ABC):
         self.logger.info("-" * 40)
 
     def down(self):
-        richprint.change_head(f"Working on v{str(self.version)} rollback.")
+        richprint.change_head(f"Working on v{str(self.version)} rollback")
         self.logger.info("-" * 40)
 
         # undo each bench
@@ -65,7 +65,7 @@ class MigrationBase(ABC):
 
         self.undo_services_migrate()
 
-        richprint.print(f"[bold]v{str(self.version)}[/bold] rollback successfull.")
+        richprint.print(f"[bold]v{str(self.version)}[/bold] rollback successfull")
         self.logger.info("-" * 40)
 
     def services_basic_backup(self):
@@ -91,7 +91,7 @@ class MigrationBase(ABC):
             if bench.name in self.migration_executor.migrate_benches.keys():
                 bench_info = self.migration_executor.migrate_benches[bench.name]
                 if bench_info['exception']:
-                    richprint.print(f"Skipping migration for failed bench [blue]{bench.name}[/blue].")
+                    richprint.print(f"Skipping migration for failed bench [blue]{bench.name}[/blue]")
                     main_error = True
                     continue
 

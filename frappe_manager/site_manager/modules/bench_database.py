@@ -79,17 +79,17 @@ class BenchDatabase:
 
             # Remove database
             if not self.services.database_manager.check_db_exists(db_name):
-                self.output.warning(f"global-db: Bench db [blue]{db_name}[/blue] not found. Skipping...")
+                self.output.warning(f"global-db: Bench db [blue]{db_name}[/blue] not found. Skipping..")
             else:
                 self.services.database_manager.remove_db(db_name)
-                self.output.print(f"global-db: Removed bench db [blue]{db_name}[/blue].")
+                self.output.print(f"global-db: Removed bench db [blue]{db_name}[/blue]")
 
             # Remove user
             if not self.services.database_manager.check_user_exists(db_user):
-                self.output.warning(f"global-db: Bench db user [blue]{db_user}[/blue] not found. Skipping...")
+                self.output.warning(f"global-db: Bench db user [blue]{db_user}[/blue] not found. Skipping..")
             else:
                 self.services.database_manager.remove_user(db_user, remove_all_host=True)
-                self.output.print(f"global-db: Removed bench db users [blue]{db_user}[/blue].")
+                self.output.print(f"global-db: Removed bench db users [blue]{db_user}[/blue]")
 
     def sync_common_site_config(self, services_db_host: str, services_db_port: int):
         """

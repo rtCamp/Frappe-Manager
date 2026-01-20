@@ -52,7 +52,7 @@ class MigrationV0170(MigrationBase):
         richprint.change_head("Migrating bench compose")
 
         if not bench.compose_project.compose_file_manager.exists():
-            richprint.error(f"Failed to migrate {bench.name} compose file.")
+            richprint.error(f"Failed to migrate {bench.name} compose file")
             raise MigrationExceptionInBench(f"{bench.compose_project.compose_file_manager.compose_path} not found.")
 
         common_site_config_json = bench.path / 'workspace' / 'frappe-bench' / 'sites' / 'common_site_config.json'
@@ -226,7 +226,7 @@ class MigrationV0170(MigrationBase):
             with bench.workers_compose_project.compose_file_manager as cf:
                 cf.with_images(workers_image_info).with_envs(envs, append=False).with_version(str(self.version)).commit()
 
-            richprint.print(f"Migrated [blue]{bench.name}[/blue] workers compose file.")
+            richprint.print(f"Migrated [blue]{bench.name}[/blue] workers compose file")
 
     def migrate_admin_tools_compose(self, bench: MigrationBench):
         admin_tool_compose_file = bench.path / "docker-compose.admin-tools.yml"
@@ -326,7 +326,7 @@ class MigrationV0170(MigrationBase):
             with admin_tool_compose_project.compose_file_manager as cf:
                 cf.with_images(admin_tools_image_info).with_prefix(get_container_name_prefix(bench.name)).with_version(str(self.version)).commit()
 
-            richprint.print(f"Migrated [blue]{bench.name}[/blue] admin-tools compose file.")
+            richprint.print(f"Migrated [blue]{bench.name}[/blue] admin-tools compose file")
 
     def split_supervisor_config(self, bench: MigrationBench):
         import configparser

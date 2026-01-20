@@ -100,18 +100,18 @@ class BenchDevTools:
 
     def remove_dev_packages(self):
         """Remove dev packages from the bench environment."""
-        self.output.change_head("Removing dev packages from env.")
+        self.output.change_head("Removing dev packages from env")
         dev_packages = self.get_apps_dev_requirements()
         remove_command = '/workspace/frappe-bench/env/bin/python -m pip uninstall --yes ' + " ".join(dev_packages)
         try:
             self.docker_client.compose.exec('frappe', command=remove_command, user='frappe', stream=False)
         except DockerException as e:
             raise BenchFailedToRemoveDevPackages(self.bench_name)
-        self.output.print("Removed dev packages from env.")
+        self.output.print("Removed dev packages from env")
 
     def install_dev_packages(self):
         """Install dev packages in the bench environment."""
-        self.output.change_head("Installing dev packages in env.")
+        self.output.change_head("Installing dev packages in env")
         dev_packages = self.get_apps_dev_requirements()
         install_command = '/workspace/frappe-bench/env/bin/python -m pip install --quiet --upgrade ' + " ".join(
             dev_packages
@@ -120,7 +120,7 @@ class BenchDevTools:
             self.docker_client.compose.exec('frappe', command=install_command, user='frappe', stream=False)
         except DockerException as e:
             raise BenchFailedToRemoveDevPackages(self.bench_name)
-        self.output.print("Installed dev packages in env.")
+        self.output.print("Installed dev packages in env")
 
     def attach_to_bench(self, user: str, extensions: List[str], workdir: str, debugger: bool = False) -> None:
         """
@@ -159,7 +159,7 @@ class BenchDevTools:
         vscode_path = shutil.which("code")
         if not vscode_path:
             self.output.stop()
-            self.output.display_error("Visual Studio Code binary i.e 'code' is not accessible via cli.")
+            self.output.display_error("Visual Studio Code binary i.e 'code' is not accessible via cli")
 
     def _get_frappe_container_name(self) -> str:
         """Get the frappe container name and encode it."""
@@ -213,7 +213,7 @@ class BenchDevTools:
         """Apply new container configuration."""
         self.output.change_head("Configuration changed, regenerating label in bench compose")
         self.compose_file_manager.configure_service("frappe", labels=labels)
-        self.output.print("Regenerated bench compose.")
+        self.output.print("Regenerated bench compose")
         output = self.docker_client.compose.up(
             services=['frappe'], detach=True, pull="never", force_recreate=False, stream=self.quiet
         )
@@ -230,7 +230,7 @@ class BenchDevTools:
 
         self._sync_vscode_config_files(workdir)
         self._install_ruff()
-        self.output.print("Synced vscode debugger configuration.")
+        self.output.print("Synced vscode debugger configuration")
 
     def _sync_vscode_config_files(self, workdir: str) -> None:
         """Sync VS Code configuration files."""
@@ -269,7 +269,7 @@ class BenchDevTools:
         except DockerException as e:
             if self.logger:
                 self.logger.error(f"ruff installation exception: {capture_and_format_exception()}")
-            self.output.warning("Not able to install ruff in env.")
+            self.output.warning("Not able to install ruff in env")
 
     def _attach_to_container(self, vscode_cmd: str) -> None:
         """Attach to the container using VS Code."""

@@ -552,7 +552,7 @@ class ComposeFile:
         try:
             self.yml["secrets"][secret_name]["file"] = file_path
         except KeyError:
-            richprint.warning("Not able to set secrets in compose.")
+            richprint.warning("Not able to set secrets in compose")
 
     def get_secret_file_path(self, secret_name) -> Path:
         try:
@@ -565,19 +565,19 @@ class ComposeFile:
         try:
             del self.yml["services"][container]["secrets"]
         except KeyError:
-            richprint.warning(f"Not able to remove secrets from {container}.")
+            richprint.warning(f"Not able to remove secrets from {container}")
 
     def remove_root_secrets_compose(self):
         try:
             del self.yml["secrets"]
         except KeyError:
-            richprint.warning(f"root level secrets not present.")
+            richprint.warning(f"root level secrets not present")
 
     def remove_container_user(self, container):
         try:
             del self.yml["services"][container]["user"]
         except KeyError:
-            richprint.warning(f"user not present.")
+            richprint.warning(f"user not present")
 
     def get_all_images(self):
         """

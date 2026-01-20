@@ -240,7 +240,7 @@ fi
                             )
 
                     if not selected_python_full:
-                        self.output.print(f"Installing Python {python_version} via uv...")
+                        self.output.print(f"Installing Python {python_version} via uv..")
                         install_cmd = f"uv python install cpython-{python_version}"
                         self._container_run(install_cmd, raise_exception_obj=None, use_run=use_run)
 
@@ -336,7 +336,7 @@ fi
                             self.output.print(f"Node {node_version} already installed")
 
                     if needs_install:
-                        self.output.print(f"Installing Node {node_version} via fnm...")
+                        self.output.print(f"Installing Node {node_version} via fnm..")
                         install_cmd = f"fnm install {node_version}"
                         install_result = self._container_run(
                             install_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run
@@ -700,9 +700,9 @@ fi
             site_name = self.bench_name
 
         for app in self.get_installed_apps_list():
-            self.output.change_head(f"Installing app {app.name} in site.")
+            self.output.change_head(f"Installing app {app.name} in site")
             self.install_app_to_site(app.name, site_name)
-            self.output.print(f"Installed app {app.name} in site.")
+            self.output.print(f"Installed app {app.name} in site")
 
     def build(self, app_list: Optional[List[str]] = None, use_run: bool = False) -> None:
         """

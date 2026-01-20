@@ -137,7 +137,7 @@ class BenchSiteManager:
         Example:
             >>> site_manager.wait_for_required_services(timeout=60)
         """
-        self.output.change_head("Checking if required services are available.")
+        self.output.change_head("Checking if required services are available")
 
         # Build required services map
         required_services = {

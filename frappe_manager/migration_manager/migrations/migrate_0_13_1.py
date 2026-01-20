@@ -40,4 +40,4 @@ class MigrationV0131(MigrationBase):
             self.services_manager.compose_project.docker.compose.up(services=['global-nginx-proxy'], stream=False)
             self.services_manager.compose_project.docker.compose.restart(services=['global-nginx-proxy'], stream=False)
 
-        richprint.print("Added fm header config to nginx-proxy.")
+        richprint.print("Added fm header config to nginx-proxy")

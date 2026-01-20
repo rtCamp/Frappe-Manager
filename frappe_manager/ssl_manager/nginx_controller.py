@@ -63,7 +63,7 @@ class NginxController:
 
         if all_running:
             output = self.docker_client.compose.exec(service=self.service_name, command="nginx -s reload", stream=False)
-            self.output.print("Reloaded nginx.")
+            self.output.print("Reloaded nginx")
 
     def restart(self):
         """
@@ -84,4 +84,4 @@ class NginxController:
 
         if all_running:
             output = self.docker_client.compose.restart(services=[self.service_name], stream=False)
-            self.output.print("Restarting nginx.")
+            self.output.print("Restarting nginx")

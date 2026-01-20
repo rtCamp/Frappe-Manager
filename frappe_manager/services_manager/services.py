@@ -332,7 +332,7 @@ class ServicesManager:
 
     def are_ports_free(self):
         ports = [80, 443]
-        self.output.change_head(f"Verifying ports {', '.join(map(str, ports))} availability.")
+        self.output.change_head(f"Verifying ports {', '.join(map(str, ports))} availability")
         docker_used_ports = []
         services = self.compose_file_manager.get_services_list()
         for service in services:
@@ -345,4 +345,4 @@ class ServicesManager:
                     except ValueError:
                         pass
         check_and_display_port_status(ports, exclude=docker_used_ports)
-        self.output.print(f"Global services will utilize ports {', '.join(map(str, ports))}.")
+        self.output.print(f"Global services will utilize ports {', '.join(map(str, ports))}")

@@ -35,7 +35,7 @@ class LoggingOutputHandler(OutputHandler):
         output = LoggingOutputHandler(rich, contextual_logger)
         
         # Now all output calls are automatically logged with context
-        output.print("Creating bench...")
+        output.print("Creating bench..")
         # User sees: ⚡ Creating bench...
         # Log file: [2024-01-07 12:00:00] INFO: [bench=mybench] [op=create] [OUTPUT] Creating bench...
     """

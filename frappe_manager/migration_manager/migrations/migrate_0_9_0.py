@@ -55,7 +55,7 @@ class MigrationV090(MigrationBase):
         if self.skip:
             return True
 
-        richprint.change_head(f"Working on v{str(self.version)} rollback.")
+        richprint.change_head(f"Working on v{str(self.version)} rollback")
         self.logger.info("-" * 40)
 
         if self.benches_dir.exists():
@@ -80,5 +80,5 @@ class MigrationV090(MigrationBase):
         # delete the sitedir
         shutil.rmtree(self.benches_dir)
 
-        richprint.print(f"[bold]v{str(self.version)}[/bold] rollback successfull.")
+        richprint.print(f"[bold]v{str(self.version)}[/bold] rollback successfull")
         self.logger.info("-" * 40)

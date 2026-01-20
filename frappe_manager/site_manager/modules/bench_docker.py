@@ -198,7 +198,7 @@ class BenchDockerOps:
                 docker=self.docker_client,
             )
 
-        self.output.print("Created all required directories.")
+        self.output.print("Created all required directories")
 
         return True
 
@@ -228,7 +228,7 @@ class BenchDockerOps:
                 services=services or [], detach=True, pull=pull, force_recreate=force_recreate, stream=False
             )
 
-        self.output.print("Started bench services.")
+        self.output.print("Started bench services")
 
     def stop(self, timeout: int = 10) -> None:
         """
@@ -241,7 +241,7 @@ class BenchDockerOps:
         output = self.docker_client.compose.stop(services=[], timeout=timeout, stream=self.quiet)
         if self.quiet:
             self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
-        self.output.print("Stopped bench services.")
+        self.output.print("Stopped bench services")
 
     def remove_containers(self, remove_volumes: bool = True, timeout: int = 5) -> None:
         """
@@ -252,12 +252,12 @@ class BenchDockerOps:
             timeout: Timeout for removal
         """
         if self.compose_file_manager.exists():
-            self.output.change_head("Removing bench containers.")
+            self.output.change_head("Removing bench containers")
             output = self.docker_client.compose.down(
                 remove_orphans=True, volumes=remove_volumes, timeout=timeout, stream=True
             )
             self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
-            self.output.print("Removed bench containers.")
+            self.output.print("Removed bench containers")
         else:
             self.output.warning('Bench compose file not found. Skipping containers removal.')
 

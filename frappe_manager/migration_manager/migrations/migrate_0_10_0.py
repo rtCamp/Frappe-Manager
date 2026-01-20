@@ -82,7 +82,7 @@ class MigrationV0100(MigrationBase):
             if bench.name in self.migration_executor.migrate_benches.keys():
                 bench_info = self.migration_executor.migrate_benches[bench.name]
                 if bench_info['exception']:
-                    richprint.print(f"Skipping migration for failed bench {bench.name}.")
+                    richprint.print(f"Skipping migration for failed bench {bench.name}")
                     main_error = True
                     continue
 
@@ -171,14 +171,14 @@ class MigrationV0100(MigrationBase):
 
         db_backup_file = self.db_migration_export(bench)
 
-        richprint.print(f"[blue]{bench.name}[/blue] db exported from bench mariadb service.")
+        richprint.print(f"[blue]{bench.name}[/blue] db exported from bench mariadb service")
 
         # backup bench db
         db_backup = self.backup_manager.backup(db_backup_file, bench_name=bench.name, allow_restore=False)
 
         self.db_migration_import(bench=bench, db_backup_file=db_backup)
 
-        richprint.print(f"[blue]{bench.name}[/blue] db imported to global-db service.")
+        richprint.print(f"[blue]{bench.name}[/blue] db imported to global-db service")
 
         richprint.change_head("Migrating bench compose")
 
@@ -236,12 +236,12 @@ class MigrationV0100(MigrationBase):
         # change the node socketio port
         bench.common_bench_config_set({"socketio_port": "80"})
 
-        richprint.print(f"Migrated [blue]{bench.name}[/blue] compose file.")
+        richprint.print(f"Migrated [blue]{bench.name}[/blue] compose file")
 
         return db_backup
 
     def create_compose_dirs(self, bench: MigrationBench):
-        richprint.change_head("Creating services compose dirs.")
+        richprint.change_head("Creating services compose dirs")
 
         # directory creation
         configs_path = bench.path / "configs"
@@ -279,7 +279,7 @@ class MigrationV0100(MigrationBase):
             new_dir = nginx_dir / directory
             new_dir.mkdir(parents=True, exist_ok=True)
 
-        richprint.print("Created services compose dirs.")
+        richprint.print("Created services compose dirs")
 
     def db_migration_export(self, bench: MigrationBench) -> Path:
         self.logger.debug("[db export] bench: %s", bench.name)
@@ -337,10 +337,10 @@ class MigrationV0100(MigrationBase):
 
         self.services_database_manager.grant_user_privilages(bench_db_user, bench_db_name)
 
-        richprint.print(f"{bench.name} db imported.")
+        richprint.print(f"{bench.name} db imported")
 
     def services_create(self, services_compose_project: ComposeProject):
-        richprint.change_head("Creating services.")
+        richprint.change_head("Creating services")
 
         envs = {
             "global-db": {
@@ -439,10 +439,10 @@ class MigrationV0100(MigrationBase):
 
         services_compose_project.docker.compose.down(remove_orphans=True, timeout=1, volumes=True, stream=True)
 
-        richprint.print(f"Created services at {self.services_manager.services_path}.")
+        richprint.print(f"Created services at {self.services_manager.services_path}")
 
     def generate_compose(self, inputs: dict, compose_file_manager: ComposeFile):
-        richprint.change_head(f"Generating services compose file.")
+        richprint.change_head(f"Generating services compose file")
         try:
             # handle environment
             if "environment" in inputs.keys():
@@ -461,6 +461,6 @@ class MigrationV0100(MigrationBase):
                     uid = user[container_name]["uid"]
                     gid = user[container_name]["gid"]
                     compose_file_manager.set_user(container_name, uid, gid)
-            richprint.print(f"Generated services compose file.")
+            richprint.print(f"Generated services compose file")
         except Exception:
             raise ServicesNotCreated()

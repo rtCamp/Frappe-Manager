@@ -372,7 +372,7 @@ class BenchService:
         is_global_db = self._is_using_global_db(bench)
 
         if not is_global_db:
-            self.output.print("Bench is not using FM's managed global-db. Skipping database deletion.")
+            self.output.print("Bench is not using FM's managed global-db. Skipping database deletion")
             return
 
         should_delete = delete_db_from_global_db
@@ -389,4 +389,4 @@ class BenchService:
         if should_delete:
             bench.remove_database_and_user()
         else:
-            self.output.print("Skipping database deletion from global-db.")
+            self.output.print("Skipping database deletion from global-db")

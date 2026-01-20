@@ -71,7 +71,7 @@ class MigrationV0150(MigrationBase):
         richprint.change_head("Migrating bench compose")
 
         if not bench.compose_project.compose_file_manager.exists():
-            richprint.print(f"Failed to migrate {bench.name} compose file.")
+            richprint.print(f"Failed to migrate {bench.name} compose file")
             raise MigrationExceptionInBench(f"{bench.compose_project.compose_file_manager.compose_path} not found.")
 
         images_info = bench.compose_project.compose_file_manager.get_all_images()
@@ -152,7 +152,7 @@ class MigrationV0150(MigrationBase):
                 tag_updates=tag_updates,
                 new_version=str(self.version)
             )
-            richprint.print(f"Migrated [blue]{bench.name}[/blue] workers compose file.")
+            richprint.print(f"Migrated [blue]{bench.name}[/blue] workers compose file")
 
     def migrate_admin_tools_compose(self, bench: MigrationBench):
         admin_tool_compose_file = bench.path / 'docker-compose.admin-tools.yml'
@@ -186,4 +186,4 @@ class MigrationV0150(MigrationBase):
                 cf.migrate_images(tag_updates=tag_updates, new_version=str(self.version), auto_save=False)
                 cf.commit()
 
-            richprint.print(f"Migrated [blue]{bench.name}[/blue] admin-tools compose file.")
+            richprint.print(f"Migrated [blue]{bench.name}[/blue] admin-tools compose file")

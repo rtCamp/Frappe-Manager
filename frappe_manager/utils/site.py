@@ -240,8 +240,8 @@ def pull_docker_images() -> bool:
             richprint.live_lines(output, padding=(0, 0, 0, 2))
         except DockerException as e:
             no_error = False
-            richprint.error(f"[bold][red]Error [/bold][/red]: Failed to pull {image}.")
-        richprint.print(f"[green]Pulled[/green] [blue]{image}[/blue].")
+            richprint.error(f"[bold][red]Error [/bold][/red]: Failed to pull {image}")
+        richprint.print(f"[green]Pulled[/green] [blue]{image}[/blue]")
 
     return no_error
 

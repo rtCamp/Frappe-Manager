@@ -301,7 +301,7 @@ class Bench:
         # ssl
         certificate_updated = self.update_certificate(self.bench_config.get_primary_certificate(), raise_error=False)
         if certificate_updated:
-            self.output.print("Certificate Updated.")
+            self.output.print("Certificate Updated")
 
         # admin tools
         if self.bench_config.admin_tools:
@@ -309,14 +309,14 @@ class Bench:
                 self.sync_admin_tools_compose()
             else:
                 self.admin_tools.enable(force_configure=True)
-            self.output.print("Enabled Admin-tools.")
+            self.output.print("Enabled Admin-tools")
 
         else:
             if not self.admin_tools.compose_file_manager.compose_path.exists():
-                self.output.print("Admin tools is already disabled.")
+                self.output.print("Admin tools is already disabled")
             else:
                 self.admin_tools.disable()
-                self.output.print("Disabled Admin-tools.")
+                self.output.print("Disabled Admin-tools")
 
         self.output.change_head("Restarting frappe server")
         self.restart_supervisor_service('frappe')
@@ -327,7 +327,7 @@ class Bench:
             self.output.change_head("Saving bench config changes")
         self.bench_config.export_to_toml(self.bench_config.root_path)
         if print_message:
-            self.output.print("Saved bench config.")
+            self.output.print("Saved bench config")
 
     @property
     def exists(self):
@@ -443,7 +443,7 @@ class Bench:
         """
         self.output.change_head("Stopping bench services")
         self.docker_ops.stop(timeout=10)
-        self.output.print("Stopped bench services.")
+        self.output.print("Stopped bench services")
 
         if self.workers.compose_file_manager.exists():
             self.output.change_head("Starting bench workers services")
@@ -456,7 +456,7 @@ class Bench:
         if self.admin_tools.compose_file_manager.exists():
             self.output.change_head("Stopped bench admin tools services")
             self.admin_tools.disable()
-            self.output.print("Stopped bench admin tools services.")
+            self.output.print("Stopped bench admin tools services")
 
     def remove_containers_and_dirs(self):
         """
@@ -468,32 +468,32 @@ class Bench:
         """
         # TODO handle low level errors like read only, write only, etc.
         if self.compose_file_manager.exists():
-            self.output.change_head("Removing bench containers.")
+            self.output.change_head("Removing bench containers")
             self.docker_ops.remove_containers(remove_volumes=True, timeout=5)
-            self.output.print("Removed bench containers.")
+            self.output.print("Removed bench containers")
         else:
             self.output.warning('Bench compose file not found. Skipping containers removal.')
 
         if self.workers.compose_file_manager.exists():
-            self.output.change_head("Removing bench workers containers.")
+            self.output.change_head("Removing bench workers containers")
             output = self.workers.docker_client.compose.down(remove_orphans=True, volumes=True, timeout=5, stream=True)
             self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
-            self.output.print("Removed bench workers containers.")
+            self.output.print("Removed bench workers containers")
         else:
             self.output.warning('Bench workers compose file not found. Skipping containers removal.')
 
         if self.admin_tools.compose_file_manager.exists():
-            self.output.change_head("Removing bench admin tools containers.")
+            self.output.change_head("Removing bench admin tools containers")
             # down_service equivalent: stop + remove containers + volumes
             try:
                 self.admin_tools.docker_client.compose.down(remove_orphans=True, volumes=True, timeout=5, stream=True)
             except Exception:
                 pass  # Best effort cleanup
-            self.output.print("Removed bench admin tools containers.")
+            self.output.print("Removed bench admin tools containers")
         else:
             self.output.warning('Bench admin tools compose file not found. Skipping containers removal.')
 
-        self.output.change_head("Removing all bench files and directories.")
+        self.output.change_head("Removing all bench files and directories")
         try:
             shutil.rmtree(self.path)
         except PermissionError:
@@ -513,7 +513,7 @@ class Bench:
             except Exception:
                 raise BenchRemoveDirectoryError(self.name, self.path)
 
-        self.output.print("Removed all bench files and directories.")
+        self.output.print("Removed all bench files and directories")
 
     def is_bench_created(self, retry=60, interval=1) -> bool:
         curl_command = 'curl -I --max-time {retry} --connect-timeout {retry} {headers} {url}'
@@ -809,7 +809,7 @@ class Bench:
         is_global_db = self._is_using_global_db()
 
         if not is_global_db:
-            self.output.print("Bench is not using FM's managed global-db. Skipping database deletion.")
+            self.output.print("Bench is not using FM's managed global-db. Skipping database deletion")
             return
 
         should_delete = delete_db_from_global_db
@@ -826,7 +826,7 @@ class Bench:
         if should_delete:
             self.remove_database_and_user()
         else:
-            self.output.print("Skipping database deletion from global-db.")
+            self.output.print("Skipping database deletion from global-db")
 
     def ensure_workers_running_if_available(self):
         self.worker_coordinator.ensure_workers_running_if_available()

@@ -224,7 +224,7 @@ def host_run_cp(image: str, source: str, destination: str, docker):
     """
 
     dest_path = Path(destination)
-    richprint.change_head(f"Populating {dest_path.name} directory.")
+    richprint.change_head(f"Populating {dest_path.name} directory")
 
     try:
         # Use context manager for automatic cleanup
@@ -241,7 +241,7 @@ def host_run_cp(image: str, source: str, destination: str, docker):
         if not Path(destination).exists():
             raise Exception(f"{destination} not found.")
 
-        richprint.change_head(f"Populated {dest_path.name} directory.")
+        richprint.change_head(f"Populated {dest_path.name} directory")
 
     except DockerException as e:
         # Clean up destination if copy failed

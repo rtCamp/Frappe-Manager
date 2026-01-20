@@ -286,7 +286,7 @@ class BenchOrchestrator:
         if not bench.is_bench_created():
             raise Exception("Bench site is inactive or unresponsive.")
 
-        self.output.print("Bench site is active and responding.")
+        self.output.print("Bench site is active and responding")
         self.logger.info(f"{bench.name}: Bench site is active and responding.")
 
     def _create_template_bench(self):
@@ -368,7 +368,7 @@ class BenchOrchestrator:
         if bench.admin_tools.compose_file_manager.compose_path.exists():
             self.output.change_head("Starting admin tools services")
             bench.admin_tools.enable(force_recreate_container=force)
-            self.output.print("Started admin tools services.")
+            self.output.print("Started admin tools services")
 
             if not bench._is_service_running("nginx"):
                 bench.docker_ops.start(services=["nginx"], force_recreate=False, pull="never")
@@ -408,10 +408,10 @@ class BenchOrchestrator:
             )
             if bench.quiet:
                 self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
-            self.output.print("Started bench workers services.")
+            self.output.print("Started bench workers services")
 
         bench.save_bench_config()
-        self.output.print("Started bench services.")
+        self.output.print("Started bench services")
 
     def update_alias_domains(self, add_domains: list[str] | None = None, remove_domains: list[str] | None = None):
         """
@@ -431,7 +431,7 @@ class BenchOrchestrator:
         remove_list = remove_domains if remove_domains else []
 
         if bench.name in add_list:
-            self.output.warning(f"Skipping '{bench.name}' - primary domain cannot be added as alias.")
+            self.output.warning(f"Skipping '{bench.name}' - primary domain cannot be added as alias")
             add_list = [d for d in add_list if d != bench.name]
 
         if bench.name in remove_list:
@@ -441,25 +441,25 @@ class BenchOrchestrator:
         added_domains = []
         for domain in add_list:
             if domain in current_aliases:
-                self.output.warning(f"Domain '{domain}' is already an alias. Skipping.")
+                self.output.warning(f"Domain '{domain}' is already an alias. Skipping")
             else:
                 current_aliases.add(domain)
                 added_domains.append(domain)
 
         for domain in added_domains:
             if domain.startswith("*."):
-                self.output.warning(f"Wildcard domain '{domain}' requires DNS-01 challenge and Cloudflare credentials.")
+                self.output.warning(f"Wildcard domain '{domain}' requires DNS-01 challenge and Cloudflare credentials")
 
         removed_domains = []
         for domain in remove_list:
             if domain not in current_aliases:
-                self.output.warning(f"Domain '{domain}' is not an alias. Skipping.")
+                self.output.warning(f"Domain '{domain}' is not an alias. Skipping")
             else:
                 current_aliases.remove(domain)
                 removed_domains.append(domain)
 
         if not added_domains and not removed_domains:
-            self.output.print("No changes to apply.")
+            self.output.print("No changes to apply")
             return
 
         if added_domains:
@@ -473,7 +473,7 @@ class BenchOrchestrator:
         try:
             self.output.change_head("Saving configuration")
             bench.save_bench_config()
-            self.output.print("Configuration saved.")
+            self.output.print("Configuration saved")
 
             self._restart_services_with_updated_config()
 
@@ -529,4 +529,4 @@ class BenchOrchestrator:
             if bench.quiet:
                 self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
 
-        self.output.print("Services restarted with updated configuration.")
+        self.output.print("Services restarted with updated configuration")

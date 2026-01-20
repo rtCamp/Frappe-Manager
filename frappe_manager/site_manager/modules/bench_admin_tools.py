@@ -146,7 +146,7 @@ class BenchAdminTools:
         self._get_common_site_config_path().write_text(json.dumps(config))
 
     def configure_mailpit_as_default_server(self):
-        self.output.change_head("Configuring Mailpit as default mail server.")
+        self.output.change_head("Configuring Mailpit as default mail server")
         current_common_site_config = self._get_common_site_config()
 
         new_conf = {
@@ -163,10 +163,10 @@ class BenchAdminTools:
                 current_common_site_config[key] = value
 
         self._save_common_site_config(current_common_site_config)
-        self.output.print("Configured Mailpit as default mail server.")
+        self.output.print("Configured Mailpit as default mail server")
 
     def remove_mailpit_as_default_server(self):
-        self.output.change_head("Removing Mailpit as default mail server.")
+        self.output.change_head("Removing Mailpit as default mail server")
         current_common_site_config = self._get_common_site_config()
 
         new_conf = {
@@ -185,7 +185,7 @@ class BenchAdminTools:
             del current_common_site_config[key]
 
         self._save_common_site_config(current_common_site_config)
-        self.output.print("Removed Mailpit as default mail server.")
+        self.output.print("Removed Mailpit as default mail server")
 
     def wait_till_services_started(self, interval=2, timeout=30):
         admin_tools_services = ['mailpit:8025', 'adminer:8080']

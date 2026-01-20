@@ -72,7 +72,7 @@ class BenchWorkers:
         Raises:
             BenchWorkersSupervisorConfigurtionNotFoundError: If no worker configs found
         """
-        self.output.change_head("Checking workers info.")
+        self.output.change_head("Checking workers info")
 
         workers_supervisor_conf_paths = []
 
@@ -146,9 +146,9 @@ class BenchWorkers:
         self.output.change_head("Generating workers compose configuration")
 
         if not self.compose_path.exists():
-            self.output.print("Workers compose not present. Generating new configuration...")
+            self.output.print("Workers compose not present. Generating new configuration..")
         else:
-            self.output.print("Workers configuration changed. Recreating compose...")
+            self.output.print("Workers configuration changed. Recreating compose..")
 
         # create compose file for workers
         self.compose_file_manager.yml = self.compose_file_manager.load_template()
@@ -266,7 +266,7 @@ class BenchWorkerCoordinator:
         are_workers_not_changed = self.workers.is_new_workers_added(include_default_workers=include_default_workers)
 
         if are_workers_not_changed:
-            self.output.print("Workers configuration remains unchanged.")
+            self.output.print("Workers configuration remains unchanged")
             return
 
         start_required = self.workers.generate_compose(
@@ -287,7 +287,7 @@ class BenchWorkerCoordinator:
         Args:
             backup_manager: BackupManager instance containing backups
         """
-        self.output.print("Rolling back to previous workers configuration.")
+        self.output.print("Rolling back to previous workers configuration")
         for backup in backup_manager.backups:
             backup_manager.restore(backup, force=True)
 

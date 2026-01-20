@@ -44,7 +44,7 @@ class MigrationV0120(MigrationBase):
         richprint.change_head("Migrating bench compose")
 
         if not bench.compose_project.compose_file_manager.exists():
-            richprint.print(f"Failed to migrate {bench.name} compose file.")
+            richprint.print(f"Failed to migrate {bench.name} compose file")
             raise MigrationExceptionInBench(f"{bench.compose_project.compose_file_manager.compose_path} not found.")
 
         images_info = bench.compose_project.compose_file_manager.get_all_images()
@@ -65,7 +65,7 @@ class MigrationV0120(MigrationBase):
                 )
                 pass
 
-        richprint.print("Removed 'restart: always'.")
+        richprint.print("Removed 'restart: always'")
 
         # Use transaction to apply all changes atomically
         tag_updates = {
@@ -78,7 +78,7 @@ class MigrationV0120(MigrationBase):
             new_version=str(self.version)
         )
 
-        richprint.print(f"Migrated {bench.name} compose file.")
+        richprint.print(f"Migrated {bench.name} compose file")
 
     def migrate_workers_compose(self, bench: MigrationBench):
         if bench.workers_compose_project.compose_file_manager.compose_path.exists():
@@ -111,4 +111,4 @@ class MigrationV0120(MigrationBase):
                 cf.migrate_images(tag_updates=tag_updates, new_version=None, auto_save=False)
                 cf.commit()
 
-        richprint.print(f"Migrated [blue]{bench.name}[/blue] compose file.")
+        richprint.print(f"Migrated [blue]{bench.name}[/blue] compose file")

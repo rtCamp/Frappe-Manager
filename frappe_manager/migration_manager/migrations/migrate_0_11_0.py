@@ -31,7 +31,7 @@ class MigrationV0110(MigrationBase):
         richprint.change_head("Migrating bench compose")
 
         if not bench.compose_project.compose_file_manager.exists():
-            richprint.print(f"Failed to migrate {bench.name} compose file.")
+            richprint.print(f"Failed to migrate {bench.name} compose file")
             raise MigrationExceptionInBench(f"{bench.compose_project.compose_file_manager.compose_path} not found.")
 
         # change image tag to the latest
@@ -55,4 +55,4 @@ class MigrationV0110(MigrationBase):
             new_version=str(self.version)
         )
 
-        richprint.print(f"Migrated [blue]{bench.name}[/blue] compose file.")
+        richprint.print(f"Migrated [blue]{bench.name}[/blue] compose file")
