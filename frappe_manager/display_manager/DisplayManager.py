@@ -4,7 +4,6 @@ import typer
 from rich.console import Console, Group
 from rich.live import Live
 from rich.padding import Padding
-from rich.prompt import Prompt
 from rich.spinner import Spinner
 from rich.style import Style
 from rich.table import Table
@@ -130,9 +129,33 @@ class DisplayManager:
         self.spinner.update(text=Text(self.current_head, style="blue bold"), style="bold blue")
 
     def prompt_ask(self, **args):
+        from InquirerPy import inquirer
+
         self.spinner.update()
         self.live.stop()
-        value = Prompt.ask(**args, console=self.stdout)
+
+        prompt = args.get('prompt', 'Enter value')
+        choices = args.get('choices')
+        default = args.get('default')
+
+        if choices:
+            value = inquirer.select(
+                message=prompt,
+                choices=choices,
+                default=default,
+                vi_mode=True,
+                qmark='🤔',
+                amark='✅',
+            ).execute()
+        else:
+            value = inquirer.text(
+                message=prompt,
+                default=default or '',
+                vi_mode=True,
+                qmark='🤔',
+                amark='✅',
+            ).execute()
+
         self.start("Working")
         return value
 
