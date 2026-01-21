@@ -860,7 +860,9 @@ class BenchConfig(BaseModel):
                 "SERVICE_NAME": "frappe",
             },
             "nginx": {
-                "SITENAME": domains_string,
+                "PRIMARY_DOMAIN": self.name,
+                "ALIAS_DOMAINS": ','.join(self.alias_domains) if self.alias_domains else "",
+                "SITENAME": domains_string,  # Keep for backward compatibility with old nginx images
                 "VIRTUAL_HOST": domains_string,
                 "VIRTUAL_PORT": 80,
                 "HTTPS_METHOD": "noredirect",
