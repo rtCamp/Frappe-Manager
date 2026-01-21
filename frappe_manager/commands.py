@@ -1055,8 +1055,7 @@ def restart(
         use_supervisor_restart = True
 
     if use_container_restart and use_supervisor_restart:
-        output.error("Cannot use both --container and --supervisor flags simultaneously")
-        raise typer.Exit(code=1)
+        output.error("Cannot use both --container and --supervisor flags simultaneously", exception=typer.Exit(code=1))
 
     if web:
         bench.restart_web_containers_services(use_container_restart=use_container_restart, force=force)

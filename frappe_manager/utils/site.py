@@ -154,6 +154,9 @@ def domain_level(domain):
 
 
 def validate_sitename(sitename: str | None) -> str:
+    if sitename is None:
+        raise ValueError("Sitename cannot be None")
+
     match = is_fqdn(sitename)
 
     if domain_level(sitename) == 0:
