@@ -18,8 +18,8 @@ T = TypeVar('T')
 
 def docker_command(
     subcommand: str,
-    exclude_params: List[str] = None,
-    positional_params: List[str] = None
+    exclude_params: List[str] | None = None,
+    positional_params: List[str] | None = None
 ) -> Callable[[T], T]:
     """
     Decorator to handle Docker command parameter conversion.
@@ -567,8 +567,8 @@ class DockerComposeWrapper:
         self,
         source: str,
         destination: str,
-        source_container: str = None,
-        destination_container: str = None,
+        source_container: str | None = None,
+        destination_container: str | None = None,
         archive: bool = False,
         follow_link: bool = False,
         stream: bool = False,

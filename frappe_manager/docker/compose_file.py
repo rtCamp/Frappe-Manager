@@ -993,7 +993,7 @@ class ComposeFile:
 
     # ==================== NEW: Update Helper Methods ====================
 
-    def update_env(self, service: str, key: str, value: str, auto_save: bool = None) -> 'ComposeFile':
+    def update_env(self, service: str, key: str, value: str, auto_save: bool | None = None) -> 'ComposeFile':
         """
         Update a single environment variable without get-set dance.
 

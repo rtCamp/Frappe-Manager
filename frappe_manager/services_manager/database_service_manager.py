@@ -170,9 +170,9 @@ class MariaDBManager(DatabaseServiceManager):
         self,
         command: str,
         stream: bool = False,
-        user: str = None,
+        user: str | None = None,
         rm: bool = False,
-        entrypoint: str = None,
+        entrypoint: str | None = None,
     ):
         """
         Executes a command using compose.exec if the service is running,
