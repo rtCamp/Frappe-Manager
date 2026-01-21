@@ -876,10 +876,8 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
 
         table.add_row(domain, ssl_type, challenge_type, status, expiry, days_left, renewal)
 
-    # Stop the live display before printing the table
     output.stop()
-    # Print table using richprint stdout directly since it's structured data
-    richprint.stdout.print(table)
+    output.print_data(table)
 
 
 def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
@@ -1029,36 +1027,34 @@ def _list_external_certificates(ctx: typer.Context):
     for domain in non_ssl_domains:
         table.add_row(domain, "none", "🔓 No SSL", "N/A", "N/A", "N/A")
 
-    # Stop live display and print table
     output.stop()
-    richprint.stdout.print(table)
+    output.print_data(table)
 
-    # Show helpful message if there are non-SSL domains
     if non_ssl_domains:
-        richprint.stdout.print("\n[yellow]💡 Tip: Add SSL certificates for non-SSL domains:[/yellow]")
-        richprint.stdout.print(f"[dim]  fm ssl add --standalone <domain>[/dim]")
+        output.print("\n[yellow]💡 Tip: Add SSL certificates for non-SSL domains:[/yellow]", emoji_code="")
+        output.print(f"[dim]  fm ssl add --standalone <domain>[/dim]", emoji_code="")
 
 
 def _list_all_certificates(ctx: typer.Context):
     """List all SSL certificates (bench + external)."""
 
     services_manager = ctx.obj["services"]
+    context = LoggerContext(operation="ssl-list-all")
+    output = get_output_handler(ctx, context=context)
 
-    # List external certificates
-    richprint.stdout.print("\n[bold cyan]═══ External Certificates ═══[/bold cyan]\n")
+    output.print("\n[bold cyan]═══ External Certificates ═══[/bold cyan]\n", emoji_code="")
     _list_external_certificates(ctx)
 
-    # List bench certificates
-    richprint.stdout.print("\n[bold cyan]═══ Bench Certificates ═══[/bold cyan]\n")
+    output.print("\n[bold cyan]═══ Bench Certificates ═══[/bold cyan]\n", emoji_code="")
 
     bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager)
     benches = bench_service.get_bench_names()
 
     if not benches:
-        richprint.stdout.print("ℹ️  No benches found")
+        output.print("ℹ️  No benches found", emoji_code="")
     else:
         for bench_name in benches:
-            richprint.stdout.print(f"\n[bold]Bench: {bench_name}[/bold]")
+            output.print(f"\n[bold]Bench: {bench_name}[/bold]", emoji_code="")
             _list_bench_certificates(ctx, bench_name)
 
 

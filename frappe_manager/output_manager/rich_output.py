@@ -5,11 +5,12 @@ This implementation wraps the existing DisplayManager (richprint) to provide
 backward compatibility while implementing the OutputHandler interface.
 """
 
-from collections.abc import Iterator
+from collections.abc import Iterable
 from typing import Any
 
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.output_manager.base import OutputHandler
+from frappe_manager.output_manager.flags import OutputRefactoringFlags
 
 
 class RichOutputHandler(OutputHandler):
@@ -38,6 +39,7 @@ class RichOutputHandler(OutputHandler):
         Args:
             text: The initial status message to display
         """
+        super().start(text)
         self._richprint.start(text)
 
     def change_head(self, text: str, style: str | None = None) -> None:
@@ -63,6 +65,7 @@ class RichOutputHandler(OutputHandler):
         """
         Stop the current operation status display.
         """
+        super().stop()
         self._richprint.stop()
 
     def print(self, text: str, emoji_code: str = ":zap:", prefix: str | None = None, **kwargs) -> None:
@@ -122,7 +125,7 @@ class RichOutputHandler(OutputHandler):
             text: The error message
             exception: Exception to raise after displaying (required)
             emoji_code: Emoji code to display (e.g., ":no_entry:")
-        
+
         Raises:
             Exception: Always raises the provided exception
         """
@@ -140,7 +143,7 @@ class RichOutputHandler(OutputHandler):
 
     def live_lines(
         self,
-        data: Iterator[tuple[str, bytes]],
+        data: Iterable[tuple[str, bytes]],
         stdout: bool = True,
         stderr: bool = True,
         lines: int = 4,
@@ -191,3 +194,26 @@ class RichOutputHandler(OutputHandler):
             The user's input as a string
         """
         return self._richprint.prompt_ask(**kwargs)
+
+    def print_data(self, data: Any, **kwargs) -> None:
+        import json
+        from rich.table import Table as RichTable
+
+        mode = OutputRefactoringFlags.stream_separation_mode()
+
+        if mode == "legacy":
+            if isinstance(data, RichTable):
+                self._richprint.stderr.print(data)
+            else:
+                self._richprint.stderr.print(str(data))
+        else:
+            if isinstance(data, RichTable):
+                self._richprint.stdout.print(data)
+            elif isinstance(data, (dict, list)):
+                json_str = json.dumps(data, indent=2, default=str)
+                self._richprint.stdout.print(json_str)
+            else:
+                self._richprint.stdout.print(str(data))
+
+    def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
+        self._richprint.stderr.print(f"{emoji_code} {text}", **kwargs)

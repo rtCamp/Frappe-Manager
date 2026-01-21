@@ -9,6 +9,7 @@ from rich.logging import RichHandler
 
 from frappe_manager import CLI_LOG_DIRECTORY
 from frappe_manager.exceptions import ConfigurationError
+from frappe_manager.logger.live_aware_handler import LiveAwareRichHandler
 
 # Define MESSAGE log level
 CLEANUP = 25
@@ -158,19 +159,22 @@ class ConsoleLogFilter(logging.Filter):
 
 def _add_console_handler(logger: logging.Logger, console_level: str) -> None:
     """
-    Add a RichHandler to the logger for console output to stderr.
+    Add a LiveAwareRichHandler to the logger for console output to stderr.
+
+    This handler coordinates with the Live spinner display to prevent
+    output corruption and visual artifacts.
 
     Args:
         logger: The logger instance to add the handler to
         console_level: The logging level name (DEBUG, INFO, WARNING, ERROR)
     """
     for handler in logger.handlers[:]:
-        if isinstance(handler, RichHandler):
+        if isinstance(handler, (RichHandler, LiveAwareRichHandler)):
             logger.removeHandler(handler)
 
     from frappe_manager.display_manager.DisplayManager import richprint
 
-    console_handler = RichHandler(
+    console_handler = LiveAwareRichHandler(
         level=getattr(logging, console_level),
         rich_tracebacks=True,
         tracebacks_show_locals=True,
@@ -178,7 +182,8 @@ def _add_console_handler(logger: logging.Logger, console_level: str) -> None:
         show_path=False,
         show_level=True,
         markup=True,
-        console=richprint.stderr,  # Use stderr console for proper stream separation
+        console=richprint.stderr,
+        live_display=richprint.live,
     )
     console_handler.setFormatter(logging.Formatter("%(message)s"))
 
@@ -198,9 +203,8 @@ def _update_console_handler(logger: logging.Logger, console_level: str | None) -
     if console_level:
         _add_console_handler(logger, console_level)
     else:
-        # Remove RichHandler if console_level is None
         for handler in logger.handlers[:]:
-            if isinstance(handler, RichHandler):
+            if isinstance(handler, (RichHandler, LiveAwareRichHandler)):
                 logger.removeHandler(handler)
 
 

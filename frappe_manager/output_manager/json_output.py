@@ -7,7 +7,7 @@ displayed to the terminal.
 """
 
 import json
-from collections.abc import Iterator
+from collections.abc import Iterable
 from typing import Any
 
 from frappe_manager.output_manager.base import OutputHandler
@@ -94,6 +94,7 @@ class JSONOutputHandler(OutputHandler):
         Args:
             text: The initial status message
         """
+        super().start(text)
         self._current_head = text
         self._is_started = True
         self._add_event(OutputEvent("start", {"text": text}))
@@ -127,6 +128,7 @@ class JSONOutputHandler(OutputHandler):
         """
         Stop the current operation status display.
         """
+        super().stop()
         self._is_started = False
         self._add_event(OutputEvent("stop", {}))
 
@@ -191,7 +193,7 @@ class JSONOutputHandler(OutputHandler):
             text: The error message
             exception: Exception to raise after capturing (required)
             emoji_code: Emoji code (captured but not rendered)
-        
+
         Raises:
             Exception: Always raises the provided exception
         """
@@ -220,7 +222,7 @@ class JSONOutputHandler(OutputHandler):
 
     def live_lines(
         self,
-        data: Iterator[tuple[str, bytes]],
+        data: Iterable[tuple[str, bytes]],
         stdout: bool = True,
         stderr: bool = True,
         lines: int = 4,
@@ -299,6 +301,12 @@ class JSONOutputHandler(OutputHandler):
         """
         self._add_event(OutputEvent("prompt_ask", {"kwargs": kwargs}))
         return ""
+
+    def print_data(self, data: Any, **kwargs) -> None:
+        self._add_event(OutputEvent("print_data", {"data": data, "kwargs": kwargs}))
+
+    def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
+        self._add_event(OutputEvent("print_status", {"text": text, "emoji_code": emoji_code, "kwargs": kwargs}))
 
     def get_events(self) -> list[dict]:
         """

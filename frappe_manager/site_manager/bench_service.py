@@ -175,15 +175,17 @@ class BenchService:
             bench = self._create_cleanup_bench(bench_name)
 
         if force:
-            self.output.start("Removing bench")
-            try:
-                bench.remove_certificate()
-            except Exception as e:
-                self.output.warning(str(e))
+            from frappe_manager.output_manager import spinner
 
-            self._handle_database_deletion(bench, delete_db_from_global_db)
+            with spinner(self.output, "Removing bench"):
+                try:
+                    bench.remove_certificate()
+                except Exception as e:
+                    self.output.warning(str(e))
 
-            bench.remove_containers_and_dirs()
+                self._handle_database_deletion(bench, delete_db_from_global_db)
+
+                bench.remove_containers_and_dirs()
             return True
         else:
             return bench.remove_bench(delete_db_from_global_db=delete_db_from_global_db)

@@ -5,7 +5,7 @@ This implementation suppresses all output, useful for testing and
 background operations where no user feedback is needed.
 """
 
-from collections.abc import Iterator
+from collections.abc import Iterable
 from typing import Any
 
 from frappe_manager.output_manager.base import OutputHandler
@@ -40,6 +40,7 @@ class SilentOutputHandler(OutputHandler):
         Args:
             text: The initial status message (ignored)
         """
+        super().start(text)
 
     def change_head(self, text: str, style: str | None = None) -> None:
         """
@@ -62,6 +63,7 @@ class SilentOutputHandler(OutputHandler):
         """
         Stop the current operation status display (no-op).
         """
+        super().stop()
 
     def print(self, text: str, emoji_code: str = ":zap:", prefix: str | None = None, **kwargs) -> None:
         """
@@ -113,7 +115,7 @@ class SilentOutputHandler(OutputHandler):
             text: The error message (ignored)
             exception: Exception to raise (required)
             emoji_code: Emoji code (ignored)
-        
+
         Raises:
             Exception: Always raises the provided exception
         """
@@ -130,7 +132,7 @@ class SilentOutputHandler(OutputHandler):
 
     def live_lines(
         self,
-        data: Iterator[tuple[str, bytes]],
+        data: Iterable[tuple[str, bytes]],
         stdout: bool = True,
         stderr: bool = True,
         lines: int = 4,
@@ -150,7 +152,6 @@ class SilentOutputHandler(OutputHandler):
             stop_string: String that stops iteration when found
             log_prefix: Prefix for each line (ignored)
         """
-        # Consume the iterator to prevent blocking, but produce no output
         for _source, line in data:
             if stop_string:
                 try:
@@ -183,3 +184,9 @@ class SilentOutputHandler(OutputHandler):
             Empty string
         """
         return ""
+
+    def print_data(self, data: Any, **kwargs) -> None:
+        pass
+
+    def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
+        pass

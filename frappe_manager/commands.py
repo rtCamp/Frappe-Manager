@@ -13,6 +13,7 @@ from frappe_manager.services_manager.services_exceptions import ServicesNotCreat
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.modules.app_cloner import AppCloner
 from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import spinner, temporary_stop
 from frappe_manager import (
     CLI_BENCH_CONFIG_FILE_NAME,
     CLI_DIR,
@@ -138,78 +139,75 @@ def app_callback(
     if not help_called:
         first_time_install = False
 
-        richprint.start("Working")
+        with spinner(richprint, "Working"):
+            if not CLI_DIR.exists():
+                CLI_DIR.mkdir(parents=True, exist_ok=True)
+                CLI_BENCHES_DIRECTORY.mkdir(parents=True, exist_ok=True)
+                richprint.print(f"fm directory doesn't exists! Created at -> {str(CLI_DIR)}")
+                first_time_install = True
+            else:
+                if not CLI_DIR.is_dir():
+                    richprint.exit("Sites directory is not a directory! Aborting!")
 
-        if not CLI_DIR.exists():
-            # creating the sites dir
-            # TODO check if it's writeable and readable -> by writing a file to it and catching exception
-            CLI_DIR.mkdir(parents=True, exist_ok=True)
-            CLI_BENCHES_DIRECTORY.mkdir(parents=True, exist_ok=True)
-            richprint.print(f"fm directory doesn't exists! Created at -> {str(CLI_DIR)}")
-            first_time_install = True
-        else:
-            if not CLI_DIR.is_dir():
-                richprint.exit("Sites directory is not a directory! Aborting!")
+            # logging
+            global logger
+            console_level = level_name if ctx.obj["verbose"] else None
+            logger = log.get_logger(console_level=console_level)
 
-        # logging
-        global logger
-        console_level = level_name if ctx.obj["verbose"] else None
-        logger = log.get_logger(console_level=console_level)
+            # Configure Python logger level based on CLI flags
+            import logging
 
-        # Configure Python logger level based on CLI flags
-        import logging
+            logger.setLevel(getattr(logging, level_name))
 
-        logger.setLevel(getattr(logging, level_name))
+            logger.info("")
+            logger.info(f"{':' * 20}FM Invoked{':' * 20}")
+            logger.info("")
 
-        logger.info("")
-        logger.info(f"{':' * 20}FM Invoked{':' * 20}")
-        logger.info("")
+            # logging command provided by user
+            logger.info(f"RUNNING COMMAND: {' '.join(sys.argv[1:])}")
+            logger.info(f"LOG LEVEL: {level_name}")
+            logger.info("-" * 20)
 
-        # logging command provided by user
-        logger.info(f"RUNNING COMMAND: {' '.join(sys.argv[1:])}")
-        logger.info(f"LOG LEVEL: {level_name}")
-        logger.info("-" * 20)
+            # check docker daemon service
+            if not DockerClient().server_running():
+                richprint.exit("Docker daemon not running. Please start docker service")
 
-        # check docker daemon service
-        if not DockerClient().server_running():
-            richprint.exit("Docker daemon not running. Please start docker service")
+            fm_config_manager: FMConfigManager = FMConfigManager.import_from_toml()
 
-        fm_config_manager: FMConfigManager = FMConfigManager.import_from_toml()
+            # docker pull
+            if first_time_install:
+                if not fm_config_manager.root_path.exists():
+                    richprint.print("It seems like the first installation. Pulling docker images...️", "🔍")
 
-        # docker pull
-        if first_time_install:
-            if not fm_config_manager.root_path.exists():
-                richprint.print("It seems like the first installation. Pulling docker images...️", "🔍")
+                    completed_status = pull_docker_images()
 
-                completed_status = pull_docker_images()
+                    if not completed_status:
+                        shutil.rmtree(CLI_DIR)
+                        richprint.exit("Aborting. Not able to pull all required Docker images")
 
-                if not completed_status:
-                    shutil.rmtree(CLI_DIR)
-                    richprint.exit("Aborting. Not able to pull all required Docker images")
+                    current_version = Version(get_current_fm_version())
+                    fm_config_manager.version = current_version
+                    fm_config_manager.export_to_toml()
 
-                current_version = Version(get_current_fm_version())
-                fm_config_manager.version = current_version
-                fm_config_manager.export_to_toml()
+            migrations = MigrationExecutor(fm_config_manager)
+            migration_status = migrations.execute()
 
-        migrations = MigrationExecutor(fm_config_manager)
-        migration_status = migrations.execute()
+            if not migration_status:
+                richprint.print(f"Rolled back to previous version of fm {migrations.prev_version}")
+                raise typer.Exit(0)
 
-        if not migration_status:
-            richprint.print(f"Rolled back to previous version of fm {migrations.prev_version}")
-            raise typer.Exit(0)  # Exit gracefully since rollback is intentional
+            services_manager: ServicesManager = ServicesManager(
+                verbose=ctx.obj["verbose"],
+                invoked_subcommand=ctx.invoked_subcommand,
+            )
 
-        services_manager: ServicesManager = ServicesManager(
-            verbose=ctx.obj["verbose"],
-            invoked_subcommand=ctx.invoked_subcommand,
-        )
+            services_manager.init()
 
-        services_manager.init()
-
-        try:
-            services_manager.entrypoint_checks(start=True)
-        except ServicesNotCreated as e:
-            services_manager.remove_itself()
-            richprint.exit(f"Not able to create services. {e}")
+            try:
+                services_manager.entrypoint_checks(start=True)
+            except ServicesNotCreated as e:
+                services_manager.remove_itself()
+                richprint.exit(f"Not able to create services. {e}")
 
         ctx.obj["services"] = services_manager
         ctx.obj['fm_config_manager'] = fm_config_manager
@@ -364,7 +362,8 @@ def create(
 
         output.print(f"✓ Validated {len(apps_config)} app repositories")
 
-    bench_service.create_bench(benchname, bench_config, is_template=template)
+    with spinner(output, "Creating bench"):
+        bench_service.create_bench(benchname, bench_config, is_template=template)
 
 
 @app.command()
@@ -425,7 +424,7 @@ def list(ctx: typer.Context):
     bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
     table = bench_service.list_benches_table()
     if table.row_count:
-        richprint.stdout.print(table)
+        output.print_data(table)
 
 
 @app.command()
@@ -667,7 +666,9 @@ def info(
     context = LoggerContext(bench=benchname, operation="info")
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
-    bench.info()
+
+    with spinner(output, "Getting bench info"):
+        bench.info()
 
 
 @app.command()
@@ -1039,7 +1040,6 @@ def ngrok(
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
 
-    # Create output handler with context for logging
     context = LoggerContext(bench=benchname, operation="ngrok")
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
@@ -1049,34 +1049,34 @@ def ngrok(
 
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
 
-    richprint.start("Setting up ngrok tunnel")
+    with spinner(richprint, "Setting up ngrok tunnel"):
+        if not auth_token and fm_config_manager.ngrok_auth_token:
+            auth_token = fm_config_manager.ngrok_auth_token
+            richprint.print("Using ngrok auth token from config file", emoji_code=":key:")
+        elif not auth_token:
+            richprint.exit(
+                "Ngrok auth token is required. Please provide it with --auth-token or set NGROK_AUTHTOKEN environment variable."
+            )
 
-    # Use token from config if available and no token provided
-    if not auth_token and fm_config_manager.ngrok_auth_token:
-        auth_token = fm_config_manager.ngrok_auth_token
-        richprint.print("Using ngrok auth token from config file", emoji_code=":key:")
-    elif not auth_token:
-        richprint.exit(
-            "Ngrok auth token is required. Please provide it with --auth-token or set NGROK_AUTHTOKEN environment variable."
-        )
+        if auth_token and not fm_config_manager.ngrok_auth_token:
+            richprint.print("New auth token provided", emoji_code=":new:")
 
-    # If token provided and not in config, ask to save
-    if auth_token and not fm_config_manager.ngrok_auth_token:
-        richprint.print("New auth token provided", emoji_code=":new:")
-        should_save = richprint.prompt_ask(
-            prompt="Do you want to save the ngrok auth token in config for future use?",
-            choices=['yes', 'no'],
-        )
-        if should_save == 'yes':
-            richprint.print("Saving auth token to config...", emoji_code=":floppy_disk:")
-            fm_config_manager.ngrok_auth_token = auth_token
-            fm_config_manager.export_to_toml()
-            richprint.print("Saved ngrok auth token to config", emoji_code=":white_check_mark:")
+            with temporary_stop(richprint):
+                should_save = richprint.prompt_ask(
+                    prompt="Do you want to save the ngrok auth token in config for future use?",
+                    choices=['yes', 'no'],
+                )
 
-    richprint.print(f"Creating ngrok tunnel for {bench.name}", emoji_code=":link:")
+            if should_save == 'yes':
+                richprint.print("Saving auth token to config...", emoji_code=":floppy_disk:")
+                fm_config_manager.ngrok_auth_token = auth_token
+                fm_config_manager.export_to_toml()
+                richprint.print("Saved ngrok auth token to config", emoji_code=":white_check_mark:")
 
-    try:
-        create_tunnel(bench.name, auth_token)
-    except Exception as e:
-        richprint.error(f"Failed to create tunnel: {str(e)}")
-        raise
+        richprint.print(f"Creating ngrok tunnel for {bench.name}", emoji_code=":link:")
+
+        try:
+            create_tunnel(bench.name, auth_token)
+        except Exception as e:
+            richprint.error(f"Failed to create tunnel: {str(e)}")
+            raise

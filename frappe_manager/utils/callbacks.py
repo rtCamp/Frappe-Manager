@@ -146,35 +146,47 @@ def val(answers, current):
 
 
 def sitename_callback(sitename: Optional[str]):
+    import sys
+
     if not sitename:
         sitename = get_sitename_from_current_path()
 
     if not sitename:
-        from InquirerPy import inquirer
-
         # Get basic sites list
         sites_list = [site_name.parent.name for site_name in sites_autocompletion_callback()]
 
         if sites_list:
-            richprint.stop()
+            # Check if we have a TTY for interactive selection
+            is_tty = sys.stdin.isatty() and sys.stdout.isatty()
 
-            # Sort with recently used sites first
-            sorted_sites = get_sorted_sites_list(sites_list)
+            if is_tty:
+                # Use interactive fuzzy selection in TTY
+                from InquirerPy import inquirer
+                from frappe_manager.output_manager import temporary_stop
 
-            sitename = inquirer.fuzzy(
-                message="Select bench (↑↓ navigate, type to search)",
-                vi_mode=True,
-                choices=sorted_sites,
-                mandatory=True,
-                qmark='🤔',
-                amark='🤔',
-            ).execute()
+                with temporary_stop(richprint):
+                    # Sort with recently used sites first
+                    sorted_sites = get_sorted_sites_list(sites_list)
 
-            # Update cache with selected site
-            if sitename:
-                update_sites_cache(sitename)
+                    sitename = inquirer.fuzzy(
+                        message="Select bench (↑↓ navigate, type to search)",
+                        vi_mode=True,
+                        choices=sorted_sites,
+                        mandatory=True,
+                        qmark='🤔',
+                        amark='🤔',
+                    ).execute()
 
-            richprint.start("working")
+                    # Update cache with selected site
+                    if sitename:
+                        update_sites_cache(sitename)
+            else:
+                # Non-TTY: Use first site from sorted list (prioritizes recently used)
+                sorted_sites = get_sorted_sites_list(sites_list)
+                sitename = sorted_sites[0] if sorted_sites else None
+
+                if sitename:
+                    update_sites_cache(sitename)
 
     if sitename is None:
         raise typer.BadParameter("Invalid selection. Must match existing sites")

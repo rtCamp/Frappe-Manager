@@ -6,7 +6,7 @@ providing a single source of truth for debugging.
 """
 
 import logging
-from collections.abc import Iterator
+from collections.abc import Iterable
 from typing import Any, Union
 
 from frappe_manager.logger.contextual import ContextualLogger
@@ -19,7 +19,7 @@ class LoggingOutputHandler(OutputHandler):
 
     This handler wraps another OutputHandler and logs all method calls
     to a Python logger, providing automatic logging of user-facing messages.
-    
+
     Supports both standard logging.Logger and ContextualLogger for automatic
     context inclusion in log messages.
 
@@ -33,7 +33,7 @@ class LoggingOutputHandler(OutputHandler):
         context = LoggerContext(bench="mybench", operation="create")
         contextual_logger = ContextualLogger(logger, context)
         output = LoggingOutputHandler(rich, contextual_logger)
-        
+
         # Now all output calls are automatically logged with context
         output.print("Creating bench..")
         # User sees: ⚡ Creating bench...
@@ -41,10 +41,7 @@ class LoggingOutputHandler(OutputHandler):
     """
 
     def __init__(
-        self, 
-        delegate: OutputHandler, 
-        logger: Union[logging.Logger, ContextualLogger], 
-        log_prefix: str = "[OUTPUT]"
+        self, delegate: OutputHandler, logger: Union[logging.Logger, ContextualLogger], log_prefix: str = "[OUTPUT]"
     ):
         """
         Initialize logging wrapper.
@@ -56,13 +53,12 @@ class LoggingOutputHandler(OutputHandler):
         """
         super().__init__(delegate.verbose)
         self.delegate = delegate
-        
-        # Wrap plain logger in ContextualLogger for consistent interface
+
         if isinstance(logger, logging.Logger):
             self.logger = ContextualLogger(logger)
         else:
             self.logger = logger
-        
+
         self.log_prefix = log_prefix
 
     def _log_message(self, level: int, message: str) -> None:
@@ -74,8 +70,7 @@ class LoggingOutputHandler(OutputHandler):
             message: Message to log
         """
         prefixed_message = f"{self.log_prefix} {message}"
-        
-        # Use appropriate logger method based on level
+
         if level == logging.DEBUG:
             self.logger.debug(prefixed_message)
         elif level == logging.INFO:
@@ -85,7 +80,6 @@ class LoggingOutputHandler(OutputHandler):
         elif level == logging.ERROR:
             self.logger.error(prefixed_message)
         else:
-            # Fallback for other levels
             self.logger.info(prefixed_message)
 
     def start(self, text: str) -> None:
@@ -97,6 +91,7 @@ class LoggingOutputHandler(OutputHandler):
         """
         self._log_message(logging.INFO, f"START: {text}")
         self.delegate.start(text)
+        super().start(text)
 
     def change_head(self, text: str, style: str | None = None) -> None:
         """
@@ -125,6 +120,7 @@ class LoggingOutputHandler(OutputHandler):
         """
         self._log_message(logging.DEBUG, "STOP")
         self.delegate.stop()
+        super().stop()
 
     def debug(self, text: str, emoji_code: str = ":bug:", **kwargs) -> None:
         """
@@ -185,7 +181,7 @@ class LoggingOutputHandler(OutputHandler):
             text: Error message
             exception: Exception to raise (required)
             emoji_code: Optional emoji code
-        
+
         Raises:
             Exception: Always raises the provided exception
         """
@@ -206,7 +202,7 @@ class LoggingOutputHandler(OutputHandler):
 
     def live_lines(
         self,
-        data: Iterator[tuple[str, bytes]],
+        data: Iterable[tuple[str, bytes]],
         stdout: bool = True,
         stderr: bool = True,
         lines: int = 4,
@@ -230,10 +226,7 @@ class LoggingOutputHandler(OutputHandler):
             log_prefix: Prefix for each line
         """
         self._log_message(logging.DEBUG, f"LIVE_LINES: Starting (stdout={stdout}, stderr={stderr})")
-
-        # Delegate to wrapped handler
         self.delegate.live_lines(data, stdout, stderr, lines, padding, stop_string, log_prefix)
-
         self._log_message(logging.DEBUG, "LIVE_LINES: Completed")
 
     def update_live(self, renderable: Any = None, padding: tuple[int, int, int, int] = (0, 0, 0, 0)) -> None:
@@ -261,10 +254,17 @@ class LoggingOutputHandler(OutputHandler):
 
         response = self.delegate.prompt_ask(**kwargs)
 
-        # Log response (but not passwords!)
         if "password" not in str(prompt_text).lower():
             self._log_message(logging.INFO, f"PROMPT_RESPONSE: {response}")
         else:
             self._log_message(logging.INFO, "PROMPT_RESPONSE: [password hidden]")
 
         return response
+
+    def print_data(self, data: Any, **kwargs) -> None:
+        self._log_message(logging.INFO, f"DATA: {data}")
+        self.delegate.print_data(data, **kwargs)
+
+    def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
+        self._log_message(logging.INFO, f"STATUS: {text}")
+        self.delegate.print_status(text, emoji_code, **kwargs)

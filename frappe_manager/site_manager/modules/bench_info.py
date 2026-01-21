@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING, List, Dict, Any
 from pathlib import Path
 import json
 from rich.table import Table
-from frappe_manager.output_manager import OutputHandler
+from rich.console import Console
+from frappe_manager.output_manager import OutputHandler, temporary_stop
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.docker import DockerException
@@ -284,8 +285,7 @@ class BenchInfo:
             bench_admin_table = generate_services_table(running_bench_admin_tools)
             bench_info_table.add_row("Bench Admin Tools", bench_admin_table)
 
-        # Use Rich's Console directly for printing the table
-        from rich.console import Console
-
-        console = Console()
-        console.print(bench_info_table)
+        # Stop spinner temporarily to print the table without corruption
+        with temporary_stop(self.output):
+            console = Console()
+            console.print(bench_info_table)

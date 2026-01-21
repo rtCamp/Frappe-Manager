@@ -7,7 +7,7 @@ allowing business logic to be independent of the presentation layer.
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Iterator
-from typing import Any
+from typing import Any, Optional
 
 
 class OutputHandler(ABC):
@@ -27,6 +27,8 @@ class OutputHandler(ABC):
             verbose: Show info and debug level messages
         """
         self.verbose = verbose
+        self._spinner_active = False
+        self._current_text: Optional[str] = None
 
     @abstractmethod
     def start(self, text: str) -> None:
@@ -36,6 +38,8 @@ class OutputHandler(ABC):
         Args:
             text: The initial status message to display
         """
+        self._spinner_active = True
+        self._current_text = text
 
     @abstractmethod
     def change_head(self, text: str, style: str | None = None) -> None:
@@ -61,6 +65,7 @@ class OutputHandler(ABC):
         """
         Stop the current operation status display.
         """
+        self._spinner_active = False
 
     @abstractmethod
     def print(self, text: str, emoji_code: str = ":zap:", prefix: str | None = None, **kwargs) -> None:
@@ -177,4 +182,40 @@ class OutputHandler(ABC):
 
         Returns:
             The user's input as a string
+        """
+
+    @property
+    def is_spinner_active(self) -> bool:
+        return self._spinner_active
+
+    @abstractmethod
+    def print_data(self, data: Any, **kwargs) -> None:
+        """
+        Print structured data to stdout (pipeable).
+
+        Use for data that users want to pipe or process:
+        - Tables (fm list)
+        - JSON output
+        - Query results
+
+        Args:
+            data: Data to print
+            **kwargs: Format-specific options
+        """
+
+    @abstractmethod
+    def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
+        """
+        Print status/diagnostic message to stderr.
+
+        Use for:
+        - Progress messages
+        - Warnings
+        - Errors
+        - Success confirmations
+
+        Args:
+            text: Status message
+            emoji_code: Emoji code
+            **kwargs: Additional arguments
         """

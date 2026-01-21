@@ -1,5 +1,6 @@
 from collections import deque
 import sys
+import warnings
 
 import typer
 from rich.console import Console, Group
@@ -29,9 +30,27 @@ class DisplayManager:
         # Use stderr for Live display so it coordinates with logging output
         self.live = Live(self.spinner, console=self.stderr, transient=True)
 
+        # Track spinner state for context managers
+        self._spinner_active = False
+        self._current_text = None
+
+    @property
+    def is_spinner_active(self) -> bool:
+        """Check if spinner is currently active."""
+        return self._spinner_active
+
     def start(self, text: str):
         """
         Starts the display manager with the given text.
+
+        DEPRECATION WARNING: Direct use of richprint.start() is deprecated.
+        Use context managers instead:
+
+            from frappe_manager.output_manager import spinner
+            with spinner(output, "Working..."):
+                do_work()
+
+        See: .plans/output-migration-guide.md
 
         Args:
             text (str): The text to be displayed.
@@ -39,8 +58,34 @@ class DisplayManager:
         Returns:
             None
         """
+        # Import flags here to avoid circular dependency
+        try:
+            from frappe_manager.output_manager.flags import OutputRefactoringFlags
+
+            if OutputRefactoringFlags.use_context_managers():
+                warnings.warn(
+                    "Direct richprint.start() is deprecated. Use context managers instead:\n"
+                    "    from frappe_manager.output_manager import spinner\n"
+                    "    with spinner(output, 'text'): ...\n"
+                    "See .plans/output-migration-guide.md for migration guide.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+
+                if OutputRefactoringFlags.strict_mode():
+                    raise RuntimeError(
+                        "Direct richprint.start() is not allowed in strict mode. "
+                        "Use context managers: with spinner(output, 'text'): ..."
+                    )
+        except ImportError:
+            pass  # Flags module not available, skip warning
+
         self.current_head = self.previous_head = Text(text=text, style="bold blue")
         self.spinner = Spinner(text=self.current_head, name="dots2", speed=1)
+
+        # Track state for context managers
+        self._spinner_active = True
+        self._current_text = text
 
         if self._is_tty:
             self.live.start(refresh=True)
@@ -290,8 +335,9 @@ class DisplayManager:
                     if "[==".lower() in line.lower() or "Updating files:".lower() in line.lower():
                         continue
 
-                    should_print = (source == "stdout" and stdout) or (source == "stderr" and stderr)
-                    if should_print:
+                    if source == "stdout" and stdout:
+                        self.stdout.print(f"{log_prefix} {line.rstrip()}")
+                    elif source == "stderr" and stderr:
                         self.stderr.print(f"{log_prefix} {line.rstrip()}")
 
                     if stop_string and stop_string.lower() in line.lower():
@@ -344,6 +390,47 @@ class DisplayManager:
                 break
 
     def stop(self):
+        """
+        Stops the display manager spinner.
+
+        DEPRECATION WARNING: Direct use of richprint.stop() is deprecated.
+        Use context managers instead:
+
+            from frappe_manager.output_manager import spinner
+            with spinner(output, "Working..."):
+                do_work()  # Spinner automatically stops when exiting context
+
+        See: .plans/output-migration-guide.md
+
+        Returns:
+            None
+        """
+        # Import flags here to avoid circular dependency
+        try:
+            from frappe_manager.output_manager.flags import OutputRefactoringFlags
+
+            if OutputRefactoringFlags.use_context_managers():
+                warnings.warn(
+                    "Direct richprint.stop() is deprecated. Use context managers instead:\n"
+                    "    from frappe_manager.output_manager import spinner\n"
+                    "    with spinner(output, 'text'): ...\n"
+                    "See .plans/output-migration-guide.md for migration guide.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+
+                if OutputRefactoringFlags.strict_mode():
+                    raise RuntimeError(
+                        "Direct richprint.stop() is not allowed in strict mode. "
+                        "Use context managers: with spinner(output, 'text'): ..."
+                    )
+        except ImportError:
+            pass  # Flags module not available, skip warning
+
+        # Track state for context managers
+        self._spinner_active = False
+        self._current_text = None
+
         if self._is_tty:
             self.spinner.update()
             self.live.update(Text("", end=""))

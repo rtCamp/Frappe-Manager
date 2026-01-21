@@ -768,17 +768,18 @@ class Bench:
         if continue_remove == "no":
             return False
 
-        self.output.start("Removing bench")
+        from frappe_manager.output_manager import spinner
 
-        try:
-            self.remove_certificate()
-        except Exception as e:
-            self.output.warning(str(e))
+        with spinner(self.output, "Removing bench"):
+            try:
+                self.remove_certificate()
+            except Exception as e:
+                self.output.warning(str(e))
 
-        # Handle database deletion based on configuration
-        self._handle_database_deletion(delete_db_from_global_db)
+            # Handle database deletion based on configuration
+            self._handle_database_deletion(delete_db_from_global_db)
 
-        self.remove_containers_and_dirs()
+            self.remove_containers_and_dirs()
         return True
 
     def _is_using_global_db(self) -> bool:
