@@ -260,7 +260,6 @@ class ServicesManager:
             labels = inputs.get("labels")
             users = None
 
-            # Convert user format if present
             if "user" in inputs:
                 users = {}
                 for container_name, user_data in inputs["user"].items():

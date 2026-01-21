@@ -262,14 +262,13 @@ class ComposeFile:
         return users
 
     def set_all_users(self, users: dict):
-        """
-        Sets the UID and GID for all services in the ComposeFile.
-
-        Args:
-            users (dict): A dictionary containing the service names as keys and (uid, gid) tuples as values.
-        """
         for service in users.keys():
-            uid, gid = users[service]  # Unpack tuple
+            user_data = users[service]
+            if isinstance(user_data, tuple):
+                uid, gid = user_data
+            else:
+                uid = user_data["uid"]
+                gid = user_data["gid"]
             self.set_user(service, uid, gid)
 
     def get_all_envs(self) -> dict[Any, Any]:
@@ -784,16 +783,13 @@ class ComposeFile:
         return self
 
     def with_users(self, users: dict) -> 'ComposeFile':
-        """
-        Fluent setter for user configurations.
-
-        Args:
-            users: Dictionary of service names to user configs (uid, gid)
-
-        Returns:
-            Self for chaining
-        """
-        self._pending_changes.append(('users', users))
+        converted_users = {}
+        for service, user_data in users.items():
+            if isinstance(user_data, tuple):
+                converted_users[service] = {"uid": str(user_data[0]), "gid": str(user_data[1])}
+            else:
+                converted_users[service] = user_data
+        self._pending_changes.append(('users', converted_users))
         return self
 
     def with_images(self, images: dict) -> 'ComposeFile':
