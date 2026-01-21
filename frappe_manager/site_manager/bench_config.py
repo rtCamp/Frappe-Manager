@@ -1,4 +1,5 @@
 from enum import Enum
+import json
 import os
 import re
 from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo
@@ -847,6 +848,14 @@ class BenchConfig(BaseModel):
 
         return common_site_config_data
 
+    def get_site_mappings(self) -> Dict[str, str]:
+        mappings = {}
+        mappings[self.name] = self.name
+        if self.alias_domains:
+            for alias in self.alias_domains:
+                mappings[alias] = self.name
+        return mappings
+
     def export_to_compose_inputs(self):
         all_domains = [self.name]
         if self.alias_domains:
@@ -860,9 +869,7 @@ class BenchConfig(BaseModel):
                 "SERVICE_NAME": "frappe",
             },
             "nginx": {
-                "PRIMARY_DOMAIN": self.name,
-                "ALIAS_DOMAINS": ','.join(self.alias_domains) if self.alias_domains else "",
-                "SITENAME": domains_string,  # Keep for backward compatibility with old nginx images
+                "SITE_MAPPINGS": json.dumps(self.get_site_mappings()),
                 "VIRTUAL_HOST": domains_string,
                 "VIRTUAL_PORT": 80,
                 "HTTPS_METHOD": "noredirect",
