@@ -115,7 +115,12 @@ class BenchDockerOps:
             labels=labels,
             users=users,
             network_name="site-network",
+            auto_save=False,
         )
+
+        restart_policy = inputs.get("restart_policy", "no")
+        self.compose_file_manager.set_all_services_restart(restart_policy)
+        self.compose_file_manager.write_to_file()
 
     def create_compose_dirs(self) -> bool:
         """

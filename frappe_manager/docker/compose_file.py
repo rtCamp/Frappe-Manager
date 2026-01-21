@@ -22,7 +22,13 @@ yaml.default_style = None
 class ComposeFile:
     yml: dict[Any, Any]
 
-    def __init__(self, loadfile: Path, template_name: str = "docker-compose.tmpl", template_dir: Optional[str] = None, auto_save: bool = True):
+    def __init__(
+        self,
+        loadfile: Path,
+        template_name: str = "docker-compose.tmpl",
+        template_dir: Optional[str] = None,
+        auto_save: bool = True,
+    ):
         self.compose_path: Path = loadfile
         self.template_name = template_name
         self.is_template_loaded = False
@@ -533,7 +539,7 @@ class ComposeFile:
     def set_root_volumes_names(self, volume_prefix: str) -> None:
         """
         Set names for root level volumes in the compose file with the given prefix.
-        
+
         Args:
             volume_prefix (str): Prefix to add to volume names
         """
@@ -544,7 +550,7 @@ class ComposeFile:
                     if volumes[volume_name] is None:
                         volumes[volume_name] = {}
                     volumes[volume_name]['name'] = volume_prefix + CLI_DEFAULT_DELIMETER + volume_name
-                    
+
         except KeyError as e:
             richprint.warning(f"Error setting volume names: {str(e)}")
 
@@ -639,17 +645,34 @@ class ComposeFile:
 
         return self.yml['services'][service].get('command', '')
 
+    def set_service_restart(self, service: str, restart_policy: str) -> None:
+        if service not in self.yml['services']:
+            raise KeyError(f"Service {service} not found in compose file")
+
+        self.yml['services'][service]['restart'] = restart_policy
+
+    def set_all_services_restart(self, restart_policy: str) -> None:
+        services = self.get_services_list()
+        for service in services:
+            self.set_service_restart(service, restart_policy)
+
+    def get_service_restart(self, service: str) -> Optional[str]:
+        if service not in self.yml['services']:
+            raise KeyError(f"Service {service} not found in compose file")
+
+        return self.yml['services'][service].get('restart', None)
+
     # ==================== NEW: Transaction Support ====================
 
     def _apply_change(self, change: Tuple[str, Any]):
         """
         Internal: Apply a single pending change.
-        
+
         Args:
             change: Tuple containing (change_type, *args)
         """
         change_type = change[0]
-        
+
         if change_type == 'envs':
             _, envs, append = change
             self.set_all_envs(envs, append=append)
@@ -676,11 +699,14 @@ class ComposeFile:
         elif change_type == 'extrahosts':
             _, extrahosts = change
             self.set_all_extrahosts(extrahosts)
+        elif change_type == 'restart':
+            _, restart_policy = change
+            self.set_all_services_restart(restart_policy)
 
     def commit(self) -> 'ComposeFile':
         """
         Apply all pending changes and save to file.
-        
+
         Returns:
             Self for chaining
         """
@@ -693,7 +719,7 @@ class ComposeFile:
     def rollback(self) -> 'ComposeFile':
         """
         Discard all pending changes without applying them.
-        
+
         Returns:
             Self for chaining
         """
@@ -705,11 +731,11 @@ class ComposeFile:
     def with_envs(self, envs: dict, append: bool = True) -> 'ComposeFile':
         """
         Fluent setter for environment variables.
-        
+
         Args:
             envs: Dictionary of service names to environment variables
             append: If True, append to existing envs; if False, replace
-        
+
         Returns:
             Self for chaining
         """
@@ -719,10 +745,10 @@ class ComposeFile:
     def with_labels(self, labels: dict) -> 'ComposeFile':
         """
         Fluent setter for labels.
-        
+
         Args:
             labels: Dictionary of service names to labels
-        
+
         Returns:
             Self for chaining
         """
@@ -732,11 +758,11 @@ class ComposeFile:
     def with_prefix(self, prefix: str, network_name: str = "site-network") -> 'ComposeFile':
         """
         Set prefix for containers, volumes, and networks at once.
-        
+
         Args:
             prefix: Prefix to apply
             network_name: Network name to configure (default: "site-network")
-        
+
         Returns:
             Self for chaining
         """
@@ -746,10 +772,10 @@ class ComposeFile:
     def with_version(self, version: str) -> 'ComposeFile':
         """
         Fluent setter for compose file version.
-        
+
         Args:
             version: Version string to set
-        
+
         Returns:
             Self for chaining
         """
@@ -759,10 +785,10 @@ class ComposeFile:
     def with_users(self, users: dict) -> 'ComposeFile':
         """
         Fluent setter for user configurations.
-        
+
         Args:
             users: Dictionary of service names to user configs (uid, gid)
-        
+
         Returns:
             Self for chaining
         """
@@ -772,10 +798,10 @@ class ComposeFile:
     def with_images(self, images: dict) -> 'ComposeFile':
         """
         Fluent setter for service images.
-        
+
         Args:
             images: Dictionary of service names to image info
-        
+
         Returns:
             Self for chaining
         """
@@ -785,10 +811,10 @@ class ComposeFile:
     def with_volumes(self, volumes: dict[str, List[DockerVolumeMount]]) -> 'ComposeFile':
         """
         Fluent setter for service volumes.
-        
+
         Args:
             volumes: Dictionary mapping service names to volume mounts
-        
+
         Returns:
             Self for chaining
         """
@@ -798,14 +824,27 @@ class ComposeFile:
     def with_extrahosts(self, extrahosts: dict) -> 'ComposeFile':
         """
         Fluent setter for extra hosts.
-        
+
         Args:
             extrahosts: Dictionary of service names to extra hosts
-        
+
         Returns:
             Self for chaining
         """
         self._pending_changes.append(('extrahosts', extrahosts))
+        return self
+
+    def with_restart(self, restart_policy: str) -> 'ComposeFile':
+        """
+        Fluent setter for restart policy (applies to all services).
+
+        Args:
+            restart_policy: Docker restart policy ("no", "always", "on-failure", "unless-stopped")
+
+        Returns:
+            Self for chaining
+        """
+        self._pending_changes.append(('restart', restart_policy))
         return self
 
     # ==================== NEW: Atomic Configuration Methods ====================
@@ -818,11 +857,11 @@ class ComposeFile:
         labels: Optional[dict] = None,
         users: Optional[dict] = None,
         network_name: str = "site-network",
-        auto_save: bool = True
+        auto_save: bool = True,
     ) -> 'ComposeFile':
         """
         Configure a complete bench in one call.
-        
+
         Args:
             prefix: Container/volume/network prefix
             version: Compose file version
@@ -831,7 +870,7 @@ class ComposeFile:
             users: User configurations by service (supports both dict and tuple formats)
             network_name: Network name to configure
             auto_save: Whether to save immediately
-        
+
         Returns:
             Self for chaining
         """
@@ -849,16 +888,15 @@ class ComposeFile:
                 else:
                     converted_users[service] = user_data
             self.set_all_users(converted_users)
-        
 
         self.set_container_names(prefix)
         self.set_root_volumes_names(prefix)
         self.set_root_networks_name(network_name, prefix)
         self.set_version(version)
-        
+
         if auto_save:
             self.write_to_file()
-        
+
         return self
 
     def configure_service(
@@ -869,11 +907,11 @@ class ComposeFile:
         user: Optional[Tuple[str, str]] = None,  # (uid, gid)
         command: Optional[str] = None,
         volumes: Optional[List[DockerVolumeMount]] = None,
-        auto_save: bool = True
+        auto_save: bool = True,
     ) -> 'ComposeFile':
         """
         Configure a single service in one call.
-        
+
         Args:
             service: Service name
             env: Environment variables
@@ -882,7 +920,7 @@ class ComposeFile:
             command: Service command
             volumes: Volume mounts
             auto_save: Whether to save immediately
-        
+
         Returns:
             Self for chaining
         """
@@ -897,43 +935,40 @@ class ComposeFile:
             self.set_service_command(service, command)
         if volumes:
             self.set_service_volumes(service, volumes)
-        
+
         if auto_save:
             self.write_to_file()
-        
+
         return self
 
     def migrate_images(
-        self,
-        tag_updates: dict[str, str],
-        new_version: Optional[str] = None,
-        auto_save: bool = True
+        self, tag_updates: dict[str, str], new_version: Optional[str] = None, auto_save: bool = True
     ) -> 'ComposeFile':
         """
         Update multiple image tags and optionally version (common in migrations).
-        
+
         Args:
             tag_updates: Dict of {service: new_tag}
             new_version: New compose file version
             auto_save: Whether to save immediately
-        
+
         Returns:
             Self for chaining
         """
         images = self.get_all_images()
-        
+
         for service, new_tag in tag_updates.items():
             if service in images:
                 images[service]['tag'] = new_tag
-        
+
         self.set_all_images(images)
-        
+
         if new_version:
             self.set_version(new_version)
-        
+
         if auto_save:
             self.write_to_file()
-        
+
         return self
 
     # ==================== NEW: Context Manager Support ====================
@@ -958,149 +993,123 @@ class ComposeFile:
 
     # ==================== NEW: Update Helper Methods ====================
 
-    def update_env(
-        self, 
-        service: str, 
-        key: str, 
-        value: str,
-        auto_save: bool = None
-    ) -> 'ComposeFile':
+    def update_env(self, service: str, key: str, value: str, auto_save: bool = None) -> 'ComposeFile':
         """
         Update a single environment variable without get-set dance.
-        
+
         Args:
             service: Service name
             key: Environment variable key
             value: Environment variable value
             auto_save: Override instance auto_save setting
-        
+
         Returns:
             Self for chaining
         """
         if service not in self.yml['services']:
             raise ComposeServiceNotFound(service)
-        
+
         if 'environment' not in self.yml['services'][service]:
             self.yml['services'][service]['environment'] = OrderedDict()
-        
+
         self.yml['services'][service]['environment'][key] = value
-        
+
         should_save = auto_save if auto_save is not None else self._auto_save
         if should_save:
             self.write_to_file()
-        
+
         return self
 
-    def delete_env(
-        self,
-        service: str,
-        key: str,
-        auto_save: bool = None
-    ) -> 'ComposeFile':
+    def delete_env(self, service: str, key: str, auto_save: bool = None) -> 'ComposeFile':
         """
         Delete a single environment variable.
-        
+
         Args:
             service: Service name
             key: Environment variable key to delete
             auto_save: Override instance auto_save setting
-        
+
         Returns:
             Self for chaining
         """
         if service not in self.yml['services']:
             raise ComposeServiceNotFound(service)
-        
+
         if 'environment' in self.yml['services'][service]:
             self.yml['services'][service]['environment'].pop(key, None)
-        
+
         should_save = auto_save if auto_save is not None else self._auto_save
         if should_save:
             self.write_to_file()
-        
+
         return self
 
-    def update_label(
-        self,
-        service: str,
-        key: str,
-        value: str,
-        auto_save: bool = None
-    ) -> 'ComposeFile':
+    def update_label(self, service: str, key: str, value: str, auto_save: bool = None) -> 'ComposeFile':
         """
         Update a single label.
-        
+
         Args:
             service: Service name
             key: Label key
             value: Label value
             auto_save: Override instance auto_save setting
-        
+
         Returns:
             Self for chaining
         """
         if service not in self.yml['services']:
             raise ComposeServiceNotFound(service)
-        
+
         if 'labels' not in self.yml['services'][service]:
             self.yml['services'][service]['labels'] = OrderedDict()
-        
+
         self.yml['services'][service]['labels'][key] = value
-        
+
         should_save = auto_save if auto_save is not None else self._auto_save
         if should_save:
             self.write_to_file()
-        
+
         return self
 
-    def update_image_tag(
-        self,
-        service: str,
-        new_tag: str,
-        auto_save: bool = None
-    ) -> 'ComposeFile':
+    def update_image_tag(self, service: str, new_tag: str, auto_save: bool = None) -> 'ComposeFile':
         """
         Update a single service image tag.
-        
+
         Args:
             service: Service name
             new_tag: New tag to set
             auto_save: Override instance auto_save setting
-        
+
         Returns:
             Self for chaining
         """
         if service not in self.yml['services']:
             raise ComposeServiceNotFound(service)
-        
+
         if 'image' not in self.yml['services'][service]:
             raise KeyError(f"Service {service} has no image defined")
-        
+
         current_image = self.yml['services'][service]['image']
         image_name = current_image.split(':')[0] if ':' in current_image else current_image
         self.yml['services'][service]['image'] = f"{image_name}:{new_tag}"
-        
+
         should_save = auto_save if auto_save is not None else self._auto_save
         if should_save:
             self.write_to_file()
-        
+
         return self
 
     # ==================== NEW: Static Template Access ====================
 
     @classmethod
-    def load_template_yml(
-        cls,
-        template_name: str = "docker-compose.tmpl",
-        template_dir: str = 'templates'
-    ) -> dict:
+    def load_template_yml(cls, template_name: str = "docker-compose.tmpl", template_dir: str = 'templates') -> dict:
         """
         Load template YAML without instantiating ComposeFile.
-        
+
         Args:
             template_name: Template file name
             template_dir: Template directory
-        
+
         Returns:
             Parsed YAML dictionary
         """
@@ -1111,44 +1120,40 @@ class ComposeFile:
 
     @classmethod
     def get_template_images(
-        cls,
-        template_name: str = "docker-compose.tmpl",
-        template_dir: str = 'templates'
+        cls, template_name: str = "docker-compose.tmpl", template_dir: str = 'templates'
     ) -> dict[str, dict[str, str]]:
         """
         Get all images from a template.
-        
+
         Args:
             template_name: Template file name
             template_dir: Template directory
-        
+
         Returns:
             Dict of {service: {name, tag, image}}
         """
         yml = cls.load_template_yml(template_name, template_dir)
-        
+
         images = {}
         for service in yml.get("services", {}).keys():
             if "image" in yml["services"][service]:
                 image = yml["services"][service]["image"]
                 name, tag = image.split(":") if ":" in image else (image, "latest")
                 images[service] = {"name": name, "tag": tag, "image": image}
-        
+
         return images
 
     @classmethod
     def get_template_services(
-        cls,
-        template_name: str = "docker-compose.tmpl",
-        template_dir: str = 'templates'
+        cls, template_name: str = "docker-compose.tmpl", template_dir: str = 'templates'
     ) -> list[str]:
         """
         Get list of services from template.
-        
+
         Args:
             template_name: Template file name
             template_dir: Template directory
-        
+
         Returns:
             List of service names
         """

@@ -46,7 +46,7 @@ from frappe_manager.services_manager.commands import services_root_command
 from frappe_manager.sub_commands.self_commands import self_app
 from frappe_manager.sub_commands.ssl_command import ssl_root_command
 from frappe_manager.metadata_manager import FMConfigManager
-from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
+from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType, RestartPolicyEnum
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.docker import ComposeFile
 from frappe_manager.output_manager import OutputHandler
@@ -272,6 +272,14 @@ def create(
             show_default=False,
         ),
     ] = None,
+    restart: Annotated[
+        Optional[RestartPolicyEnum],
+        typer.Option(
+            "--restart",
+            help="Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).",
+            show_default=False,
+        ),
+    ] = None,
 ):
     """
     Create a new bench with apps.
@@ -343,6 +351,7 @@ def create(
         db_name=db_name,
         admin_tools_username=None,
         admin_tools_password=None,
+        restart_policy=restart,
     )
 
     # Validate repositories exist BEFORE creating any infrastructure
@@ -361,6 +370,11 @@ def create(
             raise typer.Exit(1)
 
         output.print(f"✓ Validated {len(apps_config)} app repositories")
+
+    # Warn if prod bench is being created with restart: no
+    if restart == RestartPolicyEnum.no and environment == FMBenchEnvType.prod:
+        output.warning("⚠️  Creating production bench with restart policy 'no'")
+        output.warning("    Containers will not auto-recover from failures or system reboots")
 
     with spinner(output, "Creating bench"):
         bench_service.create_bench(benchname, bench_config, is_template=template)
@@ -748,6 +762,14 @@ def update(
             show_default=False,
         ),
     ] = False,
+    restart: Annotated[
+        Optional[RestartPolicyEnum],
+        typer.Option(
+            "--restart",
+            help="Update Docker restart policy for all bench services.",
+            show_default=False,
+        ),
+    ] = None,
 ):
     """Update bench configuration and settings"""
 
@@ -788,6 +810,33 @@ def update(
 
         richprint.print(f"Switched bench environemnt to {environment.value}")
         bench_config_save = True
+
+    if restart:
+        old_policy = bench.bench_config.restart_policy.value
+        if restart != bench.bench_config.restart_policy:
+            richprint.change_head(f"Updating restart policy from '{old_policy}' to '{restart.value}'")
+
+            if restart == RestartPolicyEnum.no and bench.bench_config.environment_type == FMBenchEnvType.prod:
+                richprint.warning("⚠️  Setting restart policy to 'no' on production bench")
+                richprint.warning("    Containers will not auto-recover from failures or system reboots")
+
+            bench.bench_config.restart_policy = restart
+            bench.generate_compose(bench.bench_config.export_to_compose_inputs())
+
+            if bench.workers.compose_file_manager.compose_path.exists():
+                bench.workers.generate_compose()
+
+            if bench.admin_tools.compose_file_manager.compose_path.exists():
+                db_host = bench.services.database_manager.database_server_info.host
+                bench.admin_tools.generate_compose(db_host)
+
+            richprint.print("Restarting containers to apply restart policy..")
+            bench.docker_client.compose.up(detach=True, force_recreate=True, stream=False)
+
+            richprint.print(f"Updated restart policy to '{restart.value}'")
+            bench_config_save = True
+        else:
+            richprint.print(f"Restart policy is already set to '{restart.value}'")
 
     if admin_tools:
         if admin_tools == EnableDisableOptionsEnum.enable:

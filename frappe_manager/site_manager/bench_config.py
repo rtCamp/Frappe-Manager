@@ -324,6 +324,22 @@ class FMBenchEnvType(str, Enum):
     dev = 'dev'
 
 
+class RestartPolicyEnum(str, Enum):
+    """
+    Docker Compose restart policy options.
+
+    - no: Never restart (default, current behavior)
+    - always: Always restart, even after manual stop
+    - on_failure: Restart only on non-zero exit code
+    - unless_stopped: Restart unless manually stopped (recommended for production)
+    """
+
+    no = "no"
+    always = "always"
+    on_failure = "on-failure"
+    unless_stopped = "unless-stopped"
+
+
 class AppConfig(BaseModel):
     """
     Configuration for a single Frappe app.
@@ -587,6 +603,21 @@ class BenchConfig(BaseModel):
     # Database name (randomized on creation to avoid conflicts)
     db_name: Optional[str] = Field(None, description="Database name for this bench (auto-generated random string)")
 
+    restart_policy: Optional[RestartPolicyEnum] = Field(
+        default=None, description="Docker Compose restart policy for all services in this bench"
+    )
+
+    @field_validator('restart_policy', mode='before')
+    @classmethod
+    def set_default_restart_policy(cls, v, info):
+        if v is None and 'environment_type' in info.data:
+            env_type = info.data['environment_type']
+            if env_type == FMBenchEnvType.prod:
+                return RestartPolicyEnum.unless_stopped
+            else:
+                return RestartPolicyEnum.no
+        return v if v is not None else RestartPolicyEnum.no
+
     def get_apps_config(self) -> List[AppConfig]:
         """
         Convert apps_list to AppConfig objects.
@@ -794,6 +825,7 @@ class BenchConfig(BaseModel):
             'python_version': data.get('python_version', None),
             'node_version': data.get('node_version', None),
             'db_name': data.get('db_name'),
+            'restart_policy': data.get('restart_policy', None),
         }
 
         bench_config_instance = cls(**input_data)
@@ -855,5 +887,6 @@ class BenchConfig(BaseModel):
         template_inputs: dict = {
             "environment": environment,
             "user": users,
+            "restart_policy": self.restart_policy.value,
         }
         return template_inputs

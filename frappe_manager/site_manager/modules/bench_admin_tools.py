@@ -54,13 +54,16 @@ class BenchAdminTools:
     def generate_compose(self, db_host: str):
         self.compose_file_manager.yml = self.compose_file_manager.load_template()
 
-        # Use new configure_bench method to set all configurations atomically
         self.compose_file_manager.configure_bench(
             prefix=get_container_name_prefix(self.bench_name),
             version=get_current_fm_version(),
             envs={"adminer": {"ADMINER_DEFAULT_SERVER": db_host}},
             network_name='site-network',
+            auto_save=False,
         )
+
+        self.compose_file_manager.set_all_services_restart(self.bench.bench_config.restart_policy.value)
+        self.compose_file_manager.write_to_file()
 
     def create(self, db_host: str):
         self.output.change_head("Generating admin tools configuration")

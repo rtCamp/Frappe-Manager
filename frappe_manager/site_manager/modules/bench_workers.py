@@ -178,7 +178,7 @@ class BenchWorkers:
             # Use new with_prefix and with_version methods to set all configurations atomically
             self.compose_file_manager.with_prefix(
                 get_container_name_prefix(self.bench.name), 'site-network'
-            ).with_version(get_current_fm_version()).commit()
+            ).with_version(get_current_fm_version()).with_restart(self.bench.bench_config.restart_policy.value).commit()
             self.output.print("Workers configuration generated successfully")
             return True
 
