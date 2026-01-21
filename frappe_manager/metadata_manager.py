@@ -65,26 +65,41 @@ class FMLetsencryptConfig(BaseModel):
         return config_object
 
 
+class FMValidationConfig(BaseModel):
+    """Validation settings for Frappe Manager operations."""
+
+    enforce_domain_uniqueness: bool = Field(default=True, description="Enforce domain uniqueness across benches")
+
+    def get_toml_doc(self):
+        model_dict = self.model_dump(exclude_none=True)
+        toml_doc = tomlkit.document()
+        for key, value in model_dict.items():
+            toml_doc[key] = value
+        return toml_doc
+
+    @classmethod
+    def import_from_toml_doc(cls, toml_doc):
+        return cls(**toml_doc)
+
+
 class FMConfigManager(BaseModel):
     root_path: Path
     version: Version
     cloudflare: FMCloudflareConfig = Field(default=FMCloudflareConfig())
     ngrok_auth_token: Optional[str] = Field(None, description="Ngrok authentication token")
+    validation: FMValidationConfig = Field(default=FMValidationConfig())
 
     def export_to_toml(self, path: Path = CLI_FM_CONFIG_PATH) -> bool:
         exclude = {'root_path'}
 
-        # Exclude cloudflare if no credentials
         if not self.cloudflare.exists:
             exclude.add('cloudflare')
 
         if self.version < Version('0.13.0'):
             path = CLI_FM_CONFIG_PATH.parent / '.fm.toml'
 
-        # Convert the FMConfigManager instance to a dictionary
         fm_config_dict = self.model_dump(exclude=exclude, exclude_none=True)
 
-        # transform structure if needed
         fm_config_dict['version'] = self.version.version
 
         toml_doc = tomlkit.document()
@@ -101,13 +116,6 @@ class FMConfigManager(BaseModel):
 
     @classmethod
     def import_from_toml(cls, path: Path = CLI_FM_CONFIG_PATH) -> "FMConfigManager":
-        """
-        Import FM configuration from TOML file.
-
-        Supports automatic migration from old [letsencrypt] format to new [cloudflare] format.
-        Old configs with api_token/api_key in [letsencrypt] section will be migrated to [cloudflare].
-        """
-        # previously the name of the fm config was .fm.toml now changed to fm_config.toml
         input_data = {}
 
         old_config_path = path.parent / '.fm.toml'
@@ -116,6 +124,7 @@ class FMConfigManager(BaseModel):
         input_data['cloudflare'] = FMCloudflareConfig(email=None, api_key=None, api_token=None)
         input_data['root_path'] = str(path)
         input_data['ngrok_auth_token'] = None
+        input_data['validation'] = FMValidationConfig()
 
         if old_config_path.exists():
             old_data = tomlkit.parse(old_config_path.read_text())
@@ -124,18 +133,18 @@ class FMConfigManager(BaseModel):
             data = tomlkit.parse(path.read_text())
             input_data['version'] = Version(data.get('version', get_current_fm_version()))
 
-            # Check for new [cloudflare] section first
             if 'cloudflare' in data:
                 input_data['cloudflare'] = FMCloudflareConfig(**data['cloudflare'])
-            # Migrate from old [letsencrypt] section if present
             elif 'letsencrypt' in data:
                 le_data = data['letsencrypt']
-                # Migrate Cloudflare credentials from old letsencrypt section
                 input_data['cloudflare'] = FMCloudflareConfig(
                     email=le_data.get('email'), api_token=le_data.get('api_token'), api_key=le_data.get('api_key')
                 )
 
             input_data['ngrok_auth_token'] = data.get('ngrok_auth_token', None)
+
+            if 'validation' in data:
+                input_data['validation'] = FMValidationConfig(**data['validation'])
 
         fm_config_instance = cls(**input_data)
         return fm_config_instance

@@ -1,6 +1,7 @@
 from pathlib import Path
 from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.utils.site import pull_docker_images, validate_sitename
+from frappe_manager.site_manager.domain_conflict import validate_domains_unique, DomainConflictError
 import typer
 import os
 import sys
@@ -280,6 +281,14 @@ def create(
             show_default=False,
         ),
     ] = None,
+    allow_domain_conflicts: Annotated[
+        bool,
+        typer.Option(
+            "--allow-domain-conflicts",
+            help="Skip domain uniqueness validation (not recommended). Allows creating benches with duplicate domains.",
+            show_default=False,
+        ),
+    ] = False,
 ):
     """
     Create a new bench with apps.
@@ -294,10 +303,23 @@ def create(
 
     services_manager: ServicesManager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
+    fm_config: FMConfigManager = ctx.obj['fm_config_manager']
 
     benchname = validate_sitename(benchname)
 
-    # Create context for this operation
+    all_domains = {benchname}
+    if alias_domains:
+        all_domains.update(alias_domains)
+
+    skip_check = allow_domain_conflicts or not fm_config.validation.enforce_domain_uniqueness
+
+    try:
+        validate_domains_unique(all_domains, benches_root=CLI_BENCHES_DIRECTORY, skip_check=skip_check)
+    except DomainConflictError as e:
+        richprint.error(str(e))
+        richprint.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
+        raise typer.Exit(1)
+
     context = LoggerContext(bench=benchname, operation="create")
     output = get_output_handler(ctx, context=context)
     bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
@@ -770,12 +792,20 @@ def update(
             show_default=False,
         ),
     ] = None,
+    allow_domain_conflicts: Annotated[
+        bool,
+        typer.Option(
+            "--allow-domain-conflicts",
+            help="Skip domain uniqueness validation when adding aliases (not recommended).",
+            show_default=False,
+        ),
+    ] = False,
 ):
     """Update bench configuration and settings"""
 
     services_manager = ctx.obj["services"]
+    fm_config: FMConfigManager = ctx.obj['fm_config_manager']
 
-    # Create output handler with context for logging
     context = LoggerContext(bench=benchname, operation="update")
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
@@ -860,10 +890,24 @@ def update(
                 bench.admin_tools.disable()
                 bench_config_save = True
 
-    # Handle alias domain updates
     if add_alias or remove_alias:
         add_domains_list = add_alias if add_alias else []
         remove_domains_list = remove_alias if remove_alias else []
+
+        if add_domains_list:
+            skip_check = allow_domain_conflicts or not fm_config.validation.enforce_domain_uniqueness
+
+            try:
+                validate_domains_unique(
+                    add_domains_list,
+                    benches_root=CLI_BENCHES_DIRECTORY,
+                    exclude_bench=bench.name,
+                    skip_check=skip_check,
+                )
+            except DomainConflictError as e:
+                richprint.error(str(e))
+                richprint.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
+                raise typer.Exit(1)
 
         richprint.change_head("Updating alias domains")
         bench.update_alias_domains(add_domains=add_domains_list, remove_domains=remove_domains_list)
