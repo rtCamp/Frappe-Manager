@@ -1,6 +1,6 @@
 # Denotes the current version of fm.
 # Should not be edited by user.
-version = "0.14.0"
+version = "0.19.0"
 
 [letsencrypt]
 # The email address associated with Let's Encrypt.

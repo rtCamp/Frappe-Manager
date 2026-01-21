@@ -23,6 +23,7 @@ from frappe_manager import (
     EnableDisableOptionsEnum,
     SiteServicesEnum,
     CLI_BENCHES_DIRECTORY,
+    CLI_FM_CONFIG_PATH,
 )
 from frappe_manager.docker import DockerClient
 from frappe_manager.logger import log
@@ -138,24 +139,18 @@ def app_callback(
     ctx.obj["is_help_called"] = help_called
 
     if not help_called:
-        first_time_install = False
-
         with spinner(richprint, "Working"):
             if not CLI_DIR.exists():
                 CLI_DIR.mkdir(parents=True, exist_ok=True)
                 CLI_BENCHES_DIRECTORY.mkdir(parents=True, exist_ok=True)
                 richprint.print(f"fm directory doesn't exists! Created at -> {str(CLI_DIR)}")
-                first_time_install = True
-            else:
-                if not CLI_DIR.is_dir():
-                    richprint.exit("Sites directory is not a directory! Aborting!")
+            elif not CLI_DIR.is_dir():
+                richprint.exit("Sites directory is not a directory! Aborting!")
 
-            # logging
             global logger
             console_level = level_name if ctx.obj["verbose"] else None
             logger = log.get_logger(console_level=console_level)
 
-            # Configure Python logger level based on CLI flags
             import logging
 
             logger.setLevel(getattr(logging, level_name))
@@ -164,31 +159,28 @@ def app_callback(
             logger.info(f"{':' * 20}FM Invoked{':' * 20}")
             logger.info("")
 
-            # logging command provided by user
             logger.info(f"RUNNING COMMAND: {' '.join(sys.argv[1:])}")
             logger.info(f"LOG LEVEL: {level_name}")
             logger.info("-" * 20)
 
-            # check docker daemon service
             if not DockerClient().server_running():
                 richprint.exit("Docker daemon not running. Please start docker service")
 
             fm_config_manager: FMConfigManager = FMConfigManager.import_from_toml()
 
-            # docker pull
-            if first_time_install:
-                if not fm_config_manager.root_path.exists():
-                    richprint.print("It seems like the first installation. Pulling docker images...️", "🔍")
+            if not CLI_FM_CONFIG_PATH.exists():
+                richprint.print("First installation detected. Pulling docker images...️", "🔍")
 
-                    completed_status = pull_docker_images()
+                completed_status = pull_docker_images()
 
-                    if not completed_status:
+                if not completed_status:
+                    if CLI_DIR.exists():
                         shutil.rmtree(CLI_DIR)
-                        richprint.exit("Aborting. Not able to pull all required Docker images")
+                    richprint.exit("Aborting. Not able to pull all required Docker images")
 
-                    current_version = Version(get_current_fm_version())
-                    fm_config_manager.version = current_version
-                    fm_config_manager.export_to_toml()
+                current_version = Version(get_current_fm_version())
+                fm_config_manager.version = current_version
+                fm_config_manager.export_to_toml()
 
             migrations = MigrationExecutor(fm_config_manager)
             migration_status = migrations.execute()
@@ -835,8 +827,11 @@ def update(
 
         bench.generate_compose(bench.bench_config.export_to_compose_inputs())
 
-        richprint.print("Restarting containers to apply environment change..")
-        bench.docker_client.compose.restart(timeout=10)
+        richprint.print("Recreating containers to apply environment change..")
+        bench.docker_client.compose.up(detach=True, force_recreate=True, stream=False)
+
+        richprint.print("Configuring supervisor for new environment..")
+        bench.switch_bench_env()
 
         richprint.print(f"Switched bench environemnt to {environment.value}")
         bench_config_save = True

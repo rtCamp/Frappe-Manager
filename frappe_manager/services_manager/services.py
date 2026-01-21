@@ -54,13 +54,16 @@ class ServicesManager:
                     f"Creating global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
                     emoji_code=":construction:",
                 )
-                self.path.mkdir(parents=True, exist_ok=True)
                 self.create(clean_install=True)
 
             except Exception as e:
+                self.output.error(f"Error during service creation", e)
+                import traceback
+
+                traceback.print_exc()
                 raise ServicesNotCreated(
                     f"Not able to create global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
-                )
+                ) from e
 
             # Pull images
             output = self.docker_client.compose.pull(stream=False)
@@ -173,15 +176,17 @@ class ServicesManager:
                 "docker group not found in system. Please add docker group to the system and current user to the docker group.",
             )
 
-        if backup:
-            if self.path.exists():
-                backup_path: Path = CLI_DIR / "backups"
-                backup_path.mkdir(parents=True, exist_ok=True)
-                current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-                backup_dir_name = f"services_{current_time}"
-                self.path.rename(backup_path / backup_dir_name)
+        if backup and self.path.exists():
+            backup_path: Path = CLI_DIR / "backups"
+            backup_path.mkdir(parents=True, exist_ok=True)
+            current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+            backup_dir_name = f"services_{current_time}"
+            self.path.rename(backup_path / backup_dir_name)
 
-        shutil.rmtree(self.path)
+        if self.path.exists():
+            shutil.rmtree(self.path)
+
+        self.path.mkdir(parents=True, exist_ok=True)
 
         # create required directories
         dirs_to_create = [

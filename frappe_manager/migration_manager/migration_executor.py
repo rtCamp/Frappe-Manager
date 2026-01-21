@@ -16,6 +16,8 @@ from frappe_manager.logger import log
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.display_manager.DisplayManager import richprint
 
+MINIMUM_SUPPORTED_VERSION = Version("0.18.0")
+
 
 class MigrationExecutor:
     """
@@ -44,6 +46,19 @@ class MigrationExecutor:
 
         if not self.prev_version < self.current_version:
             return True
+
+        if self.prev_version < MINIMUM_SUPPORTED_VERSION:
+            richprint.error(
+                f"Cannot migrate from v{self.prev_version.version}. "
+                f"Minimum supported version is v{MINIMUM_SUPPORTED_VERSION.version}."
+            )
+            richprint.error(
+                f"\nPlease upgrade to v{MINIMUM_SUPPORTED_VERSION.version} first, then upgrade to v{self.current_version.version}."
+            )
+            richprint.error(
+                f"\nMigration path: v{self.prev_version.version} → v{MINIMUM_SUPPORTED_VERSION.version} → v{self.current_version.version}"
+            )
+            return False
 
         current_migration = None
 

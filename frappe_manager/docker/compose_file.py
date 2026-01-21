@@ -266,10 +266,11 @@ class ComposeFile:
         Sets the UID and GID for all services in the ComposeFile.
 
         Args:
-            users (dict): A dictionary containing the service names as keys and the UID and GID as values.
+            users (dict): A dictionary containing the service names as keys and (uid, gid) tuples as values.
         """
         for service in users.keys():
-            self.set_user(service, users[service]["uid"], users[service]["gid"])
+            uid, gid = users[service]  # Unpack tuple
+            self.set_user(service, uid, gid)
 
     def get_all_envs(self) -> dict[Any, Any]:
         """

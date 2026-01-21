@@ -95,9 +95,6 @@ class FMConfigManager(BaseModel):
         if not self.cloudflare.exists:
             exclude.add('cloudflare')
 
-        if self.version < Version('0.13.0'):
-            path = CLI_FM_CONFIG_PATH.parent / '.fm.toml'
-
         fm_config_dict = self.model_dump(exclude=exclude, exclude_none=True)
 
         fm_config_dict['version'] = self.version.version
@@ -118,28 +115,18 @@ class FMConfigManager(BaseModel):
     def import_from_toml(cls, path: Path = CLI_FM_CONFIG_PATH) -> "FMConfigManager":
         input_data = {}
 
-        old_config_path = path.parent / '.fm.toml'
-
-        input_data['version'] = Version('0.8.3')
+        input_data['version'] = Version(get_current_fm_version())
         input_data['cloudflare'] = FMCloudflareConfig(email=None, api_key=None, api_token=None)
         input_data['root_path'] = str(path)
         input_data['ngrok_auth_token'] = None
         input_data['validation'] = FMValidationConfig()
 
-        if old_config_path.exists():
-            old_data = tomlkit.parse(old_config_path.read_text())
-            input_data['version'] = Version(old_data.get('version', '0.8.3'))
-        elif path.exists():
+        if path.exists():
             data = tomlkit.parse(path.read_text())
             input_data['version'] = Version(data.get('version', get_current_fm_version()))
 
             if 'cloudflare' in data:
                 input_data['cloudflare'] = FMCloudflareConfig(**data['cloudflare'])
-            elif 'letsencrypt' in data:
-                le_data = data['letsencrypt']
-                input_data['cloudflare'] = FMCloudflareConfig(
-                    email=le_data.get('email'), api_token=le_data.get('api_token'), api_key=le_data.get('api_key')
-                )
 
             input_data['ngrok_auth_token'] = data.get('ngrok_auth_token', None)
 

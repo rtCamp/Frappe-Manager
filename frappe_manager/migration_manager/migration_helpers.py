@@ -17,7 +17,6 @@ class MigrationBench:
             ComposeFile(
                 self.path / 'docker-compose.yml',
                 'docker-compose.tmpl',
-                template_dir='migration_manager/base_templates',
             )
         )
         self.workers_compose_project = ComposeProject(
@@ -90,6 +89,5 @@ class MigrationServicesManager:
             ComposeFile(
                 self.services_path / 'docker-compose.yml',
                 template_name,
-                template_dir='migration_manager/base_templates',
             )
         )
