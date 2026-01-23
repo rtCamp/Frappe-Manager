@@ -1,6 +1,7 @@
 from abc import ABC
 from logging import Logger
 from pathlib import Path
+import json
 from frappe_manager import CLI_DIR
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
@@ -147,6 +148,24 @@ class MigrationBase(ABC):
     def undo_bench_migrate(self, bench: MigrationBench):
         pass
 
+    def _resolve_database_name(self, bench: MigrationBench, db_info: DatabaseServerServiceInfo) -> str | None:
+        if db_info.name:
+            return db_info.name
+        
+        bench_config_path = bench.path / "bench_config.toml"
+        if bench_config_path.exists():
+            try:
+                import tomlkit
+                with open(bench_config_path, 'r') as f:
+                    bench_config = tomlkit.parse(f.read())
+                    db_name = bench_config.get("db_name")
+                    if db_name:
+                        return db_name
+            except Exception as e:
+                richprint.warning(f"Failed to read db_name from bench_config.toml: {e}")
+        
+        return None
+
     def bench_db_backup(
         self,
         bench: MigrationBench,
@@ -156,7 +175,40 @@ class MigrationBase(ABC):
     ):
         richprint.change_head(f'Commencing db {bench.name} backup')
 
-        mariadb_manager = MariaDBManager(db_info, compose_project, run_on_compose_service="frappe")
+        db_name = self._resolve_database_name(bench, db_info)
+        
+        if not db_name:
+            richprint.warning(
+                f"Could not determine database name for {bench.name}.\n"
+                f"Checked: site_config.json, db_info, bench_config.toml."
+            )
+            
+            skip_backup_prompt = [
+                "Database backup will be skipped for this bench.",
+                "Do you want to continue migration without database backup?"
+            ]
+            
+            user_choice = richprint.prompt_ask(
+                prompt="\n".join(skip_backup_prompt),
+                choices=["yes", "no"]
+            )
+            
+            if user_choice == "no":
+                richprint.error(f"User chose to abort migration for {bench.name}")
+                raise MigrationExceptionInBench(
+                    f"Migration aborted for {bench.name}: Unable to determine database name. "
+                    f"User declined to skip database backup."
+                )
+            
+            richprint.warning(f"Skipping database backup for {bench.name}")
+            return
+
+        mariadb_manager = MariaDBManager(
+            db_info,
+            compose_project.compose_file_manager,
+            compose_project.docker,
+            run_on_compose_service="frappe"
+        )
 
         from datetime import datetime
 
@@ -173,7 +225,7 @@ class MigrationBase(ABC):
             bench.path / backup_manager.bench_backup_dir / self.version.version / f'{db_sql_file_name}.gz'
         )
 
-        mariadb_manager.db_export(db_info.name, container_db_sql_file_path)
+        mariadb_manager.db_export(db_name, container_db_sql_file_path)
 
         import gzip
         import shutil

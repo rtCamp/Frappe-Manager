@@ -49,11 +49,8 @@ def get_dns_credentials_for_certificate(
     if certificate.challenge_type != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
         return None
 
-    # Map to acme.sh Cloudflare plugin format
-    # https://github.com/acmesh-official/acme.sh/wiki/dnsapi#dns_cf
     credentials = {}
 
-    # Priority 1: Check bench-level DNS provider credentials (Cloudflare)
     if bench_config and bench_config.dns_providers:
         cloudflare_config = bench_config.dns_providers.get('cloudflare')
         if cloudflare_config and cloudflare_config.exists:
@@ -63,24 +60,18 @@ def get_dns_credentials_for_certificate(
                 credentials['CF_Key'] = cloudflare_config.api_key
                 if cloudflare_config.email:
                     credentials['CF_Email'] = str(cloudflare_config.email)
-
-            # Found bench-level credentials
             if credentials:
                 return credentials
 
-    # Priority 2: Check global config
     fm_config = FMConfigManager.import_from_toml()
 
     if fm_config.cloudflare.api_token:
-        # Preferred: API Token (more secure, scoped permissions)
         credentials['CF_Token'] = fm_config.cloudflare.api_token
     elif fm_config.cloudflare.api_key:
-        # Legacy: Global API Key (requires email)
         credentials['CF_Key'] = fm_config.cloudflare.api_key
         if fm_config.cloudflare.email:
             credentials['CF_Email'] = str(fm_config.cloudflare.email)
 
-    # Priority 3: Check certificate-specific credentials (backward compat)
     if not credentials:
         if hasattr(certificate, 'api_token') and certificate.api_token:
             credentials['CF_Token'] = certificate.api_token

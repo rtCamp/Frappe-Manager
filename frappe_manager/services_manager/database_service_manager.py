@@ -91,7 +91,7 @@ class DatabaseServerServiceInfo(BaseModel):
                     info["user"] = site_config["db_name"]
                     info["password"] = site_config["db_password"]
 
-        if raise_exception and not info["passoword"]:
+        if raise_exception and not info["password"]:
             raise BenchException(
                 bench_name,
                 f"Password for the db user doesn't exits in either {common_site_config_file.name},{site_config_file.name}",

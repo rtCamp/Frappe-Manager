@@ -10,7 +10,11 @@ import pytest
 import subprocess
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch, call
-from frappe_manager.ssl_manager.acmesh_certificate_service import AcmeShCertificateService
+from frappe_manager.ssl_manager.acmesh_certificate_service import (
+    AcmeShCertificateService,
+    LETSENCRYPT_PRODUCTION_SERVER,
+    LETSENCRYPT_STAGING_SERVER,
+)
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import (
@@ -601,5 +605,314 @@ class TestAcmeShCertificateServiceRemoveCertificate:
 
             service.remove_certificate(mock_http_certificate)
 
-            # Directory should still be removed
             assert not cert_dir.exists()
+
+
+class TestAcmeShCertificateServiceCredentialCache:
+    """Tests for DNS credential cache clearing."""
+
+    def test_clear_cached_dns_credentials_removes_cloudflare_creds(self, tmp_path, mock_output_handler):
+        """Test that cached Cloudflare credentials are removed from account.conf."""
+        ssl_dir = tmp_path / "ssl"
+        webroot_dir = tmp_path / "webroot"
+        webroot_dir.mkdir(parents=True)
+
+        acmesh_home = ssl_dir / "acmesh" / ".acme.sh"
+        acmesh_home.mkdir(parents=True)
+        acmesh_bin = acmesh_home / "acme.sh"
+        acmesh_bin.touch()
+
+        account_conf = acmesh_home / "account.conf"
+        account_conf.write_text(
+            "LOG_FILE='/path/to/log'\n"
+            "LOG_LEVEL='1'\n"
+            "SAVED_CF_Token='old_token_abc123'\n"
+            "SAVED_CF_Account_ID='old_account_id'\n"
+            "SAVED_CF_Key='old_api_key'\n"
+            "SAVED_CF_Email='old@example.com'\n"
+            "SAVED_CF_Zone_ID='old_zone_id'\n"
+            "DEFAULT_ACME_SERVER='https://acme-v02.api.letsencrypt.org/directory'\n"
+        )
+
+        AcmeShCertificateService._acmesh_installed = False
+
+        service = AcmeShCertificateService(
+            ssl_service_dir=ssl_dir,
+            webroot_dir=webroot_dir,
+            output_handler=mock_output_handler,
+        )
+
+        service._clear_cached_dns_credentials()
+
+        updated_content = account_conf.read_text()
+        assert "SAVED_CF_Token=" not in updated_content
+        assert "SAVED_CF_Account_ID=" not in updated_content
+        assert "SAVED_CF_Key=" not in updated_content
+        assert "SAVED_CF_Email=" not in updated_content
+        assert "SAVED_CF_Zone_ID=" not in updated_content
+        assert "LOG_FILE=" in updated_content
+        assert "LOG_LEVEL=" in updated_content
+        assert "DEFAULT_ACME_SERVER=" in updated_content
+
+    def test_clear_cached_dns_credentials_handles_missing_file(self, tmp_path, mock_output_handler):
+        """Test that missing account.conf is handled gracefully."""
+        ssl_dir = tmp_path / "ssl"
+        webroot_dir = tmp_path / "webroot"
+        webroot_dir.mkdir(parents=True)
+
+        acmesh_home = ssl_dir / "acmesh" / ".acme.sh"
+        acmesh_home.mkdir(parents=True)
+        acmesh_bin = acmesh_home / "acme.sh"
+        acmesh_bin.touch()
+
+        AcmeShCertificateService._acmesh_installed = False
+
+        service = AcmeShCertificateService(
+            ssl_service_dir=ssl_dir,
+            webroot_dir=webroot_dir,
+            output_handler=mock_output_handler,
+        )
+
+        service._clear_cached_dns_credentials()
+
+        mock_output_handler.debug.assert_called_with("account.conf not found, skipping credential cache clear")
+
+    def test_clear_cached_dns_credentials_handles_exceptions(self, tmp_path, mock_output_handler):
+        """Test that exceptions during credential clearing are handled gracefully."""
+        ssl_dir = tmp_path / "ssl"
+        webroot_dir = tmp_path / "webroot"
+        webroot_dir.mkdir(parents=True)
+
+        acmesh_home = ssl_dir / "acmesh" / ".acme.sh"
+        acmesh_home.mkdir(parents=True)
+        acmesh_bin = acmesh_home / "acme.sh"
+        acmesh_bin.touch()
+
+        account_conf = acmesh_home / "account.conf"
+        account_conf.write_text("SAVED_CF_Token='test'\n")
+
+        AcmeShCertificateService._acmesh_installed = False
+
+        service = AcmeShCertificateService(
+            ssl_service_dir=ssl_dir,
+            webroot_dir=webroot_dir,
+            output_handler=mock_output_handler,
+        )
+
+        with patch.object(Path, 'read_text', side_effect=PermissionError("Access denied")):
+            service._clear_cached_dns_credentials()
+
+        mock_output_handler.warning.assert_called_once()
+        assert "Failed to clear cached credentials" in str(mock_output_handler.warning.call_args)
+
+    def test_generate_certificate_dns01_clears_cache(self, tmp_path, mock_output_handler, mock_dns_certificate):
+        """Test that DNS-01 certificate generation clears credential cache."""
+        ssl_dir = tmp_path / "ssl"
+        webroot_dir = tmp_path / "webroot"
+        webroot_dir.mkdir(parents=True)
+
+        acmesh_home = ssl_dir / "acmesh" / ".acme.sh"
+        acmesh_home.mkdir(parents=True)
+        (acmesh_home / "acme.sh").touch()
+
+        cert_dir = acmesh_home / "example.com_ecc"
+        cert_dir.mkdir(parents=True)
+        (cert_dir / "example.com.key").write_text("key")
+        (cert_dir / "fullchain.cer").write_text("cert")
+
+        account_conf = acmesh_home / "account.conf"
+        account_conf.write_text("SAVED_CF_Token='old_token'\n")
+
+        AcmeShCertificateService._acmesh_installed = False
+
+        with patch('frappe_manager.ssl_manager.ssl_utils.get_dns_credentials_for_certificate') as mock_get_creds:
+            mock_get_creds.return_value = {'CF_Token': 'new_token'}
+
+            with patch('frappe_manager.ssl_manager.acmesh_certificate_service.stream_command_output') as mock_stream:
+                mock_stream.return_value = [("exit_code", b"0")]
+
+                service = AcmeShCertificateService(
+                    ssl_service_dir=ssl_dir,
+                    webroot_dir=webroot_dir,
+                    output_handler=mock_output_handler,
+                )
+
+                service.generate_certificate(mock_dns_certificate)
+
+                updated_content = account_conf.read_text()
+                assert "SAVED_CF_Token=" not in updated_content
+
+    def test_renew_certificate_dns01_clears_cache(self, tmp_path, mock_output_handler, mock_dns_certificate):
+        """Test that DNS-01 certificate renewal clears credential cache."""
+        ssl_dir = tmp_path / "ssl"
+        webroot_dir = tmp_path / "webroot"
+        webroot_dir.mkdir(parents=True)
+
+        acmesh_home = ssl_dir / "acmesh" / ".acme.sh"
+        acmesh_home.mkdir(parents=True)
+        (acmesh_home / "acme.sh").touch()
+
+        cert_dir = acmesh_home / "example.com_ecc"
+        cert_dir.mkdir(parents=True)
+        (cert_dir / "example.com.key").write_text("key")
+        (cert_dir / "fullchain.cer").write_text("cert")
+
+        account_conf = acmesh_home / "account.conf"
+        account_conf.write_text("SAVED_CF_Token='old_token'\n")
+
+        service_cert_dir = ssl_dir / "acmesh" / "example.com"
+        service_cert_dir.mkdir(parents=True)
+
+        AcmeShCertificateService._acmesh_installed = False
+
+        with patch('frappe_manager.ssl_manager.acmesh_certificate_service.stream_command_output') as mock_stream:
+            mock_stream.return_value = [("exit_code", b"0")]
+
+            service = AcmeShCertificateService(
+                ssl_service_dir=ssl_dir,
+                webroot_dir=webroot_dir,
+                output_handler=mock_output_handler,
+            )
+
+            service.renew_certificate(mock_dns_certificate)
+
+            updated_content = account_conf.read_text()
+            assert "SAVED_CF_Token=" not in updated_content
+
+
+class TestAcmeShCertificateServiceLetsEncryptServer:
+    """Tests for Let's Encrypt server hardcoding."""
+
+    def test_generate_certificate_uses_letsencrypt_production_by_default(self, tmp_path, mock_output_handler, mock_http_certificate):
+        """Test that production Let's Encrypt server is used by default."""
+        ssl_dir = tmp_path / "ssl"
+        webroot_dir = tmp_path / "webroot"
+        webroot_dir.mkdir(parents=True)
+
+        acmesh_home = ssl_dir / "acmesh" / ".acme.sh"
+        acmesh_home.mkdir(parents=True)
+        (acmesh_home / "acme.sh").touch()
+
+        cert_dir = acmesh_home / "example.com_ecc"
+        cert_dir.mkdir(parents=True)
+        (cert_dir / "example.com.key").write_text("key")
+        (cert_dir / "fullchain.cer").write_text("cert")
+
+        AcmeShCertificateService._acmesh_installed = False
+
+        service = AcmeShCertificateService(
+            ssl_service_dir=ssl_dir,
+            webroot_dir=webroot_dir,
+            output_handler=mock_output_handler,
+        )
+
+        with patch.object(service, '_stream_acmesh_command', return_value=0) as mock_stream:
+            service.generate_certificate(mock_http_certificate)
+
+            call_args = mock_stream.call_args[0][0]
+            assert "--server" in call_args
+            server_index = call_args.index("--server")
+            assert call_args[server_index + 1] == LETSENCRYPT_PRODUCTION_SERVER
+
+    def test_generate_certificate_uses_letsencrypt_staging_with_env(self, tmp_path, mock_output_handler, mock_http_certificate, monkeypatch):
+        """Test that staging Let's Encrypt server is used when FM_LETSENCRYPT_STAGING is set."""
+        monkeypatch.setenv("FM_LETSENCRYPT_STAGING", "1")
+
+        ssl_dir = tmp_path / "ssl"
+        webroot_dir = tmp_path / "webroot"
+        webroot_dir.mkdir(parents=True)
+
+        acmesh_home = ssl_dir / "acmesh" / ".acme.sh"
+        acmesh_home.mkdir(parents=True)
+        (acmesh_home / "acme.sh").touch()
+
+        cert_dir = acmesh_home / "example.com_ecc"
+        cert_dir.mkdir(parents=True)
+        (cert_dir / "example.com.key").write_text("key")
+        (cert_dir / "fullchain.cer").write_text("cert")
+
+        AcmeShCertificateService._acmesh_installed = False
+
+        service = AcmeShCertificateService(
+            ssl_service_dir=ssl_dir,
+            webroot_dir=webroot_dir,
+            output_handler=mock_output_handler,
+        )
+
+        with patch.object(service, '_stream_acmesh_command', return_value=0) as mock_stream:
+            service.generate_certificate(mock_http_certificate)
+
+            call_args = mock_stream.call_args[0][0]
+            assert "--server" in call_args
+            server_index = call_args.index("--server")
+            assert call_args[server_index + 1] == LETSENCRYPT_STAGING_SERVER
+
+    def test_renew_certificate_uses_letsencrypt_production_by_default(self, tmp_path, mock_output_handler, mock_http_certificate):
+        """Test that production Let's Encrypt server is used for renewal by default."""
+        ssl_dir = tmp_path / "ssl"
+        webroot_dir = tmp_path / "webroot"
+        webroot_dir.mkdir(parents=True)
+
+        acmesh_home = ssl_dir / "acmesh" / ".acme.sh"
+        acmesh_home.mkdir(parents=True)
+        (acmesh_home / "acme.sh").touch()
+
+        cert_dir = acmesh_home / "example.com_ecc"
+        cert_dir.mkdir(parents=True)
+        (cert_dir / "example.com.key").write_text("key")
+        (cert_dir / "fullchain.cer").write_text("cert")
+
+        dest_dir = ssl_dir / "acmesh" / "example.com"
+        dest_dir.mkdir(parents=True)
+
+        AcmeShCertificateService._acmesh_installed = False
+
+        service = AcmeShCertificateService(
+            ssl_service_dir=ssl_dir,
+            webroot_dir=webroot_dir,
+            output_handler=mock_output_handler,
+        )
+
+        with patch.object(service, '_stream_acmesh_command', return_value=0) as mock_stream:
+            service.renew_certificate(mock_http_certificate)
+
+            call_args = mock_stream.call_args[0][0]
+            assert "--server" in call_args
+            server_index = call_args.index("--server")
+            assert call_args[server_index + 1] == LETSENCRYPT_PRODUCTION_SERVER
+
+    def test_renew_certificate_uses_letsencrypt_staging_with_env(self, tmp_path, mock_output_handler, mock_http_certificate, monkeypatch):
+        """Test that staging Let's Encrypt server is used for renewal when FM_LETSENCRYPT_STAGING is set."""
+        monkeypatch.setenv("FM_LETSENCRYPT_STAGING", "1")
+
+        ssl_dir = tmp_path / "ssl"
+        webroot_dir = tmp_path / "webroot"
+        webroot_dir.mkdir(parents=True)
+
+        acmesh_home = ssl_dir / "acmesh" / ".acme.sh"
+        acmesh_home.mkdir(parents=True)
+        (acmesh_home / "acme.sh").touch()
+
+        cert_dir = acmesh_home / "example.com_ecc"
+        cert_dir.mkdir(parents=True)
+        (cert_dir / "example.com.key").write_text("key")
+        (cert_dir / "fullchain.cer").write_text("cert")
+
+        dest_dir = ssl_dir / "acmesh" / "example.com"
+        dest_dir.mkdir(parents=True)
+
+        AcmeShCertificateService._acmesh_installed = False
+
+        service = AcmeShCertificateService(
+            ssl_service_dir=ssl_dir,
+            webroot_dir=webroot_dir,
+            output_handler=mock_output_handler,
+        )
+
+        with patch.object(service, '_stream_acmesh_command', return_value=0) as mock_stream:
+            service.renew_certificate(mock_http_certificate)
+
+            call_args = mock_stream.call_args[0][0]
+            assert "--server" in call_args
+            server_index = call_args.index("--server")
+            assert call_args[server_index + 1] == LETSENCRYPT_STAGING_SERVER

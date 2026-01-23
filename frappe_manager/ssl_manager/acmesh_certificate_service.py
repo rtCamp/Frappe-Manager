@@ -22,6 +22,9 @@ from frappe_manager.ssl_manager.certificate_exceptions import (
 )
 from frappe_manager.utils.subprocess import stream_command_output
 
+LETSENCRYPT_PRODUCTION_SERVER = "https://acme-v02.api.letsencrypt.org/directory"
+LETSENCRYPT_STAGING_SERVER = "https://acme-staging-v02.api.letsencrypt.org/directory"
+
 
 class AcmeShCertificateService:
     """
@@ -142,6 +145,68 @@ class AcmeShCertificateService:
 
         return result
 
+    def _clear_cached_dns_credentials(self):
+        """
+        Clear cached DNS credentials from acme.sh account.conf.
+        
+        When users update their Cloudflare API credentials in FM config, acme.sh may
+        continue using old cached credentials from account.conf, causing authentication
+        failures. This method removes cached DNS provider credentials while preserving
+        all other acme.sh settings (ACME account configuration, CA preferences, etc.).
+        
+        Credentials cleared:
+        - SAVED_CF_Token: Cloudflare API Token
+        - SAVED_CF_Account_ID: Cloudflare Account ID  
+        - SAVED_CF_Key: Cloudflare Global API Key (legacy)
+        - SAVED_CF_Email: Email for Global API Key auth
+        - SAVED_CF_Zone_ID: Zone ID (optional optimization)
+        
+        This ensures acme.sh always uses fresh credentials from FM configuration
+        instead of potentially stale/revoked cached values.
+        
+        Note: This does NOT affect the ACME account key stored in ca/ directory,
+        which is required for certificate management and renewals.
+        """
+        account_conf = self.acmesh_home / "account.conf"
+        if not account_conf.exists():
+            self.output.debug("account.conf not found, skipping credential cache clear")
+            return
+        
+        try:
+            # Read current configuration
+            content = account_conf.read_text()
+            lines = content.split('\n')
+            
+            # Credential prefixes to remove (acme.sh uses SAVED_ prefix for mutable account config)
+            stale_cred_prefixes = (
+                "SAVED_CF_Token=",
+                "SAVED_CF_Account_ID=",
+                "SAVED_CF_Key=",
+                "SAVED_CF_Email=",
+                "SAVED_CF_Zone_ID=",
+            )
+            
+            # Filter out credential lines, preserve everything else
+            original_count = len(lines)
+            filtered_lines = [
+                line for line in lines 
+                if not line.startswith(stale_cred_prefixes)
+            ]
+            removed_count = original_count - len(filtered_lines)
+            
+            # Write back filtered configuration
+            account_conf.write_text('\n'.join(filtered_lines))
+            
+            if removed_count > 0:
+                self.output.debug(f"Cleared {removed_count} cached DNS credential line(s) from account.conf")
+            else:
+                self.output.debug("No cached DNS credentials found in account.conf")
+                
+        except Exception as e:
+            # Non-fatal: log warning but don't block certificate operations
+            # Environment variables will still override cache if present
+            self.output.warning(f"Failed to clear cached credentials: {e}")
+
     def _stream_acmesh_command(
         self, args: list, env: Optional[Dict[str, str]] = None, show_live_output: bool = True
     ) -> int:
@@ -214,23 +279,20 @@ class AcmeShCertificateService:
         if use_staging:
             self.output.print("[yellow]⚠️  Using Let's Encrypt STAGING server (test certificates)[/yellow]")
 
+        ca_server = LETSENCRYPT_STAGING_SERVER if use_staging else LETSENCRYPT_PRODUCTION_SERVER
+
         args = [
             "--home",
             str(self.acmesh_home),
             "--issue",
             "-d",
             certificate.domain,
-            "--force",  # Force issuance even if certificate exists
+            "--server",
+            ca_server,
+            "--force",
         ]
 
-        if use_staging:
-            args.append("--staging")
-
-        # Add debug flag for verbose output
-        args.append("--debug")
-
-        # Email handling removed - Let's Encrypt discontinued email notifications (June 2025)
-        # acme.sh account uses default noreply@acme.sh
+        args.append("--debug 2")
 
         env = {}
 
@@ -240,6 +302,8 @@ class AcmeShCertificateService:
 
         elif certificate.challenge_type.value == "dns01":
             self.output.info("Using DNS-01 challenge with Cloudflare")
+
+            self._clear_cached_dns_credentials()
 
             from frappe_manager.ssl_manager.ssl_utils import get_dns_credentials_for_certificate
 
@@ -255,10 +319,8 @@ class AcmeShCertificateService:
                 self.output.info(f"Using challenge alias: {certificate.delegation_cname}")
                 args.extend(["--dns", "dns_cf", "--challenge-alias", certificate.delegation_cname])
             else:
-                # Standard DNS challenge
                 args.extend(["--dns", "dns_cf"])
 
-        # Run certificate issuance with live output streaming
         exit_code = self._stream_acmesh_command(args, env=env, show_live_output=True)
 
         if exit_code != 0:
@@ -266,11 +328,8 @@ class AcmeShCertificateService:
             self.output.display_error(error_msg)
             raise SSLCertificateGenerateFailed(certificate.domain)
 
-        # Get certificate paths from acme.sh home directory
-        # acme.sh uses _ecc suffix for ECC certificates (default)
         cert_dir = self.acmesh_home / certificate.domain
         if not cert_dir.exists():
-            # Try ECC variant
             cert_dir_ecc = self.acmesh_home / f"{certificate.domain}_ecc"
             if cert_dir_ecc.exists():
                 cert_dir = cert_dir_ecc
@@ -283,7 +342,6 @@ class AcmeShCertificateService:
             self.output.display_error(error_msg)
             raise SSLCertificateNotFoundError(certificate.domain)
 
-        # Copy to service directory for management
         dest_dir = self.root_dir / certificate.domain
         dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -309,10 +367,14 @@ class AcmeShCertificateService:
         """
         self.output.change_head(f"Renewing SSL certificate for {certificate.domain}")
 
-        # Check for staging environment variable
+        if certificate.challenge_type.value == "dns01":
+            self._clear_cached_dns_credentials()
+
         use_staging = os.getenv("FM_LETSENCRYPT_STAGING", "").lower() in ("1", "true", "yes")
         if use_staging:
             self.output.print("[yellow]⚠️  Using Let's Encrypt STAGING server for renewal (test certificates)[/yellow]")
+
+        ca_server = LETSENCRYPT_STAGING_SERVER if use_staging else LETSENCRYPT_PRODUCTION_SERVER
 
         args = [
             "--home",
@@ -320,28 +382,20 @@ class AcmeShCertificateService:
             "--renew",
             "-d",
             certificate.domain,
-            "--force",  # Force renewal even if not due
+            "--server",
+            ca_server,
+            "--force",
+            "--debug",
         ]
 
-        # Add staging flag if enabled
-        if use_staging:
-            args.append("--staging")
-
-        # Add debug flag for verbose output
-        args.append("--debug")
-
-        # Run renewal with live output streaming
         exit_code = self._stream_acmesh_command(args, show_live_output=True)
 
         if exit_code != 0:
             self.output.display_error(f"Certificate renewal failed for {certificate.domain}")
             return False
 
-        # Copy renewed certificates to service directory
-        # acme.sh uses _ecc suffix for ECC certificates (default)
         cert_dir = self.acmesh_home / certificate.domain
         if not cert_dir.exists():
-            # Try ECC variant
             cert_dir_ecc = self.acmesh_home / f"{certificate.domain}_ecc"
             if cert_dir_ecc.exists():
                 cert_dir = cert_dir_ecc
