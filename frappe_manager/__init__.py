@@ -1,6 +1,7 @@
 from pathlib import Path
 from enum import Enum
 from typing import Optional
+import os
 from typer.core import TyperCommand
 from frappe_manager.utils.cli_examples import get_examples_from_toml
 import typer.rich_utils as ut
@@ -37,9 +38,7 @@ def print_fm_examples(*, obj, ctx, markup_mode):
 
 ut.rich_format_help = print_fm_examples
 
-# TODO configure this using config
-# sites_dir = Path().home() / __name__.split(".")[0]
-CLI_DIR = Path.home() / "frappe"
+CLI_DIR = Path(os.environ.get("FRAPPE_MANAGER_HOME", Path.home() / "frappe"))
 CLI_FM_CONFIG_PATH = CLI_DIR / "fm_config.toml"
 CLI_SITES_ARCHIVE = CLI_DIR / "archived"
 CLI_LOG_DIRECTORY = CLI_DIR / "logs"

@@ -198,23 +198,53 @@ class MigrationExecutor:
         self.migrations = sorted(self.migrations, key=lambda x: x.version)
 
         if self.migrations:
-            richprint.print("Pending Migrations...", emoji_code=':counterclockwise_arrows_button:')
-
+            # Show what will be migrated using a table
+            from rich.table import Table
+            
+            table = Table(show_header=True, header_style="bold cyan", show_lines=False, title="Migration Plan")
+            table.add_column("Component", style="cyan", no_wrap=True)
+            table.add_column("Current", style="yellow")
+            table.add_column("Target", style="green")
+            table.add_column("Action", style="magenta")
+            
+            # Add system if needs migration
+            if system_needs_migration:
+                table.add_row("System", f"v{self.prev_version}", f"v{self.current_version}", "Migrate")
+            
+            # Add benches that need migration
+            if benches_need_migration and self.target_benches:
+                benches_manager = MigrationBenches(CLI_BENCHES_DIRECTORY)
+                all_benches = benches_manager.get_all_benches()
+                
+                for bench_name in self.target_benches:
+                    if bench_name in self.exclude_benches:
+                        continue
+                    
+                    if bench_name in all_benches:
+                        bench_path = all_benches[bench_name].parent
+                        bench_version = get_bench_migration_version(bench_path)
+                        
+                        if bench_version < self.current_version:
+                            table.add_row(bench_name, f"v{bench_version}", f"v{self.current_version}", "Migrate")
+            
+            richprint.stdout.print(table)
+            richprint.print("")
+            
+            richprint.print("Migration versions:", emoji_code=":package:")
             for migration in self.migrations:
-                richprint.print(f"[bold]v{migration.version}[/bold]", emoji_code=':package:')
-
-            richprint.print("This process may take a while.", emoji_code="\n:hourglass_not_done:")
-
+                richprint.print(f"  • v{migration.version}")
+            
+            richprint.print("")
+            richprint.print("This process may take a while.", emoji_code=":hourglass_not_done:")
             richprint.print(
-                "For a manual migration guide, visit https://github.com/rtCamp/Frappe-Manager/wiki/Migrations#manual-migration-procedure",
+                "Manual guide: https://github.com/rtCamp/Frappe-Manager/wiki/Migrations#manual-migration-procedure",
                 emoji_code=":blue_book:",
             )
 
             migrate_msg = [
-                "\nOptions :\n",
-                r"[blue]\[yes][/blue] Start Migration: Proceed with the migration process.",
-                r"[blue]\[no][/blue]  Abort and Revert: Do not migrate and revert to the previous fm version.",
-                "\nDo you want to proceed with the migration ?",
+                "\n[bold]Do you want to proceed?[/bold]",
+                "  [green]yes[/green] - Start migration",
+                "  [red]no[/red]  - Abort and revert to previous fm version",
             ]
             
             if not self.force:

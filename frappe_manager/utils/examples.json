@@ -408,5 +408,42 @@
         "code": ""
       }
     ]
+  },
+  "migrate": {
+    "examples": [
+      {
+        "desc": "Migrate system only",
+        "code": " --system",
+        "benchname": ""
+      },
+      {
+        "desc": "Migrate specific bench only",
+        "code": ""
+      },
+      {
+        "desc": "Migrate system + specific bench",
+        "code": " --system"
+      },
+      {
+        "desc": "Migrate all benches only",
+        "code": " --all-benches",
+        "benchname": ""
+      },
+      {
+        "desc": "Migrate system + all benches",
+        "code": " --system --all-benches",
+        "benchname": ""
+      },
+      {
+        "desc": "Migrate with no prompts",
+        "code": " --system --all-benches --force",
+        "benchname": ""
+      },
+      {
+        "desc": "Skip backup (dangerous)",
+        "code": " --all-benches --skip-backup",
+        "benchname": ""
+      }
+    ]
   }
 }

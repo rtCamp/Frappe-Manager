@@ -263,8 +263,33 @@ class MigrationV0190(MigrationBase):
             yaml.dump(compose_data, f)
 
     def migrate_services(self):
-        """No global services changes in v0.19.0."""
-        richprint.print("No global services migration needed for v0.19.0")
+        """
+        Pull v0.19.0 Docker images (system-level infrastructure).
+        
+        Images are shared resources across all benches - must be pulled
+        at system level before any bench can use them.
+        """
+        richprint.change_head("Pulling Docker images for v0.19.0")
+        
+        from frappe_manager.utils.site import pull_docker_images
+        
+        self.logger.info("[migrate_services] Starting Docker image pull for v0.19.0")
+        
+        try:
+            success = pull_docker_images()
+            
+            if not success:
+                error_msg = "Failed to pull one or more Docker images"
+                self.logger.error(f"[migrate_services] {error_msg}")
+                richprint.error(error_msg)
+                raise Exception(error_msg)
+            
+            richprint.print("[green]✓[/green] All v0.19.0 images pulled successfully")
+            self.logger.info("[migrate_services] Docker image pull completed successfully")
+            
+        except Exception as e:
+            self.logger.error(f"[migrate_services] Image pull failed: {e}", exc_info=True)
+            raise Exception(f"Failed to pull Docker images: {e}") from e
 
     def undo_services_migrate(self):
         """No global services rollback needed."""
