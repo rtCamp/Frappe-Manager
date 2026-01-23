@@ -4,13 +4,14 @@ from pathlib import Path
 import json
 from frappe_manager import CLI_DIR
 from frappe_manager.migration_manager.backup_manager import BackupManager
-from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
+from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench, BackupFailureException
 from frappe_manager.migration_manager.migration_helpers import (
     MigrationBench,
     MigrationBenches,
     MigrationServicesManager,
 )
 from frappe_manager.migration_manager.version import Version
+from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
 from frappe_manager.logger import log
 from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo, MariaDBManager
 from frappe_manager.display_manager.DisplayManager import richprint
@@ -85,9 +86,25 @@ class MigrationBase(ABC):
     def migrate_benches(self):
         main_error = False
 
+        all_benches = self.benches_manager.get_all_benches()
+
         # migrate each bench
-        for bench_name, bench_path in self.benches_manager.get_all_benches().items():
+        for bench_name, bench_path in all_benches.items():
+            if self.migration_executor.target_benches and bench_name not in self.migration_executor.target_benches:
+                continue
+            
+            if bench_name in self.migration_executor.exclude_benches:
+                richprint.print(f"Skipping {bench_name} (--exclude-bench)", emoji_code=":construction:")
+                continue
+
             bench = MigrationBench(name=bench_name, path=bench_path.parent)
+            
+            bench_version = get_bench_migration_version(bench.path)
+            
+            # Check if bench is already at or above this migration version
+            if bench_version >= self.version:
+                richprint.print(f"Bench {bench_name} already at v{bench_version}, skipping migration to v{self.version}")
+                continue
 
             if bench.name in self.migration_executor.migrate_benches.keys():
                 bench_info = self.migration_executor.migrate_benches[bench.name]
@@ -121,6 +138,14 @@ class MigrationBase(ABC):
 
     def bench_basic_backup(self, bench: MigrationBench):
         richprint.print(f"Migrating bench [bold][blue]{bench.name}[/blue][/bold]")
+
+        if self.migration_executor.skip_backup:
+            richprint.warning(f"⚠️  Skipping backup for {bench.name} (--skip-backup)")
+            return
+
+        if bench.name in self.migration_executor.skip_backup_for:
+            richprint.warning(f"⚠️  Skipping backup for {bench.name} (--skip-backup-for)")
+            return
 
         # backup docker compose.yml
         self.backup_manager.backup(bench.path / "docker-compose.yml", bench_name=bench.name)

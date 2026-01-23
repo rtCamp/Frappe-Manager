@@ -1,4 +1,5 @@
 from pathlib import Path
+from rich.panel import Panel
 from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.utils.site import pull_docker_images, validate_sitename
 from frappe_manager.site_manager.domain_conflict import validate_domains_unique, DomainConflictError
@@ -29,7 +30,7 @@ from frappe_manager.docker import DockerClient
 from frappe_manager.logger import log
 from frappe_manager.logger.context import LoggerContext
 from frappe_manager.services_manager.services import ServicesManager
-from frappe_manager.migration_manager.migration_executor import MigrationExecutor
+from frappe_manager.migration_manager.migration_executor import MigrationExecutor, needs_migration, needs_system_migration, get_benches_needing_migration
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import (
     apps_list_validation_callback,
@@ -56,6 +57,33 @@ from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.output_manager.logging_output import LoggingOutputHandler
 
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
+
+
+def check_bench_migration_required(bench_name: Optional[str]) -> None:
+    from frappe_manager.migration_manager.bench_migration_state import bench_needs_migration
+    
+    if not bench_name:
+        return
+    
+    bench_path = CLI_BENCHES_DIRECTORY / bench_name
+    
+    if not bench_path.exists():
+        return
+    
+    current_version = Version(get_current_fm_version())
+    
+    if bench_needs_migration(bench_path, current_version):
+        if richprint.live:
+            richprint.live.stop()
+        panel = Panel(
+            f"[yellow]⚠️  Bench Migration Required[/yellow]\n\n"
+            f"Bench '[bold]{bench_name}[/bold]' needs migration.\n\n"
+            f"[bold cyan]fm migrate {bench_name}[/bold cyan]",
+            border_style="yellow",
+            title=f"Bench: {bench_name}",
+        )
+        richprint.stdout.print(panel)
+        raise typer.Exit(0)
 app.add_typer(services_root_command, name="services", help="Handle global services.")
 app.add_typer(self_app, name="self", help="Perform operations related to the [bold][blue]fm[/bold][/blue] itself.")
 app.add_typer(ssl_root_command, name="ssl", help="Perform operations related to ssl.")
@@ -182,12 +210,23 @@ def app_callback(
                 fm_config_manager.version = current_version
                 fm_config_manager.export_to_toml()
 
-            migrations = MigrationExecutor(fm_config_manager)
-            migration_status = migrations.execute()
-
-            if not migration_status:
-                richprint.print(f"Rolled back to previous version of fm {migrations.prev_version}")
-                raise typer.Exit(0)
+            invoked_command = ctx.invoked_subcommand or "no-command"
+            allowed_without_system = ["migrate", "version", "self"]
+            
+            if needs_system_migration(fm_config_manager):
+                if invoked_command not in allowed_without_system:
+                    if richprint.live:
+                        richprint.live.stop()
+                    panel = Panel(
+                        "[yellow]⚠️  FM System Migration Required[/yellow]\n\n"
+                        "Frappe Manager core needs migration.\n"
+                        "This updates global config and services.\n\n"
+                        "[bold cyan]fm migrate --system --all-benches[/bold cyan]",
+                        border_style="yellow",
+                        title="Migration Required",
+                    )
+                    richprint.stdout.print(panel)
+                    raise typer.Exit(0)
 
             services_manager: ServicesManager = ServicesManager(
                 verbose=ctx.obj["verbose"],
@@ -421,6 +460,8 @@ def delete(
         fm delete mybench --force
         fm delete mybench --delete-db-from-global-db
     """
+    
+    check_bench_migration_required(benchname)
 
     if benchname:
         services_manager = ctx.obj["services"]
@@ -486,6 +527,8 @@ def start(
         fm start mybench --force
         fm start mybench --sync-config
     """
+    
+    check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
@@ -518,6 +561,8 @@ def stop(
     ] = None,
 ):
     """Stop a bench."""
+    
+    check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
@@ -556,6 +601,8 @@ def code(
     ] = '/workspace/frappe-bench',
 ):
     """Open bench in vscode."""
+    
+    check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
@@ -584,6 +631,8 @@ def logs(
     follow: Annotated[bool, typer.Option("--follow", "-f", help="Follow logs in real-time")] = False,
 ):
     """Show bench logs (server or container)"""
+    
+    check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
@@ -637,6 +686,8 @@ def shell(
 
     Exit code from the executed command is preserved for scripting.
     """
+    
+    check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
@@ -686,6 +737,8 @@ def info(
     ] = None,
 ):
     """Show bench information and configuration"""
+    
+    check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
@@ -1020,6 +1073,8 @@ def reset(
     ] = None,
 ):
     """Drop database and reinstall all apps"""
+    
+    check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
@@ -1079,6 +1134,8 @@ def restart(
     ] = False,
 ):
     """Restart bench services (web, workers, redis, nginx)"""
+    
+    check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
@@ -1167,3 +1224,140 @@ def ngrok(
         except Exception as e:
             richprint.error(f"Failed to create tunnel: {str(e)}")
             raise
+
+
+@app.command()
+def migrate(
+    ctx: typer.Context,
+    benchname: Annotated[
+        Optional[str],
+        typer.Argument(help="Bench name to migrate"),
+    ] = None,
+    system: Annotated[
+        bool,
+        typer.Option("--system", help="Migrate system (FM config and global services)"),
+    ] = False,
+    all_benches: Annotated[
+        bool,
+        typer.Option("--all-benches", help="Migrate all benches"),
+    ] = False,
+    skip_backup: Annotated[
+        bool,
+        typer.Option("--skip-backup", help="Skip all backups (DANGEROUS - use only if backups fail)"),
+    ] = False,
+    skip_backup_for: Annotated[
+        Optional[str],
+        typer.Option("--skip-backup-for", help="Skip backup for specific benches (comma-separated)"),
+    ] = None,
+    exclude_bench: Annotated[
+        Optional[str],
+        typer.Option("--exclude-bench", help="Exclude specific benches from migration (only with --all-benches)"),
+    ] = None,
+    force: Annotated[
+        bool,
+        typer.Option("--force", help="Skip all confirmation prompts"),
+    ] = False,
+):
+    """
+    Migrate Frappe Manager to current version.
+    
+    Migration operates at two levels:
+    - System: FM config and global services (opt-in with --system)
+    - Benches: Individual bench environments (specify explicitly)
+    
+    Examples:
+    
+      # Migrate system only
+      fm migrate --system
+      
+      # Migrate specific bench only
+      fm migrate mybench
+      
+      # Migrate system + specific bench
+      fm migrate --system mybench
+      
+      # Migrate all benches only
+      fm migrate --all-benches
+      
+      # Migrate system + all benches
+      fm migrate --system --all-benches
+      
+      # Migrate all benches except specific ones
+      fm migrate --all-benches --exclude-bench old-bench,test-bench
+      
+      # Skip backup for benches where backup fails
+      fm migrate --all-benches --skip-backup-for bench1,bench2
+    """
+    fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
+    
+    if benchname and all_benches:
+        richprint.error("Cannot specify both <benchname> and --all-benches")
+        raise typer.Exit(1)
+    
+    if exclude_bench and not all_benches:
+        richprint.error("--exclude-bench can only be used with --all-benches")
+        raise typer.Exit(1)
+    
+    if not system and not benchname and not all_benches:
+        richprint.error("Must specify what to migrate: --system, <benchname>, or --all-benches")
+        raise typer.Exit(1)
+    
+    current_version = Version(get_current_fm_version())
+    
+    skip_backup_list = []
+    if skip_backup_for:
+        skip_backup_list = [b.strip() for b in skip_backup_for.split(",")]
+    
+    exclude_bench_list = []
+    if exclude_bench:
+        exclude_bench_list = [b.strip() for b in exclude_bench.split(",")]
+    
+    target_benches = None
+    if benchname:
+        bench_path = CLI_BENCHES_DIRECTORY / benchname
+        if not bench_path.exists():
+            richprint.error(f"Bench '{benchname}' does not exist")
+            raise typer.Exit(1)
+        target_benches = [benchname]
+    elif all_benches:
+        target_benches = []
+        if CLI_BENCHES_DIRECTORY.exists():
+            for bench_path in CLI_BENCHES_DIRECTORY.iterdir():
+                if bench_path.is_dir() and (bench_path / CLI_BENCH_CONFIG_FILE_NAME).exists():
+                    if bench_path.name not in exclude_bench_list:
+                        target_benches.append(bench_path.name)
+    
+    if target_benches is not None and len(target_benches) > 0:
+        migrations = MigrationExecutor(
+            fm_config_manager,
+            skip_backup=skip_backup,
+            skip_backup_for=skip_backup_list,
+            exclude_benches=exclude_bench_list,
+            force=force,
+            target_benches=target_benches,
+        )
+        
+        migration_status = migrations.execute()
+        
+        if not migration_status:
+            richprint.print(f"Rolled back to previous version of fm {migrations.prev_version}")
+            raise typer.Exit(1)
+        
+        from frappe_manager.migration_manager.bench_migration_state import set_bench_migration_version
+        for bench_name in target_benches:
+            if bench_name in migrations.migrate_benches:
+                bench_data = migrations.migrate_benches[bench_name]
+                if bench_data['last_migration_version'] == current_version and not bench_data['exception']:
+                    bench_path = CLI_BENCHES_DIRECTORY / bench_name
+                    if bench_path.exists() and (bench_path / CLI_BENCH_CONFIG_FILE_NAME).exists():
+                        set_bench_migration_version(bench_path, current_version)
+    
+    if system:
+        fm_config_manager.set_system_migration_version(current_version)
+        fm_config_manager.export_to_toml()
+    
+    richprint.print(
+        f"Successfully migrated to v{get_current_fm_version()}",
+        emoji_code=":white_check_mark:"
+    )
+

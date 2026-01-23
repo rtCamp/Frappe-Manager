@@ -1,12 +1,12 @@
 import shutil
 from typing import Optional
-from frappe_manager.migration_manager.migration_helpers import MigrationBench
+from frappe_manager.migration_manager.migration_helpers import MigrationBench, MigrationBenches
 from rich.padding import Padding
 from rich.text import Text
 import importlib
 import pkgutil
 from pathlib import Path
-from frappe_manager import CLI_DIR, CLI_SITES_ARCHIVE
+from frappe_manager import CLI_DIR, CLI_SITES_ARCHIVE, CLI_BENCHES_DIRECTORY
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.migration_manager.migration_exections import (
     MigrationExceptionInBench,
@@ -14,9 +14,41 @@ from frappe_manager.migration_manager.migration_exections import (
 from frappe_manager.utils.helpers import capture_and_format_exception, install_package, get_current_fm_version
 from frappe_manager.logger import log
 from frappe_manager.migration_manager.version import Version
+from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
 from frappe_manager.display_manager.DisplayManager import richprint
 
 MINIMUM_SUPPORTED_VERSION = Version("0.18.0")
+
+
+def needs_migration(fm_config_manager: FMConfigManager) -> bool:
+    prev_version = fm_config_manager.version
+    current_version = Version(get_current_fm_version())
+    return prev_version < current_version
+
+
+def needs_system_migration(fm_config_manager: FMConfigManager) -> bool:
+    current_version = Version(get_current_fm_version())
+    system_version = fm_config_manager.get_system_migration_version()
+    return system_version < current_version
+
+
+def get_benches_needing_migration(benches_directory: Path, current_version: Version) -> list[str]:
+    from frappe_manager.migration_manager.bench_migration_state import bench_needs_migration
+    from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME
+    
+    needs_migration_list = []
+    
+    if not benches_directory.exists():
+        return needs_migration_list
+    
+    for bench_path in benches_directory.iterdir():
+        if bench_path.is_dir():
+            bench_config = bench_path / CLI_BENCH_CONFIG_FILE_NAME
+            if bench_config.exists():
+                if bench_needs_migration(bench_path, current_version):
+                    needs_migration_list.append(bench_path.name)
+    
+    return needs_migration_list
 
 
 class MigrationExecutor:
@@ -26,7 +58,15 @@ class MigrationExecutor:
     This class is responsible for executing migrations.
     """
 
-    def __init__(self, fm_config_manager: FMConfigManager):
+    def __init__(
+        self,
+        fm_config_manager: FMConfigManager,
+        skip_backup: bool = False,
+        skip_backup_for: list[str] = [],
+        exclude_benches: list[str] = [],
+        force: bool = False,
+        target_benches: list[str] | None = None,
+    ):
         self.fm_config_manager: FMConfigManager = fm_config_manager
         self.prev_version = self.fm_config_manager.version
         self.rollback_version = self.fm_config_manager.version
@@ -36,6 +76,61 @@ class MigrationExecutor:
         self.migrations = []
         self.undo_stack = []
         self.migrate_benches = {}
+        self.skip_backup = skip_backup
+        self.skip_backup_for = skip_backup_for
+        self.exclude_benches = exclude_benches
+        self.force = force
+        self.target_benches = target_benches
+
+    def _get_minimum_bench_version(self) -> Version:
+        """Get the minimum migration version across all target benches.
+        
+        Returns the lowest version that needs migration. This is used to determine
+        which migration classes need to be loaded.
+        """
+        if not self.target_benches:
+            return self.current_version
+        
+        benches_manager = MigrationBenches(CLI_BENCHES_DIRECTORY)
+        all_benches = benches_manager.get_all_benches()
+        min_version = self.current_version
+        
+        for bench_name, bench_path in all_benches.items():
+            if bench_name not in self.target_benches:
+                continue
+            
+            if bench_name in self.exclude_benches:
+                continue
+            
+            bench_version = get_bench_migration_version(bench_path.parent)
+            
+            # If bench has lower version than current minimum, update it
+            # This includes 0.0.0 versions (benches without migration_state)
+            if bench_version < min_version:
+                min_version = bench_version
+        
+        return min_version
+
+    def _check_benches_need_migration(self) -> bool:
+        """Check if any benches need migration to current version."""
+        if not self.target_benches:
+            return False
+        
+        benches_manager = MigrationBenches(CLI_BENCHES_DIRECTORY)
+        all_benches = benches_manager.get_all_benches()
+        
+        for bench_name, bench_path in all_benches.items():
+            if bench_name not in self.target_benches:
+                continue
+            
+            if bench_name in self.exclude_benches:
+                continue
+            
+            bench_version = get_bench_migration_version(bench_path.parent)
+            if bench_version < self.current_version:
+                return True
+        
+        return False
 
     def execute(self):
         """
@@ -44,19 +139,32 @@ class MigrationExecutor:
         executed statements.
         """
 
-        if not self.prev_version < self.current_version:
+        system_needs_migration = self.prev_version < self.current_version
+        benches_need_migration = self._check_benches_need_migration()
+
+        if not system_needs_migration and not benches_need_migration:
             return True
 
-        if self.prev_version < MINIMUM_SUPPORTED_VERSION:
+        # Determine effective prev_version for migration loading
+        # When benches need migration, use minimum bench version to ensure migrations load
+        effective_prev_version = self.prev_version
+        if benches_need_migration:
+            min_bench_version = self._get_minimum_bench_version()
+            # Use the lower of system version or minimum bench version
+            effective_prev_version = min(self.prev_version, min_bench_version)
+
+        # Skip minimum version check if effective version is 0.0.0
+        # (means bench has no migration_state, not that it's genuinely old)
+        if effective_prev_version != Version("0.0.0") and effective_prev_version < MINIMUM_SUPPORTED_VERSION:
             richprint.error(
-                f"Cannot migrate from v{self.prev_version.version}. "
+                f"Cannot migrate from v{effective_prev_version.version}. "
                 f"Minimum supported version is v{MINIMUM_SUPPORTED_VERSION.version}."
             )
             richprint.error(
                 f"\nPlease upgrade to v{MINIMUM_SUPPORTED_VERSION.version} first, then upgrade to v{self.current_version.version}."
             )
             richprint.error(
-                f"\nMigration path: v{self.prev_version.version} → v{MINIMUM_SUPPORTED_VERSION.version} → v{self.current_version.version}"
+                f"\nMigration path: v{effective_prev_version.version} → v{MINIMUM_SUPPORTED_VERSION.version} → v{self.current_version.version}"
             )
             return False
 
@@ -80,7 +188,7 @@ class MigrationExecutor:
                             migration.set_migration_executor(migration_executor=self)
                             current_migration = migration
 
-                            if migration.version > self.prev_version and migration.version <= self.current_version:
+                            if migration.version > effective_prev_version and migration.version <= self.current_version:
                                 self.migrations.append(migration)
 
             except Exception as e:
@@ -108,7 +216,12 @@ class MigrationExecutor:
                 r"[blue]\[no][/blue]  Abort and Revert: Do not migrate and revert to the previous fm version.",
                 "\nDo you want to proceed with the migration ?",
             ]
-            continue_migration = richprint.prompt_ask(prompt="\n".join(migrate_msg), choices=["yes", "no"])
+            
+            if not self.force:
+                continue_migration = richprint.prompt_ask(prompt="\n".join(migrate_msg), choices=["yes", "no"])
+            else:
+                continue_migration = "yes"
+                richprint.print("Proceeding with migration (--force)", emoji_code=":rocket:")
 
             if continue_migration == "no":
                 install_package("frappe-manager", str(self.prev_version.version))
@@ -204,7 +317,12 @@ class MigrationExecutor:
                     r'[blue][no][/blue] Revert migration : Restore the FM CLI and FM environment to the last successfully completed migration version for all benches.',
                     '\nDo you wish to archive all benches that failed during migration ?',
                 ]
-                archive = richprint.prompt_ask(prompt="\n".join(archive_msg), choices=["yes", "no"])
+                
+                if not self.force:
+                    archive = richprint.prompt_ask(prompt="\n".join(archive_msg), choices=["yes", "no"])
+                else:
+                    archive = "no"
+                    richprint.print("Rolling back all benches (--force)", emoji_code=":back:")
 
                 if archive == "no":
                     rollback = True

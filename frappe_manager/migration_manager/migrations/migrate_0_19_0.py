@@ -26,6 +26,61 @@ import shlex
 class MigrationV0190(MigrationBase):
     version = Version("0.19.0")
 
+    def bench_basic_backup(self, bench: MigrationBench):
+        """
+        Override parent to add additional backups for runtime rebuild.
+        
+        Backs up:
+        - bench_config.toml (modified with detected versions)
+        - supervisor.conf and *.fm.supervisor.conf (regenerated during rebuild)
+        - env/ directory (Python venv, will be recreated)
+        """
+        super().bench_basic_backup(bench)
+        
+        bench_config_path = bench.path / "bench_config.toml"
+        if bench_config_path.exists():
+            self.backup_manager.backup(bench_config_path, bench_name=bench.name)
+            richprint.print(f"  • Backed up bench_config.toml")
+        
+        supervisor_config_dir = bench.path / "workspace" / "frappe-bench" / "config"
+        if supervisor_config_dir.exists():
+            supervisor_conf = supervisor_config_dir / "supervisor.conf"
+            if supervisor_conf.exists():
+                self.backup_manager.backup(supervisor_conf, bench_name=bench.name)
+                richprint.print(f"  • Backed up supervisor.conf")
+            
+            for conf_file in supervisor_config_dir.glob("*.fm.supervisor.conf"):
+                self.backup_manager.backup(conf_file, bench_name=bench.name)
+                richprint.print(f"  • Backed up {conf_file.name}")
+        
+        env_dir = bench.path / "workspace" / "frappe-bench" / "env"
+        if env_dir.exists() and env_dir.is_dir():
+            import shutil
+            env_backup_path = bench.path / "workspace" / "frappe-bench" / "env.backup.migration"
+            if env_backup_path.exists():
+                shutil.rmtree(env_backup_path)
+            shutil.move(str(env_dir), str(env_backup_path))
+            richprint.print(f"  • Moved env/ to env.backup.migration")
+
+    def undo_bench_migrate(self, bench: MigrationBench):
+        """
+        Rollback bench changes on migration failure.
+        
+        Restores env/ by moving env.backup.migration back to env/.
+        Much faster than copying since env/ can be hundreds of MB.
+        """
+        import shutil
+        env_dir = bench.path / "workspace" / "frappe-bench" / "env"
+        env_backup_path = bench.path / "workspace" / "frappe-bench" / "env.backup.migration"
+        
+        if env_backup_path.exists():
+            if env_dir.exists():
+                richprint.print(f"  • Removing new env/")
+                shutil.rmtree(env_dir)
+            
+            richprint.print(f"  • Restoring env/ from env.backup.migration")
+            shutil.move(str(env_backup_path), str(env_dir))
+
     def migrate_bench(self, bench: MigrationBench):
         """Migrate bench from v0.18.0 to v0.19.0."""
         richprint.change_head(f"Migrating bench configuration for {bench.name}")
@@ -207,11 +262,6 @@ class MigrationV0190(MigrationBase):
         with open(compose_path, 'w') as f:
             yaml.dump(compose_data, f)
 
-    def undo_bench_migrate(self, bench: MigrationBench):
-        """Rollback handled by BackupManager.restore()."""
-        richprint.change_head(f"Rolling back migration for {bench.name}")
-        richprint.print(f"[yellow]↻[/yellow] Rollback complete for {bench.name}")
-
     def migrate_services(self):
         """No global services changes in v0.19.0."""
         richprint.print("No global services migration needed for v0.19.0")
@@ -221,28 +271,36 @@ class MigrationV0190(MigrationBase):
         richprint.print("No services rollback needed for v0.19.0")
 
     def _rebuild_runtime_environment(self, bench: MigrationBench):
-        """
-        Rebuild runtime environment after pyenv/nvm → uv/fnm migration.
-
-        Uses docker compose run to execute commands safely without requiring
-        running services. Performs the same operations as fm update --python/--node.
-        """
+        """Rebuild Python/Node environment using uv/fnm (v0.19.0 runtime system)."""
         richprint.change_head(f"Rebuilding runtime environment (pyenv/nvm → uv/fnm)")
+        
+        self.logger.info(f"[_rebuild_runtime_environment] Starting runtime rebuild for {bench.name}")
 
         bench_config_path = bench.path / "bench_config.toml"
-        if not bench_config_path.exists():
-            richprint.print("  • No bench_config.toml found, skipping runtime rebuild")
-            return
-
-        config_content = bench_config_path.read_text()
-        config_doc = tomlkit.parse(config_content)
-
-        python_version = config_doc.get("python_version")
-        node_version = config_doc.get("node_version")
-
-        if not python_version and not node_version:
-            richprint.print("  • No Python/Node versions configured, skipping runtime rebuild")
-            return
+        
+        python_version = None
+        node_version = None
+        
+        config_doc = None
+        if bench_config_path.exists():
+            config_doc = tomlkit.parse(bench_config_path.read_text())
+            python_version = config_doc.get("python_version")
+            node_version = config_doc.get("node_version")
+            self.logger.debug(f"[_rebuild_runtime_environment] From config: Python={python_version}, Node={node_version}")
+        
+        if not python_version or not node_version:
+            richprint.print(f"  • No Python/Node versions in config, auto-detecting from container and Frappe requirements...")
+            self.logger.info(f"[_rebuild_runtime_environment] Auto-detecting versions...")
+            python_version, node_version = self._auto_detect_runtime_versions(bench)
+            self.logger.info(f"[_rebuild_runtime_environment] Auto-detected: Python={python_version}, Node={node_version}")
+            
+            if config_doc and (python_version or node_version):
+                if python_version:
+                    config_doc["python_version"] = python_version
+                if node_version:
+                    config_doc["node_version"] = node_version
+                bench_config_path.write_text(tomlkit.dumps(config_doc))
+                richprint.print(f"  • Updated bench_config.toml with detected versions")
 
         try:
             if python_version:
@@ -264,13 +322,18 @@ class MigrationV0190(MigrationBase):
                 self._restart_services(bench)
 
             richprint.print(f"[green]✓[/green] Runtime environment rebuilt successfully")
+            self.logger.info(f"[_rebuild_runtime_environment] Completed successfully for {bench.name}")
 
         except Exception as e:
+            self.logger.error(f"[_rebuild_runtime_environment] Failed for {bench.name}: {e}", exc_info=True)
             richprint.error(f"Failed to rebuild runtime environment: {e}")
-            richprint.warning("Runtime may need manual rebuild using: fm update --python X --node Y")
+            richprint.warning("Runtime rebuild is required for v0.19.0 migration")
+            raise Exception(f"Runtime environment rebuild failed: {e}") from e
 
     def _setup_python_with_uv(self, bench: MigrationBench, python_version: str):
         """Setup Python using uv python manager."""
+        self.logger.debug(f"[_setup_python_with_uv] Starting Python {python_version} setup for {bench.name}")
+        
         setup_script = f"""
 cd /workspace/frappe-bench
 if [ -d env ]; then
@@ -300,24 +363,38 @@ cd /workspace/frappe-bench
 uv venv env --python "$PYTHON_BASENAME" --seed --link-mode=copy
 
 echo "Python environment setup complete"
+echo "Verifying env directory..."
+ls -la env/ || echo "ERROR: env directory not found!"
 """
+        self.logger.debug(f"[_setup_python_with_uv] Executing docker compose run...")
+        
         result = bench.compose_project.compose.run(
             service="frappe",
-            command=f"bash -c {shlex.quote(setup_script)}",
+            command=f"-c {shlex.quote(setup_script)}",
             rm=True,
             user="frappe",
+            entrypoint="bash",
             stream=False,
         )
 
-        # Type narrowing: when stream=False, result is SubprocessOutput
         if not isinstance(result, SubprocessOutput):
+            self.logger.error(f"[_setup_python_with_uv] Unexpected streaming output received")
             raise Exception("Unexpected streaming output received")
 
+        self.logger.debug(f"[_setup_python_with_uv] Exit code: {result.exit_code}")
+        self.logger.debug(f"[_setup_python_with_uv] Output: {result.combined}")
+
         if result.exit_code != 0:
+            self.logger.error(f"[_setup_python_with_uv] Python setup failed with exit code {result.exit_code}")
+            self.logger.error(f"[_setup_python_with_uv] Output: {result.combined}")
             raise Exception(f"Python setup failed with exit code {result.exit_code}")
+        
+        self.logger.debug(f"[_setup_python_with_uv] Python setup completed successfully")
 
     def _setup_node_with_fnm(self, bench: MigrationBench, node_version: str):
         """Setup Node using fnm node manager."""
+        self.logger.debug(f"[_setup_node_with_fnm] Starting Node {node_version} setup for {bench.name}")
+        
         setup_script = f"""
 echo "Checking if Node {node_version} is installed..."
 if fnm list | grep -q "v{node_version}"; then
@@ -337,33 +414,50 @@ fi
 
 echo "Node environment setup complete"
 """
+        self.logger.debug(f"[_setup_node_with_fnm] Executing docker compose run...")
+        
         result = bench.compose_project.compose.run(
             service="frappe",
-            command=f"bash -c {shlex.quote(setup_script)}",
+            command=f"-c {shlex.quote(setup_script)}",
             rm=True,
             user="frappe",
+            entrypoint="bash",
             stream=False,
         )
 
         if not isinstance(result, SubprocessOutput):
+            self.logger.error(f"[_setup_node_with_fnm] Unexpected streaming output received")
             raise Exception("Unexpected streaming output received")
 
+        self.logger.debug(f"[_setup_node_with_fnm] Exit code: {result.exit_code}")
+        self.logger.debug(f"[_setup_node_with_fnm] Output: {result.combined}")
+
         if result.exit_code != 0:
+            self.logger.error(f"[_setup_node_with_fnm] Node setup failed with exit code {result.exit_code}")
+            self.logger.error(f"[_setup_node_with_fnm] Output: {result.combined}")
             raise Exception(f"Node setup failed with exit code {result.exit_code}")
+        
+        self.logger.debug(f"[_setup_node_with_fnm] Node setup completed successfully")
 
     def _reinstall_apps_and_rebuild(self, bench: MigrationBench):
         """Reinstall apps into new venv and rebuild static assets."""
+        self.logger.debug(f"[_reinstall_apps_and_rebuild] Starting for {bench.name}")
+        
         apps_txt_path = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
 
         if not apps_txt_path.exists():
+            self.logger.warning(f"[_reinstall_apps_and_rebuild] No apps.txt found at {apps_txt_path}")
             richprint.warning("    No apps.txt found, skipping app reinstallation")
             return
 
         installed_apps = [line.strip() for line in apps_txt_path.read_text().splitlines() if line.strip()]
 
         if not installed_apps:
+            self.logger.warning(f"[_reinstall_apps_and_rebuild] No apps in apps.txt")
             richprint.warning("    No apps found in apps.txt")
             return
+
+        self.logger.debug(f"[_reinstall_apps_and_rebuild] Found apps: {installed_apps}")
 
         reinstall_script = """
 cd /workspace/frappe-bench
@@ -373,7 +467,7 @@ while IFS= read -r app; do
     if [ -d "apps/$app" ]; then
         echo "Installing $app..."
         uv pip install --python env/bin/python --no-cache-dir -e "apps/$app" || \
-        ./env/bin/pip install --no-cache-dir -e "apps/$app"
+        ./env/bin/python install --no-cache-dir -e "apps/$app"
     fi
 done < sites/apps.txt
 
@@ -385,19 +479,31 @@ bench build
 
 echo "Apps reinstalled and assets built successfully"
 """
+        self.logger.debug(f"[_reinstall_apps_and_rebuild] Executing docker compose run...")
+        
         result = bench.compose_project.compose.run(
             service="frappe",
-            command=f"bash -c {shlex.quote(reinstall_script)}",
+            command=f"-c {shlex.quote(reinstall_script)}",
             rm=True,
             user="frappe",
+            entrypoint="bash",
             stream=False,
         )
 
         if not isinstance(result, SubprocessOutput):
+            self.logger.error(f"[_reinstall_apps_and_rebuild] Unexpected streaming output received")
             raise Exception("Unexpected streaming output received")
 
+        self.logger.debug(f"[_reinstall_apps_and_rebuild] Exit code: {result.exit_code}")
+        output_str = " ".join(result.combined)
+        self.logger.debug(f"[_reinstall_apps_and_rebuild] Output length: {len(output_str)} chars")
+
         if result.exit_code != 0:
+            self.logger.error(f"[_reinstall_apps_and_rebuild] Failed with exit code {result.exit_code}")
+            self.logger.error(f"[_reinstall_apps_and_rebuild] Full output: {output_str}")
             raise Exception(f"App reinstallation failed with exit code {result.exit_code}")
+        
+        self.logger.debug(f"[_reinstall_apps_and_rebuild] Completed successfully")
 
     def _regenerate_supervisor_config(self, bench: MigrationBench):
         """Regenerate supervisor configuration with updated paths."""
@@ -408,9 +514,10 @@ echo "Supervisor configuration regenerated"
 """
         result = bench.compose_project.compose.run(
             service="frappe",
-            command=f"bash -c {shlex.quote(setup_script)}",
+            command=f"-c {shlex.quote(setup_script)}",
             rm=True,
             user="frappe",
+            entrypoint="bash",
             stream=False,
         )
 
@@ -430,3 +537,185 @@ echo "Supervisor configuration regenerated"
         except Exception as e:
             richprint.warning(f"Service restart failed: {e}")
             richprint.warning("Please restart services manually: fm restart {bench.name}")
+
+    def _auto_detect_runtime_versions(self, bench: MigrationBench) -> tuple[str | None, str | None]:
+        """
+        Auto-detect Python/Node versions using multi-source strategy.
+        
+        Priority:
+        1. Current container runtime (what's actually installed)
+        2. Frappe pyproject.toml/package.json requirements
+        3. Validate compatibility and choose best version
+        
+        Returns:
+            (python_version, node_version) - versions to use for rebuild
+        """
+        from frappe_manager.site_manager.bench_config import (
+            extract_python_version_requirement,
+            extract_node_version_requirement,
+        )
+        
+        current_python = None
+        current_node = None
+        
+        try:
+            result = bench.compose_project.compose.run(
+                service="frappe",
+                command="-c '/workspace/frappe-bench/env/bin/python --version 2>&1'",
+                rm=True,
+                user="frappe",
+                entrypoint="bash",
+                stream=False,
+            )
+            if isinstance(result, SubprocessOutput) and result.exit_code == 0:
+                import re
+                output = " ".join(result.combined)
+                match = re.search(r"Python (\d+)\.(\d+)\.(\d+)", output)
+                if match:
+                    major, minor = match.group(1), match.group(2)
+                    current_python = f"{major}.{minor}"
+                    richprint.print(f"    • Detected current Python: {current_python}")
+        except Exception as e:
+            self.logger.debug(f"Could not detect current Python (expected during migration): {e}")
+        
+        try:
+            result = bench.compose_project.compose.run(
+                service="frappe",
+                command="node --version",
+                rm=True,
+                user="frappe",
+                entrypoint="bash",
+                stream=False,
+            )
+            if isinstance(result, SubprocessOutput) and result.exit_code == 0:
+                import re
+                output = " ".join(result.combined)
+                match = re.search(r"v(\d+)\.\d+\.\d+", output)
+                if match:
+                    current_node = match.group(1)
+                    richprint.print(f"    • Detected current Node: {current_node}")
+        except Exception as e:
+            self.logger.debug(f"Could not detect current Node (expected during migration): {e}")
+        
+        frappe_app_path = bench.path / "workspace" / "frappe-bench" / "apps" / "frappe"
+        
+        frappe_python_req = None
+        frappe_node_req = None
+        
+        if frappe_app_path.exists():
+            frappe_python_req = extract_python_version_requirement(frappe_app_path)
+            frappe_node_req = extract_node_version_requirement(frappe_app_path)
+            
+            if frappe_python_req:
+                richprint.print(f"    • Frappe requires Python: {frappe_python_req}")
+            if frappe_node_req:
+                richprint.print(f"    • Frappe requires Node: {frappe_node_req}")
+        
+        final_python = self._choose_best_python_version(current_python, frappe_python_req)
+        final_node = self._choose_best_node_version(current_node, frappe_node_req)
+        
+        return final_python, final_node
+
+    def _choose_best_python_version(
+        self, 
+        current: str | None, 
+        frappe_requirement: str | None
+    ) -> str | None:
+        """
+        Choose best Python version based on current and Frappe requirements.
+        
+        Strategy:
+        1. If Frappe requires specific version → check if current satisfies
+        2. If current version satisfies Frappe requirement → keep current
+        3. If current version too old → upgrade to Frappe minimum
+        4. If no Frappe requirement → keep current (if valid) or default to 3.11
+        """
+        from frappe_manager.site_manager.bench_config import parse_python_version_for_runtime
+        import re
+        
+        frappe_min_version = None
+        if frappe_requirement:
+            frappe_min_version = parse_python_version_for_runtime(frappe_requirement)
+            if frappe_min_version:
+                richprint.print(f"    • Frappe minimum Python: {frappe_min_version}")
+        
+        if current:
+            current_tuple = tuple(map(int, current.split('.')))
+            
+            if frappe_requirement and frappe_min_version:
+                match_min = re.search(r">=(\d+)\.(\d+)", frappe_requirement)
+                match_max = re.search(r"<(\d+)\.(\d+)", frappe_requirement)
+                
+                if match_min:
+                    min_ver = (int(match_min.group(1)), int(match_min.group(2)))
+                    
+                    if match_max:
+                        max_ver = (int(match_max.group(1)), int(match_max.group(2)))
+                        
+                        if min_ver <= current_tuple < max_ver:
+                            richprint.print(f"    ✓ Current Python {current} satisfies Frappe requirement")
+                            return current
+                        else:
+                            richprint.print(f"    ✗ Current Python {current} doesn't satisfy requirement, upgrading to {frappe_min_version}")
+                            return frappe_min_version
+                    else:
+                        if current_tuple >= min_ver:
+                            richprint.print(f"    ✓ Current Python {current} satisfies Frappe requirement")
+                            return current
+                        else:
+                            richprint.print(f"    ✗ Current Python {current} doesn't satisfy requirement, upgrading to {frappe_min_version}")
+                            return frappe_min_version
+            
+            if current_tuple >= (3, 10):
+                richprint.print(f"    ✓ Keeping current Python {current}")
+                return current
+        
+        if frappe_min_version:
+            richprint.print(f"    → Using Frappe minimum Python: {frappe_min_version}")
+            return frappe_min_version
+        
+        richprint.print(f"    → Using safe default Python: 3.11")
+        return "3.11"
+
+    def _choose_best_node_version(
+        self, 
+        current: str | None, 
+        frappe_requirement: str | None
+    ) -> str | None:
+        """
+        Choose best Node version based on current and Frappe requirements.
+        
+        Strategy similar to Python version selection.
+        """
+        from frappe_manager.site_manager.bench_config import parse_node_version_for_runtime
+        import re
+        
+        frappe_min_version = None
+        if frappe_requirement:
+            frappe_min_version = parse_node_version_for_runtime(frappe_requirement)
+            if frappe_min_version:
+                richprint.print(f"    • Frappe minimum Node: {frappe_min_version}")
+        
+        if current:
+            current_major = int(current)
+            
+            if frappe_min_version:
+                frappe_major = int(frappe_min_version)
+                
+                if current_major >= frappe_major:
+                    richprint.print(f"    ✓ Current Node {current} satisfies Frappe requirement")
+                    return current
+                else:
+                    richprint.print(f"    ✗ Current Node {current} doesn't satisfy requirement, upgrading to {frappe_min_version}")
+                    return frappe_min_version
+            
+            if current_major >= 18:
+                richprint.print(f"    ✓ Keeping current Node {current}")
+                return current
+        
+        if frappe_min_version:
+            richprint.print(f"    → Using Frappe minimum Node: {frappe_min_version}")
+            return frappe_min_version
+        
+        richprint.print(f"    → Using safe default Node: 18")
+        return "18"
