@@ -37,15 +37,15 @@ class TestMigrationExecutorVersionEnforcement:
         with (
             patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
             patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
-            patch('frappe_manager.migration_manager.migration_executor.richprint') as mock_richprint,
         ):
-            executor = MigrationExecutor(mock_fm_config)
+            mock_output = Mock()
+            executor = MigrationExecutor(mock_fm_config, migrate_system=True, output_handler=mock_output)
             result = executor.execute()
 
             assert result is False
-            assert mock_richprint.error.call_count >= 3
+            assert mock_output.display_error.call_count >= 3
 
-            error_calls = [call[0][0] for call in mock_richprint.error.call_args_list]
+            error_calls = [call[0][0] for call in mock_output.display_error.call_args_list]
             assert any("Cannot migrate from v0.17.0" in str(call) for call in error_calls)
             assert any("v0.18.0" in str(call) for call in error_calls)
 
@@ -56,9 +56,9 @@ class TestMigrationExecutorVersionEnforcement:
             patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
             patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
             patch('frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules', return_value=[]),
-            patch('frappe_manager.migration_manager.migration_executor.richprint') as mock_richprint,
         ):
-            executor = MigrationExecutor(mock_fm_config)
+            mock_output = Mock()
+            executor = MigrationExecutor(mock_fm_config, output_handler=mock_output)
             result = executor.execute()
 
             assert result is True
@@ -88,9 +88,9 @@ class TestMigrationExecutorMigrationDiscovery:
         with (
             patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
             patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
-            patch('frappe_manager.migration_manager.migration_executor.richprint'),
         ):
-            executor = MigrationExecutor(mock_fm_config)
+            mock_output = Mock()
+            executor = MigrationExecutor(mock_fm_config, output_handler=mock_output)
             result = executor.execute()
 
             assert executor.prev_version == Version("0.18.0")
@@ -122,9 +122,9 @@ class TestMigrationExecutorMigrationDiscovery:
             patch(
                 'frappe_manager.migration_manager.migration_executor.importlib.import_module', return_value=mock_module
             ),
-            patch('frappe_manager.migration_manager.migration_executor.richprint'),
         ):
-            executor = MigrationExecutor(mock_fm_config)
+            mock_output = Mock()
+            executor = MigrationExecutor(mock_fm_config, output_handler=mock_output)
             executor.execute()
 
             assert len(executor.migrations) == 0
@@ -151,9 +151,9 @@ class TestMigrationExecutorMigrationDiscovery:
             patch(
                 'frappe_manager.migration_manager.migration_executor.importlib.import_module', return_value=mock_module
             ),
-            patch('frappe_manager.migration_manager.migration_executor.richprint'),
         ):
-            executor = MigrationExecutor(mock_fm_config)
+            mock_output = Mock()
+            executor = MigrationExecutor(mock_fm_config, output_handler=mock_output)
             executor.execute()
 
             assert len(executor.migrations) == 0
@@ -172,18 +172,22 @@ class TestMigrationExecutorUserPrompt:
             patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
             patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
             patch('frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules', return_value=[]),
-            patch('frappe_manager.migration_manager.migration_executor.richprint') as mock_richprint,
         ):
-            executor = MigrationExecutor(mock_fm_config)
+            mock_output = Mock()
+            executor = MigrationExecutor(mock_fm_config, migrate_system=True, output_handler=mock_output)
             executor.migrations = [mock_migration]
 
-            mock_richprint.prompt_ask.return_value = "yes"
+            mock_output.prompt_ask.return_value = "yes"
 
-            executor.execute()
+            with (
+                patch.object(executor, '_ensure_global_services_running'),
+                patch.object(executor, '_check_benches_need_migration', return_value=False),
+            ):
+                executor.execute()
 
-            assert mock_richprint.prompt_ask.called
-            prompt_text = mock_richprint.prompt_ask.call_args[1]['prompt']
-            assert "Do you want to proceed with the migration" in prompt_text
+            assert mock_output.prompt_ask.called
+            prompt_text = mock_output.prompt_ask.call_args[1]['prompt']
+            assert "Do you want to proceed" in prompt_text
 
     def test_aborts_and_reverts_when_user_says_no(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
@@ -195,15 +199,20 @@ class TestMigrationExecutorUserPrompt:
             patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
             patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
             patch('frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules', return_value=[]),
-            patch('frappe_manager.migration_manager.migration_executor.richprint') as mock_richprint,
-            patch('frappe_manager.migration_manager.migration_executor.install_package') as mock_install,
         ):
-            executor = MigrationExecutor(mock_fm_config)
+            mock_output = Mock()
+            executor = MigrationExecutor(mock_fm_config, migrate_system=True, output_handler=mock_output)
             executor.migrations = [mock_migration]
 
-            mock_richprint.prompt_ask.return_value = "no"
+            mock_output.prompt_ask.return_value = "no"
 
-            result = executor.execute()
+            with (
+                patch.object(executor, '_ensure_global_services_running'),
+                patch.object(executor, '_check_benches_need_migration', return_value=False),
+            ):
+                result = executor.execute()
 
             assert result is False
-            mock_install.assert_called_once_with("frappe-manager", "0.18.0")
+            
+            print_calls = [str(call) for call in mock_output.print.call_args_list]
+            assert any("Migration aborted" in call for call in print_calls)

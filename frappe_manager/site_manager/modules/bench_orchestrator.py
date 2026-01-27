@@ -280,6 +280,17 @@ class BenchOrchestrator:
         bench.sync_workers_compose(force_recreate=True, setup_supervisor=False)
         self.output.print("Configured bench workers")
 
+        from frappe_manager.site_manager.bench_config import MigrationState
+        from frappe_manager.migration_manager.version import Version
+        from frappe_manager.utils.helpers import get_current_fm_version
+        from datetime import datetime
+        
+        current_fm_version = Version(get_current_fm_version())
+        bench.bench_config.migration_state = MigrationState(
+            migrated_to=str(current_fm_version.version),
+            last_migration_date=datetime.now().isoformat()
+        )
+        
         bench.save_bench_config()
 
         self.output.change_head("Commencing site status check")
@@ -294,6 +305,18 @@ class BenchOrchestrator:
         bench = self.bench
         global_db_info = bench.services.database_manager.database_server_info
         bench.sync_bench_common_site_config(global_db_info.host, global_db_info.port)
+        
+        from frappe_manager.site_manager.bench_config import MigrationState
+        from frappe_manager.migration_manager.version import Version
+        from frappe_manager.utils.helpers import get_current_fm_version
+        from datetime import datetime
+        
+        current_fm_version = Version(get_current_fm_version())
+        bench.bench_config.migration_state = MigrationState(
+            migrated_to=str(current_fm_version.version),
+            last_migration_date=datetime.now().isoformat()
+        )
+        
         bench.save_bench_config()
         self.output.print(f"Created template bench: {bench.name}", emoji_code=":white_check_mark:")
 

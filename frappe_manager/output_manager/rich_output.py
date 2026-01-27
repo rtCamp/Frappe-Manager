@@ -217,3 +217,17 @@ class RichOutputHandler(OutputHandler):
 
     def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
         self._richprint.stderr.print(f"{emoji_code} {text}", **kwargs)
+
+    @property
+    def is_spinner_active(self) -> bool:
+        """
+        Check if spinner is currently active by querying the underlying richprint singleton.
+        
+        This overrides the base class property to check the actual DisplayManager state
+        rather than relying on the base class's _spinner_active flag, which would be
+        incorrect since RichOutputHandler wraps a shared singleton.
+        
+        Returns:
+            True if the underlying richprint DisplayManager has an active spinner
+        """
+        return self._richprint.is_spinner_active

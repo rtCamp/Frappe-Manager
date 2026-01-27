@@ -170,7 +170,6 @@ class Bench:
             bench_path=path,
             bench_name=name,
             is_running_fn=lambda: self.running,
-            switch_bench_env_fn=self.switch_bench_env,
             quiet=self.quiet,
             output_handler=self.output,
         )
@@ -441,21 +440,19 @@ class Bench:
         Returns:
             bool: True if the site is successfully stopped, False otherwise.
         """
-        self.output.change_head("Stopping bench services")
         self.docker_ops.stop(timeout=10)
-        self.output.print("Stopped bench services")
 
         if self.workers.compose_file_manager.exists():
-            self.output.change_head("Starting bench workers services")
+            self.output.change_head("Stopping bench workers services")
             output = self.workers.docker_client.compose.stop(services=[], timeout=10, stream=self.quiet)
             if self.quiet:
                 self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
-            self.output.print("Started bench workers services")
+            self.output.print("Stopped bench workers services")
 
         # stop admin_tools if exists
         if self.admin_tools.compose_file_manager.exists():
-            self.output.change_head("Stopped bench admin tools services")
-            self.admin_tools.disable()
+            self.output.change_head("Stopping bench admin tools services")
+            self.admin_tools.stop()
             self.output.print("Stopped bench admin tools services")
 
     def remove_containers_and_dirs(self):
@@ -893,9 +890,6 @@ class Bench:
 
     def install_dev_packages(self):
         return self.devtools.install_dev_packages()
-
-    def switch_bench_env(self, timeout: int = 30, interval: int = 1):
-        return self.supervisor.switch_bench_env('frappe', timeout, interval)
 
     def is_supervisord_running(self, interval: int = 2, timeout: int = 30):
         return self.supervisor.is_supervisord_running(interval, timeout)

@@ -6,7 +6,7 @@ Tracks migration version for individual benches.
 
 from pathlib import Path
 from frappe_manager.migration_manager.version import Version
-import tomlkit as toml
+from frappe_manager.site_manager.bench_config import BenchConfig, MigrationState
 from datetime import datetime
 from typing import Optional
 
@@ -27,11 +27,9 @@ def get_bench_migration_version(bench_path: Path) -> Version:
         return Version("0.0.0")
     
     try:
-        bench_config = toml.parse(bench_config_path.read_text())
-        version_str = bench_config.get("migration_state", {}).get("migrated_to")
-        
-        if version_str:
-            return Version(version_str)
+        config = BenchConfig.import_from_toml(bench_config_path)
+        if config.migration_state and config.migration_state.migrated_to:
+            return Version(config.migration_state.migrated_to)
     except Exception:
         pass
     
@@ -51,16 +49,12 @@ def set_bench_migration_version(bench_path: Path, version: Version) -> None:
     if not bench_config_path.exists():
         raise FileNotFoundError(f"Bench config not found: {bench_config_path}")
     
-    toml_doc = toml.parse(bench_config_path.read_text())
-    
-    if "migration_state" not in toml_doc:
-        toml_doc["migration_state"] = toml.table()
-    
-    toml_doc["migration_state"]["migrated_to"] = str(version.version)
-    toml_doc["migration_state"]["last_migration_date"] = datetime.now().isoformat()
-    
-    with open(bench_config_path, "w") as f:
-        f.write(toml.dumps(toml_doc))
+    config = BenchConfig.import_from_toml(bench_config_path)
+    config.migration_state = MigrationState(
+        migrated_to=str(version.version),
+        last_migration_date=datetime.now().isoformat()
+    )
+    config.export_to_toml(bench_config_path)
 
 
 def bench_needs_migration(bench_path: Path, target_version: Version) -> bool:
@@ -94,7 +88,11 @@ def get_bench_migration_date(bench_path: Path) -> Optional[str]:
         return None
     
     try:
-        bench_config = toml.parse(bench_config_path.read_text())
-        return bench_config.get("migration_state", {}).get("last_migration_date")
+        config = BenchConfig.import_from_toml(bench_config_path)
+        if config.migration_state:
+            return config.migration_state.last_migration_date
     except Exception:
         return None
+    
+    return None
+

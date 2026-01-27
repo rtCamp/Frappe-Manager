@@ -229,9 +229,8 @@ class BenchAdminTools:
         if force_configure:
             self.configure_mailpit_as_default_server()
 
-    def disable(self):
-        """Disable admin tools by stopping services."""
-        # Use docker_client directly instead of compose_project wrapper
+    def stop(self):
+        """Stop admin tools containers without removing configuration."""
         try:
             output = self.docker_client.compose.stop(services=[], timeout=2, stream=self.quiet)
             if self.quiet:
@@ -242,6 +241,10 @@ class BenchAdminTools:
             raise DockerComposeProjectFailedToStopError(
                 self.compose_path, self.compose_file_manager.get_services_list()
             )
+
+    def disable(self):
+        """Disable admin tools by stopping services and removing all configuration."""
+        self.stop()
 
         self.remove_nginx_location_config()
         self.nginx_proxy.reload()

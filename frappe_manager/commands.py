@@ -75,14 +75,14 @@ def check_bench_migration_required(bench_name: Optional[str]) -> None:
     if bench_needs_migration(bench_path, current_version):
         if richprint.live:
             richprint.live.stop()
-        panel = Panel(
-            f"[yellow]⚠️  Bench Migration Required[/yellow]\n\n"
-            f"Bench '[bold]{bench_name}[/bold]' needs migration.\n\n"
-            f"[bold cyan]fm migrate {bench_name}[/bold cyan]",
-            border_style="yellow",
-            title=f"Bench: {bench_name}",
-        )
-        richprint.stdout.print(panel)
+        bench_path = CLI_BENCHES_DIRECTORY / bench_name
+        from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
+        bench_version = get_bench_migration_version(bench_path)
+        fm_version = Version(get_current_fm_version())
+        
+        richprint.warning(f"Bench migration required: {bench_name} (v{bench_version} → v{fm_version})\n", emoji_code="")
+        richprint.print("Bench migration updates configuration and applies necessary changes.\n", emoji_code="")
+        richprint.print(f"Run: [cyan]fm migrate {bench_name}[/cyan]\n", emoji_code="")
         raise typer.Exit(0)
 app.add_typer(services_root_command, name="services", help="Handle global services.")
 app.add_typer(self_app, name="self", help="Perform operations related to the [bold][blue]fm[/bold][/blue] itself.")
@@ -217,15 +217,13 @@ def app_callback(
                 if invoked_command not in allowed_without_system:
                     if richprint.live:
                         richprint.live.stop()
-                    panel = Panel(
-                        "[yellow]⚠️  FM System Migration Required[/yellow]\n\n"
-                        "Frappe Manager core needs migration.\n"
-                        "This updates global config and services.\n\n"
-                        "[bold cyan]fm migrate --system --all-benches[/bold cyan]",
-                        border_style="yellow",
-                        title="Migration Required",
-                    )
-                    richprint.stdout.print(panel)
+                    system_version = fm_config_manager.get_system_migration_version()
+                    fm_version = Version(get_current_fm_version())
+                    richprint.warning(f"System migration required: v{system_version} → v{fm_version}\n", emoji_code="")
+                    richprint.print("System migration is required to update Docker images and global services.", emoji_code="")
+                    richprint.print("Bench migrations are optional and can be done individually.\n", emoji_code="")
+                    richprint.print("Required: [cyan]fm migrate --system[/cyan]", emoji_code="")
+                    richprint.print("Optional: [cyan]fm migrate --system --all-benches[/cyan] (migrate system + all benches)\n", emoji_code="")
                     raise typer.Exit(0)
 
             services_manager: ServicesManager = ServicesManager(
@@ -886,10 +884,7 @@ def update(
         richprint.print("Recreating containers to apply environment change..")
         bench.docker_client.compose.up(detach=True, force_recreate=True, stream=False)
 
-        richprint.print("Configuring supervisor for new environment..")
-        bench.switch_bench_env()
-
-        richprint.print(f"Switched bench environemnt to {environment.value}")
+        richprint.print(f"Switched bench environment to {environment.value}")
         bench_config_save = True
 
     if restart:
@@ -1337,6 +1332,7 @@ def migrate(
             exclude_benches=exclude_bench_list,
             force=force,
             target_benches=target_benches,
+            migrate_system=system,
         )
         
         migration_status = migrations.execute()

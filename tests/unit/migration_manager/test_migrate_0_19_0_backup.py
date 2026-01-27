@@ -22,6 +22,13 @@ class TestMigrationV0190RuntimeBackup:
         migration = MigrationV0190()
         migration.benches_dir = tmp_path / "sites"
         migration.benches_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Mock migration_executor required after refactoring
+        mock_executor = Mock()
+        mock_executor.skip_backup = False
+        mock_executor.skip_backup_for = []
+        migration.migration_executor = mock_executor
+        
         return migration
 
     @pytest.fixture
@@ -52,14 +59,15 @@ port = 8000
         return bench
 
     def test_bench_basic_backup_includes_bench_config(self, migration, mock_bench, tmp_path):
-        """Verify that bench_basic_backup() backs up bench_config.toml."""
+        """Verify that bench_basic_backup() backs up bench_config.toml via parent."""
         migration.backup_manager = BackupManager(
             name=str(migration.version),
             benches_dir=migration.benches_dir
         )
         
-        with patch.object(MigrationV0190.__bases__[0], 'bench_basic_backup', return_value=None):
-            migration.bench_basic_backup(mock_bench)
+        with patch('frappe_manager.services_manager.database_service_manager.DatabaseServerServiceInfo.import_from_bench', return_value=None):
+            with patch.object(migration, 'bench_db_backup', return_value=None):
+                migration.bench_basic_backup(mock_bench)
         
         backup_found = any(
             backup.src.name == "bench_config.toml"
@@ -137,8 +145,9 @@ port = 8000
         bench_config_path = mock_bench.path / "bench_config.toml"
         original_content = bench_config_path.read_text()
         
-        with patch.object(MigrationV0190.__bases__[0], 'bench_basic_backup', return_value=None):
-            migration.bench_basic_backup(mock_bench)
+        with patch('frappe_manager.services_manager.database_service_manager.DatabaseServerServiceInfo.import_from_bench', return_value=None):
+            with patch.object(migration, 'bench_db_backup', return_value=None):
+                migration.bench_basic_backup(mock_bench)
         
         import tomlkit
         doc = tomlkit.parse(bench_config_path.read_text())

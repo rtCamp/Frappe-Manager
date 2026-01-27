@@ -561,6 +561,11 @@ def ssl_certificates_to_toml_array(certs: List[SSLCertificate]) -> TOMLArray:
     return toml_aot
 
 
+class MigrationState(BaseModel):
+    migrated_to: Optional[str] = Field(None, description="Version bench is migrated to (e.g., '0.19.0')")
+    last_migration_date: Optional[str] = Field(None, description="ISO timestamp of last migration")
+
+
 class BenchConfig(BaseModel):
     name: str = Field(..., description="The name of the bench")
     developer_mode: bool = Field(..., description="Whether developer mode is enabled")
@@ -606,6 +611,10 @@ class BenchConfig(BaseModel):
 
     restart_policy: Optional[RestartPolicyEnum] = Field(
         default=None, description="Docker Compose restart policy for all services in this bench"
+    )
+
+    migration_state: Optional[MigrationState] = Field(
+        None, description="Migration state tracking (managed by migration system)"
     )
 
     @field_validator('restart_policy', mode='before')
@@ -757,7 +766,6 @@ class BenchConfig(BaseModel):
             bench_dict.pop('dns_providers', None)
 
         # Serialize the dictionary to a TOML string
-        # Create a TOML document from the dictionary
         toml_doc = tomlkit.document()
 
         for key, value in bench_dict.items():
@@ -765,6 +773,7 @@ class BenchConfig(BaseModel):
                 toml_doc[key] = str(value.absolute())
             else:
                 toml_doc[key] = value
+
         try:
             with open(path, 'w') as f:
                 f.write(tomlkit.dumps(toml_doc))
@@ -807,6 +816,11 @@ class BenchConfig(BaseModel):
                 if isinstance(provider_data, dict):
                     dns_providers_dict[provider_name] = DNSProviderConfig.import_from_toml_doc(provider_data)
 
+        migration_state_data = data.get('migration_state', None)
+        migration_state_obj = None
+        if migration_state_data and isinstance(migration_state_data, dict):
+            migration_state_obj = MigrationState(**migration_state_data)
+
         input_data = {
             'name': data.get('name', None),
             'developer_mode': data.get('developer_mode', None),
@@ -827,6 +841,7 @@ class BenchConfig(BaseModel):
             'node_version': data.get('node_version', None),
             'db_name': data.get('db_name'),
             'restart_policy': data.get('restart_policy', None),
+            'migration_state': migration_state_obj,
         }
 
         bench_config_instance = cls(**input_data)

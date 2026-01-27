@@ -111,6 +111,9 @@ class TestMigrationExecutorForceFlag:
         class MockMigration:
             version = Version("0.19.0")
             
+            def __init__(self, output_handler=None):
+                self.output = output_handler
+            
             def up(self):
                 pass
             
@@ -126,7 +129,6 @@ class TestMigrationExecutorForceFlag:
         with (
             patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
             patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
-            patch('frappe_manager.migration_manager.migration_executor.richprint') as mock_richprint,
             patch('frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules') as mock_iter,
             patch('frappe_manager.migration_manager.migration_executor.importlib.import_module') as mock_import,
         ):
@@ -136,13 +138,19 @@ class TestMigrationExecutorForceFlag:
             setattr(mock_module, 'MigrationV0190', MockMigration)
             mock_import.return_value = mock_module
             
-            executor = MigrationExecutor(mock_fm_config, force=True)
-            result = executor.execute()
+            mock_output = Mock()
+            executor = MigrationExecutor(mock_fm_config, force=True, migrate_system=True, output_handler=mock_output)
             
-            mock_richprint.prompt_ask.assert_not_called()
+            with (
+                patch.object(executor, '_ensure_global_services_running'),
+                patch.object(executor, '_check_benches_need_migration', return_value=False),
+            ):
+                result = executor.execute()
+            
+            mock_output.prompt_ask.assert_not_called()
             
             force_call_found = False
-            for call in mock_richprint.print.call_args_list:
+            for call in mock_output.print.call_args_list:
                 if "Proceeding with migration (--force)" in str(call):
                     force_call_found = True
                     break
@@ -156,13 +164,14 @@ class TestMigrationExecutorForceFlag:
         with (
             patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
             patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
-            patch('frappe_manager.migration_manager.migration_executor.richprint') as mock_richprint,
             patch('frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules') as mock_iter,
         ):
             mock_iter.return_value = []
-            mock_richprint.prompt_ask.return_value = "yes"
             
-            executor = MigrationExecutor(mock_fm_config, force=False)
+            mock_output = Mock()
+            mock_output.prompt_ask.return_value = "yes"
+            
+            executor = MigrationExecutor(mock_fm_config, force=False, output_handler=mock_output)
             result = executor.execute()
             
             assert result is True

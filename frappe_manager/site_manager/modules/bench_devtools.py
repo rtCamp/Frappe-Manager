@@ -46,7 +46,6 @@ class BenchDevTools:
         bench_path: Path,
         bench_name: str,
         is_running_fn,
-        switch_bench_env_fn,
         quiet: bool = False,
         output_handler: OutputHandler | None = None,
     ):
@@ -59,7 +58,6 @@ class BenchDevTools:
             bench_path: Path to bench directory
             bench_name: Name of the bench
             is_running_fn: Function to check if bench is running
-            switch_bench_env_fn: Function to switch bench environment
             quiet: Whether to suppress output
             output_handler: Handler for output operations
         """
@@ -68,7 +66,6 @@ class BenchDevTools:
         self.bench_path = bench_path
         self.bench_name = bench_name
         self._is_running = is_running_fn
-        self._switch_bench_env = switch_bench_env_fn
         self.quiet = quiet
         self.output = output_handler or RichOutputHandler()
         self.logger: Optional[Any] = None  # Set externally if needed
@@ -219,7 +216,6 @@ class BenchDevTools:
         )
         if self.quiet:
             self.output.live_lines(output, padding=(0, 0, 0, 2))
-        self._switch_bench_env()
 
     def _setup_debugger_config(self, workdir: str) -> None:
         """Setup debugger configuration if workdir is in workspace."""

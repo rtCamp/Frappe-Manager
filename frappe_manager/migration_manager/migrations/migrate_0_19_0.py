@@ -14,7 +14,9 @@ BREAKING CHANGES:
 from frappe_manager.migration_manager.migration_base import MigrationBase
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.migration_manager.migration_helpers import MigrationBench
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo
+
+from frappe_manager.output_manager.context_managers import spinner
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from pathlib import Path
 import tomlkit
@@ -31,27 +33,24 @@ class MigrationV0190(MigrationBase):
         Override parent to add additional backups for runtime rebuild.
         
         Backs up:
-        - bench_config.toml (modified with detected versions)
         - supervisor.conf and *.fm.supervisor.conf (regenerated during rebuild)
         - env/ directory (Python venv, will be recreated)
         """
         super().bench_basic_backup(bench)
         
-        bench_config_path = bench.path / "bench_config.toml"
-        if bench_config_path.exists():
-            self.backup_manager.backup(bench_config_path, bench_name=bench.name)
-            richprint.print(f"  • Backed up bench_config.toml")
+        if self.migration_executor.skip_backup or bench.name in self.migration_executor.skip_backup_for:
+            return
         
         supervisor_config_dir = bench.path / "workspace" / "frappe-bench" / "config"
         if supervisor_config_dir.exists():
             supervisor_conf = supervisor_config_dir / "supervisor.conf"
             if supervisor_conf.exists():
                 self.backup_manager.backup(supervisor_conf, bench_name=bench.name)
-                richprint.print(f"  • Backed up supervisor.conf")
+                self.output.print(f"Backed up supervisor.conf")
             
             for conf_file in supervisor_config_dir.glob("*.fm.supervisor.conf"):
                 self.backup_manager.backup(conf_file, bench_name=bench.name)
-                richprint.print(f"  • Backed up {conf_file.name}")
+                self.output.print(f"Backed up {conf_file.name}")
         
         env_dir = bench.path / "workspace" / "frappe-bench" / "env"
         if env_dir.exists() and env_dir.is_dir():
@@ -60,7 +59,7 @@ class MigrationV0190(MigrationBase):
             if env_backup_path.exists():
                 shutil.rmtree(env_backup_path)
             shutil.move(str(env_dir), str(env_backup_path))
-            richprint.print(f"  • Moved env/ to env.backup.migration")
+            self.output.print(f"Moved env/ to env.backup.migration")
 
     def undo_bench_migrate(self, bench: MigrationBench):
         """
@@ -75,35 +74,36 @@ class MigrationV0190(MigrationBase):
         
         if env_backup_path.exists():
             if env_dir.exists():
-                richprint.print(f"  • Removing new env/")
+                self.output.print(f"Removing new env/")
                 shutil.rmtree(env_dir)
             
-            richprint.print(f"  • Restoring env/ from env.backup.migration")
+            self.output.print(f"Restoring env/ from env.backup.migration")
             shutil.move(str(env_backup_path), str(env_dir))
 
     def migrate_bench(self, bench: MigrationBench):
         """Migrate bench from v0.18.0 to v0.19.0."""
-        richprint.change_head(f"Migrating bench configuration for {bench.name}")
+        with spinner(self.output, f"Migrating bench configuration for {bench.name}"):  # type: ignore[arg-type]
+            bench_config_path = bench.path / "bench_config.toml"
+            if bench_config_path.exists():
+                self._migrate_bench_config_toml(bench, bench_config_path)
 
-        bench_config_path = bench.path / "bench_config.toml"
-        if bench_config_path.exists():
-            self._migrate_bench_config_toml(bench, bench_config_path)
+            docker_compose_path = bench.path / "docker-compose.yml"
+            if docker_compose_path.exists():
+                self._migrate_docker_compose_yml(bench, docker_compose_path)
 
-        docker_compose_path = bench.path / "docker-compose.yml"
-        if docker_compose_path.exists():
-            self._migrate_docker_compose_yml(bench, docker_compose_path)
-
-        workers_compose_path = bench.path / "docker-compose.workers.yml"
-        if workers_compose_path.exists():
-            self._migrate_workers_compose_yml(bench, workers_compose_path)
+            workers_compose_path = bench.path / "docker-compose.workers.yml"
+            if workers_compose_path.exists():
+                self._migrate_workers_compose_yml(bench, workers_compose_path)
+            
+            self._cleanup_admin_tools_nginx_config(bench)
 
         self._rebuild_runtime_environment(bench)
 
-        richprint.print(f"[green]✓[/green] Successfully migrated {bench.name}")
+        self.output.print(f"Successfully migrated {bench.name}")
 
     def _migrate_bench_config_toml(self, bench: MigrationBench, config_path: Path):
         """Transform bench_config.toml: [ssl] → [[ssl_certificates]], add new fields."""
-        richprint.print(f"  • Migrating bench_config.toml")
+        self.output.print(f"Migrating bench_config.toml")
 
         content = config_path.read_text()
         doc = tomlkit.parse(content)
@@ -112,7 +112,7 @@ class MigrationV0190(MigrationBase):
         self._add_new_config_fields(doc)
 
         config_path.write_text(tomlkit.dumps(doc))
-        richprint.print(f"    [green]✓[/green] Updated SSL configuration format")
+        self.output.print(f"Updated SSL configuration format")
 
     def _transform_ssl_config(self, doc: tomlkit.TOMLDocument, bench_name: str):
         """Transform [ssl] table to [[ssl_certificates]] array with proper field names."""
@@ -163,7 +163,7 @@ class MigrationV0190(MigrationBase):
         dns_providers_table["cloudflare"] = cloudflare_table
         doc["dns_providers"] = dns_providers_table
 
-        richprint.print(f"    [green]✓[/green] Migrated DNS credentials to dns_providers.cloudflare")
+        self.output.print(f"Migrated DNS credentials to dns_providers.cloudflare")
 
     def _add_new_config_fields(self, doc: tomlkit.TOMLDocument):
         """Add alias_domains, upload_limit, restart_policy, use_uv if missing."""
@@ -182,7 +182,7 @@ class MigrationV0190(MigrationBase):
 
     def _migrate_docker_compose_yml(self, bench: MigrationBench, compose_path: Path):
         """Update compose: v0.18.0 → v0.19.0 images, SITENAME → SITE_MAPPINGS."""
-        richprint.print(f"  • Migrating docker-compose.yml")
+        self.output.print(f"Migrating docker-compose.yml")
 
         yaml = YAML(typ="rt")
         yaml.preserve_quotes = True
@@ -211,7 +211,7 @@ class MigrationV0190(MigrationBase):
             old_image = service_config["image"]
             if "v0.18.0" in old_image:
                 service_config["image"] = old_image.replace("v0.18.0", "v0.19.0")
-                richprint.print(f"    [green]✓[/green] Updated {service_name} image to v0.19.0")
+                self.output.print(f"Updated {service_name} image to v0.19.0")
 
     def _transform_nginx_environment(self, services: Dict[str, Any]):
         """Transform nginx SITENAME → SITE_MAPPINGS environment variable."""
@@ -229,7 +229,7 @@ class MigrationV0190(MigrationBase):
         """Transform dict format: {SITENAME: value} → {SITE_MAPPINGS: value}."""
         if "SITENAME" in nginx_env:
             nginx_env["SITE_MAPPINGS"] = nginx_env.pop("SITENAME")
-            richprint.print(f"    [green]✓[/green] Migrated SITENAME → SITE_MAPPINGS")
+            self.output.print(f"Migrated SITENAME → SITE_MAPPINGS")
 
     def _transform_nginx_env_list(self, nginx_env: list) -> list:
         """Transform list format: [SITENAME=value] → [SITE_MAPPINGS=value]."""
@@ -238,14 +238,14 @@ class MigrationV0190(MigrationBase):
             if isinstance(env_var, str) and env_var.startswith("SITENAME="):
                 sitename_value = env_var.split("=", 1)[1]
                 new_env.append(f"SITE_MAPPINGS={sitename_value}")
-                richprint.print(f"    [green]✓[/green] Migrated SITENAME → SITE_MAPPINGS")
+                self.output.print(f"Migrated SITENAME → SITE_MAPPINGS")
             else:
                 new_env.append(env_var)
         return new_env
 
     def _migrate_workers_compose_yml(self, bench: MigrationBench, compose_path: Path):
         """Update worker compose: v0.18.0 → v0.19.0 images."""
-        richprint.print(f"  • Migrating docker-compose.workers.yml")
+        self.output.print(f"Migrating docker-compose.workers.yml")
 
         yaml = YAML(typ="rt")
         yaml.preserve_quotes = True
@@ -262,6 +262,17 @@ class MigrationV0190(MigrationBase):
         with open(compose_path, 'w') as f:
             yaml.dump(compose_data, f)
 
+    def _cleanup_admin_tools_nginx_config(self, bench: MigrationBench):
+        admin_tools_config = bench.path / "configs" / "nginx" / "conf" / "custom" / "admin-tools.conf"
+        htpasswd_file = bench.path / "configs" / "nginx" / "conf" / "http_auth" / f"{bench.name}-admin-tools.htpasswd"
+        
+        if admin_tools_config.exists():
+            admin_tools_config.unlink()
+            self.output.print(f"Cleaned up stale admin-tools nginx config")
+        
+        if htpasswd_file.exists():
+            htpasswd_file.unlink()
+
     def migrate_services(self):
         """
         Pull v0.19.0 Docker images (system-level infrastructure).
@@ -269,36 +280,28 @@ class MigrationV0190(MigrationBase):
         Images are shared resources across all benches - must be pulled
         at system level before any bench can use them.
         """
-        richprint.change_head("Pulling Docker images for v0.19.0")
-        
         from frappe_manager.utils.site import pull_docker_images
         
         self.logger.info("[migrate_services] Starting Docker image pull for v0.19.0")
         
-        try:
+        with spinner(self.output, "Pulling Docker images for v0.19.0"):  # type: ignore[arg-type]
             success = pull_docker_images()
             
             if not success:
                 error_msg = "Failed to pull one or more Docker images"
                 self.logger.error(f"[migrate_services] {error_msg}")
-                richprint.error(error_msg)
+                self.output.display_error(error_msg)
                 raise Exception(error_msg)
-            
-            richprint.print("[green]✓[/green] All v0.19.0 images pulled successfully")
-            self.logger.info("[migrate_services] Docker image pull completed successfully")
-            
-        except Exception as e:
-            self.logger.error(f"[migrate_services] Image pull failed: {e}", exc_info=True)
-            raise Exception(f"Failed to pull Docker images: {e}") from e
+        
+        self.output.print("All v0.19.0 images pulled successfully")
+        self.logger.info("[migrate_services] Docker image pull completed successfully")
 
     def undo_services_migrate(self):
         """No global services rollback needed."""
-        richprint.print("No services rollback needed for v0.19.0")
+        self.output.print("No services rollback needed for v0.19.0")
 
     def _rebuild_runtime_environment(self, bench: MigrationBench):
         """Rebuild Python/Node environment using uv/fnm (v0.19.0 runtime system)."""
-        richprint.change_head(f"Rebuilding runtime environment (pyenv/nvm → uv/fnm)")
-        
         self.logger.info(f"[_rebuild_runtime_environment] Starting runtime rebuild for {bench.name}")
 
         bench_config_path = bench.path / "bench_config.toml"
@@ -314,7 +317,7 @@ class MigrationV0190(MigrationBase):
             self.logger.debug(f"[_rebuild_runtime_environment] From config: Python={python_version}, Node={node_version}")
         
         if not python_version or not node_version:
-            richprint.print(f"  • No Python/Node versions in config, auto-detecting from container and Frappe requirements...")
+            self.output.print(f"No Python/Node versions in config, auto-detecting from container and Frappe requirements...")
             self.logger.info(f"[_rebuild_runtime_environment] Auto-detecting versions...")
             python_version, node_version = self._auto_detect_runtime_versions(bench)
             self.logger.info(f"[_rebuild_runtime_environment] Auto-detected: Python={python_version}, Node={node_version}")
@@ -325,35 +328,32 @@ class MigrationV0190(MigrationBase):
                 if node_version:
                     config_doc["node_version"] = node_version
                 bench_config_path.write_text(tomlkit.dumps(config_doc))
-                richprint.print(f"  • Updated bench_config.toml with detected versions")
+                self.output.print(f"Updated bench_config.toml with detected versions")
 
-        try:
+        with spinner(self.output, f"Rebuilding runtime environment (pyenv/nvm → uv/fnm)"):  # type: ignore[arg-type]
+            self.output.print(f"Cleaning up old runtime directories...")
+            self._cleanup_old_runtime_dirs(bench)
+
             if python_version:
-                richprint.print(f"  • Setting up Python {python_version} with uv...")
+                self.output.print(f"Setting up Python {python_version} with uv...")
                 self._setup_python_with_uv(bench, python_version)
 
             if node_version:
-                richprint.print(f"  • Setting up Node {node_version} with fnm...")
+                self.output.print(f"Setting up Node {node_version} with fnm...")
                 self._setup_node_with_fnm(bench, node_version)
 
-            richprint.print(f"  • Reinstalling apps and rebuilding assets...")
+            self.output.print(f"Reinstalling apps and rebuilding assets...")
             self._reinstall_apps_and_rebuild(bench)
 
-            richprint.print(f"  • Regenerating supervisor configuration...")
+            self.output.print(f"Regenerating supervisor configuration...")
             self._regenerate_supervisor_config(bench)
 
             if bench.compose_project.running:
-                richprint.print(f"  • Restarting services...")
+                self.output.print(f"Restarting services...")
                 self._restart_services(bench)
 
-            richprint.print(f"[green]✓[/green] Runtime environment rebuilt successfully")
-            self.logger.info(f"[_rebuild_runtime_environment] Completed successfully for {bench.name}")
-
-        except Exception as e:
-            self.logger.error(f"[_rebuild_runtime_environment] Failed for {bench.name}: {e}", exc_info=True)
-            richprint.error(f"Failed to rebuild runtime environment: {e}")
-            richprint.warning("Runtime rebuild is required for v0.19.0 migration")
-            raise Exception(f"Runtime environment rebuild failed: {e}") from e
+        self.output.print(f"Runtime environment rebuilt successfully")
+        self.logger.info(f"[_rebuild_runtime_environment] Completed successfully for {bench.name}")
 
     def _setup_python_with_uv(self, bench: MigrationBench, python_version: str):
         """Setup Python using uv python manager."""
@@ -393,14 +393,24 @@ ls -la env/ || echo "ERROR: env directory not found!"
 """
         self.logger.debug(f"[_setup_python_with_uv] Executing docker compose run...")
         
-        result = bench.compose_project.compose.run(
-            service="frappe",
-            command=f"-c {shlex.quote(setup_script)}",
-            rm=True,
-            user="frappe",
-            entrypoint="bash",
-            stream=False,
-        )
+        try:
+            result = bench.compose_project.compose.run(
+                service="frappe",
+                command=f"-c {shlex.quote(setup_script)}",
+                rm=True,
+                user="frappe",
+                entrypoint="bash",
+                stream=False,
+            )
+        except Exception as e:
+            error_str = str(e)
+            if "network" in error_str.lower() and ("not found" in error_str.lower() or "could not be found" in error_str.lower()):
+                self.logger.error(f"[_setup_python_with_uv] Docker network error: {e}")
+                raise Exception(
+                    "Docker network not found. Global services may not be running. "
+                    "Try: fm services start"
+                ) from e
+            raise
 
         if not isinstance(result, SubprocessOutput):
             self.logger.error(f"[_setup_python_with_uv] Unexpected streaming output received")
@@ -464,6 +474,38 @@ echo "Node environment setup complete"
         
         self.logger.debug(f"[_setup_node_with_fnm] Node setup completed successfully")
 
+    def _cleanup_old_runtime_dirs(self, bench: MigrationBench):
+        """Remove old pyenv and nvm directories to prevent path conflicts."""
+        self.logger.debug(f"[_cleanup_old_runtime_dirs] Cleaning up old runtime directories for {bench.name}")
+        
+        cleanup_script = """
+echo "Removing old runtime directories..."
+rm -rf /workspace/.pyenv 2>/dev/null || true
+rm -rf /workspace/.nvm 2>/dev/null || true
+echo "Old runtime directories cleaned up"
+"""
+        self.logger.debug(f"[_cleanup_old_runtime_dirs] Executing docker compose run...")
+        
+        result = bench.compose_project.compose.run(
+            service="frappe",
+            command=f"-c {shlex.quote(cleanup_script)}",
+            rm=True,
+            user="frappe",
+            entrypoint="bash",
+            stream=False,
+        )
+
+        if not isinstance(result, SubprocessOutput):
+            self.logger.error(f"[_cleanup_old_runtime_dirs] Unexpected streaming output received")
+            raise Exception("Unexpected streaming output received")
+
+        self.logger.debug(f"[_cleanup_old_runtime_dirs] Exit code: {result.exit_code}")
+        
+        if result.exit_code != 0:
+            self.logger.warning(f"[_cleanup_old_runtime_dirs] Cleanup had non-zero exit, but continuing...")
+        else:
+            self.logger.debug(f"[_cleanup_old_runtime_dirs] Cleanup completed successfully")
+
     def _reinstall_apps_and_rebuild(self, bench: MigrationBench):
         """Reinstall apps into new venv and rebuild static assets."""
         self.logger.debug(f"[_reinstall_apps_and_rebuild] Starting for {bench.name}")
@@ -472,29 +514,30 @@ echo "Node environment setup complete"
 
         if not apps_txt_path.exists():
             self.logger.warning(f"[_reinstall_apps_and_rebuild] No apps.txt found at {apps_txt_path}")
-            richprint.warning("    No apps.txt found, skipping app reinstallation")
+            self.output.warning("No apps.txt found, skipping app reinstallation")
             return
 
         installed_apps = [line.strip() for line in apps_txt_path.read_text().splitlines() if line.strip()]
 
         if not installed_apps:
             self.logger.warning(f"[_reinstall_apps_and_rebuild] No apps in apps.txt")
-            richprint.warning("    No apps found in apps.txt")
+            self.output.warning("No apps found in apps.txt")
             return
 
         self.logger.debug(f"[_reinstall_apps_and_rebuild] Found apps: {installed_apps}")
 
         reinstall_script = """
+set -x
 cd /workspace/frappe-bench
 
 echo "Reinstalling apps into new venv..."
-while IFS= read -r app; do
+for app in $(ls -1 apps); do
     if [ -d "apps/$app" ]; then
         echo "Installing $app..."
         uv pip install --python env/bin/python --no-cache-dir -e "apps/$app" || \
-        ./env/bin/python install --no-cache-dir -e "apps/$app"
+        ./env/bin/pip install --no-cache-dir -e "apps/$app"
     fi
-done < sites/apps.txt
+done
 
 echo "Installing Node dependencies..."
 bench setup requirements --node
@@ -533,6 +576,7 @@ echo "Apps reinstalled and assets built successfully"
     def _regenerate_supervisor_config(self, bench: MigrationBench):
         """Regenerate supervisor configuration with updated paths."""
         setup_script = """
+export PATH="/workspace/.fnm/aliases/default/bin:$PATH"
 cd /workspace/frappe-bench
 bench setup supervisor --skip-redis --skip-supervisord --yes --user frappe
 echo "Supervisor configuration regenerated"
@@ -551,17 +595,72 @@ echo "Supervisor configuration regenerated"
 
         if result.exit_code != 0:
             raise Exception(f"Supervisor setup failed with exit code {result.exit_code}")
+        
+        self._split_supervisor_config(bench)
+
+    def _split_supervisor_config(self, bench: MigrationBench):
+        """Split supervisor.conf into individual .fm.supervisor.conf files with correct paths."""
+        import configparser
+        import os
+        import re
+        
+        frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
+        supervisor_conf_path = frappe_bench_dir / "config" / "supervisor.conf"
+        
+        if not supervisor_conf_path.exists():
+            return
+        
+        config = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
+        config.read_string(supervisor_conf_path.read_text())
+        
+        for section in config.sections():
+            if section.startswith("group:"):
+                continue
+            
+            section_config = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
+            section_config.add_section(section)
+            
+            for key, value in config.items(section):
+                if "frappe-web" in section:
+                    if key == "command":
+                        value = value.replace("127.0.0.1:80", "0.0.0.0:80")
+                        cpu_count = os.cpu_count() or 2
+                        workers = (cpu_count * 2) + 1
+                        value = re.sub(r'-w\s+\d+', f'-w {workers}', value)
+                
+                if "node-socketio" in section:
+                    if key == "command":
+                        value = re.sub(r'\S+/node\s+', '/workspace/.fnm/aliases/default/bin/node ', value)
+                
+                section_config.set(section, key, value)
+            
+            section_name_delimeter = '-frappe-'
+            if '-node-' in section:
+                section_name_delimeter = '-node-'
+            
+            file_name_prefix = section.split(section_name_delimeter)[-1]
+            file_name = file_name_prefix + ".fm.supervisor.conf"
+            if "worker" in section:
+                file_name = file_name_prefix + ".workers.fm.supervisor.conf"
+            
+            new_file = supervisor_conf_path.parent / file_name
+            with open(new_file, "w") as section_file:
+                section_config.write(section_file)
+        
+        self.logger.debug(f"[_split_supervisor_config] Split supervisor configs for {bench.name}")
 
     def _restart_services(self, bench: MigrationBench):
         """Restart running services to pick up new runtime."""
+
         try:
-            bench.compose_project.compose.restart(services=["frappe", "socketio"], timeout=10, stream=False)
+            bench.compose_project.compose.restart(services=["frappe", "socketio", "schedule"], timeout=10, stream=False)
 
             if bench.workers_compose_project.running:
-                bench.workers_compose_project.compose.restart(services=["schedule"], timeout=10, stream=False)
+                bench.workers_compose_project.compose.restart(timeout=10, stream=False)
+
         except Exception as e:
-            richprint.warning(f"Service restart failed: {e}")
-            richprint.warning("Please restart services manually: fm restart {bench.name}")
+            self.output.warning(f"Service restart failed: {e}")
+            self.output.warning("Please restart services manually: fm restart {bench.name}")
 
     def _auto_detect_runtime_versions(self, bench: MigrationBench) -> tuple[str | None, str | None]:
         """
@@ -599,7 +698,7 @@ echo "Supervisor configuration regenerated"
                 if match:
                     major, minor = match.group(1), match.group(2)
                     current_python = f"{major}.{minor}"
-                    richprint.print(f"    • Detected current Python: {current_python}")
+                    self.output.print(f"Detected current Python: {current_python}")
         except Exception as e:
             self.logger.debug(f"Could not detect current Python (expected during migration): {e}")
         
@@ -618,7 +717,7 @@ echo "Supervisor configuration regenerated"
                 match = re.search(r"v(\d+)\.\d+\.\d+", output)
                 if match:
                     current_node = match.group(1)
-                    richprint.print(f"    • Detected current Node: {current_node}")
+                    self.output.print(f"Detected current Node: {current_node}")
         except Exception as e:
             self.logger.debug(f"Could not detect current Node (expected during migration): {e}")
         
@@ -632,9 +731,9 @@ echo "Supervisor configuration regenerated"
             frappe_node_req = extract_node_version_requirement(frappe_app_path)
             
             if frappe_python_req:
-                richprint.print(f"    • Frappe requires Python: {frappe_python_req}")
+                self.output.print(f"Frappe requires Python: {frappe_python_req}")
             if frappe_node_req:
-                richprint.print(f"    • Frappe requires Node: {frappe_node_req}")
+                self.output.print(f"Frappe requires Node: {frappe_node_req}")
         
         final_python = self._choose_best_python_version(current_python, frappe_python_req)
         final_node = self._choose_best_node_version(current_node, frappe_node_req)
@@ -662,7 +761,7 @@ echo "Supervisor configuration regenerated"
         if frappe_requirement:
             frappe_min_version = parse_python_version_for_runtime(frappe_requirement)
             if frappe_min_version:
-                richprint.print(f"    • Frappe minimum Python: {frappe_min_version}")
+                self.output.print(f"Frappe minimum Python: {frappe_min_version}")
         
         if current:
             current_tuple = tuple(map(int, current.split('.')))
@@ -678,28 +777,28 @@ echo "Supervisor configuration regenerated"
                         max_ver = (int(match_max.group(1)), int(match_max.group(2)))
                         
                         if min_ver <= current_tuple < max_ver:
-                            richprint.print(f"    ✓ Current Python {current} satisfies Frappe requirement")
+                            self.output.print(f"Current Python {current} satisfies Frappe requirement")
                             return current
                         else:
-                            richprint.print(f"    ✗ Current Python {current} doesn't satisfy requirement, upgrading to {frappe_min_version}")
+                            self.output.print(f"Current Python {current} doesn't satisfy requirement, upgrading to {frappe_min_version}")
                             return frappe_min_version
                     else:
                         if current_tuple >= min_ver:
-                            richprint.print(f"    ✓ Current Python {current} satisfies Frappe requirement")
+                            self.output.print(f"Current Python {current} satisfies Frappe requirement")
                             return current
                         else:
-                            richprint.print(f"    ✗ Current Python {current} doesn't satisfy requirement, upgrading to {frappe_min_version}")
+                            self.output.print(f"Current Python {current} doesn't satisfy requirement, upgrading to {frappe_min_version}")
                             return frappe_min_version
             
             if current_tuple >= (3, 10):
-                richprint.print(f"    ✓ Keeping current Python {current}")
+                self.output.print(f"Keeping current Python {current}")
                 return current
         
         if frappe_min_version:
-            richprint.print(f"    → Using Frappe minimum Python: {frappe_min_version}")
+            self.output.print(f"Using Frappe minimum Python: {frappe_min_version}")
             return frappe_min_version
         
-        richprint.print(f"    → Using safe default Python: 3.11")
+        self.output.print(f"Using safe default Python: 3.11")
         return "3.11"
 
     def _choose_best_node_version(
@@ -719,7 +818,7 @@ echo "Supervisor configuration regenerated"
         if frappe_requirement:
             frappe_min_version = parse_node_version_for_runtime(frappe_requirement)
             if frappe_min_version:
-                richprint.print(f"    • Frappe minimum Node: {frappe_min_version}")
+                self.output.print(f"Frappe minimum Node: {frappe_min_version}")
         
         if current:
             current_major = int(current)
@@ -728,19 +827,19 @@ echo "Supervisor configuration regenerated"
                 frappe_major = int(frappe_min_version)
                 
                 if current_major >= frappe_major:
-                    richprint.print(f"    ✓ Current Node {current} satisfies Frappe requirement")
+                    self.output.print(f"Current Node {current} satisfies Frappe requirement")
                     return current
                 else:
-                    richprint.print(f"    ✗ Current Node {current} doesn't satisfy requirement, upgrading to {frappe_min_version}")
+                    self.output.print(f"Current Node {current} doesn't satisfy requirement, upgrading to {frappe_min_version}")
                     return frappe_min_version
             
             if current_major >= 18:
-                richprint.print(f"    ✓ Keeping current Node {current}")
+                self.output.print(f"Keeping current Node {current}")
                 return current
         
         if frappe_min_version:
-            richprint.print(f"    → Using Frappe minimum Node: {frappe_min_version}")
+            self.output.print(f"Using Frappe minimum Node: {frappe_min_version}")
             return frappe_min_version
         
-        richprint.print(f"    → Using safe default Node: 18")
+        self.output.print(f"Using safe default Node: 18")
         return "18"
