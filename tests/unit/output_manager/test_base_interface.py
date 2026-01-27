@@ -80,6 +80,10 @@ class TestOutputHandlerInterface:
             def prompt_ask(self, **kwargs) -> str:
                 return ""
 
+            @property
+            def should_stream_docker(self) -> bool:
+                return False
+
             def print_data(self, data, **kwargs) -> None:
                 pass
 

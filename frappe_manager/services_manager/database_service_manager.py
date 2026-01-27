@@ -153,7 +153,6 @@ class MariaDBManager(DatabaseServiceManager):
 
         self.base_command = f"/usr/bin/mariadb -u{self.database_server_info.user} -p'{self.database_server_info.password}' -P{self.database_server_info.port} -h{self.database_server_info.host} "
         self.base_query = "-e "
-        self.quiet = True
 
     def _is_service_running(self, service: str) -> bool:
         """Check if a service is running."""

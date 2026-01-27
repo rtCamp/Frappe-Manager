@@ -195,6 +195,10 @@ class RichOutputHandler(OutputHandler):
         """
         return self._richprint.prompt_ask(**kwargs)
 
+    @property
+    def should_stream_docker(self) -> bool:
+        return self._richprint._is_tty and self.is_spinner_active and not self.verbose
+
     def print_data(self, data: Any, **kwargs) -> None:
         import json
         from rich.table import Table as RichTable

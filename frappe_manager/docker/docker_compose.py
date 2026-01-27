@@ -6,6 +6,7 @@ import inspect
 
 import shlex
 
+from frappe_manager.output_manager.base import OutputHandler
 from frappe_manager.utils.docker import (
     SubprocessOutput,
     parameters_to_options,
@@ -21,37 +22,11 @@ def docker_command(
     exclude_params: List[str] | None = None,
     positional_params: List[str] | None = None
 ) -> Callable[[T], T]:
-    """
-    Decorator to handle Docker command parameter conversion.
-    
-    This decorator eliminates repetitive parameter handling code by automatically:
-    - Converting method parameters to docker CLI options
-    - Handling positional vs keyword arguments
-    - Managing the 'stream' parameter consistently
-    - Building and executing docker commands
-    
-    Args:
-        subcommand: The docker/docker-compose subcommand (e.g., "up", "down")
-        exclude_params: Parameters to exclude from --flag conversion (default: [])
-        positional_params: Parameters to add as positional arguments (default: [])
-    
-    Example:
-        @docker_command("up", positional_params=["services"])
-        def up(self, services: list[str] = [], detach: bool = True, stream: bool = False):
-            pass  # Implementation handled by decorator
-    
-    The decorator will automatically:
-    - Extract 'services' as positional args: ["up", "service1", "service2"]
-    - Convert 'detach' to option: ["--detach"]
-    - Handle 'stream' parameter for output control
-    """
     if exclude_params is None:
         exclude_params = []
     if positional_params is None:
         positional_params = []
     
-    # Always exclude 'stream' as it's handled specially by wrapper
-    # Note: 'self' is handled by parameters_to_options internally
     if 'stream' not in exclude_params:
         exclude_params = exclude_params + ['stream']
     
@@ -63,7 +38,11 @@ def docker_command(
             bound.apply_defaults()
             
             parameters = dict(bound.arguments)
-            stream = parameters.get('stream', False)
+            stream_param = parameters.get('stream', None)
+            
+            should_stream = stream_param if stream_param is not None else (
+                self.output.should_stream_docker if self.output else False
+            )
             
             cmd: list = [subcommand]
             
@@ -75,17 +54,22 @@ def docker_command(
                     elif param_value is not None:
                         cmd.append(str(param_value))
             
-            # Convert keyword parameters to options (e.g., detach=True -> --detach)
-            # Note: parameters_to_options will handle removing 'self' internally
             cmd += parameters_to_options(
                 parameters, 
                 exclude=exclude_params + positional_params
             )
             
-            # Execute command using the instance's docker_compose_cmd
             full_cmd = self.docker_compose_cmd + cmd
-            iterator = run_command_with_exit_code(full_cmd, stream=stream)
-            return iterator
+            
+            if should_stream:
+                iterator = run_command_with_exit_code(full_cmd, stream=True)
+                if self.output and stream_param is None:
+                    self.output.live_lines(iterator, padding=(0, 0, 0, 2))
+                    return SubprocessOutput(stdout=[], stderr=[], combined=[], exit_code=0)
+                return iterator
+            else:
+                result = run_command_with_exit_code(full_cmd, stream=False)
+                return result
         
         return wrapper
     return decorator
@@ -103,10 +87,9 @@ class DockerComposeWrapper:
             displayed after the command completes. Defaults to False.
     """
 
-    def __init__(self, path: Path, timeout: int = 100):
-        # requires valid path directory
-        # directory where docker-compose resides
+    def __init__(self, path: Path, timeout: int = 100, output: Optional[OutputHandler] = None):
         self.compose_file_path = path.absolute()
+        self.output = output
 
         self.docker_compose_cmd = [
             "docker",
@@ -115,7 +98,6 @@ class DockerComposeWrapper:
             self.compose_file_path.as_posix(),
         ]
         
-        # Context manager support - None means no cleanup, empty list means cleanup all
         self._context_services: Optional[List[str]] = None
 
     @overload

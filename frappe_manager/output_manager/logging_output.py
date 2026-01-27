@@ -261,6 +261,10 @@ class LoggingOutputHandler(OutputHandler):
 
         return response
 
+    @property
+    def should_stream_docker(self) -> bool:
+        return self.delegate.should_stream_docker
+
     def print_data(self, data: Any, **kwargs) -> None:
         self._log_message(logging.INFO, f"DATA: {data}")
         self.delegate.print_data(data, **kwargs)

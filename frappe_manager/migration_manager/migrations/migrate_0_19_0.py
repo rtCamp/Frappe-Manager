@@ -348,7 +348,7 @@ class MigrationV0190(MigrationBase):
             self.output.print(f"Regenerating supervisor configuration...")
             self._regenerate_supervisor_config(bench)
 
-            if bench.compose_project.running:
+            if bench.running:
                 self.output.print(f"Restarting services...")
                 self._restart_services(bench)
 
@@ -394,7 +394,7 @@ ls -la env/ || echo "ERROR: env directory not found!"
         self.logger.debug(f"[_setup_python_with_uv] Executing docker compose run...")
         
         try:
-            result = bench.compose_project.compose.run(
+            result = bench.compose.run(
                 service="frappe",
                 command=f"-c {shlex.quote(setup_script)}",
                 rm=True,
@@ -451,7 +451,7 @@ echo "Node environment setup complete"
 """
         self.logger.debug(f"[_setup_node_with_fnm] Executing docker compose run...")
         
-        result = bench.compose_project.compose.run(
+        result = bench.compose.run(
             service="frappe",
             command=f"-c {shlex.quote(setup_script)}",
             rm=True,
@@ -486,7 +486,7 @@ echo "Old runtime directories cleaned up"
 """
         self.logger.debug(f"[_cleanup_old_runtime_dirs] Executing docker compose run...")
         
-        result = bench.compose_project.compose.run(
+        result = bench.compose.run(
             service="frappe",
             command=f"-c {shlex.quote(cleanup_script)}",
             rm=True,
@@ -549,7 +549,7 @@ echo "Apps reinstalled and assets built successfully"
 """
         self.logger.debug(f"[_reinstall_apps_and_rebuild] Executing docker compose run...")
         
-        result = bench.compose_project.compose.run(
+        result = bench.compose.run(
             service="frappe",
             command=f"-c {shlex.quote(reinstall_script)}",
             rm=True,
@@ -581,7 +581,7 @@ cd /workspace/frappe-bench
 bench setup supervisor --skip-redis --skip-supervisord --yes --user frappe
 echo "Supervisor configuration regenerated"
 """
-        result = bench.compose_project.compose.run(
+        result = bench.compose.run(
             service="frappe",
             command=f"-c {shlex.quote(setup_script)}",
             rm=True,
@@ -650,13 +650,12 @@ echo "Supervisor configuration regenerated"
         self.logger.debug(f"[_split_supervisor_config] Split supervisor configs for {bench.name}")
 
     def _restart_services(self, bench: MigrationBench):
-        """Restart running services to pick up new runtime."""
 
         try:
-            bench.compose_project.compose.restart(services=["frappe", "socketio", "schedule"], timeout=10, stream=False)
+            bench.compose.restart(services=["frappe", "socketio", "schedule"], timeout=10, stream=False)
 
-            if bench.workers_compose_project.running:
-                bench.workers_compose_project.compose.restart(timeout=10, stream=False)
+            if bench.workers_running:
+                bench.workers_docker.compose.restart(timeout=10, stream=False)
 
         except Exception as e:
             self.output.warning(f"Service restart failed: {e}")
@@ -683,7 +682,7 @@ echo "Supervisor configuration regenerated"
         current_node = None
         
         try:
-            result = bench.compose_project.compose.run(
+            result = bench.compose.run(
                 service="frappe",
                 command="-c '/workspace/frappe-bench/env/bin/python --version 2>&1'",
                 rm=True,
@@ -703,7 +702,7 @@ echo "Supervisor configuration regenerated"
             self.logger.debug(f"Could not detect current Python (expected during migration): {e}")
         
         try:
-            result = bench.compose_project.compose.run(
+            result = bench.compose.run(
                 service="frappe",
                 command="node --version",
                 rm=True,

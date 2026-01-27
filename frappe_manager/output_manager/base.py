@@ -188,6 +188,19 @@ class OutputHandler(ABC):
     def is_spinner_active(self) -> bool:
         return self._spinner_active
 
+    @property
+    @abstractmethod
+    def should_stream_docker(self) -> bool:
+        """
+        Determine if docker output should be streamed based on output context.
+        
+        Returns True when docker operations should stream their output (e.g., spinner active in TTY),
+        False when operations should run quietly with no intermediate output.
+        
+        Returns:
+            bool: True to stream docker output, False to suppress it
+        """
+
     @abstractmethod
     def print_data(self, data: Any, **kwargs) -> None:
         """

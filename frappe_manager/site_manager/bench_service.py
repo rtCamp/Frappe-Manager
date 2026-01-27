@@ -132,7 +132,7 @@ class BenchService:
         compose_path = bench_path / 'docker-compose.yml'
 
         compose_file_manager = ComposeFile(compose_path)
-        docker_client = DockerClient(compose_file_path=compose_path)
+        docker_client = DockerClient(compose_file_path=compose_path, output=self.output)
 
         bench = Bench(
             path=bench_path,
@@ -311,7 +311,7 @@ class BenchService:
         compose_path = bench_path / 'docker-compose.yml'
 
         compose_file_manager = ComposeFile(compose_path)
-        docker_client = DockerClient(compose_file_path=compose_path)
+        docker_client = DockerClient(compose_file_path=compose_path, output=self.output)
 
         fake_config = BenchConfig(
             name=bench_name,

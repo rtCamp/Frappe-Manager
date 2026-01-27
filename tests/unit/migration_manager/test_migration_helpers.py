@@ -12,7 +12,7 @@ class TestMigrationBench:
     def test_init_loads_existing_compose_file(self, mock_bench_path):
         with (
             patch('frappe_manager.migration_manager.migration_helpers.ComposeFile') as mock_compose_file,
-            patch('frappe_manager.migration_manager.migration_helpers.ComposeProject') as mock_compose_project,
+            patch('frappe_manager.migration_manager.migration_helpers.DockerClient') as mock_docker_client,
         ):
             bench = MigrationBench("test-bench", mock_bench_path)
 
@@ -24,7 +24,7 @@ class TestMigrationBench:
     def test_init_uses_main_templates_not_base_templates(self, mock_bench_path):
         with (
             patch('frappe_manager.migration_manager.migration_helpers.ComposeFile') as mock_compose_file,
-            patch('frappe_manager.migration_manager.migration_helpers.ComposeProject'),
+            patch('frappe_manager.migration_manager.migration_helpers.DockerClient'),
         ):
             MigrationBench("test-bench", mock_bench_path)
 
@@ -34,8 +34,8 @@ class TestMigrationBench:
     def test_get_db_connection_info_calls_helper(self, mock_bench_path):
         with (
             patch('frappe_manager.migration_manager.migration_helpers.ComposeFile'),
-            patch('frappe_manager.migration_manager.migration_helpers.ComposeProject'),
-            patch('frappe_manager.migration_manager.migration_helpers.get_bench_db_connection_info') as mock_db_info,
+            patch('frappe_manager.migration_manager.migration_helpers.DockerClient'),
+            patch('frappe_manager.utils.site.get_bench_db_connection_info') as mock_db_info,
         ):
             mock_db_info.return_value = {"host": "mariadb", "port": 3306}
 
@@ -48,7 +48,7 @@ class TestMigrationBench:
     def test_common_bench_config_set_updates_json(self, mock_bench_path):
         with (
             patch('frappe_manager.migration_manager.migration_helpers.ComposeFile'),
-            patch('frappe_manager.migration_manager.migration_helpers.ComposeProject'),
+            patch('frappe_manager.migration_manager.migration_helpers.DockerClient'),
         ):
             bench = MigrationBench("test-bench", mock_bench_path)
 
@@ -68,7 +68,7 @@ class TestMigrationBench:
     def test_common_bench_config_set_returns_false_if_file_missing(self, tmp_path):
         with (
             patch('frappe_manager.migration_manager.migration_helpers.ComposeFile'),
-            patch('frappe_manager.migration_manager.migration_helpers.ComposeProject'),
+            patch('frappe_manager.migration_manager.migration_helpers.DockerClient'),
         ):
             bench_path = tmp_path / "no-config-bench"
             bench_path.mkdir()
@@ -138,14 +138,14 @@ class TestMigrationBenches:
             migration_benches = MigrationBenches(benches_path)
             migration_benches.stop_benches(timeout=50)
 
-            mock_bench_instance.compose_project.stop_service.assert_called_once_with(timeout=50)
+            mock_bench_instance.docker.compose.stop.assert_called_once_with(timeout=50, stream=False)
 
 
 class TestMigrationServicesManager:
     def test_init_uses_main_templates_not_base_templates(self, mock_services_path):
         with (
             patch('frappe_manager.migration_manager.migration_helpers.ComposeFile') as mock_compose_file,
-            patch('frappe_manager.migration_manager.migration_helpers.ComposeProject'),
+            patch('frappe_manager.migration_manager.migration_helpers.DockerClient'),
         ):
             MigrationServicesManager(mock_services_path)
 
@@ -155,7 +155,7 @@ class TestMigrationServicesManager:
     def test_init_uses_linux_template_by_default(self, mock_services_path):
         with (
             patch('frappe_manager.migration_manager.migration_helpers.ComposeFile') as mock_compose_file,
-            patch('frappe_manager.migration_manager.migration_helpers.ComposeProject'),
+            patch('frappe_manager.migration_manager.migration_helpers.DockerClient'),
             patch('frappe_manager.migration_manager.migration_helpers.platform.system', return_value='Linux'),
         ):
             MigrationServicesManager(mock_services_path)
@@ -166,7 +166,7 @@ class TestMigrationServicesManager:
     def test_init_uses_osx_template_on_darwin(self, mock_services_path):
         with (
             patch('frappe_manager.migration_manager.migration_helpers.ComposeFile') as mock_compose_file,
-            patch('frappe_manager.migration_manager.migration_helpers.ComposeProject'),
+            patch('frappe_manager.migration_manager.migration_helpers.DockerClient'),
             patch('frappe_manager.migration_manager.migration_helpers.platform.system', return_value='Darwin'),
         ):
             MigrationServicesManager(mock_services_path)

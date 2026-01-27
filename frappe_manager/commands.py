@@ -861,199 +861,200 @@ def update(
     if not bench.running:
         raise BenchNotRunning(bench_name=bench.name)
 
-    if developer_mode:
-        if developer_mode == EnableDisableOptionsEnum.enable:
-            bench.bench_config.developer_mode = True
-            richprint.print("Enabling frappe developer mode")
-            bench.set_common_bench_config({'developer_mode': bench.bench_config.developer_mode})
-            richprint.print("Enabled frappe developer mode")
-        elif developer_mode == EnableDisableOptionsEnum.disable:
-            bench.bench_config.developer_mode = False
-            richprint.print("Disabling frappe developer mode")
-            bench.set_common_bench_config({'developer_mode': bench.bench_config.developer_mode})
-            richprint.print("Enabled frappe developer mode")
+    with spinner(output, "Updating bench configuration"):
+        if developer_mode:
+            if developer_mode == EnableDisableOptionsEnum.enable:
+                bench.bench_config.developer_mode = True
+                output.change_head("Enabling frappe developer mode")
+                bench.set_common_bench_config({'developer_mode': bench.bench_config.developer_mode})
+                output.print("Enabled frappe developer mode")
+            elif developer_mode == EnableDisableOptionsEnum.disable:
+                bench.bench_config.developer_mode = False
+                output.change_head("Disabling frappe developer mode")
+                bench.set_common_bench_config({'developer_mode': bench.bench_config.developer_mode})
+                output.print("Disabled frappe developer mode")
 
-        bench_config_save = True
+            bench_config_save = True
 
-    if environment:
-        richprint.change_head(f"Switching bench environemnt to {environment.value}")
-        bench.bench_config.environment_type = environment
+        if environment:
+            output.change_head(f"Switching bench environment to {environment.value}")
+            bench.bench_config.environment_type = environment
 
-        bench.generate_compose(bench.bench_config.export_to_compose_inputs())
-
-        richprint.print("Recreating containers to apply environment change..")
-        bench.docker_client.compose.up(detach=True, force_recreate=True, stream=False)
-
-        richprint.print(f"Switched bench environment to {environment.value}")
-        bench_config_save = True
-
-    if restart:
-        old_policy = bench.bench_config.restart_policy.value
-        if restart != bench.bench_config.restart_policy:
-            richprint.change_head(f"Updating restart policy from '{old_policy}' to '{restart.value}'")
-
-            if restart == RestartPolicyEnum.no and bench.bench_config.environment_type == FMBenchEnvType.prod:
-                richprint.warning("⚠️  Setting restart policy to 'no' on production bench")
-                richprint.warning("    Containers will not auto-recover from failures or system reboots")
-
-            bench.bench_config.restart_policy = restart
             bench.generate_compose(bench.bench_config.export_to_compose_inputs())
 
-            if bench.workers.compose_file_manager.compose_path.exists():
-                bench.workers.generate_compose()
+            output.print("Recreating containers to apply environment change..")
+            bench.docker_client.compose.up(detach=True, force_recreate=True)
 
-            if bench.admin_tools.compose_file_manager.compose_path.exists():
-                db_host = bench.services.database_manager.database_server_info.host
-                bench.admin_tools.generate_compose(db_host)
-
-            richprint.print("Restarting containers to apply restart policy..")
-            bench.docker_client.compose.up(detach=True, force_recreate=True, stream=False)
-
-            richprint.print(f"Updated restart policy to '{restart.value}'")
+            output.print(f"Switched bench environment to {environment.value}")
             bench_config_save = True
-        else:
-            richprint.print(f"Restart policy is already set to '{restart.value}'")
 
-    if admin_tools:
-        if admin_tools == EnableDisableOptionsEnum.enable:
-            richprint.change_head("Enabling Admin-tools")
-            bench.bench_config.admin_tools = True
+        if restart:
+            old_policy = bench.bench_config.restart_policy.value
+            if restart != bench.bench_config.restart_policy:
+                output.change_head(f"Updating restart policy from '{old_policy}' to '{restart.value}'")
 
-            if not bench.admin_tools.compose_file_manager.compose_path.exists():
-                bench.sync_admin_tools_compose()
-            else:
-                bench.admin_tools.enable(force_configure=mailpit_as_default_mail_server)
+                if restart == RestartPolicyEnum.no and bench.bench_config.environment_type == FMBenchEnvType.prod:
+                    output.warning("⚠️  Setting restart policy to 'no' on production bench")
+                    output.warning("    Containers will not auto-recover from failures or system reboots")
 
-            bench_config_save = True
-            richprint.print("Enabled Admin-tools")
+                bench.bench_config.restart_policy = restart
+                bench.generate_compose(bench.bench_config.export_to_compose_inputs())
 
-        elif admin_tools == EnableDisableOptionsEnum.disable:
-            if not bench.admin_tools.compose_file_manager.compose_path.exists() or not bench.bench_config.admin_tools:
-                richprint.print("Admin tools is already disabled")
-                return
-            else:
-                bench.bench_config.admin_tools = False
-                bench.admin_tools.disable()
+                if bench.workers.compose_file_manager.compose_path.exists():
+                    bench.workers.generate_compose()
+
+                if bench.admin_tools.compose_file_manager.compose_path.exists():
+                    db_host = bench.services.database_manager.database_server_info.host
+                    bench.admin_tools.generate_compose(db_host)
+
+                output.print("Restarting containers to apply restart policy..")
+                bench.docker_client.compose.up(detach=True, force_recreate=True)
+
+                output.print(f"Updated restart policy to '{restart.value}'")
                 bench_config_save = True
+            else:
+                output.print(f"Restart policy is already set to '{restart.value}'")
 
-    if add_alias or remove_alias:
-        add_domains_list = add_alias if add_alias else []
-        remove_domains_list = remove_alias if remove_alias else []
+        if admin_tools:
+            if admin_tools == EnableDisableOptionsEnum.enable:
+                output.change_head("Enabling Admin-tools")
+                bench.bench_config.admin_tools = True
 
-        if add_domains_list:
-            skip_check = allow_domain_conflicts or not fm_config.validation.enforce_domain_uniqueness
+                if not bench.admin_tools.compose_file_manager.compose_path.exists():
+                    bench.sync_admin_tools_compose()
+                else:
+                    bench.admin_tools.enable(force_configure=mailpit_as_default_mail_server)
 
-            try:
-                validate_domains_unique(
-                    add_domains_list,
-                    benches_root=CLI_BENCHES_DIRECTORY,
-                    exclude_bench=bench.name,
-                    skip_check=skip_check,
-                )
-            except DomainConflictError as e:
-                richprint.error(str(e))
-                richprint.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
-                raise typer.Exit(1)
+                bench_config_save = True
+                output.print("Enabled Admin-tools")
 
-        richprint.change_head("Updating alias domains")
-        bench.update_alias_domains(add_domains=add_domains_list, remove_domains=remove_domains_list)
-        richprint.print("Alias domains updated successfully")
+            elif admin_tools == EnableDisableOptionsEnum.disable:
+                if not bench.admin_tools.compose_file_manager.compose_path.exists() or not bench.bench_config.admin_tools:
+                    output.print("Admin tools is already disabled")
+                    return
+                else:
+                    bench.bench_config.admin_tools = False
+                    bench.admin_tools.disable()
+                    bench_config_save = True
 
-    # Handle upload limit update
-    if upload_limit:
-        richprint.change_head(f"Updating upload size limit to {upload_limit}")
-        bench.update_upload_limit(upload_limit)
+        if add_alias or remove_alias:
+            add_domains_list = add_alias if add_alias else []
+            remove_domains_list = remove_alias if remove_alias else []
 
-    if python_version or node_version:
-        from frappe_manager.site_manager.bench_config import (
-            extract_python_version_requirement,
-            extract_node_version_requirement,
-            validate_python_version_compatibility,
-            validate_node_version_compatibility,
-        )
+            if add_domains_list:
+                skip_check = allow_domain_conflicts or not fm_config.validation.enforce_domain_uniqueness
 
-        frappe_app_path = bench.path / "workspace" / "frappe-bench" / "apps" / "frappe"
+                try:
+                    validate_domains_unique(
+                        add_domains_list,
+                        benches_root=CLI_BENCHES_DIRECTORY,
+                        exclude_bench=bench.name,
+                        skip_check=skip_check,
+                    )
+                except DomainConflictError as e:
+                    output.display_error(str(e))
+                    output.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
+                    raise typer.Exit(1)
+
+            output.change_head("Updating alias domains")
+            bench.update_alias_domains(add_domains=add_domains_list, remove_domains=remove_domains_list)
+            output.print("Alias domains updated successfully")
+
+        # Handle upload limit update
+        if upload_limit:
+            output.change_head(f"Updating upload size limit to {upload_limit}")
+            bench.update_upload_limit(upload_limit)
 
         if python_version or node_version:
-            current_versions = bench.app_manager.get_current_runtime_versions(use_run=True)
+            from frappe_manager.site_manager.bench_config import (
+                extract_python_version_requirement,
+                extract_node_version_requirement,
+                validate_python_version_compatibility,
+                validate_node_version_compatibility,
+            )
 
-        if python_version:
-            old_python = current_versions.get('python') or "not set"
+            frappe_app_path = bench.path / "workspace" / "frappe-bench" / "apps" / "frappe"
 
-            if frappe_app_path.exists() and not skip_version_check:
-                frappe_python_req = extract_python_version_requirement(frappe_app_path)
-                if frappe_python_req:
-                    richprint.print(f"Frappe requires Python: {frappe_python_req}")
-                    richprint.print(f"User requested Python: {python_version}")
+            if python_version or node_version:
+                current_versions = bench.app_manager.get_current_runtime_versions(use_run=True)
 
-                    is_compatible, error_msg = validate_python_version_compatibility(python_version, frappe_python_req)
-                    if not is_compatible:
-                        richprint.error(f"❌ {error_msg}")
-                        richprint.print("Use --skip-version-check to bypass this validation (not recommended)")
-                        raise typer.Exit(code=1)
+            if python_version:
+                old_python = current_versions.get('python') or "not set"
 
-            bench.bench_config.python_version = python_version
-            richprint.change_head("Updating Python version")
-            richprint.print(f"  Old: {old_python}")
-            richprint.print(f"  New: {python_version}")
-            bench_config_save = True
+                if frappe_app_path.exists() and not skip_version_check:
+                    frappe_python_req = extract_python_version_requirement(frappe_app_path)
+                    if frappe_python_req:
+                        output.print(f"Frappe requires Python: {frappe_python_req}")
+                        output.print(f"User requested Python: {python_version}")
 
-        if node_version:
-            old_node = current_versions.get('node') or "not set"
+                        is_compatible, error_msg = validate_python_version_compatibility(python_version, frappe_python_req)
+                        if not is_compatible:
+                            output.display_error(f"❌ {error_msg}")
+                            output.print("Use --skip-version-check to bypass this validation (not recommended)")
+                            raise typer.Exit(code=1)
 
-            if frappe_app_path.exists() and not skip_version_check:
-                frappe_node_req = extract_node_version_requirement(frappe_app_path)
-                if frappe_node_req:
-                    richprint.print(f"Frappe requires Node: {frappe_node_req}")
-                    richprint.print(f"User requested Node: {node_version}")
+                bench.bench_config.python_version = python_version
+                output.change_head("Updating Python version")
+                output.print(f"  Old: {old_python}")
+                output.print(f"  New: {python_version}")
+                bench_config_save = True
 
-                    is_compatible, error_msg = validate_node_version_compatibility(node_version, frappe_node_req)
-                    if not is_compatible:
-                        richprint.error(f"❌ {error_msg}")
-                        richprint.print("Use --skip-version-check to bypass this validation (not recommended)")
-                        raise typer.Exit(code=1)
+            if node_version:
+                old_node = current_versions.get('node') or "not set"
 
-            bench.bench_config.node_version = node_version
-            richprint.change_head("Updating Node version")
-            richprint.print(f"  Old: {old_node}")
-            richprint.print(f"  New: {node_version}")
-            bench_config_save = True
+                if frappe_app_path.exists() and not skip_version_check:
+                    frappe_node_req = extract_node_version_requirement(frappe_app_path)
+                    if frappe_node_req:
+                        output.print(f"Frappe requires Node: {frappe_node_req}")
+                        output.print(f"User requested Node: {node_version}")
 
-        bench.save_bench_config()
-        bench_config_save = False
+                        is_compatible, error_msg = validate_node_version_compatibility(node_version, frappe_node_req)
+                        if not is_compatible:
+                            output.display_error(f"❌ {error_msg}")
+                            output.print("Use --skip-version-check to bypass this validation (not recommended)")
+                            raise typer.Exit(code=1)
 
-        richprint.change_head("Setting up new runtime environment")
-        venv_recreated = bench.app_manager.setup_python_and_node_environments(use_run=True)
-        richprint.print("Runtime versions updated successfully")
+                bench.bench_config.node_version = node_version
+                output.change_head("Updating Node version")
+                output.print(f"  Old: {old_node}")
+                output.print(f"  New: {node_version}")
+                bench_config_save = True
 
-        if venv_recreated:
-            apps_txt_path = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
-            if apps_txt_path.exists():
-                installed_apps = [line.strip() for line in apps_txt_path.read_text().splitlines() if line.strip()]
-                apps_list = [{"app": app_name, "branch": None} for app_name in installed_apps]
+            bench.save_bench_config()
+            bench_config_save = False
 
-                richprint.change_head("Reinstalling apps into new virtual environment")
-                richprint.print(f"Found {len(apps_list)} installed apps: {', '.join(installed_apps)}")
-                bench.app_manager.install_apps(
-                    apps_list=apps_list,
-                    github_token=bench.bench_config.github_token,
-                    use_uv=bench.bench_config.use_uv,
-                    skip_clone=True,
-                    use_run=True,
-                )
-                richprint.print("All apps reinstalled successfully")
-            else:
-                richprint.warning("No apps.txt found, skipping app reinstallation")
+            output.change_head("Setting up new runtime environment")
+            venv_recreated = bench.app_manager.setup_python_and_node_environments(use_run=True)
+            output.print("Runtime versions updated successfully")
 
-        richprint.change_head("Restarting services to apply new runtime versions")
-        richprint.print("Restarting web services (frappe, socketio)..")
-        bench.restart_web_containers_services(use_container_restart=False)
-        richprint.print("Restarting worker services (schedule, workers)..")
-        bench.restart_workers_containers_services(use_container_restart=False)
-        richprint.print("All services restarted successfully")
+            if venv_recreated:
+                apps_txt_path = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
+                if apps_txt_path.exists():
+                    installed_apps = [line.strip() for line in apps_txt_path.read_text().splitlines() if line.strip()]
+                    apps_list = [{"app": app_name, "branch": None} for app_name in installed_apps]
 
-    if bench_config_save:
-        bench.save_bench_config()
+                    output.change_head("Reinstalling apps into new virtual environment")
+                    output.print(f"Found {len(apps_list)} installed apps: {', '.join(installed_apps)}")
+                    bench.app_manager.install_apps(
+                        apps_list=apps_list,
+                        github_token=bench.bench_config.github_token,
+                        use_uv=bench.bench_config.use_uv,
+                        skip_clone=True,
+                        use_run=True,
+                    )
+                    output.print("All apps reinstalled successfully")
+                else:
+                    output.warning("No apps.txt found, skipping app reinstallation")
+
+            output.change_head("Restarting services to apply new runtime versions")
+            output.print("Restarting web services (frappe, socketio)..")
+            bench.restart_web_containers_services(use_container_restart=False)
+            output.print("Restarting worker services (schedule, workers)..")
+            bench.restart_workers_containers_services(use_container_restart=False)
+            output.print("All services restarted successfully")
+
+        if bench_config_save:
+            bench.save_bench_config()
 
 
 @app.command()
@@ -1191,36 +1192,37 @@ def ngrok(
 
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
 
-    with spinner(richprint, "Setting up ngrok tunnel"):
+    with spinner(output, "Setting up ngrok tunnel"):
         if not auth_token and fm_config_manager.ngrok_auth_token:
             auth_token = fm_config_manager.ngrok_auth_token
-            richprint.print("Using ngrok auth token from config file", emoji_code=":key:")
+            output.print("Using ngrok auth token from config file", emoji_code=":key:")
         elif not auth_token:
-            richprint.exit(
+            output.error(
                 "Ngrok auth token is required. Please provide it with --auth-token or set NGROK_AUTHTOKEN environment variable."
             )
+            raise typer.Exit(1)
 
         if auth_token and not fm_config_manager.ngrok_auth_token:
-            richprint.print("New auth token provided", emoji_code=":new:")
+            output.print("New auth token provided", emoji_code=":new:")
 
-            with temporary_stop(richprint):
-                should_save = richprint.prompt_ask(
+            with temporary_stop(output):
+                should_save = output.prompt_ask(
                     prompt="Do you want to save the ngrok auth token in config for future use?",
                     choices=['yes', 'no'],
                 )
 
             if should_save == 'yes':
-                richprint.print("Saving auth token to config...", emoji_code=":floppy_disk:")
+                output.print("Saving auth token to config...", emoji_code=":floppy_disk:")
                 fm_config_manager.ngrok_auth_token = auth_token
                 fm_config_manager.export_to_toml()
-                richprint.print("Saved ngrok auth token to config", emoji_code=":white_check_mark:")
+                output.print("Saved ngrok auth token to config", emoji_code=":white_check_mark:")
 
-        richprint.print(f"Creating ngrok tunnel for {bench.name}", emoji_code=":link:")
+        output.print(f"Creating ngrok tunnel for {bench.name}", emoji_code=":link:")
 
         try:
             create_tunnel(bench.name, auth_token)
         except Exception as e:
-            richprint.error(f"Failed to create tunnel: {str(e)}")
+            output.error(f"Failed to create tunnel: {str(e)}")
             raise
 
 

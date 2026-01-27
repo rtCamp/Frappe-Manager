@@ -211,15 +211,12 @@ class BenchOrchestrator:
         bench = self.bench
 
         self.output.change_head("Starting bench services")
-        output = bench.docker_client.compose.up(
+        bench.docker_client.compose.up(
             services=[],
             detach=True,
             pull="never",
             force_recreate=False,
-            stream=bench.quiet,
         )
-        if bench.quiet:
-            self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
         self.output.print("Started bench services")
 
         bench.site_manager.wait_for_required_services()
@@ -422,15 +419,12 @@ class BenchOrchestrator:
 
         if bench.workers.compose_file_manager.exists():
             self.output.change_head("Starting bench workers services")
-            output = bench.workers.docker_client.compose.up(
+            bench.workers.docker_client.compose.up(
                 services=[],
                 detach=True,
                 pull="never",
                 force_recreate=force,
-                stream=bench.quiet,
             )
-            if bench.quiet:
-                self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
             self.output.print("Started bench workers services")
 
         bench.save_bench_config()
@@ -517,24 +511,19 @@ class BenchOrchestrator:
         bench = self.bench
 
         self.output.change_head("Updating services")
-        output = bench.docker_client.compose.stop(services=[], timeout=10, stream=bench.quiet)
-        if bench.quiet:
-            self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
+        bench.docker_client.compose.stop(services=[], timeout=10)
 
         nginx_config_path = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
         if nginx_config_path.exists():
             nginx_config_path.unlink()
 
         bench.generate_compose(bench.bench_config.export_to_compose_inputs())
-        output = bench.docker_client.compose.up(
+        bench.docker_client.compose.up(
             services=[],
             detach=True,
             pull="never",
             force_recreate=True,
-            stream=bench.quiet,
         )
-        if bench.quiet:
-            self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
 
         if bench.admin_tools.compose_file_manager.compose_path.exists():
             bench.admin_tools.enable(force_recreate_container=True)
@@ -542,14 +531,11 @@ class BenchOrchestrator:
         bench.site_manager.wait_for_required_services()
 
         if bench.workers.compose_file_manager.exists():
-            output = bench.workers.docker_client.compose.up(
+            bench.workers.docker_client.compose.up(
                 services=[],
                 detach=True,
                 pull="never",
                 force_recreate=True,
-                stream=bench.quiet,
             )
-            if bench.quiet:
-                self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
 
         self.output.print("Services restarted with updated configuration")

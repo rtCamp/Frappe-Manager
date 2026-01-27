@@ -50,7 +50,6 @@ class BenchAppManager:
         bench_path: Path to the bench directory
         docker_client: Docker client for container operations
         bench_config: Bench configuration object
-        quiet: Whether to suppress output
         logger: Logger instance
         frappe_bench_dir: Path to frappe-bench directory inside container
         bench_cli_cmd: Base bench command prefix
@@ -72,7 +71,6 @@ class BenchAppManager:
         bench_path: Path,
         docker_client: DockerClient,
         bench_config: BenchConfig,
-        quiet: bool = False,
         output_handler: OutputHandler | None = None,
     ):
         """
@@ -83,14 +81,12 @@ class BenchAppManager:
             bench_path: Path to the bench directory on host
             docker_client: Docker client for container operations
             bench_config: Bench configuration object
-            quiet: Whether to suppress output (default: False)
             output_handler: Handler for output operations
         """
         self.bench_name = bench_name
         self.bench_path = bench_path
         self.docker_client = docker_client
         self.bench_config = bench_config
-        self.quiet = quiet
         self.output = output_handler or RichOutputHandler()
         self.logger = log.get_logger()
 

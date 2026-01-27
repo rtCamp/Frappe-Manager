@@ -51,10 +51,9 @@ class BenchWorkers:
         self.compose_path = self.bench.path / "docker-compose.workers.yml"
         self.config_dir = self.bench.path / "workspace" / "frappe-bench" / "config"
         self.supervisor_config_path = self.config_dir / "supervisor.conf"
-        self.quiet = not verbose
         self.output = output_handler or RichOutputHandler()
         self.compose_file_manager = ComposeFile(self.compose_path, template_name='docker-compose.workers.tmpl')
-        self.docker_client = DockerClient(compose_file_path=self.compose_path)
+        self.docker_client = DockerClient(compose_file_path=self.compose_path, output=self.output)
 
     def get_expected_workers(
         self, include_default_workers: bool = True, include_custom_workers: bool = True
@@ -185,9 +184,7 @@ class BenchWorkers:
         else:
             if self.compose_file_manager.exists():
                 self.output.print("No workers found, cleaning up existing configuration")
-                output = self.docker_client.compose.down(remove_orphans=True, volumes=False, timeout=5, stream=True)
-                if not self.quiet:
-                    self.output.live_lines(output, padding=(0, 0, 0, 2))
+                self.docker_client.compose.down(remove_orphans=True, volumes=False, timeout=5, stream=True)
                 self.compose_file_manager.compose_path.unlink()
 
             return False
@@ -213,7 +210,6 @@ class BenchWorkerCoordinator:
         restart_supervisor_service_fn,
         is_running_fn,
         docker_ops=None,
-        quiet: bool = False,
         output_handler: OutputHandler | None = None,
     ):
         """
@@ -227,7 +223,6 @@ class BenchWorkerCoordinator:
             restart_supervisor_service_fn: Callable to restart supervisor service
             is_running_fn: Callable to check if bench is running
             docker_ops: BenchDockerOps instance for docker operations
-            quiet: Whether to suppress output
             output_handler: Handler for output operations
         """
         self.bench_name = bench_name
@@ -237,7 +232,6 @@ class BenchWorkerCoordinator:
         self.restart_supervisor_service = restart_supervisor_service_fn
         self.is_running = is_running_fn
         self.docker_ops = docker_ops
-        self.quiet = quiet
         self.output = output_handler or RichOutputHandler()
 
     def sync_workers_compose(
@@ -274,11 +268,9 @@ class BenchWorkerCoordinator:
         )
 
         if start_required:
-            output = self.workers.docker_client.compose.up(
-                services=[], detach=True, pull="never", force_recreate=force_recreate, stream=self.quiet
+            self.workers.docker_client.compose.up(
+                services=[], detach=True, pull="never", force_recreate=force_recreate
             )
-            if self.quiet:
-                self.output.live_lines(output, padding=(0, 0, 0, 2))
 
     def backup_restore_workers_supervisor(self, backup_manager: BackupManager):
         """
@@ -332,11 +324,9 @@ class BenchWorkerCoordinator:
 
             if not workers_running:
                 if self.is_running():
-                    output = self.workers.docker_client.compose.up(
-                        services=[], detach=True, pull="never", force_recreate=False, stream=self.quiet
+                    self.workers.docker_client.compose.up(
+                        services=[], detach=True, pull="never", force_recreate=False
                     )
-                    if self.quiet:
-                        self.output.live_lines(output, padding=(0, 0, 0, 2))
 
     def restart_workers_containers_services(self, use_container_restart: bool = False, force: bool = False):
         """

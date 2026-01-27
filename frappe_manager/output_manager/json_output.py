@@ -302,6 +302,10 @@ class JSONOutputHandler(OutputHandler):
         self._add_event(OutputEvent("prompt_ask", {"kwargs": kwargs}))
         return ""
 
+    @property
+    def should_stream_docker(self) -> bool:
+        return False
+
     def print_data(self, data: Any, **kwargs) -> None:
         self._add_event(OutputEvent("print_data", {"data": data, "kwargs": kwargs}))
 

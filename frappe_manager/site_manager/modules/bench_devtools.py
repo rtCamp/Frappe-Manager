@@ -46,7 +46,6 @@ class BenchDevTools:
         bench_path: Path,
         bench_name: str,
         is_running_fn,
-        quiet: bool = False,
         output_handler: OutputHandler | None = None,
     ):
         """
@@ -58,7 +57,6 @@ class BenchDevTools:
             bench_path: Path to bench directory
             bench_name: Name of the bench
             is_running_fn: Function to check if bench is running
-            quiet: Whether to suppress output
             output_handler: Handler for output operations
         """
         self.docker_client = docker_client
@@ -66,7 +64,6 @@ class BenchDevTools:
         self.bench_path = bench_path
         self.bench_name = bench_name
         self._is_running = is_running_fn
-        self.quiet = quiet
         self.output = output_handler or RichOutputHandler()
         self.logger: Optional[Any] = None  # Set externally if needed
 
@@ -211,11 +208,9 @@ class BenchDevTools:
         self.output.change_head("Configuration changed, regenerating label in bench compose")
         self.compose_file_manager.configure_service("frappe", labels=labels)
         self.output.print("Regenerated bench compose")
-        output = self.docker_client.compose.up(
-            services=['frappe'], detach=True, pull="never", force_recreate=False, stream=self.quiet
+        self.docker_client.compose.up(
+            services=['frappe'], detach=True, pull="never", force_recreate=False
         )
-        if self.quiet:
-            self.output.live_lines(output, padding=(0, 0, 0, 2))
 
     def _setup_debugger_config(self, workdir: str) -> None:
         """Setup debugger configuration if workdir is in workspace."""

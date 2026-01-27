@@ -83,11 +83,11 @@ class MigrationBase(ABC):
         self.logger.info("-" * 40)
 
     def services_basic_backup(self):
-        if not self.services_manager.compose_project.compose_file_manager.exists():
+        if not self.services_manager.compose_file_manager.exists():
             raise MigrationExceptionInBench(
-                f"Services compose at {self.services_manager.compose_project.compose_file_manager} not found."
+                f"Services compose at {self.services_manager.compose_file_manager} not found."
             )
-        self.backup_manager.backup(self.services_manager.compose_project.compose_file_manager.compose_path)
+        self.backup_manager.backup(self.services_manager.compose_file_manager.compose_path)
 
     def migrate_services(self):
         pass
@@ -143,7 +143,16 @@ class MigrationBase(ABC):
 
                 self.undo_bench_migrate(bench)
                 self.logger.info(f'Undo successfull for bench: {bench.name}')
-                bench.compose_project.down_service(volumes=False, timeout=5)
+                
+                try:
+                    output = bench.docker.compose.down(
+                        remove_orphans=True,
+                        volumes=False,
+                        timeout=5,
+                        stream=True,
+                    )
+                except Exception:
+                    pass
 
         if main_error:
             raise MigrationExceptionInBench('')
@@ -176,7 +185,8 @@ class MigrationBase(ABC):
         self.bench_db_backup(
             bench=bench,
             db_info=bench_db_info,
-            compose_project=bench.compose_project,
+            bench_docker=bench.docker,
+            bench_compose_file=bench.compose_file_manager,
             backup_manager=self.backup_manager,
         )
 
@@ -208,7 +218,8 @@ class MigrationBase(ABC):
         self,
         bench: MigrationBench,
         db_info: DatabaseServerServiceInfo,
-        compose_project,
+        bench_docker,
+        bench_compose_file,
         backup_manager: BackupManager,
     ):
         self.output.change_head(f'Commencing db {bench.name} backup')
@@ -243,8 +254,8 @@ class MigrationBase(ABC):
 
         mariadb_manager = MariaDBManager(
             db_info,
-            compose_project.compose_file_manager,
-            compose_project.docker,
+            bench_compose_file,
+            bench_docker,
             run_on_compose_service="frappe"
         )
 

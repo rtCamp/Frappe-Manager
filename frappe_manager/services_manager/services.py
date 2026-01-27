@@ -42,7 +42,6 @@ class ServicesManager:
         output_handler: OutputHandler | None = None,
     ) -> None:
         self.path = path
-        self.quiet = not verbose
         self.compose_path = self.path / "docker-compose.yml"
         self.invoked_subcommand = invoked_subcommand
         self.output = output_handler or RichOutputHandler()
@@ -73,9 +72,7 @@ class ServicesManager:
             )
 
             if start:
-                output = self.docker_client.compose.up(services=[], detach=True, pull="never", stream=self.quiet)
-                if self.quiet:
-                    self.output.live_lines(output, padding=(0, 0, 0, 2))
+                self.docker_client.compose.up(services=[], detach=True, pull="never")
 
         if not self.compose_path.exists():
             raise ServicesComposeNotExist(
@@ -97,9 +94,7 @@ class ServicesManager:
                     self.output.print(
                         f"Started non running global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
                     )
-                    output = self.docker_client.compose.up(services=[], detach=True, pull="never", stream=self.quiet)
-                    if self.quiet:
-                        self.output.live_lines(output, padding=(0, 0, 0, 2))
+                    self.docker_client.compose.up(services=[], detach=True, pull="never")
 
         self.database_manager: DatabaseServiceManager = MariaDBManager(
             DatabaseServerServiceInfo.import_from_compose_file("global-db", self.compose_file_manager),
@@ -118,7 +113,7 @@ class ServicesManager:
             template_name = "docker-compose.services.osx.tmpl"
 
         self.compose_file_manager = ComposeFile(self.compose_path, template_name=template_name)
-        self.docker_client = DockerClient(compose_file_path=self.compose_path)
+        self.docker_client = DockerClient(compose_file_path=self.compose_path, output=self.output)
 
         self.proxy_storage = ProxyStoragePaths("global-nginx-proxy", self.compose_file_manager)
         self.nginx_controller = NginxController("global-nginx-proxy", self.compose_file_manager, self.docker_client)
@@ -308,31 +303,21 @@ class ServicesManager:
         return False
 
     def start_service(self, services: list[str] | None = None, force_recreate: bool = False):
-        """Start services."""
         services = services or []
-        output = self.docker_client.compose.up(
+        self.docker_client.compose.up(
             services=services,
             detach=True,
             pull="never",
             force_recreate=force_recreate,
-            stream=self.quiet,
         )
-        if self.quiet:
-            self.output.live_lines(output, padding=(0, 0, 0, 2))
 
     def stop_service(self, services: list[str] | None = None, timeout: int = 10):
-        """Stop services."""
         services = services or []
-        output = self.docker_client.compose.stop(services=services, timeout=timeout, stream=self.quiet)
-        if self.quiet:
-            self.output.live_lines(output, padding=(0, 0, 0, 2))
+        self.docker_client.compose.stop(services=services, timeout=timeout)
 
     def restart_service(self, services: list[str] | None = None):
-        """Restart services."""
         services = services or []
-        output = self.docker_client.compose.restart(services=services, stream=self.quiet)
-        if self.quiet:
-            self.output.live_lines(output, padding=(0, 0, 0, 2))
+        self.docker_client.compose.restart(services=services)
 
     def are_ports_free(self):
         ports = [80, 443]

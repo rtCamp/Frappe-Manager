@@ -33,7 +33,6 @@ class TestMigrationV0190RuntimeBackup:
 
     @pytest.fixture
     def mock_bench(self, tmp_path):
-        """Create a mock bench with bench_config.toml."""
         bench_path = tmp_path / "sites" / "test-bench"
         bench_path.mkdir(parents=True, exist_ok=True)
         
@@ -50,11 +49,15 @@ port = 8000
         compose_file = bench_path / "docker-compose.yml"
         compose_file.write_text("version: '3.7'\nservices:\n  frappe:\n    image: test")
         
-        mock_compose_project = MagicMock()
-        mock_compose_project.compose_file_manager.compose_path = compose_file
-        
-        bench = MigrationBench(name="test-bench", path=bench_path)
-        bench.compose_project = mock_compose_project
+        with (
+            patch('frappe_manager.migration_manager.migration_helpers.DockerClient'),
+            patch('frappe_manager.migration_manager.migration_helpers.ComposeFile') as mock_compose_file,
+        ):
+            mock_compose_file_instance = MagicMock()
+            mock_compose_file_instance.compose_path = compose_file
+            mock_compose_file.return_value = mock_compose_file_instance
+            
+            bench = MigrationBench(name="test-bench", path=bench_path)
         
         return bench
 

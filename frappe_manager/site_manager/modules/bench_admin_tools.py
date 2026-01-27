@@ -40,12 +40,11 @@ class BenchAdminTools:
         self.bench = bench
         self.compose_path = bench.path / "docker-compose.admin-tools.yml"
         self.bench_name = bench.name
-        self.quiet = not verbose
         self.output = output_handler or RichOutputHandler()
 
         self.compose_file_manager = ComposeFile(self.compose_path, template_name='docker-compose.admin-tools.tmpl')
 
-        self.docker_client = DockerClient(compose_file_path=self.compose_path)
+        self.docker_client = DockerClient(compose_file_path=self.compose_path, output=self.output)
 
         self.nginx_proxy = nginx_proxy
         self.nginx_config_location_path: Path = self.nginx_proxy.dirs.conf.host / 'custom' / 'admin-tools.conf'
@@ -212,11 +211,9 @@ class BenchAdminTools:
         """Enable admin tools by starting services."""
         # Use docker_client directly instead of compose_project wrapper
         try:
-            output = self.docker_client.compose.up(
-                services=[], detach=True, pull="never", force_recreate=force_recreate_container, stream=self.quiet
+            self.docker_client.compose.up(
+                services=[], detach=True, pull="never", force_recreate=force_recreate_container
             )
-            if self.quiet:
-                self.output.live_lines(output, padding=(0, 0, 0, 2))
         except DockerException as e:
             from frappe_manager.compose_project.exceptions import DockerComposeProjectFailedToStartError
 
@@ -232,9 +229,7 @@ class BenchAdminTools:
     def stop(self):
         """Stop admin tools containers without removing configuration."""
         try:
-            output = self.docker_client.compose.stop(services=[], timeout=2, stream=self.quiet)
-            if self.quiet:
-                self.output.live_lines(output, padding=(0, 0, 0, 2))
+            self.docker_client.compose.stop(services=[], timeout=2)
         except DockerException as e:
             from frappe_manager.compose_project.exceptions import DockerComposeProjectFailedToStopError
 

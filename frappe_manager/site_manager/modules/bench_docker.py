@@ -30,7 +30,6 @@ class BenchDockerOps:
         compose_file_manager: ComposeFile,
         config: BenchConfig,
         path: Path,
-        quiet: bool = False,
         output_handler: OutputHandler | None = None,
     ):
         """
@@ -41,14 +40,12 @@ class BenchDockerOps:
             compose_file_manager: Compose file manager
             config: Bench configuration
             path: Path to bench directory
-            quiet: Whether to suppress output
             output_handler: Handler for output operations
         """
         self.docker_client = docker_client
         self.compose_file_manager = compose_file_manager
         self.config = config
         self.path = path
-        self.quiet = quiet
         self.output = output_handler or RichOutputHandler()
         self.logger = log.get_logger()
 
@@ -222,15 +219,9 @@ class BenchDockerOps:
         """
         self.output.change_head("Starting bench services")
 
-        if self.quiet:
-            output = self.docker_client.compose.up(
-                services=services or [], detach=True, pull=pull, force_recreate=force_recreate, stream=True
-            )
-            self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
-        else:
-            self.docker_client.compose.up(
-                services=services or [], detach=True, pull=pull, force_recreate=force_recreate, stream=False
-            )
+        self.docker_client.compose.up(
+            services=services or [], detach=True, pull=pull, force_recreate=force_recreate
+        )
 
         self.output.print("Started bench services")
 
@@ -242,9 +233,7 @@ class BenchDockerOps:
             timeout: Timeout in seconds for stopping containers
         """
         self.output.change_head("Stopping bench services")
-        output = self.docker_client.compose.stop(services=[], timeout=timeout, stream=self.quiet)
-        if self.quiet:
-            self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
+        self.docker_client.compose.stop(services=[], timeout=timeout)
         self.output.print("Stopped bench services")
 
     def remove_containers(self, remove_volumes: bool = True, timeout: int = 5) -> None:
@@ -460,26 +449,11 @@ class BenchDockerOps:
             ),
         )
 
-        if self.quiet:
-            self.output.live_lines(
-                cast(Iterator[Tuple[str, bytes]], output),
-                padding=(0, 0, 0, 2),
-                stop_string="INFO supervisord started with pid",
-            )
-        else:
-            for source, line in output:
-                if not source == "exit_code":
-                    line = line.decode()
-
-                    if "Updating files:".lower() in line.lower():
-                        continue
-                    if "[==".lower() in line.lower():
-                        print(line)
-                        continue
-                    # Use regular print for stdout to maintain format
-                    print(line, end='')
-                    if "INFO supervisord started with pid".lower() in line.lower():
-                        break
+        self.output.live_lines(
+            cast(Iterator[Tuple[str, bytes]], output),
+            padding=(0, 0, 0, 2),
+            stop_string="INFO supervisord started with pid",
+        )
 
     def restart_services(self, services: list, force: bool = False) -> None:
         """
@@ -491,9 +465,7 @@ class BenchDockerOps:
         """
         timeout = 0 if force else 100
         self.output.change_head(f"Restarting services - {' '.join(services)}")
-        output = self.docker_client.compose.restart(services=services, timeout=timeout, stream=self.quiet)
-        if self.quiet:
-            self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
+        self.docker_client.compose.restart(services=services, timeout=timeout)
         action = "Force restarted" if force else "Restarted"
         self.output.print(f"{action} services - {' '.join(services)}")
 

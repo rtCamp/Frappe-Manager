@@ -185,6 +185,10 @@ class SilentOutputHandler(OutputHandler):
         """
         return ""
 
+    @property
+    def should_stream_docker(self) -> bool:
+        return False
+
     def print_data(self, data: Any, **kwargs) -> None:
         pass
 

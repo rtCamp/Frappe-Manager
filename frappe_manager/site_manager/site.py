@@ -85,7 +85,6 @@ class Bench:
     ) -> None:
         self.path = path
         self.name = name
-        self.quiet = not verbose
         self.output = output_handler or RichOutputHandler()
         self.services = services
         self.backup_path = self.path / 'backups'
@@ -101,7 +100,6 @@ class Bench:
             compose_file_manager=compose_file_manager,
             config=bench_config,
             path=path,
-            quiet=self.quiet,
             output_handler=self.output,
         )
         self.supervisor = BenchSupervisor(
@@ -170,7 +168,6 @@ class Bench:
             bench_path=path,
             bench_name=name,
             is_running_fn=lambda: self.running,
-            quiet=self.quiet,
             output_handler=self.output,
         )
         self.devtools.logger = self.logger
@@ -189,7 +186,6 @@ class Bench:
             docker_client=docker_client,
             bench_config=bench_config,
             services=services,
-            quiet=self.quiet,
             output_handler=self.output,
         )
 
@@ -198,7 +194,6 @@ class Bench:
             bench_path=path,
             docker_client=docker_client,
             bench_config=bench_config,
-            quiet=self.quiet,
             output_handler=self.output,
         )
 
@@ -227,7 +222,6 @@ class Bench:
             restart_supervisor_service_fn=self.restart_supervisor_service,
             is_running_fn=lambda: self.running,
             docker_ops=self.docker_ops,
-            quiet=self.quiet,
             output_handler=self.output,
         )
 
@@ -259,7 +253,7 @@ class Bench:
         bench_config_path: Path = bench_path / bench_config_file_name
 
         compose_file_manager = ComposeFile(bench_path / "docker-compose.yml")
-        docker_client = DockerClient(compose_file_path=bench_path / "docker-compose.yml")
+        docker_client = DockerClient(compose_file_path=bench_path / "docker-compose.yml", output=output_handler)
 
         bench_config: BenchConfig = BenchConfig.import_from_toml(bench_config_path)
 
@@ -444,9 +438,7 @@ class Bench:
 
         if self.workers.compose_file_manager.exists():
             self.output.change_head("Stopping bench workers services")
-            output = self.workers.docker_client.compose.stop(services=[], timeout=10, stream=self.quiet)
-            if self.quiet:
-                self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
+            self.workers.docker_client.compose.stop(services=[], timeout=10)
             self.output.print("Stopped bench workers services")
 
         # stop admin_tools if exists

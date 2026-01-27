@@ -48,7 +48,6 @@ class BenchSiteManager:
         docker_client: Docker client for container operations
         bench_config: Bench configuration object
         services: Services manager for database/Redis access
-        quiet: Whether to suppress output
         logger: Logger instance
         frappe_bench_dir: Path to frappe-bench directory inside container
         bench_cli_cmd: Base bench command prefix
@@ -73,7 +72,6 @@ class BenchSiteManager:
         docker_client: DockerClient,
         bench_config: BenchConfig,
         services: ServicesManager,
-        quiet: bool = False,
         output_handler: OutputHandler | None = None,
     ):
         """
@@ -85,7 +83,6 @@ class BenchSiteManager:
             docker_client: Docker client for container operations
             bench_config: Bench configuration object
             services: Services manager providing database/Redis access
-            quiet: Whether to suppress output (default: False)
             output_handler: Optional output handler for displaying information
         """
         self.bench_name = bench_name
@@ -93,7 +90,6 @@ class BenchSiteManager:
         self.docker_client = docker_client
         self.bench_config = bench_config
         self.services = services
-        self.quiet = quiet
         self.logger = log.get_logger()
         self.output = output_handler or RichOutputHandler()
 

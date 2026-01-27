@@ -78,6 +78,7 @@ class TestDockerCommandDecorator:
         
         class MockWrapper:
             docker_compose_cmd = ["docker", "compose", "-f", "test.yml"]
+            output = None  # Add output attribute for decorator
         
         @docker_command("logs")
         def logs(self, follow: bool = False, stream: bool = False):

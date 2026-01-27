@@ -6,6 +6,7 @@ from pathlib import Path
 from frappe_manager.docker.docker_compose import DockerComposeWrapper
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker.docker_exceptions import DockerException
+from frappe_manager.output_manager.base import OutputHandler
 from frappe_manager.utils.docker import (
     SubprocessOutput,
     is_current_user_in_group,
@@ -26,16 +27,18 @@ class DockerClient:
             command. Defaults to False.
     """
 
-    def __init__(self, compose_file_path: Optional[Path] = None):
+    def __init__(self, compose_file_path: Optional[Path] = None, output: Optional[OutputHandler] = None):
         """
         Initializes a DockerClient object.
         Args:
             compose_file_path (Optional[Path]): The path to the Docker Compose file. Defaults to None.
+            output (Optional[OutputHandler]): Output handler for docker operations. Defaults to None.
         """
         self.docker_cmd = ["docker"]
+        self.output = output
         self.compose: Optional[DockerComposeWrapper] = None
         if compose_file_path:
-            self.compose = DockerComposeWrapper(compose_file_path)
+            self.compose = DockerComposeWrapper(compose_file_path, output=output)
 
     def version(self) -> dict:
         """
