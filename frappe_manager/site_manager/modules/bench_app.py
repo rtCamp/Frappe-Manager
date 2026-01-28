@@ -158,6 +158,13 @@ class BenchAppManager:
 
         if python_version_requirement:
             self.output.change_head(f"Checking Python version compatibility")
+            
+            from frappe_manager.site_manager.bench_config import extract_python_version_requirement
+            frappe_app_path = self.bench_config.root_path / "workspace" / "frappe-bench" / "apps" / "frappe"
+            frappe_python_req = None
+            if frappe_app_path.exists():
+                frappe_python_req = extract_python_version_requirement(frappe_app_path)
+            
             try:
                 check_current_version_cmd = "/workspace/frappe-bench/env/bin/python --version"
                 result = self._container_run(
@@ -177,13 +184,19 @@ class BenchAppManager:
                         if self._python_version_satisfies_requirement(
                             current_major, current_minor, python_version_requirement
                         ):
-                            self.output.print(
-                                f"Current Python {current_major}.{current_minor} satisfies requirement {python_version_requirement}"
-                            )
+                            if frappe_python_req:
+                                self.output.print(
+                                    f"✓ Python {current_major}.{current_minor} already satisfies {python_version_requirement} "
+                                    f"(Frappe requires: {frappe_python_req}) - skipping installation"
+                                )
+                            else:
+                                self.output.print(
+                                    f"✓ Python {current_major}.{current_minor} already satisfies {python_version_requirement} - skipping installation"
+                                )
                             python_version_requirement = None
                         else:
                             self.output.print(
-                                f"Python {current_major}.{current_minor} does not satisfy {python_version_requirement}, will recreate venv"
+                                f"Python {current_major}.{current_minor} does not satisfy {python_version_requirement} - will recreate venv"
                             )
 
             except Exception as e:
@@ -285,6 +298,13 @@ fi
         node_version_requirement = self.bench_config.node_version
         if node_version_requirement:
             self.output.change_head(f"Checking Node version compatibility")
+            
+            from frappe_manager.site_manager.bench_config import extract_node_version_requirement
+            frappe_app_path = self.bench_config.root_path / "workspace" / "frappe-bench" / "apps" / "frappe"
+            frappe_node_req = None
+            if frappe_app_path.exists():
+                frappe_node_req = extract_node_version_requirement(frappe_app_path)
+            
             try:
                 check_current_node_cmd = "node --version"
                 result = self._container_run(
@@ -302,13 +322,19 @@ fi
                         current_major = int(full_version.split('.')[0])
 
                         if self._node_version_satisfies_requirement(current_major, node_version_requirement):
-                            self.output.print(
-                                f"Current Node {current_major} satisfies requirement {node_version_requirement}"
-                            )
+                            if frappe_node_req:
+                                self.output.print(
+                                    f"✓ Node {current_major} already satisfies {node_version_requirement} "
+                                    f"(Frappe requires: {frappe_node_req}) - skipping installation"
+                                )
+                            else:
+                                self.output.print(
+                                    f"✓ Node {current_major} already satisfies {node_version_requirement} - skipping installation"
+                                )
                             node_version_requirement = None
                         else:
                             self.output.print(
-                                f"Node {current_major} does not satisfy {node_version_requirement}, will setup"
+                                f"Node {current_major} does not satisfy {node_version_requirement} - will install"
                             )
 
             except Exception as e:
@@ -523,8 +549,17 @@ fi
                     self._container_run(install_cmd_str, raise_exception_obj=None, use_run=use_run)
 
                 return
-            except Exception as e:
-                self.output.warning(f"UV installation failed, falling back to pip: {e}")
+            except Exception as uv_error:
+                self.logger.debug(f"UV installation failed, attempting pip fallback: {uv_error}")
+                
+                try:
+                    install_cmd = " ".join(self.bench_cli_cmd + ["setup", "requirements", "--python"])
+                    self._container_run(install_cmd, use_run=use_run)
+                    self.output.warning("UV installation failed, successfully fell back to pip")
+                except Exception:
+                    raise
+                
+                return
 
         install_cmd = " ".join(self.bench_cli_cmd + ["setup", "requirements", "--python"])
         self._container_run(install_cmd, use_run=use_run)

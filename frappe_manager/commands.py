@@ -957,6 +957,8 @@ def update(
                 extract_node_version_requirement,
                 validate_python_version_compatibility,
                 validate_node_version_compatibility,
+                parse_python_version_for_runtime,
+                parse_node_version_for_runtime,
             )
 
             frappe_app_path = bench.path / "workspace" / "frappe-bench" / "apps" / "frappe"
@@ -967,43 +969,69 @@ def update(
             if python_version:
                 old_python = current_versions.get('python') or "not set"
 
-                if frappe_app_path.exists() and not skip_version_check:
+                frappe_python_req = None
+                if frappe_app_path.exists():
                     frappe_python_req = extract_python_version_requirement(frappe_app_path)
-                    if frappe_python_req:
-                        output.print(f"Frappe requires Python: {frappe_python_req}")
-                        output.print(f"User requested Python: {python_version}")
-
+                    if frappe_python_req and not skip_version_check:
                         is_compatible, error_msg = validate_python_version_compatibility(python_version, frappe_python_req)
                         if not is_compatible:
+                            output.change_head("Python version validation failed")
+                            output.print(f"Python: {old_python} -> {python_version}")
+                            output.print(f"Frappe requires: {frappe_python_req}")
                             output.display_error(f"❌ {error_msg}")
+                            suggested = parse_python_version_for_runtime(frappe_python_req)
+                            if suggested:
+                                output.print(f"💡 Hint: Try --python {suggested}")
                             output.print("Use --skip-version-check to bypass this validation (not recommended)")
                             raise typer.Exit(code=1)
 
                 bench.bench_config.python_version = python_version
                 output.change_head("Updating Python version")
-                output.print(f"  Old: {old_python}")
-                output.print(f"  New: {python_version}")
+                output.print(f"Python: {old_python} -> {python_version}")
+                if frappe_python_req:
+                    output.print(f"Frappe requires: {frappe_python_req}")
+                    if skip_version_check:
+                        new_compatible, _ = validate_python_version_compatibility(python_version, frappe_python_req)
+                        if not new_compatible:
+                            output.warning(f" Python {python_version} is incompatible with Frappe requirement")
+                            suggested = parse_python_version_for_runtime(frappe_python_req)
+                            if suggested:
+                                output.warning(f" Consider using --python {suggested} instead")
+                
                 bench_config_save = True
 
             if node_version:
                 old_node = current_versions.get('node') or "not set"
-
-                if frappe_app_path.exists() and not skip_version_check:
+                frappe_node_req = None
+                if frappe_app_path.exists():
                     frappe_node_req = extract_node_version_requirement(frappe_app_path)
-                    if frappe_node_req:
-                        output.print(f"Frappe requires Node: {frappe_node_req}")
-                        output.print(f"User requested Node: {node_version}")
-
+                    if frappe_node_req and not skip_version_check:
                         is_compatible, error_msg = validate_node_version_compatibility(node_version, frappe_node_req)
                         if not is_compatible:
+                            output.change_head("Node version validation failed")
+                            output.print(f"Node: {old_node} -> {node_version}")
+                            output.print(f"Frappe requires: {frappe_node_req}")
                             output.display_error(f"❌ {error_msg}")
+                            
+                            suggested = parse_node_version_for_runtime(frappe_node_req)
+                            if suggested:
+                                output.print(f"💡 Hint: Try --node {suggested}")
                             output.print("Use --skip-version-check to bypass this validation (not recommended)")
                             raise typer.Exit(code=1)
 
                 bench.bench_config.node_version = node_version
                 output.change_head("Updating Node version")
-                output.print(f"  Old: {old_node}")
-                output.print(f"  New: {node_version}")
+                output.print(f"Node: {old_node} -> {node_version}")
+                if frappe_node_req:
+                    output.print(f"Frappe requires: {frappe_node_req}")
+                    if skip_version_check:
+                        new_compatible, _ = validate_node_version_compatibility(node_version, frappe_node_req)
+                        if not new_compatible:
+                            output.warning(f" Node {node_version} is incompatible with Frappe requirement")
+                            suggested = parse_node_version_for_runtime(frappe_node_req)
+                            if suggested:
+                                output.warning(f" Consider using --node {suggested} instead")
+                
                 bench_config_save = True
 
             bench.save_bench_config()
