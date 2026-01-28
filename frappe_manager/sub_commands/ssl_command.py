@@ -206,9 +206,9 @@ def add_certificate(
     ] = None,
     domain: Annotated[Optional[str], typer.Argument(help="Domain name for the certificate")] = None,
     challenge: Annotated[
-        Optional[str],
-        typer.Option("--challenge", "-c", help="Challenge type: http01 or dns01 (default: http01)"),
-    ] = "http01",
+        LETSENCRYPT_PREFERRED_CHALLENGE,
+        typer.Option("--challenge", "-c", help="Challenge type"),
+    ] = LETSENCRYPT_PREFERRED_CHALLENGE.http01,
     cname: Annotated[
         Optional[str],
         typer.Option("--cname", help="CNAME delegation record for DNS-01 challenge (requires dns01)"),
@@ -274,7 +274,7 @@ def add_certificate(
             raise typer.Exit(1)
 
         _add_external_certificate(
-            ctx, actual_domain, challenge or "http01", cname, dry_run, skip_dns_check, wait_for_dns
+            ctx, actual_domain, challenge, cname, dry_run, skip_dns_check, wait_for_dns
         )
     else:
         benchname = prompt_for_bench_selection(benchname)
@@ -287,14 +287,14 @@ def add_certificate(
                 typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
-        _add_bench_certificate(ctx, benchname, domain, challenge or "http01", cname, dry_run)
+        _add_bench_certificate(ctx, benchname, domain, challenge, cname, dry_run)
 
 
 def _add_bench_certificate(
     ctx: typer.Context,
     benchname: str,
     domain: str,
-    challenge: str,
+    challenge: LETSENCRYPT_PREFERRED_CHALLENGE,
     cname: Optional[str],
     dry_run: bool,
 ):
@@ -315,17 +315,7 @@ def _add_bench_certificate(
         )
         raise typer.Exit(1)
 
-    # Email validation removed - Let's Encrypt discontinued email notifications (June 2025)
-
-    if challenge.lower() == "dns01":
-        preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
-    elif challenge.lower() == "http01":
-        preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.http01
-    else:
-        output.display_error(f"Invalid challenge type: {challenge}. Must be 'http01' or 'dns01'")
-        raise typer.Exit(1)
-
-    if cname and preferred_challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
+    if cname and challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
         output.display_error("CNAME delegation (--cname) can only be used with DNS-01 challenge")
         raise typer.Exit(1)
 
@@ -333,28 +323,22 @@ def _add_bench_certificate(
 
     try:
         if cname:
-            # Custom domain with CNAME delegation
             cert = CustomDomainCertificate(
                 domain=domain,
                 ssl_type=SUPPORTED_SSL_TYPES.le,
-                # Email removed - Let's Encrypt discontinued notifications (June 2025)
-                # Cloudflare credentials loaded from FM config at runtime
                 api_token=None,
                 api_key=None,
-                challenge_type=preferred_challenge,
+                challenge_type=challenge,
                 delegation_cname=cname,
             )
             output.print(f"Using CNAME delegation: {cname}", emoji_code=":information:")
         else:
-            # Standard Let's Encrypt certificate
             cert = LetsencryptSSLCertificate(
                 domain=domain,
                 ssl_type=SUPPORTED_SSL_TYPES.le,
-                # Email removed - Let's Encrypt discontinued notifications (June 2025)
-                # Cloudflare credentials loaded from FM config at runtime
                 api_token=None,
                 api_key=None,
-                challenge_type=preferred_challenge,
+                challenge_type=challenge,
             )
 
         bench.certificate_manager.add_certificate(cert, dry_run=dry_run)
@@ -375,7 +359,7 @@ def _add_bench_certificate(
 def _add_external_certificate(
     ctx: typer.Context,
     domain: str,
-    challenge: str,
+    challenge: LETSENCRYPT_PREFERRED_CHALLENGE,
     cname: Optional[str],
     dry_run: bool,
     skip_dns_check: bool = False,
@@ -397,18 +381,7 @@ def _add_external_certificate(
         output.print(f"  2. Add new: fm ssl add --standalone {domain}", emoji_code="")
         raise typer.Exit(1)
 
-    # Email validation removed - Let's Encrypt discontinued email notifications (June 2025)
-
-    if challenge.lower() == "dns01":
-        preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
-    elif challenge.lower() == "http01":
-        preferred_challenge = LETSENCRYPT_PREFERRED_CHALLENGE.http01
-    else:
-        output.display_error(f"Invalid challenge type: {challenge}")
-        output.print("Supported challenges: http01, dns01", emoji_code="")
-        raise typer.Exit(1)
-
-    if cname and preferred_challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
+    if cname and challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
         output.display_error("CNAME delegation (--cname) requires DNS-01 challenge")
         with temporary_stop(output):
             typer.echo(ctx.get_help())
@@ -421,11 +394,9 @@ def _add_external_certificate(
             cert = CustomDomainCertificate(
                 domain=domain,
                 ssl_type=SUPPORTED_SSL_TYPES.le,
-                # Email removed - Let's Encrypt discontinued notifications (June 2025)
-                # Cloudflare credentials loaded from FM config at runtime
                 api_token=None,
                 api_key=None,
-                challenge_type=preferred_challenge,
+                challenge_type=challenge,
                 delegation_cname=cname,
             )
             output.print(f"Using CNAME delegation: {cname}", emoji_code=":information:")
@@ -491,15 +462,12 @@ def _add_external_certificate(
             cert = LetsencryptSSLCertificate(
                 domain=domain,
                 ssl_type=SUPPORTED_SSL_TYPES.le,
-                # Email removed - Let's Encrypt discontinued notifications (June 2025)
-                # Cloudflare credentials loaded from FM config at runtime
                 api_token=None,
                 api_key=None,
-                challenge_type=preferred_challenge,
+                challenge_type=challenge,
             )
 
-            # Validate A record for HTTP-01 challenges (warning only, non-fatal)
-            if not skip_dns_check and preferred_challenge == LETSENCRYPT_PREFERRED_CHALLENGE.http01:
+            if not skip_dns_check and challenge == LETSENCRYPT_PREFERRED_CHALLENGE.http01:
                 from frappe_manager.ssl_manager.dns_validator import DNSValidator
 
                 output.change_head(f"Checking DNS configuration for {domain}")

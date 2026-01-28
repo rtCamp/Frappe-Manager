@@ -13,13 +13,16 @@ rich_format_help_original = ut.rich_format_help
 
 
 def print_fm_examples(*, obj, ctx, markup_mode):
-    # utilising the original saved function
     rich_format_help_original(obj=obj, ctx=ctx, markup_mode=markup_mode)
 
     commands_stack = ctx.command_path.split(' ')[1:]
+    
+    benchname = 'mybench'
+    if ctx.params and 'benchname' in ctx.params and ctx.params['benchname']:
+        benchname = ctx.params['benchname']
 
     new_doc = get_examples_from_toml(
-        commands_stack=commands_stack, frappe_version=STABLE_APP_BRANCH_MAPPING_LIST["frappe"]
+        commands_stack=commands_stack, frappe_version=STABLE_APP_BRANCH_MAPPING_LIST["frappe"], benchname=benchname
     )
 
     if new_doc:

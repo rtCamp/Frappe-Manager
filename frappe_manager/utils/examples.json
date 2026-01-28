@@ -215,7 +215,7 @@
     "start": {
       "examples": [
         {
-          "desc": "Start global-db only.",
+          "desc": "Start global-db only",
           "code": " global-db"
         },
         {
@@ -227,7 +227,7 @@
     "restart": {
       "examples": [
         {
-          "desc": "Restart global-db only.",
+          "desc": "Restart global-db only",
           "code": " global-db"
         },
         {
@@ -255,7 +255,7 @@
           "code": " global-db"
         },
         {
-          "desc": "Stop all services.",
+          "desc": "Stop all services",
           "code": " all"
         }
       ]
@@ -265,7 +265,7 @@
     "delete": {
       "examples": [
         {
-          "desc": "Delete {benchname}'s ssl certificate.",
+          "desc": "Delete {benchname}'s ssl certificate",
           "code": ""
         }
       ]
@@ -292,24 +292,24 @@
       "examples": [
         {
           "desc": "Add SSL certificate for {benchname} with HTTP-01 challenge",
-          "code": " --letsencrypt-preferred-challenge http01"
+          "code": " example.com --challenge http01"
         },
         {
           "desc": "Add SSL certificate with DNS-01 challenge (Cloudflare)",
-          "code": " --letsencrypt-preferred-challenge dns01"
+          "code": " example.com --challenge dns01"
         },
         {
           "desc": "Add for external Docker project (standalone mode)",
-          "code": " --standalone example.com",
+          "code": " example.com --standalone",
           "benchname": ""
         },
         {
           "desc": "Test with Let's Encrypt staging (dry-run)",
-          "code": " --dry-run"
+          "code": " example.com --dry-run"
         },
         {
           "desc": "Add with CNAME delegation for DNS validation",
-          "code": " --letsencrypt-preferred-challenge dns01 --cname _acme-challenge.example.com"
+          "code": " example.com --challenge dns01 --cname _acme-challenge.delegated.com"
         }
       ]
     },
@@ -317,15 +317,15 @@
       "examples": [
         {
           "desc": "Remove SSL certificate from {benchname}",
-          "code": ""
+          "code": " example.com"
         },
         {
           "desc": "Force remove without confirmation",
-          "code": " --force"
+          "code": " example.com --force"
         },
         {
           "desc": "Remove external (standalone) certificate",
-          "code": " --standalone example.com",
+          "code": " example.com --standalone",
           "benchname": ""
         }
       ]
@@ -333,15 +333,15 @@
     "renew": {
       "examples": [
         {
-          "desc": "Renew all certificates for {benchname}.",
+          "desc": "Renew all certificates for {benchname}",
           "code": ""
         },
         {
-          "desc": "Renew certificate for specific domain on {benchname}.",
+          "desc": "Renew certificate for specific domain on {benchname}",
           "code": " www.example.com"
         },
         {
-          "desc": "Renew all certificates for all benches.",
+          "desc": "Renew all certificates for all benches",
           "code": " --all",
           "benchname": ""
         },
@@ -365,39 +365,36 @@
       "cloudflare": {
         "examples": [
           {
-            "desc": "Configure global Cloudflare credentials using API Token (recommended).",
+            "desc": "Configure global Cloudflare credentials using API Token (recommended)",
             "code": " --api-token YOUR_CLOUDFLARE_API_TOKEN",
             "benchname": ""
           },
           {
-            "desc": "Configure global Cloudflare credentials using API Key (legacy).",
+            "desc": "Configure global Cloudflare credentials using API Key (legacy)",
             "code": " --api-key YOUR_API_KEY --email admin@example.com",
             "benchname": ""
           },
           {
-            "desc": "Configure bench-specific Cloudflare credentials (overrides global).",
-            "code": " <benchname> --api-token BENCH_SPECIFIC_TOKEN",
-            "benchname": ""
+            "desc": "Configure bench-specific Cloudflare credentials (overrides global)",
+            "code": " --api-token BENCH_SPECIFIC_TOKEN"
           },
           {
-            "desc": "Show global Cloudflare DNS credentials configuration.",
+            "desc": "Show global Cloudflare DNS credentials configuration",
             "code": " --show",
             "benchname": ""
           },
           {
-            "desc": "Show bench-specific Cloudflare DNS credentials.",
-            "code": " <benchname> --show",
-            "benchname": ""
+            "desc": "Show bench-specific Cloudflare DNS credentials",
+            "code": " --show"
           },
           {
-            "desc": "Remove global Cloudflare DNS credentials.",
+            "desc": "Remove global Cloudflare DNS credentials",
             "code": " --remove",
             "benchname": ""
           },
           {
-            "desc": "Remove bench-specific Cloudflare DNS credentials.",
-            "code": " <benchname> --remove",
-            "benchname": ""
+            "desc": "Remove bench-specific Cloudflare DNS credentials",
+            "code": " --remove"
           }
         ]
       }

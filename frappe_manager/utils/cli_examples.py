@@ -13,13 +13,12 @@ def get_examples_from_toml(
     commands_stack: List[str],
     frappe_version: str,
     toml_path: Path = get_frappe_manager_own_files('./utils/examples.json'),
+    benchname: str = 'mybench',
 ):
     file_data = toml_path.read_bytes()
     data: Dict[str, List[Dict[str, str]]] = json.loads(file_data)
 
-    bench_name = ''
-
-    example_data = {'benchname': bench_name, 'default_version': frappe_version}
+    example_data = {'benchname': benchname, 'default_version': frappe_version}
 
     examples_data = deepcopy(data)
 
