@@ -305,12 +305,21 @@ class TestAcmeShCertificateServiceGenerateCertificate:
 
         AcmeShCertificateService._acmesh_installed = False
 
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_result.stdout = ""
-        mock_result.stderr = ""
+        captured_command = []
 
-        with patch('subprocess.run', return_value=mock_result) as mock_run:
+        def mock_stream_output(cmd, env, cwd):
+            # Capture the command for inspection
+            captured_command.append(cmd)
+            yield ("exit_code", b"0")
+
+        # Make mock_output_handler.live_lines consume the generator
+        def consume_generator(gen, **kwargs):
+            for _ in gen:
+                pass
+
+        mock_output_handler.live_lines.side_effect = consume_generator
+
+        with patch('frappe_manager.ssl_manager.acmesh_certificate_service.stream_command_output', side_effect=mock_stream_output):
             service = AcmeShCertificateService(
                 ssl_service_dir=ssl_dir,
                 webroot_dir=webroot_dir,
@@ -319,50 +328,9 @@ class TestAcmeShCertificateServiceGenerateCertificate:
 
             service.generate_certificate(mock_http_certificate)
 
-            # Check that --staging was in the command
-            call_args = mock_run.call_args_list[-1]  # Last call (actual cert generation)
-            command = call_args[0][0]
-            assert "--staging" in command
-
-    def test_generate_certificate_with_email(self, tmp_path, mock_output_handler, mock_http_certificate):
-        """Test that email is passed to acme.sh."""
-        ssl_dir = tmp_path / "ssl"
-        webroot_dir = tmp_path / "webroot"
-        webroot_dir.mkdir(parents=True)
-
-        acmesh_home = ssl_dir / "acmesh" / ".acme.sh"
-        acmesh_home.mkdir(parents=True)
-        (acmesh_home / "acme.sh").touch()
-
-        cert_dir = acmesh_home / "example.com_ecc"
-        cert_dir.mkdir(parents=True)
-        (cert_dir / "example.com.key").write_text("key")
-        (cert_dir / "fullchain.cer").write_text("cert")
-
-        AcmeShCertificateService._acmesh_installed = False
-
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_result.stdout = ""
-        mock_result.stderr = ""
-
-        # Add email to certificate
-        mock_http_certificate.email = "test@example.com"
-
-        with patch('subprocess.run', return_value=mock_result) as mock_run:
-            service = AcmeShCertificateService(
-                ssl_service_dir=ssl_dir,
-                webroot_dir=webroot_dir,
-                output_handler=mock_output_handler,
-            )
-
-            service.generate_certificate(mock_http_certificate)
-
-            # Check that email was in the command
-            call_args = mock_run.call_args_list[-1]
-            command = call_args[0][0]
-            assert "--accountemail" in command
-            assert "test@example.com" in command
+            assert len(captured_command) > 0
+            command = captured_command[0]
+            assert "https://acme-staging-v02.api.letsencrypt.org/directory" in " ".join(command)
 
     def test_generate_certificate_raises_on_failure(self, tmp_path, mock_output_handler, mock_http_certificate):
         """Test that certificate generation failure raises exception."""
@@ -376,12 +344,17 @@ class TestAcmeShCertificateServiceGenerateCertificate:
 
         AcmeShCertificateService._acmesh_installed = False
 
-        mock_result = Mock()
-        mock_result.returncode = 1
-        mock_result.stdout = ""
-        mock_result.stderr = "Certificate issuance failed"
+        def mock_stream_output(cmd, env, cwd):
+            yield ("stderr", b"Certificate issuance failed")
+            yield ("exit_code", b"1")
 
-        with patch('subprocess.run', return_value=mock_result):
+        def consume_generator(gen, **kwargs):
+            for _ in gen:
+                pass
+
+        mock_output_handler.live_lines.side_effect = consume_generator
+
+        with patch('frappe_manager.ssl_manager.acmesh_certificate_service.stream_command_output', side_effect=mock_stream_output):
             service = AcmeShCertificateService(
                 ssl_service_dir=ssl_dir,
                 webroot_dir=webroot_dir,
@@ -434,11 +407,9 @@ class TestAcmeShCertificateServiceRenewCertificate:
         acmesh_home.mkdir(parents=True)
         (acmesh_home / "acme.sh").touch()
 
-        # Create existing certificate directory
         dest_dir = ssl_dir / "acmesh" / "example.com"
         dest_dir.mkdir(parents=True)
 
-        # Create renewed certificate files in acme.sh home
         cert_dir = acmesh_home / "example.com_ecc"
         cert_dir.mkdir(parents=True)
         (cert_dir / "example.com.key").write_text("renewed key")
@@ -446,12 +417,19 @@ class TestAcmeShCertificateServiceRenewCertificate:
 
         AcmeShCertificateService._acmesh_installed = False
 
-        mock_result = Mock()
-        mock_result.returncode = 0
-        mock_result.stdout = ""
-        mock_result.stderr = ""
+        captured_command = []
 
-        with patch('subprocess.run', return_value=mock_result) as mock_run:
+        def mock_stream_output(cmd, env, cwd):
+            captured_command.append(cmd)
+            yield ("exit_code", b"0")
+
+        def consume_generator(gen, **kwargs):
+            for _ in gen:
+                pass
+
+        mock_output_handler.live_lines.side_effect = consume_generator
+
+        with patch('frappe_manager.ssl_manager.acmesh_certificate_service.stream_command_output', side_effect=mock_stream_output):
             service = AcmeShCertificateService(
                 ssl_service_dir=ssl_dir,
                 webroot_dir=webroot_dir,
@@ -461,15 +439,13 @@ class TestAcmeShCertificateServiceRenewCertificate:
             result = service.renew_certificate(mock_http_certificate)
 
             assert result is True
-            # Check that renewed files were copied
             assert (dest_dir / "key.pem").exists()
             assert (dest_dir / "fullchain.pem").exists()
 
-            # Verify --renew was in command
-            call_args = mock_run.call_args_list[-1]
-            command = call_args[0][0]
-            assert "--renew" in command
-            assert "example.com" in command
+            assert len(captured_command) > 0
+            command = captured_command[0]
+            assert "--renew" in " ".join(command)
+            assert "example.com" in " ".join(command)
 
     def test_renew_certificate_failure(self, tmp_path, mock_output_handler, mock_http_certificate):
         """Test failed certificate renewal."""

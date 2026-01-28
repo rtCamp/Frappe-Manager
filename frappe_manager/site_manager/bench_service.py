@@ -183,7 +183,11 @@ class BenchService:
                 except Exception as e:
                     self.output.warning(str(e))
 
-                self._handle_database_deletion(bench, delete_db_from_global_db)
+                try:
+                    self._handle_database_deletion(bench, delete_db_from_global_db)
+                except Exception as e:
+                    self.output.warning(f"Database deletion failed: {str(e)}")
+                    self.output.warning("Continuing with bench removal...")
 
                 bench.remove_containers_and_dirs()
             return True

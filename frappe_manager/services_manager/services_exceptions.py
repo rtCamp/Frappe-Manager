@@ -49,7 +49,7 @@ class DatabaseServiceException(Exception):
 class DatabaseServiceQueryAccessDenied(Exception):
     """Exception raised when database query access is denied."""
 
-    def __init__(self, query: str, message='Acess denied for query {}') -> None:
+    def __init__(self, query: str, message='Access denied for query {}') -> None:
         self.query = query
         self.message = message.format(query)
         super().__init__(self.message)
