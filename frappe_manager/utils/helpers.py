@@ -152,33 +152,27 @@ def is_cli_help_called(ctx):
         bool: True if the help command is called, False otherwise.
     """
     help_called = False
-    # --help check
 
     if '--help' in " ".join(sys.argv[1:]):
-        # is called command is sub command group
         return True
 
     try:
-        for subtyper_command in ctx.command.commands[ctx.invoked_subcommand].commands.keys():
+        subcommand = ctx.command.commands.get(ctx.invoked_subcommand)
+        if not subcommand:
+            return False
+            
+        if hasattr(subcommand, 'commands'):
             check_command = " ".join(sys.argv[2:])
-            if check_command == subtyper_command:
-                if ctx.command.commands[ctx.invoked_subcommand].commands[subtyper_command].params:
+            if check_command in subcommand.commands:
+                sub_sub_command = subcommand.commands[check_command]
+                if sub_sub_command.params and sub_sub_command.no_args_is_help:
                     help_called = True
-
-    except AttributeError:
-        help_called = False
-
-    if not help_called:
-        # is called command is sub command
-        check_command = " ".join(sys.argv[1:])
-
-        if check_command == ctx.invoked_subcommand:
-            # is called command supports arguments then help called
-            if ctx.command.commands[ctx.invoked_subcommand].params:
+        elif subcommand.params and ctx.invoked_subcommand == " ".join(sys.argv[1:]):
+            if subcommand.no_args_is_help:
                 help_called = True
 
-            if not ctx.command.commands[ctx.invoked_subcommand].no_args_is_help:
-                help_called = False
+    except (AttributeError, KeyError):
+        help_called = False
 
     return help_called
 

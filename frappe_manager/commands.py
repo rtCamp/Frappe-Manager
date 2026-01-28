@@ -57,6 +57,9 @@ from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.output_manager.logging_output import LoggingOutputHandler
 
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
+app.add_typer(services_root_command, name="services", help="Handle global services.")
+app.add_typer(self_app, name="self", help="Perform operations related to the [bold][blue]fm[/bold][/blue] itself.")
+app.add_typer(ssl_root_command, name="ssl", help="Perform operations related to ssl.")
 
 
 def check_bench_migration_required(bench_name: Optional[str]) -> None:
@@ -75,6 +78,7 @@ def check_bench_migration_required(bench_name: Optional[str]) -> None:
     if bench_needs_migration(bench_path, current_version):
         if richprint.live:
             richprint.live.stop()
+
         bench_path = CLI_BENCHES_DIRECTORY / bench_name
         from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
         bench_version = get_bench_migration_version(bench_path)
@@ -84,10 +88,6 @@ def check_bench_migration_required(bench_name: Optional[str]) -> None:
         richprint.print("Bench migration updates configuration and applies necessary changes.\n", emoji_code="")
         richprint.print(f"Run: [cyan]fm migrate {bench_name}[/cyan]\n", emoji_code="")
         raise typer.Exit(0)
-app.add_typer(services_root_command, name="services", help="Handle global services.")
-app.add_typer(self_app, name="self", help="Perform operations related to the [bold][blue]fm[/bold][/blue] itself.")
-app.add_typer(ssl_root_command, name="ssl", help="Perform operations related to ssl.")
-
 
 def get_output_handler(ctx: typer.Context, context: Optional[LoggerContext] = None) -> OutputHandler:
     """
@@ -211,12 +211,13 @@ def app_callback(
                 fm_config_manager.export_to_toml()
 
             invoked_command = ctx.invoked_subcommand or "no-command"
-            allowed_without_system = ["migrate", "version", "self"]
+            allowed_without_system = ["migrate", "version", "self", "stop", "delete"]
             
             if needs_system_migration(fm_config_manager):
                 if invoked_command not in allowed_without_system:
                     if richprint.live:
                         richprint.live.stop()
+
                     system_version = fm_config_manager.get_system_migration_version()
                     fm_version = Version(get_current_fm_version())
                     richprint.warning(f"System migration required: v{system_version} → v{fm_version}\n", emoji_code="")
@@ -461,8 +462,6 @@ def delete(
         fm delete mybench --force
         fm delete mybench --delete-db-from-global-db
     """
-    
-    check_bench_migration_required(benchname)
 
     if benchname:
         services_manager = ctx.obj["services"]
@@ -671,20 +670,7 @@ def shell(
     """
     Spawn shell for the bench or execute a command.
 
-    [bold cyan]Interactive shell mode:[/bold cyan]
-      fm shell mysite              # Spawn interactive shell
-      fm shell mysite --user root  # Spawn shell as root user
-
-    [bold cyan]Command execution mode:[/bold cyan]
-      fm shell mysite -c "python --version"        # Execute single command
-      fm shell mysite -- python --version          # Execute command (passthrough syntax)
-      fm shell mysite -- bench --version           # Run bench commands
-      fm shell mysite -c "ls -la /workspace"       # Execute shell commands
-
-    [bold cyan]Advanced options:[/bold cyan]
-      fm shell mysite --shell-path /bin/sh         # Use specific shell
-      fm shell mysite --run -c "python --version"  # Use docker compose run --rm
-
+    Supports interactive shell mode and command execution mode (use -c or -- syntax).
     Exit code from the executed command is preserved for scripting.
     """
     
@@ -1269,16 +1255,20 @@ def migrate(
     
     if benchname and all_benches:
         richprint.error("Cannot specify both <benchname> and --all-benches")
+        richprint.stop()
+        typer.echo(ctx.get_help())
         raise typer.Exit(1)
     
     if exclude_bench and not all_benches:
         richprint.error("--exclude-bench can only be used with --all-benches")
+        richprint.stop()
+        typer.echo(ctx.get_help())
         raise typer.Exit(1)
     
     if not system and not benchname and not all_benches:
         # Show help when no migration target specified
         richprint.stop()
-        ctx.get_help()
+        typer.echo(ctx.get_help())
         raise typer.Exit(0)
     
     current_version = Version(get_current_fm_version())

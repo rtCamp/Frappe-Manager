@@ -62,12 +62,6 @@ def compose(
     Run docker compose commands with auto-detected compose files.
 
     Automatically finds and includes all docker-compose*.yml files in the bench directory.
-
-    Examples:
-        fm self compose mybench ps
-        fm self compose mybench up -d
-        fm self compose mybench logs -f frappe
-        fm self compose mybench exec frappe bash
     """
     bench_name = sitename_callback(benchname)
     bench_path = CLI_BENCHES_DIRECTORY / bench_name

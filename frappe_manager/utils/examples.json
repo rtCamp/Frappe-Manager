@@ -270,6 +270,66 @@
         }
       ]
     },
+    "list": {
+      "examples": [
+        {
+          "desc": "List SSL certificates for {benchname}",
+          "code": ""
+        },
+        {
+          "desc": "List all external (standalone) certificates",
+          "code": " --standalone",
+          "benchname": ""
+        },
+        {
+          "desc": "List all certificates (bench + external)",
+          "code": " --all",
+          "benchname": ""
+        }
+      ]
+    },
+    "add": {
+      "examples": [
+        {
+          "desc": "Add SSL certificate for {benchname} with HTTP-01 challenge",
+          "code": " --letsencrypt-preferred-challenge http01"
+        },
+        {
+          "desc": "Add SSL certificate with DNS-01 challenge (Cloudflare)",
+          "code": " --letsencrypt-preferred-challenge dns01"
+        },
+        {
+          "desc": "Add for external Docker project (standalone mode)",
+          "code": " --standalone example.com",
+          "benchname": ""
+        },
+        {
+          "desc": "Test with Let's Encrypt staging (dry-run)",
+          "code": " --dry-run"
+        },
+        {
+          "desc": "Add with CNAME delegation for DNS validation",
+          "code": " --letsencrypt-preferred-challenge dns01 --cname _acme-challenge.example.com"
+        }
+      ]
+    },
+    "remove": {
+      "examples": [
+        {
+          "desc": "Remove SSL certificate from {benchname}",
+          "code": ""
+        },
+        {
+          "desc": "Force remove without confirmation",
+          "code": " --force"
+        },
+        {
+          "desc": "Remove external (standalone) certificate",
+          "code": " --standalone example.com",
+          "benchname": ""
+        }
+      ]
+    },
     "renew": {
       "examples": [
         {
@@ -283,6 +343,20 @@
         {
           "desc": "Renew all certificates for all benches.",
           "code": " --all",
+          "benchname": ""
+        },
+        {
+          "desc": "Test renewal with Let's Encrypt staging (dry-run)",
+          "code": " --dry-run"
+        },
+        {
+          "desc": "Renew specific external (standalone) domain",
+          "code": " --standalone example.com",
+          "benchname": ""
+        },
+        {
+          "desc": "Renew all external (standalone) domains",
+          "code": " --standalone --all",
           "benchname": ""
         }
       ]
@@ -327,6 +401,40 @@
           }
         ]
       }
+    },
+    "acme-sh": {
+      "examples": [
+        {
+          "desc": "Show acme.sh help and available commands",
+          "code": "",
+          "benchname": ""
+        },
+        {
+          "desc": "List all certificates managed by acme.sh",
+          "code": " --list",
+          "benchname": ""
+        },
+        {
+          "desc": "Show certificate information for a domain",
+          "code": " --info -d example.com",
+          "benchname": ""
+        },
+        {
+          "desc": "Check acme.sh version",
+          "code": " --version",
+          "benchname": ""
+        },
+        {
+          "desc": "Upgrade acme.sh to latest version",
+          "code": " --upgrade",
+          "benchname": ""
+        },
+        {
+          "desc": "Force renew certificate for a domain",
+          "code": " --renew -d example.com --force",
+          "benchname": ""
+        }
+      ]
     }
   },
   "self": {
@@ -337,16 +445,44 @@
           "code": "",
           "benchname": ""
         }
-      ],
-      "images": {
-        "examples": [
-          {
-            "desc": "Update all frappe required docker images.",
-            "code": "",
-            "benchname": ""
-          }
-        ]
-      }
+      ]
+    },
+    "update-images": {
+      "examples": [
+        {
+          "desc": "Update all Frappe docker images to latest versions",
+          "code": "",
+          "benchname": ""
+        }
+      ]
+    },
+    "compose": {
+      "examples": [
+        {
+          "desc": "Show running containers for {benchname}",
+          "code": " ps"
+        },
+        {
+          "desc": "Start containers in detached mode",
+          "code": " up -d"
+        },
+        {
+          "desc": "Follow logs for frappe service",
+          "code": " logs -f frappe"
+        },
+        {
+          "desc": "Execute bash in frappe container",
+          "code": " exec frappe bash"
+        },
+        {
+          "desc": "Restart specific service",
+          "code": " restart frappe"
+        },
+        {
+          "desc": "View container resource usage",
+          "code": " stats"
+        }
+      ]
     }
   },
   "reset": {

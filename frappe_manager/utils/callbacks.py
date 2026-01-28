@@ -162,24 +162,22 @@ def sitename_callback(sitename: Optional[str]):
             if is_tty:
                 # Use interactive fuzzy selection in TTY
                 from InquirerPy import inquirer
-                from frappe_manager.output_manager import temporary_stop
 
-                with temporary_stop(richprint):
-                    # Sort with recently used sites first
-                    sorted_sites = get_sorted_sites_list(sites_list)
+                # Sort with recently used sites first
+                sorted_sites = get_sorted_sites_list(sites_list)
 
-                    sitename = inquirer.fuzzy(
-                        message="Select bench (↑↓ navigate, type to search)",
-                        vi_mode=True,
-                        choices=sorted_sites,
-                        mandatory=True,
-                        qmark='🤔',
-                        amark='🤔',
-                    ).execute()
+                sitename = inquirer.fuzzy(
+                    message="Select bench (↑↓ navigate, type to search)",
+                    vi_mode=True,
+                    choices=sorted_sites,
+                    mandatory=True,
+                    qmark='🤔',
+                    amark='🤔',
+                ).execute()
 
-                    # Update cache with selected site
-                    if sitename:
-                        update_sites_cache(sitename)
+                # Update cache with selected site
+                if sitename:
+                    update_sites_cache(sitename)
             else:
                 # Non-TTY: Use first site from sorted list (prioritizes recently used)
                 sorted_sites = get_sorted_sites_list(sites_list)
@@ -252,6 +250,47 @@ def get_sorted_sites_list(sites_list: list[str]) -> list[str]:
         pass
 
     return sites_list
+
+
+def prompt_for_bench_selection(current_value: Optional[str]) -> Optional[str]:
+    import sys
+
+    if current_value:
+        return current_value
+
+    benchname = get_sitename_from_current_path()
+    if benchname:
+        return benchname
+
+    sites_list = [site_name.parent.name for site_name in sites_autocompletion_callback()]
+
+    if not sites_list:
+        return None
+
+    is_tty = sys.stdin.isatty() and sys.stdout.isatty()
+
+    if is_tty:
+        try:
+            from InquirerPy import inquirer
+
+            sorted_sites = get_sorted_sites_list(sites_list)
+
+            selected = inquirer.fuzzy(
+                message="Select bench (↑↓ navigate, type to search)",
+                vi_mode=True,
+                choices=sorted_sites,
+                mandatory=True,
+                qmark='🤔',
+                amark='🤔',
+            ).execute()
+
+            if selected:
+                update_sites_cache(selected)
+                return selected
+        except Exception:
+            pass
+
+    return None
 
 
 def code_command_extensions_callback(extensions: List[str]) -> List[str]:

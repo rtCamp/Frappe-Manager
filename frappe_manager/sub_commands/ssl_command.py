@@ -19,13 +19,13 @@ from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkM
 from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
 from frappe_manager.ssl_manager.service_factory import create_certificate_service
 from frappe_manager.ssl_manager.standalone_nginx_config_manager import StandaloneNginxConfigManager
-from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
+from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback, prompt_for_bench_selection
 from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.exceptions import SSLCertificateError
 from frappe_manager.logger.context import LoggerContext
 from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.logger import log
-from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager import OutputHandler, temporary_stop
 from frappe_manager.output_manager.logging_output import LoggingOutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.metadata_manager import FMConfigManager, FMCloudflareConfig
@@ -86,15 +86,8 @@ def renew(
     """
     Renew SSL certificates.
 
-    [bold cyan]Bench mode examples:[/bold cyan]
-    - Renew all certificates for a bench: fm ssl renew mysite.local
-    - Renew specific domain: fm ssl renew mysite.local www.mysite.local
-    - Renew all benches: fm ssl renew --all
-    - Test renewal without modifications: fm ssl renew mysite.local --dry-run
-
-    [bold cyan]Standalone mode examples:[/bold cyan]
-    - Renew specific external domain: fm ssl renew --standalone myapp.com
-    - Renew all external domains: fm ssl renew --standalone --all
+    Supports both bench mode (default) and standalone mode for external domains.
+    Use --dry-run to test with Let's Encrypt staging server.
     """
 
     if standalone:
@@ -106,8 +99,8 @@ def renew(
                 context = LoggerContext(operation="ssl-renew-external")
                 output = get_output_handler(ctx, context=context)
                 output.display_error("Domain required for standalone renewal")
-                output.print("Usage: fm ssl renew --standalone <domain>", emoji_code="")
-                output.print("Or renew all: fm ssl renew --standalone --all", emoji_code="")
+                with temporary_stop(output):
+                    typer.echo(ctx.get_help())
                 raise typer.Exit(1)
             _renew_external_certificate(ctx, actual_domain, dry_run)
     else:
@@ -118,12 +111,14 @@ def renew(
         if all:
             sites_list = bench_service.get_bench_names()
         else:
+            benchname = prompt_for_bench_selection(benchname)
+
             if not benchname:
                 context = LoggerContext(operation="ssl-renew")
                 output = get_output_handler(ctx, context=context)
                 output.display_error("Benchname required in bench mode")
-                output.print("Usage: fm ssl renew <benchname> [domain]", emoji_code="")
-                output.print("For external domains: fm ssl renew --standalone <domain>", emoji_code="")
+                with temporary_stop(output):
+                    typer.echo(ctx.get_help())
                 raise typer.Exit(1)
             sites_list = [benchname]
 
@@ -179,14 +174,7 @@ def list_certificates(
     """
     List SSL certificates.
 
-    [bold cyan]Bench mode (default):[/bold cyan]
-      fm ssl list <benchname>
-
-    [bold cyan]Standalone mode (external domains):[/bold cyan]
-      fm ssl list --standalone
-
-    [bold cyan]All certificates:[/bold cyan]
-      fm ssl list --all
+    List certificates for a specific bench, external domains, or all certificates.
     """
 
     if all:
@@ -194,13 +182,14 @@ def list_certificates(
     elif standalone:
         _list_external_certificates(ctx)
     else:
+        benchname = prompt_for_bench_selection(benchname)
+
         if not benchname:
             context = LoggerContext(operation="ssl-list")
             output = get_output_handler(ctx, context=context)
             output.display_error("Benchname required in bench mode")
-            output.print("Usage: fm ssl list <benchname>", emoji_code="")
-            output.print("For external certificates: fm ssl list --standalone", emoji_code="")
-            output.print("For all certificates: fm ssl list --all", emoji_code="")
+            with temporary_stop(output):
+                typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
         _list_bench_certificates(ctx, benchname)
@@ -256,13 +245,8 @@ def add_certificate(
     """
     Add SSL certificate for a domain.
 
-    [bold cyan]Bench mode (default):[/bold cyan]
-      fm ssl add <benchname> <domain>
-
-    [bold cyan]Standalone mode (external Docker projects):[/bold cyan]
-      fm ssl add --standalone <domain>
-
-    [dim]Standalone mode allows managing SSL for any Docker project using FM's nginx-proxy.[/dim]
+    Supports both bench mode (default) and standalone mode for external Docker projects.
+    Standalone mode allows managing SSL for any Docker project using FM's nginx-proxy.
 
     Use --dry-run to test certificate generation with Let's Encrypt staging server
     before committing to production. This validates DNS/HTTP configuration without
@@ -277,27 +261,30 @@ def add_certificate(
             context = LoggerContext(operation="ssl-add-external")
             output = get_output_handler(ctx, context=context)
             output.display_error("Domain is required in standalone mode")
-            output.print("Usage: fm ssl add --standalone <domain>", emoji_code="")
+            with temporary_stop(output):
+                typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
         if benchname and domain:
             context = LoggerContext(operation="ssl-add-external")
             output = get_output_handler(ctx, context=context)
             output.display_error("Cannot specify both benchname and domain in standalone mode")
-            output.print("Usage: fm ssl add --standalone <domain>", emoji_code="")
+            with temporary_stop(output):
+                typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
         _add_external_certificate(
             ctx, actual_domain, challenge or "http01", cname, dry_run, skip_dns_check, wait_for_dns
         )
     else:
-        # Bench mode: both benchname and domain required
+        benchname = prompt_for_bench_selection(benchname)
+
         if not benchname or not domain:
             context = LoggerContext(operation="ssl-add")
             output = get_output_handler(ctx, context=context)
             output.display_error("Both benchname and domain are required in bench mode")
-            output.print("Usage: fm ssl add <benchname> <domain>", emoji_code="")
-            output.print("For external projects, use: fm ssl add --standalone <domain>", emoji_code="")
+            with temporary_stop(output):
+                typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
         _add_bench_certificate(ctx, benchname, domain, challenge or "http01", cname, dry_run)
@@ -423,7 +410,8 @@ def _add_external_certificate(
 
     if cname and preferred_challenge != LETSENCRYPT_PREFERRED_CHALLENGE.dns01:
         output.display_error("CNAME delegation (--cname) requires DNS-01 challenge")
-        output.print(f"Usage: fm ssl add --standalone {domain} --challenge dns01 --cname <cname>", emoji_code="")
+        with temporary_stop(output):
+            typer.echo(ctx.get_help())
         raise typer.Exit(1)
 
     output.change_head(f"Adding SSL certificate for {domain} (standalone mode)")
@@ -660,11 +648,7 @@ def remove_certificate(
     """
     Remove SSL certificate for a domain.
 
-    [bold cyan]Bench mode (default):[/bold cyan]
-      fm ssl remove <benchname> <domain>
-
-    [bold cyan]Standalone mode (external Docker projects):[/bold cyan]
-      fm ssl remove --standalone <domain>
+    Supports both bench mode (default) and standalone mode for external domains.
     """
 
     if standalone:
@@ -675,18 +659,20 @@ def remove_certificate(
             context = LoggerContext(operation="ssl-remove-external")
             output = get_output_handler(ctx, context=context)
             output.display_error("Domain is required in standalone mode")
-            output.print("Usage: fm ssl remove --standalone <domain>", emoji_code="")
+            with temporary_stop(output):
+                typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
         _remove_external_certificate(ctx, actual_domain, force)
     else:
-        # Bench mode: both benchname and domain required
+        benchname = prompt_for_bench_selection(benchname)
+
         if not benchname or not domain:
             context = LoggerContext(operation="ssl-remove")
             output = get_output_handler(ctx, context=context)
             output.display_error("Both benchname and domain are required in bench mode")
-            output.print("Usage: fm ssl remove <benchname> <domain>", emoji_code="")
-            output.print("For external projects, use: fm ssl remove --standalone <domain>", emoji_code="")
+            with temporary_stop(output):
+                typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
         _remove_bench_certificate(ctx, benchname, domain, force)
@@ -1234,27 +1220,14 @@ def acmesh_passthrough(
     """
     Run acme.sh commands directly with FM's environment (advanced users).
 
-    This command provides direct access to acme.sh for advanced operations like:
-    - Listing certificates: fm ssl acme-sh --list
-    - Checking certificate info: fm ssl acme-sh --info -d example.com
-    - Manual operations: fm ssl acme-sh --revoke -d example.com
-    - Debugging: fm ssl acme-sh --version
-
     [bold yellow]⚠️  Advanced users only![/bold yellow]
     This bypasses FM's certificate management. Use 'fm ssl add/remove/renew' for normal operations.
 
-    [bold cyan]Examples:[/bold cyan]
-    - Show acme.sh help: fm ssl acme-sh
-    - List all certificates: fm ssl acme-sh --list
-    - Show certificate info: fm ssl acme-sh --info -d example.com
-    - Check acme.sh version: fm ssl acme-sh --version
-    - Upgrade acme.sh: fm ssl acme-sh --upgrade
-    - Force renew: fm ssl acme-sh --renew -d example.com --force
+    This command provides direct access to acme.sh for advanced operations like certificate
+    listing, info checking, manual renewals, revocations, and debugging.
 
-    [bold]Note:[/bold] All acme.sh commands run with:
-    - --home set to FM's SSL directory
-    - LE_WORKING_DIR set automatically
-    - Full access to FM's certificate storage
+    All acme.sh commands run with FM's SSL directory configuration and full access to
+    certificate storage.
     """
     import os
     from frappe_manager.utils.subprocess import stream_command_output
