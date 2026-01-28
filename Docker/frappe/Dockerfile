@@ -3,11 +3,12 @@ FROM ubuntu:22.04 AS base
 LABEL author=rtCamp
 LABEL org.opencontainers.image.source=https://github.com/rtcamp/Frappe-Manager
 
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y curl \
-    && curl -s http://mirrors.ubuntu.com/mirrors.txt | xargs -n 1 curl -s -o /dev/null -w "%{time_total} %{url_effective}\n" | sort -n | head -1 | awk '{print $2}' > /tmp/best_mirror.txt \
-    && BEST_MIRROR=$(cat /tmp/best_mirror.txt) \
-    && sed -i "s|http://archive.ubuntu.com/ubuntu/|${BEST_MIRROR}|g" /etc/apt/sources.list \
-    && sed -i "s|http://security.ubuntu.com/ubuntu/|${BEST_MIRROR}|g" /etc/apt/sources.list \
+COPY find-best-mirror.sh /tmp/find-best-mirror.sh
+
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y curl ca-certificates \
+    && chmod +x /tmp/find-best-mirror.sh \
+    && /tmp/find-best-mirror.sh \
+    && rm /tmp/find-best-mirror.sh \
     && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
     git \
     mariadb-client \
@@ -63,7 +64,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
     fonts-powerline \
     file \
     unzip \
-    && rm -rf /var/lib/apt/lists/* /tmp/best_mirror.txt
+    && rm -rf /var/lib/apt/lists/*
 
 RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
     && dpkg-reconfigure --frontend=noninteractive locales
