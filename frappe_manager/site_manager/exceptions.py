@@ -55,7 +55,7 @@ class BenchServiceNotRunning(BenchException):
         super().__init__(self.bench_name, self.message)
 
 
-class BenchNotFoundError(BenchException):
+class BenchNotFoundError(FileNotFoundError, BenchException):
     """Raised when bench directory is not found at expected location."""
 
     def __init__(

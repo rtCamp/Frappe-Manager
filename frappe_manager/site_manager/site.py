@@ -252,6 +252,10 @@ class Bench:
         bench_path = benches_path / bench_name
         bench_config_path: Path = bench_path / bench_config_file_name
 
+        if not bench_path.exists():
+            from frappe_manager.site_manager.exceptions import BenchNotFoundError
+            raise BenchNotFoundError(bench_name, bench_path)
+
         compose_file_manager = ComposeFile(bench_path / "docker-compose.yml")
         docker_client = DockerClient(compose_file_path=bench_path / "docker-compose.yml", output=output_handler)
 

@@ -66,10 +66,6 @@ def compose(
     bench_name = sitename_callback(benchname)
     bench_path = CLI_BENCHES_DIRECTORY / bench_name
 
-    if not bench_path.exists():
-        richprint.error(f"Bench not found: {bench_name}")
-        raise typer.Exit(1)
-
     compose_files = sorted(bench_path.glob("docker-compose*.yml"))
 
     if not compose_files:
