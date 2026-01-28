@@ -25,7 +25,7 @@ from frappe_manager.exceptions import SSLCertificateError
 from frappe_manager.logger.context import LoggerContext
 from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.logger import log
-from frappe_manager.output_manager import OutputHandler, temporary_stop
+from frappe_manager.output_manager import OutputHandler, temporary_stop, spinner
 from frappe_manager.output_manager.logging_output import LoggingOutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.metadata_manager import FMConfigManager, FMCloudflareConfig
@@ -140,12 +140,14 @@ def renew(
                         raise typer.Exit(1)
 
                     # Renew specific domain certificate
-                    bench.ssl.renew_certificate(domain, dry_run=dry_run)
+                    with spinner(output, f"Renewing certificate for {domain}"):
+                        bench.ssl.renew_certificate(domain, dry_run=dry_run)
                     if not dry_run:
                         output.print(f"Certificate renewed for {domain}", emoji_code=":white_check_mark:")
                 else:
                     # Renew all certificates for the bench
-                    bench.ssl.renew_all_certificates(dry_run=dry_run)
+                    with spinner(output, f"Renewing certificates for {benchname}"):
+                        bench.ssl.renew_all_certificates(dry_run=dry_run)
             except (BenchSSLCertificateNotIssued, SSLCertificateNotDueForRenewalError) as e:
                 output.warning(e.message)
 
@@ -341,7 +343,8 @@ def _add_bench_certificate(
                 challenge_type=challenge,
             )
 
-        bench.certificate_manager.add_certificate(cert, dry_run=dry_run)
+        with spinner(output, f"Adding SSL certificate for {domain}"):
+            bench.certificate_manager.add_certificate(cert, dry_run=dry_run)
 
         if not dry_run:
             output.print(f"SSL certificate added for {domain}", emoji_code=":white_check_mark:")
@@ -526,7 +529,8 @@ def _add_external_certificate(
 
         # Step 3: Generate certificate (HTTP-01 challenge will now work)
         try:
-            cert_manager.add_certificate(cert, dry_run=dry_run)
+            with spinner(output, f"Generating SSL certificate for {domain}"):
+                cert_manager.add_certificate(cert, dry_run=dry_run)
         except Exception as cert_error:
             # Certificate generation failed - clean up nginx config
             output.change_head("Cleaning up after certificate generation failure")
@@ -674,7 +678,8 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, f
     output.change_head(f"Removing SSL certificate for {domain}")
 
     try:
-        bench.certificate_manager.remove_certificate_by_domain(domain)
+        with spinner(output, f"Removing SSL certificate for {domain}"):
+            bench.certificate_manager.remove_certificate_by_domain(domain)
 
         output.print(f"SSL certificate removed for {domain}", emoji_code=":white_check_mark:")
 
@@ -755,7 +760,8 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, force: bool):
         )
 
         # Remove certificate (removes symlinks, vhost.d, and cert files)
-        cert_manager.remove_certificate_by_domain(domain)
+        with spinner(output, f"Removing SSL certificate for {domain}"):
+            cert_manager.remove_certificate_by_domain(domain)
 
         # Remove standalone nginx configuration
         output.change_head(f"Removing nginx configuration for {domain}")
@@ -881,7 +887,10 @@ def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
         bench_domains = set()
         for bench_name in benches:
             try:
-                bench = Bench.get_object(bench_name, services_manager, output_handler=None)
+                # Create silent output handler for internal bench detection
+                from frappe_manager.output_manager.silent_output import SilentOutputHandler
+                output = SilentOutputHandler()
+                bench = Bench.get_object(bench_name, services_manager, output_handler=output)
                 bench_domains.update(bench.bench_config.get_all_domains())
             except Exception:
                 continue
@@ -1061,7 +1070,8 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool):
             config_save_callback=None,
         )
 
-        cert_manager.renew_certificate(domain=domain, dry_run=dry_run)
+        with spinner(output, f"Renewing certificate for {domain}"):
+            cert_manager.renew_certificate(domain=domain, dry_run=dry_run)
         output.print(f"Certificate renewal for {domain} completed", emoji_code=":white_check_mark:")
 
     except Exception as e:

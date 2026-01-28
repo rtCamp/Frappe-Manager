@@ -538,16 +538,17 @@ def start(
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
-    bench.start(
-        force=force,
-        sync_bench_config_changes=sync_bench_config_changes,
-        reconfigure_workers=reconfigure_workers,
-        include_default_workers=include_default_workers,
-        include_custom_workers=include_custom_workers,
-        reconfigure_common_site_config=reconfigure_common_site_config,
-        reconfigure_supervisor=reconfigure_supervisor,
-        sync_dev_packages=sync_dev_packages,
-    )
+    with spinner(output, f"Starting {benchname}"):
+        bench.start(
+            force=force,
+            sync_bench_config_changes=sync_bench_config_changes,
+            reconfigure_workers=reconfigure_workers,
+            include_default_workers=include_default_workers,
+            include_custom_workers=include_custom_workers,
+            reconfigure_common_site_config=reconfigure_common_site_config,
+            reconfigure_supervisor=reconfigure_supervisor,
+            sync_dev_packages=sync_dev_packages,
+        )
 
 
 @app.command()
@@ -571,7 +572,9 @@ def stop(
     context = LoggerContext(bench=benchname, operation="stop")
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
-    bench.stop()
+    
+    with spinner(output, f"Stopping {benchname}"):
+        bench.stop()
 
 
 @app.command()
@@ -1096,7 +1099,9 @@ def reset(
     context = LoggerContext(bench=benchname, operation="reset")
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
-    bench.reset(admin_pass)
+    
+    with spinner(output, f"Resetting {benchname}"):
+        bench.reset(admin_pass)
 
 
 @app.command()
@@ -1166,17 +1171,18 @@ def restart(
     if use_container_restart and use_supervisor_restart:
         output.error("Cannot use both --container and --supervisor flags simultaneously", exception=typer.Exit(code=1))
 
-    if web:
-        bench.restart_web_containers_services(use_container_restart=use_container_restart, force=force)
+    with spinner(output, f"Restarting {benchname}"):
+        if web:
+            bench.restart_web_containers_services(use_container_restart=use_container_restart, force=force)
 
-    if workers:
-        bench.restart_workers_containers_services(use_container_restart=use_container_restart, force=force)
+        if workers:
+            bench.restart_workers_containers_services(use_container_restart=use_container_restart, force=force)
 
-    if redis:
-        bench.restart_redis_services_containers()
+        if redis:
+            bench.restart_redis_services_containers()
 
-    if nginx:
-        bench.restart_nginx_service(force=force)
+        if nginx:
+            bench.restart_nginx_service(force=force)
 
 
 @app.command()
@@ -1355,7 +1361,8 @@ def migrate(
             migrate_system=system,
         )
         
-        migration_status = migrations.execute()
+        with temporary_stop(richprint.live):
+            migration_status = migrations.execute()
         
         if not migration_status:
             richprint.print(f"Rolled back to previous version of fm {migrations.prev_version}")
