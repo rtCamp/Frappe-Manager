@@ -3,24 +3,25 @@ FROM ubuntu:22.04 AS base
 LABEL author=rtCamp
 LABEL org.opencontainers.image.source=https://github.com/rtcamp/Frappe-Manager
 
-RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
-    # For frappe framework
+RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y curl \
+    && curl -s http://mirrors.ubuntu.com/mirrors.txt | xargs -n 1 curl -s -o /dev/null -w "%{time_total} %{url_effective}\n" | sort -n | head -1 | awk '{print $2}' > /tmp/best_mirror.txt \
+    && BEST_MIRROR=$(cat /tmp/best_mirror.txt) \
+    && sed -i "s|http://archive.ubuntu.com/ubuntu/|${BEST_MIRROR}|g" /etc/apt/sources.list \
+    && sed -i "s|http://security.ubuntu.com/ubuntu/|${BEST_MIRROR}|g" /etc/apt/sources.list \
+    && apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-install-recommends -y \
     git \
     mariadb-client \
     postgresql-client \
     gettext-base \
     wget \
-    # for PDF
     xfonts-75dpi \
     xfonts-base \
     libssl-dev \
     fonts-cantarell \
     libpangocairo-1.0-0 \
-    # to work inside the container
     locales \
     build-essential \
     cron \
-    curl \
     vim \
     sudo \
     iputils-ping \
@@ -30,9 +31,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
     less \
     software-properties-common \
     bash-completion \
-    # For psycopg2
     libpq-dev \
-    # Other
     libffi-dev \
     liblcms2-dev \
     libldap2-dev \
@@ -64,7 +63,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
     fonts-powerline \
     file \
     unzip \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* /tmp/best_mirror.txt
 
 RUN sed -i -e 's/# en_US.UTF-8 UTF-8/en_US.UTF-8 UTF-8/' /etc/locale.gen \
     && dpkg-reconfigure --frontend=noninteractive locales
