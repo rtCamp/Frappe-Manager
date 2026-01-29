@@ -257,14 +257,11 @@ class MigrationExecutor:
                         if bench.running or bench.workers_running:
                             running.append(bench_name)
                 if running:
-                    self.output.print("")
-                    self.output.warning(
-                        f"The following target benches are currently running and will be restarted (containers recreated) during migration: {', '.join(running)}"
-                    )
+                    self.output.warning(f"The following target benches are currently running and will be restarted (containers recreated) during migration: {', '.join(running)}")
                     self.output.print(
                         "If you'd prefer no disruption, stop these benches (fm stop <bench>) and re-run migration."
                     )
-                    self.output.print("")
+                    self.output.print("", emoji_code="")
 
             if not self.force:
                 continue_migration = self.output.prompt_ask(
@@ -334,10 +331,7 @@ class MigrationExecutor:
                 for bench, bench_status in self.migrate_benches.items():
                     if not bench_status["exception"]:
                         if passed_print_head:
-                            self.output.print("", emoji_code="")
-                            self.output.print("=" * 60, emoji_code="")
-                            self.output.print("[bold green]Migration Passed Benches[/bold green]", emoji_code="")
-                            self.output.print("=" * 60, emoji_code="")
+                            self.output.print("\n\n[bold green]Migration Passed Benches[/bold green]\n", emoji_code="")
                             passed_print_head = False
 
                         self.output.print(f"[green]Bench[/green]: {bench}", emoji_code="")
@@ -347,14 +341,10 @@ class MigrationExecutor:
                 for bench, bench_status in self.migrate_benches.items():
                     if bench_status["exception"]:
                         if failed_print_head:
-                            self.output.print("", emoji_code="")
-                            self.output.print("=" * 60, emoji_code="")
-                            self.output.print("[bold red]Migration Failed Benches[/bold red]", emoji_code="")
-                            self.output.print("=" * 60, emoji_code="")
+                            self.output.print("\n[bold red]Migration Failed Benches[/bold red]\n", emoji_code="")
                             failed_print_head = False
 
                         self.output.display_error(f"[red]Bench[/red]: {bench}", emoji_code="")
-
                         self.output.display_error(
                             f"[red]Failed Migration Version[/red]: {bench_status['last_migration_version']}",
                             emoji_code="",

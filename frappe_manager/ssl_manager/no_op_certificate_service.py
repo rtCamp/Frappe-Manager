@@ -11,13 +11,12 @@ class NoOpCertificateService(SSLCertificateService):
         self.root_dir = root_dir
         self.output = output_handler or RichOutputHandler()
 
-    def renew_certificate(self):
-        pass
+    def renew_certificate(self, certificate: "SSLCertificate", dry_run: bool = False) -> bool:
+        return True
 
-    def remove_certificate(self, certificate: "SSLCertificate"):
+    def remove_certificate(self, certificate: "SSLCertificate") -> bool:
         self.output.warning(f"{certificate.domain} doesn't have certificate issued")
+        return False
 
-    def generate_certificate(
-        self, certificate: "SSLCertificate", alias_domains: list[str] | None = None,
-    ) -> tuple[Path, Path]:
+    def generate_certificate(self, certificate: "SSLCertificate", dry_run: bool = False) -> tuple[Path, Path]:
         return Path("/dev/null"), Path("/dev/null")

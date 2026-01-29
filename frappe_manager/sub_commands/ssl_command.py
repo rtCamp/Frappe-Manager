@@ -82,17 +82,22 @@ def renew(
         bool,
         typer.Option("--dry-run", help="Test renewal using Let's Encrypt staging server without modifying the system."),
     ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Force renewal even if certificate is not due for renewal."),
+    ] = False,
 ):
     """
     Renew SSL certificates.
 
     Supports both bench mode (default) and standalone mode for external domains.
     Use --dry-run to test with Let's Encrypt staging server.
+    Use --force to renew certificates regardless of expiry date.
     """
 
     if standalone:
         if all:
-            _renew_all_external_certificates(ctx, dry_run)
+            _renew_all_external_certificates(ctx, dry_run, force)
         else:
             actual_domain = domain if domain else benchname
             if not actual_domain:
@@ -102,7 +107,7 @@ def renew(
                 with temporary_stop(output):
                     typer.echo(ctx.get_help())
                 raise typer.Exit(1)
-            _renew_external_certificate(ctx, actual_domain, dry_run)
+            _renew_external_certificate(ctx, actual_domain, dry_run, force)
     else:
         # Existing bench renewal logic
         services_manager = ctx.obj["services"]
@@ -141,13 +146,13 @@ def renew(
 
                     # Renew specific domain certificate
                     with spinner(output, f"Renewing certificate for {domain}"):
-                        bench.ssl.renew_certificate(domain, dry_run=dry_run)
+                        bench.ssl.renew_certificate(domain, dry_run=dry_run, force=force)
                     if not dry_run:
                         output.print(f"Certificate renewed for {domain}", emoji_code=":white_check_mark:")
                 else:
                     # Renew all certificates for the bench
                     with spinner(output, f"Renewing certificates for {benchname}"):
-                        bench.ssl.renew_all_certificates(dry_run=dry_run)
+                        bench.ssl.renew_all_certificates(dry_run=dry_run, force=force)
             except (BenchSSLCertificateNotIssued, SSLCertificateNotDueForRenewalError) as e:
                 output.warning(e.message)
 
@@ -275,9 +280,7 @@ def add_certificate(
                 typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
-        _add_external_certificate(
-            ctx, actual_domain, challenge, cname, dry_run, skip_dns_check, wait_for_dns
-        )
+        _add_external_certificate(ctx, actual_domain, challenge, cname, dry_run, skip_dns_check, wait_for_dns)
     else:
         benchname = prompt_for_bench_selection(benchname)
 
@@ -670,7 +673,9 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, f
     # Confirm removal unless forced
     if not force:
         with temporary_stop(output):
-            choice = output.prompt_ask(prompt=f"Remove SSL certificate for {domain}?", choices=["yes", "no"], default="no")
+            choice = output.prompt_ask(
+                prompt=f"Remove SSL certificate for {domain}?", choices=["yes", "no"], default="no"
+            )
         if choice != "yes":
             output.print("Cancelled.", emoji_code=":x:")
             raise typer.Exit(0)
@@ -710,7 +715,9 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, force: bool):
     # Confirm removal unless forced
     if not force:
         with temporary_stop(output):
-            choice = output.prompt_ask(prompt=f"Remove SSL certificate for {domain}?", choices=["yes", "no"], default="no")
+            choice = output.prompt_ask(
+                prompt=f"Remove SSL certificate for {domain}?", choices=["yes", "no"], default="no"
+            )
         if choice != "yes":
             output.print("Cancelled.", emoji_code=":x:")
             raise typer.Exit(0)
@@ -889,6 +896,7 @@ def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
             try:
                 # Create silent output handler for internal bench detection
                 from frappe_manager.output_manager.silent_output import SilentOutputHandler
+
                 output = SilentOutputHandler()
                 bench = Bench.get_object(bench_name, services_manager, output_handler=output)
                 bench_domains.update(bench.bench_config.get_all_domains())
@@ -1021,7 +1029,7 @@ def _list_all_certificates(ctx: typer.Context):
             _list_bench_certificates(ctx, bench_name)
 
 
-def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool):
+def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool, force: bool = False):
     """Renew SSL certificate for a specific external domain."""
 
     services_manager = ctx.obj["services"]
@@ -1071,7 +1079,7 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool):
         )
 
         with spinner(output, f"Renewing certificate for {domain}"):
-            cert_manager.renew_certificate(domain=domain, dry_run=dry_run)
+            cert_manager.renew_certificate(domain=domain, dry_run=dry_run, force=force)
         output.print(f"Certificate renewal for {domain} completed", emoji_code=":white_check_mark:")
 
     except Exception as e:
@@ -1079,7 +1087,7 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool):
         raise typer.Exit(1)
 
 
-def _renew_all_external_certificates(ctx: typer.Context, dry_run: bool):
+def _renew_all_external_certificates(ctx: typer.Context, dry_run: bool, force: bool = False):
     """Renew all external domain SSL certificates."""
 
     services_manager = ctx.obj["services"]
@@ -1100,7 +1108,7 @@ def _renew_all_external_certificates(ctx: typer.Context, dry_run: bool):
     for domain_config in external_domains:
         domain = domain_config.domain
         try:
-            _renew_external_certificate(ctx, domain, dry_run)
+            _renew_external_certificate(ctx, domain, dry_run, force)
         except Exception as e:
             output.warning(f"Failed to renew {domain}: {e}")
 

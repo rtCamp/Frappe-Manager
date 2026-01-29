@@ -148,22 +148,22 @@ class AcmeShCertificateService:
     def _clear_cached_dns_credentials(self):
         """
         Clear cached DNS credentials from acme.sh account.conf.
-        
+
         When users update their Cloudflare API credentials in FM config, acme.sh may
         continue using old cached credentials from account.conf, causing authentication
         failures. This method removes cached DNS provider credentials while preserving
         all other acme.sh settings (ACME account configuration, CA preferences, etc.).
-        
+
         Credentials cleared:
         - SAVED_CF_Token: Cloudflare API Token
-        - SAVED_CF_Account_ID: Cloudflare Account ID  
+        - SAVED_CF_Account_ID: Cloudflare Account ID
         - SAVED_CF_Key: Cloudflare Global API Key (legacy)
         - SAVED_CF_Email: Email for Global API Key auth
         - SAVED_CF_Zone_ID: Zone ID (optional optimization)
-        
+
         This ensures acme.sh always uses fresh credentials from FM configuration
         instead of potentially stale/revoked cached values.
-        
+
         Note: This does NOT affect the ACME account key stored in ca/ directory,
         which is required for certificate management and renewals.
         """
@@ -171,12 +171,12 @@ class AcmeShCertificateService:
         if not account_conf.exists():
             self.output.debug("account.conf not found, skipping credential cache clear")
             return
-        
+
         try:
             # Read current configuration
             content = account_conf.read_text()
             lines = content.split('\n')
-            
+
             # Credential prefixes to remove (acme.sh uses SAVED_ prefix for mutable account config)
             stale_cred_prefixes = (
                 "SAVED_CF_Token=",
@@ -185,23 +185,20 @@ class AcmeShCertificateService:
                 "SAVED_CF_Email=",
                 "SAVED_CF_Zone_ID=",
             )
-            
+
             # Filter out credential lines, preserve everything else
             original_count = len(lines)
-            filtered_lines = [
-                line for line in lines 
-                if not line.startswith(stale_cred_prefixes)
-            ]
+            filtered_lines = [line for line in lines if not line.startswith(stale_cred_prefixes)]
             removed_count = original_count - len(filtered_lines)
-            
+
             # Write back filtered configuration
             account_conf.write_text('\n'.join(filtered_lines))
-            
+
             if removed_count > 0:
                 self.output.debug(f"Cleared {removed_count} cached DNS credential line(s) from account.conf")
             else:
                 self.output.debug("No cached DNS credentials found in account.conf")
-                
+
         except Exception as e:
             # Non-fatal: log warning but don't block certificate operations
             # Environment variables will still override cache if present
@@ -257,7 +254,7 @@ class AcmeShCertificateService:
                     exit_code = int(line.decode())
             return exit_code
 
-    def generate_certificate(self, certificate: SSLCertificate) -> Tuple[Path, Path]:
+    def generate_certificate(self, certificate: SSLCertificate, dry_run: bool = False) -> Tuple[Path, Path]:
         """
         Issue individual certificate using acme.sh.
 
@@ -265,6 +262,7 @@ class AcmeShCertificateService:
 
         Args:
             certificate: Certificate configuration
+            dry_run: If True, skips copying cert files to permanent location (staging only)
 
         Returns:
             Tuple of (privkey_path, fullchain_path)
@@ -277,7 +275,7 @@ class AcmeShCertificateService:
 
         use_staging = os.getenv("FM_LETSENCRYPT_STAGING", "").lower() in ("1", "true", "yes")
         if use_staging:
-            self.output.print("[yellow]⚠️  Using Let's Encrypt STAGING server (test certificates)[/yellow]")
+            self.output.print("[yellow]Using Let's Encrypt STAGING server (test certificates)[/yellow]", emoji_code="⚠️ ")
 
         ca_server = LETSENCRYPT_STAGING_SERVER if use_staging else LETSENCRYPT_PRODUCTION_SERVER
 
@@ -290,9 +288,9 @@ class AcmeShCertificateService:
             "--server",
             ca_server,
             "--force",
+            "--debug",
+            "2",
         ]
-
-        args.append("--debug 2")
 
         env = {}
 
@@ -342,6 +340,11 @@ class AcmeShCertificateService:
             self.output.display_error(error_msg)
             raise SSLCertificateNotFoundError(certificate.domain)
 
+        if dry_run:
+            self.output.print(f"[green]Certificate generated successfully (staging) for {certificate.domain}[/green]")
+            self.output.print(f"[yellow]Skipped: Copying certificate files (dry run)[/yellow]", emoji_code="⏭️ ")
+            return (key_path, fullchain_path)
+
         dest_dir = self.root_dir / certificate.domain
         dest_dir.mkdir(parents=True, exist_ok=True)
 
@@ -355,12 +358,13 @@ class AcmeShCertificateService:
         self.output.print(f"Certificate generated successfully for {certificate.domain}")
         return (dest_key, dest_fullchain)
 
-    def renew_certificate(self, certificate: SSLCertificate) -> bool:
+    def renew_certificate(self, certificate: SSLCertificate, dry_run: bool = False) -> bool:
         """
         Renew certificate using acme.sh.
 
         Args:
             certificate: Certificate to renew
+            dry_run: If True, skips copying cert files to permanent location (staging only)
 
         Returns:
             True if renewal succeeded, False otherwise
@@ -372,7 +376,7 @@ class AcmeShCertificateService:
 
         use_staging = os.getenv("FM_LETSENCRYPT_STAGING", "").lower() in ("1", "true", "yes")
         if use_staging:
-            self.output.print("[yellow]⚠️  Using Let's Encrypt STAGING server for renewal (test certificates)[/yellow]")
+            self.output.print("[yellow]Using Let's Encrypt STAGING server for renewal (test certificates)[/yellow]", emoji_code="⚠️ ")
 
         ca_server = LETSENCRYPT_STAGING_SERVER if use_staging else LETSENCRYPT_PRODUCTION_SERVER
 
@@ -404,7 +408,14 @@ class AcmeShCertificateService:
         key_path = cert_dir / f"{certificate.domain}.key"
 
         if fullchain_path.exists() and key_path.exists():
+            if dry_run:
+                self.output.print(f"[green]Certificate renewed successfully (staging) for {certificate.domain}[/green]")
+                self.output.print(f"[yellow]Skipped: Copying certificate files (dry run)[/yellow]", emoji_code="⏭️ ")
+                return True
+
             dest_dir = self.root_dir / certificate.domain
+            dest_dir.mkdir(parents=True, exist_ok=True)
+
             dest_key = dest_dir / "key.pem"
             dest_fullchain = dest_dir / "fullchain.pem"
 
