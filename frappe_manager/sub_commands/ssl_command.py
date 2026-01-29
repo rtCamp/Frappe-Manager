@@ -669,8 +669,8 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, f
 
     # Confirm removal unless forced
     if not force:
-        output.stop()
-        choice = output.prompt_ask(prompt=f"Remove SSL certificate for {domain}?", choices=["yes", "no"], default="no")
+        with temporary_stop(output):
+            choice = output.prompt_ask(prompt=f"Remove SSL certificate for {domain}?", choices=["yes", "no"], default="no")
         if choice != "yes":
             output.print("Cancelled.", emoji_code=":x:")
             raise typer.Exit(0)
@@ -709,8 +709,8 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, force: bool):
 
     # Confirm removal unless forced
     if not force:
-        output.stop()
-        choice = output.prompt_ask(prompt=f"Remove SSL certificate for {domain}?", choices=["yes", "no"], default="no")
+        with temporary_stop(output):
+            choice = output.prompt_ask(prompt=f"Remove SSL certificate for {domain}?", choices=["yes", "no"], default="no")
         if choice != "yes":
             output.print("Cancelled.", emoji_code=":x:")
             raise typer.Exit(0)

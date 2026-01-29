@@ -35,19 +35,19 @@ def needs_system_migration(fm_config_manager: FMConfigManager) -> bool:
 def get_benches_needing_migration(benches_directory: Path, current_version: Version) -> list[str]:
     from frappe_manager.migration_manager.bench_migration_state import bench_needs_migration
     from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME
-    
+
     needs_migration_list = []
-    
+
     if not benches_directory.exists():
         return needs_migration_list
-    
+
     for bench_path in benches_directory.iterdir():
         if bench_path.is_dir():
             bench_config = bench_path / CLI_BENCH_CONFIG_FILE_NAME
             if bench_config.exists():
                 if bench_needs_migration(bench_path, current_version):
                     needs_migration_list.append(bench_path.name)
-    
+
     return needs_migration_list
 
 
@@ -89,52 +89,52 @@ class MigrationExecutor:
 
     def _get_minimum_bench_version(self) -> Version:
         """Get the minimum migration version across all target benches.
-        
+
         Returns the lowest version that needs migration. This is used to determine
         which migration classes need to be loaded.
         """
         if not self.target_benches:
             return self.current_version
-        
+
         benches_manager = MigrationBenches(CLI_BENCHES_DIRECTORY)
         all_benches = benches_manager.get_all_benches()
         min_version = self.current_version
-        
+
         for bench_name, bench_path in all_benches.items():
             if bench_name not in self.target_benches:
                 continue
-            
+
             if bench_name in self.exclude_benches:
                 continue
-            
+
             bench_version = get_bench_migration_version(bench_path.parent)
-            
+
             # If bench has lower version than current minimum, update it
             # This includes 0.0.0 versions (benches without migration_state)
             if bench_version < min_version:
                 min_version = bench_version
-        
+
         return min_version
 
     def _check_benches_need_migration(self) -> bool:
         """Check if any benches need migration to current version."""
         if not self.target_benches:
             return False
-        
+
         benches_manager = MigrationBenches(CLI_BENCHES_DIRECTORY)
         all_benches = benches_manager.get_all_benches()
-        
+
         for bench_name, bench_path in all_benches.items():
             if bench_name not in self.target_benches:
                 continue
-            
+
             if bench_name in self.exclude_benches:
                 continue
-            
+
             bench_version = get_bench_migration_version(bench_path.parent)
             if bench_version < self.current_version:
                 return True
-        
+
         return False
 
     def execute(self):
@@ -208,29 +208,35 @@ class MigrationExecutor:
         if self.migrations:
             # Show what will be migrated
             if system_needs_migration:
-                self.output.print(f"System: [yellow]v{self.prev_version}[/yellow] → [green]v{self.current_version}[/green]", emoji_code="")
-            
+                self.output.print(
+                    f"System: [yellow]v{self.prev_version}[/yellow] → [green]v{self.current_version}[/green]",
+                    emoji_code="",
+                )
+
             if benches_need_migration and self.target_benches:
                 benches_manager = MigrationBenches(CLI_BENCHES_DIRECTORY)
                 all_benches = benches_manager.get_all_benches()
-                
+
                 for bench_name in self.target_benches:
                     if bench_name in self.exclude_benches:
                         continue
-                    
+
                     if bench_name in all_benches:
                         bench_path = all_benches[bench_name].parent
                         bench_version = get_bench_migration_version(bench_path)
-                        
+
                         if bench_version < self.current_version:
-                            self.output.print(f"{bench_name}: [yellow]v{bench_version}[/yellow] → [green]v{self.current_version}[/green]", emoji_code="")
-            
+                            self.output.print(
+                                f"{bench_name}: [yellow]v{bench_version}[/yellow] → [green]v{self.current_version}[/green]",
+                                emoji_code="",
+                            )
+
             self.output.print("", emoji_code="")
-            
+
             self.output.print("Migration versions:", emoji_code="")
             for migration in self.migrations:
                 self.output.print(f"  • v{migration.version}", emoji_code="")
-            
+
             self.output.print("", emoji_code="")
             self.output.print("This process may take a while.", emoji_code="")
             self.output.print(
@@ -239,14 +245,34 @@ class MigrationExecutor:
             )
 
             self.output.print("", emoji_code="")
-            
+
+            if self.target_benches:
+                benches_manager = MigrationBenches(CLI_BENCHES_DIRECTORY)
+                all_benches = benches_manager.get_all_benches()
+                running = []
+                for bench_name in self.target_benches:
+                    if bench_name in all_benches:
+                        bench_path = all_benches[bench_name].parent
+                        bench = MigrationBench(bench_name, bench_path)
+                        if bench.running or bench.workers_running:
+                            running.append(bench_name)
+                if running:
+                    self.output.print("")
+                    self.output.warning(
+                        f"The following target benches are currently running and will be restarted (containers recreated) during migration: {', '.join(running)}"
+                    )
+                    self.output.print(
+                        "If you'd prefer no disruption, stop these benches (fm stop <bench>) and re-run migration."
+                    )
+                    self.output.print("")
+
             if not self.force:
                 continue_migration = self.output.prompt_ask(
                     prompt="Do you want to proceed?",
                     choices=[
                         {"name": "yes - Start migration", "value": "yes"},
-                        {"name": "no - Abort and revert to previous fm version", "value": "no"}
-                    ]
+                        {"name": "no - Abort and revert to previous fm version", "value": "no"},
+                    ],
                 )
             else:
                 continue_migration = "yes"
@@ -254,7 +280,9 @@ class MigrationExecutor:
 
             if continue_migration == "no":
                 self.output.print("", emoji_code="")
-                self.output.print(f"Migration aborted. To revert to v{str(self.prev_version.version)}, run:", emoji_code="")
+                self.output.print(
+                    f"Migration aborted. To revert to v{str(self.prev_version.version)}, run:", emoji_code=""
+                )
                 self.output.print(f"  uv tool install frappe-manager=={str(self.prev_version.version)}", emoji_code="")
                 self.output.print("", emoji_code="")
                 return False
@@ -352,7 +380,7 @@ class MigrationExecutor:
                     r'[blue][no][/blue] Revert migration : Restore the FM CLI and FM environment to the last successfully completed migration version for all benches.',
                     '\nDo you wish to archive all benches that failed during migration ?',
                 ]
-                
+
                 if not self.force:
                     archive = self.output.prompt_ask(prompt="\n".join(archive_msg), choices=["yes", "no"])
                 else:
@@ -416,10 +444,10 @@ class MigrationExecutor:
         from frappe_manager.services_manager.services import ServicesManager
         from frappe_manager.output_manager.silent_output import SilentOutputHandler
         from frappe_manager.output_manager.context_managers import temporary_stop
-        
+
         try:
             services_manager = ServicesManager(output_handler=SilentOutputHandler())
-            
+
             if not services_manager.path.exists():
                 with temporary_stop(self.output):
                     self.output.print("Global services not initialized. Creating...", emoji_code=":construction:")
@@ -427,12 +455,12 @@ class MigrationExecutor:
                     services_manager.entrypoint_checks(start=True)
                     self.output.print("Global services started successfully", emoji_code=":white_check_mark:")
                 return
-            
+
             services_manager.init()
-            
+
             services_list = services_manager.compose_file_manager.get_services_list()
             all_running = all(services_manager.is_service_running(svc) for svc in services_list)
-            
+
             if not all_running:
                 with temporary_stop(self.output):
                     self.output.print("Global services not running. Starting them now...", emoji_code=":construction:")
@@ -445,7 +473,7 @@ class MigrationExecutor:
                     "Warning: Could not verify/start global services. "
                     "Migration may fail if services are not running. "
                     "Try manually: fm services start",
-                    emoji_code=":warning:"
+                    emoji_code=":warning:",
                 )
 
     def rollback(self):

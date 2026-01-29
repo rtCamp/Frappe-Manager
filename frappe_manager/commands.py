@@ -76,8 +76,7 @@ def check_bench_migration_required(bench_name: Optional[str]) -> None:
     current_version = Version(get_current_fm_version())
     
     if bench_needs_migration(bench_path, current_version):
-        if richprint.live:
-            richprint.live.stop()
+        richprint.stop()
 
         bench_path = CLI_BENCHES_DIRECTORY / bench_name
         from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
@@ -215,16 +214,14 @@ def app_callback(
             
             if needs_system_migration(fm_config_manager):
                 if invoked_command not in allowed_without_system:
-                    if richprint.live:
-                        richprint.live.stop()
+                    richprint.stop()
 
                     system_version = fm_config_manager.get_system_migration_version()
                     fm_version = Version(get_current_fm_version())
                     richprint.warning(f"System migration required: v{system_version} → v{fm_version}\n", emoji_code="")
                     richprint.print("System migration is required to update Docker images and global services.", emoji_code="")
                     richprint.print("Bench migrations are optional and can be done individually.\n", emoji_code="")
-                    richprint.print("Required: [cyan]fm migrate --system[/cyan]", emoji_code="")
-                    richprint.print("Optional: [cyan]fm migrate --system --all-benches[/cyan] (migrate system + all benches)\n", emoji_code="")
+                    richprint.print("Please see help for fm migrate command: fm migrate --help")
                     raise typer.Exit(0)
 
             services_manager: ServicesManager = ServicesManager(
@@ -1361,7 +1358,7 @@ def migrate(
             migrate_system=system,
         )
         
-        with temporary_stop(richprint.live):
+        with temporary_stop(richprint):  # type: ignore[arg-type]  # DisplayManager duck types as OutputHandler
             migration_status = migrations.execute()
         
         if not migration_status:
