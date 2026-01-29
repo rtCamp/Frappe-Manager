@@ -877,7 +877,11 @@ def update(
             output.change_head(f"Switching bench environment to {environment.value}")
             bench.bench_config.environment_type = environment
 
-            bench.generate_compose(bench.bench_config.export_to_compose_inputs())
+            compose_inputs = bench.bench_config.export_to_compose_inputs()
+            compose_inputs.setdefault('environment', {}).setdefault('frappe', {})
+            compose_inputs['environment']['frappe']['FRAPPE_ENV'] = environment.value
+
+            bench.generate_compose(compose_inputs)
 
             output.print("Recreating containers to apply environment change..")
             bench.docker_client.compose.up(detach=True, force_recreate=True)
@@ -891,8 +895,8 @@ def update(
                 output.change_head(f"Updating restart policy from '{old_policy}' to '{restart.value}'")
 
                 if restart == RestartPolicyEnum.no and bench.bench_config.environment_type == FMBenchEnvType.prod:
-                    output.warning("⚠️  Setting restart policy to 'no' on production bench")
-                    output.warning("    Containers will not auto-recover from failures or system reboots")
+                    output.warning("Setting restart policy to 'no' on production bench")
+                    output.warning("Containers will not auto-recover from failures or system reboots")
 
                 bench.bench_config.restart_policy = restart
                 bench.generate_compose(bench.bench_config.export_to_compose_inputs())
@@ -997,7 +1001,7 @@ def update(
                             output.display_error(f"❌ {error_msg}")
                             suggested = parse_python_version_for_runtime(frappe_python_req)
                             if suggested:
-                                output.print(f"💡 Hint: Try --python {suggested}")
+                                output.print(f"Hint: Try --python {suggested}", emoji_code="💡 ")
                             output.print("Use --skip-version-check to bypass this validation (not recommended)")
                             raise typer.Exit(code=1)
 
@@ -1031,7 +1035,7 @@ def update(
 
                             suggested = parse_node_version_for_runtime(frappe_node_req)
                             if suggested:
-                                output.print(f"💡 Hint: Try --node {suggested}")
+                                output.print(f"Hint: Try --node {suggested}", emoji_code="💡 ")
                             output.print("Use --skip-version-check to bypass this validation (not recommended)")
                             raise typer.Exit(code=1)
 
@@ -1109,9 +1113,7 @@ def reset(
     check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
-    verbose = ctx.obj['verbose']
 
-    # Create output handler with context for logging
     context = LoggerContext(bench=benchname, operation="reset")
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)

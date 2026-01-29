@@ -326,12 +326,12 @@ fi
                         if self._node_version_satisfies_requirement(current_major, node_version_requirement):
                             if frappe_node_req:
                                 self.output.print(
-                                    f"✓ Node {current_major} already satisfies {node_version_requirement} "
+                                    f"Node {current_major} already satisfies {node_version_requirement} "
                                     f"(Frappe requires: {frappe_node_req}) - skipping installation"
                                 )
                             else:
                                 self.output.print(
-                                    f"✓ Node {current_major} already satisfies {node_version_requirement} - skipping installation"
+                                    f"Node {current_major} already satisfies {node_version_requirement} - skipping installation"
                                 )
                             node_version_requirement = None
                         else:

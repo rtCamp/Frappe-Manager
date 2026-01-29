@@ -569,7 +569,6 @@ class BenchOrchestrator:
             self._restart_services_with_updated_config()
 
             if added_domains:
-                self.output.print("")
                 self.output.print("To add SSL certificates for new alias domains, use:", emoji_code="")
                 for domain in added_domains:
                     self.output.print(f"  fm ssl add {bench.name} {domain}", emoji_code="")
