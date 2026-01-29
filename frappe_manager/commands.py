@@ -30,7 +30,12 @@ from frappe_manager.docker import DockerClient
 from frappe_manager.logger import log
 from frappe_manager.logger.context import LoggerContext
 from frappe_manager.services_manager.services import ServicesManager
-from frappe_manager.migration_manager.migration_executor import MigrationExecutor, needs_migration, needs_system_migration, get_benches_needing_migration
+from frappe_manager.migration_manager.migration_executor import (
+    MigrationExecutor,
+    needs_migration,
+    needs_system_migration,
+    get_benches_needing_migration,
+)
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import (
     apps_list_validation_callback,
@@ -64,29 +69,31 @@ app.add_typer(ssl_root_command, name="ssl", help="Perform operations related to 
 
 def check_bench_migration_required(bench_name: Optional[str]) -> None:
     from frappe_manager.migration_manager.bench_migration_state import bench_needs_migration
-    
+
     if not bench_name:
         return
-    
+
     bench_path = CLI_BENCHES_DIRECTORY / bench_name
-    
+
     if not bench_path.exists():
         return
-    
+
     current_version = Version(get_current_fm_version())
-    
+
     if bench_needs_migration(bench_path, current_version):
         richprint.stop()
 
         bench_path = CLI_BENCHES_DIRECTORY / bench_name
         from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
+
         bench_version = get_bench_migration_version(bench_path)
         fm_version = Version(get_current_fm_version())
-        
+
         richprint.warning(f"Bench migration required: {bench_name} (v{bench_version} → v{fm_version})\n", emoji_code="")
         richprint.print("Bench migration updates configuration and applies necessary changes.\n", emoji_code="")
         richprint.print(f"Run: [cyan]fm migrate {bench_name}[/cyan]\n", emoji_code="")
         raise typer.Exit(0)
+
 
 def get_output_handler(ctx: typer.Context, context: Optional[LoggerContext] = None) -> OutputHandler:
     """
@@ -211,7 +218,7 @@ def app_callback(
 
             invoked_command = ctx.invoked_subcommand or "no-command"
             allowed_without_system = ["migrate", "version", "self", "stop", "delete"]
-            
+
             if needs_system_migration(fm_config_manager):
                 if invoked_command not in allowed_without_system:
                     richprint.stop()
@@ -219,7 +226,9 @@ def app_callback(
                     system_version = fm_config_manager.get_system_migration_version()
                     fm_version = Version(get_current_fm_version())
                     richprint.warning(f"System migration required: v{system_version} → v{fm_version}\n", emoji_code="")
-                    richprint.print("System migration is required to update Docker images and global services.", emoji_code="")
+                    richprint.print(
+                        "System migration is required to update Docker images and global services.", emoji_code=""
+                    )
                     richprint.print("Bench migrations are optional and can be done individually.\n", emoji_code="")
                     richprint.print("Please see help for fm migrate command: fm migrate --help")
                     raise typer.Exit(0)
@@ -233,7 +242,7 @@ def app_callback(
 
             # Don't start services for migrate command (migration handles its own service lifecycle)
             should_start_services = invoked_command != "migrate"
-            
+
             try:
                 services_manager.entrypoint_checks(start=should_start_services)
             except ServicesNotCreated as e:
@@ -409,9 +418,10 @@ def create(
     # Validate repositories exist BEFORE creating any infrastructure
     # This prevents failed bench creation due to invalid repos
     if apps:
-        output.info("Validating app repositories..")
         apps_config = bench_config.get_apps_config()
-        valid, errors = AppCloner.validate_repos_exist(apps_config, github_token)
+
+        with spinner(output, f"Validating {len(apps_config)} app repositories"):
+            valid, errors = AppCloner.validate_repos_exist(apps_config, github_token)
 
         if not valid:
             output.display_error("Repository validation failed:")
@@ -524,7 +534,7 @@ def start(
         fm start mybench --force
         fm start mybench --sync-config
     """
-    
+
     check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
@@ -559,7 +569,7 @@ def stop(
     ] = None,
 ):
     """Stop a bench."""
-    
+
     check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
@@ -569,7 +579,7 @@ def stop(
     context = LoggerContext(bench=benchname, operation="stop")
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
-    
+
     with spinner(output, f"Stopping {benchname}"):
         bench.stop()
 
@@ -601,7 +611,7 @@ def code(
     ] = '/workspace/frappe-bench',
 ):
     """Open bench in vscode."""
-    
+
     check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
@@ -631,7 +641,7 @@ def logs(
     follow: Annotated[bool, typer.Option("--follow", "-f", help="Follow logs in real-time")] = False,
 ):
     """Show bench logs (server or container)"""
-    
+
     check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
@@ -673,7 +683,7 @@ def shell(
     Supports interactive shell mode and command execution mode (use -c or -- syntax).
     Exit code from the executed command is preserved for scripting.
     """
-    
+
     check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
@@ -724,7 +734,7 @@ def info(
     ] = None,
 ):
     """Show bench information and configuration"""
-    
+
     check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
@@ -915,7 +925,10 @@ def update(
                 output.print("Enabled Admin-tools")
 
             elif admin_tools == EnableDisableOptionsEnum.disable:
-                if not bench.admin_tools.compose_file_manager.compose_path.exists() or not bench.bench_config.admin_tools:
+                if (
+                    not bench.admin_tools.compose_file_manager.compose_path.exists()
+                    or not bench.bench_config.admin_tools
+                ):
                     output.print("Admin tools is already disabled")
                     return
                 else:
@@ -973,7 +986,9 @@ def update(
                 if frappe_app_path.exists():
                     frappe_python_req = extract_python_version_requirement(frappe_app_path)
                     if frappe_python_req and not skip_version_check:
-                        is_compatible, error_msg = validate_python_version_compatibility(python_version, frappe_python_req)
+                        is_compatible, error_msg = validate_python_version_compatibility(
+                            python_version, frappe_python_req
+                        )
                         if not is_compatible:
                             output.change_head("Python version validation failed")
                             output.print(f"Python: {old_python} -> {python_version}")
@@ -997,7 +1012,7 @@ def update(
                             suggested = parse_python_version_for_runtime(frappe_python_req)
                             if suggested:
                                 output.warning(f" Consider using --python {suggested} instead")
-                
+
                 bench_config_save = True
 
             if node_version:
@@ -1012,7 +1027,7 @@ def update(
                             output.print(f"Node: {old_node} -> {node_version}")
                             output.print(f"Frappe requires: {frappe_node_req}")
                             output.display_error(f"❌ {error_msg}")
-                            
+
                             suggested = parse_node_version_for_runtime(frappe_node_req)
                             if suggested:
                                 output.print(f"💡 Hint: Try --node {suggested}")
@@ -1031,7 +1046,7 @@ def update(
                             suggested = parse_node_version_for_runtime(frappe_node_req)
                             if suggested:
                                 output.warning(f" Consider using --node {suggested} instead")
-                
+
                 bench_config_save = True
 
             bench.save_bench_config()
@@ -1086,7 +1101,7 @@ def reset(
     ] = None,
 ):
     """Drop database and reinstall all apps"""
-    
+
     check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
@@ -1096,7 +1111,7 @@ def reset(
     context = LoggerContext(bench=benchname, operation="reset")
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
-    
+
     with spinner(output, f"Resetting {benchname}"):
         bench.reset(admin_pass)
 
@@ -1149,7 +1164,7 @@ def restart(
     ] = False,
 ):
     """Restart bench services (web, workers, redis, nginx)"""
-    
+
     check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
@@ -1277,41 +1292,41 @@ def migrate(
 ):
     """
     Migrate Frappe Manager to current version.
-    
+
     Migration operates at two levels:
     - System: FM config and global services (use --system)
     - Benches: Individual bench environments (specify explicitly)
     """
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
-    
+
     if benchname and all_benches:
         richprint.error("Cannot specify both <benchname> and --all-benches")
         richprint.stop()
         typer.echo(ctx.get_help())
         raise typer.Exit(1)
-    
+
     if exclude_bench and not all_benches:
         richprint.error("--exclude-bench can only be used with --all-benches")
         richprint.stop()
         typer.echo(ctx.get_help())
         raise typer.Exit(1)
-    
+
     if not system and not benchname and not all_benches:
         # Show help when no migration target specified
         richprint.stop()
         typer.echo(ctx.get_help())
         raise typer.Exit(0)
-    
+
     current_version = Version(get_current_fm_version())
-    
+
     skip_backup_list = []
     if skip_backup_for:
         skip_backup_list = [b.strip() for b in skip_backup_for.split(",")]
-    
+
     exclude_bench_list = []
     if exclude_bench:
         exclude_bench_list = [b.strip() for b in exclude_bench.split(",")]
-    
+
     target_benches = None
     if benchname:
         bench_path = CLI_BENCHES_DIRECTORY / benchname
@@ -1326,19 +1341,19 @@ def migrate(
                 if bench_path.is_dir() and (bench_path / CLI_BENCH_CONFIG_FILE_NAME).exists():
                     if bench_path.name not in exclude_bench_list:
                         target_benches.append(bench_path.name)
-    
+
     # Track what was checked and what happened
     from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
-    
+
     system_checked = system
     system_version = fm_config_manager.get_system_migration_version()
     system_needed_migration = system and system_version < current_version
-    
+
     benches_checked = []
     benches_migrated = []
     benches_skipped = []
     benches_failed = []
-    
+
     if system_needed_migration or (target_benches is not None and len(target_benches) > 0):
         # Check each bench version before migration
         if target_benches:
@@ -1347,7 +1362,7 @@ def migrate(
                 if bench_path.exists():
                     bench_version = get_bench_migration_version(bench_path)
                     benches_checked.append((bench_name, bench_version))
-        
+
         migrations = MigrationExecutor(
             fm_config_manager,
             skip_backup=skip_backup,
@@ -1357,16 +1372,17 @@ def migrate(
             target_benches=target_benches,
             migrate_system=system,
         )
-        
+
         with temporary_stop(richprint):  # type: ignore[arg-type]  # DisplayManager duck types as OutputHandler
             migration_status = migrations.execute()
-        
+
         if not migration_status:
             richprint.print(f"Rolled back to previous version of fm {migrations.prev_version}")
             raise typer.Exit(1)
-        
+
         if target_benches:
             from frappe_manager.migration_manager.bench_migration_state import set_bench_migration_version
+
             for bench_name in target_benches:
                 if bench_name in migrations.migrate_benches:
                     bench_data = migrations.migrate_benches[bench_name]
@@ -1380,40 +1396,49 @@ def migrate(
                 else:
                     # Bench was skipped (already at target version)
                     benches_skipped.append(bench_name)
-        
+
         if system_needed_migration:
             fm_config_manager.set_system_migration_version(current_version)
             fm_config_manager.export_to_toml()
-    
+
     # Show clean, aligned output using borderless table
     from rich.table import Table
     from rich import box
-    
+
     if system_checked or benches_checked:
         table = Table(show_header=False, box=None, padding=(0, 2, 0, 0))
-        
+
         if system_checked:
             if system_needed_migration:
-                table.add_row("✅", "[cyan]System[/cyan]", f"[yellow]v{system_version}[/yellow] → [green]v{current_version}[/green]")
+                table.add_row(
+                    "✅",
+                    "[cyan]System[/cyan]",
+                    f"[yellow]v{system_version}[/yellow] → [green]v{current_version}[/green]",
+                )
             else:
                 table.add_row("⏭️ ", "[cyan]System[/cyan]", f"[yellow]v{system_version}[/yellow] (already up to date)")
-        
+
         if benches_migrated:
             for bench_name in benches_migrated:
                 orig_version = next((v for n, v in benches_checked if n == bench_name), None)
-                table.add_row("✅", f"[cyan]{bench_name}[/cyan]", f"[yellow]v{orig_version}[/yellow] → [green]v{current_version}[/green]")
-        
+                table.add_row(
+                    "✅",
+                    f"[cyan]{bench_name}[/cyan]",
+                    f"[yellow]v{orig_version}[/yellow] → [green]v{current_version}[/green]",
+                )
+
         if benches_skipped:
             for bench_name in benches_skipped:
                 orig_version = next((v for n, v in benches_checked if n == bench_name), None)
-                table.add_row("⏭️ ", f"[cyan]{bench_name}[/cyan]", f"[yellow]v{orig_version}[/yellow] (already up to date)")
-        
+                table.add_row(
+                    "⏭️ ", f"[cyan]{bench_name}[/cyan]", f"[yellow]v{orig_version}[/yellow] (already up to date)"
+                )
+
         if benches_failed:
             for bench_name in benches_failed:
                 table.add_row("❌", f"[cyan]{bench_name}[/cyan]", "[red]Migration failed[/red]")
-        
+
         richprint.stdout.print(table)
-        
+
         if benches_failed:
             richprint.error("Check logs for details", emoji_code=":warning:")
-

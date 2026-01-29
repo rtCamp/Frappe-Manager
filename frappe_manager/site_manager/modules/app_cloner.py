@@ -430,83 +430,67 @@ class AppCloner:
         """
         errors = []
 
-        for app in apps:
-            # Build list of URLs to try (same order as cloning)
+        def validate_single(app):
             urls_to_try = []
-
             if app.repo_url:
-                # Custom URL provided
                 urls_to_try.append(("Custom URL", app.repo_url))
             else:
-                # Try multiple authentication methods
                 urls_to_try.append(("HTTPS", f"https://github.com/{app.repo}.git"))
                 if github_token:
                     urls_to_try.append(("Token", f"https://{github_token}@github.com/{app.repo}.git"))
                 urls_to_try.append(("SSH", f"git@github.com:{app.repo}.git"))
 
-            # Try each authentication method
             last_error = None
-            validated = False
-
             for method_name, url in urls_to_try:
                 try:
-                    # Use ls-remote to check if repo exists and ref is valid
-                    cmd = ["git", "ls-remote", "--heads", "--tags", url]
-                    if app.ref:
-                        # Check if specific ref exists
-                        cmd.extend([app.ref])
+                    if app.is_commit:
+                        cmd = ["git", "ls-remote", url, "HEAD"]
+                    else:
+                        cmd = ["git", "ls-remote", "--heads", "--tags", url]
+                        if app.ref:
+                            cmd.extend([app.ref])
 
-                    result = subprocess.run(
-                        cmd,
-                        capture_output=True,
-                        text=True,
-                        timeout=10,  # 10 second timeout per method (faster validation)
-                    )
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
 
                     if result.returncode == 0:
-                        # Check if ref exists (if specified)
-                        if app.ref and not result.stdout:
+                        if app.is_commit:
+                            if result.stdout:
+                                app.repo_url = url
+                                return (app, None)
+                            last_error = "Repository exists but appears empty or inaccessible"
+                        elif app.ref and not result.stdout:
                             last_error = f"Branch/tag '{app.ref}' not found"
-                            continue
-                        # Success! Repo is accessible
-                        # Cache the working URL in the AppConfig for later use during cloning
-                        app.repo_url = url
-                        validated = True
-                        break
+                        else:
+                            app.repo_url = url
+                            return (app, None)
                     else:
-                        # Failed, save error and try next method
                         last_error = result.stderr.strip()
-                        continue
-
                 except subprocess.TimeoutExpired:
                     last_error = "Timeout while checking repository (network issue?)"
-                    continue
                 except FileNotFoundError:
-                    errors.append("❌ Git is not installed or not in PATH")
-                    return (False, errors)  # Fatal error, can't continue
+                    return (app, "❌ Git is not installed or not in PATH")
                 except Exception as e:
                     last_error = str(e)
-                    continue
 
-            # If none of the methods worked, add error
-            if not validated:
-                if last_error and "not found" in last_error.lower():
-                    errors.append(f"❌ {app.repo}: Repository not found on GitHub.")
-                elif last_error and app.ref and "branch/tag" in last_error.lower():
-                    errors.append(
-                        f"❌ {app.repo}: Branch/tag '{app.ref}' not found. "
-                        f"Check the branch name or use a valid tag/commit."
-                    )
-                elif github_token:
-                    errors.append(
-                        f"❌ {app.repo}: Could not access repository with any authentication method. "
-                        f"Last error: {last_error}"
-                    )
-                else:
-                    errors.append(
-                        f"❌ {app.repo}: Could not access repository. "
-                        f"Repo may be private (use --github-token or configure SSH keys). "
-                        f"Last error: {last_error}"
-                    )
+            if last_error and "not found" in last_error.lower():
+                error_msg = f"❌ {app.repo}: Repository not found on GitHub."
+            elif last_error and app.ref and "branch/tag" in last_error.lower():
+                error_msg = (
+                    f"❌ {app.repo}: Branch/tag '{app.ref}' not found. Check the branch name or use a valid tag/commit."
+                )
+            elif github_token:
+                error_msg = f"❌ {app.repo}: Could not access repository with any authentication method. Last error: {last_error}"
+            else:
+                error_msg = f"❌ {app.repo}: Could not access repository. Repo may be private (use --github-token or configure SSH keys). Last error: {last_error}"
+            return (app, error_msg)
+
+        with ThreadPoolExecutor(max_workers=min(10, len(apps))) as executor:
+            futures = [executor.submit(validate_single, app) for app in apps]
+            for future in as_completed(futures):
+                app, error = future.result()
+                if error:
+                    errors.append(error)
+                    if "Git is not installed" in error:
+                        return (False, errors)
 
         return (len(errors) == 0, errors)
