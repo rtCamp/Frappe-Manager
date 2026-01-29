@@ -158,13 +158,14 @@ class BenchAppManager:
 
         if python_version_requirement:
             self.output.change_head(f"Checking Python version compatibility")
-            
+
             from frappe_manager.site_manager.bench_config import extract_python_version_requirement
+
             frappe_app_path = self.bench_config.root_path / "workspace" / "frappe-bench" / "apps" / "frappe"
             frappe_python_req = None
             if frappe_app_path.exists():
                 frappe_python_req = extract_python_version_requirement(frappe_app_path)
-            
+
             try:
                 check_current_version_cmd = "/workspace/frappe-bench/env/bin/python --version"
                 result = self._container_run(
@@ -298,13 +299,14 @@ fi
         node_version_requirement = self.bench_config.node_version
         if node_version_requirement:
             self.output.change_head(f"Checking Node version compatibility")
-            
+
             from frappe_manager.site_manager.bench_config import extract_node_version_requirement
+
             frappe_app_path = self.bench_config.root_path / "workspace" / "frappe-bench" / "apps" / "frappe"
             frappe_node_req = None
             if frappe_app_path.exists():
                 frappe_node_req = extract_node_version_requirement(frappe_app_path)
-            
+
             try:
                 check_current_node_cmd = "node --version"
                 result = self._container_run(
@@ -551,14 +553,14 @@ fi
                 return
             except Exception as uv_error:
                 self.logger.debug(f"UV installation failed, attempting pip fallback: {uv_error}")
-                
+
                 try:
                     install_cmd = " ".join(self.bench_cli_cmd + ["setup", "requirements", "--python"])
                     self._container_run(install_cmd, use_run=use_run)
                     self.output.warning("UV installation failed, successfully fell back to pip")
                 except Exception:
                     raise
-                
+
                 return
 
         install_cmd = " ".join(self.bench_cli_cmd + ["setup", "requirements", "--python"])
@@ -717,9 +719,9 @@ fi
         site_name: Optional[str] = None,
     ) -> None:
         """
-        Install all available apps to a site.
+        Install all available apps to a site in the order specified in bench_config.
 
-        Installs all apps found in the apps directory to the specified site.
+        Installs apps in the same order as provided by the user to respect dependencies.
 
         Args:
             site_name: Site name. Defaults to bench_name.
@@ -730,10 +732,11 @@ fi
         if site_name is None:
             site_name = self.bench_name
 
-        for app in self.get_installed_apps_list():
-            self.output.change_head(f"Installing app {app.name} in site")
-            self.install_app_to_site(app.name, site_name)
-            self.output.print(f"Installed app {app.name} in site")
+        for app_dict in self.bench_config.apps_list:
+            app_name = app_dict['app'].split('/')[-1]
+            self.output.change_head(f"Installing app {app_name} in site")
+            self.install_app_to_site(app_name, site_name)
+            self.output.print(f"Installed app {app_name} in site")
 
     def build(self, app_list: Optional[List[str]] = None, use_run: bool = False) -> None:
         """

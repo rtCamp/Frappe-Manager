@@ -84,13 +84,19 @@ class BenchOrchestrator:
             - Verify bench server responding
 
         Phase 4: Create Site
-            - Create site in running container
-            - Install apps to site
+            - Create empty site in running container (no apps installed yet)
+            - Set admin password and sync config
 
         Phase 5: Finalize
             - Setup workers
+            - Set migration state
             - Save config
-            - Final verification
+            - Verify infrastructure
+
+        Phase 6: Install Apps
+            - Install all apps to site
+            - Run bench migrate
+            - Graceful failure (bench remains functional if app installation fails)
 
         Args:
             is_template_bench: If True, creates a minimal bench without site creation
@@ -114,12 +120,19 @@ class BenchOrchestrator:
             self._phase4_create_site()
             self._phase5_finalize()
 
-            bench.info()
+            apps_installed = self._phase6_install_apps()
 
-            if ".localhost" not in bench.name:
-                self.output.print(
-                    "Please note that You will have to add a host entry to your system's hosts file to access the bench locally.",
-                )
+            if apps_installed:
+                bench.info()
+
+                if ".localhost" not in bench.name:
+                    self.output.print(
+                        "Please note that You will have to add a host entry to your system's hosts file to access the bench locally.",
+                    )
+            else:
+                remove_status = bench.remove_bench(default_choice=False)
+                if not remove_status:
+                    bench.info()
 
         except Exception as e:
             self._handle_creation_failure(e)
@@ -257,20 +270,17 @@ class BenchOrchestrator:
         raise Exception("Bench server not responding after 60 seconds")
 
     def _phase4_create_site(self) -> None:
-        """Phase 4: Create site and install apps"""
+        """Phase 4: Create empty site (no apps installed yet)"""
         bench = self.bench
 
         self.output.change_head(f"Creating bench site {bench.name}")
         bench.site_manager.create_bench_site()
 
-        self.output.change_head("Installing apps to site")
-        bench.app_manager.install_apps_to_site()
-
         bench.set_bench_site_config({"admin_password": bench.bench_config.admin_pass})
         bench.sync_bench_config_configuration()
 
     def _phase5_finalize(self) -> None:
-        """Phase 5: Finalize bench setup"""
+        """Phase 5: Finalize bench infrastructure"""
         bench = self.bench
 
         self.output.change_head("Configuring bench workers")
@@ -281,39 +291,103 @@ class BenchOrchestrator:
         from frappe_manager.migration_manager.version import Version
         from frappe_manager.utils.helpers import get_current_fm_version
         from datetime import datetime
-        
+
         current_fm_version = Version(get_current_fm_version())
         bench.bench_config.migration_state = MigrationState(
-            migrated_to=str(current_fm_version.version),
-            last_migration_date=datetime.now().isoformat()
+            migrated_to=str(current_fm_version.version), last_migration_date=datetime.now().isoformat()
         )
-        
+
         bench.save_bench_config()
 
-        self.output.change_head("Commencing site status check")
+        self.output.change_head("Verifying bench infrastructure")
         if not bench.is_bench_created():
             raise Exception("Bench site is inactive or unresponsive.")
 
-        self.output.print("Bench site is active and responding")
-        self.logger.info(f"{bench.name}: Bench site is active and responding.")
+        self.output.print("Bench infrastructure ready")
+        self.logger.info(f"{bench.name}: Bench infrastructure verified and ready.")
+
+    def _phase6_install_apps(self) -> bool:
+        """Phase 6: Install apps to site with graceful failure handling
+
+        Returns:
+            True if apps installed successfully, False if failed
+        """
+        bench = self.bench
+
+        self.output.change_head("Installing apps to site")
+
+        try:
+            bench.app_manager.install_apps_to_site()
+            self.output.print("All apps installed successfully")
+
+            self.output.change_head("Running bench migrate")
+            self._run_bench_migrate()
+            self.output.print("Database migrations completed")
+            return True
+
+        except Exception as e:
+            from frappe_manager import CLI_DIR
+            from frappe_manager.utils.helpers import capture_and_format_exception
+
+            self.logger.error(f"{bench.name}: App installation to site failed: {e}\n{capture_and_format_exception()}")
+
+            self.output.stop()
+            self.output.warning(
+                "\n⚠️  App Installation Failed\n\n"
+                f"Error: {e}\n\n"
+                "Good News: The bench is configured correctly and running!\n"
+                "- Containers are healthy ✓\n"
+                "- Site created ✓\n"
+                "- Workers configured ✓\n"
+                "- All apps available at bench level ✓\n\n"
+                "What happened?\n"
+                "Some apps failed to install in the site. This is usually due to:\n"
+                "- App dependency conflicts\n"
+                "- Database migration errors\n"
+                "- Missing Python packages\n\n"
+                "How to fix:\n"
+                f"1. Shell into the bench: fm shell {bench.name}\n"
+                "2. Install apps manually:\n"
+                f"   bench --site {bench.name} install-app <app_name>\n"
+                "3. Check logs for specific errors:\n"
+                f"   fm logs {bench.name} -f\n\n"
+                f"📋 Check detailed logs at: {CLI_DIR / 'logs' / 'fm.log'}\n"
+            )
+            return False
+
+    def _run_bench_migrate(self) -> None:
+        """Run bench migrate after app installation"""
+        bench = self.bench
+
+        migrate_cmd = " ".join(bench.app_manager.bench_cli_cmd + ["--site", bench.name, "migrate"])
+
+        try:
+            bench.app_manager._container_run(
+                migrate_cmd, raise_exception_obj=BenchOperationException(bench.name, "bench migrate failed")
+            )
+        except Exception as e:
+            self.logger.warning(f"{bench.name}: bench migrate failed: {e}")
+            self.output.warning(
+                "⚠️  Database migration failed. You may need to run:\n"
+                f"  fm shell {bench.name} -- bench --site {bench.name} migrate"
+            )
 
     def _create_template_bench(self):
         """Create a template bench (minimal configuration without full site setup)."""
         bench = self.bench
         global_db_info = bench.services.database_manager.database_server_info
         bench.sync_bench_common_site_config(global_db_info.host, global_db_info.port)
-        
+
         from frappe_manager.site_manager.bench_config import MigrationState
         from frappe_manager.migration_manager.version import Version
         from frappe_manager.utils.helpers import get_current_fm_version
         from datetime import datetime
-        
+
         current_fm_version = Version(get_current_fm_version())
         bench.bench_config.migration_state = MigrationState(
-            migrated_to=str(current_fm_version.version),
-            last_migration_date=datetime.now().isoformat()
+            migrated_to=str(current_fm_version.version), last_migration_date=datetime.now().isoformat()
         )
-        
+
         bench.save_bench_config()
         self.output.print(f"Created template bench: {bench.name}", emoji_code=":white_check_mark:")
 
