@@ -6,7 +6,7 @@ from frappe_manager.services_manager.database_service_manager import DatabaseSer
 import tomlkit
 from tomlkit.items import Array as TOMLArray
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from frappe_manager import CLI_DEFAULT_DELIMETER, STABLE_APP_BRANCH_MAPPING_LIST
 from frappe_manager.metadata_manager import FMConfigManager
@@ -586,7 +586,7 @@ class BenchConfig(BaseModel):
 
     admin_pass: str = Field('admin', description="The admin password")
     root_path: Path = Field(..., description="The root path")
-    apps_list: List[Dict[str, Optional[str]]] = Field(default=[], description="List of apps")
+    apps_list: List['AppConfig'] = Field(default=[], description="List of apps")
     userid: int = Field(default_factory=os.getuid, description="The user ID of the current process")
     usergroup: int = Field(default_factory=os.getgid, description="The group ID of the current process")
     admin_tools_username: Optional[str] = Field(None, description="Username for admin tools basic auth")
@@ -637,11 +637,7 @@ class BenchConfig(BaseModel):
         Returns:
             List of AppConfig objects
         """
-        configs = []
-        for app_dict in self.apps_list:
-            config = AppConfig.from_dict(app_dict, github_token=self.github_token)
-            configs.append(config)
-        return configs
+        return self.apps_list
 
     def get_primary_certificate(self) -> SSLCertificate:
         """

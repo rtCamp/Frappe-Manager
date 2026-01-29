@@ -149,9 +149,7 @@ class BenchWorkers:
         else:
             self.output.print("Workers configuration changed. Recreating compose..")
 
-        # create compose file for workers
         self.compose_file_manager.yml = self.compose_file_manager.load_template()
-        self.output.print("Loaded compose template")
 
         template_worker_config = self.compose_file_manager.yml["services"]["worker-name"]
         del self.compose_file_manager.yml["services"]["worker-name"]
@@ -161,24 +159,19 @@ class BenchWorkers:
         )
 
         if len(workers_expected_service_names) > 0:
-            self.output.print(f"Configuring {len(workers_expected_service_names)} workers")
             import os
-
             for worker in workers_expected_service_names:
                 worker_config = deepcopy(template_worker_config)
-
-                # setting environments
                 worker_config["environment"]["USERID"] = os.getuid()
                 worker_config["environment"]["USERGROUP"] = os.getgid()
                 worker_config["environment"]["WORKER_NAME"] = worker
-
                 self.compose_file_manager.yml["services"][worker] = worker_config
 
-            # Use new with_prefix and with_version methods to set all configurations atomically
             self.compose_file_manager.with_prefix(
                 get_container_name_prefix(self.bench.name), 'site-network'
             ).with_version(get_current_fm_version()).with_restart(self.bench.bench_config.restart_policy.value).commit()
-            self.output.print("Workers configurations generated")
+
+            self.output.print(f"{' '.join(workers_expected_service_names)} configurations generated")
             return True
 
         else:

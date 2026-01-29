@@ -18,7 +18,7 @@ from frappe_manager.utils.site import get_sitename_from_current_path, validate_s
 
 def apps_list_validation_callback(value: List[str] | None):
     """
-    Parse and validate the list of apps provided.
+    Parse and validate the list of apps provided, returning AppConfig objects.
 
     Supports formats:
     - "erpnext" → frappe/erpnext (default org)
@@ -37,8 +37,10 @@ def apps_list_validation_callback(value: List[str] | None):
         typer.BadParameter: If format is invalid or 'frappe' app is included.
 
     Returns:
-        List[str] | None: The parsed list of apps as dicts.
+        List[AppConfig] | None: The parsed list of apps as AppConfig objects.
     """
+    from frappe_manager.site_manager.bench_config import AppConfig
+
     apps_list = []
 
     if value:
@@ -87,12 +89,8 @@ def apps_list_validation_callback(value: List[str] | None):
                 )
                 raise typer.BadParameter(msg)
 
-            # Build the dict format expected by downstream code
-            appx_dict = {
-                'app': appx[0],
-                'branch': appx[1] if len(appx) > 1 else None,
-            }
-            apps_list.append(appx_dict)
+            app_config = AppConfig.from_string(app)
+            apps_list.append(app_config)
 
     return apps_list
 

@@ -8,7 +8,8 @@ import os
 import sys
 import shutil
 import secrets
-from typing import Annotated, List, Optional
+from typing import Annotated, List, Optional, cast
+from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType, AppConfig, RestartPolicyEnum
 from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.ngrok import create_tunnel
 from frappe_manager.services_manager.services_exceptions import ServicesNotCreated
@@ -373,23 +374,23 @@ def create(
     # Ensure frappe is always first in apps_list
     # If user didn't specify frappe, add default version
     # If user specified frappe, move it to first position
+
+    # Callback returns List[AppConfig], cast for type checker
+    apps_config = cast(List[AppConfig], apps)
+
     final_apps_list = []
     frappe_app = None
     other_apps = []
 
-    for app_dict in apps:
-        app_name = app_dict.get("app", "")
-        # Check if this is the frappe app (exact match or org/frappe format)
-        if app_name == "frappe" or app_name.endswith("/frappe"):
-            frappe_app = app_dict
+    for app_config in apps_config:
+        if app_config.name == "frappe" or app_config.name.endswith("/frappe"):
+            frappe_app = app_config
         else:
-            other_apps.append(app_dict)
+            other_apps.append(app_config)
 
-    # If frappe not specified, add default version
     if frappe_app is None:
-        frappe_app = {"app": "frappe", "branch": STABLE_APP_BRANCH_MAPPING_LIST['frappe']}
+        frappe_app = AppConfig.from_string(f"frappe:{STABLE_APP_BRANCH_MAPPING_LIST['frappe']}")
 
-    # Build final apps list: frappe first, then others in order
     final_apps_list = [frappe_app] + other_apps
 
     sanitized_bench_name = benchname.replace(".", "_").replace("-", "_")
@@ -1060,10 +1061,13 @@ def update(
                 apps_txt_path = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
                 if apps_txt_path.exists():
                     installed_apps = [line.strip() for line in apps_txt_path.read_text().splitlines() if line.strip()]
-                    apps_list = [{"app": app_name, "branch": None} for app_name in installed_apps]
+                    apps_list_dicts = [{"app": app_name, "branch": None} for app_name in installed_apps]
+                    apps_list = [
+                        AppConfig.from_dict(d, github_token=bench.bench_config.github_token) for d in apps_list_dicts
+                    ]
 
                     output.change_head("Reinstalling apps into new virtual environment")
-                    output.print(f"Found {len(apps_list)} installed apps: {', '.join(installed_apps)}")
+                    output.print(f"Found {len(apps_list)} installed apps: {', '.join([a.name for a in apps_list])}")
                     bench.app_manager.install_apps(
                         apps_list=apps_list,
                         github_token=bench.bench_config.github_token,

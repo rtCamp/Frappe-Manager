@@ -333,7 +333,7 @@ class BenchOrchestrator:
 
             self.output.stop()
             self.output.warning(
-                "\n⚠️  App Installation Failed\n\n"
+                "App Installation Failed\n\n"
                 f"Error: {e}\n\n"
                 "Good News: The bench is configured correctly and running!\n"
                 "- Containers are healthy ✓\n"

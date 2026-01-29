@@ -444,23 +444,25 @@ fi
 
     def install_apps(
         self,
-        apps_list: List[Dict[str, Optional[str]]],
+        apps_list: List[AppConfig],
         github_token: Optional[str] = None,
         use_uv: bool = True,
         force_reinstall: bool = False,
         clone_only: bool = False,
         skip_clone: bool = False,
         use_run: bool = False,
-    ) -> None:
+    ) -> List[AppConfig]:
+        """
+        Install apps to the bench (clone, install Python/Node deps, build).
+
+        Returns:
+            List of AppConfig objects with corrected module names after cloning
+        """
         if not apps_list:
             self.output.print("No apps to install")
-            return
+            return []
 
-        apps_config = self._convert_to_app_configs(apps_list, github_token)
-
-        if not apps_config:
-            self.output.print("No valid apps to install")
-            return
+        apps_config = apps_list
 
         if not skip_clone:
             self.output.change_head(f"Cloning {len(apps_config)} apps in parallel")
@@ -474,13 +476,14 @@ fi
                 self.output.print(f"Cloned {len(cloned_apps)} apps successfully")
 
                 self._update_apps_txt(apps_config)
+                self._update_apps_list_with_corrected_names(apps_config)
             except AppClonerError as e:
                 raise BenchOperationBenchInstallAppInPythonEnvFailed(
                     bench_name=self.bench_name, app_name="multiple apps"
                 ) from e
 
         if clone_only:
-            return
+            return apps_config
 
         self.output.change_head("Installing Python dependencies")
         self._install_python_deps_with_uv(apps_config, use_uv=use_uv, use_run=use_run)
@@ -494,21 +497,7 @@ fi
         self.build(use_run=use_run)
         self.output.print("Built frontend assets")
 
-    def _convert_to_app_configs(
-        self,
-        apps_list: List[Dict[str, Optional[str]]],
-        github_token: Optional[str] = None,
-    ) -> List[AppConfig]:
-        """Convert simple app list to AppConfig objects."""
-        configs = []
-        for app_dict in apps_list:
-            try:
-                config = AppConfig.from_dict(app_dict, github_token=github_token)
-                configs.append(config)
-            except ValueError as e:
-                self.logger.warning(f"Skipping invalid app config: {e}")
-                continue
-        return configs
+        return apps_config
 
     def _create_venv(self) -> None:
         venv_path = "/workspace/frappe-bench/env"
@@ -597,6 +586,11 @@ fi
         # Write back to apps.txt
         apps_txt_path.write_text('\n'.join(existing_apps) + '\n')
         self.logger.debug(f"Updated apps.txt with {len(apps)} new apps")
+
+    def _update_apps_list_with_corrected_names(self, apps_config: List[AppConfig]) -> None:
+        for i, app_config in enumerate(apps_config):
+            if i < len(self.bench_config.apps_list):
+                self.bench_config.apps_list[i] = app_config
 
     def install_app_to_env(
         self,
@@ -732,8 +726,8 @@ fi
         if site_name is None:
             site_name = self.bench_name
 
-        for app_dict in self.bench_config.apps_list:
-            app_name = app_dict['app'].split('/')[-1]
+        for app_config in self.bench_config.apps_list:
+            app_name = app_config.name
             self.output.change_head(f"Installing app {app_name} in site")
             self.install_app_to_site(app_name, site_name)
             self.output.print(f"Installed app {app_name} in site")
