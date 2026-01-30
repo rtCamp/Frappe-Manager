@@ -8,8 +8,6 @@ import sys
 from typing import Optional
 from frappe_manager.utils.docker import run_command_with_exit_code
 import requests
-import subprocess
-import platform
 import time
 import secrets
 import grp
@@ -19,7 +17,6 @@ from rich.console import Console
 from rich.traceback import Traceback
 from frappe_manager.logger import log
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.exceptions import ServiceNotAvailable
 from frappe_manager.site_manager import PREBAKED_SITE_APPS
 from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_DEFAULT_DELIMETER, CLI_SITE_NAME_DELIMETER
 
@@ -51,78 +48,6 @@ def remove_zombie_subprocess_process(process):
             except psutil.AccessDenied:
                 logger.cleanup(f"{pid} Permission denied")
         logger.cleanup("-" * 20)
-
-
-def is_port_in_use(port):
-    """
-    Check if a port is in use or not.
-
-    Args:
-        port (int): The port number to check.
-
-    Returns:
-        bool: True if the port is in use, False otherwise.
-    """
-    import psutil
-
-    for conn in psutil.net_connections():
-        if conn.laddr.port == port and conn.status == "LISTEN":
-            return True
-    return False
-
-
-def check_ports(ports):
-    """
-    Checks if the ports are in use.
-
-    Args:
-        ports (list): List of ports to be checked.
-
-    Returns:
-        list: List of binded ports (can be empty).
-    """
-    # TODO handle if ports are open using docker
-    current_system = platform.system()
-    already_binded = []
-    for port in ports:
-        if current_system == "Darwin":
-            # Mac Os
-            # check port using lsof command
-            cmd = f"lsof -iTCP:{port} -sTCP:LISTEN -P -n"
-            try:
-                output = subprocess.run(cmd, check=True, shell=True, capture_output=True)
-                if output.returncode == 0:
-                    already_binded.append(port)
-            except subprocess.CalledProcessError as e:
-                pass
-        else:
-            # Linux or any other machines
-            if is_port_in_use(port):
-                already_binded.append(port)
-
-    return already_binded
-
-
-def check_and_display_port_status(ports_to_check: list, exclude=[]):
-    """
-    Check if the specified ports are already binded and display a message if they are.
-
-    Args:
-        ports_to_check (list): List of ports to check.
-        exclude (list, optional): List of ports to exclude from checking. Defaults to [].
-    """
-    if exclude:
-        # Removing elements present in remove_array from original_array
-        ports_to_check = [x for x in exclude if x not in ports_to_check]
-
-    if ports_to_check:
-        already_binded = check_ports(ports_to_check)
-        if already_binded:
-            error_msg = f"Ports {', '.join(map(str, already_binded))} {'are' if len(already_binded) > 1 else 'is'} currently in use. Please free up these ports."
-            richprint.error(error_msg)
-            raise ServiceNotAvailable(
-                "Required ports are currently in use", details={"ports": already_binded}
-            )
 
 
 def generate_random_text(length=50):
@@ -160,7 +85,7 @@ def is_cli_help_called(ctx):
         subcommand = ctx.command.commands.get(ctx.invoked_subcommand)
         if not subcommand:
             return False
-            
+
         if hasattr(subcommand, 'commands'):
             check_command = " ".join(sys.argv[2:])
             if check_command in subcommand.commands:

@@ -25,7 +25,6 @@ from frappe_manager.ssl_manager.nginx_controller import NginxController
 from frappe_manager.ssl_manager.proxy_storage import ProxyStoragePaths
 from frappe_manager.utils.docker import host_run_cp
 from frappe_manager.utils.helpers import (
-    check_and_display_port_status,
     get_current_fm_version,
     get_template_path,
     get_unix_groups,
@@ -90,7 +89,6 @@ class ServicesManager:
                 all_running = all(running_statuses.get(s) == "running" for s in services)
 
                 if not all_running:
-                    self.are_ports_free()
                     self.output.print(
                         f"Started non running global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
                     )
@@ -318,20 +316,3 @@ class ServicesManager:
     def restart_service(self, services: list[str] | None = None):
         services = services or []
         self.docker_client.compose.restart(services=services)
-
-    def are_ports_free(self):
-        ports = [80, 443]
-        self.output.change_head(f"Verifying ports {', '.join(map(str, ports))} availability")
-        docker_used_ports = []
-        services = self.compose_file_manager.get_services_list()
-        for service in services:
-            ports_config = self.compose_file_manager.yml.get("services", {}).get(service, {}).get("ports", [])
-            for port in ports_config:
-                if isinstance(port, str) and ":" in port:
-                    host_port = port.split(":")[0]
-                    try:
-                        docker_used_ports.append(int(host_port))
-                    except ValueError:
-                        pass
-        check_and_display_port_status(ports, exclude=docker_used_ports)
-        self.output.print(f"Global services will utilize ports {', '.join(map(str, ports))}")

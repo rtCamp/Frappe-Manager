@@ -34,3 +34,42 @@ class DockerException(Exception):
             error_msg += "The content of stderr can be found above the stacktrace (it wasn't captured)."
 
         super().__init__(error_msg)
+
+
+def is_port_conflict_error(exception: DockerException) -> tuple[bool, list[int]]:
+    """
+    Detect if DockerException was caused by port binding conflict.
+
+    Returns:
+        Tuple of (is_conflict, list_of_conflicting_ports)
+
+    Examples:
+        >>> exc = DockerException(["compose", "up"], output_with_port_error)
+        >>> is_conflict, ports = is_port_conflict_error(exc)
+        >>> is_conflict
+        True
+        >>> ports
+        [80, 443]
+    """
+    import re
+
+    stderr_text = "\n".join(exception.output.stderr) if exception.output.stderr else ""
+
+    if not ("port is already allocated" in stderr_text or "address already in use" in stderr_text):
+        return False, []
+
+    ports = []
+    port_patterns = [
+        r"Bind for (?:0\.0\.0\.0|:::):(\d+)",
+        r"port (\d+) is already allocated",
+        r"address already in use.*:(\d+)",
+    ]
+
+    for pattern in port_patterns:
+        matches = re.findall(pattern, stderr_text)
+        for match in matches:
+            port = int(match)
+            if port not in ports:
+                ports.append(port)
+
+    return len(ports) > 0, sorted(ports)
