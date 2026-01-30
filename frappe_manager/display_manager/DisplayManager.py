@@ -1,16 +1,16 @@
-from rich.console import Console, Group
-from rich.prompt import Prompt
-from rich.style import Style
-from rich.theme import Theme
-from rich.spinner import Spinner
-from rich.live import Live
-from rich.text import Text
-from rich.padding import Padding
-from rich.table import Table
+from collections import deque
+import sys
+import warnings
 
 import typer
-from collections import deque
-from typing import Optional
+from rich.console import Console, Group
+from rich.live import Live
+from rich.padding import Padding
+from rich.spinner import Spinner
+from rich.style import Style
+from rich.table import Table
+from rich.text import Text
+from rich.theme import Theme
 
 error = Style()
 theme = Theme({"errors": error})
@@ -19,15 +19,38 @@ theme = Theme({"errors": error})
 class DisplayManager:
     def __init__(self):
         self.stdout = Console()
-        # self.stderr = Console(stderr=True)
+        self.stderr = Console(stderr=True)
         self.previous_head = None
         self.current_head = None
-        self.spinner = Spinner(text=self.current_head, name="dots2", speed=1)
-        self.live = Live(self.spinner, console=self.stdout, transient=True)
+
+        # Detect TTY for interactive features
+        self._is_tty = sys.stdin.isatty() and sys.stdout.isatty()
+
+        self.spinner = Spinner(text=Text(""), name="dots2", speed=1)
+        # Use stderr for Live display so it coordinates with logging output
+        self.live = Live(self.spinner, console=self.stderr, transient=True)
+
+        # Track spinner state for context managers
+        self._spinner_active = False
+        self._current_text = None
+
+    @property
+    def is_spinner_active(self) -> bool:
+        """Check if spinner is currently active."""
+        return self._spinner_active
 
     def start(self, text: str):
         """
         Starts the display manager with the given text.
+
+        DEPRECATION WARNING: Direct use of richprint.start() is deprecated.
+        Use context managers instead:
+
+            from frappe_manager.output_manager import spinner
+            with spinner(output, "Working..."):
+                do_work()
+
+        See: .plans/output-migration-guide.md
 
         Args:
             text (str): The text to be displayed.
@@ -35,20 +58,53 @@ class DisplayManager:
         Returns:
             None
         """
+        # Import flags here to avoid circular dependency
+        try:
+            from frappe_manager.output_manager.flags import OutputRefactoringFlags
+
+            if OutputRefactoringFlags.use_context_managers():
+                warnings.warn(
+                    "Direct richprint.start() is deprecated. Use context managers instead:\n"
+                    "    from frappe_manager.output_manager import spinner\n"
+                    "    with spinner(output, 'text'): ...\n"
+                    "See .plans/output-migration-guide.md for migration guide.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+
+                if OutputRefactoringFlags.strict_mode():
+                    raise RuntimeError(
+                        "Direct richprint.start() is not allowed in strict mode. "
+                        "Use context managers: with spinner(output, 'text'): ..."
+                    )
+        except ImportError:
+            pass  # Flags module not available, skip warning
+
         self.current_head = self.previous_head = Text(text=text, style="bold blue")
         self.spinner = Spinner(text=self.current_head, name="dots2", speed=1)
-        self.live.start(refresh=True)
-        self.live.update(self.spinner, refresh=True)
 
-    def error(self, text: str, exception: Optional[Exception] = None, emoji_code: str = ":no_entry:"):
+        # Track state for context managers
+        self._spinner_active = True
+        self._current_text = text
+
+        if self._is_tty:
+            self.live.start(refresh=True)
+            self.live.update(self.spinner, refresh=True)
+        else:
+            self.stderr.print(f"⚙️  {text}")
+
+    def error(self, text: str, exception: Exception | None = None, emoji_code: str = ":no_entry:"):
         """
         Display an error message with an optional emoji code.
+        Uses stderr to coordinate with Live display.
 
         Args:
             text (str): The error message to display.
-            emoji_code (str, optional): The emoji code to display before the error message. Defaults to ':stop_sign:'.
+            exception (Exception | None): Optional exception to raise after displaying.
+            emoji_code (str, optional): The emoji code to display before the error message. Defaults to ':no_entry:'.
         """
-        self.stdout.print(f"{emoji_code} {text}")
+        # Use stderr console to coordinate with Live display
+        self.stderr.print(f"{emoji_code} {text}")
 
         if exception:
             raise exception
@@ -56,6 +112,7 @@ class DisplayManager:
     def warning(self, text: str, emoji_code: str = ":warning: "):
         """
         Display a warning message with an optional emoji code.
+        Uses stderr to coordinate with Live display.
 
         Args:
             text (str): The warning message to display.
@@ -64,15 +121,17 @@ class DisplayManager:
         Returns:
             None
         """
-        self.stdout.print(f"{emoji_code} {text}")
+        # Use stderr console to coordinate with Live display
+        self.stderr.print(f"{emoji_code} {text}")
 
     def exit(self, text: str, emoji_code: str = ":no_entry:", os_exit=False, error_msg=None):
         """
         Exits the display manager and prints the given text with an optional emoji code and error message.
+        Uses stderr to coordinate with Live display.
 
         Args:
             text (str): The text to be printed.
-            emoji_code (str, optional): The emoji code to be displayed before the text. Default is ":stop_sign:".
+            emoji_code (str, optional): The emoji code to be displayed before the text. Default is ":no_entry:".
             os_exit (bool, optional): If True, the program will exit with status code 1. Default is False.
             error_msg (str, optional): The error message to be displayed after the text. Default is None.
         """
@@ -82,27 +141,31 @@ class DisplayManager:
         if error_msg:
             to_print = f"{emoji_code} {text}\n Error : {error_msg}"
 
-        self.stdout.print(to_print)
+        # Use stderr console to coordinate with Live display
+        self.stderr.print(to_print)
 
         if os_exit:
             exit(1)
 
         raise typer.Exit(1)
 
-    def print(self, text: str, emoji_code: str = ":zap:", prefix: Optional[str] = None, **kwargs):
+    def print(self, text: str, emoji_code: str = ":zap:", prefix: str | None = None, **kwargs):
         """
         Prints the given text with an optional emoji code.
+        Uses stderr to coordinate with Live display spinner.
 
         Args:
             text (str): The text to be printed.
-            emoji_code (str, optional): The emoji code to be displayed before the text. Defaults to ":white_check_mark:".
+            emoji_code (str, optional): The emoji code to be displayed before the text. Defaults to ":zap:".
+            prefix (str, optional): Optional prefix to add before the text.
         """
         msg = f"{emoji_code} {text}"
 
         if prefix:
             msg = f"{emoji_code} {prefix} {text}"
 
-        self.stdout.print(msg, **kwargs)
+        # Use stderr console to coordinate with Live display
+        self.stderr.print(msg, **kwargs)
 
     def update_head(self, text: str):
         """
@@ -114,19 +177,90 @@ class DisplayManager:
         Returns:
             None
         """
+        if not self._is_tty:
+            self.stderr.print(f"⚙️  {text}")
+            return
+
         self.previous_head = self.current_head
         self.current_head = text
         self.live.console.print(self.previous_head, style="blue")
         self.spinner.update(text=Text(self.current_head, style="blue bold"), style="bold blue")
 
     def prompt_ask(self, **args):
-        self.spinner.update()
-        self.live.stop()
-        value = Prompt.ask(**args, console=self.stdout)
-        self.start('Working')
-        return value
+        import re
 
-    def change_head(self, text: str, style: Optional[str] = 'blue bold'):
+        prompt = args.get('prompt', 'Enter value')
+        choices = args.get('choices')
+        default = args.get('default')
+
+        prompt_clean = re.sub(r'\[/?[a-z]+\]', '', prompt)
+
+        if self._is_tty:
+            from InquirerPy import inquirer
+            from InquirerPy.utils import InquirerPyStyle
+
+            self.spinner.update()
+            self.live.stop()
+
+            custom_style = InquirerPyStyle(
+                {
+                    "questionmark": "#e5c07b",
+                    "answered_question": "",
+                    "answer": "#61afef bold",
+                    "pointer": "#61afef bold",
+                    "highlighted": "#61afef bold",
+                    "selected": "#e5c07b",
+                }
+            )
+
+            if choices:
+                value = inquirer.select(
+                    message=prompt_clean,
+                    choices=choices,
+                    default=default,
+                    vi_mode=True,
+                    qmark='',
+                    amark='',
+                    style=custom_style,
+                ).execute()
+            else:
+                value = inquirer.text(
+                    message=prompt_clean,
+                    default=default or '',
+                    vi_mode=True,
+                    qmark='',
+                    amark='',
+                    style=custom_style,
+                ).execute()
+
+            self.start("Working")
+            return value
+        else:
+            if choices:
+                choices_str = "/".join(str(c) for c in choices)
+                prompt_full = f"{prompt_clean} [{choices_str}]"
+                if default:
+                    prompt_full += f" (default: {default})"
+                prompt_full += ": "
+
+                value = input(prompt_full).strip()
+                if not value and default:
+                    return default
+
+                if value not in choices:
+                    self.stderr.print(f"⚠️  Invalid choice '{value}', using default: {default}")
+                    return default or choices[0]
+                return value
+            else:
+                prompt_full = prompt_clean
+                if default:
+                    prompt_full += f" (default: {default})"
+                prompt_full += ": "
+
+                value = input(prompt_full).strip()
+                return value if value else (default or "")
+
+    def change_head(self, text: str, style: str | None = "blue bold"):
         """
         Change the head text and update the spinner and live display.
 
@@ -136,6 +270,10 @@ class DisplayManager:
         Returns:
             None
         """
+        if not self._is_tty:
+            self.stderr.print(f"⚙️  {text}")
+            return
+
         self.previous_head = self.current_head
         self.current_head = text
         if style:
@@ -152,6 +290,9 @@ class DisplayManager:
             renderable: The object to be rendered on the live display.
             padding: The padding values for the renderable object (top, right, bottom, left).
         """
+        if not self._is_tty:
+            return
+
         if renderable:
             if padding:
                 renderable = Padding(renderable, padding)
@@ -169,7 +310,7 @@ class DisplayManager:
         stderr: bool = True,
         lines: int = 4,
         padding: tuple = (0, 0, 0, 2),
-        stop_string: Optional[str] = None,
+        stop_string: str | None = None,
         log_prefix: str = "=>",
     ):
         """
@@ -185,6 +326,29 @@ class DisplayManager:
             log_prefix: The prefix to add to each displayed line. Default is "=>".
             return_exit_code: Whether to return the exit code when stop_string is found. Default is False.
         """
+        if not self._is_tty:
+            while True:
+                try:
+                    source, line = next(data)
+                    line = line.decode()
+
+                    if "[==".lower() in line.lower() or "Updating files:".lower() in line.lower():
+                        continue
+
+                    if source == "stdout" and stdout:
+                        self.stdout.print(f"{log_prefix} {line.rstrip()}")
+                    elif source == "stderr" and stderr:
+                        self.stderr.print(f"{log_prefix} {line.rstrip()}")
+
+                    if stop_string and stop_string.lower() in line.lower():
+                        break
+
+                except KeyboardInterrupt:
+                    break
+                except StopIteration:
+                    break
+            return
+
         max_height = lines
         displayed_lines = deque(maxlen=max_height)
 
@@ -194,7 +358,7 @@ class DisplayManager:
                 line = line.decode()
                 # print(' --',line)
 
-                if "[==".lower() in line.lower() or 'Updating files:'.lower() in line.lower():
+                if "[==".lower() in line.lower() or "Updating files:".lower() in line.lower():
                     continue
 
                 if source == "stdout" and stdout:
@@ -210,7 +374,7 @@ class DisplayManager:
                 table.add_column()
 
                 for linex in list(displayed_lines):
-                    prefix_text = Text(log_prefix + ' ', no_wrap=True)
+                    prefix_text = Text(log_prefix + " ", no_wrap=True)
                     table_line = Text.from_ansi(linex)
                     prefix_text.append_text(table_line)
                     table.add_row(prefix_text)
@@ -226,9 +390,51 @@ class DisplayManager:
                 break
 
     def stop(self):
-        self.spinner.update()
-        self.live.update(Text("", end=""))
-        self.live.stop()
+        """
+        Stops the display manager spinner.
+
+        DEPRECATION WARNING: Direct use of richprint.stop() is deprecated.
+        Use context managers instead:
+
+            from frappe_manager.output_manager import spinner
+            with spinner(output, "Working..."):
+                do_work()  # Spinner automatically stops when exiting context
+
+        See: .plans/output-migration-guide.md
+
+        Returns:
+            None
+        """
+        # Import flags here to avoid circular dependency
+        try:
+            from frappe_manager.output_manager.flags import OutputRefactoringFlags
+
+            if OutputRefactoringFlags.use_context_managers():
+                warnings.warn(
+                    "Direct richprint.stop() is deprecated. Use context managers instead:\n"
+                    "    from frappe_manager.output_manager import spinner\n"
+                    "    with spinner(output, 'text'): ...\n"
+                    "See .plans/output-migration-guide.md for migration guide.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
+
+                if OutputRefactoringFlags.strict_mode():
+                    raise RuntimeError(
+                        "Direct richprint.stop() is not allowed in strict mode. "
+                        "Use context managers: with spinner(output, 'text'): ..."
+                    )
+        except ImportError:
+            pass  # Flags module not available, skip warning
+
+        # Track state for context managers
+        self._spinner_active = False
+        self._current_text = None
+
+        if self._is_tty:
+            self.spinner.update()
+            self.live.update(Text("", end=""))
+            self.live.stop()
 
 
 richprint = DisplayManager()

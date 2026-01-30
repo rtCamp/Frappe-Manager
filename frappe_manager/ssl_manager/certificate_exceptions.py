@@ -1,6 +1,6 @@
 from datetime import datetime
-from frappe_manager import CLI_FM_CONFIG_PATH
 
+from frappe_manager import CLI_FM_CONFIG_PATH
 from frappe_manager.utils.helpers import format_ssl_certificate_time_remaining
 
 
@@ -8,15 +8,6 @@ class SSLCertificateNotFoundError(Exception):
     """Exception raised when a certificate is not found."""
 
     def __init__(self, domain, message="No ssl certificate is issued for {}."):
-        self.domain = domain
-        self.message = message.format(self.domain)
-        super().__init__(self.message)
-
-
-class SSLCertificateEmailNotFoundError(Exception):
-    """Exception raised when a certificate is not found."""
-
-    def __init__(self, domain, message="Please provide email using flag '"):
         self.domain = domain
         self.message = message.format(self.domain)
         super().__init__(self.message)
@@ -38,7 +29,7 @@ class SSLCertificateChallengeFailed(Exception):
         challenge: str,
     ):
         self.challenge = challenge
-        msg = f'{self.challenge} challenge failed.'
+        msg = f"{self.challenge} challenge failed."
         super().__init__(msg)
 
 
@@ -47,17 +38,23 @@ class SSLCertificateGenerateFailed(Exception):
 
     def __init__(
         self,
+        domain: str | None = None,
     ):
-        self.message = f"Certificate generation failed."
+        if domain:
+            self.message = f"Certificate generation failed for {domain}."
+        else:
+            self.message = "Certificate generation failed."
         super().__init__(self.message)
 
 
 class SSLCertificateNotDueForRenewalError(Exception):
+    """Exception raised when attempting to renew a certificate that is not due for renewal."""
+
     def __init__(
         self,
         domain,
         expiry_date: datetime,
-        message='[blue]{}:[/blue] Certificate is not due for renewal will expire in {}.',
+        message="[blue]{}:[/blue] Certificate is not due for renewal will expire in {}.",
     ):
         self.domain = domain
         self.expiry_date = expiry_date

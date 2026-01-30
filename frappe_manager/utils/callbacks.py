@@ -3,80 +3,95 @@ import json
 from pathlib import Path
 import typer
 from typing import List, Optional, Set
-from frappe_manager.site_manager.site_exceptions import BenchNotFoundError
+from frappe_manager.site_manager.exceptions import BenchNotFoundError
 from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_CACHE_PATH, CLI_RECENT_USED_SITES_CACHE_PATH, STABLE_APP_BRANCH_MAPPING_LIST, DEFAULT_EXTENSIONS
-from frappe_manager.utils.site import get_sitename_from_current_path, validate_sitename
+from frappe_manager import (
+    CLI_BENCHES_DIRECTORY,
+    CLI_CACHE_PATH,
+    CLI_RECENT_USED_SITES_CACHE_PATH,
+    STABLE_APP_BRANCH_MAPPING_LIST,
+    DEFAULT_EXTENSIONS,
+)
+from frappe_manager.utils.site import get_sitename_from_current_path, validate_sitename, is_fqdn, is_wildcard_fqdn
 
 
 def apps_list_validation_callback(value: List[str] | None):
     """
-    Validate the list of apps provided.
+    Parse and validate the list of apps provided, returning AppConfig objects.
+
+    Supports formats:
+    - "erpnext" → frappe/erpnext (default org)
+    - "erpnext:version-15" → frappe/erpnext:version-15
+    - "frappe/erpnext:version-15" → frappe/erpnext:version-15
+    - "rtcamp/custom-app:main" → rtcamp/custom-app:main
+    - "frappe/frappe:version-15#apps/frappe" → subdirectory app (monorepo)
+
+    Validation is lightweight here - actual repo existence is validated
+    during cloning by AppCloner with proper error messages.
 
     Args:
         value (List[str] | None): The list of apps to validate.
 
     Raises:
-        typer.BadParameter: If the list contains the 'frappe' app, or if any app is invalid or has an invalid branch.
+        typer.BadParameter: If format is invalid or 'frappe' app is included.
 
     Returns:
-        List[str] | None: The validated list of apps.
+        List[AppConfig] | None: The parsed list of apps as AppConfig objects.
     """
+    from frappe_manager.site_manager.bench_config import AppConfig
+
     apps_list = []
 
     if value:
         for app in value:
-            appx = app.split(":")
+            # Allow frappe app now - it can be specified via --apps
+            # No need to check and reject frappe anymore
 
-            if appx == "frappe":
-                raise typer.BadParameter("'frappe' should not be included here.")
-
-            if "https:" in app or "http:" in app:
+            # Handle HTTP/HTTPS URLs
+            if "https://" in app or "http://" in app:
+                appx = app.split(":")
                 temp_appx = appx
                 appx = [":".join(appx[:2])]
 
                 if len(temp_appx) == 3:
                     appx.append(temp_appx[2])
-
                 elif len(temp_appx) > 3:
                     appx.append(temp_appx[2])
-                    appx.append(temp_appx[2])
+            else:
+                # Split on ':' for branch/ref (handle subdirectory '#' first)
+                # e.g., "frappe/payments:version-15#apps/payments"
+                if '#' in app:
+                    # Has subdirectory - split carefully
+                    app_part = app.split('#')[0]
+                    appx = app_part.split(":")
+                    # Reconstruct with subdirectory
+                    if len(appx) == 2:
+                        appx = [appx[0], app.split(':', 1)[1]]
+                    else:
+                        appx = [app]
+                else:
+                    appx = app.split(":")
 
+            # Basic format validation
             if len(appx) > 2:
                 richprint.stop()
                 msg = (
-                    "Specify the app in the format <appname>:<branch> or <appname>."
-                    "\n<appname> can be a URL or, if it's a FrappeVerse app, simply provide it as 'erpnext' or 'hrms:develop'."
+                    "Specify the app in the format:\n"
+                    "  <appname>:<branch>\n"
+                    "  <org>/<appname>:<branch>\n"
+                    "  <org>/<appname>:<branch>#<subdir>\n"
+                    "\nExamples:\n"
+                    "  erpnext:version-15\n"
+                    "  frappe/helpdesk:v1.9.1\n"
+                    "  rtcamp/custom-app:main\n"
+                    "  frappe/frappe:version-15#apps/frappe"
                 )
                 raise typer.BadParameter(msg)
 
-            if len(appx) == 1:
-                exists = check_frappe_app_exists(appx[0])
+            app_config = AppConfig.from_string(app)
+            apps_list.append(app_config)
 
-                if not exists["app"]:
-                    richprint.stop()
-                    raise typer.BadParameter(f"Invalid app '{appx[0]}'.")
-
-                if appx[0] in STABLE_APP_BRANCH_MAPPING_LIST:
-                    appx.append(STABLE_APP_BRANCH_MAPPING_LIST[appx[0]])
-
-            if len(appx) == 2:
-                exists = check_frappe_app_exists(appx[0], appx[1])
-
-                if not exists["app"]:
-                    richprint.stop()
-                    raise typer.BadParameter(f"Invalid app '{appx[0]}'.")
-
-                if not exists["branch"]:
-                    richprint.stop()
-                    raise typer.BadParameter(f"Invaid branch '{appx[1]}' for '{appx[0]}'.")
-
-            appx = {
-                'app': appx[0],
-                'branch': appx[1] if len(appx) > 1 else None,
-            }
-            apps_list.append(appx)
     return apps_list
 
 
@@ -114,7 +129,6 @@ def version_callback(version: Optional[bool] = None):
         raise typer.Exit()
 
 
-
 def sites_autocompletion_callback() -> list[Path]:
     sites_list = []
     for dir in CLI_BENCHES_DIRECTORY.iterdir():
@@ -126,41 +140,52 @@ def sites_autocompletion_callback() -> list[Path]:
 
 
 def val(answers, current):
-    print(answers,current)
+    print(answers, current)
+
 
 def sitename_callback(sitename: Optional[str]):
+    import sys
+
     if not sitename:
         sitename = get_sitename_from_current_path()
 
     if not sitename:
-        from InquirerPy import inquirer
-
         # Get basic sites list
         sites_list = [site_name.parent.name for site_name in sites_autocompletion_callback()]
-        
+
         if sites_list:
-            richprint.stop()
+            # Check if we have a TTY for interactive selection
+            is_tty = sys.stdin.isatty() and sys.stdout.isatty()
 
-            # Sort with recently used sites first
-            sorted_sites = get_sorted_sites_list(sites_list)
-            
-            sitename = inquirer.fuzzy(
-                message="Select bench (↑↓ navigate, type to search)",
-                vi_mode=True,
-                choices=sorted_sites,
-                mandatory=True,
-                qmark='🤔',
-                amark='🤔'
-            ).execute()
-            
-            # Update cache with selected site
-            if sitename:
-                update_sites_cache(sitename)
+            if is_tty:
+                # Use interactive fuzzy selection in TTY
+                from InquirerPy import inquirer
 
-            richprint.start("working")
+                # Sort with recently used sites first
+                sorted_sites = get_sorted_sites_list(sites_list)
+
+                sitename = inquirer.fuzzy(
+                    message="Select bench (↑↓ navigate, type to search)",
+                    vi_mode=True,
+                    choices=sorted_sites,
+                    mandatory=True,
+                    qmark='🤔',
+                    amark='🤔',
+                ).execute()
+
+                # Update cache with selected site
+                if sitename:
+                    update_sites_cache(sitename)
+            else:
+                # Non-TTY: Use first site from sorted list (prioritizes recently used)
+                sorted_sites = get_sorted_sites_list(sites_list)
+                sitename = sorted_sites[0] if sorted_sites else None
+
+                if sitename:
+                    update_sites_cache(sitename)
 
     if sitename is None:
-        richprint.exit("Invalid selection. Must match existing sites")
+        raise typer.BadParameter("Invalid selection. Must match existing sites")
 
     sitename = validate_sitename(sitename)
 
@@ -178,6 +203,7 @@ def get_cache_file() -> Path:
     CLI_CACHE_PATH.mkdir(parents=True, exist_ok=True)
     return CLI_RECENT_USED_SITES_CACHE_PATH
 
+
 def update_sites_cache(sitename: str) -> None:
     """Updates the cache with the most recently used site"""
     cache_file = get_cache_file()
@@ -187,22 +213,20 @@ def update_sites_cache(sitename: str) -> None:
                 cache = json.load(f)
         else:
             cache = {"sites": []}
-        
+
         # Remove if exists and add to front
         cache["sites"] = [s for s in cache["sites"] if s["name"] != sitename]
-        cache["sites"].insert(0, {
-            "name": sitename,
-            "last_used": datetime.now().isoformat()
-        })
-        
+        cache["sites"].insert(0, {"name": sitename, "last_used": datetime.now().isoformat()})
+
         # Keep only last 10 entries
         cache["sites"] = cache["sites"][:10]
-        
+
         with open(cache_file, "w") as f:
             json.dump(cache, f)
     except Exception:
         # Fail silently if cache operations fail
         pass
+
 
 def get_sorted_sites_list(sites_list: list[str]) -> list[str]:
     """Returns sites list with recently used sites first, but only for sites that actually exist"""
@@ -211,19 +235,61 @@ def get_sorted_sites_list(sites_list: list[str]) -> list[str]:
         if cache_file.exists():
             with open(cache_file, "r") as f:
                 cache = json.load(f)
-            
+
             # Get cached site names, but only if they exist in the actual sites_list
             cached_sites = [s["name"] for s in cache["sites"] if s["name"] in sites_list]
-            
+
             # Get remaining sites that aren't in cache
             remaining_sites = [s for s in sites_list if s not in cached_sites]
-            
+
             # Return cached sites first, then remaining sites
             return cached_sites + remaining_sites
     except Exception:
         pass
-    
+
     return sites_list
+
+
+def prompt_for_bench_selection(current_value: Optional[str]) -> Optional[str]:
+    import sys
+
+    if current_value:
+        return current_value
+
+    benchname = get_sitename_from_current_path()
+    if benchname:
+        return benchname
+
+    sites_list = [site_name.parent.name for site_name in sites_autocompletion_callback()]
+
+    if not sites_list:
+        return None
+
+    is_tty = sys.stdin.isatty() and sys.stdout.isatty()
+
+    if is_tty:
+        try:
+            from InquirerPy import inquirer
+
+            sorted_sites = get_sorted_sites_list(sites_list)
+
+            selected = inquirer.fuzzy(
+                message="Select bench (↑↓ navigate, type to search)",
+                vi_mode=True,
+                choices=sorted_sites,
+                mandatory=True,
+                qmark='🤔',
+                amark='🤔',
+            ).execute()
+
+            if selected:
+                update_sites_cache(selected)
+                return selected
+        except Exception:
+            pass
+
+    return None
+
 
 def code_command_extensions_callback(extensions: List[str]) -> List[str]:
     extx = extensions + DEFAULT_EXTENSIONS
@@ -240,6 +306,60 @@ def create_command_sitename_callback(sitename: str):
     bench_path = CLI_BENCHES_DIRECTORY / sitename
 
     if bench_path.exists():
-        richprint.exit(f"The bench '{sitename}' already exists at {bench_path}. Aborting operation.")
+        raise typer.BadParameter(f"The bench '{sitename}' already exists at {bench_path}. Aborting operation.")
 
     return sitename
+
+
+def alias_domains_validation_callback(value: Optional[str]) -> List[str]:
+    """
+    Validate the comma-separated list of alias domains.
+
+    Args:
+        value (Optional[str]): Comma-separated list of alias domains
+
+    Returns:
+        List[str]: List of validated alias domains
+
+    Raises:
+        typer.BadParameter: If any domain is invalid
+    """
+    if not value:
+        return []
+
+    # Split by comma and strip whitespace
+    domains = [domain.strip() for domain in value.split(',') if domain.strip()]
+
+    if not domains:
+        return []
+
+    validated_domains = []
+
+    for domain in domains:
+        # Check if it's a wildcard domain
+        if domain.startswith('*.'):
+            if not is_wildcard_fqdn(domain):
+                richprint.stop()
+                raise typer.BadParameter(
+                    f"Invalid wildcard domain '{domain}'. Wildcard domains must be in format '*.example.com'."
+                )
+            validated_domains.append(domain)
+        else:
+            # Regular domain validation
+            if not is_fqdn(domain):
+                richprint.stop()
+                raise typer.BadParameter(
+                    f"Invalid domain '{domain}'. Domain must be a valid FQDN (e.g., 'www.example.com')."
+                )
+            # Additional check: domain must have at least one dot (TLD)
+            if '.' not in domain:
+                richprint.stop()
+                raise typer.BadParameter(f"Invalid domain '{domain}'. Domain must include a TLD (e.g., 'example.com').")
+            validated_domains.append(domain)
+
+    # Check for duplicates
+    if len(validated_domains) != len(set(validated_domains)):
+        richprint.stop()
+        raise typer.BadParameter("Duplicate domains found in alias domains list.")
+
+    return validated_domains

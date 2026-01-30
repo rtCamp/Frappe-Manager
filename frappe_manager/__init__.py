@@ -1,6 +1,7 @@
 from pathlib import Path
 from enum import Enum
 from typing import Optional
+import os
 from typer.core import TyperCommand
 from frappe_manager.utils.cli_examples import get_examples_from_toml
 import typer.rich_utils as ut
@@ -12,13 +13,16 @@ rich_format_help_original = ut.rich_format_help
 
 
 def print_fm_examples(*, obj, ctx, markup_mode):
-    # utilising the original saved function
     rich_format_help_original(obj=obj, ctx=ctx, markup_mode=markup_mode)
 
     commands_stack = ctx.command_path.split(' ')[1:]
+    
+    benchname = 'mybench'
+    if ctx.params and 'benchname' in ctx.params and ctx.params['benchname']:
+        benchname = ctx.params['benchname']
 
     new_doc = get_examples_from_toml(
-        commands_stack=commands_stack, frappe_version=STABLE_APP_BRANCH_MAPPING_LIST["frappe"]
+        commands_stack=commands_stack, frappe_version=STABLE_APP_BRANCH_MAPPING_LIST["frappe"], benchname=benchname
     )
 
     if new_doc:
@@ -37,9 +41,7 @@ def print_fm_examples(*, obj, ctx, markup_mode):
 
 ut.rich_format_help = print_fm_examples
 
-# TODO configure this using config
-# sites_dir = Path().home() / __name__.split(".")[0]
-CLI_DIR = Path.home() / "frappe"
+CLI_DIR = Path(os.environ.get("FRAPPE_MANAGER_HOME", Path.home() / "frappe"))
 CLI_FM_CONFIG_PATH = CLI_DIR / "fm_config.toml"
 CLI_SITES_ARCHIVE = CLI_DIR / "archived"
 CLI_LOG_DIRECTORY = CLI_DIR / "logs"
@@ -61,11 +63,9 @@ DEFAULT_EXTENSIONS = [
     # Debugger
     "ms-python.debugpy",
     "rioj7.command-variable",
-
     # Python
     "ms-python.python",
     "charliermarsh.ruff",
-
     # JavaScript/Web
     "dbaeumer.vscode-eslint",
     "esbenp.prettier-vscode",
@@ -80,12 +80,17 @@ class SiteServicesEnum(str, Enum):
     redis_cache = "redis-cache"
     schedule = "schedule"
     socketio = "socketio"
+    default_worker = "default-worker"
+    short_worker = "short-worker"
+    long_worker = "long-worker"
+    adminer = "adminer"
+    mailpit = "mailpit"
 
 
 STABLE_APP_BRANCH_MAPPING_LIST = {
-    "frappe": "version-15",
-    "erpnext": "version-15",
-    "hrms": "version-15",
+    "frappe": "version-16",
+    "erpnext": "version-16",
+    "hrms": "version-16",
 }
 
 

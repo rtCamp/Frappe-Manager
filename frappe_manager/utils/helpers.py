@@ -8,8 +8,6 @@ import sys
 from typing import Optional
 from frappe_manager.utils.docker import run_command_with_exit_code
 import requests
-import subprocess
-import platform
 import time
 import secrets
 import grp
@@ -52,76 +50,6 @@ def remove_zombie_subprocess_process(process):
         logger.cleanup("-" * 20)
 
 
-def is_port_in_use(port):
-    """
-    Check if a port is in use or not.
-
-    Args:
-        port (int): The port number to check.
-
-    Returns:
-        bool: True if the port is in use, False otherwise.
-    """
-    import psutil
-
-    for conn in psutil.net_connections():
-        if conn.laddr.port == port and conn.status == "LISTEN":
-            return True
-    return False
-
-
-def check_ports(ports):
-    """
-    Checks if the ports are in use.
-
-    Args:
-        ports (list): List of ports to be checked.
-
-    Returns:
-        list: List of binded ports (can be empty).
-    """
-    # TODO handle if ports are open using docker
-    current_system = platform.system()
-    already_binded = []
-    for port in ports:
-        if current_system == "Darwin":
-            # Mac Os
-            # check port using lsof command
-            cmd = f"lsof -iTCP:{port} -sTCP:LISTEN -P -n"
-            try:
-                output = subprocess.run(cmd, check=True, shell=True, capture_output=True)
-                if output.returncode == 0:
-                    already_binded.append(port)
-            except subprocess.CalledProcessError as e:
-                pass
-        else:
-            # Linux or any other machines
-            if is_port_in_use(port):
-                already_binded.append(port)
-
-    return already_binded
-
-
-def check_and_display_port_status(ports_to_check: list, exclude=[]):
-    """
-    Check if the specified ports are already binded and display a message if they are.
-
-    Args:
-        ports_to_check (list): List of ports to check.
-        exclude (list, optional): List of ports to exclude from checking. Defaults to [].
-    """
-    if exclude:
-        # Removing elements present in remove_array from original_array
-        ports_to_check = [x for x in exclude if x not in ports_to_check]
-
-    if ports_to_check:
-        already_binded = check_ports(ports_to_check)
-        if already_binded:
-            richprint.exit(
-                f"Ports {', '.join(map(str, already_binded))} {'are' if len(already_binded) > 1 else 'is'} currently in use. Please free up these ports."
-            )
-
-
 def generate_random_text(length=50):
     """
     Generate a random text of specified length.
@@ -149,33 +77,27 @@ def is_cli_help_called(ctx):
         bool: True if the help command is called, False otherwise.
     """
     help_called = False
-    # --help check
 
     if '--help' in " ".join(sys.argv[1:]):
-        # is called command is sub command group
         return True
 
     try:
-        for subtyper_command in ctx.command.commands[ctx.invoked_subcommand].commands.keys():
+        subcommand = ctx.command.commands.get(ctx.invoked_subcommand)
+        if not subcommand:
+            return False
+
+        if hasattr(subcommand, 'commands'):
             check_command = " ".join(sys.argv[2:])
-            if check_command == subtyper_command:
-                if ctx.command.commands[ctx.invoked_subcommand].commands[subtyper_command].params:
+            if check_command in subcommand.commands:
+                sub_sub_command = subcommand.commands[check_command]
+                if sub_sub_command.params and sub_sub_command.no_args_is_help:
                     help_called = True
-
-    except AttributeError:
-        help_called = False
-
-    if not help_called:
-        # is called command is sub command
-        check_command = " ".join(sys.argv[1:])
-
-        if check_command == ctx.invoked_subcommand:
-            # is called command supports arguments then help called
-            if ctx.command.commands[ctx.invoked_subcommand].params:
+        elif subcommand.params and ctx.invoked_subcommand == " ".join(sys.argv[1:]):
+            if subcommand.no_args_is_help:
                 help_called = True
 
-            if not ctx.command.commands[ctx.invoked_subcommand].no_args_is_help:
-                help_called = False
+    except (AttributeError, KeyError):
+        help_called = False
 
     return help_called
 
@@ -345,11 +267,9 @@ def create_symlink(source: Path, dest: Path):
 
     # Convert the source and destination to Path objects
 
-    # Remove the destination symlink/file/directory if it already exists
     if dest.exists() or dest.is_symlink():
         dest.unlink()
 
-    # Create a symlink at the destination pointing to the source
     dest.symlink_to(source)
 
 
@@ -375,7 +295,6 @@ def get_frappe_manager_own_files(file_path: str):
 def rich_object_to_string(obj) -> str:
     """Convert a rich Traceback object to a string."""
 
-    # Initialize a 'fake' console with StringIO to capture output
     capture_buffer = StringIO()
 
     fake_console = Console(force_terminal=False, file=capture_buffer)
@@ -389,9 +308,8 @@ def rich_object_to_string(obj) -> str:
 def capture_and_format_exception(traceback_max_frames: int = 100) -> str:
     """Capture the current exception and return a formatted traceback string."""
 
-    exc_type, exc_value, exc_traceback = sys.exc_info()  # Capture current exception info
-    # Create a Traceback object with rich formatting
-    #
+    exc_type, exc_value, exc_traceback = sys.exc_info()
+
     traceback = Traceback.from_exception(
         exc_type, exc_value, exc_traceback, show_locals=True, max_frames=traceback_max_frames
     )

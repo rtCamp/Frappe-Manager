@@ -6,9 +6,9 @@ from frappe_manager.utils.helpers import get_frappe_manager_own_files
 
 from typing import Optional
 from frappe_manager import CLI_BENCHES_DIRECTORY
-from frappe_manager.compose_manager import DockerVolumeMount, DockerVolumeType
+from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
 from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.site_manager.site_exceptions import BenchException
+from frappe_manager.site_manager.exceptions import BenchException
 
 
 def generate_services_table(services_status: dict):
@@ -154,6 +154,9 @@ def domain_level(domain):
 
 
 def validate_sitename(sitename: str | None) -> str:
+    if sitename is None:
+        raise ValueError("Sitename cannot be None")
+
     match = is_fqdn(sitename)
 
     if domain_level(sitename) == 0:
@@ -173,8 +176,6 @@ def get_bench_db_connection_info(bench_name: str, bench_path: Path):
     site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / bench_name / "site_config.json"
     common_site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / 'common_site_config.json'
 
-    db_info["name"] = str(bench_name).replace(".", "-")
-    db_info["user"] = str(bench_name).replace(".", "-")
     db_info["password"] = None
 
     if common_site_config_file.exists():
@@ -191,12 +192,16 @@ def get_bench_db_connection_info(bench_name: str, bench_path: Path):
                 db_info["name"] = site_config["db_name"]
                 db_info["user"] = site_config["db_name"]
                 db_info["password"] = site_config["db_password"]
+                if "db_host" in site_config:
+                    db_info["host"] = site_config["db_host"]
+                if "db_port" in site_config:
+                    db_info["port"] = site_config["db_port"]
 
     return db_info
 
 
 def get_all_docker_images():
-    from frappe_manager.compose_manager.ComposeFile import ComposeFile
+    from frappe_manager.docker import ComposeFile
 
     temp_bench_compose_file_manager = ComposeFile(loadfile=Path('/dev/null/docker-compose.yml'))
     services_manager_compose_file_manager = ComposeFile(
@@ -208,15 +213,6 @@ def get_all_docker_images():
 
     images = temp_bench_compose_file_manager.get_all_images()
 
-    with open(get_frappe_manager_own_files('images-tag.json')) as f:
-        image_tags = json.load(f)
-        prebake_tag = image_tags.get('prebake')
-        images.update({
-            'prebake': {
-                'name': 'ghcr.io/rtcamp/frappe-manager-prebake',
-                'tag': prebake_tag
-            }
-        })
     images.update(services_manager_compose_file_manager.get_all_images())
     images.update(admin_tools_manager_compose_file_manager.get_all_images())
 
@@ -224,8 +220,8 @@ def get_all_docker_images():
 
 
 def pull_docker_images() -> bool:
-    from frappe_manager.docker_wrapper.DockerException import DockerException
-    from frappe_manager.docker_wrapper.DockerClient import DockerClient
+    from frappe_manager.docker import DockerException
+    from frappe_manager.docker import DockerClient
 
     docker = DockerClient()
     images = get_all_docker_images()
@@ -234,7 +230,6 @@ def pull_docker_images() -> bool:
     for _service, image_info in images.items():
         image = f"{image_info['name']}:{image_info['tag']}"
         images_list.append(image)
-
 
     # remove duplicates
     images_list = list(dict.fromkeys(images_list))
@@ -248,8 +243,8 @@ def pull_docker_images() -> bool:
             richprint.live_lines(output, padding=(0, 0, 0, 2))
         except DockerException as e:
             no_error = False
-            richprint.error(f"[bold][red]Error [/bold][/red]: Failed to pull {image}.")
-        richprint.print(f"[green]Pulled[/green] [blue]{image}[/blue].")
+            richprint.error(f"[bold][red]Error [/bold][/red]: Failed to pull {image}")
+        richprint.print(f"[green]Pulled[/green] [blue]{image}[/blue]")
 
     return no_error
 
@@ -271,7 +266,7 @@ def get_sitename_from_current_path() -> Optional[str]:
         return sitename
 
 
-def is_default_worker(worker_name:str) -> bool:
+def is_default_worker(worker_name: str) -> bool:
     default_workers = ['long-worker', 'short-worker']
 
     for dw in default_workers:
