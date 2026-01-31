@@ -51,7 +51,7 @@ from frappe_manager.utils.helpers import (
     is_cli_help_called,
     get_current_fm_version,
 )
-from frappe_manager.services_manager.commands import services_root_command
+from frappe_manager.commands.services import services_app
 from frappe_manager.sub_commands.self_commands import self_app
 from frappe_manager.sub_commands.ssl_command import ssl_root_command
 from frappe_manager.metadata_manager import FMConfigManager
@@ -127,7 +127,7 @@ def get_output_handler(ctx: typer.Context, context: Optional[LoggerContext] = No
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
 
 # Register subcommands
-app.add_typer(services_root_command, name="services", help="Handle global services.")
+app.add_typer(services_app, name="services", help="Handle global services.")
 app.add_typer(self_app, name="self", help="Perform operations related to the [bold][blue]fm[/bold][/blue] itself.")
 app.add_typer(ssl_root_command, name="ssl", help="Perform operations related to ssl.")
 
