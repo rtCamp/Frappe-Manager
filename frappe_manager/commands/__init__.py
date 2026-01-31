@@ -53,7 +53,7 @@ from frappe_manager.utils.helpers import (
 )
 from frappe_manager.commands.services import services_app
 from frappe_manager.commands.self import self_app
-from frappe_manager.sub_commands.ssl_command import ssl_root_command
+from frappe_manager.commands.ssl import ssl_app
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType, RestartPolicyEnum
 from frappe_manager.migration_manager.version import Version
@@ -129,7 +129,7 @@ app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
 # Register subcommands
 app.add_typer(services_app, name="services", help="Handle global services.")
 app.add_typer(self_app, name="self", help="Perform operations related to the [bold][blue]fm[/bold][/blue] itself.")
-app.add_typer(ssl_root_command, name="ssl", help="Perform operations related to ssl.")
+app.add_typer(ssl_app, name="ssl", help="Perform operations related to ssl.")
 
 
 # App callback (runs before all commands)
