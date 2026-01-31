@@ -52,7 +52,7 @@ from frappe_manager.utils.helpers import (
     get_current_fm_version,
 )
 from frappe_manager.commands.services import services_app
-from frappe_manager.sub_commands.self_commands import self_app
+from frappe_manager.commands.self import self_app
 from frappe_manager.sub_commands.ssl_command import ssl_root_command
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType, RestartPolicyEnum
