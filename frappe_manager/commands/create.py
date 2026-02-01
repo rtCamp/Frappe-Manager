@@ -100,14 +100,7 @@ def create(
     ] = False,
 ):
     """
-    Create a new bench with apps.
-
-    Examples:
-
-        fm create mybench
-        fm create mybench --apps erpnext:version-15 --apps hrms
-        fm create mybench --environment prod
-        fm create mybench --apps myorg/private-app:main --github-token ghp_xxx
+    Create a new bench with apps
     """
 
     services_manager: ServicesManager = ctx.obj["services"]

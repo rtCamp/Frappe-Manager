@@ -12,6 +12,7 @@ Key Features:
 - Repository validation before cloning
 """
 
+import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -385,13 +386,15 @@ class AppCloner:
             "depth": 1 if app.shallow_clone and not app.is_commit else None,
         }
 
-        # Remove None values
+        env = os.environ.copy()
+        env['GIT_TERMINAL_PROMPT'] = '0'
+        env['GIT_ASKPASS'] = 'echo'
+        clone_kwargs['env'] = env
+
         clone_kwargs = {k: v for k, v in clone_kwargs.items() if v is not None}
 
-        # Clone the repository
         repo = Repo.clone_from(repo_url, clone_path, **clone_kwargs)
 
-        # If specific commit, checkout after clone
         if app.is_commit:
             repo.git.checkout(app.ref)
 
@@ -450,7 +453,11 @@ class AppCloner:
                         if app.ref:
                             cmd.extend([app.ref])
 
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+                    env = os.environ.copy()
+                    env['GIT_TERMINAL_PROMPT'] = '0'
+                    env['GIT_ASKPASS'] = 'echo'
+
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, env=env)
 
                     if result.returncode == 0:
                         if app.is_commit:

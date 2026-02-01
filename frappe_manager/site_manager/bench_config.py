@@ -410,25 +410,15 @@ class AppConfig(BaseModel):
 
         # Override name if subdirectory specified
         if subdir_path:
-            # Extract the actual app name from subdirectory path
-            # e.g., "apps/frappe" → "frappe"
             name = subdir_path.split('/')[-1]
-
-        # Generate repo URL
-        repo_url = None
-        if github_token:
-            repo_url = f"https://{github_token}@github.com/{repo}.git"
-        else:
-            repo_url = f"https://github.com/{repo}.git"
 
         return cls(
             name=name,
             repo=repo,
             ref=ref,
-            repo_url=repo_url,
-            shallow_clone=True,  # Default to shallow clone
+            repo_url=None,
+            shallow_clone=True,
             subdir_path=subdir_path,
-            symlink=False,  # Default to copy mode
         )
 
     @classmethod

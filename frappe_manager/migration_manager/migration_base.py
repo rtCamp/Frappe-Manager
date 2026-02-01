@@ -1,17 +1,19 @@
 from abc import ABC
 from logging import Logger
 from pathlib import Path
-import json
-from frappe_manager import CLI_DIR
-from frappe_manager.migration_manager.backup_manager import BackupManager
-from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench, BackupFailureException
+from frappe_manager import CLI_SITES_ARCHIVE, CLI_DIR
+from frappe_manager.migration_manager.migration_exections import (
+    MigrationExceptionInBench,
+)
 from frappe_manager.migration_manager.migration_helpers import (
     MigrationBench,
     MigrationBenches,
     MigrationServicesManager,
 )
-from frappe_manager.migration_manager.version import Version
+from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
+from frappe_manager.migration_manager.migration_constants import DOCKER_COMPOSE_DOWN_TIMEOUT_SECONDS
+from frappe_manager.migration_manager.version import Version
 from frappe_manager.logger import log
 from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo, MariaDBManager
 from frappe_manager.output_manager import OutputHandler
@@ -19,14 +21,13 @@ from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.utils.helpers import capture_and_format_exception
 
 
-# @runtime_checkable
 class MigrationBase(ABC):
     version: Version = Version("0.0.0")
     benches_dir: Path = CLI_DIR / "sites"
     skip: bool = False
     migration_executor = None
     logger: Logger = log.get_logger()
-    
+
     def __init__(self, output_handler: OutputHandler | None = None):
         self.output = output_handler or RichOutputHandler()
 
@@ -47,19 +48,16 @@ class MigrationBase(ABC):
         if self.skip:
             return True
 
-        self.output.print("", emoji_code="")
-        self.output.print("=" * 60, emoji_code="")
-        self.output.print(f':package: [bold][blue]v{str(self.version)}[/blue][/bold]', emoji_code="")
-        self.output.print("=" * 60, emoji_code="")
+        self.output.print(f'\n:package: [bold][blue]v{str(self.version)}[/blue][/bold]\n', emoji_code="")
         self.logger.info(f"v{str(self.version)}: Started")
         self.logger.info("-" * 40)
 
         self.init()
-        
-        if self.migration_executor and self.migration_executor.system_needs_migration:
+
+        if self.migration_executor and self.migration_executor.fm_infrastructure_needs_migration:
             self.services_basic_backup()
             self.migrate_services()
-        
+
         self.migrate_benches()
 
         self.logger.info("-" * 40)
@@ -102,20 +100,27 @@ class MigrationBase(ABC):
 
         # migrate each bench
         for bench_name, bench_path in all_benches.items():
-            if self.migration_executor.target_benches and bench_name not in self.migration_executor.target_benches:
+            is_infrastructure_only_migration = self.migration_executor.target_benches is None
+            if is_infrastructure_only_migration:
                 continue
-            
+
+            is_bench_not_targeted = bench_name not in self.migration_executor.target_benches
+            if is_bench_not_targeted:
+                continue
+
             if bench_name in self.migration_executor.exclude_benches:
                 self.output.print(f"Skipping {bench_name} (--exclude-bench)", emoji_code="")
                 continue
 
             bench = MigrationBench(name=bench_name, path=bench_path.parent)
-            
+
             bench_version = get_bench_migration_version(bench.path)
-            
+
             # Check if bench is already at or above this migration version
             if bench_version >= self.version:
-                self.output.print(f"Bench {bench_name} already at v{bench_version}, skipping migration to v{self.version}")
+                self.output.print(
+                    f"Bench {bench_name} already at v{bench_version}, skipping migration to v{self.version}"
+                )
                 continue
 
             if bench.name in self.migration_executor.migrate_benches.keys():
@@ -143,12 +148,12 @@ class MigrationBase(ABC):
 
                 self.undo_bench_migrate(bench)
                 self.logger.info(f'Undo successfull for bench: {bench.name}')
-                
+
                 try:
                     output = bench.docker.compose.down(
                         remove_orphans=True,
                         volumes=False,
-                        timeout=5,
+                        timeout=DOCKER_COMPOSE_DOWN_TIMEOUT_SECONDS,
                         stream=True,
                     )
                 except Exception:
@@ -180,7 +185,9 @@ class MigrationBase(ABC):
         bench_site_config = bench.path / "workspace" / "frappe-bench" / "sites" / bench.name / "site_config.json"
         self.backup_manager.backup(bench_site_config, bench_name=bench.name)
 
-        bench_db_info = DatabaseServerServiceInfo.import_from_bench(bench_path=bench.path,bench_name=bench.name,raise_exception=False)
+        bench_db_info = DatabaseServerServiceInfo.import_from_bench(
+            bench_path=bench.path, bench_name=bench.name, raise_exception=False
+        )
 
         self.bench_db_backup(
             bench=bench,
@@ -199,11 +206,12 @@ class MigrationBase(ABC):
     def _resolve_database_name(self, bench: MigrationBench, db_info: DatabaseServerServiceInfo) -> str | None:
         if db_info.name:
             return db_info.name
-        
+
         bench_config_path = bench.path / "bench_config.toml"
         if bench_config_path.exists():
             try:
                 import tomlkit
+
                 with open(bench_config_path, 'r') as f:
                     bench_config = tomlkit.parse(f.read())
                     db_name = bench_config.get("db_name")
@@ -211,7 +219,7 @@ class MigrationBase(ABC):
                         return db_name
             except Exception as e:
                 self.output.warning(f"Failed to read db_name from bench_config.toml: {e}")
-        
+
         return None
 
     def bench_db_backup(
@@ -225,39 +233,31 @@ class MigrationBase(ABC):
         self.output.change_head(f'Commencing db {bench.name} backup')
 
         db_name = self._resolve_database_name(bench, db_info)
-        
+
         if not db_name:
             self.output.warning(
                 f"Could not determine database name for {bench.name}.\n"
                 f"Checked: site_config.json, db_info, bench_config.toml."
             )
-            
+
             skip_backup_prompt = [
                 "Database backup will be skipped for this bench.",
-                "Do you want to continue migration without database backup?"
+                "Do you want to continue migration without database backup?",
             ]
-            
-            user_choice = self.output.prompt_ask(
-                prompt="\n".join(skip_backup_prompt),
-                choices=["yes", "no"]
-            )
-            
+
+            user_choice = self.output.prompt_ask(prompt="\n".join(skip_backup_prompt), choices=["yes", "no"])
+
             if user_choice == "no":
                 self.output.display_error(f"User chose to abort migration for {bench.name}")
                 raise MigrationExceptionInBench(
                     f"Migration aborted for {bench.name}: Unable to determine database name. "
                     f"User declined to skip database backup."
                 )
-            
+
             self.output.warning(f"Skipping database backup for {bench.name}")
             return
 
-        mariadb_manager = MariaDBManager(
-            db_info,
-            bench_compose_file,
-            bench_docker,
-            run_on_compose_service="frappe"
-        )
+        mariadb_manager = MariaDBManager(db_info, bench_compose_file, bench_docker, run_on_compose_service="frappe")
 
         from datetime import datetime
 

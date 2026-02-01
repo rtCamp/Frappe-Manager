@@ -34,7 +34,7 @@ from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.migration_manager.migration_executor import (
     MigrationExecutor,
     needs_migration,
-    needs_system_migration,
+    needs_fm_infrastructure_migration,
     get_benches_needing_migration,
 )
 from frappe_manager.site_manager.site import Bench

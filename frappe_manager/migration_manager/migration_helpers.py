@@ -4,6 +4,7 @@ import platform
 from typing import Dict
 from frappe_manager import CLI_SERVICES_DIRECTORY
 from frappe_manager.docker import ComposeFile, DockerClient
+from frappe_manager.migration_manager.migration_constants import MIGRATION_BENCH_STOP_TIMEOUT_SECONDS
 
 
 class MigrationBench:
@@ -15,10 +16,9 @@ class MigrationBench:
             'docker-compose.tmpl',
         )
         self.docker = DockerClient(compose_file_path=self.compose_file_manager.compose_path)
-        
+
         self.workers_compose_file_manager = ComposeFile(
-            self.path / 'docker-compose.workers.yml', 
-            'docker-compose.workers.tmpl'
+            self.path / 'docker-compose.workers.yml', 'docker-compose.workers.tmpl'
         )
         self.workers_docker = DockerClient(compose_file_path=self.workers_compose_file_manager.compose_path)
 
@@ -26,7 +26,7 @@ class MigrationBench:
     def compose(self):
         assert self.docker.compose is not None
         return self.docker.compose
-    
+
     @property
     def running(self) -> bool:
         services = self.compose_file_manager.get_services_list()
@@ -42,27 +42,30 @@ class MigrationBench:
             except KeyError:
                 return False
         return True
-    
+
     @property
     def workers_running(self) -> bool:
         from frappe_manager.docker import DockerException
+
         services = self.workers_compose_file_manager.get_services_list()
-        
+
         try:
             all_statuses = self.workers_docker.compose.get_all_services_status()
             containers = self.workers_compose_file_manager.get_container_names().values()
-            running_status = {status["Service"]: status["State"] for status in all_statuses if status.get("Name") in containers}
-            
+            running_status = {
+                status["Service"]: status["State"] for status in all_statuses if status.get("Name") in containers
+            }
+
             for service in services:
                 if running_status.get(service) != "running":
                     return False
             return True
         except (DockerException, KeyError):
             return False
-    
+
     def get_services_running_status(self) -> dict:
         from frappe_manager.docker import DockerException
-        
+
         services = self.compose_file_manager.get_services_list()
         containers = self.compose_file_manager.get_container_names().values()
 
@@ -74,6 +77,7 @@ class MigrationBench:
 
     def get_db_connection_info(self):
         from frappe_manager.utils.site import get_bench_db_connection_info
+
         return get_bench_db_connection_info(self.name, self.path)
 
     def common_bench_config_set(self, config: dict):
@@ -108,8 +112,8 @@ class MigrationBenches:
     def __init__(self, benches_path: Path) -> None:
         self.benches_path = benches_path
 
-    def get_all_benches(self, exclude=[]):
-        # get list of all sites
+    def get_all_benches(self, exclude: list[str] | None = None):
+        exclude = exclude or []
         benches: Dict[str, Path] = {}
         for dir in self.benches_path.iterdir():
             if dir.is_dir() and dir.parts[-1] not in exclude:
@@ -119,7 +123,7 @@ class MigrationBenches:
                     benches[name] = dir
         return benches
 
-    def stop_benches(self, timeout: int = 100):
+    def stop_benches(self, timeout: int = MIGRATION_BENCH_STOP_TIMEOUT_SECONDS):
         compose_list = self.get_all_benches()
         for name, compose_path in compose_list.items():
             bench = MigrationBench(name, compose_path.parent)
@@ -140,7 +144,7 @@ class MigrationServicesManager:
             template_name,
         )
         self.docker = DockerClient(compose_file_path=self.compose_file_manager.compose_path)
-    
+
     @property
     def compose(self):
         assert self.docker.compose is not None

@@ -67,20 +67,20 @@ class TestAppConfigParsing:
         assert config.subdir_path == "apps/frappe"
 
     def test_parse_with_github_token(self):
-        """Test parsing with GitHub token (should generate authenticated URL)."""
+        """Test parsing with GitHub token (repo_url should be None to allow fallback)."""
         token = "ghp_test123"
         config = AppConfig.from_string("erpnext:version-15", github_token=token)
 
         assert config.name == "erpnext"
         assert config.repo == "frappe/erpnext"
         assert config.ref == "version-15"
-        assert config.repo_url == f"https://{token}@github.com/frappe/erpnext.git"
+        assert config.repo_url is None
 
     def test_parse_without_github_token(self):
-        """Test parsing without GitHub token (should generate public HTTPS URL)."""
+        """Test parsing without GitHub token (repo_url should be None to allow fallback)."""
         config = AppConfig.from_string("erpnext:version-15")
 
-        assert config.repo_url == "https://github.com/frappe/erpnext.git"
+        assert config.repo_url is None
 
     def test_parse_rtcamp_org(self):
         """Test parsing app from rtcamp organization."""
@@ -157,15 +157,14 @@ class TestAppConfigFromDict:
         assert config.ref is None
 
     def test_from_dict_with_token(self):
-        """Test converting dict with GitHub token."""
+        """Test converting dict with GitHub token (repo_url should be None to allow fallback)."""
         app_dict: Dict[str, Optional[str]] = {"app": "mycompany/private-app", "branch": "main"}
         token = "ghp_test123"
         config = AppConfig.from_dict(app_dict, github_token=token)
 
         assert config.name == "private-app"
         assert config.repo == "mycompany/private-app"
-        assert config.repo_url is not None
-        assert token in config.repo_url
+        assert config.repo_url is None
 
     def test_from_dict_invalid_empty_app(self):
         """Test that empty app name raises ValueError."""

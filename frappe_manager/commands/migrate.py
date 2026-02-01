@@ -13,7 +13,10 @@ from frappe_manager.migration_manager.bench_migration_state import (
 )
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager.context_managers import temporary_stop
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.logger.context import LoggerContext
+from frappe_manager.commands import get_output_handler
 from rich.table import Table
 
 
@@ -23,17 +26,13 @@ def migrate(
         Optional[str],
         typer.Argument(help="Bench name to migrate"),
     ] = None,
-    system: Annotated[
-        bool,
-        typer.Option("--system", help="Migrate system (FM config and global services)"),
-    ] = False,
     all_benches: Annotated[
         bool,
         typer.Option("--all-benches", help="Migrate all benches"),
     ] = False,
     skip_backup: Annotated[
         bool,
-        typer.Option("--skip-backup", help="Skip all backups (DANGEROUS - use only if backups fail)"),
+        typer.Option("--skip-all-backup", help="Skip all backups (DANGEROUS - use only if backups fail)"),
     ] = False,
     skip_backup_for: Annotated[
         Optional[str],
@@ -52,8 +51,13 @@ def migrate(
     Migrate Frappe Manager to current version.
 
     Migration operates at two levels:
-    - System: FM config and global services (use --system)
-    - Benches: Individual bench environments (specify explicitly)
+    - FM Infrastructure: CLI config + global database services (always checked and migrated if needed)
+    - Benches: Individual bench environments (you choose which ones to migrate)
+
+    Examples:
+      fm migrate                    Update FM infrastructure only (safe - doesn't touch benches)
+      fm migrate mybench            Update FM infrastructure + migrate specific bench
+      fm migrate --all-benches      Update FM infrastructure + migrate all benches
     """
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
 
@@ -68,12 +72,6 @@ def migrate(
         richprint.stop()
         typer.echo(ctx.get_help())
         raise typer.Exit(1)
-
-    if not system and not benchname and not all_benches:
-        # Show help when no migration target specified
-        richprint.stop()
-        typer.echo(ctx.get_help())
-        raise typer.Exit(0)
 
     current_version = Version(get_current_fm_version())
 
@@ -100,96 +98,100 @@ def migrate(
                     if bench_path.name not in exclude_bench_list:
                         target_benches.append(bench_path.name)
 
-    # Track what was checked and what happened
-    system_checked = system
-    system_version = fm_config_manager.get_system_migration_version()
-    system_needed_migration = system and system_version < current_version
+    fm_infrastructure_version = fm_config_manager.get_system_migration_version()
+    fm_infrastructure_needs_migration = fm_infrastructure_version < current_version
 
     benches_checked = []
     benches_migrated = []
     benches_skipped = []
     benches_failed = []
 
-    if system_needed_migration or (target_benches is not None and len(target_benches) > 0):
-        # Check each bench version before migration
-        if target_benches:
-            for bench_name in target_benches:
-                bench_path = CLI_BENCHES_DIRECTORY / bench_name
-                if bench_path.exists():
-                    bench_version = get_bench_migration_version(bench_path)
-                    benches_checked.append((bench_name, bench_version))
+    if not fm_infrastructure_needs_migration and not target_benches:
+        richprint.print("✓ FM infrastructure already up to date (no benches specified)")
+        raise typer.Exit(0)
 
-        migrations = MigrationExecutor(
-            fm_config_manager,
-            skip_backup=skip_backup,
-            skip_backup_for=skip_backup_list,
-            exclude_benches=exclude_bench_list,
-            force=force,
-            target_benches=target_benches,
-            migrate_system=system,
-        )
+    if target_benches:
+        for bench_name in target_benches:
+            bench_path = CLI_BENCHES_DIRECTORY / bench_name
+            if bench_path.exists():
+                bench_version = get_bench_migration_version(bench_path)
+                benches_checked.append((bench_name, bench_version))
 
-        with temporary_stop(richprint):  # type: ignore[arg-type]  # DisplayManager duck types as OutputHandler
-            migration_status = migrations.execute()
+    logger_context = LoggerContext(operation="migrate")
+    output_handler = get_output_handler(ctx, logger_context)
 
-        if not migration_status:
-            richprint.print(f"Rolled back to previous version of fm {migrations.prev_version}")
-            raise typer.Exit(1)
+    migrations = MigrationExecutor(
+        fm_config_manager,
+        skip_backup=skip_backup,
+        skip_backup_for=skip_backup_list,
+        exclude_benches=exclude_bench_list,
+        force=force,
+        target_benches=target_benches,
+        migrate_fm_infrastructure=fm_infrastructure_needs_migration,
+        output_handler=output_handler,
+    )
 
-        if target_benches:
-            for bench_name in target_benches:
-                if bench_name in migrations.migrate_benches:
-                    bench_data = migrations.migrate_benches[bench_name]
-                    if bench_data['last_migration_version'] == current_version and not bench_data['exception']:
-                        bench_path = CLI_BENCHES_DIRECTORY / bench_name
-                        if bench_path.exists() and (bench_path / CLI_BENCH_CONFIG_FILE_NAME).exists():
-                            set_bench_migration_version(bench_path, current_version)
-                            benches_migrated.append(bench_name)
-                    elif bench_data['exception']:
-                        benches_failed.append(bench_name)
-                else:
-                    # Bench was skipped (already at target version)
-                    benches_skipped.append(bench_name)
+    with temporary_stop(output_handler):
+        migration_status = migrations.execute()
 
-        if system_needed_migration:
-            fm_config_manager.set_system_migration_version(current_version)
-            fm_config_manager.export_to_toml()
+    if not migration_status:
+        raise typer.Exit(1)
 
-    # Show clean, aligned output using borderless table
-    if system_checked or benches_checked:
-        table = Table(show_header=False, box=None, padding=(0, 2, 0, 0))
-
-        if system_checked:
-            if system_needed_migration:
-                table.add_row(
-                    "✅",
-                    "[cyan]System[/cyan]",
-                    f"[yellow]v{system_version}[/yellow] → [green]v{current_version}[/green]",
-                )
+    if target_benches:
+        for bench_name in target_benches:
+            if bench_name in migrations.migrate_benches:
+                bench_data = migrations.migrate_benches[bench_name]
+                if bench_data['last_migration_version'] == current_version and not bench_data['exception']:
+                    bench_path = CLI_BENCHES_DIRECTORY / bench_name
+                    if bench_path.exists() and (bench_path / CLI_BENCH_CONFIG_FILE_NAME).exists():
+                        set_bench_migration_version(bench_path, current_version)
+                        benches_migrated.append(bench_name)
+                elif bench_data['exception']:
+                    benches_failed.append(bench_name)
             else:
-                table.add_row("⏭️ ", "[cyan]System[/cyan]", f"[yellow]v{system_version}[/yellow] (already up to date)")
+                benches_skipped.append(bench_name)
 
-        if benches_migrated:
-            for bench_name in benches_migrated:
-                orig_version = next((v for n, v in benches_checked if n == bench_name), None)
-                table.add_row(
-                    "✅",
-                    f"[cyan]{bench_name}[/cyan]",
-                    f"[yellow]v{orig_version}[/yellow] → [green]v{current_version}[/green]",
-                )
+    if fm_infrastructure_needs_migration:
+        fm_config_manager.set_system_migration_version(current_version)
+        fm_config_manager.export_to_toml()
 
-        if benches_skipped:
-            for bench_name in benches_skipped:
-                orig_version = next((v for n, v in benches_checked if n == bench_name), None)
-                table.add_row(
-                    "⏭️ ", f"[cyan]{bench_name}[/cyan]", f"[yellow]v{orig_version}[/yellow] (already up to date)"
-                )
+    table = Table(show_header=False, box=None, padding=(0, 2, 0, 0))
 
-        if benches_failed:
-            for bench_name in benches_failed:
-                table.add_row("❌", f"[cyan]{bench_name}[/cyan]", "[red]Migration failed[/red]")
+    show_infrastructure_status = fm_infrastructure_needs_migration or target_benches is None
 
-        richprint.stdout.print(table)
+    if show_infrastructure_status:
+        if fm_infrastructure_needs_migration:
+            table.add_row(
+                "✅",
+                "[cyan]FM Infrastructure[/cyan]",
+                f"[yellow]v{fm_infrastructure_version}[/yellow] → [green]v{current_version}[/green]",
+            )
+        else:
+            table.add_row(
+                "⏭️ ",
+                "[cyan]FM Infrastructure[/cyan]",
+                f"[yellow]v{fm_infrastructure_version}[/yellow] (already up to date)",
+            )
 
-        if benches_failed:
-            richprint.error("Check logs for details", emoji_code=":warning:")
+    if benches_migrated:
+        for bench_name in benches_migrated:
+            orig_version = next((v for n, v in benches_checked if n == bench_name), None)
+            table.add_row(
+                "✅",
+                f"[cyan]{bench_name}[/cyan]",
+                f"[yellow]v{orig_version}[/yellow] → [green]v{current_version}[/green]",
+            )
+
+    if benches_skipped:
+        for bench_name in benches_skipped:
+            orig_version = next((v for n, v in benches_checked if n == bench_name), None)
+            table.add_row("⏭️ ", f"[cyan]{bench_name}[/cyan]", f"[yellow]v{orig_version}[/yellow] (already up to date)")
+
+    if benches_failed:
+        for bench_name in benches_failed:
+            table.add_row("❌", f"[cyan]{bench_name}[/cyan]", "[red]Migration failed[/red]")
+
+    richprint.stdout.print(table)
+
+    if benches_failed:
+        richprint.error("Check logs for details", emoji_code=":warning:")

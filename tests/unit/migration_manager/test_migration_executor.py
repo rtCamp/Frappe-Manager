@@ -39,7 +39,7 @@ class TestMigrationExecutorVersionEnforcement:
             patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
         ):
             mock_output = Mock()
-            executor = MigrationExecutor(mock_fm_config, migrate_system=True, output_handler=mock_output)
+            executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True, output_handler=mock_output)
             result = executor.execute()
 
             assert result is False
@@ -174,7 +174,7 @@ class TestMigrationExecutorUserPrompt:
             patch('frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules', return_value=[]),
         ):
             mock_output = Mock()
-            executor = MigrationExecutor(mock_fm_config, migrate_system=True, output_handler=mock_output)
+            executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True, output_handler=mock_output)
             executor.migrations = [mock_migration]
 
             mock_output.prompt_ask.return_value = "yes"
@@ -201,7 +201,7 @@ class TestMigrationExecutorUserPrompt:
             patch('frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules', return_value=[]),
         ):
             mock_output = Mock()
-            executor = MigrationExecutor(mock_fm_config, migrate_system=True, output_handler=mock_output)
+            executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True, output_handler=mock_output)
             executor.migrations = [mock_migration]
 
             mock_output.prompt_ask.return_value = "no"
@@ -213,6 +213,6 @@ class TestMigrationExecutorUserPrompt:
                 result = executor.execute()
 
             assert result is False
-            
+
             print_calls = [str(call) for call in mock_output.print.call_args_list]
             assert any("Migration aborted" in call for call in print_calls)

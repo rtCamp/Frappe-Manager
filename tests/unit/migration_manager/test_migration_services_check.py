@@ -24,7 +24,7 @@ class TestMigrationServicesAutoStart:
 
             mock_services_manager.init.assert_called_once()
             mock_services_manager.start_service.assert_called_once()
-            
+
             print_calls = [call[0][0] for call in mock_output.print.call_args_list]
             assert any("Global services not running" in str(call) for call in print_calls)
             assert any("started successfully" in str(call) for call in print_calls)
@@ -48,7 +48,7 @@ class TestMigrationServicesAutoStart:
 
             mock_services_manager.init.assert_called_once()
             mock_services_manager.start_service.assert_not_called()
-            
+
             mock_output.print.assert_not_called()
 
     def test_creates_services_when_not_initialized(self, mock_fm_config):
@@ -68,7 +68,7 @@ class TestMigrationServicesAutoStart:
 
             mock_services_manager.init.assert_called_once()
             mock_services_manager.entrypoint_checks.assert_called_once_with(start=True)
-            
+
             print_calls = [call[0][0] for call in mock_output.print.call_args_list]
             assert any("not initialized" in str(call) for call in print_calls)
             assert any("Creating" in str(call) for call in print_calls)
@@ -92,7 +92,7 @@ class TestMigrationServicesAutoStart:
             mock_logger.return_value.error.assert_called_once()
             error_call = mock_logger.return_value.error.call_args[0][0]
             assert "Failed to ensure global services" in error_call
-            
+
             print_calls = [call[0][0] for call in mock_output.print.call_args_list]
             assert any("Warning" in str(call) for call in print_calls)
             assert any("fm services start" in str(call) for call in print_calls)
@@ -113,7 +113,9 @@ class TestMigrationServicesAutoStart:
             patch('frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules', return_value=[]),
         ):
             mock_output = Mock()
-            executor = MigrationExecutor(mock_fm_config, force=True, migrate_system=True, output_handler=mock_output)
+            executor = MigrationExecutor(
+                mock_fm_config, force=True, migrate_fm_infrastructure=True, output_handler=mock_output
+            )
             executor.execute()
 
             mock_services_manager.init.assert_called()
