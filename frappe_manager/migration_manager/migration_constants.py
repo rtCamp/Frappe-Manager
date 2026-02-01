@@ -14,3 +14,12 @@ MIGRATION_BENCH_STOP_TIMEOUT_SECONDS = 100
 MIGRATION_WIKI_URL = "https://github.com/rtCamp/Frappe-Manager/wiki/Migrations#manual-migration-procedure"
 
 TIMESTAMP_COLLISION_RETRY_DELAY_MS = 0.001
+
+MIGRATION_CHECK_WHITELIST_COMMANDS: list[str] = [
+    "list",
+    "self compose",
+    "self update-images",
+    "migrate",
+]
+
+MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS: list[str] = []

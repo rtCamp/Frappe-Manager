@@ -48,7 +48,7 @@ class MigrationBase(ABC):
         if self.skip:
             return True
 
-        self.output.print(f'\n:package: [bold][blue]v{str(self.version)}[/blue][/bold]\n', emoji_code="")
+        self.output.print(f':package: [bold][blue]v{str(self.version)}[/blue][/bold]', emoji_code="")
         self.logger.info(f"v{str(self.version)}: Started")
         self.logger.info("-" * 40)
 

@@ -240,11 +240,59 @@ def app_callback(
 
             invoked_command = ctx.invoked_subcommand or "no-command"
 
-            # Commands that never check migrations (always allowed)
-            commands_skip_migration_check = ["migrate", "version", "self"]
+            from frappe_manager.migration_manager.migration_constants import (
+                MIGRATION_CHECK_WHITELIST_COMMANDS,
+                MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS,
+            )
 
-            # Commands that skip migrations even with bench argument (management/destructive)
-            commands_skip_bench_migration = ["stop", "delete"]
+            def get_full_command_path() -> str:
+                """
+                Build full command path from sys.argv for multi-level commands only.
+
+                Examples:
+                  - 'fm list' → 'list'
+                  - 'fm self compose' → 'self compose' (multi-level command)
+                  - 'fm start mybench' → 'start' (mybench is an argument, not a subcommand)
+                  - 'fm ssl add example.com' → 'ssl add' (example.com is an argument)
+
+                Multi-level commands are those with subcommands (self, ssl, services).
+                Single-level commands take arguments (start, stop, create, etc.) and should
+                only return the base command name.
+                """
+                # Commands that have subcommands (multi-level structure)
+                MULTI_LEVEL_COMMANDS = {'self', 'ssl', 'services'}
+
+                if len(sys.argv) < 2:
+                    return invoked_command
+
+                first_command = sys.argv[1] if len(sys.argv) > 1 else invoked_command
+
+                # If it's not a multi-level command, return just the first command
+                if first_command not in MULTI_LEVEL_COMMANDS:
+                    return first_command if not first_command.startswith('-') else invoked_command
+
+                # For multi-level commands, build the full path (max 2 levels)
+                command_parts = []
+                for arg in sys.argv[1:]:
+                    # Stop at flags
+                    if arg.startswith('-'):
+                        break
+                    # Stop at paths (likely bench names like /path or ~/path)
+                    if arg.startswith('/') or arg.startswith('~'):
+                        break
+                    # Limit to max 2 command levels (e.g., "self compose")
+                    if len(command_parts) >= 2:
+                        break
+
+                    command_parts.append(arg)
+
+                return ' '.join(command_parts) if command_parts else invoked_command
+
+            full_command = get_full_command_path()
+
+            commands_skip_migration_check = MIGRATION_CHECK_WHITELIST_COMMANDS
+
+            commands_skip_bench_migration = ["stop", "delete"] + MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS
 
             # Get bench argument if present
             bench_arg = get_bench_arg_from_context(ctx)
@@ -262,8 +310,12 @@ def app_callback(
                 if bench_needs_migration_flag:
                     bench_version = get_bench_migration_version(bench_path)
 
-            # Handle migrations if needed
-            if invoked_command not in commands_skip_migration_check:
+            should_check_migration = (
+                invoked_command not in commands_skip_migration_check
+                and full_command not in commands_skip_migration_check
+            )
+
+            if should_check_migration:
                 # Scenario 1: Infra needs migration
                 if infra_needs_migration:
                     richprint.stop()
