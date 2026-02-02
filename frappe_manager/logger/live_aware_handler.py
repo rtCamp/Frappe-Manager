@@ -19,11 +19,12 @@ class LiveAwareRichHandler(RichHandler):
     Live display during emit(), then restarts it.
 
     Usage:
-        from frappe_manager.display_manager.DisplayManager import richprint
+        from frappe_manager.output_manager import get_global_output_handler
 
+        output = get_global_output_handler()
         handler = LiveAwareRichHandler(
-            console=richprint.stderr,
-            live_display=richprint.live,
+            console=output.stderr,
+            live_display=output.live,
         )
         logger.addHandler(handler)
     """

@@ -172,23 +172,46 @@ def _add_console_handler(logger: logging.Logger, console_level: str) -> None:
         if isinstance(handler, (RichHandler, LiveAwareRichHandler)):
             logger.removeHandler(handler)
 
-    from frappe_manager.display_manager.DisplayManager import richprint
+    from frappe_manager.output_manager import get_global_output_handler, has_global_output_handler
+    from frappe_manager.output_manager.rich_output import RichOutputHandler
 
-    console_handler = LiveAwareRichHandler(
-        level=getattr(logging, console_level),
-        rich_tracebacks=True,
-        tracebacks_show_locals=True,
-        show_time=False,
-        show_path=False,
-        show_level=True,
-        markup=True,
-        console=richprint.stderr,
-        live_display=richprint.live,
-    )
+    if has_global_output_handler():
+        output = get_global_output_handler()
+        if isinstance(output, RichOutputHandler):
+            console_handler = LiveAwareRichHandler(
+                level=getattr(logging, console_level),
+                rich_tracebacks=True,
+                tracebacks_show_locals=True,
+                show_time=False,
+                show_path=False,
+                show_level=True,
+                markup=True,
+                console=output.stderr,
+                live_display=output.live,
+            )
+        else:
+            console_handler = RichHandler(
+                level=getattr(logging, console_level),
+                rich_tracebacks=True,
+                tracebacks_show_locals=True,
+                show_time=False,
+                show_path=False,
+                show_level=True,
+                markup=True,
+            )
+    else:
+        console_handler = RichHandler(
+            level=getattr(logging, console_level),
+            rich_tracebacks=True,
+            tracebacks_show_locals=True,
+            show_time=False,
+            show_path=False,
+            show_level=True,
+            markup=True,
+        )
+
     console_handler.setFormatter(logging.Formatter("%(message)s"))
-
     console_handler.addFilter(ConsoleLogFilter())
-
     logger.addHandler(console_handler)
 
 
