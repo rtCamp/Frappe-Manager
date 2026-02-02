@@ -1,11 +1,15 @@
 import json
+from typing import Annotated
 import typer
 import requests
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.utils.helpers import get_current_fm_version, install_package
 
 
-def update(ctx: typer.Context):
+def update(
+    ctx: typer.Context,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation prompt and proceed with update")] = False,
+):
     """Check for and install frappe-manager updates."""
     output = get_global_output_handler()
     output.change_head("Checking for udpates")
@@ -20,7 +24,9 @@ def update(ctx: typer.Context):
                 f":arrows_counterclockwise: New update available [blue][bold]v{latest_version}[/bold][/blue]"
                 "\nDo you want to update ?"
             )
-            continue_update = output.prompt_ask(prompt=update_msg, choices=["yes", "no"])
+            continue_update = output.prompt_ask(
+                prompt=update_msg, choices=["yes", "no"], force_yes=yes, required_flag="--yes"
+            )
 
             if continue_update == 'yes':
                 install_package("frappe-manager", latest_version)

@@ -152,18 +152,14 @@ def sitename_callback(sitename: Optional[str]):
         sitename = get_sitename_from_current_path()
 
     if not sitename:
-        # Get basic sites list
         sites_list = [site_name.parent.name for site_name in sites_autocompletion_callback()]
 
         if sites_list:
-            # Check if we have a TTY for interactive selection
             is_tty = sys.stdin.isatty() and sys.stdout.isatty()
 
             if is_tty:
-                # Use interactive fuzzy selection in TTY
                 from InquirerPy import inquirer
 
-                # Sort with recently used sites first
                 sorted_sites = get_sorted_sites_list(sites_list)
 
                 sitename = inquirer.fuzzy(
@@ -175,23 +171,23 @@ def sitename_callback(sitename: Optional[str]):
                     amark='🤔',
                 ).execute()
 
-                # Update cache with selected site
                 if sitename:
                     update_sites_cache(sitename)
             else:
-                # Non-TTY: Use first site from sorted list (prioritizes recently used)
-                sorted_sites = get_sorted_sites_list(sites_list)
-                sitename = sorted_sites[0] if sorted_sites else None
-
-                if sitename:
-                    update_sites_cache(sitename)
+                output = get_global_output_handler()
+                output.error(
+                    "Bench name is required in non-interactive mode",
+                    exception=Exception(
+                        "Specify bench name as positional argument. Use 'fm list' to see available benches."
+                    ),
+                )
+                raise typer.Exit(1)
 
     if sitename is None:
         raise typer.BadParameter("Invalid selection. Must match existing sites")
 
     sitename = validate_sitename(sitename)
 
-    # check if bench not exists
     bench_path = CLI_BENCHES_DIRECTORY / sitename
 
     if not bench_path.exists():
@@ -289,6 +285,13 @@ def prompt_for_bench_selection(current_value: Optional[str]) -> Optional[str]:
                 return selected
         except Exception:
             pass
+    else:
+        output = get_global_output_handler()
+        output.error(
+            "Bench name is required in non-interactive mode",
+            exception=Exception("Specify bench name as positional argument. Use 'fm list' to see available benches."),
+        )
+        raise typer.Exit(1)
 
     return None
 

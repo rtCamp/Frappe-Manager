@@ -93,3 +93,28 @@ class DependencyError(FrappeManagerException):
     """Raised when external dependencies are missing."""
 
     pass
+
+
+class NonInteractiveError(FrappeManagerException):
+    """Raised when interactive input required but CLI is non-interactive."""
+
+    def __init__(self, message: str, suggestions: list[str] | None = None):
+        """
+        Initialize with error message and optional suggestions.
+
+        Args:
+            message: Human-readable error description
+            suggestions: List of suggested solutions for the user
+        """
+        if suggestions:
+            solutions_text = "\n".join(f"  • {s}" for s in suggestions)
+            full_message = f"{message}\n\nSolutions:\n{solutions_text}"
+        else:
+            full_message = (
+                f"{message}\n\n"
+                "Solutions:\n"
+                "  • Provide required arguments explicitly\n"
+                "  • Run without --non-interactive for prompts\n"
+                "  • Use --help for available options"
+            )
+        super().__init__(full_message)

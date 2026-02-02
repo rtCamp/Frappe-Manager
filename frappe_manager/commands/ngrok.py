@@ -25,6 +25,12 @@ def ngrok(
         Optional[str],
         typer.Option("--auth-token", "-t", help="Ngrok authentication token", envvar="NGROK_AUTHTOKEN"),
     ] = None,
+    save_token: Annotated[
+        Optional[bool],
+        typer.Option(
+            "--save-token/--no-save-token", help="Save or don't save the ngrok auth token to config for future use"
+        ),
+    ] = None,
 ):
     """Create ngrok tunnel for bench"""
     services_manager = ctx.obj["services"]
@@ -51,11 +57,15 @@ def ngrok(
         if auth_token and not fm_config_manager.ngrok_auth_token:
             output.print("New auth token provided", emoji_code=":new:")
 
-            with temporary_stop(output):
-                should_save = output.prompt_ask(
-                    prompt="Do you want to save the ngrok auth token in config for future use?",
-                    choices=['yes', 'no'],
-                )
+            if save_token is None:
+                with temporary_stop(output):
+                    should_save = output.prompt_ask(
+                        prompt="Do you want to save the ngrok auth token in config for future use?",
+                        choices=['yes', 'no'],
+                        required_flag="--save-token or --no-save-token",
+                    )
+            else:
+                should_save = 'yes' if save_token else 'no'
 
             if should_save == 'yes':
                 output.print("Saving auth token to config...", emoji_code=":floppy_disk:")
