@@ -286,20 +286,28 @@ class JSONOutputHandler(OutputHandler):
             OutputEvent("update_live", {"renderable": str(renderable) if renderable else None, "padding": padding}),
         )
 
-    def prompt_ask(self, **kwargs) -> str:
-        """
-        Prompt the user for input.
-
-        Note: In JSON mode, this returns an empty string and logs the prompt.
-        For actual user interaction, use RichOutputHandler.
-
-        Args:
-            **kwargs: Prompt arguments
-
-        Returns:
-            Empty string (no actual user input in JSON mode)
-        """
-        self._add_event(OutputEvent("prompt_ask", {"kwargs": kwargs}))
+    def prompt_ask(
+        self,
+        prompt: str = "",
+        choices: list | None = None,
+        default: str | None = None,
+        force_yes: bool = False,
+        required_flag: str | None = None,
+        **kwargs,
+    ) -> str:
+        self._add_event(
+            OutputEvent(
+                "prompt_ask",
+                {
+                    "prompt": prompt,
+                    "choices": choices,
+                    "default": default,
+                    "force_yes": force_yes,
+                    "required_flag": required_flag,
+                    "kwargs": kwargs,
+                },
+            )
+        )
         return ""
 
     @property

@@ -170,20 +170,19 @@ class SilentOutputHandler(OutputHandler):
             padding: Padding (ignored)
         """
 
-    def prompt_ask(self, **kwargs) -> str:
-        """
-        Prompt the user for input (returns empty string).
+    def prompt_ask(
+        self,
+        prompt: str = "",
+        choices: list | None = None,
+        default: str | None = None,
+        force_yes: bool = False,
+        required_flag: str | None = None,
+        **kwargs,
+    ) -> str:
+        if force_yes:
+            return "yes"
 
-        Note: In silent mode, this returns an empty string without prompting.
-        This is suitable for testing but not for interactive use.
-
-        Args:
-            **kwargs: Prompt arguments (ignored)
-
-        Returns:
-            Empty string
-        """
-        return ""
+        return default if default else "no"
 
     @property
     def should_stream_docker(self) -> bool:

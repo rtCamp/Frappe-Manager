@@ -183,17 +183,36 @@ class RichOutputHandler(OutputHandler):
         """
         self._richprint.update_live(renderable=renderable, padding=padding)
 
-    def prompt_ask(self, **kwargs) -> str:
-        """
-        Prompt the user for input.
+    def prompt_ask(
+        self,
+        prompt: str = "",
+        choices: list | None = None,
+        default: str | None = None,
+        force_yes: bool = False,
+        required_flag: str | None = None,
+        **kwargs,
+    ) -> str:
+        from frappe_manager.exceptions import NonInteractiveError
 
-        Args:
-            **kwargs: Arguments passed to Rich Prompt.ask()
+        if force_yes:
+            return "yes"
 
-        Returns:
-            The user's input as a string
-        """
-        return self._richprint.prompt_ask(**kwargs)
+        if not self.is_interactive():
+            if required_flag:
+                raise NonInteractiveError(
+                    f"Cannot prompt in non-interactive mode: {prompt}", suggestions=[f"Use: {required_flag}"]
+                )
+            if default is None:
+                suggestions = []
+                if choices:
+                    suggestions.append(f"Pass one of: {', '.join(choices)}")
+                suggestions.append("Run without --non-interactive to enable prompts")
+                raise NonInteractiveError(
+                    f"Cannot prompt in non-interactive mode: {prompt}", suggestions=suggestions if suggestions else None
+                )
+            return default
+
+        return self._richprint.prompt_ask(prompt=prompt, choices=choices, default=default, **kwargs)
 
     @property
     def should_stream_docker(self) -> bool:
@@ -226,11 +245,11 @@ class RichOutputHandler(OutputHandler):
     def is_spinner_active(self) -> bool:
         """
         Check if spinner is currently active by querying the underlying richprint singleton.
-        
+
         This overrides the base class property to check the actual DisplayManager state
         rather than relying on the base class's _spinner_active flag, which would be
         incorrect since RichOutputHandler wraps a shared singleton.
-        
+
         Returns:
             True if the underlying richprint DisplayManager has an active spinner
         """

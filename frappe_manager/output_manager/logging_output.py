@@ -239,22 +239,22 @@ class LoggingOutputHandler(OutputHandler):
         """
         self.delegate.update_live(renderable, padding)
 
-    def prompt_ask(self, **kwargs) -> str:
-        """
-        Prompt user (logged with response).
+    def prompt_ask(
+        self,
+        prompt: str = "",
+        choices: list | None = None,
+        default: str | None = None,
+        force_yes: bool = False,
+        required_flag: str | None = None,
+        **kwargs,
+    ) -> str:
+        self._log_message(logging.INFO, f"PROMPT: {prompt}")
 
-        Args:
-            **kwargs: Prompt arguments
+        response = self.delegate.prompt_ask(
+            prompt=prompt, choices=choices, default=default, force_yes=force_yes, required_flag=required_flag, **kwargs
+        )
 
-        Returns:
-            User's input as string
-        """
-        prompt_text = kwargs.get("prompt", "unknown prompt")
-        self._log_message(logging.INFO, f"PROMPT: {prompt_text}")
-
-        response = self.delegate.prompt_ask(**kwargs)
-
-        if "password" not in str(prompt_text).lower():
+        if "password" not in prompt.lower():
             self._log_message(logging.INFO, f"PROMPT_RESPONSE: {response}")
         else:
             self._log_message(logging.INFO, "PROMPT_RESPONSE: [password hidden]")
