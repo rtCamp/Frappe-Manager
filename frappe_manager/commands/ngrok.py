@@ -49,7 +49,7 @@ def ngrok(
             auth_token = fm_config_manager.ngrok_auth_token
             output.print("Using ngrok auth token from config file", emoji_code=":key:")
         elif not auth_token:
-            output.error(
+            output.display_error(
                 "Ngrok auth token is required. Please provide it with --auth-token or set NGROK_AUTHTOKEN environment variable."
             )
             raise typer.Exit(1)
@@ -78,5 +78,5 @@ def ngrok(
         try:
             create_tunnel(bench.name, auth_token)
         except Exception as e:
-            output.error(f"Failed to create tunnel: {str(e)}")
+            output.display_error(f"Failed to create tunnel: {str(e)}")
             raise

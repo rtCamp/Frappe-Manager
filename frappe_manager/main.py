@@ -30,13 +30,13 @@ def cli_entrypoint():
         logger = log.get_logger()
         output = get_global_output_handler()
 
-        output.error(f'[red]Error Occurred[/red] {str(e).strip()}')
+        output.display_error(f'[red]Error Occurred[/red] {str(e).strip()}')
 
         # Show details if available
         if e.details:
-            output.error(f"Details: {e.details}")
+            output.display_error(f"Details: {e.details}")
 
-        output.error(f"More info about error is logged in {CLI_LOG_DIRECTORY / 'fm.log'}", emoji_code=':mag:')
+        output.print(f"More info about error is logged in {CLI_LOG_DIRECTORY / 'fm.log'}", emoji_code=':mag:')
         output.stop()
 
         exception_traceback: str = capture_and_format_exception()

@@ -158,7 +158,7 @@ def app_callback(
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
         if level_name not in valid_levels:
             output = get_global_output_handler()
-            output.error(f"Invalid log level: {log_level}. Must be one of: {', '.join(valid_levels).lower()}")
+            output.display_error(f"Invalid log level: {log_level}. Must be one of: {', '.join(valid_levels).lower()}")
             raise typer.Exit(1)
     else:
         # Map -v count to log level
@@ -348,7 +348,7 @@ def app_callback(
                             migration_status = migrations.execute()
 
                         if not migration_status:
-                            output.error("FM infrastructure update failed")
+                            output.display_error("FM infrastructure update failed")
                             output.print("Please run 'fm migrate' manually to fix.", emoji_code="")
                             raise typer.Exit(1)
 
@@ -393,7 +393,7 @@ def app_callback(
                                     bench_status = bench_migrations.execute()
 
                                 if not bench_status:
-                                    output.error(f"Bench migration failed for '{bench_arg}'")
+                                    output.display_error(f"Bench migration failed for '{bench_arg}'")
                                     output.print(f"Please run 'fm migrate {bench_arg}' manually.", emoji_code="")
                                     raise typer.Exit(1)
 
@@ -404,12 +404,12 @@ def app_callback(
                                 output.warning(f"Skipped bench migration. Run 'fm migrate {bench_arg}' when ready.")
                                 output.print("Note: Bench may not work correctly until migrated.", emoji_code="")
                                 output.print("", emoji_code="")
-                                output.error(f"Cannot {invoked_command} '{bench_arg}' - migration required")
+                                output.display_error(f"Cannot {invoked_command} '{bench_arg}' - migration required")
                                 output.print(f"Run 'fm migrate {bench_arg}' first", emoji_code="")
                                 raise typer.Exit(1)
 
                     else:
-                        output.error("Cannot proceed - FM infrastructure migration required")
+                        output.display_error("Cannot proceed - FM infrastructure migration required")
                         output.print("Run 'fm migrate' when ready", emoji_code="")
                         raise typer.Exit(1)
 
@@ -446,7 +446,7 @@ def app_callback(
                             bench_status = bench_migrations.execute()
 
                         if not bench_status:
-                            output.error(f"Bench migration failed for '{bench_arg}'")
+                            output.display_error(f"Bench migration failed for '{bench_arg}'")
                             output.print(f"Please run 'fm migrate {bench_arg}' manually.", emoji_code="")
                             raise typer.Exit(1)
 
@@ -457,7 +457,7 @@ def app_callback(
                         output.warning(f"Skipped bench migration. Run 'fm migrate {bench_arg}' when ready.")
                         output.print("Note: Bench may not work correctly until migrated.", emoji_code="")
                         output.print("", emoji_code="")
-                        output.error(f"Cannot {invoked_command} '{bench_arg}' - migration required")
+                        output.display_error(f"Cannot {invoked_command} '{bench_arg}' - migration required")
                         output.print(f"Run 'fm migrate {bench_arg}' first", emoji_code="")
                         raise typer.Exit(1)
 

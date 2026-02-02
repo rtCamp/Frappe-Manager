@@ -61,14 +61,14 @@ def migrate(
 
     if benchname and all_benches:
         output = get_global_output_handler()
-        output.error("Cannot specify both <benchname> and --all-benches")
+        output.display_error("Cannot specify both <benchname> and --all-benches")
         output.stop()
         typer.echo(ctx.get_help())
         raise typer.Exit(1)
 
     if exclude_bench and not all_benches:
         output = get_global_output_handler()
-        output.error("--exclude-bench can only be used with --all-benches")
+        output.display_error("--exclude-bench can only be used with --all-benches")
         output.stop()
         typer.echo(ctx.get_help())
         raise typer.Exit(1)
@@ -88,7 +88,7 @@ def migrate(
         bench_path = CLI_BENCHES_DIRECTORY / benchname
         if not bench_path.exists():
             output = get_global_output_handler()
-            output.error(f"Bench '{benchname}' does not exist")
+            output.display_error(f"Bench '{benchname}' does not exist")
             raise typer.Exit(1)
         target_benches = [benchname]
     elif all_benches:
@@ -196,4 +196,4 @@ def migrate(
     output.stdout.print(table)
 
     if benches_failed:
-        output.error("Check logs for details", emoji_code=":warning:")
+        output.display_error("Check logs for details", emoji_code=":warning:")

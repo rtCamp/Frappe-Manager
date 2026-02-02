@@ -245,7 +245,7 @@ def pull_docker_images() -> bool:
             output.live_lines(pull_output, padding=(0, 0, 0, 2))
         except DockerException as e:
             no_error = False
-            output.error(f"[bold][red]Error [/bold][/red]: Failed to pull {image}")
+            output.error(f"[bold][red]Error [/bold][/red]: Failed to pull {image}", e)
         output.print(f"[green]Pulled[/green] [blue]{image}[/blue]")
 
     return no_error

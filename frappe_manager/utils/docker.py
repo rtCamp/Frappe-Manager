@@ -182,13 +182,13 @@ def is_current_user_in_group(group_name) -> bool:
                 return True
             else:
                 output = get_global_output_handler()
-                output.error(
+                output.display_error(
                     f"Your current user [blue][b] {current_user} [/b][/blue] is not in the 'docker' group. Please add it and restart your terminal."
                 )
                 return False
         except KeyError:
             output = get_global_output_handler()
-            output.error(
+            output.display_error(
                 f"The group '{group_name}' does not exist. Please create it and add your current user [blue][b] {current_user} [/b][/blue] to it."
             )
             return False

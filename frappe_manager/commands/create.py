@@ -117,7 +117,7 @@ def create(
         validate_domains_unique(all_domains, benches_root=CLI_BENCHES_DIRECTORY, skip_check=skip_check)
     except DomainConflictError as e:
         output = get_global_output_handler()
-        output.error(str(e))
+        output.display_error(str(e))
         output.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
         raise typer.Exit(1)
 

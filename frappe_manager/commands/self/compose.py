@@ -22,7 +22,7 @@ def compose(
     compose_files = sorted(bench_path.glob("docker-compose*.yml"))
 
     if not compose_files:
-        output.error(f"No docker-compose files found in {bench_path}")
+        output.display_error(f"No docker-compose files found in {bench_path}")
         raise typer.Exit(1)
 
     compose_cmd = ["docker", "compose"]
@@ -42,5 +42,5 @@ def compose(
         output.warning("Command interrupted")
         sys.exit(130)
     except Exception as e:
-        output.error(f"Failed to run docker compose: {e}")
+        output.display_error(f"Failed to run docker compose: {e}")
         raise typer.Exit(1)
