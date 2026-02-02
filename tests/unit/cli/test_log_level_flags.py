@@ -187,18 +187,25 @@ class TestInvalidLogLevel:
 
     def test_invalid_log_level_raises_exit(self):
         """Test that invalid log level shows error and exits."""
+        from unittest.mock import call
+
         ctx = MagicMock(spec=typer.Context)
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            with patch("frappe_manager.commands.richprint") as mock_richprint:
+            from frappe_manager import output_manager
+
+            original_get = output_manager.get_global_output_handler
+            mock_handler = MagicMock()
+
+            with patch.object(output_manager, 'get_global_output_handler', return_value=mock_handler):
                 with pytest.raises(typer.Exit) as exc_info:
                     app_callback(ctx, verbose=0, log_level="invalid", version=None)
 
                 assert exc_info.value.exit_code == 1
-                mock_richprint.error.assert_called_once()
-                error_call = mock_richprint.error.call_args[0][0]
+                mock_handler.error.assert_called_once()
+                error_call = mock_handler.error.call_args[0][0]
                 assert "invalid" in error_call.lower()
                 assert "debug" in error_call.lower()
                 assert "info" in error_call.lower()
@@ -266,25 +273,23 @@ class TestLoggerConfiguration:
         with patch("frappe_manager.commands.is_cli_help_called", return_value=False):
             with patch("frappe_manager.commands.CLI_DIR") as mock_cli_dir:
                 with patch("frappe_manager.commands.CLI_BENCHES_DIRECTORY"):
-                    with patch("frappe_manager.commands.log.get_logger") as mock_get_logger:
-                        with patch("frappe_manager.commands.DockerClient"):
-                            with patch("frappe_manager.commands.FMConfigManager"):
-                                with patch("frappe_manager.commands.MigrationExecutor") as mock_migration:
-                                    with patch("frappe_manager.commands.ServicesManager"):
-                                        # Setup mocks
-                                        mock_cli_dir.exists.return_value = True
-                                        mock_cli_dir.is_dir.return_value = True
-                                        mock_logger = MagicMock()
-                                        mock_get_logger.return_value = mock_logger
-                                        mock_exec = MagicMock()
-                                        mock_exec.execute.return_value = True
-                                        mock_migration.return_value = mock_exec
+                    with patch("frappe_manager.commands.spinner"):
+                        with patch("frappe_manager.commands.log.get_logger") as mock_get_logger:
+                            with patch("frappe_manager.commands.DockerClient"):
+                                with patch("frappe_manager.commands.FMConfigManager"):
+                                    with patch("frappe_manager.commands.MigrationExecutor") as mock_migration:
+                                        with patch("frappe_manager.commands.ServicesManager"):
+                                            mock_cli_dir.exists.return_value = True
+                                            mock_cli_dir.is_dir.return_value = True
+                                            mock_logger = MagicMock()
+                                            mock_get_logger.return_value = mock_logger
+                                            mock_exec = MagicMock()
+                                            mock_exec.execute.return_value = True
+                                            mock_migration.return_value = mock_exec
 
-                                        # Call with DEBUG level
-                                        try:
-                                            app_callback(ctx, verbose=2, log_level=None, version=None)
-                                        except Exception:
-                                            pass  # We're just testing logger.setLevel call
+                                            try:
+                                                app_callback(ctx, verbose=2, log_level=None, version=None)
+                                            except Exception:
+                                                pass
 
-                                        # Verify logger.setLevel was called with DEBUG
-                                        mock_logger.setLevel.assert_called_with(logging.DEBUG)
+                                            mock_logger.setLevel.assert_called_with(logging.DEBUG)

@@ -138,6 +138,9 @@ def app_callback(
     """
     ctx.obj = {}
 
+    # Import early for validation error reporting
+    from frappe_manager.output_manager import get_global_output_handler, set_global_output_handler
+
     # Determine effective log level
     if log_level:
         # Explicit --log-level takes precedence
@@ -163,7 +166,6 @@ def app_callback(
     ctx.obj["verbose"] = level_name in ["INFO", "DEBUG"]
 
     # Upgrade global output handler to LoggingOutputHandler now that we have CLI args
-    from frappe_manager.output_manager import get_global_output_handler, set_global_output_handler
     from frappe_manager.logger import ContextualLogger
 
     basic_handler = get_global_output_handler()
