@@ -2,7 +2,7 @@ from typing import Annotated, List, Optional, cast
 import typer
 import secrets
 from frappe_manager.logger.context import LoggerContext
-from frappe_manager.output_manager import spinner
+from frappe_manager.output_manager import spinner, get_global_output_handler
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType, AppConfig, RestartPolicyEnum
 from frappe_manager.site_manager.domain_conflict import validate_domains_unique, DomainConflictError
 from frappe_manager.site_manager.bench_service import BenchService
@@ -13,7 +13,6 @@ from frappe_manager.utils.callbacks import (
     apps_list_validation_callback,
     alias_domains_validation_callback,
 )
-from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager import (
     CLI_BENCH_CONFIG_FILE_NAME,
     CLI_BENCHES_DIRECTORY,
@@ -21,7 +20,6 @@ from frappe_manager import (
     EnableDisableOptionsEnum,
 )
 from frappe_manager.metadata_manager import FMConfigManager
-from frappe_manager.commands import get_output_handler
 
 
 def create(
@@ -118,12 +116,12 @@ def create(
     try:
         validate_domains_unique(all_domains, benches_root=CLI_BENCHES_DIRECTORY, skip_check=skip_check)
     except DomainConflictError as e:
-        richprint.error(str(e))
-        richprint.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
+        output = get_global_output_handler()
+        output.error(str(e))
+        output.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
         raise typer.Exit(1)
 
-    context = LoggerContext(bench=benchname, operation="create")
-    output = get_output_handler(ctx, context=context)
+    output = get_global_output_handler()
     bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
     bench_path = bench_service.benches_directory / benchname
     bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME

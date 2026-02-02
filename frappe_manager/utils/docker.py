@@ -5,7 +5,7 @@ from subprocess import run
 from typing import Dict, Iterable, Tuple, Union, Optional
 from frappe_manager.logger import log
 from frappe_manager.docker.docker_exceptions import DockerException
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.utils.subprocess import stream_command_output
 
@@ -167,8 +167,6 @@ def is_current_user_in_group(group_name) -> bool:
         bool: True if the current user is in the group, False otherwise.
     """
 
-    from frappe_manager.display_manager.DisplayManager import richprint
-
     import platform
 
     if platform.system() == 'Linux':
@@ -183,12 +181,14 @@ def is_current_user_in_group(group_name) -> bool:
             if current_user in docker_group_members:
                 return True
             else:
-                richprint.error(
+                output = get_global_output_handler()
+                output.error(
                     f"Your current user [blue][b] {current_user} [/b][/blue] is not in the 'docker' group. Please add it and restart your terminal."
                 )
                 return False
         except KeyError:
-            richprint.error(
+            output = get_global_output_handler()
+            output.error(
                 f"The group '{group_name}' does not exist. Please create it and add your current user [blue][b] {current_user} [/b][/blue] to it."
             )
             return False
@@ -224,7 +224,8 @@ def host_run_cp(image: str, source: str, destination: str, docker):
     """
 
     dest_path = Path(destination)
-    richprint.change_head(f"Populating {dest_path.name} directory")
+    output = get_global_output_handler()
+    output.change_head(f"Populating {dest_path.name} directory")
 
     try:
         # Use context manager for automatic cleanup
@@ -241,7 +242,7 @@ def host_run_cp(image: str, source: str, destination: str, docker):
         if not Path(destination).exists():
             raise Exception(f"{destination} not found.")
 
-        richprint.change_head(f"Populated {dest_path.name} directory")
+        output.change_head(f"Populated {dest_path.name} directory")
 
     except DockerException as e:
         # Clean up destination if copy failed

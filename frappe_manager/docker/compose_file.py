@@ -6,7 +6,7 @@ import copy
 from frappe_manager import CLI_DEFAULT_DELIMETER, CLI_SITE_NAME_DELIMETER
 from frappe_manager.docker import DockerVolumeMount
 from frappe_manager.docker.compose_exceptions import ComposeSecretNotFoundError, ComposeServiceNotFound
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.utils.site import parse_docker_volume
 from frappe_manager.utils.helpers import get_template_path, represent_null_empty
 from frappe_manager.migration_manager.version import Version
@@ -137,7 +137,8 @@ class ComposeFile:
         try:
             self.yml["services"][service]["user"] = f"{uid}:{gid}"
         except KeyError as e:
-            richprint.error("Issue in docker template. Not able to set user.", e)
+            output = get_global_output_handler()
+            output.error("Issue in docker template. Not able to set user.", e)
 
     def get_user(self, service):
         """
@@ -462,7 +463,8 @@ class ComposeFile:
             with open(self.compose_path, "w") as f:
                 yaml.dump(self.yml, f, transform=represent_null_empty)
         except Exception as e:
-            richprint.error(f"Error in writing compose file.", e)
+            output = get_global_output_handler()
+            output.error(f"Error in writing compose file.", e)
 
     def get_all_volumes(self):
         """
@@ -552,13 +554,15 @@ class ComposeFile:
                     volumes[volume_name]['name'] = volume_prefix + CLI_DEFAULT_DELIMETER + volume_name
 
         except KeyError as e:
-            richprint.warning(f"Error setting volume names: {str(e)}")
+            output = get_global_output_handler()
+            output.warning(f"Error setting volume names: {str(e)}")
 
     def set_secret_file_path(self, secret_name, file_path):
         try:
             self.yml["secrets"][secret_name]["file"] = file_path
         except KeyError:
-            richprint.warning("Not able to set secrets in compose")
+            output = get_global_output_handler()
+            output.warning("Not able to set secrets in compose")
 
     def get_secret_file_path(self, secret_name) -> Path:
         try:
@@ -571,19 +575,22 @@ class ComposeFile:
         try:
             del self.yml["services"][container]["secrets"]
         except KeyError:
-            richprint.warning(f"Not able to remove secrets from {container}")
+            output = get_global_output_handler()
+            output.warning(f"Not able to remove secrets from {container}")
 
     def remove_root_secrets_compose(self):
         try:
             del self.yml["secrets"]
         except KeyError:
-            richprint.warning(f"root level secrets not present")
+            output = get_global_output_handler()
+            output.warning(f"root level secrets not present")
 
     def remove_container_user(self, container):
         try:
             del self.yml["services"][container]["user"]
         except KeyError:
-            richprint.warning(f"user not present")
+            output = get_global_output_handler()
+            output.warning(f"user not present")
 
     def get_all_images(self):
         """
@@ -985,7 +992,8 @@ class ComposeFile:
             if self._snapshot:
                 self.yml = self._snapshot
                 self._snapshot = None
-            richprint.warning(f"ComposeFile changes rolled back due to error: {exc_val}")
+            output = get_global_output_handler()
+            output.warning(f"ComposeFile changes rolled back due to error: {exc_val}")
         return False  # Don't suppress exceptions
 
     # ==================== NEW: Update Helper Methods ====================

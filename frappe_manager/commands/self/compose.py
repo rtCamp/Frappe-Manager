@@ -2,7 +2,7 @@ import subprocess
 import sys
 import typer
 from frappe_manager import CLI_BENCHES_DIRECTORY
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.utils.callbacks import sitename_callback
 
 
@@ -17,11 +17,12 @@ def compose(
     """
     bench_name = sitename_callback(benchname)
     bench_path = CLI_BENCHES_DIRECTORY / bench_name
+    output = get_global_output_handler()
 
     compose_files = sorted(bench_path.glob("docker-compose*.yml"))
 
     if not compose_files:
-        richprint.error(f"No docker-compose files found in {bench_path}")
+        output.error(f"No docker-compose files found in {bench_path}")
         raise typer.Exit(1)
 
     compose_cmd = ["docker", "compose"]
@@ -32,14 +33,14 @@ def compose(
     if ctx.args:
         compose_cmd.extend(ctx.args)
 
-    richprint.change_head(f"Running docker compose {' '.join(ctx.args or [])}")
+    output.change_head(f"Running docker compose {' '.join(ctx.args or [])}")
 
     try:
         result = subprocess.run(compose_cmd, cwd=bench_path, check=False)
         sys.exit(result.returncode)
     except KeyboardInterrupt:
-        richprint.warning("Command interrupted")
+        output.warning("Command interrupted")
         sys.exit(130)
     except Exception as e:
-        richprint.error(f"Failed to run docker compose: {e}")
+        output.error(f"Failed to run docker compose: {e}")
         raise typer.Exit(1)

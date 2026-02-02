@@ -14,9 +14,7 @@ from frappe_manager.migration_manager.bench_migration_state import (
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager.context_managers import temporary_stop
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.logger.context import LoggerContext
-from frappe_manager.commands import get_output_handler
+from frappe_manager.output_manager import get_global_output_handler
 from rich.table import Table
 
 
@@ -62,14 +60,16 @@ def migrate(
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
 
     if benchname and all_benches:
-        richprint.error("Cannot specify both <benchname> and --all-benches")
-        richprint.stop()
+        output = get_global_output_handler()
+        output.error("Cannot specify both <benchname> and --all-benches")
+        output.stop()
         typer.echo(ctx.get_help())
         raise typer.Exit(1)
 
     if exclude_bench and not all_benches:
-        richprint.error("--exclude-bench can only be used with --all-benches")
-        richprint.stop()
+        output = get_global_output_handler()
+        output.error("--exclude-bench can only be used with --all-benches")
+        output.stop()
         typer.echo(ctx.get_help())
         raise typer.Exit(1)
 
@@ -87,7 +87,8 @@ def migrate(
     if benchname:
         bench_path = CLI_BENCHES_DIRECTORY / benchname
         if not bench_path.exists():
-            richprint.error(f"Bench '{benchname}' does not exist")
+            output = get_global_output_handler()
+            output.error(f"Bench '{benchname}' does not exist")
             raise typer.Exit(1)
         target_benches = [benchname]
     elif all_benches:
@@ -107,7 +108,8 @@ def migrate(
     benches_failed = []
 
     if not fm_infrastructure_needs_migration and not target_benches:
-        richprint.print("✓ FM infrastructure already up to date (no benches specified)")
+        output = get_global_output_handler()
+        output.print("✓ FM infrastructure already up to date (no benches specified)")
         raise typer.Exit(0)
 
     if target_benches:
@@ -117,8 +119,7 @@ def migrate(
                 bench_version = get_bench_migration_version(bench_path)
                 benches_checked.append((bench_name, bench_version))
 
-    logger_context = LoggerContext(operation="migrate")
-    output_handler = get_output_handler(ctx, logger_context)
+    output_handler = get_global_output_handler()
 
     migrations = MigrationExecutor(
         fm_config_manager,
@@ -191,7 +192,8 @@ def migrate(
         for bench_name in benches_failed:
             table.add_row("❌", f"[cyan]{bench_name}[/cyan]", "[red]Migration failed[/red]")
 
-    richprint.stdout.print(table)
+    output = get_global_output_handler()
+    output.stdout.print(table)
 
     if benches_failed:
-        richprint.error("Check logs for details", emoji_code=":warning:")
+        output.error("Check logs for details", emoji_code=":warning:")

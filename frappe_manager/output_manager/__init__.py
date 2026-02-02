@@ -14,6 +14,11 @@ from frappe_manager.output_manager.context_managers import (
     temporary_stop,
 )
 from frappe_manager.output_manager.flags import OutputRefactoringFlags
+from frappe_manager.output_manager.globals import (
+    get_global_output_handler,
+    has_global_output_handler,
+    set_global_output_handler,
+)
 from frappe_manager.output_manager.json_output import JSONOutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
@@ -24,7 +29,10 @@ __all__ = [
     "OutputRefactoringFlags",
     "RichOutputHandler",
     "SilentOutputHandler",
+    "get_global_output_handler",
+    "has_global_output_handler",
     "nested_spinner",
+    "set_global_output_handler",
     "spinner",
     "spinner_or_pass",
     "temporary_stop",

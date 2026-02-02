@@ -3,7 +3,8 @@ import typer
 from frappe_manager.logger.context import LoggerContext
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
-from frappe_manager.commands import check_bench_migration_required, get_output_handler
+from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.commands import check_bench_migration_required
 
 
 def shell(
@@ -32,9 +33,7 @@ def shell(
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
 
-    # Create output handler with context for logging
-    context = LoggerContext(bench=benchname, operation="shell")
-    output = get_output_handler(ctx, context=context)
+    output = get_global_output_handler()
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     available_services = bench.get_available_services()

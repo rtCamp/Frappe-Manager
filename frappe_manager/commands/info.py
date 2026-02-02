@@ -51,12 +51,11 @@ from frappe_manager.utils.helpers import (
     is_cli_help_called,
     get_current_fm_version,
 )
-from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler, spinner
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.output_manager.logging_output import LoggingOutputHandler
 
-# Import helpers from parent __init__.py
-from frappe_manager.commands import check_bench_migration_required, get_output_handler
+from frappe_manager.commands import check_bench_migration_required
 
 
 def info(
@@ -75,9 +74,7 @@ def info(
     services_manager = ctx.obj["services"]
     verbose = ctx.obj['verbose']
 
-    # Create output handler with context for logging
-    context = LoggerContext(bench=benchname, operation="info")
-    output = get_output_handler(ctx, context=context)
+    output = get_global_output_handler()
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     with spinner(output, "Getting bench info"):

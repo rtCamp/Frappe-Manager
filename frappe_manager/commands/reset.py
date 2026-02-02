@@ -1,10 +1,9 @@
 from typing import Annotated, Optional
 import typer
-from frappe_manager.logger.context import LoggerContext
-from frappe_manager.output_manager import spinner
+from frappe_manager.output_manager import spinner, get_global_output_handler
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
-from frappe_manager.commands import check_bench_migration_required, get_output_handler
+from frappe_manager.commands import check_bench_migration_required
 
 
 def reset(
@@ -26,8 +25,7 @@ def reset(
 
     services_manager = ctx.obj["services"]
 
-    context = LoggerContext(bench=benchname, operation="reset")
-    output = get_output_handler(ctx, context=context)
+    output = get_global_output_handler()
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     with spinner(output, f"Resetting {benchname}"):

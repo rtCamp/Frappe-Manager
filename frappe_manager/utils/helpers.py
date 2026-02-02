@@ -16,7 +16,7 @@ import importlib.resources as pkg_resources
 from rich.console import Console
 from rich.traceback import Traceback
 from frappe_manager.logger import log
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager import PREBAKED_SITE_APPS
 from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_DEFAULT_DELIMETER, CLI_SITE_NAME_DELIMETER
 
@@ -143,7 +143,8 @@ def check_repo_exists(app_url: str, branch_name: str | None = None, exclude_dict
         return {"app": True if app == 200 else False}
 
     except Exception as e:
-        richprint.error(f"Not able to validate app {app_url} for branch [blue]{branch_name}[/blue]", e)
+        output = get_global_output_handler()
+        output.error(f"Not able to validate app {app_url} for branch [blue]{branch_name}[/blue]", e)
 
 
 def check_frappe_app_exists(app: str, branch_name: Optional[str] = None):
@@ -234,10 +235,11 @@ def get_unix_groups():
 
 
 def install_package(package_name, version):
-    output = run_command_with_exit_code(
+    output_lines = run_command_with_exit_code(
         [sys.executable, "-m", "pip", "install", f"{package_name}=={version}"], stream=True
     )
-    richprint.live_lines(output)
+    output = get_global_output_handler()
+    output.live_lines(output_lines)
 
 
 def create_class_from_dict(class_name, attributes_dict):

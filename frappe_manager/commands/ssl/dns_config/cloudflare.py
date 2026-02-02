@@ -3,7 +3,7 @@
 from typing import Annotated, Optional
 import typer
 from frappe_manager.ssl_manager import DNS_PROVIDER
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.utils.callbacks import sites_autocompletion_callback
 from ..dns_helpers import _show_dns_credentials, _remove_dns_credentials, _configure_dns_credentials
 
@@ -72,16 +72,18 @@ def dns_config_cloudflare(
 
     # Validate Cloudflare-specific credentials
     if not api_token and not api_key:
-        richprint.error("Either [bold]--api-token[/bold] or [bold]--api-key[/bold] must be provided")
-        richprint.print("\n[green]Recommended:[/green] Use --api-token for better security and scoped permissions")
-        richprint.print("[yellow]Legacy:[/yellow] Use --api-key with --email for Global API Key authentication")
-        richprint.print("\n[dim]Create API Token at: https://dash.cloudflare.com/profile/api-tokens[/dim]")
+        output = get_global_output_handler()
+        output.error("Either [bold]--api-token[/bold] or [bold]--api-key[/bold] must be provided")
+        output.print("\n[green]Recommended:[/green] Use --api-token for better security and scoped permissions")
+        output.print("[yellow]Legacy:[/yellow] Use --api-key with --email for Global API Key authentication")
+        output.print("\n[dim]Create API Token at: https://dash.cloudflare.com/profile/api-tokens[/dim]")
         raise typer.Exit(1)
 
     if api_key and not email:
-        richprint.error("[bold]--email[/bold] is required when using [bold]--api-key[/bold] (Global API Key)")
-        richprint.print("\n[yellow]Note:[/yellow] API Key authentication requires your Cloudflare account email")
-        richprint.print("[green]Better option:[/green] Use --api-token instead (doesn't require email)")
+        output = get_global_output_handler()
+        output.error("[bold]--email[/bold] is required when using [bold]--api-key[/bold] (Global API Key)")
+        output.print("\n[yellow]Note:[/yellow] API Key authentication requires your Cloudflare account email")
+        output.print("[green]Better option:[/green] Use --api-token instead (doesn't require email)")
         raise typer.Exit(1)
 
     # Configure credentials

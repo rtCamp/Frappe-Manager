@@ -1,5 +1,6 @@
 from collections import deque
 import sys
+import threading
 import warnings
 
 import typer
@@ -34,6 +35,9 @@ class DisplayManager:
         self._spinner_active = False
         self._current_text = None
 
+        # Thread-safety lock for spinner state operations
+        self._lock = threading.RLock()
+
     @property
     def is_spinner_active(self) -> bool:
         """Check if spinner is currently active."""
@@ -58,40 +62,40 @@ class DisplayManager:
         Returns:
             None
         """
-        # Import flags here to avoid circular dependency
-        try:
-            from frappe_manager.output_manager.flags import OutputRefactoringFlags
+        with self._lock:
+            # Import flags here to avoid circular dependency
+            try:
+                from frappe_manager.output_manager.flags import OutputRefactoringFlags
 
-            if OutputRefactoringFlags.use_context_managers():
-                warnings.warn(
-                    "Direct richprint.start() is deprecated. Use context managers instead:\n"
-                    "    from frappe_manager.output_manager import spinner\n"
-                    "    with spinner(output, 'text'): ...\n"
-                    "See .plans/output-migration-guide.md for migration guide.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-
-                if OutputRefactoringFlags.strict_mode():
-                    raise RuntimeError(
-                        "Direct richprint.start() is not allowed in strict mode. "
-                        "Use context managers: with spinner(output, 'text'): ..."
+                if OutputRefactoringFlags.use_context_managers():
+                    warnings.warn(
+                        "Direct richprint.start() is deprecated. Use context managers instead:\n"
+                        "    from frappe_manager.output_manager import spinner\n"
+                        "    with spinner(output, 'text'): ...\n"
+                        "See .plans/output-migration-guide.md for migration guide.",
+                        DeprecationWarning,
+                        stacklevel=2,
                     )
-        except ImportError:
-            pass  # Flags module not available, skip warning
 
-        self.current_head = self.previous_head = Text(text=text, style="bold blue")
-        self.spinner = Spinner(text=self.current_head, name="dots2", speed=1)
+                    if OutputRefactoringFlags.strict_mode():
+                        raise RuntimeError(
+                            "Direct richprint.start() is not allowed in strict mode. "
+                            "Use context managers: with spinner(output, 'text'): ..."
+                        )
+            except ImportError:
+                pass
 
-        # Track state for context managers
-        self._spinner_active = True
-        self._current_text = text
+            self.current_head = self.previous_head = Text(text=text, style="bold blue")
+            self.spinner = Spinner(text=self.current_head, name="dots2", speed=1)
 
-        if self._is_tty:
-            self.live.start(refresh=True)
-            self.live.update(self.spinner, refresh=True)
-        else:
-            self.stderr.print(f"⚙️  {text}")
+            self._spinner_active = True
+            self._current_text = text
+
+            if self._is_tty:
+                self.live.start(refresh=True)
+                self.live.update(self.spinner, refresh=True)
+            else:
+                self.stderr.print(f"⚙️  {text}")
 
     def error(self, text: str, exception: Exception | None = None, emoji_code: str = ":no_entry:"):
         """
@@ -405,36 +409,36 @@ class DisplayManager:
         Returns:
             None
         """
-        # Import flags here to avoid circular dependency
-        try:
-            from frappe_manager.output_manager.flags import OutputRefactoringFlags
+        with self._lock:
+            # Import flags here to avoid circular dependency
+            try:
+                from frappe_manager.output_manager.flags import OutputRefactoringFlags
 
-            if OutputRefactoringFlags.use_context_managers():
-                warnings.warn(
-                    "Direct richprint.stop() is deprecated. Use context managers instead:\n"
-                    "    from frappe_manager.output_manager import spinner\n"
-                    "    with spinner(output, 'text'): ...\n"
-                    "See .plans/output-migration-guide.md for migration guide.",
-                    DeprecationWarning,
-                    stacklevel=2,
-                )
-
-                if OutputRefactoringFlags.strict_mode():
-                    raise RuntimeError(
-                        "Direct richprint.stop() is not allowed in strict mode. "
-                        "Use context managers: with spinner(output, 'text'): ..."
+                if OutputRefactoringFlags.use_context_managers():
+                    warnings.warn(
+                        "Direct richprint.stop() is deprecated. Use context managers instead:\n"
+                        "    from frappe_manager.output_manager import spinner\n"
+                        "    with spinner(output, 'text'): ...\n"
+                        "See .plans/output-migration-guide.md for migration guide.",
+                        DeprecationWarning,
+                        stacklevel=2,
                     )
-        except ImportError:
-            pass  # Flags module not available, skip warning
 
-        # Track state for context managers
-        self._spinner_active = False
-        self._current_text = None
+                    if OutputRefactoringFlags.strict_mode():
+                        raise RuntimeError(
+                            "Direct richprint.stop() is not allowed in strict mode. "
+                            "Use context managers: with spinner(output, 'text'): ..."
+                        )
+            except ImportError:
+                pass
 
-        if self._is_tty:
-            self.spinner.update()
-            self.live.update(Text("", end=""))
-            self.live.stop()
+            self._spinner_active = False
+            self._current_text = None
+
+            if self._is_tty:
+                self.spinner.update()
+                self.live.update(Text("", end=""))
+                self.live.stop()
 
 
 richprint = DisplayManager()

@@ -13,8 +13,7 @@ from frappe_manager.site_manager.bench_config import (
 )
 from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.site_manager.domain_conflict import validate_domains_unique, DomainConflictError
-from frappe_manager.logger.context import LoggerContext
-from frappe_manager.output_manager import spinner
+from frappe_manager.output_manager import spinner, get_global_output_handler
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import (
     alias_domains_validation_callback,
@@ -23,7 +22,6 @@ from frappe_manager.utils.callbacks import (
 )
 from frappe_manager import CLI_BENCHES_DIRECTORY, EnableDisableOptionsEnum
 from frappe_manager.metadata_manager import FMConfigManager
-from frappe_manager.commands import get_output_handler
 
 
 def update(
@@ -124,8 +122,7 @@ def update(
     services_manager = ctx.obj["services"]
     fm_config: FMConfigManager = ctx.obj['fm_config_manager']
 
-    context = LoggerContext(bench=benchname, operation="update")
-    output = get_output_handler(ctx, context=context)
+    output = get_global_output_handler()
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     bench_config_save = False

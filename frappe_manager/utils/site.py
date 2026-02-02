@@ -7,7 +7,7 @@ from frappe_manager.utils.helpers import get_frappe_manager_own_files
 from typing import Optional
 from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchException
 
 
@@ -163,7 +163,8 @@ def validate_sitename(sitename: str | None) -> str:
         sitename = sitename + ".localhost"
 
     if not match:
-        richprint.error(
+        output = get_global_output_handler()
+        output.error(
             f"The {sitename} must follow Fully Qualified Domain Name (FQDN) format.",
             exception=BenchException(sitename, f"Valid FQDN site name not provided."),
         )
@@ -236,15 +237,16 @@ def pull_docker_images() -> bool:
 
     no_error = True
     for image in images_list:
+        output = get_global_output_handler()
         status = f"[blue]Pulling image[/blue] [bold][yellow]{image}[/yellow][/bold]"
-        richprint.change_head(status, style=None)
+        output.change_head(status, style=None)
         try:
-            output = docker.pull(container_name=image, stream=True)
-            richprint.live_lines(output, padding=(0, 0, 0, 2))
+            pull_output = docker.pull(container_name=image, stream=True)
+            output.live_lines(pull_output, padding=(0, 0, 0, 2))
         except DockerException as e:
             no_error = False
-            richprint.error(f"[bold][red]Error [/bold][/red]: Failed to pull {image}")
-        richprint.print(f"[green]Pulled[/green] [blue]{image}[/blue]")
+            output.error(f"[bold][red]Error [/bold][/red]: Failed to pull {image}")
+        output.print(f"[green]Pulled[/green] [blue]{image}[/blue]")
 
     return no_error
 

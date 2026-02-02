@@ -1,10 +1,9 @@
 from typing import Annotated, Optional
 import typer
-from frappe_manager.logger.context import LoggerContext
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
 from frappe_manager import CLI_BENCHES_DIRECTORY
-from frappe_manager.commands import get_output_handler
+from frappe_manager.output_manager import get_global_output_handler
 
 
 def delete(
@@ -38,8 +37,6 @@ def delete(
         services_manager = ctx.obj["services"]
         verbose = ctx.obj['verbose']
 
-        # Create context for this operation
-        context = LoggerContext(bench=benchname, operation="delete")
-        output = get_output_handler(ctx, context=context)
+        output = get_global_output_handler()
         bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
         bench_service.delete_bench(benchname, force=force, delete_db_from_global_db=delete_db_from_global_db)

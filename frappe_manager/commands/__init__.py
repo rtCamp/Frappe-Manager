@@ -15,8 +15,7 @@ from frappe_manager.ngrok import create_tunnel
 from frappe_manager.services_manager.services_exceptions import ServicesNotCreated
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.modules.app_cloner import AppCloner
-from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.output_manager import spinner, temporary_stop
+from frappe_manager.output_manager import spinner, temporary_stop, get_global_output_handler
 from frappe_manager import (
     CLI_BENCH_CONFIG_FILE_NAME,
     CLI_DIR,
@@ -64,7 +63,6 @@ from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.docker import ComposeFile
 from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.output_manager.logging_output import LoggingOutputHandler
 
 
@@ -93,7 +91,8 @@ def check_bench_migration_required(bench_name: Optional[str]) -> None:
     current_version = Version(get_current_fm_version())
 
     if bench_needs_migration(bench_path, current_version):
-        richprint.stop()
+        output = get_global_output_handler()
+        output.stop()
 
         bench_path = CLI_BENCHES_DIRECTORY / bench_name
         from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
@@ -101,39 +100,10 @@ def check_bench_migration_required(bench_name: Optional[str]) -> None:
         bench_version = get_bench_migration_version(bench_path)
         fm_version = Version(get_current_fm_version())
 
-        richprint.warning(f"Bench migration required: {bench_name} (v{bench_version} → v{fm_version})\n", emoji_code="")
-        richprint.print("Bench migration updates configuration and applies necessary changes.\n", emoji_code="")
-        richprint.print(f"Run: [cyan]fm migrate {bench_name}[/cyan]\n", emoji_code="")
+        output.warning(f"Bench migration required: {bench_name} (v{bench_version} → v{fm_version})\n", emoji_code="")
+        output.print("Bench migration updates configuration and applies necessary changes.\n", emoji_code="")
+        output.print(f"Run: [cyan]fm migrate {bench_name}[/cyan]\n", emoji_code="")
         raise typer.Exit(0)
-
-
-def get_output_handler(ctx: typer.Context, context: Optional[LoggerContext] = None) -> OutputHandler:
-    """
-    Create output handler based on context settings.
-
-    This function creates a LoggingOutputHandler that wraps RichOutputHandler,
-    automatically logging all user-facing output to the file logger with optional context.
-
-    Args:
-        ctx: Typer context with log_level and verbose settings
-        context: Optional LoggerContext for contextual logging (bench, operation, etc.)
-
-    Returns:
-        LoggingOutputHandler wrapping RichOutputHandler with contextual logging
-    """
-    from frappe_manager.logger import ContextualLogger
-
-    verbose = ctx.obj.get("verbose", False)
-
-    rich = RichOutputHandler(verbose=verbose)
-
-    base_logger = log.get_logger()
-
-    contextual_logger = ContextualLogger(base_logger, context)
-
-    output = LoggingOutputHandler(rich, contextual_logger)
-
-    return output
 
 
 # Create main Typer app
@@ -176,7 +146,8 @@ def app_callback(
         # Validate log level
         valid_levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
         if level_name not in valid_levels:
-            richprint.error(f"Invalid log level: {log_level}. Must be one of: {', '.join(valid_levels).lower()}")
+            output = get_global_output_handler()
+            output.error(f"Invalid log level: {log_level}. Must be one of: {', '.join(valid_levels).lower()}")
             raise typer.Exit(1)
     else:
         # Map -v count to log level
@@ -191,17 +162,27 @@ def app_callback(
     ctx.obj["log_level"] = level_name
     ctx.obj["verbose"] = level_name in ["INFO", "DEBUG"]
 
+    # Upgrade global output handler to LoggingOutputHandler now that we have CLI args
+    from frappe_manager.output_manager import get_global_output_handler, set_global_output_handler
+    from frappe_manager.logger import ContextualLogger
+
+    basic_handler = get_global_output_handler()
+    contextual_logger = ContextualLogger(log.get_logger(), context=None)
+    upgraded_handler = LoggingOutputHandler(basic_handler, contextual_logger)
+    set_global_output_handler(upgraded_handler)
+
     help_called = is_cli_help_called(ctx)
     ctx.obj["is_help_called"] = help_called
 
     if not help_called:
-        with spinner(richprint, "Working"):
+        output = get_global_output_handler()
+        with spinner("Working"):
             if not CLI_DIR.exists():
                 CLI_DIR.mkdir(parents=True, exist_ok=True)
                 CLI_BENCHES_DIRECTORY.mkdir(parents=True, exist_ok=True)
-                richprint.print(f"fm directory doesn't exists! Created at -> {str(CLI_DIR)}")
+                output.print(f"fm directory doesn't exists! Created at -> {str(CLI_DIR)}")
             elif not CLI_DIR.is_dir():
-                richprint.exit("Sites directory is not a directory! Aborting!")
+                output.exit("Sites directory is not a directory! Aborting!")
 
             global logger
             console_level = level_name if ctx.obj["verbose"] else None
@@ -220,19 +201,19 @@ def app_callback(
             logger.info("-" * 20)
 
             if not DockerClient().server_running():
-                richprint.exit("Docker daemon not running. Please start docker service")
+                output.exit("Docker daemon not running. Please start docker service")
 
             fm_config_manager: FMConfigManager = FMConfigManager.import_from_toml()
 
             if not CLI_FM_CONFIG_PATH.exists():
-                richprint.print("First installation detected. Pulling docker images...️", "🔍")
+                output.print("First installation detected. Pulling docker images...️", "🔍")
 
                 completed_status = pull_docker_images()
 
                 if not completed_status:
                     if CLI_DIR.exists():
                         shutil.rmtree(CLI_DIR)
-                    richprint.exit("Aborting. Not able to pull all required Docker images")
+                    output.exit("Aborting. Not able to pull all required Docker images")
 
                 current_version = Version(get_current_fm_version())
                 fm_config_manager.version = current_version
@@ -316,18 +297,20 @@ def app_callback(
             )
 
             if should_check_migration:
+                output = get_global_output_handler()
+
                 # Scenario 1: Infra needs migration
                 if infra_needs_migration:
-                    richprint.stop()
+                    output.stop()
 
-                    richprint.warning(
+                    output.warning(
                         f"FM infrastructure needs update: v{fm_infrastructure_version} -> v{current_version}"
                     )
-                    richprint.print("This updates CLI config and global services", emoji_code="  ")
-                    richprint.print("", emoji_code="")
+                    output.print("This updates CLI config and global services", emoji_code="  ")
+                    output.print("", emoji_code="")
 
-                    with temporary_stop(richprint):  # type: ignore[arg-type]
-                        infra_choice = richprint.prompt_ask(
+                    with temporary_stop(output):
+                        infra_choice = output.prompt_ask(
                             prompt="How would you like to proceed?",
                             choices=[
                                 {"name": "Update now (recommended)", "value": "update"},
@@ -337,38 +320,38 @@ def app_callback(
                         )
 
                     if infra_choice == "update":
-                        richprint.print("\n🔄 Updating FM infrastructure...\n", emoji_code="")
+                        output.print("\n🔄 Updating FM infrastructure...\n", emoji_code="")
 
                         migrations = MigrationExecutor(
                             fm_config_manager,
                             migrate_fm_infrastructure=True,
                             force=True,
-                            output_handler=richprint,  # type: ignore[arg-type]
+                            output_handler=output,
                         )
 
-                        with temporary_stop(richprint):  # type: ignore[arg-type]
+                        with temporary_stop(output):
                             migration_status = migrations.execute()
 
                         if not migration_status:
-                            richprint.error("FM infrastructure update failed")
-                            richprint.print("Please run 'fm migrate' manually to fix.", emoji_code="")
+                            output.error("FM infrastructure update failed")
+                            output.print("Please run 'fm migrate' manually to fix.", emoji_code="")
                             raise typer.Exit(1)
 
                         fm_config_manager.set_system_migration_version(current_version)
                         fm_config_manager.export_to_toml()
 
-                        richprint.print(f"FM infrastructure updated to v{current_version}\n", emoji_code="✅ ")
+                        output.print(f"FM infrastructure updated to v{current_version}\n", emoji_code="✅ ")
 
                         # Now check bench migration if bench arg present
                         if bench_needs_migration_flag and bench_arg and bench_version:
-                            richprint.warning(
+                            output.warning(
                                 f"Bench '{bench_arg}' needs migration: v{bench_version} -> v{current_version}"
                             )
-                            richprint.print("This may modify bench configuration and services.", emoji_code="")
-                            richprint.print("", emoji_code="")
+                            output.print("This may modify bench configuration and services.", emoji_code="")
+                            output.print("", emoji_code="")
 
-                            with temporary_stop(richprint):  # type: ignore[arg-type]
-                                bench_choice = richprint.prompt_ask(
+                            with temporary_stop(output):
+                                bench_choice = output.prompt_ask(
                                     prompt=f"Migrate bench '{bench_arg}' now?",
                                     choices=[
                                         {"name": "Update now", "value": "update"},
@@ -381,51 +364,49 @@ def app_callback(
                                 )
 
                             if bench_choice == "update":
-                                richprint.print(f"\nMigrating bench '{bench_arg}'...\n", emoji_code="🔄 ")
+                                output.print(f"\nMigrating bench '{bench_arg}'...\n", emoji_code="🔄 ")
 
                                 bench_migrations = MigrationExecutor(
                                     fm_config_manager,
                                     target_benches=[bench_arg],
                                     force=True,
-                                    output_handler=richprint,  # type: ignore[arg-type]
+                                    output_handler=output,
                                 )
 
-                                with temporary_stop(richprint):  # type: ignore[arg-type]
+                                with temporary_stop(output):
                                     bench_status = bench_migrations.execute()
 
                                 if not bench_status:
-                                    richprint.error(f"Bench migration failed for '{bench_arg}'")
-                                    richprint.print(f"Please run 'fm migrate {bench_arg}' manually.", emoji_code="")
+                                    output.error(f"Bench migration failed for '{bench_arg}'")
+                                    output.print(f"Please run 'fm migrate {bench_arg}' manually.", emoji_code="")
                                     raise typer.Exit(1)
 
                                 set_bench_migration_version(bench_path, current_version)  # type: ignore[arg-type]
-                                richprint.print(
-                                    f"Bench '{bench_arg}' migrated to v{current_version}\n", emoji_code="✅ "
-                                )
+                                output.print(f"Bench '{bench_arg}' migrated to v{current_version}\n", emoji_code="✅ ")
                             else:
-                                richprint.print("", emoji_code="")
-                                richprint.warning(f"Skipped bench migration. Run 'fm migrate {bench_arg}' when ready.")
-                                richprint.print("Note: Bench may not work correctly until migrated.", emoji_code="")
-                                richprint.print("", emoji_code="")
-                                richprint.error(f"Cannot {invoked_command} '{bench_arg}' - migration required")
-                                richprint.print(f"Run 'fm migrate {bench_arg}' first", emoji_code="")
+                                output.print("", emoji_code="")
+                                output.warning(f"Skipped bench migration. Run 'fm migrate {bench_arg}' when ready.")
+                                output.print("Note: Bench may not work correctly until migrated.", emoji_code="")
+                                output.print("", emoji_code="")
+                                output.error(f"Cannot {invoked_command} '{bench_arg}' - migration required")
+                                output.print(f"Run 'fm migrate {bench_arg}' first", emoji_code="")
                                 raise typer.Exit(1)
 
                     else:
-                        richprint.error("Cannot proceed - FM infrastructure migration required")
-                        richprint.print("Run 'fm migrate' when ready", emoji_code="")
+                        output.error("Cannot proceed - FM infrastructure migration required")
+                        output.print("Run 'fm migrate' when ready", emoji_code="")
                         raise typer.Exit(1)
 
                 # Scenario 2: Only bench needs migration (infra already up-to-date)
                 elif bench_needs_migration_flag and bench_arg and bench_version:
-                    richprint.stop()
+                    output.stop()
 
-                    richprint.warning(f"Bench '{bench_arg}' needs migration: v{bench_version} -> v{current_version}")
-                    richprint.print("This may modify bench configuration and services.", emoji_code="")
-                    richprint.print("", emoji_code="")
+                    output.warning(f"Bench '{bench_arg}' needs migration: v{bench_version} -> v{current_version}")
+                    output.print("This may modify bench configuration and services.", emoji_code="")
+                    output.print("", emoji_code="")
 
-                    with temporary_stop(richprint):  # type: ignore[arg-type]
-                        bench_choice = richprint.prompt_ask(
+                    with temporary_stop(output):
+                        bench_choice = output.prompt_ask(
                             prompt=f"Migrate bench '{bench_arg}' now?",
                             choices=[
                                 {"name": "Update now", "value": "update"},
@@ -435,32 +416,32 @@ def app_callback(
                         )
 
                     if bench_choice == "update":
-                        richprint.print(f"\nMigrating bench '{bench_arg}'...\n", emoji_code="🔄 ")
+                        output.print(f"\nMigrating bench '{bench_arg}'...\n", emoji_code="🔄 ")
 
                         bench_migrations = MigrationExecutor(
                             fm_config_manager,
                             target_benches=[bench_arg],
                             force=True,
-                            output_handler=richprint,  # type: ignore[arg-type]
+                            output_handler=output,
                         )
 
-                        with temporary_stop(richprint):  # type: ignore[arg-type]
+                        with temporary_stop(output):
                             bench_status = bench_migrations.execute()
 
                         if not bench_status:
-                            richprint.error(f"Bench migration failed for '{bench_arg}'")
-                            richprint.print(f"Please run 'fm migrate {bench_arg}' manually.", emoji_code="")
+                            output.error(f"Bench migration failed for '{bench_arg}'")
+                            output.print(f"Please run 'fm migrate {bench_arg}' manually.", emoji_code="")
                             raise typer.Exit(1)
 
                         set_bench_migration_version(bench_path, current_version)  # type: ignore[arg-type]
-                        richprint.print(f"Bench '{bench_arg}' migrated to v{current_version}\n", emoji_code="✅ ")
+                        output.print(f"Bench '{bench_arg}' migrated to v{current_version}\n", emoji_code="✅ ")
                     else:
-                        richprint.print("", emoji_code="")
-                        richprint.warning(f"Skipped bench migration. Run 'fm migrate {bench_arg}' when ready.")
-                        richprint.print("Note: Bench may not work correctly until migrated.", emoji_code="")
-                        richprint.print("", emoji_code="")
-                        richprint.error(f"Cannot {invoked_command} '{bench_arg}' - migration required")
-                        richprint.print(f"Run 'fm migrate {bench_arg}' first", emoji_code="")
+                        output.print("", emoji_code="")
+                        output.warning(f"Skipped bench migration. Run 'fm migrate {bench_arg}' when ready.")
+                        output.print("Note: Bench may not work correctly until migrated.", emoji_code="")
+                        output.print("", emoji_code="")
+                        output.error(f"Cannot {invoked_command} '{bench_arg}' - migration required")
+                        output.print(f"Run 'fm migrate {bench_arg}' first", emoji_code="")
                         raise typer.Exit(1)
 
             services_manager: ServicesManager = ServicesManager(
@@ -477,7 +458,7 @@ def app_callback(
                 services_manager.entrypoint_checks(start=should_start_services)
             except ServicesNotCreated as e:
                 services_manager.remove_itself()
-                richprint.exit(f"Not able to create services. {e}")
+                output.exit(f"Not able to create services. {e}")
 
         ctx.obj["services"] = services_manager
         ctx.obj['fm_config_manager'] = fm_config_manager
@@ -522,4 +503,4 @@ app.command(name="ngrok")(ngrok)
 app.command(name="migrate")(migrate)
 
 # Export app and helpers for backward compatibility
-__all__ = ["app", "app_callback", "check_bench_migration_required", "get_output_handler", "get_bench_arg_from_context"]
+__all__ = ["app", "app_callback", "check_bench_migration_required", "get_bench_arg_from_context"]
