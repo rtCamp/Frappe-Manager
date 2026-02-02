@@ -15,7 +15,6 @@ from frappe_manager.ngrok import create_tunnel
 from frappe_manager.services_manager.services_exceptions import ServicesNotCreated
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.modules.app_cloner import AppCloner
-from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.output_manager import spinner, temporary_stop
 from frappe_manager import (
     CLI_BENCH_CONFIG_FILE_NAME,

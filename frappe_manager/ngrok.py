@@ -5,8 +5,7 @@ import asyncio
 import signal
 import sys
 import time
-from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.output_manager import spinner
+from frappe_manager.output_manager import get_global_output_handler, spinner
 from typing import Optional
 
 
@@ -19,7 +18,7 @@ def create_tunnel(site_name: str, auth_token: str, port: int = 80) -> None:
         auth_token: Ngrok authentication token
         port: The local port to tunnel to (default: 80)
     """
-    with spinner(richprint, f"Forwarding all requests from {site_name}"):
+    with spinner(get_global_output_handler(), f"Forwarding all requests from {site_name}"):
         try:
             ngrok.set_auth_token(auth_token)
 

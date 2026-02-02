@@ -4,7 +4,6 @@ import shlex
 from typing import Literal, Optional, List
 from pathlib import Path
 from frappe_manager.docker.docker_compose import DockerComposeWrapper
-from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.output_manager.base import OutputHandler
 from frappe_manager.utils.docker import (
@@ -163,7 +162,7 @@ class DockerClient:
         volume: Optional[List[str]] = None,
         detach: bool = False,
         entrypoint: Optional[str] = None,
-        workdir: Optional[str]= None,
+        workdir: Optional[str] = None,
         pull: Literal["missing", "never", "always"] = "missing",
         use_shlex_split: bool = True,
         stream: bool = False,
@@ -177,7 +176,7 @@ class DockerClient:
         run_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
         if isinstance(env, dict):
-            for i,v in env.items():
+            for i, v in env.items():
                 run_cmd += ["--env", f"{i}={v}"]
 
         run_cmd += [f"{image}"]
@@ -239,53 +238,49 @@ class DockerClient:
 
     # ==================== NEW: Convenience Methods ====================
 
-    def create_temp_container(
-        self,
-        image: str,
-        name: Optional[str] = None,
-        **run_kwargs
-    ) -> 'TempContainer':
+    def create_temp_container(self, image: str, name: Optional[str] = None, **run_kwargs) -> 'TempContainer':
         """
         Create a temporary container (context manager).
-        
+
         Args:
             image: Image to use
             name: Container name (random if not provided)
             **run_kwargs: Additional run arguments
-        
+
         Returns:
             TempContainer context manager
-        
+
         Example:
             with docker.create_temp_container("alpine") as container:
-                docker.cp(source="/etc/hosts", destination="./", 
+                docker.cp(source="/etc/hosts", destination="./",
                          source_container=container.name)
         """
         if name is None:
             from frappe_manager.utils.docker import generate_random_text
+
             name = f"temp_{generate_random_text(10)}"
-        
+
         return TempContainer(self, image, name, run_kwargs)
 
     def is_running(self) -> bool:
         """Alias for server_running() for better readability"""
         return self.server_running()
-    
+
     # ==================== Context Manager Support ====================
-    
+
     def __enter__(self) -> 'DockerClient':
         """
         Enter context manager - enables automatic cleanup of compose environment.
-        
+
         Returns:
             Self for use in 'with' statement
-        
+
         Example:
             with DockerClient(compose_path) as docker:
                 docker.compose.up(detach=True)
                 # Work with docker...
                 # Compose environment auto-cleaned up on exit
-        
+
         Note:
             If a compose file path was provided during initialization, the compose
             environment will be automatically cleaned up when the context exits.
@@ -294,19 +289,19 @@ class DockerClient:
         if self.compose:
             self.compose.__enter__()
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
         """
         Exit context manager - cleans up compose environment if present.
-        
+
         Args:
             exc_type: Exception type (if any)
             exc_val: Exception value (if any)
             exc_tb: Exception traceback (if any)
-        
+
         Returns:
             False (does not suppress exceptions)
-        
+
         Note:
             If a compose file path was provided during initialization, this will
             delegate to the compose wrapper's cleanup logic. Any cleanup errors
@@ -315,31 +310,25 @@ class DockerClient:
         # If compose is available, exit its context
         if self.compose:
             self.compose.__exit__(exc_type, exc_val, exc_tb)
-        
+
         # Don't suppress exceptions - return False
         return False
 
 
 class TempContainer:
     """Context manager for temporary Docker containers"""
-    
-    def __init__(
-        self,
-        docker: DockerClient,
-        image: str,
-        name: str,
-        run_kwargs: dict
-    ):
+
+    def __init__(self, docker: DockerClient, image: str, name: str, run_kwargs: dict):
         self.docker = docker
         self.image = image
         self.name = name
         self.run_kwargs = run_kwargs
         self._started = False
-    
+
     def __enter__(self) -> 'TempContainer':
         """Start the temporary container"""
         from frappe_manager.docker import DockerException
-        
+
         try:
             self.docker.run(
                 image=self.image,
@@ -348,17 +337,17 @@ class TempContainer:
                 entrypoint='bash',
                 command="tail -f /dev/null",
                 stream=False,
-                **self.run_kwargs
+                **self.run_kwargs,
             )
             self._started = True
         except DockerException as e:
             raise RuntimeError(f"Failed to create temp container: {e}")
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Remove the temporary container"""
         from frappe_manager.docker import DockerException
-        
+
         if self._started:
             try:
                 self.docker.rm(container=self.name, force=True, stream=False)
