@@ -320,17 +320,6 @@ def ssl_certificate_manager(
 
 
 @pytest.fixture
-def mock_richprint(mocker):
-    """Mocks all richprint methods."""
-    mock_rich = MagicMock()
-    mocker.patch('frappe_manager.ssl_manager.nginx_controller.richprint', mock_rich)
-    mocker.patch('frappe_manager.ssl_manager.letsencrypt_certificate_service.richprint', mock_rich)
-    mocker.patch('frappe_manager.ssl_manager.no_op_certificate_service.richprint', mock_rich)
-    mocker.patch('frappe_manager.ssl_manager.letsencrypt_certificate.richprint', mock_rich)
-    return mock_rich
-
-
-@pytest.fixture
 def sample_expiry_date():
     """Returns a sample certificate expiry date 30 days in the future."""
     return datetime.now() + timedelta(days=30)

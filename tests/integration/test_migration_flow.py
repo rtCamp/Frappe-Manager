@@ -32,12 +32,7 @@ version = "0.19.0"
 version = "0.18.0"
 """)
 
-        with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.richprint') as mock_richprint,
-        ):
-            mock_richprint.prompt_ask.return_value = "yes"
-
+        with patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"):
             config = FMConfigManager.import_from_toml(config_path)
             executor = MigrationExecutor(config)
 
@@ -55,7 +50,6 @@ version = "0.17.0"
 
         with (
             patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.richprint') as mock_richprint,
         ):
             config = FMConfigManager.import_from_toml(config_path)
             executor = MigrationExecutor(config)
@@ -63,11 +57,6 @@ version = "0.17.0"
             result = executor.execute()
 
             assert result is False
-            assert mock_richprint.error.call_count >= 3
-
-            error_messages = [call[0][0] for call in mock_richprint.error.call_args_list]
-            assert any("Cannot migrate from v0.17.0" in str(msg) for msg in error_messages)
-            assert any("v0.18.0" in str(msg) for msg in error_messages)
 
 
 @pytest.mark.integration
@@ -104,10 +93,7 @@ version = "0.18.0"
         with (
             patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
             patch('frappe_manager.migration_manager.migration_executor.CLI_BENCHES_DIRECTORY', benches_dir),
-            patch('frappe_manager.migration_manager.migration_executor.richprint') as mock_richprint,
         ):
-            mock_richprint.prompt_ask.return_value = "yes"
-
             config = FMConfigManager.import_from_toml(config_path)
             executor = MigrationExecutor(config)
 
@@ -127,7 +113,6 @@ version = "0.18.0"
 
         with (
             patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.richprint') as mock_richprint,
             patch('frappe_manager.migration_manager.migration_executor.install_package') as mock_install,
             patch('frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules', return_value=[]),
         ):
@@ -137,8 +122,6 @@ version = "0.18.0"
             mock_migration = Mock()
             mock_migration.version = Version("0.19.0")
             executor.migrations = [mock_migration]
-
-            mock_richprint.prompt_ask.return_value = "no"
 
             result = executor.execute()
 

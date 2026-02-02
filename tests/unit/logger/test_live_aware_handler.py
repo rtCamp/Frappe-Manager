@@ -136,7 +136,7 @@ class TestLoggerIntegration:
     def test_add_console_handler_creates_live_aware_handler(self):
         """Verify that _add_console_handler creates LiveAwareRichHandler."""
         from frappe_manager.logger.log import _add_console_handler
-        from frappe_manager.display_manager.DisplayManager import richprint
+        from frappe_manager.output_manager import get_global_output_handler
 
         logger = logging.getLogger("test_live_aware")
         logger.handlers = []
@@ -144,8 +144,9 @@ class TestLoggerIntegration:
         _add_console_handler(logger, "INFO")
 
         handler = logger.handlers[0]
+        output = get_global_output_handler()
         assert isinstance(handler, LiveAwareRichHandler)
-        assert handler._live_display is richprint.live
+        assert handler._live_display is output.live
 
     def test_handler_removes_old_handlers(self):
         """Verify old handlers are removed when adding new one."""
