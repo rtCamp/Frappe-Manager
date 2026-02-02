@@ -126,6 +126,14 @@ def app_callback(
         Optional[str],
         typer.Option("--log-level", help="Set log level explicitly (debug|info|warning|error)"),
     ] = None,
+    non_interactive: Annotated[
+        bool,
+        typer.Option(
+            "--non-interactive",
+            "-n",
+            help="Run without interactive prompts. All prompts will error with suggestions for required flags.",
+        ),
+    ] = False,
     version: Annotated[
         Optional[bool], typer.Option("--version", "-V", help="Show Version.", callback=version_callback)
     ] = None,
@@ -164,6 +172,7 @@ def app_callback(
     # Store in context for commands
     ctx.obj["log_level"] = level_name
     ctx.obj["verbose"] = level_name in ["INFO", "DEBUG"]
+    ctx.obj["non_interactive"] = non_interactive
 
     # Upgrade global output handler to LoggingOutputHandler now that we have CLI args
     from frappe_manager.logger import ContextualLogger
@@ -172,6 +181,9 @@ def app_callback(
     contextual_logger = ContextualLogger(log.get_logger(), context=None)
     upgraded_handler = LoggingOutputHandler(basic_handler, contextual_logger)
     set_global_output_handler(upgraded_handler)
+
+    output = get_global_output_handler()
+    output.set_interactive_mode(non_interactive_flag=non_interactive)
 
     help_called = is_cli_help_called(ctx)
     ctx.obj["is_help_called"] = help_called
