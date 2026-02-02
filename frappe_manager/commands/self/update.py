@@ -32,5 +32,5 @@ def update(
                 install_package("frappe-manager", latest_version)
     except Exception as e:
         output = get_global_output_handler()
-        output.error(f"Error occurred while updating the app: {e}")
+        output.error(f"Error occurred while updating the app: {e}", exception=e)
         raise typer.Exit(1)
