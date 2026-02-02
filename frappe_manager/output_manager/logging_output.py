@@ -261,6 +261,23 @@ class LoggingOutputHandler(OutputHandler):
 
         return response
 
+    def set_interactive_mode(self, non_interactive_flag: bool) -> None:
+        """
+        Set interactive mode on wrapper AND delegate.
+
+        This ensures the delegate (RichOutputHandler) respects the non-interactive flag
+        when deciding whether to show spinners.
+
+        Args:
+            non_interactive_flag: True to disable interactive features (spinners, prompts)
+        """
+        # Set on wrapper itself
+        super().set_interactive_mode(non_interactive_flag)
+
+        # Forward to delegate so it respects the flag too
+        if hasattr(self.delegate, 'set_interactive_mode'):
+            self.delegate.set_interactive_mode(non_interactive_flag)
+
     @property
     def should_stream_docker(self) -> bool:
         return self.delegate.should_stream_docker

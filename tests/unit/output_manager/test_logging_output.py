@@ -335,3 +335,39 @@ class TestLoggingOutputHandlerDisplayError:
 
         content = log_file.read_text()
         assert "[ERROR] [OUTPUT] Error occurred" in content
+
+
+class TestLoggingOutputHandlerInteractiveMode:
+    """Test that set_interactive_mode forwards to delegate."""
+
+    def test_set_interactive_mode_forwards_to_delegate(self, test_logger):
+        """Test that set_interactive_mode is forwarded to the delegate RichOutputHandler."""
+        logger, _ = test_logger
+        rich = RichOutputHandler()
+        output = LoggingOutputHandler(rich, logger)
+
+        output.set_interactive_mode(non_interactive_flag=True)
+
+        assert output._interactive is False
+        assert rich._interactive is False
+
+    def test_set_interactive_mode_wrapper_only(self, test_logger):
+        """Test that wrapper respects non_interactive_flag."""
+        logger, _ = test_logger
+        rich = RichOutputHandler()
+        output = LoggingOutputHandler(rich, logger)
+
+        output.set_interactive_mode(non_interactive_flag=False)
+
+        assert output._interactive == rich._tty_available
+        assert rich._interactive == rich._tty_available
+
+    def test_delegate_spinner_respects_forwarded_flag(self, test_logger):
+        """Test that delegate's spinner behavior respects forwarded interactive flag."""
+        logger, _ = test_logger
+        rich = RichOutputHandler()
+        output = LoggingOutputHandler(rich, logger)
+
+        output.set_interactive_mode(non_interactive_flag=True)
+
+        assert rich._is_interactive is False
