@@ -178,7 +178,7 @@ def app_callback(
 
     if not help_called:
         output = get_global_output_handler()
-        with spinner("Working"):
+        with spinner(output, "Working"):
             if not CLI_DIR.exists():
                 CLI_DIR.mkdir(parents=True, exist_ok=True)
                 CLI_BENCHES_DIRECTORY.mkdir(parents=True, exist_ok=True)

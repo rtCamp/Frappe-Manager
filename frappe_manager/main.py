@@ -47,8 +47,8 @@ def cli_entrypoint():
         logger = log.get_logger()
         output = get_global_output_handler()
 
-        output.error(f'[red]Unexpected Error[/red] {str(e).strip()}')
-        output.error(f"More info about error is logged in {CLI_LOG_DIRECTORY / 'fm.log'}", emoji_code=':mag:')
+        output.display_error(f'[red]Unexpected Error[/red] {str(e).strip()}')
+        output.print(f"More info about error is logged in {CLI_LOG_DIRECTORY / 'fm.log'}", emoji_code=':mag:')
         output.stop()
 
         exception_traceback: str = capture_and_format_exception()
