@@ -29,6 +29,7 @@ class TestRichOutputHandlerDelegation:
         """start() delegates to richprint.start()."""
         handler = RichOutputHandler()
         handler._richprint = mock_richprint
+        handler._interactive = True  # Simulate interactive mode
 
         handler.start("Starting operation")
 
@@ -39,6 +40,7 @@ class TestRichOutputHandlerDelegation:
         """stop() delegates to richprint.stop()."""
         handler = RichOutputHandler()
         handler._richprint = mock_richprint
+        handler._interactive = True  # Simulate interactive mode
 
         handler.stop()
 
@@ -112,6 +114,7 @@ class TestRichOutputHandlerHeadOperations:
         """change_head() delegates to richprint.change_head()."""
         handler = RichOutputHandler()
         handler._richprint = mock_richprint
+        handler._interactive = True  # Simulate interactive mode
 
         handler.change_head("Updated text", style="bold")
 
@@ -122,6 +125,7 @@ class TestRichOutputHandlerHeadOperations:
         """change_head() without style delegates correctly."""
         handler = RichOutputHandler()
         handler._richprint = mock_richprint
+        handler._interactive = True  # Simulate interactive mode
 
         handler.change_head("Updated text")
 
@@ -132,6 +136,7 @@ class TestRichOutputHandlerHeadOperations:
         """update_head() delegates to richprint.update_head()."""
         handler = RichOutputHandler()
         handler._richprint = mock_richprint
+        handler._interactive = True  # Simulate interactive mode
 
         handler.update_head("New head")
 
@@ -200,6 +205,7 @@ class TestRichOutputHandlerCompleteSequence:
         """Test a complete operation from start to finish."""
         handler = RichOutputHandler()
         handler._richprint = mock_richprint
+        handler._interactive = True  # Simulate interactive mode
 
         handler.start("Starting operation")
         handler.change_head("Processing")
@@ -221,6 +227,7 @@ class TestRichOutputHandlerCompleteSequence:
         """Test multiple operations in sequence."""
         handler = RichOutputHandler()
         handler._richprint = mock_richprint
+        handler._interactive = True  # Simulate interactive mode
 
         # First operation
         handler.start("Operation 1")

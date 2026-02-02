@@ -40,7 +40,8 @@ class RichOutputHandler(OutputHandler):
             text: The initial status message to display
         """
         super().start(text)
-        self._richprint.start(text)
+        if self.is_interactive():
+            self._richprint.start(text)
 
     def change_head(self, text: str, style: str | None = None) -> None:
         """
@@ -50,7 +51,8 @@ class RichOutputHandler(OutputHandler):
             text: The new status message
             style: Optional Rich style string (e.g., "blue bold")
         """
-        self._richprint.change_head(text, style=style)
+        if self.is_interactive():
+            self._richprint.change_head(text, style=style)
 
     def update_head(self, text: str) -> None:
         """
@@ -59,14 +61,16 @@ class RichOutputHandler(OutputHandler):
         Args:
             text: The new head text
         """
-        self._richprint.update_head(text)
+        if self.is_interactive():
+            self._richprint.update_head(text)
 
     def stop(self) -> None:
         """
         Stop the current operation status display.
         """
         super().stop()
-        self._richprint.stop()
+        if self.is_interactive():
+            self._richprint.stop()
 
     def print(self, text: str, emoji_code: str = ":zap:", prefix: str | None = None, **kwargs) -> None:
         """
