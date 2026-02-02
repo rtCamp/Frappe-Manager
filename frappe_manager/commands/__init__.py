@@ -331,6 +331,7 @@ def app_callback(
                                 {"name": "Update later (run 'fm migrate' when ready)", "value": "skip"},
                             ],
                             default="update",
+                            required_flag="'fm migrate' (run migration explicitly)",
                         )
 
                     if infra_choice == "update":
@@ -375,6 +376,7 @@ def app_callback(
                                         },
                                     ],
                                     default="update",
+                                    required_flag=f"'fm migrate {bench_arg}' (run migration explicitly)",
                                 )
 
                             if bench_choice == "update":
@@ -427,6 +429,7 @@ def app_callback(
                                 {"name": f"Update later (run 'fm migrate {bench_arg}' when ready)", "value": "skip"},
                             ],
                             default="update",
+                            required_flag=f"'fm migrate {bench_arg}' (run migration explicitly)",
                         )
 
                     if bench_choice == "update":

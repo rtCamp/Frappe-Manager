@@ -281,7 +281,10 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, force: bool):
     if not force:
         with temporary_stop(output):
             choice = output.prompt_ask(
-                prompt=f"Remove SSL certificate for {domain}?", choices=["yes", "no"], default="no"
+                prompt=f"Remove SSL certificate for {domain}?",
+                choices=["yes", "no"],
+                default="no",
+                required_flag="--yes or -y",
             )
         if choice != "yes":
             output.print("Cancelled.", emoji_code=":x:")
