@@ -156,8 +156,8 @@ class BenchInfo:
         self.output.change_head("Getting bench info")
         bench_db_info = self.get_db_connection_info()
 
-        db_user = bench_db_info["name"]
-        db_pass = bench_db_info["password"]
+        db_user = bench_db_info.get("name", "N/A")
+        db_pass = bench_db_info.get("password", "N/A")
 
         services_db_info = self.services.database_manager.database_server_info
         bench_info_table = Table(show_lines=True, show_header=False, highlight=True)
