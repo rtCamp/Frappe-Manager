@@ -25,10 +25,22 @@ from rich.text import Text
 from rich.theme import Theme
 
 from frappe_manager.output_manager.base import OutputHandler
+from frappe_manager.output_manager.console_singleton import get_stderr_console, get_stdout_console
 from frappe_manager.output_manager.flags import OutputRefactoringFlags
 
-error = Style()
-theme = Theme({"errors": error})
+# Emoji constants for consistent output
+EMOJI_WORKING = "⚙️"
+EMOJI_SUCCESS = "⚡"
+EMOJI_ERROR = "⛔"
+EMOJI_WARNING = "⚠️"
+EMOJI_INFO = "ℹ️"
+
+# Cache deprecation flag at module load (performance optimization)
+_DEPRECATION_WARNINGS_ENABLED = False
+try:
+    _DEPRECATION_WARNINGS_ENABLED = OutputRefactoringFlags.use_context_managers()
+except ImportError:
+    pass
 
 
 class RichOutputHandler(OutputHandler):
@@ -49,8 +61,8 @@ class RichOutputHandler(OutputHandler):
         """
         super().__init__(verbose)
 
-        self.stdout = Console()
-        self.stderr = Console(stderr=True)
+        self.stdout = get_stdout_console()
+        self.stderr = get_stderr_console()
         self.previous_head = None
         self.current_head = None
 
@@ -86,24 +98,21 @@ class RichOutputHandler(OutputHandler):
             text: The initial status message to display
         """
         with self._lock:
-            try:
-                if OutputRefactoringFlags.use_context_managers():
-                    warnings.warn(
-                        "Direct output.start() is deprecated. Use context managers instead:\n"
-                        "    from frappe_manager.output_manager import spinner\n"
-                        "    with spinner(output, 'text'): ...\n"
-                        "See .plans/output-migration-guide.md for migration guide.",
-                        DeprecationWarning,
-                        stacklevel=2,
-                    )
+            if _DEPRECATION_WARNINGS_ENABLED:
+                warnings.warn(
+                    "Direct output.start() is deprecated. Use context managers instead:\n"
+                    "    from frappe_manager.output_manager import spinner\n"
+                    "    with spinner(output, 'text'): ...\n"
+                    "See .plans/output-migration-guide.md for migration guide.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
 
-                    if OutputRefactoringFlags.strict_mode():
-                        raise RuntimeError(
-                            "Direct output.start() is not allowed in strict mode. "
-                            "Use context managers: with spinner(output, 'text'): ..."
-                        )
-            except ImportError:
-                pass
+                if OutputRefactoringFlags.strict_mode():
+                    raise RuntimeError(
+                        "Direct output.start() is not allowed in strict mode. "
+                        "Use context managers: with spinner(output, 'text'): ..."
+                    )
 
             super().start(text)
 
@@ -117,7 +126,7 @@ class RichOutputHandler(OutputHandler):
                 self.live.start(refresh=True)
                 self.live.update(self.spinner, refresh=True)
             else:
-                self.stderr.print(f"⚙️  {text}")
+                self.stderr.print(f"{EMOJI_WORKING}  {text}")
 
     def change_head(self, text: str, style: str | None = "blue bold") -> None:
         """
@@ -128,7 +137,7 @@ class RichOutputHandler(OutputHandler):
             style: Optional Rich style string (e.g., "blue bold")
         """
         if not self._is_interactive:
-            self.stderr.print(f"⚙️  {text}")
+            self.stderr.print(f"{EMOJI_WORKING}  {text}")
             return
 
         self.previous_head = self.current_head
@@ -147,7 +156,7 @@ class RichOutputHandler(OutputHandler):
             text: The new head text
         """
         if not self._is_interactive:
-            self.stderr.print(f"⚙️  {text}")
+            self.stderr.print(f"{EMOJI_WORKING}  {text}")
             return
 
         self.previous_head = self.current_head
@@ -158,24 +167,21 @@ class RichOutputHandler(OutputHandler):
     def stop(self) -> None:
         """Stop the current operation status display."""
         with self._lock:
-            try:
-                if OutputRefactoringFlags.use_context_managers():
-                    warnings.warn(
-                        "Direct output.stop() is deprecated. Use context managers instead:\n"
-                        "    from frappe_manager.output_manager import spinner\n"
-                        "    with spinner(output, 'text'): ...\n"
-                        "See .plans/output-migration-guide.md for migration guide.",
-                        DeprecationWarning,
-                        stacklevel=2,
-                    )
+            if _DEPRECATION_WARNINGS_ENABLED:
+                warnings.warn(
+                    "Direct output.stop() is deprecated. Use context managers instead:\n"
+                    "    from frappe_manager.output_manager import spinner\n"
+                    "    with spinner(output, 'text'): ...\n"
+                    "See .plans/output-migration-guide.md for migration guide.",
+                    DeprecationWarning,
+                    stacklevel=2,
+                )
 
-                    if OutputRefactoringFlags.strict_mode():
-                        raise RuntimeError(
-                            "Direct output.stop() is not allowed in strict mode. "
-                            "Use context managers: with spinner(output, 'text'): ..."
-                        )
-            except ImportError:
-                pass
+                if OutputRefactoringFlags.strict_mode():
+                    raise RuntimeError(
+                        "Direct output.stop() is not allowed in strict mode. "
+                        "Use context managers: with spinner(output, 'text'): ..."
+                    )
 
             super().stop()
 
@@ -457,7 +463,7 @@ class RichOutputHandler(OutputHandler):
                     return default
 
                 if value not in choices:
-                    self.stderr.print(f"⚠️  Invalid choice '{value}', using default: {default}")
+                    self.stderr.print(f"{EMOJI_WARNING}  Invalid choice '{value}', using default: {default}")
                     return default or choices[0]
                 return value
             else:
