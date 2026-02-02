@@ -11,7 +11,7 @@ import sys
 import threading
 import warnings
 from collections import deque
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 import typer
@@ -203,10 +203,10 @@ class RichOutputHandler(OutputHandler):
             prefix: Optional prefix for the message
             **kwargs: Additional Rich print arguments
         """
-        msg = f"{emoji_code} {text}"
-
         if prefix:
             msg = f"{emoji_code} {prefix} {text}"
+        else:
+            msg = f"{emoji_code} {text}"
 
         self.stderr.print(msg, **kwargs)
 
@@ -386,7 +386,7 @@ class RichOutputHandler(OutputHandler):
     def prompt_ask(
         self,
         prompt: str = "",
-        choices: list | None = None,
+        choices: Sequence[str] | None = None,
         default: str | None = None,
         force_yes: bool = False,
         required_flag: str | None = None,
