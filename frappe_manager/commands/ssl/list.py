@@ -69,7 +69,7 @@ def _list_all_certificates(ctx: typer.Context):
     benches = bench_service.get_bench_names()
 
     if not benches:
-        output.print("ℹ️  No benches found", emoji_code="")
+        output.print("No benches found", emoji_code=":information_source:")
     else:
         for bench_name in benches:
             output.print(f"\n[bold]Bench: {bench_name}[/bold]", emoji_code="")

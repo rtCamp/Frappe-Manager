@@ -264,10 +264,10 @@ def update(
                             output.change_head("Python version validation failed")
                             output.print(f"Python: {old_python} -> {python_version}")
                             output.print(f"Frappe requires: {frappe_python_req}")
-                            output.display_error(f"❌ {error_msg}")
+                            output.display_error(f"{error_msg}", emoji_code=":cross_mark:")
                             suggested = parse_python_version_for_runtime(frappe_python_req)
                             if suggested:
-                                output.print(f"Hint: Try --python {suggested}", emoji_code="💡 ")
+                                output.print(f"Hint: Try --python {suggested}", emoji_code=":light_bulb:")
                             output.print("Use --skip-version-check to bypass this validation (not recommended)")
                             raise typer.Exit(code=1)
 
@@ -297,11 +297,11 @@ def update(
                             output.change_head("Node version validation failed")
                             output.print(f"Node: {old_node} -> {node_version}")
                             output.print(f"Frappe requires: {frappe_node_req}")
-                            output.display_error(f"❌ {error_msg}")
+                            output.display_error(f"{error_msg}", emoji_code=":cross_mark:")
 
                             suggested = parse_node_version_for_runtime(frappe_node_req)
                             if suggested:
-                                output.print(f"Hint: Try --node {suggested}", emoji_code="💡 ")
+                                output.print(f"Hint: Try --node {suggested}", emoji_code=":light_bulb:")
                             output.print("Use --skip-version-check to bypass this validation (not recommended)")
                             raise typer.Exit(code=1)
 

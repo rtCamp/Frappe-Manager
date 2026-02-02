@@ -178,23 +178,24 @@ def create(
         restart_policy=restart,
     )
 
-    # Validate repositories exist BEFORE creating any infrastructure
-    # This prevents failed bench creation due to invalid repos
     if apps:
         apps_config = bench_config.get_apps_config()
 
         with spinner(output, f"Validating {len(apps_config)} app repositories"):
-            valid, errors = AppCloner.validate_repos_exist(apps_config, github_token)
+            validation_result = AppConfig.validate_repos_batch(apps_config, github_token)
 
-        if not valid:
-            output.display_error("Repository validation failed:")
-            for error in errors:
-                output.display_error(f"  {error}")
-            output.display_error("\nPlease check the repository names, branches, and authentication")
-            output.display_error("For private repos, use --github-token or set GITHUB_TOKEN environment variable")
+        for result in validation_result.results:
+            if result.success:
+                output.print(result.display_message, emoji_code=":white_check_mark:")
+            else:
+                output.display_error(result.display_message, emoji_code=":cross_mark:")
+
+        if not validation_result.all_valid:
+            output.display_error(
+                f"\n⚠️  {validation_result.failure_count}/{len(apps_config)} repositories failed validation"
+            )
+            output.display_error("Please check the repository names, branches, and authentication")
             raise typer.Exit(1)
-
-        output.print(f"✓ Validated {len(apps_config)} app repositories")
 
     # Warn if prod bench is being created with restart: no
     if restart == RestartPolicyEnum.no and environment == FMBenchEnvType.prod:

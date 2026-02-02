@@ -275,7 +275,9 @@ class AcmeShCertificateService:
 
         use_staging = os.getenv("FM_LETSENCRYPT_STAGING", "").lower() in ("1", "true", "yes")
         if use_staging:
-            self.output.print("[yellow]Using Let's Encrypt STAGING server (test certificates)[/yellow]", emoji_code="⚠️ ")
+            self.output.print(
+                "[yellow]Using Let's Encrypt STAGING server (test certificates)[/yellow]", emoji_code=":warning:"
+            )
 
         ca_server = LETSENCRYPT_STAGING_SERVER if use_staging else LETSENCRYPT_PRODUCTION_SERVER
 
@@ -342,7 +344,9 @@ class AcmeShCertificateService:
 
         if dry_run:
             self.output.print(f"[green]Certificate generated successfully (staging) for {certificate.domain}[/green]")
-            self.output.print(f"[yellow]Skipped: Copying certificate files (dry run)[/yellow]", emoji_code="⏭️ ")
+            self.output.print(
+                f"[yellow]Skipped: Copying certificate files (dry run)[/yellow]", emoji_code=":fast_forward:"
+            )
             return (key_path, fullchain_path)
 
         dest_dir = self.root_dir / certificate.domain
@@ -376,7 +380,10 @@ class AcmeShCertificateService:
 
         use_staging = os.getenv("FM_LETSENCRYPT_STAGING", "").lower() in ("1", "true", "yes")
         if use_staging:
-            self.output.print("[yellow]Using Let's Encrypt STAGING server for renewal (test certificates)[/yellow]", emoji_code="⚠️ ")
+            self.output.print(
+                "[yellow]Using Let's Encrypt STAGING server for renewal (test certificates)[/yellow]",
+                emoji_code=":warning:",
+            )
 
         ca_server = LETSENCRYPT_STAGING_SERVER if use_staging else LETSENCRYPT_PRODUCTION_SERVER
 
@@ -410,7 +417,9 @@ class AcmeShCertificateService:
         if fullchain_path.exists() and key_path.exists():
             if dry_run:
                 self.output.print(f"[green]Certificate renewed successfully (staging) for {certificate.domain}[/green]")
-                self.output.print(f"[yellow]Skipped: Copying certificate files (dry run)[/yellow]", emoji_code="⏭️ ")
+                self.output.print(
+                    f"[yellow]Skipped: Copying certificate files (dry run)[/yellow]", emoji_code=":fast_forward:"
+                )
                 return True
 
             dest_dir = self.root_dir / certificate.domain

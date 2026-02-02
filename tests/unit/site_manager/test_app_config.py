@@ -6,7 +6,7 @@ Tests the parsing and validation of app configuration strings.
 
 import pytest
 from typing import Optional, Dict
-from frappe_manager.site_manager.bench_config import AppConfig
+from frappe_manager.site_manager.bench_config import AppConfig, AppValidationResult, AppBatchValidationResult
 
 
 class TestAppConfigParsing:
@@ -67,9 +67,8 @@ class TestAppConfigParsing:
         assert config.subdir_path == "apps/frappe"
 
     def test_parse_with_github_token(self):
-        """Test parsing with GitHub token (repo_url should be None to allow fallback)."""
-        token = "ghp_test123"
-        config = AppConfig.from_string("erpnext:version-15", github_token=token)
+        """Test parsing ensures repo_url is None to allow auth fallback."""
+        config = AppConfig.from_string("erpnext:version-15")
 
         assert config.name == "erpnext"
         assert config.repo == "frappe/erpnext"
@@ -106,6 +105,41 @@ class TestAppConfigParsing:
         assert config1.name == config2.name == "helpdesk"
         assert config1.repo == config2.repo == "frappe/helpdesk"
         assert config1.ref == config2.ref == "v1.9.1"
+
+    def test_parse_https_url_with_ref(self):
+        config = AppConfig.from_string("https://github.com/frappe/frappe:version-15")
+
+        assert config.name == "frappe"
+        assert config.repo == "https://github.com/frappe/frappe"
+        assert config.ref == "version-15"
+
+    def test_parse_https_url_without_ref(self):
+        config = AppConfig.from_string("https://github.com/frappe/erpnext")
+
+        assert config.name == "erpnext"
+        assert config.repo == "https://github.com/frappe/erpnext"
+        assert config.ref is None
+
+    def test_parse_https_url_with_git_extension(self):
+        config = AppConfig.from_string("https://github.com/frappe/erpnext.git:develop")
+
+        assert config.name == "erpnext"
+        assert config.repo == "https://github.com/frappe/erpnext.git"
+        assert config.ref == "develop"
+
+    def test_parse_ssh_url_with_ref(self):
+        config = AppConfig.from_string("git@github.com:frappe/frappe:version-15")
+
+        assert config.name == "frappe"
+        assert config.repo == "git@github.com:frappe/frappe"
+        assert config.ref == "version-15"
+
+    def test_parse_ssh_url_without_ref(self):
+        config = AppConfig.from_string("git@github.com:frappe/erpnext")
+
+        assert config.name == "erpnext"
+        assert config.repo == "git@github.com:frappe/erpnext"
+        assert config.ref is None
 
 
 class TestAppConfigCommitDetection:
@@ -226,3 +260,126 @@ class TestAppConfigEdgeCases:
 
         assert config.name == "payments_integration"
         assert config.repo == "frappe/payments"
+
+
+class TestGetAuthMethodsPrioritization:
+    def test_no_token_prioritizes_https_first(self):
+        config = AppConfig.from_string("frappe/erpnext:version-15")
+        methods = config.get_auth_methods(github_token=None)
+
+        assert len(methods) == 2
+        assert methods[0][0] == "HTTPS"
+        assert methods[1][0] == "SSH"
+
+    def test_with_token_prioritizes_token_first(self):
+        config = AppConfig.from_string("rtcamp/private-app:main")
+        methods = config.get_auth_methods(github_token="ghp_test123")
+
+        assert len(methods) == 3
+        assert methods[0][0] == "GitHub Token"
+        assert methods[1][0] == "HTTPS"
+        assert methods[2][0] == "SSH"
+
+    def test_token_url_contains_token(self):
+        config = AppConfig.from_string("myorg/repo:main")
+        methods = config.get_auth_methods(github_token="ghp_secret")
+
+        token_method = next((m for m in methods if m[0] == "GitHub Token"), None)
+        assert token_method is not None
+        assert "ghp_secret" in token_method[1]
+        assert "https://ghp_secret@github.com" in token_method[1]
+
+    def test_full_url_ignores_token(self):
+        config = AppConfig.from_string("https://github.com/frappe/frappe:version-15")
+        methods = config.get_auth_methods(github_token="ghp_test123")
+
+        assert len(methods) == 1
+        assert methods[0][0] == "Full URL"
+        assert "ghp_test123" not in methods[0][1]
+
+
+class TestAppValidationResult:
+    def test_validation_result_success_with_branch(self):
+        result = AppValidationResult(
+            app_name="erpnext",
+            repo="frappe/erpnext",
+            ref="version-15",
+            success=True,
+            auth_method="HTTPS",
+            validated_url="https://github.com/frappe/erpnext.git",
+        )
+
+        assert result.success is True
+        assert result.auth_method == "HTTPS"
+        assert "erpnext" in result.display_message
+        assert "branch 'version-15'" in result.display_message
+        assert "accessible via https" in result.display_message
+        assert not result.display_message.startswith("✓")
+
+    def test_validation_result_success_with_commit(self):
+        commit_sha = "a" * 40
+        result = AppValidationResult(
+            app_name="erpnext",
+            repo="frappe/erpnext",
+            ref=commit_sha,
+            success=True,
+            auth_method="SSH",
+            validated_url="git@github.com:frappe/erpnext.git",
+        )
+
+        assert result.success is True
+        assert f"commit {commit_sha[:8]}..." in result.display_message
+        assert "accessible via ssh" in result.display_message
+        assert not result.display_message.startswith("✓")
+
+    def test_validation_result_failure(self):
+        result = AppValidationResult(
+            app_name="erpnext",
+            repo="frappe/erpnext",
+            ref="version-15",
+            success=False,
+            auth_method=None,
+            validated_url=None,
+            error_message="erpnext: Repository not found",
+        )
+
+        assert result.success is False
+        assert result.error_message == "erpnext: Repository not found"
+        assert result.display_message == "erpnext: Repository not found"
+        assert not result.display_message.startswith("❌")
+
+
+class TestAppBatchValidationResult:
+    def test_all_valid_returns_true(self):
+        results = [
+            AppValidationResult("app1", "org/app1", "main", True, "HTTPS", "url1"),
+            AppValidationResult("app2", "org/app2", "dev", True, "SSH", "url2"),
+        ]
+        batch = AppBatchValidationResult(results)
+
+        assert batch.all_valid is True
+        assert batch.success_count == 2
+        assert batch.failure_count == 0
+
+    def test_all_valid_returns_false_with_failures(self):
+        results = [
+            AppValidationResult("app1", "org/app1", "main", True, "HTTPS", "url1"),
+            AppValidationResult("app2", "org/app2", "dev", False, None, None, "Error"),
+        ]
+        batch = AppBatchValidationResult(results)
+
+        assert batch.all_valid is False
+        assert batch.success_count == 1
+        assert batch.failure_count == 1
+
+    def test_messages_returns_all_display_messages(self):
+        results = [
+            AppValidationResult("app1", "org/app1", "main", True, "HTTPS", "url1"),
+            AppValidationResult("app2", "org/app2", "dev", False, None, None, "❌ app2: Failed"),
+        ]
+        batch = AppBatchValidationResult(results)
+
+        messages = batch.messages
+        assert len(messages) == 2
+        assert any("app1" in msg and "https" in msg for msg in messages)
+        assert any("app2" in msg and "Failed" in msg for msg in messages)

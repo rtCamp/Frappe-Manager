@@ -2,11 +2,15 @@ from enum import Enum
 import json
 import os
 import re
+import subprocess
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
+from enum import Enum
 from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo
 import tomlkit
 from tomlkit.items import Array as TOMLArray
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 from pydantic import BaseModel, EmailStr, Field, field_validator
 from frappe_manager import CLI_DEFAULT_DELIMETER, STABLE_APP_BRANCH_MAPPING_LIST
 from frappe_manager.metadata_manager import FMConfigManager
@@ -341,6 +345,62 @@ class RestartPolicyEnum(str, Enum):
     unless_stopped = "unless-stopped"
 
 
+@dataclass
+class AppValidationResult:
+    """Result of validating a single app repository."""
+
+    app_name: str
+    repo: str
+    ref: Optional[str]
+    success: bool
+    auth_method: Optional[str]
+    validated_url: Optional[str]
+    error_message: Optional[str] = None
+
+    @property
+    def display_message(self) -> str:
+        """Get user-friendly display message."""
+        if self.success:
+            ref_info = (
+                f"commit {self.ref[:8]}..."
+                if self.ref and len(self.ref) == 40
+                else f"branch '{self.ref}'"
+                if self.ref
+                else "default branch"
+            )
+            auth = self.auth_method.lower().replace("github token", "token")
+            return f"{self.app_name} → {self.repo}:{ref_info} accessible via {auth}"
+        else:
+            return self.error_message or f"{self.app_name} ({self.repo}): Validation failed"
+
+
+@dataclass
+class AppBatchValidationResult:
+    """Result of validating multiple app repositories."""
+
+    results: List[AppValidationResult]
+
+    @property
+    def all_valid(self) -> bool:
+        """Check if all apps validated successfully."""
+        return all(r.success for r in self.results)
+
+    @property
+    def success_count(self) -> int:
+        """Count of successfully validated apps."""
+        return sum(1 for r in self.results if r.success)
+
+    @property
+    def failure_count(self) -> int:
+        """Count of failed validations."""
+        return sum(1 for r in self.results if not r.success)
+
+    @property
+    def messages(self) -> List[str]:
+        """Get all display messages (success + error)."""
+        return [r.display_message for r in self.results]
+
+
 class AppConfig(BaseModel):
     """
     Configuration for a single Frappe app.
@@ -368,7 +428,7 @@ class AppConfig(BaseModel):
         return len(self.ref) == 40 and all(c in '0123456789abcdef' for c in self.ref.lower())
 
     @classmethod
-    def from_string(cls, app_string: str, github_token: Optional[str] = None) -> 'AppConfig':
+    def from_string(cls, app_string: str) -> 'AppConfig':
         """
         Parse app string into AppConfig.
 
@@ -381,7 +441,6 @@ class AppConfig(BaseModel):
 
         Args:
             app_string: String describing the app to install
-            github_token: Optional GitHub token for private repos
 
         Returns:
             AppConfig instance
@@ -393,15 +452,53 @@ class AppConfig(BaseModel):
             app_part = app_string
             subdir_path = None
 
-        # Split on ':' for branch/ref
-        if ':' in app_part:
-            repo_part, ref = app_part.split(':', 1)
-        else:
-            repo_part = app_part
-            ref = None
+        # Check if this is a full URL (starts with protocol or git@)
+        is_full_url = app_part.startswith(('http://', 'https://'))
+        is_ssh_url = app_part.startswith('git@')
 
-        # Parse repo (e.g., "frappe/erpnext" or just "erpnext")
-        if '/' in repo_part:
+        # Split on ':' for branch/ref
+        # For URLs: skip protocol colon, find the LAST colon (if any) for ref
+        # For SSH: format is git@host:org/repo:ref, so find LAST colon after @
+        # For short form: any colon is ref separator
+        ref = None
+        if is_full_url:
+            # For http(s):// URLs, look for colon AFTER the protocol and host
+            # e.g., "https://github.com/frappe/frappe:version-15"
+            #       split at ":" -> ["https", "//github.com/frappe/frappe", "version-15"]
+            parts = app_part.split(':')
+            if len(parts) > 2:  # Has protocol + potential ref
+                # Rejoin protocol + host/path, last part is ref
+                repo_part = ':'.join(parts[:-1])
+                ref = parts[-1]
+            else:
+                repo_part = app_part
+        elif is_ssh_url:
+            # For git@ URLs: git@github.com:frappe/frappe:version-15
+            # Find last colon after @ for ref
+            at_index = app_part.index('@')
+            remainder = app_part[at_index + 1 :]
+            if remainder.count(':') > 1:
+                # Multiple colons: last one is ref separator
+                last_colon_idx = remainder.rfind(':')
+                repo_part = app_part[: at_index + 1 + last_colon_idx]
+                ref = remainder[last_colon_idx + 1 :]
+            else:
+                repo_part = app_part
+        else:
+            # Short form: org/repo:ref or app:ref
+            if ':' in app_part:
+                repo_part, ref = app_part.split(':', 1)
+            else:
+                repo_part = app_part
+
+        # Parse repo (e.g., "frappe/erpnext" or just "erpnext" or full URL)
+        if is_full_url or is_ssh_url:
+            # Full URL: keep as-is, extract name from path
+            repo = repo_part
+            # Extract name from URL path (last segment before .git)
+            path_part = repo_part.split('/')[-1]
+            name = path_part.replace('.git', '')
+        elif '/' in repo_part:
             repo = repo_part
             name = repo_part.split('/')[-1]
         else:
@@ -428,7 +525,7 @@ class AppConfig(BaseModel):
 
         Args:
             app_dict: {"app": "erpnext", "branch": "version-15"}
-            github_token: Optional GitHub token
+            github_token: Optional GitHub token (unused, kept for backward compatibility)
 
         Returns:
             AppConfig instance
@@ -444,7 +541,255 @@ class AppConfig(BaseModel):
         else:
             app_string: str = app_name
 
-        return cls.from_string(app_string, github_token=github_token)
+        return cls.from_string(app_string)
+
+    @staticmethod
+    def validate_github_token(github_token: str) -> Tuple[bool, Optional[str]]:
+        """
+        Validate GitHub token by making an API call to GitHub.
+
+        Args:
+            github_token: GitHub personal access token
+
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        import subprocess
+
+        from frappe_manager.logger import log
+
+        logger = log.get_logger()
+
+        try:
+            cmd = ["git", "ls-remote", f"https://{github_token}@github.com/octocat/hello-world.git", "HEAD"]
+            env = os.environ.copy()
+            env['GIT_TERMINAL_PROMPT'] = '0'
+            env['GIT_ASKPASS'] = 'echo'
+
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, env=env)
+
+            if result.returncode == 0:
+                logger.debug("GitHub token validated successfully")
+                return (True, None)
+            else:
+                error = result.stderr.strip()
+                if 'bad credentials' in error.lower() or 'authentication failed' in error.lower():
+                    return (False, "Invalid or expired GitHub token")
+                elif 'could not resolve host' in error.lower():
+                    return (False, "Network error: Cannot reach GitHub")
+                else:
+                    return (False, f"Token validation failed: {error}")
+
+        except subprocess.TimeoutExpired:
+            return (False, "Timeout while validating token (network issue?)")
+        except FileNotFoundError:
+            logger.error("Git is not installed or not in PATH")
+            return (False, "Git is not installed")
+        except Exception as e:
+            logger.debug(f"Exception during token validation: {e}")
+            return (False, f"Unexpected error: {str(e)}")
+
+    def get_auth_methods(self, github_token: Optional[str] = None) -> List[Tuple[str, str]]:
+        """
+        Get ordered list of authentication methods to try for this app.
+
+        Returns list of (method_name, repo_url) tuples to try in fallback order.
+        If self.repo_url is already set (from previous validation), returns it first,
+        but ALWAYS includes fallback methods for resilience.
+
+        Args:
+            github_token: Optional GitHub token for private repos
+
+        Returns:
+            List of (method_name, url) tuples ordered by priority
+        """
+        methods = []
+
+        if self.repo_url:
+            methods.append(("Validated URL", self.repo_url))
+
+        if self.repo.startswith(('http://', 'https://', 'git@')):
+            if self.repo not in [m[1] for m in methods]:
+                methods.append(("Full URL", self.repo))
+        else:
+            if github_token:
+                token_url = f"https://{github_token}@github.com/{self.repo}.git"
+                if token_url != self.repo_url:
+                    methods.append(("GitHub Token", token_url))
+
+            https_url = f"https://github.com/{self.repo}.git"
+            if https_url != self.repo_url:
+                methods.append(("HTTPS", https_url))
+
+            ssh_url = f"git@github.com:{self.repo}.git"
+            if ssh_url != self.repo_url:
+                methods.append(("SSH", ssh_url))
+
+        return methods
+
+    def validate_repo_exists(self, github_token: Optional[str] = None) -> AppValidationResult:
+        """
+        Validate that this app's repository exists and is accessible.
+
+        Uses git ls-remote to check repository without cloning.
+        Tries authentication methods in priority order:
+        - With token: Token → HTTPS → SSH
+        - Without token: HTTPS → SSH
+        Validates GitHub token before attempting to use it.
+
+        Args:
+            github_token: Optional GitHub token for private repos
+
+        Returns:
+            AppValidationResult with success status, auth method used, and validated URL
+        """
+        from frappe_manager.logger import log
+
+        logger = log.get_logger()
+
+        if github_token and 'github.com' in self.repo:
+            is_valid, error_msg = AppConfig.validate_github_token(github_token)
+            if not is_valid:
+                logger.warning(f"GitHub token validation failed: {error_msg}")
+                logger.warning(f"Will attempt to validate {self.name} without token authentication")
+
+        auth_methods = self.get_auth_methods(github_token)
+        last_error = None
+        last_method = None
+
+        for method_name, url in auth_methods:
+            try:
+                if self.is_commit:
+                    cmd = ["git", "ls-remote", url, "HEAD"]
+                else:
+                    cmd = ["git", "ls-remote", "--heads", "--tags", url]
+                    if self.ref:
+                        cmd.extend([self.ref])
+
+                env = os.environ.copy()
+                env['GIT_TERMINAL_PROMPT'] = '0'
+                env['GIT_ASKPASS'] = 'echo'
+
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, env=env)
+
+                if result.returncode == 0:
+                    if self.is_commit:
+                        if result.stdout:
+                            self.repo_url = url
+                            logger.info(f"Validated {self.name} ({self.repo}) using {method_name}")
+                            return AppValidationResult(
+                                app_name=self.name,
+                                repo=self.repo,
+                                ref=self.ref,
+                                success=True,
+                                auth_method=method_name,
+                                validated_url=url,
+                            )
+                        last_error = "Repository exists but appears empty or inaccessible"
+                        last_method = method_name
+                    elif self.ref and not result.stdout:
+                        last_error = f"Branch/tag '{self.ref}' not found"
+                        last_method = method_name
+                    else:
+                        self.repo_url = url
+                        logger.info(f"Validated {self.name} ({self.repo}) using {method_name}")
+                        return AppValidationResult(
+                            app_name=self.name,
+                            repo=self.repo,
+                            ref=self.ref,
+                            success=True,
+                            auth_method=method_name,
+                            validated_url=url,
+                        )
+                else:
+                    last_error = result.stderr.strip()
+                    last_method = method_name
+                    logger.debug(f"Validation failed for {self.name} using {method_name}: {last_error}")
+
+            except subprocess.TimeoutExpired:
+                last_error = "Timeout while checking repository (network issue?)"
+                last_method = method_name
+                logger.debug(f"Timeout validating {self.name} using {method_name}")
+            except FileNotFoundError:
+                logger.error("Git is not installed or not in PATH")
+                return AppValidationResult(
+                    app_name=self.name,
+                    repo=self.repo,
+                    ref=self.ref,
+                    success=False,
+                    auth_method=None,
+                    validated_url=None,
+                    error_message="❌ Git is not installed or not in PATH",
+                )
+            except Exception as e:
+                last_error = str(e)
+                last_method = method_name
+                logger.debug(f"Exception validating {self.name} using {method_name}: {e}")
+
+        ref_info = f" (ref: {self.ref})" if self.ref else ""
+
+        if last_error and "not found" in last_error.lower():
+            error_msg = f"❌ {self.name} ({self.repo}{ref_info}): Repository not found on GitHub"
+        elif last_error and self.ref and "branch/tag" in last_error.lower():
+            error_msg = (
+                f"❌ {self.name} ({self.repo}): Branch/tag '{self.ref}' not found\n"
+                f"   Check branch name or use a valid tag/commit"
+            )
+        elif github_token:
+            logger.warning(f"GitHub token provided but failed for {self.name}")
+            error_msg = (
+                f"❌ {self.name} ({self.repo}{ref_info}): Could not access repository\n"
+                f"   • HTTPS: Failed\n"
+                f"   • GitHub Token: Failed (token may be invalid/expired/insufficient permissions)\n"
+                f"   • SSH: Failed\n"
+                f"   Last error ({last_method}): {last_error}"
+            )
+        else:
+            error_msg = (
+                f"❌ {self.name} ({self.repo}{ref_info}): Could not access repository\n"
+                f"   • HTTPS: Failed (repo may be private)\n"
+                f"   • SSH: Failed\n"
+                f"   💡 If private repo: use --github-token or configure SSH keys\n"
+                f"   Last error ({last_method}): {last_error}"
+            )
+
+        logger.error(f"Failed to validate {self.name}: {last_error}")
+        return AppValidationResult(
+            app_name=self.name,
+            repo=self.repo,
+            ref=self.ref,
+            success=False,
+            auth_method=None,
+            validated_url=None,
+            error_message=error_msg,
+        )
+
+    @classmethod
+    def validate_repos_batch(
+        cls, apps: List['AppConfig'], github_token: Optional[str] = None, max_workers: int = 10
+    ) -> AppBatchValidationResult:
+        """
+        Validate multiple app repositories in parallel.
+
+        Args:
+            apps: List of AppConfig objects to validate
+            github_token: Optional GitHub token for private repos
+            max_workers: Maximum parallel workers (default: 10)
+
+        Returns:
+            AppBatchValidationResult with all individual results
+        """
+        results = []
+
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(apps))) as executor:
+            futures = [executor.submit(app.validate_repo_exists, github_token) for app in apps]
+            for future in as_completed(futures):
+                result = future.result()
+                results.append(result)
+                if not result.success and "Git is not installed" in result.error_message:
+                    break
+
+        return AppBatchValidationResult(results=results)
 
 
 class DNSProviderConfig(BaseModel):

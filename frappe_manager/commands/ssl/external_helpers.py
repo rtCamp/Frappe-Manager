@@ -94,7 +94,7 @@ def _add_external_certificate(
                         output.print("Please verify your DNS configuration and try again.", emoji_code="")
                         raise typer.Exit(1)
 
-                    output.print(f"✓ {propagation.message}", emoji_code=":white_check_mark:")
+                    output.print(f"{propagation.message}", emoji_code=":white_check_mark:")
                 else:
                     # Single validation check (no waiting)
                     validation = validator.validate_cname_for_acme(domain, cname)
@@ -124,7 +124,7 @@ def _add_external_certificate(
                         output.print("To wait for propagation, use: --wait-for-dns", emoji_code="")
                         raise typer.Exit(1)
 
-                    output.print("✓ CNAME record verified", emoji_code=":white_check_mark:")
+                    output.print("CNAME record verified", emoji_code=":white_check_mark:")
         else:
             cert = LetsencryptSSLCertificate(
                 domain=domain,
@@ -142,7 +142,7 @@ def _add_external_certificate(
                 validation = validator.validate_a_record(domain)
 
                 if validation.valid:
-                    output.print(f"✓ Domain resolves to {validation.actual_value}", emoji_code=":white_check_mark:")
+                    output.print(f"Domain resolves to {validation.actual_value}", emoji_code=":white_check_mark:")
                 else:
                     output.warning(f"Domain {domain} doesn't have an A record")
                     output.print(f"HTTP-01 challenge may fail if DNS is not configured correctly.", emoji_code="")
