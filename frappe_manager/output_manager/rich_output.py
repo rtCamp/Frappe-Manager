@@ -322,6 +322,10 @@ class RichOutputHandler(OutputHandler):
         max_height = lines
         displayed_lines = deque(maxlen=max_height)
 
+        # Create table once and reuse (Phase 2 optimization)
+        table = Table(show_header=False, box=None)
+        table.add_column()
+
         while True:
             try:
                 source, line = next(data)
@@ -339,8 +343,8 @@ class RichOutputHandler(OutputHandler):
                 if stop_string and stop_string.lower() in line.lower():
                     raise StopIteration
 
-                table = Table(show_header=False, box=None)
-                table.add_column()
+                # Clear rows and rebuild (reuse table object)
+                table.rows.clear()
 
                 for linex in list(displayed_lines):
                     prefix_text = Text(log_prefix + " ", no_wrap=True)
