@@ -239,6 +239,37 @@ class OutputHandler(ABC):
             NonInteractiveError: If non-interactive and no default provided, or if required_flag is set
         """
 
+    @abstractmethod
+    def prompt_fuzzy(
+        self,
+        prompt: str,
+        choices: list[str],
+        default: Optional[str] = None,
+        required_flag: Optional[str] = None,
+        **kwargs,
+    ) -> str:
+        """
+        Prompt the user with fuzzy search selection (respects interactive mode).
+
+        Uses same priority system as prompt_ask():
+        1. If not interactive → return default or raise NonInteractiveError
+        2. Else → show fuzzy search prompt (interactive mode)
+
+        Args:
+            prompt: Message to display to user
+            choices: List of options for fuzzy search
+            default: Default value if non-interactive (optional)
+            required_flag: Flag name to suggest in error message (e.g., "bench_name positional argument")
+                          If set and non-interactive, raises NonInteractiveError with this suggestion
+            **kwargs: Implementation-specific fuzzy prompt arguments (vi_mode, qmark, etc.)
+
+        Returns:
+            Selected choice as string
+
+        Raises:
+            NonInteractiveError: If non-interactive and no default provided, or if required_flag is set
+        """
+
     @property
     def is_spinner_active(self) -> bool:
         return self._spinner_active

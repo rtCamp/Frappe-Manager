@@ -179,10 +179,46 @@ class SilentOutputHandler(OutputHandler):
         required_flag: str | None = None,
         **kwargs,
     ) -> str:
+        from frappe_manager.exceptions import NonInteractiveError
+
         if force_yes:
             return "yes"
 
-        return default if default else "no"
+        if required_flag:
+            raise NonInteractiveError(
+                f"Cannot prompt in non-interactive mode: {prompt}", suggestions=[f"Provide: {required_flag}"]
+            )
+
+        if default is not None:
+            return default
+
+        raise NonInteractiveError(
+            f"Cannot prompt in non-interactive mode: {prompt}",
+            suggestions=["Run without --non-interactive to enable prompts"],
+        )
+
+    def prompt_fuzzy(
+        self,
+        prompt: str,
+        choices: list[str],
+        default: str | None = None,
+        required_flag: str | None = None,
+        **kwargs,
+    ) -> str:
+        from frappe_manager.exceptions import NonInteractiveError
+
+        if required_flag:
+            raise NonInteractiveError(
+                f"Cannot prompt in non-interactive mode: {prompt}", suggestions=[f"Provide: {required_flag}"]
+            )
+
+        if default is not None:
+            return default
+
+        raise NonInteractiveError(
+            f"Cannot prompt in non-interactive mode: {prompt}",
+            suggestions=["Run without --non-interactive to enable prompts"],
+        )
 
     @property
     def should_stream_docker(self) -> bool:

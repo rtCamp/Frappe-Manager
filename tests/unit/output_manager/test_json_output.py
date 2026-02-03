@@ -227,13 +227,13 @@ class TestJSONOutputHandlerAdvancedOperations:
         assert event.data["renderable"] == "Some content"
         assert event.data["padding"] == (1, 2, 3, 4)
 
-    def test_prompt_ask_returns_empty_string(self):
-        """prompt_ask() returns empty string and captures event."""
+    def test_prompt_ask_returns_default_when_provided(self):
+        """prompt_ask() returns default value when provided and captures event."""
         handler = JSONOutputHandler()
 
         result = handler.prompt_ask(prompt="Enter value", default="test")
 
-        assert result == ""
+        assert result == "test"
         assert len(handler.events) == 1
         event = handler.events[0]
         assert event.event_type == "prompt_ask"

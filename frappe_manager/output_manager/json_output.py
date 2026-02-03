@@ -295,6 +295,8 @@ class JSONOutputHandler(OutputHandler):
         required_flag: str | None = None,
         **kwargs,
     ) -> str:
+        from frappe_manager.exceptions import NonInteractiveError
+
         self._add_event(
             OutputEvent(
                 "prompt_ask",
@@ -308,7 +310,58 @@ class JSONOutputHandler(OutputHandler):
                 },
             )
         )
-        return ""
+
+        if force_yes:
+            return "yes"
+
+        if required_flag:
+            raise NonInteractiveError(
+                f"Cannot prompt in JSON output mode: {prompt}", suggestions=[f"Provide: {required_flag}"]
+            )
+
+        if default is not None:
+            return default
+
+        raise NonInteractiveError(
+            f"Cannot prompt in JSON output mode: {prompt}",
+            suggestions=["Use interactive mode for prompts"],
+        )
+
+    def prompt_fuzzy(
+        self,
+        prompt: str,
+        choices: list[str],
+        default: str | None = None,
+        required_flag: str | None = None,
+        **kwargs,
+    ) -> str:
+        from frappe_manager.exceptions import NonInteractiveError
+
+        self._add_event(
+            OutputEvent(
+                "prompt_fuzzy",
+                {
+                    "prompt": prompt,
+                    "choices": choices,
+                    "default": default,
+                    "required_flag": required_flag,
+                    "kwargs": kwargs,
+                },
+            )
+        )
+
+        if required_flag:
+            raise NonInteractiveError(
+                f"Cannot prompt in JSON output mode: {prompt}", suggestions=[f"Provide: {required_flag}"]
+            )
+
+        if default is not None:
+            return default
+
+        raise NonInteractiveError(
+            f"Cannot prompt in JSON output mode: {prompt}",
+            suggestions=["Use interactive mode for prompts"],
+        )
 
     @property
     def should_stream_docker(self) -> bool:

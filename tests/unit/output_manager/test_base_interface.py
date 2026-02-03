@@ -77,7 +77,25 @@ class TestOutputHandlerInterface:
             def update_live(self, renderable=None, padding=(0, 0, 0, 0)) -> None:
                 pass
 
-            def prompt_ask(self, **kwargs) -> str:
+            def prompt_ask(
+                self,
+                prompt: str = "",
+                choices: list | None = None,
+                default: str | None = None,
+                force_yes: bool = False,
+                required_flag: str | None = None,
+                **kwargs,
+            ) -> str:
+                return ""
+
+            def prompt_fuzzy(
+                self,
+                prompt: str,
+                choices: list[str],
+                default: str | None = None,
+                required_flag: str | None = None,
+                **kwargs,
+            ) -> str:
                 return ""
 
             @property

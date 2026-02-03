@@ -261,6 +261,27 @@ class LoggingOutputHandler(OutputHandler):
 
         return response
 
+    def prompt_fuzzy(
+        self,
+        prompt: str,
+        choices: list[str],
+        default: str | None = None,
+        required_flag: str | None = None,
+        **kwargs,
+    ) -> str:
+        self.logger.info(f"[OUTPUT] FUZZY_PROMPT: {prompt} (choices: {len(choices)})")
+
+        result = self.delegate.prompt_fuzzy(
+            prompt=prompt,
+            choices=choices,
+            default=default,
+            required_flag=required_flag,
+            **kwargs,
+        )
+
+        self.logger.info(f"[OUTPUT] FUZZY_RESPONSE: {result}")
+        return result
+
     def set_interactive_mode(self, non_interactive_flag: bool) -> None:
         """
         Set interactive mode on wrapper AND delegate.

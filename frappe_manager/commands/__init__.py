@@ -315,8 +315,6 @@ def app_callback(
 
                 # Scenario 1: Infra needs migration
                 if infra_needs_migration:
-                    output.stop()
-
                     output.warning(
                         f"FM infrastructure needs update: v{fm_infrastructure_version} -> v{current_version}"
                     )
@@ -415,8 +413,6 @@ def app_callback(
 
                 # Scenario 2: Only bench needs migration (infra already up-to-date)
                 elif bench_needs_migration_flag and bench_arg and bench_version:
-                    output.stop()
-
                     output.warning(f"Bench '{bench_arg}' needs migration: v{bench_version} -> v{current_version}")
                     output.print("This may modify bench configuration and services.", emoji_code="")
                     output.print("", emoji_code="")

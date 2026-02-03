@@ -476,6 +476,57 @@ class RichOutputHandler(OutputHandler):
                 value = input(prompt_full).strip()
                 return value if value else (default or "")
 
+    def prompt_fuzzy(
+        self,
+        prompt: str,
+        choices: list[str],
+        default: Optional[str] = None,
+        required_flag: Optional[str] = None,
+        **kwargs,
+    ) -> str:
+        from frappe_manager.exceptions import NonInteractiveError
+
+        if not self.is_interactive():
+            if required_flag:
+                raise NonInteractiveError(
+                    f"Cannot prompt in non-interactive mode: {prompt}", suggestions=[f"Provide: {required_flag}"]
+                )
+            if default is None:
+                raise NonInteractiveError(
+                    f"Cannot prompt in non-interactive mode: {prompt}",
+                    suggestions=["Run without --non-interactive to enable prompts"],
+                )
+            return default
+
+        if self._is_interactive:
+            from InquirerPy import inquirer
+
+            self.spinner.update()
+            self.live.stop()
+
+            qmark = kwargs.pop('qmark', '🤔')
+            amark = kwargs.pop('amark', '🤔')
+            vi_mode = kwargs.pop('vi_mode', True)
+            mandatory = kwargs.pop('mandatory', True)
+
+            value = inquirer.fuzzy(
+                message=prompt,
+                choices=choices,
+                vi_mode=vi_mode,
+                mandatory=mandatory,
+                qmark=qmark,
+                amark=amark,
+                **kwargs,
+            ).execute()
+
+            self.start("Working")
+            return value
+        else:
+            raise NonInteractiveError(
+                f"Cannot prompt in non-interactive mode: {prompt}",
+                suggestions=["Run without --non-interactive to enable prompts"],
+            )
+
     @property
     def should_stream_docker(self) -> bool:
         return self._is_interactive and self.is_spinner_active and not self.verbose

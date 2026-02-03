@@ -146,8 +146,6 @@ def val(answers, current):
 
 
 def sitename_callback(sitename: Optional[str]):
-    import sys
-
     if not sitename:
         sitename = get_sitename_from_current_path()
 
@@ -155,26 +153,22 @@ def sitename_callback(sitename: Optional[str]):
         sites_list = [site_name.parent.name for site_name in sites_autocompletion_callback()]
 
         if sites_list:
-            is_tty = sys.stdin.isatty() and sys.stdout.isatty()
+            output = get_global_output_handler()
+            sorted_sites = get_sorted_sites_list(sites_list)
 
-            if is_tty:
-                from InquirerPy import inquirer
-
-                sorted_sites = get_sorted_sites_list(sites_list)
-
-                sitename = inquirer.fuzzy(
-                    message="Select bench (↑↓ navigate, type to search)",
-                    vi_mode=True,
+            try:
+                sitename = output.prompt_fuzzy(
+                    prompt="Select bench (↑↓ navigate, type to search)",
                     choices=sorted_sites,
+                    vi_mode=True,
                     mandatory=True,
                     qmark='🤔',
                     amark='🤔',
-                ).execute()
+                )
 
                 if sitename:
                     update_sites_cache(sitename)
-            else:
-                output = get_global_output_handler()
+            except Exception:
                 output.error(
                     "Bench name is required in non-interactive mode",
                     exception=Exception(
@@ -249,10 +243,10 @@ def get_sorted_sites_list(sites_list: list[str]) -> list[str]:
 
 
 def prompt_for_bench_selection(current_value: Optional[str]) -> Optional[str]:
-    import sys
-
     if current_value:
         return current_value
+
+    from frappe_manager.output_manager import get_global_output_handler
 
     benchname = get_sitename_from_current_path()
     if benchname:
@@ -263,35 +257,25 @@ def prompt_for_bench_selection(current_value: Optional[str]) -> Optional[str]:
     if not sites_list:
         return None
 
-    is_tty = sys.stdin.isatty() and sys.stdout.isatty()
+    output = get_global_output_handler()
+    sorted_sites = get_sorted_sites_list(sites_list)
 
-    if is_tty:
-        try:
-            from InquirerPy import inquirer
-
-            sorted_sites = get_sorted_sites_list(sites_list)
-
-            selected = inquirer.fuzzy(
-                message="Select bench (↑↓ navigate, type to search)",
-                vi_mode=True,
-                choices=sorted_sites,
-                mandatory=True,
-                qmark='🤔',
-                amark='🤔',
-            ).execute()
-
-            if selected:
-                update_sites_cache(selected)
-                return selected
-        except Exception:
-            pass
-    else:
-        output = get_global_output_handler()
-        output.error(
-            "Bench name is required in non-interactive mode",
-            exception=Exception("Specify bench name as positional argument. Use 'fm list' to see available benches."),
+    try:
+        selected = output.prompt_fuzzy(
+            prompt="Select bench (↑↓ navigate, type to search)",
+            choices=sorted_sites,
+            vi_mode=True,
+            mandatory=True,
+            qmark='🤔',
+            amark='🤔',
         )
-        raise typer.Exit(1)
+
+        if selected:
+            update_sites_cache(selected)
+            return selected
+    except Exception:
+        # Silently fail - caller will handle None return
+        pass
 
     return None
 
