@@ -245,7 +245,11 @@ class MigrationBase(ABC):
                 "Do you want to continue migration without database backup?",
             ]
 
-            user_choice = self.output.prompt_ask(prompt="\n".join(skip_backup_prompt), choices=["yes", "no"])
+            user_choice = self.output.prompt_ask(
+                prompt="\n".join(skip_backup_prompt),
+                choices=["yes", "no"],
+                required_flag="--skip-all-backup or --skip-backup-for <bench>",
+            )
 
             if user_choice == "no":
                 self.output.display_error(f"User chose to abort migration for {bench.name}")

@@ -131,7 +131,9 @@ class MigrationErrorHandler:
         ]
 
         if not self.executor.force:
-            return self.executor.output.prompt_ask(prompt="\n".join(archive_msg), choices=["yes", "no"])
+            return self.executor.output.prompt_ask(
+                prompt="\n".join(archive_msg), choices=["yes", "no"], required_flag='--force'
+            )
         else:
             self.executor.output.print("Rolling back all benches (--force)", emoji_code="")
             return "no"

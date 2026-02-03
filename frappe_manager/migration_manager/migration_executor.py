@@ -215,6 +215,7 @@ class MigrationExecutor:
                         {"name": "yes - Start migration", "value": "yes"},
                         {"name": "no - Abort and revert to previous fm version", "value": "no"},
                     ],
+                    required_flag='--force',
                 )
             else:
                 continue_migration = "yes"

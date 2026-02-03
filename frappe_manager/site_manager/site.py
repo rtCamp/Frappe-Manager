@@ -254,6 +254,7 @@ class Bench:
 
         if not bench_path.exists():
             from frappe_manager.site_manager.exceptions import BenchNotFoundError
+
             raise BenchNotFoundError(bench_name, bench_path)
 
         compose_file_manager = ComposeFile(bench_path / "docker-compose.yml")
@@ -756,6 +757,7 @@ class Bench:
         if default_choice:
             params['default'] = 'no'
 
+        params['required_flag'] = '--force'
         continue_remove = self.output.prompt_ask(**params)
 
         if continue_remove == "no":
@@ -816,6 +818,7 @@ class Bench:
                 'prompt': f"🗄️  Do you want to remove the database '[bold]{self.name}[/bold]' from global-db?",
                 'choices': ["yes", "no"],
                 'default': 'yes',
+                'required_flag': '--delete-db-from-global-db or --no-delete-db-from-global-db',
             }
             choice = self.output.prompt_ask(**params)
             should_delete = choice == "yes"
@@ -912,7 +915,9 @@ class Bench:
                     self.output.print("Using admin_password defined in common_site_config.json")
 
         if not admin_pass:
-            admin_pass = self.output.prompt_ask(prompt=f"Please enter admin password for site {self.name}")
+            admin_pass = self.output.prompt_ask(
+                prompt=f"Please enter admin password for site {self.name}", required_flag="--admin-pass option"
+            )
 
         self.output.change_head(f"Resetting bench site {self.name}")
 

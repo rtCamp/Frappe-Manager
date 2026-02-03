@@ -386,6 +386,7 @@ class BenchService:
                 'prompt': f"🗄️  Do you want to remove the database '[bold]{bench.name}[/bold]' from global-db?",
                 'choices': ["yes", "no"],
                 'default': 'yes',
+                'required_flag': '--delete-db-from-global-db or --no-delete-db-from-global-db',
             }
             choice = self.output.prompt_ask(**params)
             should_delete = choice == "yes"
