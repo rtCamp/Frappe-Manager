@@ -38,8 +38,8 @@
         "code": ""
       },
       {
-        "desc": "Force delete without confirmation",
-        "code": " --force"
+        "desc": "Delete without confirmation",
+        "code": " --yes"
       },
       {
         "desc": "Delete bench and its database from global-db",
@@ -79,19 +79,19 @@
       },
       {
         "desc": "Open bench with debugger config",
-        "code": " -d"
+        "code": " --debugger"
       },
       {
         "desc": "Force start bench before opening",
-        "code": " -f"
+        "code": " --force-start"
       },
       {
         "desc": "Add custom VSCode extension",
-        "code": " -e vscodevim.vim"
+        "code": " --extension vscodevim.vim"
       },
       {
         "desc": "Open with custom working directory",
-        "code": " -w /workspace"
+        "code": " --work-dir /workspace"
       }
     ]
   },
@@ -320,8 +320,8 @@
           "code": " example.com"
         },
         {
-          "desc": "Force remove without confirmation",
-          "code": " example.com --force"
+          "desc": "Remove without confirmation",
+          "code": " example.com --yes"
         },
         {
           "desc": "Remove external (standalone) certificate",
@@ -545,36 +545,42 @@
   "migrate": {
     "examples": [
       {
-        "desc": "Migrate system only",
-        "code": " --system",
+        "desc": "Migrate FM infrastructure only (safe)",
+        "code": "",
         "benchname": ""
       },
       {
-        "desc": "Migrate specific bench only",
+        "desc": "Migrate specific bench",
         "code": ""
       },
       {
-        "desc": "Migrate system + specific bench",
-        "code": " --system"
-      },
-      {
-        "desc": "Migrate all benches only",
+        "desc": "Migrate all benches",
         "code": " --all-benches",
         "benchname": ""
       },
       {
-        "desc": "Migrate system + all benches",
-        "code": " --system --all-benches",
+        "desc": "Skip confirmation prompt",
+        "code": " --all-benches --auto-proceed",
         "benchname": ""
       },
       {
-        "desc": "Migrate with no prompts",
-        "code": " --system --all-benches --force",
+        "desc": "Auto-proceed with auto-rollback on failure",
+        "code": " --all-benches --auto-proceed --on-failure=rollback",
         "benchname": ""
       },
       {
-        "desc": "Skip backup (dangerous)",
-        "code": " --all-benches --skip-backup",
+        "desc": "Auto-proceed, archive failed benches (partial success OK)",
+        "code": " --all-benches --auto-proceed --on-failure=archive",
+        "benchname": ""
+      },
+      {
+        "desc": "Skip all backups (dangerous)",
+        "code": " --all-benches --skip-all-backup",
+        "benchname": ""
+      },
+      {
+        "desc": "Exclude specific benches",
+        "code": " --all-benches --exclude-bench mybench1,mybench2",
         "benchname": ""
       }
     ]
