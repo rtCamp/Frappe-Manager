@@ -123,6 +123,27 @@ class MigrationErrorHandler:
         Returns:
             str: "yes" to archive, "no" to rollback
         """
+        is_single_bench = self.executor.target_benches and len(self.executor.target_benches) == 1
+
+        if is_single_bench:
+            if self.executor.on_failure == "archive":
+                self.executor.output.print(
+                    "Warning: --on-failure=archive not supported for single bench migrations. Rolling back instead.",
+                    emoji_code="",
+                )
+                return "no"
+            elif self.executor.on_failure == "rollback":
+                self.executor.output.print("Rolling back bench (--on-failure=rollback)", emoji_code="")
+                return "no"
+            else:
+                self.executor.output.print(
+                    "Migration failed. Bench will be rolled back to previous version.", emoji_code=""
+                )
+                self.executor.output.print(
+                    f"You can retry migration with: fm migrate {self.executor.target_benches[0]}", emoji_code=""
+                )
+                return "no"
+
         if self.executor.on_failure == "archive":
             self.executor.output.print("Archiving failed benches (--on-failure=archive)", emoji_code="")
             return "yes"
