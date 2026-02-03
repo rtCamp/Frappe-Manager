@@ -105,7 +105,7 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, f
                 prompt=f"Remove SSL certificate for {domain}?",
                 choices=["yes", "no"],
                 default="no",
-                required_flag="--yes or -y",
+                required_flag="--force or -f",
             )
         if choice != "yes":
             output.print("Cancelled.", emoji_code=":x:")
