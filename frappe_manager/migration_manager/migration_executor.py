@@ -219,7 +219,7 @@ class MigrationExecutor:
                 )
             else:
                 continue_migration = "yes"
-                self.output.print("Proceeding with migration (--force)", emoji_code="")
+                self.output.print("Proceeding with migration (--yes)", emoji_code="")
 
             if continue_migration == "no":
                 self.output.print("", emoji_code="")

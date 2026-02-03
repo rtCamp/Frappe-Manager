@@ -40,7 +40,7 @@ class TestMigrationExecutorWithOptions:
             assert executor.skip_backup is True
             assert executor.skip_backup_for == []
             assert executor.exclude_benches == []
-            assert executor.force is False
+            assert executor.yes is False
 
     def test_executor_accepts_skip_backup_for_list(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
@@ -65,16 +65,16 @@ class TestMigrationExecutorWithOptions:
 
             assert executor.exclude_benches == ["old-bench", "test-bench"]
 
-    def test_executor_accepts_force_option(self, mock_fm_config):
+    def test_executor_accepts_yes_option(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
 
         with (
             patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
             patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
         ):
-            executor = MigrationExecutor(mock_fm_config, force=True)
+            executor = MigrationExecutor(mock_fm_config, yes=True)
 
-            assert executor.force is True
+            assert executor.yes is True
 
     def test_executor_accepts_all_options_combined(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
@@ -84,17 +84,17 @@ class TestMigrationExecutorWithOptions:
             patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
         ):
             executor = MigrationExecutor(
-                mock_fm_config, skip_backup=False, skip_backup_for=["bench1"], exclude_benches=["old-bench"], force=True
+                mock_fm_config, skip_backup=False, skip_backup_for=["bench1"], exclude_benches=["old-bench"], yes=True
             )
 
             assert executor.skip_backup is False
             assert executor.skip_backup_for == ["bench1"]
             assert executor.exclude_benches == ["old-bench"]
-            assert executor.force is True
+            assert executor.yes is True
 
 
-class TestMigrationExecutorForceFlag:
-    def test_force_skips_initial_confirmation_prompt(self, mock_fm_config):
+class TestMigrationExecutorYesFlag:
+    def test_yes_skips_initial_confirmation_prompt(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
         mock_fm_config.export_to_toml = Mock(return_value=True)
 
@@ -130,26 +130,23 @@ class TestMigrationExecutorForceFlag:
 
             mock_output = Mock()
             executor = MigrationExecutor(
-                mock_fm_config, force=True, migrate_fm_infrastructure=True, output_handler=mock_output
+                mock_fm_config, yes=True, migrate_fm_infrastructure=True, output_handler=mock_output
             )
 
-            with (
-                patch.object(executor, '_ensure_global_services_running'),
-                patch.object(executor, '_check_benches_need_migration', return_value=False),
-            ):
+            with patch.object(executor, '_check_benches_need_migration', return_value=False):
                 result = executor.execute()
 
             mock_output.prompt_ask.assert_not_called()
 
-            force_call_found = False
+            yes_call_found = False
             for call in mock_output.print.call_args_list:
-                if "Proceeding with migration (--force)" in str(call):
-                    force_call_found = True
+                if "Proceeding with migration (--yes)" in str(call):
+                    yes_call_found = True
                     break
 
-            assert force_call_found is True
+            assert yes_call_found is True
 
-    def test_without_force_shows_confirmation_prompt(self, mock_fm_config):
+    def test_without_yes_shows_confirmation_prompt(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
         mock_fm_config.export_to_toml = Mock(return_value=True)
 
@@ -163,7 +160,7 @@ class TestMigrationExecutorForceFlag:
             mock_output = Mock()
             mock_output.prompt_ask.return_value = "yes"
 
-            executor = MigrationExecutor(mock_fm_config, force=False, output_handler=mock_output)
+            executor = MigrationExecutor(mock_fm_config, yes=False, output_handler=mock_output)
             result = executor.execute()
 
             assert result is True

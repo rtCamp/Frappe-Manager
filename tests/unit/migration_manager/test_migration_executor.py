@@ -179,10 +179,7 @@ class TestMigrationExecutorUserPrompt:
 
             mock_output.prompt_ask.return_value = "yes"
 
-            with (
-                patch.object(executor, '_ensure_global_services_running'),
-                patch.object(executor, '_check_benches_need_migration', return_value=False),
-            ):
+            with patch.object(executor, '_check_benches_need_migration', return_value=False):
                 executor.execute()
 
             assert mock_output.prompt_ask.called
@@ -206,10 +203,7 @@ class TestMigrationExecutorUserPrompt:
 
             mock_output.prompt_ask.return_value = "no"
 
-            with (
-                patch.object(executor, '_ensure_global_services_running'),
-                patch.object(executor, '_check_benches_need_migration', return_value=False),
-            ):
+            with patch.object(executor, '_check_benches_need_migration', return_value=False):
                 result = executor.execute()
 
             assert result is False
