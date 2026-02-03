@@ -1,5 +1,6 @@
-from typing import Annotated, Optional, Literal
+from typing import Annotated, Optional
 from pathlib import Path
+from enum import Enum
 
 import typer
 
@@ -16,6 +17,14 @@ from frappe_manager.output_manager.context_managers import temporary_stop
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.output_manager import get_global_output_handler
 from rich.table import Table
+
+
+class MigrationFailureAction(str, Enum):
+    """Actions to take when migration fails."""
+
+    prompt = "prompt"
+    archive = "archive"
+    rollback = "rollback"
 
 
 def migrate(
@@ -45,7 +54,7 @@ def migrate(
         typer.Option("--auto-proceed", help="Skip migration confirmation prompt (proceed automatically)"),
     ] = False,
     on_failure: Annotated[
-        Optional[Literal["prompt", "archive", "rollback"]],
+        Optional[MigrationFailureAction],
         typer.Option(
             "--on-failure",
             help="What to do if migration fails: prompt (ask user), archive (save failed benches), rollback (revert all)",
@@ -66,9 +75,7 @@ def migrate(
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
     output = get_global_output_handler()
 
-    # Default on_failure to "prompt" if not set
-    if on_failure is None:
-        on_failure = "prompt"
+    failure_action = on_failure.value if on_failure else "prompt"
 
     if benchname and all_benches:
         output.display_error("Cannot specify both <benchname> and --all-benches")
@@ -134,7 +141,7 @@ def migrate(
         skip_backup_for=skip_backup_list,
         exclude_benches=exclude_bench_list,
         auto_proceed=auto_proceed,
-        on_failure=on_failure,
+        on_failure=failure_action,
         target_benches=target_benches,
         migrate_fm_infrastructure=fm_infrastructure_needs_migration,
         output_handler=output_handler,
