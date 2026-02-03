@@ -8,6 +8,7 @@ Extracted from the monolithic Bench class and BenchOperations for better
 separation of concerns.
 """
 
+import shlex
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Literal, cast
@@ -251,11 +252,12 @@ fi
 
                     if not selected_python_full:
                         self.output.print(f"Installing Python {python_version} via uv..")
-                        install_cmd = f"uv python install cpython-{python_version}"
+                        quoted_pkg = shlex.quote(f"cpython-{python_version}")
+                        install_cmd = f"uv python install {quoted_pkg}"
                         self._container_run(install_cmd, raise_exception_obj=None, use_run=use_run)
 
                         detect_installed_cmd = (
-                            f"ls -1 /workspace/.uv/python/ | grep '^cpython-{python_version}' | sort -V | tail -1"
+                            f"ls -1 /workspace/.uv/python/ | grep '^{quoted_pkg}' | sort -V | tail -1"
                         )
                         result = self._container_run(
                             detect_installed_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run
@@ -276,12 +278,13 @@ fi
                         self._container_run(update_symlink_cmd, raise_exception_obj=None, use_run=use_run)
 
                     self.output.change_head(f"Creating virtual environment with {selected_python_full}")
+                    quoted_python = shlex.quote(selected_python_full)
                     recreate_venv_cmd = f"""
                     cd /workspace/frappe-bench
                     if [ -d env ]; then
                         mv env env.bak || rm -rf env.bak
                     fi
-                    uv venv env --python {selected_python_full} --seed --link-mode=copy
+                    uv venv env --python {quoted_python} --seed --link-mode=copy
                     """
                     self._container_run(recreate_venv_cmd, raise_exception_obj=None, use_run=use_run)
                     selected_version_str = (

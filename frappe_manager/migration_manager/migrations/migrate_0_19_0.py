@@ -313,11 +313,20 @@ class MigrationV0190(MigrationBase):
 
         config_doc = None
         if bench_config_path.exists():
+            from frappe_manager.site_manager.bench_config import (
+                parse_python_version_for_runtime,
+                parse_node_version_for_runtime,
+            )
+
             config_doc = tomlkit.parse(bench_config_path.read_text())
-            python_version = config_doc.get("python_version")
-            node_version = config_doc.get("node_version")
+            raw_python_version = config_doc.get("python_version")
+            raw_node_version = config_doc.get("node_version")
+
+            python_version = parse_python_version_for_runtime(raw_python_version) if raw_python_version else None
+            node_version = parse_node_version_for_runtime(raw_node_version) if raw_node_version else None
+
             self.logger.debug(
-                f"[_rebuild_runtime_environment] From config: Python={python_version}, Node={node_version}"
+                f"[_rebuild_runtime_environment] From config (parsed): Python={python_version}, Node={node_version}"
             )
 
         if not python_version or not node_version:
@@ -367,6 +376,8 @@ class MigrationV0190(MigrationBase):
         """Setup Python using uv python manager."""
         self.logger.debug(f"[_setup_python_with_uv] Starting Python {python_version} setup for {bench.name}")
 
+        quoted_pkg = shlex.quote(f"cpython-{python_version}")
+
         setup_script = f"""
 cd /workspace/frappe-bench
 if [ -d env ]; then
@@ -376,10 +387,10 @@ if [ -d env ]; then
 fi
 
 echo "Installing Python {python_version} via uv..."
-uv python install cpython-{python_version}
+uv python install {quoted_pkg}
 
 echo "Detecting installed Python..."
-PYTHON_DIR=$(ls -1d /workspace/.uv/python/cpython-{python_version}* 2>/dev/null | sort -V | tail -1 || echo "")
+PYTHON_DIR=$(ls -1d /workspace/.uv/python/{quoted_pkg}* 2>/dev/null | sort -V | tail -1 || echo "")
 if [ -z "$PYTHON_DIR" ]; then
     echo "Error: Could not find installed Python"
     exit 1
