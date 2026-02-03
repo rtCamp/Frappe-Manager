@@ -81,21 +81,28 @@ def _add_bench_certificate(
         raise typer.Exit(1)
 
 
-def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, force: bool):
-    """Remove SSL certificate for a bench domain (existing logic extracted)."""
-
+def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, yes: bool):
     services_manager = ctx.obj["services"]
 
     context = LoggerContext(bench=benchname, operation="ssl-remove")
     output = get_output_handler(ctx, context=context)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
-    cert_domains = [cert.domain for cert in bench.certificate_manager.certificates]
-    if domain not in cert_domains:
-        output.display_error(
-            f"No SSL certificate found for domain '{domain}'.\n"
-            f"Configured certificates: {', '.join(cert_domains) if cert_domains else 'None'}"
-        )
+    domains = bench.bench_config.get_all_domains()
+    if domain not in domains:
+        output.display_error(f"Domain '{domain}' is not configured for bench '{benchname}'")
+        raise typer.Exit(1)
+
+    output.change_head(f"Removing SSL certificate for {domain}")
+
+    if not yes:
+        with temporary_stop(output):
+            choice = output.prompt_ask(
+                prompt=f"Remove SSL certificate for {domain}?",
+                choices=["yes", "no"],
+                default="no",
+                required_flag="--yes or -y",
+            )
         raise typer.Exit(1)
 
     # Confirm removal unless forced

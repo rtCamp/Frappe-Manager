@@ -40,9 +40,9 @@ def migrate(
         Optional[str],
         typer.Option("--exclude-bench", help="Exclude specific benches from migration (only with --all-benches)"),
     ] = None,
-    force: Annotated[
+    yes: Annotated[
         bool,
-        typer.Option("--force", help="Skip all confirmation prompts"),
+        typer.Option("--yes", "-y", help="Skip all confirmation prompts"),
     ] = False,
 ):
     """
@@ -126,7 +126,7 @@ def migrate(
         skip_backup=skip_backup,
         skip_backup_for=skip_backup_list,
         exclude_benches=exclude_bench_list,
-        force=force,
+        yes=yes,
         target_benches=target_benches,
         migrate_fm_infrastructure=fm_infrastructure_needs_migration,
         output_handler=output_handler,

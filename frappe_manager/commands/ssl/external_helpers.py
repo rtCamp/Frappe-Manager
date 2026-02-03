@@ -262,9 +262,7 @@ def _add_external_certificate(
         raise typer.Exit(1)
 
 
-def _remove_external_certificate(ctx: typer.Context, domain: str, force: bool):
-    """Remove SSL certificate for external domain."""
-
+def _remove_external_certificate(ctx: typer.Context, domain: str, yes: bool):
     services_manager = ctx.obj["services"]
     context = LoggerContext(operation="ssl-remove-external")
     output = get_output_handler(ctx, context=context)
@@ -273,18 +271,19 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, force: bool):
     external_manager = ExternalDomainConfigManager(external_config_path)
 
     if not external_manager.domain_exists(domain):
-        output.display_error(f"No external certificate found for domain '{domain}'")
-        output.print("To list external certificates: fm ssl list --standalone", emoji_code="")
+        output.display_error(f"Certificate does not exist for external domain '{domain}'")
         raise typer.Exit(1)
 
-    # Confirm removal unless forced
-    if not force:
+    domain_config = external_manager.get_domain(domain)
+    output.change_head(f"Removing SSL certificate for {domain}")
+
+    if not yes:
         with temporary_stop(output):
             choice = output.prompt_ask(
                 prompt=f"Remove SSL certificate for {domain}?",
                 choices=["yes", "no"],
                 default="no",
-                required_flag="--force or -f",
+                required_flag="--yes or -y",
             )
         if choice != "yes":
             output.print("Cancelled.", emoji_code=":x:")

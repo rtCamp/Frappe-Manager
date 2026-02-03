@@ -14,7 +14,7 @@ def delete(
             help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
         ),
     ] = None,
-    force: Annotated[bool, typer.Option("--force", "-f", help="Skip confirmation prompts")] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation prompts")] = False,
     delete_db_from_global_db: Annotated[
         Optional[bool],
         typer.Option(
@@ -29,7 +29,7 @@ def delete(
     Examples:
 
         fm delete mybench
-        fm delete mybench --force
+        fm delete mybench --yes
         fm delete mybench --delete-db-from-global-db
     """
 
@@ -39,4 +39,4 @@ def delete(
 
         output = get_global_output_handler()
         bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
-        bench_service.delete_bench(benchname, force=force, delete_db_from_global_db=delete_db_from_global_db)
+        bench_service.delete_bench(benchname, yes=yes, delete_db_from_global_db=delete_db_from_global_db)

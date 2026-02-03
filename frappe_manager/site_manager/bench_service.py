@@ -151,30 +151,15 @@ class BenchService:
     def delete_bench(
         self,
         bench_name: str,
-        force: bool = False,
+        yes: bool = False,
         delete_db_from_global_db: bool | None = None,
     ) -> bool:
-        """
-        Delete a bench.
-
-        Args:
-            bench_name: Name of bench to delete
-            force: Skip confirmation prompt
-            delete_db_from_global_db: Whether to delete DB from global-db.
-                                     If None, prompts interactively when DB is in global-db.
-
-        Returns:
-            True if bench was deleted, False if user cancelled
-
-        Example:
-            >>> deleted = service.delete_bench("old.localhost", force=True)
-        """
         try:
             bench = self.get_bench(bench_name, workers_check=False, admin_tools_check=False)
         except FileNotFoundError:
             bench = self._create_cleanup_bench(bench_name)
 
-        if force:
+        if yes:
             from frappe_manager.output_manager import spinner
 
             with spinner(self.output, "Removing bench"):

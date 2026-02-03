@@ -757,7 +757,7 @@ class Bench:
         if default_choice:
             params['default'] = 'no'
 
-        params['required_flag'] = '--force'
+        params['required_flag'] = '--yes or -y'
         continue_remove = self.output.prompt_ask(**params)
 
         if continue_remove == "no":
@@ -916,7 +916,7 @@ class Bench:
 
         if not admin_pass:
             admin_pass = self.output.prompt_ask(
-                prompt=f"Please enter admin password for site {self.name}", required_flag="--admin-pass option"
+                prompt=f"Please enter admin password for site {self.name}", required_flag="--admin-pass"
             )
 
         self.output.change_head(f"Resetting bench site {self.name}")

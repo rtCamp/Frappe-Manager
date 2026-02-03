@@ -66,7 +66,7 @@ class MigrationExecutor:
         skip_backup: bool = False,
         skip_backup_for: list[str] | None = None,
         exclude_benches: list[str] | None = None,
-        force: bool = False,
+        yes: bool = False,
         target_benches: list[str] | None = None,
         migrate_fm_infrastructure: bool = False,
         output_handler: OutputHandler | None = None,
@@ -83,7 +83,7 @@ class MigrationExecutor:
         self.skip_backup = skip_backup
         self.skip_backup_for = skip_backup_for or []
         self.exclude_benches = exclude_benches or []
-        self.force = force
+        self.yes = yes
         self.target_benches = target_benches
         self.migrate_fm_infrastructure = migrate_fm_infrastructure
         self.fm_infrastructure_needs_migration = False
@@ -208,14 +208,14 @@ class MigrationExecutor:
                     )
                     self.output.print("", emoji_code="")
 
-            if not self.force:
+            if not self.yes:
                 continue_migration = self.output.prompt_ask(
                     prompt="Do you want to proceed?",
                     choices=[
                         {"name": "yes - Start migration", "value": "yes"},
                         {"name": "no - Abort and revert to previous fm version", "value": "no"},
                     ],
-                    required_flag='--force',
+                    required_flag='--yes or -y',
                 )
             else:
                 continue_migration = "yes"

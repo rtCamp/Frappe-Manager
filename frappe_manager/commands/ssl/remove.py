@@ -19,9 +19,9 @@ def remove_certificate(
         ),
     ] = None,
     domain: Annotated[Optional[str], typer.Argument(help="Domain name of the certificate to remove")] = None,
-    force: Annotated[
+    yes: Annotated[
         bool,
-        typer.Option("--force", "-f", help="Force removal without confirmation"),
+        typer.Option("--yes", "-y", help="Skip confirmation prompt"),
     ] = False,
     standalone: Annotated[
         bool,
@@ -46,7 +46,7 @@ def remove_certificate(
                 typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
-        _remove_external_certificate(ctx, actual_domain, force)
+        _remove_external_certificate(ctx, actual_domain, yes)
     else:
         benchname = prompt_for_bench_selection(benchname)
 
@@ -58,4 +58,4 @@ def remove_certificate(
                 typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
-        _remove_bench_certificate(ctx, benchname, domain, force)
+        _remove_bench_certificate(ctx, benchname, domain, yes)

@@ -130,12 +130,12 @@ class MigrationErrorHandler:
             '\nDo you wish to archive all benches that failed during migration ?',
         ]
 
-        if not self.executor.force:
+        if not self.executor.yes:
             return self.executor.output.prompt_ask(
-                prompt="\n".join(archive_msg), choices=["yes", "no"], required_flag='--force'
+                prompt="\n".join(archive_msg), choices=["yes", "no"], required_flag='--yes or -y'
             )
         else:
-            self.executor.output.print("Rolling back all benches (--force)", emoji_code="")
+            self.executor.output.print("Rolling back all benches (--yes)", emoji_code="")
             return "no"
 
     def _archive_failed_benches(self):
