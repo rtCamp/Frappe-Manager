@@ -81,11 +81,10 @@ def start(
     """
     Start a bench.
 
-    Examples:
-
-        fm start mybench
-        fm start mybench --force
-        fm start mybench --sync-config
+    Starts all containers for the specified bench. Use --force to recreate containers.
+    Various --reconfigure options allow syncing configuration changes without full restart.
+    Use --sync-config to apply bench config changes, --reconfigure-supervisor for process management,
+    and --reconfigure-workers to update worker configurations.
     """
 
     check_bench_migration_required(benchname)

@@ -242,17 +242,11 @@ def app_callback(
 
             def get_full_command_path() -> str:
                 """
-                Build full command path from sys.argv for multi-level commands only.
+                Build full command path from sys.argv for multi-level commands.
 
-                Examples:
-                  - 'fm list' → 'list'
-                  - 'fm self compose' → 'self compose' (multi-level command)
-                  - 'fm start mybench' → 'start' (mybench is an argument, not a subcommand)
-                  - 'fm ssl add example.com' → 'ssl add' (example.com is an argument)
-
-                Multi-level commands are those with subcommands (self, ssl, services).
-                Single-level commands take arguments (start, stop, create, etc.) and should
-                only return the base command name.
+                Multi-level commands (self, ssl, services) have subcommands and return paths like "ssl add".
+                Single-level commands take arguments (start, stop, create) and return just the base command.
+                Stops parsing at flags (--) or path-like arguments (/ or ~). Limits depth to 2 levels max.
                 """
                 # Commands that have subcommands (multi-level structure)
                 MULTI_LEVEL_COMMANDS = {'self', 'ssl', 'services'}

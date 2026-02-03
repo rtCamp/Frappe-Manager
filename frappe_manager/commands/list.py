@@ -59,9 +59,8 @@ def list(ctx: typer.Context):
     """
     List all benches.
 
-    Examples:
-
-        fm list
+    Displays a table showing all available benches with their status, environment type,
+    and other relevant information. Use this to see what benches exist on your system.
     """
 
     services_manager = ctx.obj["services"]

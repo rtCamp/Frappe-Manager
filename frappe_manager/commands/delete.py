@@ -24,13 +24,11 @@ def delete(
     ] = None,
 ):
     """
-    Delete a bench.
+    Delete a bench and optionally its database from global-db service.
 
-    Examples:
-
-        fm delete mybench
-        fm delete mybench --yes
-        fm delete mybench --delete-db-from-global-db
+    This command removes the bench directory, containers, and all associated data.
+    By default, asks for confirmation before deletion. Use --yes to skip confirmation.
+    Optionally delete the bench's database from the global-db service with --delete-db-from-global-db.
     """
 
     if benchname:
