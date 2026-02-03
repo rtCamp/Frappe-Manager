@@ -338,7 +338,8 @@ def app_callback(
                         migrations = MigrationExecutor(
                             fm_config_manager,
                             migrate_fm_infrastructure=True,
-                            yes=True,
+                            auto_proceed=True,
+                            on_failure="rollback",
                             output_handler=output,
                         )
 
@@ -383,7 +384,8 @@ def app_callback(
                                 bench_migrations = MigrationExecutor(
                                     fm_config_manager,
                                     target_benches=[bench_arg],
-                                    yes=True,
+                                    auto_proceed=True,
+                                    on_failure="rollback",
                                     output_handler=output,
                                 )
 
@@ -434,7 +436,8 @@ def app_callback(
                         bench_migrations = MigrationExecutor(
                             fm_config_manager,
                             target_benches=[bench_arg],
-                            yes=True,
+                            auto_proceed=True,
+                            on_failure="rollback",
                             output_handler=output,
                         )
 

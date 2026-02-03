@@ -66,7 +66,8 @@ class MigrationExecutor:
         skip_backup: bool = False,
         skip_backup_for: list[str] | None = None,
         exclude_benches: list[str] | None = None,
-        yes: bool = False,
+        auto_proceed: bool = False,
+        on_failure: str = "prompt",
         target_benches: list[str] | None = None,
         migrate_fm_infrastructure: bool = False,
         output_handler: OutputHandler | None = None,
@@ -83,7 +84,8 @@ class MigrationExecutor:
         self.skip_backup = skip_backup
         self.skip_backup_for = skip_backup_for or []
         self.exclude_benches = exclude_benches or []
-        self.yes = yes
+        self.auto_proceed = auto_proceed
+        self.on_failure = on_failure
         self.target_benches = target_benches
         self.migrate_fm_infrastructure = migrate_fm_infrastructure
         self.fm_infrastructure_needs_migration = False
@@ -208,18 +210,18 @@ class MigrationExecutor:
                     )
                     self.output.print("", emoji_code="")
 
-            if not self.yes:
+            if not self.auto_proceed:
                 continue_migration = self.output.prompt_ask(
                     prompt="Do you want to proceed?",
                     choices=[
                         {"name": "yes - Start migration", "value": "yes"},
                         {"name": "no - Abort and revert to previous fm version", "value": "no"},
                     ],
-                    required_flag='--yes or -y',
+                    required_flag='--auto-proceed',
                 )
             else:
                 continue_migration = "yes"
-                self.output.print("Proceeding with migration (--yes)", emoji_code="")
+                self.output.print("Proceeding with migration (--auto-proceed)", emoji_code="")
 
             if continue_migration == "no":
                 self.output.print("", emoji_code="")

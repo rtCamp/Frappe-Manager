@@ -1,4 +1,4 @@
-from typing import Annotated, Optional
+from typing import Annotated, Optional, Literal
 from pathlib import Path
 
 import typer
@@ -40,10 +40,17 @@ def migrate(
         Optional[str],
         typer.Option("--exclude-bench", help="Exclude specific benches from migration (only with --all-benches)"),
     ] = None,
-    yes: Annotated[
+    auto_proceed: Annotated[
         bool,
-        typer.Option("--yes", "-y", help="Skip all confirmation prompts"),
+        typer.Option("--auto-proceed", help="Skip migration confirmation prompt (proceed automatically)"),
     ] = False,
+    on_failure: Annotated[
+        Optional[Literal["prompt", "archive", "rollback"]],
+        typer.Option(
+            "--on-failure",
+            help="What to do if migration fails: prompt (ask user), archive (save failed benches), rollback (revert all)",
+        ),
+    ] = None,
 ):
     """
     Migrate Frappe Manager to current version.
@@ -58,16 +65,19 @@ def migrate(
       fm migrate --all-benches      Update FM infrastructure + migrate all benches
     """
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
+    output = get_global_output_handler()
+
+    # Default on_failure to "prompt" if not set
+    if on_failure is None:
+        on_failure = "prompt"
 
     if benchname and all_benches:
-        output = get_global_output_handler()
         output.display_error("Cannot specify both <benchname> and --all-benches")
         output.stop()
         typer.echo(ctx.get_help())
         raise typer.Exit(1)
 
     if exclude_bench and not all_benches:
-        output = get_global_output_handler()
         output.display_error("--exclude-bench can only be used with --all-benches")
         output.stop()
         typer.echo(ctx.get_help())
@@ -87,7 +97,6 @@ def migrate(
     if benchname:
         bench_path = CLI_BENCHES_DIRECTORY / benchname
         if not bench_path.exists():
-            output = get_global_output_handler()
             output.display_error(f"Bench '{benchname}' does not exist")
             raise typer.Exit(1)
         target_benches = [benchname]
@@ -108,7 +117,6 @@ def migrate(
     benches_failed = []
 
     if not fm_infrastructure_needs_migration and not target_benches:
-        output = get_global_output_handler()
         output.print("✓ FM infrastructure already up to date (no benches specified)")
         raise typer.Exit(0)
 
@@ -126,7 +134,8 @@ def migrate(
         skip_backup=skip_backup,
         skip_backup_for=skip_backup_list,
         exclude_benches=exclude_bench_list,
-        yes=yes,
+        auto_proceed=auto_proceed,
+        on_failure=on_failure,
         target_benches=target_benches,
         migrate_fm_infrastructure=fm_infrastructure_needs_migration,
         output_handler=output_handler,
@@ -192,8 +201,7 @@ def migrate(
         for bench_name in benches_failed:
             table.add_row("❌", f"[cyan]{bench_name}[/cyan]", "[red]Migration failed[/red]")
 
-    output = get_global_output_handler()
-    output.stdout.print(table)
+    output.print(table)
 
     if benches_failed:
         output.display_error("Check logs for details", emoji_code=":warning:")

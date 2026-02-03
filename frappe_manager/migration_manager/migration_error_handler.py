@@ -123,6 +123,13 @@ class MigrationErrorHandler:
         Returns:
             str: "yes" to archive, "no" to rollback
         """
+        if self.executor.on_failure == "archive":
+            self.executor.output.print("Archiving failed benches (--on-failure=archive)", emoji_code="")
+            return "yes"
+        elif self.executor.on_failure == "rollback":
+            self.executor.output.print("Rolling back all benches (--on-failure=rollback)", emoji_code="")
+            return "no"
+
         archive_msg = [
             'Available options after migrations failure :',
             rf"[blue][yes][/blue] Archive failed benches : Benches that have failed will be rolled back to there last successfully completed migration version and stored in '{CLI_SITES_ARCHIVE}'.",
@@ -130,13 +137,9 @@ class MigrationErrorHandler:
             '\nDo you wish to archive all benches that failed during migration ?',
         ]
 
-        if not self.executor.yes:
-            return self.executor.output.prompt_ask(
-                prompt="\n".join(archive_msg), choices=["yes", "no"], required_flag='--yes or -y'
-            )
-        else:
-            self.executor.output.print("Rolling back all benches (--yes)", emoji_code="")
-            return "no"
+        return self.executor.output.prompt_ask(
+            prompt="\n".join(archive_msg), choices=["yes", "no"], required_flag='--on-failure'
+        )
 
     def _archive_failed_benches(self):
         """
