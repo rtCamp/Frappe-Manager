@@ -5,6 +5,7 @@ Handlers that coordinate with Rich Live display to prevent output corruption.
 """
 
 import logging
+import threading
 from typing import Any
 
 from rich.logging import RichHandler
@@ -25,34 +26,23 @@ class LiveAwareRichHandler(RichHandler):
         handler = LiveAwareRichHandler(
             console=output.stderr,
             live_display=output.live,
+            output_lock=output._lock,
         )
         logger.addHandler(handler)
     """
 
-    def __init__(self, *args, live_display=None, **kwargs):
-        """
-        Initialize LiveAwareRichHandler.
-
-        Args:
-            *args: Positional arguments for RichHandler
-            live_display: Rich Live instance to coordinate with (optional)
-            **kwargs: Keyword arguments for RichHandler
-        """
+    def __init__(self, *args, live_display=None, output_lock=None, **kwargs):
         super().__init__(*args, **kwargs)
         self._live_display = live_display
+        self._output_lock = output_lock or threading.RLock()
 
     def emit(self, record: logging.LogRecord) -> None:
-        """
-        Emit a record, temporarily stopping Live display if active.
-
-        Args:
-            record: The log record to emit
-        """
         if self._live_display and self._live_display.is_started:
-            self._live_display.stop()
-            try:
-                super().emit(record)
-            finally:
-                self._live_display.start(refresh=True)
+            with self._output_lock:
+                self._live_display.stop()
+                try:
+                    super().emit(record)
+                finally:
+                    self._live_display.start(refresh=True)
         else:
             super().emit(record)

@@ -188,6 +188,7 @@ def _add_console_handler(logger: logging.Logger, console_level: str) -> None:
                 markup=True,
                 console=output.stderr,
                 live_display=output.live,
+                output_lock=output._lock,
             )
         else:
             console_handler = RichHandler(
