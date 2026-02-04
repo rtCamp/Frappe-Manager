@@ -247,7 +247,7 @@ def get_logger(log_dir=CLI_LOG_DIRECTORY, log_file_name="fm", console_level: str
     logPath = log_dir / f"{log_file_name}.log"
 
     try:
-        log_dir.mkdir(parents=False, exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)
     except PermissionError as e:
         # Use print since logger hasn't been initialized yet
         print(f"FATAL: Logging not working. {e}")
