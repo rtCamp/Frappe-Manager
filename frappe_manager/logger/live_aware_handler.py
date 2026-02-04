@@ -5,7 +5,6 @@ Handlers that coordinate with Rich Live display to prevent output corruption.
 """
 
 import logging
-import threading
 from typing import Any
 
 from rich.logging import RichHandler
@@ -13,11 +12,10 @@ from rich.logging import RichHandler
 
 class LiveAwareRichHandler(RichHandler):
     """
-    RichHandler that coordinates with Rich Live spinner display.
+    RichHandler that uses the same Console as the Live display.
 
-    When the Live display (spinner) is active, logger output can corrupt the
-    display and create visual artifacts. This handler temporarily stops the
-    Live display during emit(), then restarts it.
+    Rich Console automatically handles coordination between Live displays
+    and regular print() calls, so no manual stop/start is needed.
 
     Usage:
         from frappe_manager.output_manager import get_global_output_handler
@@ -25,8 +23,6 @@ class LiveAwareRichHandler(RichHandler):
         output = get_global_output_handler()
         handler = LiveAwareRichHandler(
             console=output.stderr,
-            live_display=output.live,
-            output_lock=output._lock,
         )
         logger.addHandler(handler)
     """
@@ -34,15 +30,4 @@ class LiveAwareRichHandler(RichHandler):
     def __init__(self, *args, live_display=None, output_lock=None, **kwargs):
         super().__init__(*args, **kwargs)
         self._live_display = live_display
-        self._output_lock = output_lock or threading.RLock()
-
-    def emit(self, record: logging.LogRecord) -> None:
-        if self._live_display and self._live_display.is_started:
-            with self._output_lock:
-                self._live_display.stop()
-                try:
-                    super().emit(record)
-                finally:
-                    self._live_display.start(refresh=True)
-        else:
-            super().emit(record)
+        self._output_lock = output_lock

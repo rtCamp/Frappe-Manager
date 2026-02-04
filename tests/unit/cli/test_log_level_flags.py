@@ -24,9 +24,8 @@ class TestLogLevelFlagParsing:
         ctx.invoked_subcommand = "list"
 
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=0, log_level=None, version=None)
+            app_callback(ctx, verbose=False, log_level=None, version=None)
 
-        # When help is called, we just set the defaults
         assert ctx.obj.get("log_level") == "WARNING"
         assert ctx.obj.get("verbose") is False
 
@@ -37,7 +36,7 @@ class TestLogLevelFlagParsing:
         ctx.invoked_subcommand = "list"
 
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=1, log_level=None, version=None)
+            app_callback(ctx, verbose=True, log_level=None, version=None)
 
         assert ctx.obj.get("log_level") == "INFO"
         assert ctx.obj.get("verbose") is True
@@ -49,21 +48,21 @@ class TestLogLevelFlagParsing:
         ctx.invoked_subcommand = "list"
 
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=2, log_level=None, version=None)
+            app_callback(ctx, verbose=True, log_level=None, version=None)
 
-        assert ctx.obj.get("log_level") == "DEBUG"
+        assert ctx.obj.get("log_level") == "INFO"
         assert ctx.obj.get("verbose") is True
 
     def test_triple_v_flag_still_debug_level(self):
-        """Test that -vvv (or more) still results in DEBUG level."""
+        """Test that -vvv (or more) still results in INFO level."""
         ctx = MagicMock(spec=typer.Context)
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=5, log_level=None, version=None)
+            app_callback(ctx, verbose=True, log_level=None, version=None)
 
-        assert ctx.obj.get("log_level") == "DEBUG"
+        assert ctx.obj.get("log_level") == "INFO"
         assert ctx.obj.get("verbose") is True
 
 
@@ -77,7 +76,7 @@ class TestExplicitLogLevelFlag:
         ctx.invoked_subcommand = "list"
 
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=0, log_level="debug", version=None)
+            app_callback(ctx, verbose=False, log_level="debug", version=None)
 
         assert ctx.obj.get("log_level") == "DEBUG"
         assert ctx.obj.get("verbose") is True
@@ -89,7 +88,7 @@ class TestExplicitLogLevelFlag:
         ctx.invoked_subcommand = "list"
 
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=0, log_level="info", version=None)
+            app_callback(ctx, verbose=False, log_level="info", version=None)
 
         assert ctx.obj.get("log_level") == "INFO"
         assert ctx.obj.get("verbose") is True
@@ -101,7 +100,7 @@ class TestExplicitLogLevelFlag:
         ctx.invoked_subcommand = "list"
 
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=0, log_level="warning", version=None)
+            app_callback(ctx, verbose=False, log_level="warning", version=None)
 
         assert ctx.obj.get("log_level") == "WARNING"
         assert ctx.obj.get("verbose") is False
@@ -113,7 +112,7 @@ class TestExplicitLogLevelFlag:
         ctx.invoked_subcommand = "list"
 
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=0, log_level="error", version=None)
+            app_callback(ctx, verbose=False, log_level="error", version=None)
 
         assert ctx.obj.get("log_level") == "ERROR"
         assert ctx.obj.get("verbose") is False
@@ -126,19 +125,17 @@ class TestExplicitLogLevelFlag:
 
         # Test lowercase
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=0, log_level="debug", version=None)
+            app_callback(ctx, verbose=False, log_level="debug", version=None)
         assert ctx.obj.get("log_level") == "DEBUG"
 
-        # Test uppercase
         ctx.obj = {}
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=0, log_level="DEBUG", version=None)
+            app_callback(ctx, verbose=False, log_level="DEBUG", version=None)
         assert ctx.obj.get("log_level") == "DEBUG"
 
-        # Test mixed case
         ctx.obj = {}
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=0, log_level="DeBuG", version=None)
+            app_callback(ctx, verbose=False, log_level="DeBuG", version=None)
         assert ctx.obj.get("log_level") == "DEBUG"
 
 
@@ -146,28 +143,28 @@ class TestFlagInteractionPrecedence:
     """Test that --log-level takes precedence over -v flags."""
 
     def test_log_level_overrides_v_flag(self):
-        """Test that --log-level warning overrides -v (which would be INFO)."""
+        """Test that --log-level warning overrides -v log level but keeps verbose=True."""
         ctx = MagicMock(spec=typer.Context)
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=1, log_level="warning", version=None)
+            app_callback(ctx, verbose=True, log_level="warning", version=None)
 
         assert ctx.obj.get("log_level") == "WARNING"
-        assert ctx.obj.get("verbose") is False
+        assert ctx.obj.get("verbose") is True
 
     def test_log_level_overrides_vv_flag(self):
-        """Test that --log-level warning overrides -vv (which would be DEBUG)."""
+        """Test that --log-level warning overrides -v log level but keeps verbose=True."""
         ctx = MagicMock(spec=typer.Context)
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=2, log_level="warning", version=None)
+            app_callback(ctx, verbose=True, log_level="warning", version=None)
 
         assert ctx.obj.get("log_level") == "WARNING"
-        assert ctx.obj.get("verbose") is False
+        assert ctx.obj.get("verbose") is True
 
     def test_log_level_debug_with_no_v_flag(self):
         """Test that --log-level debug works without -v flag."""
@@ -176,7 +173,7 @@ class TestFlagInteractionPrecedence:
         ctx.invoked_subcommand = "list"
 
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=0, log_level="debug", version=None)
+            app_callback(ctx, verbose=False, log_level="debug", version=None)
 
         assert ctx.obj.get("log_level") == "DEBUG"
         assert ctx.obj.get("verbose") is True
@@ -201,11 +198,11 @@ class TestInvalidLogLevel:
 
             with patch.object(output_manager, 'get_global_output_handler', return_value=mock_handler):
                 with pytest.raises(typer.Exit) as exc_info:
-                    app_callback(ctx, verbose=0, log_level="invalid", version=None)
+                    app_callback(ctx, verbose=False, log_level="invalid", version=None)
 
                 assert exc_info.value.exit_code == 1
-                mock_handler.error.assert_called_once()
-                error_call = mock_handler.error.call_args[0][0]
+                mock_handler.display_error.assert_called_once()
+                error_call = mock_handler.display_error.call_args[0][0]
                 assert "invalid" in error_call.lower()
                 assert "debug" in error_call.lower()
                 assert "info" in error_call.lower()
@@ -220,44 +217,33 @@ class TestVerboseFlag:
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
-        # WARNING level
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=0, log_level=None, version=None)
+            app_callback(ctx, verbose=False, log_level=None, version=None)
         assert ctx.obj.get("verbose") is False
 
-        # ERROR level
         ctx.obj = {}
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=0, log_level="error", version=None)
+            app_callback(ctx, verbose=False, log_level="error", version=None)
         assert ctx.obj.get("verbose") is False
 
     def test_verbose_true_for_info_and_debug(self):
-        """Test that verbose is True for INFO and DEBUG levels."""
+        """Test that verbose is set correctly for INFO and DEBUG levels."""
         ctx = MagicMock(spec=typer.Context)
         ctx.obj = {}
         ctx.invoked_subcommand = "list"
 
-        # INFO level
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=1, log_level=None, version=None)
+            app_callback(ctx, verbose=True, log_level=None, version=None)
         assert ctx.obj.get("verbose") is True
 
-        # DEBUG level
         ctx.obj = {}
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=2, log_level=None, version=None)
+            app_callback(ctx, verbose=False, log_level="info", version=None)
         assert ctx.obj.get("verbose") is True
 
-        # Explicit INFO
         ctx.obj = {}
         with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=0, log_level="info", version=None)
-        assert ctx.obj.get("verbose") is True
-
-        # Explicit DEBUG
-        ctx.obj = {}
-        with patch("frappe_manager.commands.is_cli_help_called", return_value=True):
-            app_callback(ctx, verbose=0, log_level="debug", version=None)
+            app_callback(ctx, verbose=False, log_level="debug", version=None)
         assert ctx.obj.get("verbose") is True
 
 
@@ -288,8 +274,10 @@ class TestLoggerConfiguration:
                                             mock_migration.return_value = mock_exec
 
                                             try:
-                                                app_callback(ctx, verbose=2, log_level=None, version=None)
+                                                app_callback(ctx, verbose=True, log_level=None, version=None)
                                             except Exception:
                                                 pass
 
-                                            mock_logger.setLevel.assert_called_with(logging.DEBUG)
+                                            mock_get_logger.assert_called()
+                                            call_args = mock_get_logger.call_args
+                                            assert call_args[1]["console_level"] == "INFO"

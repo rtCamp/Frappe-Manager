@@ -173,11 +173,18 @@ def _add_console_handler(logger: logging.Logger, console_level: str) -> None:
             logger.removeHandler(handler)
 
     from frappe_manager.output_manager import get_global_output_handler, has_global_output_handler
+    from frappe_manager.output_manager.logging_output import LoggingOutputHandler
     from frappe_manager.output_manager.rich_output import RichOutputHandler
 
     if has_global_output_handler():
         output = get_global_output_handler()
-        if isinstance(output, RichOutputHandler):
+
+        if isinstance(output, LoggingOutputHandler):
+            underlying_output = output.delegate
+        else:
+            underlying_output = output
+
+        if isinstance(underlying_output, RichOutputHandler):
             console_handler = LiveAwareRichHandler(
                 level=getattr(logging, console_level),
                 rich_tracebacks=True,
@@ -186,9 +193,9 @@ def _add_console_handler(logger: logging.Logger, console_level: str) -> None:
                 show_path=False,
                 show_level=True,
                 markup=True,
-                console=output.stderr,
-                live_display=output.live,
-                output_lock=output._lock,
+                console=underlying_output.stderr,
+                live_display=underlying_output.live,
+                output_lock=underlying_output._lock,
             )
         else:
             console_handler = RichHandler(
