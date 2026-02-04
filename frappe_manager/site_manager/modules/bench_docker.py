@@ -283,38 +283,36 @@ class BenchDockerOps:
             shell_path = "/bin/bash" if compose_service not in non_bash_supported else "sh"
 
         if use_run:
-            run_args: Dict[str, Any] = {
-                "service": compose_service,
-                "rm": True,
-                "entrypoint": shell_path,
-            }
-
-            if compose_service == "frappe":
-                run_args["entrypoint"] = "/bin/bash"
+            run_cmd = self.docker_client.compose.docker_compose_cmd + ["run", "--rm"]
 
             if user:
-                run_args["user"] = user
+                run_cmd += ["--user", user]
 
-            try:
-                self.docker_client.compose.run(**run_args)
-            except DockerException as e:
-                self.output.warning(f"Shell exited with error code: {e.output.exit_code}")
+            if compose_service == "frappe":
+                run_cmd += ["--entrypoint", "/bin/bash"]
+                run_cmd += [compose_service]
+            else:
+                run_cmd += ["--entrypoint", shell_path]
+                run_cmd += [compose_service]
+
+            import os
+
+            os.execvp(run_cmd[0], run_cmd)
         else:
-            exec_args: Dict[str, Any] = {"service": compose_service, "command": shell_path}
-
-            if compose_service == "frappe":
-                exec_args["command"] = "/bin/bash"
-                exec_args["workdir"] = "/workspace/frappe-bench"
+            exec_cmd = self.docker_client.compose.docker_compose_cmd + ["exec"]
 
             if user:
-                exec_args["user"] = user
+                exec_cmd += ["--user", user]
 
-            exec_args["capture_output"] = False
+            if compose_service == "frappe":
+                exec_cmd += ["--workdir", "/workspace/frappe-bench"]
+                exec_cmd += [compose_service, "/bin/bash"]
+            else:
+                exec_cmd += [compose_service, shell_path]
 
-            try:
-                self.docker_client.compose.exec(**exec_args)
-            except DockerException as e:
-                self.output.warning(f"Shell exited with error code: {e.output.exit_code}")
+            import os
+
+            os.execvp(exec_cmd[0], exec_cmd)
 
     def execute_command(
         self,

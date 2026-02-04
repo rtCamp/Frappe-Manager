@@ -1,5 +1,3 @@
-import subprocess
-import sys
 import typer
 from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.output_manager import get_global_output_handler
@@ -35,12 +33,7 @@ def compose(
 
     output.change_head(f"Running docker compose {' '.join(ctx.args or [])}")
 
-    try:
-        result = subprocess.run(compose_cmd, cwd=bench_path, check=False)
-        sys.exit(result.returncode)
-    except KeyboardInterrupt:
-        output.warning("Command interrupted")
-        sys.exit(130)
-    except Exception as e:
-        output.display_error(f"Failed to run docker compose: {e}")
-        raise typer.Exit(1)
+    import os
+
+    os.chdir(bench_path)
+    os.execvp(compose_cmd[0], compose_cmd)
