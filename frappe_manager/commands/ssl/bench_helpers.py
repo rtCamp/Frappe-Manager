@@ -28,7 +28,8 @@ def _add_bench_certificate(
 
     context = LoggerContext(bench=benchname, operation="ssl-add")
     output = get_output_handler(ctx, context=context)
-    bench = Bench.get_object(benchname, services_manager, output_handler=output)
+    logger = ctx.obj.get("logger")
+    bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
 
     allowed_domains = bench.bench_config.get_all_domains()
     if domain not in allowed_domains:
@@ -86,7 +87,7 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
 
     context = LoggerContext(bench=benchname, operation="ssl-remove")
     output = get_output_handler(ctx, context=context)
-    bench = Bench.get_object(benchname, services_manager, output_handler=output)
+    bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
 
     domains = bench.bench_config.get_all_domains()
     if domain not in domains:
@@ -142,7 +143,7 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
 
     context = LoggerContext(bench=benchname, operation="ssl-list")
     output = get_output_handler(ctx, context=context)
-    bench = Bench.get_object(benchname, services_manager, output_handler=output)
+    bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
 
     all_domains = bench.bench_config.get_all_domains()
 

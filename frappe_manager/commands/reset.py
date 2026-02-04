@@ -26,7 +26,8 @@ def reset(
     services_manager = ctx.obj["services"]
 
     output = get_global_output_handler()
-    bench = Bench.get_object(benchname, services_manager, output_handler=output)
+    logger = ctx.obj.get("logger")
+    bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
 
     with spinner(output, f"Resetting {benchname}"):
         bench.reset(admin_pass)

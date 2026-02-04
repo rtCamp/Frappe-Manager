@@ -18,7 +18,8 @@ def _show_dns_credentials(ctx: typer.Context, provider_name: str, benchname: Opt
         services_manager = ctx.obj["services"]
         context = LoggerContext(bench=benchname, operation="dns-config-show")
         output = get_output_handler(ctx, context=context)
-        bench = Bench.get_object(benchname, services_manager, output_handler=output)
+        logger = ctx.obj.get("logger")
+        bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
 
         if bench.bench_config.dns_providers and provider_name in bench.bench_config.dns_providers:
             config = bench.bench_config.dns_providers[provider_name]
@@ -61,7 +62,7 @@ def _remove_dns_credentials(ctx: typer.Context, provider_name: str, benchname: O
         services_manager = ctx.obj["services"]
         context = LoggerContext(bench=benchname, operation="dns-config-remove")
         output = get_output_handler(ctx, context=context)
-        bench = Bench.get_object(benchname, services_manager, output_handler=output)
+        bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
 
         if bench.bench_config.dns_providers and provider_name in bench.bench_config.dns_providers:
             bench.bench_config.dns_providers.pop(provider_name)
@@ -100,7 +101,7 @@ def _configure_dns_credentials(
         services_manager = ctx.obj["services"]
         context = LoggerContext(bench=benchname, operation="dns-config")
         output = get_output_handler(ctx, context=context)
-        bench = Bench.get_object(benchname, services_manager, output_handler=output)
+        bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
 
         output.change_head(f"Configuring {provider_name} credentials for bench '{benchname}'")
 

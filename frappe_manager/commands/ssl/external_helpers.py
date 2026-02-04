@@ -15,6 +15,7 @@ from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkM
 from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
 from frappe_manager.ssl_manager.service_factory import create_certificate_service
 from frappe_manager.ssl_manager.standalone_nginx_config_manager import StandaloneNginxConfigManager
+from frappe_manager.logger import log, ContextualLogger
 from frappe_manager.logger.context import LoggerContext
 from frappe_manager.output_manager import temporary_stop, spinner
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
@@ -36,6 +37,7 @@ def _add_external_certificate(
 
     services_manager = ctx.obj["services"]
     context = LoggerContext(operation="ssl-add-external")
+    logger = ContextualLogger(log.get_logger(), context)
     output = get_output_handler(ctx, context=context)
 
     external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
@@ -179,9 +181,10 @@ def _add_external_certificate(
         output.print("Nginx reloaded successfully", emoji_code=":white_check_mark:")
 
         def certificate_service_factory(cert, storage_cfg, output_handler):
-            return create_certificate_service(cert, storage_cfg, output_handler)
+            return create_certificate_service(logger, cert, storage_cfg, output_handler)
 
         cert_manager = SSLCertificateManager(
+            logger=logger,
             certificates=[],  # Start with empty list, we'll add the cert next
             service_factory=certificate_service_factory,
             link_manager=link_manager,
@@ -265,6 +268,7 @@ def _add_external_certificate(
 def _remove_external_certificate(ctx: typer.Context, domain: str, yes: bool):
     services_manager = ctx.obj["services"]
     context = LoggerContext(operation="ssl-remove-external")
+    logger = ContextualLogger(log.get_logger(), context)
     output = get_output_handler(ctx, context=context)
 
     external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
@@ -321,9 +325,10 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, yes: bool):
         )
 
         def certificate_service_factory(cert, storage_cfg, output_handler):
-            return create_certificate_service(cert, storage_cfg, output_handler)
+            return create_certificate_service(logger, cert, storage_cfg, output_handler)
 
         cert_manager = SSLCertificateManager(
+            logger=logger,
             certificates=[cert],
             service_factory=certificate_service_factory,
             link_manager=link_manager,
@@ -401,7 +406,8 @@ def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
             try:
                 # Create silent output handler for internal bench detection
                 output = SilentOutputHandler()
-                bench = Bench.get_object(bench_name, services_manager, output_handler=output)
+                logger = ctx.obj.get("logger")
+                bench = Bench.get_object(bench_name, services_manager, logger=logger, output_handler=output)
                 bench_domains.update(bench.bench_config.get_all_domains())
             except Exception:
                 continue
@@ -508,6 +514,7 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool, 
 
     services_manager = ctx.obj["services"]
     context = LoggerContext(operation="ssl-renew-external")
+    logger = ContextualLogger(log.get_logger(), context)
     output = get_output_handler(ctx, context=context)
 
     external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
@@ -540,9 +547,10 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool, 
         nginx_controller = services_manager.nginx_controller
 
         def certificate_service_factory(cert, storage_cfg, output_handler):
-            return create_certificate_service(cert, storage_cfg, output_handler)
+            return create_certificate_service(logger, cert, storage_cfg, output_handler)
 
         cert_manager = SSLCertificateManager(
+            logger=logger,
             certificates=[cert],
             service_factory=certificate_service_factory,
             link_manager=link_manager,

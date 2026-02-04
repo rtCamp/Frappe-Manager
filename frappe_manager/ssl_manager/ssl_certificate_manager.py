@@ -120,16 +120,16 @@ class SSLCertificateManager:
         return self.certificates[0] if self.certificates else None
 
     def add_certificate(self, certificate: SSLCertificate, dry_run: bool = False):
-        self.logger.info("Adding certificate", extra={"domain": certificate.domain, "dry_run": dry_run})
+        self.logger.info("Adding certificate", extra_fields={"domain": certificate.domain, "dry_run": dry_run})
 
         if any(cert.domain == certificate.domain for cert in self.certificates):
-            self.logger.warning("Certificate already exists", extra={"domain": certificate.domain})
+            self.logger.warning("Certificate already exists", extra_fields={"domain": certificate.domain})
             raise ValueError(f"Certificate for {certificate.domain} already exists")
 
         if self.service_factory and self.storage_config and self.output_handler:
             service = self.service_factory(certificate, self.storage_config, self.output_handler)
             self.services[certificate.domain] = service
-            self.logger.debug("Created certificate service", extra={"domain": certificate.domain})
+            self.logger.debug("Created certificate service", extra_fields={"domain": certificate.domain})
         else:
             self.logger.error("Cannot add certificate: missing dependencies")
             raise RuntimeError(
@@ -150,11 +150,11 @@ class SSLCertificateManager:
             self.logger.debug("Enabled staging mode for dry run")
 
         try:
-            self.logger.info("Generating certificate", extra={"domain": certificate.domain})
+            self.logger.info("Generating certificate", extra_fields={"domain": certificate.domain})
             privkey_path, fullchain_path = service.generate_certificate(certificate, dry_run=dry_run)
             self.logger.info(
                 "Certificate generated",
-                extra={"domain": certificate.domain, "privkey": str(privkey_path), "fullchain": str(fullchain_path)},
+                extra_fields={"domain": certificate.domain, "privkey": str(privkey_path), "fullchain": str(fullchain_path)},
             )
 
             ssl_dir = self.storage_config.ssl_dir
@@ -173,10 +173,10 @@ class SSLCertificateManager:
                 )
                 self.output_handler.print("[yellow]Skipped: Restarting nginx (dry run)[/yellow]", emoji_code="⏭️ ")
                 self.output_handler.print("[yellow]Skipped: Saving configuration (dry run)[/yellow]", emoji_code="⏭️ ")
-                self.logger.info("Dry run completed successfully", extra={"domain": certificate.domain})
+                self.logger.info("Dry run completed successfully", extra_fields={"domain": certificate.domain})
             else:
                 self.logger.info(
-                    "Creating certificate symlinks", extra={"domain": certificate.domain, "cert_type": actual_cert_type}
+                    "Creating certificate symlinks", extra_fields={"domain": certificate.domain, "cert_type": actual_cert_type}
                 )
                 self.link_manager.link_certificate(
                     cert_type=actual_cert_type,
@@ -188,7 +188,7 @@ class SSLCertificateManager:
 
                 self.vhost_manager.enable_https_redirect(certificate.domain)
                 self.output_handler.print(f"Created vhost.d redirect config for {certificate.domain}")
-                self.logger.debug("Enabled HTTPS redirect", extra={"domain": certificate.domain})
+                self.logger.debug("Enabled HTTPS redirect", extra_fields={"domain": certificate.domain})
 
                 self.certificates.append(certificate)
                 self.logger.info("Restarting nginx")
@@ -197,7 +197,7 @@ class SSLCertificateManager:
                     self.config_save_callback()
                     self.logger.debug("Saved configuration")
 
-                self.logger.info("Certificate added successfully", extra={"domain": certificate.domain})
+                self.logger.info("Certificate added successfully", extra_fields={"domain": certificate.domain})
 
         finally:
             if dry_run:
@@ -207,7 +207,7 @@ class SSLCertificateManager:
                     os.environ.pop("FM_LETSENCRYPT_STAGING", None)
 
     def remove_certificate_by_domain(self, domain: str):
-        self.logger.info("Removing certificate", extra={"domain": domain})
+        self.logger.info("Removing certificate", extra_fields={"domain": domain})
 
         cert_to_remove = None
         for cert in self.certificates:
@@ -216,21 +216,21 @@ class SSLCertificateManager:
                 break
 
         if not cert_to_remove:
-            self.logger.warning("Certificate not found", extra={"domain": domain})
+            self.logger.warning("Certificate not found", extra_fields={"domain": domain})
             raise SSLCertificateNotFoundError(domain)
 
         service = self.services.get(domain)
         if not service:
-            self.logger.error("No service found for domain", extra={"domain": domain})
+            self.logger.error("No service found for domain", extra_fields={"domain": domain})
             raise RuntimeError(f"No service found for domain {domain}")
 
-        self.logger.debug("Unlinking certificate symlinks", extra={"domain": domain})
+        self.logger.debug("Unlinking certificate symlinks", extra_fields={"domain": domain})
         self.link_manager.unlink_certificate(domain, alias_domains=None)
 
         self.vhost_manager.disable_https_redirect(domain)
-        self.logger.debug("Disabled HTTPS redirect", extra={"domain": domain})
+        self.logger.debug("Disabled HTTPS redirect", extra_fields={"domain": domain})
 
-        self.logger.debug("Removing certificate files", extra={"domain": domain})
+        self.logger.debug("Removing certificate files", extra_fields={"domain": domain})
         service.remove_certificate(cert_to_remove)
 
         self.certificates.remove(cert_to_remove)
@@ -243,7 +243,7 @@ class SSLCertificateManager:
             self.config_save_callback()
             self.logger.debug("Saved configuration")
 
-        self.logger.info("Certificate removed successfully", extra={"domain": domain})
+        self.logger.info("Certificate removed successfully", extra_fields={"domain": domain})
 
     def list_certificates(self) -> list[dict]:
         """
@@ -521,7 +521,7 @@ class SSLCertificateManager:
 
     def renew_certificate(self, domain: str | None = None, dry_run: bool = False, force: bool = False):
         self.logger.info(
-            "Renewing certificate", extra={"domain": domain or "primary", "dry_run": dry_run, "force": force}
+            "Renewing certificate", extra_fields={"domain": domain or "primary", "dry_run": dry_run, "force": force}
         )
 
         if domain is None:
@@ -537,7 +537,7 @@ class SSLCertificateManager:
                     certificate = cert
                     break
             if not certificate:
-                self.logger.warning("Certificate not found for renewal", extra={"domain": domain})
+                self.logger.warning("Certificate not found for renewal", extra_fields={"domain": domain})
                 raise SSLCertificateNotFoundError(domain)
 
         original_staging = None
@@ -555,7 +555,7 @@ class SSLCertificateManager:
             self._renew_single_certificate(
                 certificate=certificate, dry_run=dry_run, force=force, skip_nginx_restart=False
             )
-            self.logger.info("Certificate renewed successfully", extra={"domain": certificate.domain})
+            self.logger.info("Certificate renewed successfully", extra_fields={"domain": certificate.domain})
 
         finally:
             if dry_run:

@@ -11,7 +11,7 @@ from typing import Optional
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.docker import DockerClient, DockerException
-from frappe_manager.logger import log
+from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.site_manager.exceptions import BenchOperationException
 
@@ -21,6 +21,7 @@ class BenchSupervisor:
 
     def __init__(
         self,
+        logger: ContextualLogger,
         docker_client: DockerClient,
         config: BenchConfig,
         bench_name: str,
@@ -30,15 +31,16 @@ class BenchSupervisor:
         Initialize BenchSupervisor.
 
         Args:
+            logger: Contextual logger for audit/debug logging
             docker_client: Docker client for operations
             config: Bench configuration
             bench_name: Name of the bench
             output_handler: Optional output handler for displaying information
         """
+        self.logger = logger.child(component="supervisor")
         self.docker_client = docker_client
         self.config = config
         self.bench_name = bench_name
-        self.logger = log.get_logger()
         self.output = output_handler or RichOutputHandler()
 
     def is_supervisord_running(self, interval: int = 2, timeout: int = 30) -> bool:

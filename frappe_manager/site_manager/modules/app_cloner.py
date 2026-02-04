@@ -22,7 +22,7 @@ from git import Repo, GitCommandError  # type: ignore
 
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.site_manager.bench_config import AppConfig, extract_app_python_module_name
-from frappe_manager.logger import log
+from frappe_manager.logger.contextual import ContextualLogger
 
 
 class AppClonerError(Exception):
@@ -48,6 +48,7 @@ class AppCloner:
 
     def __init__(
         self,
+        logger: ContextualLogger,
         apps_dir: Path,
         github_token: Optional[str] = None,
         output_handler: Optional[OutputHandler] = None,
@@ -56,16 +57,16 @@ class AppCloner:
         Initialize AppCloner.
 
         Args:
+            logger: Contextual logger for audit/debug logging
             apps_dir: Path to bench apps directory (e.g., /benches/mybench/workspace/frappe-bench/apps)
             github_token: Optional GitHub personal access token for private repos
             output_handler: Optional output handler for progress updates
         """
+        self.logger = logger.child(component="app_cloner")
         self.apps_dir = Path(apps_dir)
         self.github_token = github_token
         self.output = output_handler
-        self.logger = log.get_logger()
 
-        # Ensure apps directory exists
         self.apps_dir.mkdir(parents=True, exist_ok=True)
 
     def clone_apps_parallel(self, apps: List[AppConfig], max_workers: int = 5) -> Dict[str, Path]:

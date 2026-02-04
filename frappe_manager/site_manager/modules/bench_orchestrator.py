@@ -22,7 +22,7 @@ import time
 from collections.abc import Iterator
 from typing import TYPE_CHECKING, Tuple, cast
 
-from frappe_manager.logger import log
+from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.bench_config import FMBenchEnvType
@@ -48,16 +48,17 @@ class BenchOrchestrator:
         >>> orchestrator.create_bench(is_template=False)
     """
 
-    def __init__(self, bench: "Bench", output_handler: OutputHandler | None = None):
+    def __init__(self, logger: ContextualLogger, bench: "Bench", output_handler: OutputHandler | None = None):
         """
         Initialize orchestrator with bench reference.
 
         Args:
+            logger: Contextual logger for audit/debug logging
             bench: Parent Bench instance that owns this orchestrator
             output_handler: Output handler for UI/logging (defaults to RichOutputHandler)
         """
+        self.logger = logger.child(component="orchestrator")
         self.bench = bench
-        self.logger = log.get_logger()
         self.output = output_handler or RichOutputHandler()
 
     def create_bench(self, is_template_bench: bool = False) -> None:

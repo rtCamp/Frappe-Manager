@@ -12,16 +12,17 @@ from frappe_manager.output_manager.base import OutputHandler
 _global_output_handler: Optional[OutputHandler] = None
 
 
-def set_global_output_handler(handler: OutputHandler) -> None:
+def set_global_output_handler(handler: Optional[OutputHandler]) -> None:
     """
     Set the global output handler.
 
     This replaces any existing handler. Should be called:
     1. Early in main.py (before app()) with basic handler
     2. In app_callback (after parsing) with upgraded handler
+    3. In test cleanup with None to reset state
 
     Args:
-        handler: The OutputHandler instance to use globally
+        handler: The OutputHandler instance to use globally, or None to clear
     """
     global _global_output_handler
     _global_output_handler = handler

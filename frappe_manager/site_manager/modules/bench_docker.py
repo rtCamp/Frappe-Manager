@@ -14,7 +14,7 @@ from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.docker.compose_file import ComposeFile
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.logger import log
+from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.site_manager.bench_config import BenchConfig
 from frappe_manager.utils.docker import host_run_cp
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version
@@ -26,6 +26,7 @@ class BenchDockerOps:
 
     def __init__(
         self,
+        logger: ContextualLogger,
         docker_client: DockerClient,
         compose_file_manager: ComposeFile,
         config: BenchConfig,
@@ -36,18 +37,19 @@ class BenchDockerOps:
         Initialize BenchDockerOps.
 
         Args:
+            logger: Contextual logger for audit/debug logging
             docker_client: Docker client for operations
             compose_file_manager: Compose file manager
             config: Bench configuration
             path: Path to bench directory
             output_handler: Handler for output operations
         """
+        self.logger = logger.child(component="docker")
         self.docker_client = docker_client
         self.compose_file_manager = compose_file_manager
         self.config = config
         self.path = path
         self.output = output_handler or RichOutputHandler()
-        self.logger = log.get_logger()
 
     def _is_service_running(self, service: str) -> bool:
         """Check if a specific service is running."""
@@ -219,9 +221,7 @@ class BenchDockerOps:
         """
         self.output.change_head("Starting bench services")
 
-        self.docker_client.compose.up(
-            services=services or [], detach=True, pull=pull, force_recreate=force_recreate
-        )
+        self.docker_client.compose.up(services=services or [], detach=True, pull=pull, force_recreate=force_recreate)
 
         self.output.print("Started bench services")
 

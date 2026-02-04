@@ -74,7 +74,8 @@ def info(
     verbose = ctx.obj['verbose']
 
     output = get_global_output_handler()
-    bench = Bench.get_object(benchname, services_manager, output_handler=output)
+    logger = ctx.obj.get("logger")
+    bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
 
     with spinner(output, "Getting bench info"):
         bench.info()

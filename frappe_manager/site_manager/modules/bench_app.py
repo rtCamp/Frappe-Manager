@@ -17,7 +17,7 @@ from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.logger import log
+from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.site_manager.bench_config import BenchConfig, AppConfig
 from frappe_manager.site_manager.modules.app_cloner import AppCloner, AppClonerError
 from frappe_manager.site_manager.exceptions import (
@@ -68,6 +68,7 @@ class BenchAppManager:
 
     def __init__(
         self,
+        logger: ContextualLogger,
         bench_name: str,
         bench_path: Path,
         docker_client: DockerClient,
@@ -78,18 +79,19 @@ class BenchAppManager:
         Initialize BenchAppManager.
 
         Args:
+            logger: Contextual logger for audit/debug logging
             bench_name: Name of the bench
             bench_path: Path to the bench directory on host
             docker_client: Docker client for container operations
             bench_config: Bench configuration object
             output_handler: Handler for output operations
         """
+        self.logger = logger.child(component="app_manager")
         self.bench_name = bench_name
         self.bench_path = bench_path
         self.docker_client = docker_client
         self.bench_config = bench_config
         self.output = output_handler or RichOutputHandler()
-        self.logger = log.get_logger()
 
         self.frappe_bench_dir: Path = bench_path / "workspace" / "frappe-bench"
         self.bench_cli_cmd = ['/usr/local/bin/bench']
@@ -471,6 +473,7 @@ fi
             self.output.change_head(f"Cloning {len(apps_config)} apps in parallel")
             try:
                 cloner = AppCloner(
+                    logger=self.logger,
                     apps_dir=self.frappe_bench_dir / "apps",
                     github_token=github_token,
                     output_handler=self.output,

@@ -83,7 +83,8 @@ def renew(
         for benchname in sites_list:
             context = LoggerContext(bench=benchname, operation="ssl-renew")
             output = get_output_handler(ctx, context=context)
-            bench = Bench.get_object(benchname, services_manager, output_handler=output)
+            logger = ctx.obj.get("logger")
+            bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
 
             output.change_head(f"Renew certificate for {benchname}")
             try:

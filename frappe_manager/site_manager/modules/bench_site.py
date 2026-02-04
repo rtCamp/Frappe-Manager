@@ -17,7 +17,7 @@ from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.logger import log
+from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import BenchConfig
 from frappe_manager.site_manager.exceptions import (
@@ -67,6 +67,7 @@ class BenchSiteManager:
 
     def __init__(
         self,
+        logger: ContextualLogger,
         bench_name: str,
         bench_path: Path,
         docker_client: DockerClient,
@@ -78,6 +79,7 @@ class BenchSiteManager:
         Initialize BenchSiteManager.
 
         Args:
+            logger: Contextual logger for audit/debug logging
             bench_name: Name of the bench (typically the site domain)
             bench_path: Path to the bench directory on host
             docker_client: Docker client for container operations
@@ -85,12 +87,12 @@ class BenchSiteManager:
             services: Services manager providing database/Redis access
             output_handler: Optional output handler for displaying information
         """
+        self.logger = logger.child(component="site_manager")
         self.bench_name = bench_name
         self.bench_path = bench_path
         self.docker_client = docker_client
         self.bench_config = bench_config
         self.services = services
-        self.logger = log.get_logger()
         self.output = output_handler or RichOutputHandler()
 
         self.frappe_bench_dir: Path = bench_path / "workspace" / "frappe-bench"

@@ -183,6 +183,8 @@ def app_callback(
     upgraded_handler = LoggingOutputHandler(basic_handler, contextual_logger)
     set_global_output_handler(upgraded_handler)
 
+    ctx.obj["logger"] = contextual_logger
+
     output = get_global_output_handler()
     output.set_interactive_mode(non_interactive_flag=non_interactive)
 

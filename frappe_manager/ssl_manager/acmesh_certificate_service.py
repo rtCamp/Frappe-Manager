@@ -43,32 +43,21 @@ class AcmeShCertificateService:
 
     def __init__(
         self,
+        logger: ContextualLogger,
         ssl_service_dir: Path,
         webroot_dir: Path,
         acmesh_home: Optional[Path] = None,
         output_handler: OutputHandler | None = None,
     ):
-        """
-        Initialize acme.sh certificate service.
-
-        Args:
-            ssl_service_dir: Base directory for SSL certificates storage
-            webroot_dir: Directory for HTTP-01 challenge files (.well-known/acme-challenge)
-            acmesh_home: acme.sh installation directory (defaults to ssl_service_dir/acmesh/.acme.sh)
-            output_handler: Output handler for display operations (defaults to RichOutputHandler)
-        """
+        self.logger = logger.child(component="acmesh")
         self.webroot_dir = webroot_dir
         self.root_dir = ssl_service_dir / "acmesh"
-        # Default acmesh_home to ssl_service_dir/acmesh/.acme.sh for centralized management
-        # This keeps all acme.sh files (binary, config, working certs) in FM's ssl directory
         self.acmesh_home = acmesh_home or (ssl_service_dir / "acmesh" / ".acme.sh")
         self.acmesh_bin = self.acmesh_home / "acme.sh"
         self.output = output_handler or RichOutputHandler()
 
-        # Ensure root directory exists
         self.root_dir.mkdir(parents=True, exist_ok=True)
 
-        # Ensure acme.sh is installed
         self._ensure_acmesh_installed()
 
     def _ensure_acmesh_installed(self):
