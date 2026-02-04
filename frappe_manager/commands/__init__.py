@@ -119,9 +119,7 @@ app.add_typer(ssl_app, name="ssl", help="Perform operations related to ssl.")
 @app.callback()
 def app_callback(
     ctx: typer.Context,
-    verbose: Annotated[
-        int, typer.Option("--verbose", "-v", count=True, help="Increase verbosity (-v for info, -vv for debug)")
-    ] = 0,
+    verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output (info level)")] = False,
     log_level: Annotated[
         Optional[str],
         typer.Option("--log-level", help="Set log level explicitly (debug|info|warning|error)"),
@@ -160,25 +158,23 @@ def app_callback(
             output = get_global_output_handler()
             output.display_error(f"Invalid log level: {log_level}. Must be one of: {', '.join(valid_levels).lower()}")
             raise typer.Exit(1)
+    elif verbose:
+        # -v flag sets INFO level
+        level_name = "INFO"
     else:
-        # Map -v count to log level
-        level_map = {
-            0: "WARNING",  # Default
-            1: "INFO",  # -v
-            2: "DEBUG",  # -vv or more
-        }
-        level_name = level_map.get(min(verbose, 2), "WARNING")
+        # Default: WARNING
+        level_name = "WARNING"
 
     # Store in context for commands
     ctx.obj["log_level"] = level_name
-    ctx.obj["verbose"] = level_name in ["INFO", "DEBUG"]
+    ctx.obj["verbose"] = verbose or level_name in ["INFO", "DEBUG"]
     ctx.obj["non_interactive"] = non_interactive
 
     # Upgrade global output handler to LoggingOutputHandler now that we have CLI args
     from frappe_manager.logger import ContextualLogger
 
     basic_handler = get_global_output_handler()
-    contextual_logger = ContextualLogger(log.get_logger(), context=None)
+    contextual_logger = ContextualLogger(log.get_logger(file_level="DEBUG"), context=None)
     upgraded_handler = LoggingOutputHandler(basic_handler, contextual_logger)
     set_global_output_handler(upgraded_handler)
 
@@ -200,11 +196,13 @@ def app_callback(
 
             global logger
             console_level = level_name if ctx.obj["verbose"] else None
-            logger = log.get_logger(console_level=console_level)
 
-            import logging
+            fm_config_manager: FMConfigManager = FMConfigManager.import_from_toml()
+            file_level = fm_config_manager.logs.file_level
 
-            logger.setLevel(getattr(logging, level_name))
+            logger = log.get_logger(console_level=console_level, file_level=file_level)
+
+            contextual_logger.logger = logger
 
             logger.info("")
             logger.info(f"{':' * 20}FM Invoked{':' * 20}")
@@ -216,8 +214,6 @@ def app_callback(
 
             if not DockerClient().server_running():
                 output.exit("Docker daemon not running. Please start docker service")
-
-            fm_config_manager: FMConfigManager = FMConfigManager.import_from_toml()
 
             if not CLI_FM_CONFIG_PATH.exists():
                 output.print("First installation detected. Pulling docker images...️", "🔍")

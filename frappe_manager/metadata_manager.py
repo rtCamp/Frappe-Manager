@@ -82,17 +82,37 @@ class FMValidationConfig(BaseModel):
         return cls(**toml_doc)
 
 
+class FMLogsConfig(BaseModel):
+    """Logging configuration for file and console output."""
+
+    file_level: str = Field(
+        default="DEBUG", description="Log level for file logs (DEBUG, INFO, WARNING, ERROR, CRITICAL)"
+    )
+
+    def get_toml_doc(self):
+        model_dict = self.model_dump(exclude_none=True)
+        toml_doc = tomlkit.document()
+        for key, value in model_dict.items():
+            toml_doc[key] = value
+        return toml_doc
+
+    @classmethod
+    def import_from_toml_doc(cls, toml_doc):
+        return cls(**toml_doc)
+
+
 class FMConfigManager(BaseModel):
     root_path: Path
     version: Version
     cloudflare: FMCloudflareConfig = Field(default=FMCloudflareConfig())
     ngrok_auth_token: Optional[str] = Field(None, description="Ngrok authentication token")
     validation: FMValidationConfig = Field(default=FMValidationConfig())
-    
+    logs: FMLogsConfig = Field(default=FMLogsConfig())
+
     def __init__(self, **data):
         super().__init__(**data)
         self._raw_config = {}
-    
+
     def get_system_migration_version(self) -> Version:
         """Get version system is migrated to."""
         if hasattr(self, '_raw_config') and "migration_state" in self._raw_config:
@@ -100,28 +120,29 @@ class FMConfigManager(BaseModel):
             if version_str:
                 return Version(version_str)
         return self.version
-    
+
     def set_system_migration_version(self, version: Version) -> None:
         """Update system migration version."""
         if not hasattr(self, '_raw_config'):
             self._raw_config = {}
-        
+
         if "migration_state" not in self._raw_config:
             self._raw_config["migration_state"] = {}
-        
+
         self._raw_config["migration_state"]["system_migrated_to"] = str(version.version)
         self.export_to_toml()
-    
+
     def _ensure_migration_state(self) -> None:
         """Ensure migration_state exists in config."""
         if not hasattr(self, '_raw_config'):
             self._raw_config = {}
-        
+
         if "migration_state" not in self._raw_config:
             self._raw_config["migration_state"] = {
                 "system_migrated_to": str(self.version.version),
             }
             self.export_to_toml()
+
     _config_data: Optional[dict] = None
 
     def export_to_toml(self, path: Path = CLI_FM_CONFIG_PATH) -> bool:
@@ -133,7 +154,7 @@ class FMConfigManager(BaseModel):
         fm_config_dict = self.model_dump(exclude=exclude, exclude_none=True)
 
         fm_config_dict['version'] = self.version.version
-        
+
         if hasattr(self, '_raw_config') and 'migration_state' in self._raw_config:
             fm_config_dict['migration_state'] = self._raw_config['migration_state']
 
@@ -158,6 +179,7 @@ class FMConfigManager(BaseModel):
         input_data['root_path'] = str(path)
         input_data['ngrok_auth_token'] = None
         input_data['validation'] = FMValidationConfig()
+        input_data['logs'] = FMLogsConfig()
 
         raw_config_data = {}
 
@@ -172,9 +194,13 @@ class FMConfigManager(BaseModel):
 
             if 'validation' in data:
                 input_data['validation'] = FMValidationConfig(**data['validation'])
-            
+
+            if 'logs' in data:
+                input_data['logs'] = FMLogsConfig(**data['logs'])
+
             if 'migration_state' in data:
                 import json
+
                 raw_config_data['migration_state'] = json.loads(json.dumps(data['migration_state']))
 
         fm_config_instance = cls(**input_data)

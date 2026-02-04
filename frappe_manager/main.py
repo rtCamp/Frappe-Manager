@@ -27,7 +27,15 @@ def cli_entrypoint():
     try:
         app()
     except FrappeManagerException as e:
-        logger = log.get_logger()
+        try:
+            from frappe_manager.metadata_manager import FMConfigManager
+
+            fm_config = FMConfigManager.import_from_toml()
+            file_level = fm_config.logs.file_level
+        except:
+            file_level = "DEBUG"
+
+        logger = log.get_logger(file_level=file_level)
         output = get_global_output_handler()
 
         output.display_error(f'[red]Error Occurred[/red] {str(e).strip()}')
@@ -44,7 +52,15 @@ def cli_entrypoint():
         exit(1)
 
     except Exception as e:
-        logger = log.get_logger()
+        try:
+            from frappe_manager.metadata_manager import FMConfigManager
+
+            fm_config = FMConfigManager.import_from_toml()
+            file_level = fm_config.logs.file_level
+        except:
+            file_level = "DEBUG"
+
+        logger = log.get_logger(file_level=file_level)
         output = get_global_output_handler()
 
         output.display_error(f'[red]Unexpected Error[/red] {str(e).strip()}')

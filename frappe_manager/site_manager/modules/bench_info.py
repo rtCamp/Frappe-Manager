@@ -139,7 +139,7 @@ class BenchInfo:
         """
         base_log_dir = self.bench_path / "workspace/frappe-bench/logs"
         if self.bench_config.environment_type.value == "dev":
-            bench_dev_server_log_path = base_log_dir / "bench-start.log"
+            bench_dev_server_log_path = base_log_dir / "web.dev.log"
             return [bench_dev_server_log_path]
         else:
             bench_prod_server_log_path_stdout = base_log_dir / "web.log"

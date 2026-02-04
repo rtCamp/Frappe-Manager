@@ -231,7 +231,9 @@ def _update_console_handler(logger: logging.Logger, console_level: str | None) -
                 logger.removeHandler(handler)
 
 
-def get_logger(log_dir=CLI_LOG_DIRECTORY, log_file_name="fm", console_level: str | None = None) -> FMLOGGER:
+def get_logger(
+    log_dir=CLI_LOG_DIRECTORY, log_file_name="fm", console_level: str | None = None, file_level: str = "DEBUG"
+) -> FMLOGGER:
     """
     Creates a Log File and returns Logger object.
 
@@ -239,6 +241,7 @@ def get_logger(log_dir=CLI_LOG_DIRECTORY, log_file_name="fm", console_level: str
         log_dir: Directory to store log files (default: CLI_LOG_DIRECTORY)
         log_file_name: Name of the log file without extension (default: 'fm')
         console_level: If specified, enables console logging at this level (DEBUG, INFO, WARNING, ERROR)
+        file_level: Log level for file handler (default: DEBUG)
 
     Returns:
         FMLOGGER instance configured with file handler and optional console handler
@@ -265,6 +268,7 @@ def get_logger(log_dir=CLI_LOG_DIRECTORY, log_file_name="fm", console_level: str
         # configured to roatate after 10 mb
         handler = logging.handlers.RotatingFileHandler(logPath, "a+", maxBytes=10485760, backupCount=3)
         handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s"))
+        handler.setLevel(getattr(logging, file_level.upper()))
         handler.rotator = rotator
         logger.addHandler(handler)
 
