@@ -419,7 +419,6 @@ ls -la env/ || echo "ERROR: env directory not found!"
                 rm=True,
                 user="frappe",
                 entrypoint="bash",
-                stream=False,
             )
         except Exception as e:
             error_str = str(e)
@@ -477,7 +476,6 @@ echo "Node environment setup complete"
             rm=True,
             user="frappe",
             entrypoint="bash",
-            stream=False,
         )
 
         if not isinstance(result, SubprocessOutput):
@@ -513,7 +511,6 @@ echo "Old runtime directories cleaned up"
             rm=True,
             user="frappe",
             entrypoint="bash",
-            stream=False,
         )
 
         if not isinstance(result, SubprocessOutput):
@@ -576,7 +573,6 @@ echo "Apps reinstalled and assets built successfully"
             rm=True,
             user="frappe",
             entrypoint="bash",
-            stream=False,
         )
 
         if not isinstance(result, SubprocessOutput):
@@ -608,7 +604,6 @@ echo "Supervisor configuration regenerated"
             rm=True,
             user="frappe",
             entrypoint="bash",
-            stream=False,
         )
 
         if not isinstance(result, SubprocessOutput):
@@ -672,12 +667,10 @@ echo "Supervisor configuration regenerated"
 
     def _restart_services(self, bench: MigrationBench):
         try:
-            bench.compose.up(
-                services=["frappe", "socketio", "schedule"], force_recreate=True, detach=True, stream=False
-            )
+            bench.compose.up(services=["frappe", "socketio", "schedule"], force_recreate=True, detach=True)
 
             if bench.workers_running:
-                bench.workers_docker.compose.up(force_recreate=True, detach=True, stream=False)
+                bench.workers_docker.compose.up(force_recreate=True, detach=True)
 
         except Exception as e:
             self.output.warning(f"Service restart (force-recreate) failed: {e}")
@@ -710,7 +703,6 @@ echo "Supervisor configuration regenerated"
                 rm=True,
                 user="frappe",
                 entrypoint="bash",
-                stream=False,
             )
             if isinstance(result, SubprocessOutput) and result.exit_code == 0:
                 import re
@@ -731,7 +723,6 @@ echo "Supervisor configuration regenerated"
                 rm=True,
                 user="frappe",
                 entrypoint="bash",
-                stream=False,
             )
             if isinstance(result, SubprocessOutput) and result.exit_code == 0:
                 import re

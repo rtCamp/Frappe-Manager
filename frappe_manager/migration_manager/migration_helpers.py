@@ -1,26 +1,30 @@
 import json
 from pathlib import Path
 import platform
-from typing import Dict
+from typing import Dict, Optional
 from frappe_manager import CLI_SERVICES_DIRECTORY
 from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.migration_manager.migration_constants import MIGRATION_BENCH_STOP_TIMEOUT_SECONDS
+from frappe_manager.output_manager.base import OutputHandler
 
 
 class MigrationBench:
-    def __init__(self, name: str, path: Path) -> None:
+    def __init__(self, name: str, path: Path, output: Optional[OutputHandler] = None) -> None:
         self.name = name
         self.path = path
+        self.output = output
         self.compose_file_manager = ComposeFile(
             self.path / 'docker-compose.yml',
             'docker-compose.tmpl',
         )
-        self.docker = DockerClient(compose_file_path=self.compose_file_manager.compose_path)
+        self.docker = DockerClient(compose_file_path=self.compose_file_manager.compose_path, output=output)
 
         self.workers_compose_file_manager = ComposeFile(
             self.path / 'docker-compose.workers.yml', 'docker-compose.workers.tmpl'
         )
-        self.workers_docker = DockerClient(compose_file_path=self.workers_compose_file_manager.compose_path)
+        self.workers_docker = DockerClient(
+            compose_file_path=self.workers_compose_file_manager.compose_path, output=output
+        )
 
     @property
     def compose(self):

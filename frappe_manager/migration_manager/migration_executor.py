@@ -198,7 +198,7 @@ class MigrationExecutor:
                 for bench_name in self.target_benches:
                     if bench_name in all_benches:
                         bench_path = all_benches[bench_name].parent
-                        bench = MigrationBench(bench_name, bench_path)
+                        bench = MigrationBench(bench_name, bench_path, output=self.output)
                         if bench.running or bench.workers_running:
                             running.append(bench_name)
                 if running:

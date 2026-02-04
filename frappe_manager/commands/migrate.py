@@ -13,9 +13,7 @@ from frappe_manager.migration_manager.bench_migration_state import (
     set_bench_migration_version,
 )
 from frappe_manager.migration_manager.version import Version
-from frappe_manager.output_manager.context_managers import temporary_stop
-from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.output_manager import get_global_output_handler, spinner
 from rich.table import Table
 
 
@@ -147,7 +145,7 @@ def migrate(
         output_handler=output_handler,
     )
 
-    with temporary_stop(output_handler):
+    with spinner(output_handler, "Starting migration..."):
         migration_status = migrations.execute()
 
     if not migration_status:
@@ -207,7 +205,7 @@ def migrate(
         for bench_name in benches_failed:
             table.add_row("❌", f"[cyan]{bench_name}[/cyan]", "[red]Migration failed[/red]")
 
-    output.print(table)
+    output.print_data(table)
 
     if benches_failed:
         output.display_error("Check logs for details", emoji_code=":warning:")

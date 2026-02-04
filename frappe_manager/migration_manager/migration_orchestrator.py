@@ -50,7 +50,7 @@ class MigrationOrchestrator:
         prev_migration: Optional["MigrationBase"] = None
 
         for migration in self.executor.migrations:
-            self.executor.output.change_head(f"Running migration introduced in v{migration.version}")
+            self.executor.output.update_head(f"Running migration introduced in v{migration.version}")
             self.logger.info(f"[{migration.version}] : Migration starting")
 
             try:

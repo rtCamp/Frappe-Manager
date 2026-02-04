@@ -1,8 +1,10 @@
 from subprocess import Popen, run, TimeoutExpired, CalledProcessError
 from pathlib import Path
-from typing import Iterable, List, Union, Literal, Optional, Tuple, Callable, TypeVar, overload
+from typing import Iterable, List, Union, Literal, Optional, Tuple, Callable, TypeVar, overload, cast
 from functools import wraps
 import inspect
+import itertools
+import sys
 
 import shlex
 
@@ -20,58 +22,79 @@ T = TypeVar('T')
 def docker_command(
     subcommand: str,
     exclude_params: List[str] | None = None,
-    positional_params: List[str] | None = None
+    positional_params: List[str] | None = None,
+    use_original_implementation: bool = False,
 ) -> Callable[[T], T]:
     if exclude_params is None:
         exclude_params = []
     if positional_params is None:
         positional_params = []
-    
+
     if 'stream' not in exclude_params:
         exclude_params = exclude_params + ['stream']
-    
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(self, *args, **kwargs):
             sig = inspect.signature(func)
             bound = sig.bind(self, *args, **kwargs)
             bound.apply_defaults()
-            
+
             parameters = dict(bound.arguments)
             stream_param = parameters.get('stream', None)
-            
-            should_stream = stream_param if stream_param is not None else (
-                self.output.should_stream_docker if self.output else False
+
+            should_stream = (
+                stream_param
+                if stream_param is not None
+                else (self.output.should_stream_docker if self.output else False)
             )
-            
-            cmd: list = [subcommand]
-            
-            for param_name in positional_params:
-                if param_name in parameters:
-                    param_value = parameters[param_name]
-                    if isinstance(param_value, list):
-                        cmd.extend(param_value)
-                    elif param_value is not None:
-                        cmd.append(str(param_value))
-            
-            cmd += parameters_to_options(
-                parameters, 
-                exclude=exclude_params + positional_params
-            )
-            
-            full_cmd = self.docker_compose_cmd + cmd
-            
+
+            if use_original_implementation:
+                full_cmd = func(self, *args, **kwargs)
+            else:
+                cmd: list = [subcommand]
+
+                for param_name in positional_params:
+                    if param_name in parameters:
+                        param_value = parameters[param_name]
+                        if isinstance(param_value, list):
+                            cmd.extend(param_value)
+                        elif param_value is not None:
+                            cmd.append(str(param_value))
+
+                cmd += parameters_to_options(parameters, exclude=exclude_params + positional_params)
+
+                full_cmd = self.docker_compose_cmd + cmd
+
             if should_stream:
-                iterator = run_command_with_exit_code(full_cmd, stream=True)
+                from frappe_manager.logger import log
+
+                logger = log.get_logger()
+                logger.debug(
+                    f"[docker_command] Auto-streaming: should_stream={should_stream}, stream_param={stream_param}, output={self.output is not None}"
+                )
+
+                stream_result = run_command_with_exit_code(full_cmd, stream=True)
+                iterator = cast(Iterable[Tuple[str, bytes]], stream_result)
                 if self.output and stream_param is None:
-                    self.output.live_lines(iterator, padding=(0, 0, 0, 2))
-                    return SubprocessOutput(stdout=[], stderr=[], combined=[], exit_code=0)
+                    logger.debug("[docker_command] Entering auto-streaming mode with tee()")
+                    display_iter, capture_iter = itertools.tee(iterator, 2)
+                    logger.debug("[docker_command] Calling output.live_lines()")
+                    self.output.live_lines(display_iter, padding=(0, 0, 0, 2))
+                    logger.debug("[docker_command] Converting capture_iter to SubprocessOutput")
+                    result = SubprocessOutput.from_output(capture_iter)
+                    logger.debug(
+                        f"[docker_command] Returning SubprocessOutput: exit_code={result.exit_code}, stdout_lines={len(result.stdout)}, stderr_lines={len(result.stderr)}"
+                    )
+                    return result
+                logger.debug("[docker_command] Returning raw iterator (explicit stream=True)")
                 return iterator
             else:
                 result = run_command_with_exit_code(full_cmd, stream=False)
                 return result
-        
+
         return wrapper
+
     return decorator
 
 
@@ -97,7 +120,7 @@ class DockerComposeWrapper:
             "-f",
             self.compose_file_path.as_posix(),
         ]
-        
+
         self._context_services: Optional[List[str]] = None
 
     @overload
@@ -115,7 +138,7 @@ class DockerComposeWrapper:
         *,
         stream: Literal[True],
     ) -> Iterable[Tuple[str, bytes]]: ...
-    
+
     @overload
     def up(
         self,
@@ -131,7 +154,7 @@ class DockerComposeWrapper:
         *,
         stream: Literal[False] = False,
     ) -> SubprocessOutput: ...
-    
+
     @docker_command("up", positional_params=["services"])
     def up(
         self,
@@ -144,10 +167,10 @@ class DockerComposeWrapper:
         always_recreate_deps: bool = False,
         quiet_pull: bool = False,
         pull: Literal["missing", "never", "always"] = "missing",
-        stream: bool = False,
+        stream: bool | None = None,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
         """Start services defined in the compose file.
-        
+
         The implementation is handled by the @docker_command decorator which:
         - Adds 'services' as positional arguments
         - Converts remaining parameters to CLI options
@@ -166,7 +189,7 @@ class DockerComposeWrapper:
         *,
         stream: Literal[True],
     ) -> Iterable[Tuple[str, bytes]]: ...
-    
+
     @overload
     def down(
         self,
@@ -179,6 +202,7 @@ class DockerComposeWrapper:
         stream: Literal[False] = False,
     ) -> SubprocessOutput: ...
 
+    @docker_command(subcommand="down", use_original_implementation=True)
     def down(
         self,
         timeout: int = 100,
@@ -186,21 +210,13 @@ class DockerComposeWrapper:
         rmi: Union[bool, Literal["all", "local"]] = False,
         volumes: bool = False,
         dry_run: bool = False,
-        stream: bool = False,
+        stream: bool | None = None,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
-        """Stop and remove containers, networks, images, and volumes.
-        
-        Note: This method has custom handling for 'rmi' parameter and cannot 
-        use the decorator yet. The 'rmi' parameter needs special logic:
-        - If False: exclude from command
-        - If True or string: convert to --rmi=all
-        """
         parameters: dict = locals()
         parameters["timeout"] = str(timeout)
 
         down_cmd: list[str] = ["down"]
-
-        remove_parameters = ["stream"]
+        remove_parameters = ["stream", "self"]
 
         if not rmi:
             remove_parameters.append("rmi")
@@ -209,8 +225,7 @@ class DockerComposeWrapper:
 
         down_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
-        iterator = run_command_with_exit_code(self.docker_compose_cmd + down_cmd, stream=stream)
-        return iterator
+        return self.docker_compose_cmd + down_cmd
 
     @overload
     def start(
@@ -220,7 +235,7 @@ class DockerComposeWrapper:
         *,
         stream: Literal[True],
     ) -> Iterable[Tuple[str, bytes]]: ...
-    
+
     @overload
     def start(
         self,
@@ -230,72 +245,56 @@ class DockerComposeWrapper:
         stream: Literal[False] = False,
     ) -> SubprocessOutput: ...
 
+    @docker_command(subcommand="start", positional_params=["services"])
     def start(
         self,
         services: Union[None, list[str]] = None,
         dry_run: bool = False,
-        stream: bool = False,
+        stream: bool | None = None,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
-        parameters: dict = locals()
+        pass
 
-        start_cmd: list[str] = ["start"]
-
-        remove_parameters = ["services", "stream"]
-
-        start_cmd += parameters_to_options(parameters, exclude=remove_parameters)
-
-        # doesn't checks if service exists or not
-        if type(services) == list:
-            start_cmd += services
-
-        iterator = run_command_with_exit_code(self.docker_compose_cmd + start_cmd, stream=stream)
-        return iterator
-
+    @docker_command(subcommand="restart", use_original_implementation=True)
     def restart(
         self,
         services: Union[None, list[str]] = None,
         dry_run: bool = False,
         timeout: int = 100,
         no_deps: bool = False,
-        stream: bool = False,
+        stream: bool | None = None,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
         parameters: dict = locals()
-
         parameters["timeout"] = str(timeout)
 
         restart_cmd: list[str] = ["restart"]
-
-        remove_parameters = ["services", "stream"]
+        remove_parameters = ["services", "stream", "self"]
 
         restart_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
-        # doesn't checks if service exists or not
         if type(services) == list:
             restart_cmd += services
 
-        iterator = run_command_with_exit_code(self.docker_compose_cmd + restart_cmd, stream=stream)
-        return iterator
+        return self.docker_compose_cmd + restart_cmd
 
+    @docker_command(subcommand="stop", use_original_implementation=True)
     def stop(
         self,
         services: Union[None, list[str]] = None,
         timeout: int = 100,
-        stream: bool = False,
+        stream: bool | None = None,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
         parameters: dict = locals()
         parameters["timeout"] = str(timeout)
 
         stop_cmd: list[str] = ["stop"]
-
-        remove_parameters = ["services", "stream"]
+        remove_parameters = ["services", "stream", "self"]
 
         stop_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
         if type(services) == list:
             stop_cmd.extend(services)
 
-        iterator = run_command_with_exit_code(self.docker_compose_cmd + stop_cmd, stream=stream)
-        return iterator
+        return self.docker_compose_cmd + stop_cmd
 
     @overload
     def exec(
@@ -312,7 +311,7 @@ class DockerComposeWrapper:
         capture_output: bool = True,
         use_shlex_split: bool = True,
     ) -> Iterable[Tuple[str, bytes]]: ...
-    
+
     @overload
     def exec(
         self,
@@ -329,6 +328,7 @@ class DockerComposeWrapper:
         use_shlex_split: bool = True,
     ) -> SubprocessOutput: ...
 
+    @docker_command(subcommand="exec", use_original_implementation=True)
     def exec(
         self,
         service: str,
@@ -339,7 +339,7 @@ class DockerComposeWrapper:
         privileged: bool = False,
         user: Union[None, str] = None,
         workdir: Union[None, str] = None,
-        stream: bool = False,
+        stream: bool | None = None,
         capture_output: bool = True,
         use_shlex_split: bool = True,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
@@ -347,7 +347,16 @@ class DockerComposeWrapper:
 
         exec_cmd: list[str] = ["exec"]
 
-        remove_parameters = ["service", "stream", "command", "env", "use_shlex_split", "capture_output", "no_tty"]
+        remove_parameters = [
+            "self",
+            "service",
+            "stream",
+            "command",
+            "env",
+            "use_shlex_split",
+            "capture_output",
+            "no_tty",
+        ]
 
         exec_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
@@ -362,11 +371,9 @@ class DockerComposeWrapper:
         else:
             exec_cmd += [command]
 
-        iterator = run_command_with_exit_code(
-            self.docker_compose_cmd + exec_cmd, stream=stream, capture_output=capture_output
-        )
-        return iterator
+        return self.docker_compose_cmd + exec_cmd
 
+    @docker_command(subcommand="ps", use_original_implementation=True)
     def ps(
         self,
         service: Union[None, list[str]] = None,
@@ -400,13 +407,14 @@ class DockerComposeWrapper:
                 ]
             ],
         ] = None,
-        stream: bool = False,
+        stream: bool | None = None,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
         parameters: dict = locals()
 
         ps_cmd: list[str] = ["ps"]
 
         remove_parameters = [
+            "self",
             "service",
             "stream",
             "filter",
@@ -425,9 +433,9 @@ class DockerComposeWrapper:
         if service:
             ps_cmd += service
 
-        iterator = run_command_with_exit_code(self.docker_compose_cmd + ps_cmd, stream=stream)
-        return iterator
+        return self.docker_compose_cmd + ps_cmd
 
+    @docker_command(subcommand="logs", use_original_implementation=True)
     def logs(
         self,
         services: Union[None, list[str]] = None,
@@ -439,24 +447,20 @@ class DockerComposeWrapper:
         tail: Union[None, int] = None,
         until: Union[None, int] = None,
         timestamps: bool = False,
-        stream: bool = False,
+        stream: bool | None = None,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
         parameters: dict = locals()
 
         logs_cmd: list[str] = ["logs"]
 
-        remove_parameters = ["services", "stream"]
+        remove_parameters = ["self", "services", "stream"]
 
         logs_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
         if services:
             logs_cmd += services
 
-        iterator = run_command_with_exit_code(
-            self.docker_compose_cmd + logs_cmd,
-            stream=stream,
-        )
-        return iterator
+        return self.docker_compose_cmd + logs_cmd
 
     def ls(
         self,
@@ -488,7 +492,7 @@ class DockerComposeWrapper:
         *,
         stream: Literal[True],
     ) -> Iterable[Tuple[str, bytes]]: ...
-    
+
     @overload
     def pull(
         self,
@@ -507,14 +511,15 @@ class DockerComposeWrapper:
         ignore_buildable: bool = False,
         ignore_pull_failures: bool = False,
         include_deps: bool = False,
-        stream: bool = False,
+        stream: bool | None = None,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
         """Pull service images defined in the compose file.
-        
+
         Implementation handled by @docker_command decorator.
         """
         pass  # Implementation handled by decorator
 
+    @docker_command(subcommand="run", use_original_implementation=True)
     def run(
         self,
         service: str,
@@ -525,12 +530,12 @@ class DockerComposeWrapper:
         rm: bool = False,
         entrypoint: Optional[str] = None,
         use_shlex_split: bool = True,
-        stream: bool = False,
+        stream: bool | None = None,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
         parameters: dict = locals()
         run_cmd: list = ["run"]
 
-        remove_parameters = ["stream", "command", "service", "use_shlex_split"]
+        remove_parameters = ["stream", "command", "service", "use_shlex_split", "self"]
 
         run_cmd += parameters_to_options(parameters, exclude=remove_parameters)
 
@@ -542,9 +547,9 @@ class DockerComposeWrapper:
             else:
                 run_cmd += [command]
 
-        iterator = run_command_with_exit_code(self.docker_compose_cmd + run_cmd, stream=stream)
-        return iterator
+        return self.docker_compose_cmd + run_cmd
 
+    @docker_command(subcommand="cp", use_original_implementation=True)
     def cp(
         self,
         source: str,
@@ -553,7 +558,7 @@ class DockerComposeWrapper:
         destination_container: str | None = None,
         archive: bool = False,
         follow_link: bool = False,
-        stream: bool = False,
+        stream: bool | None = None,
     ) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
         parameters: dict = locals()
 
@@ -565,6 +570,7 @@ class DockerComposeWrapper:
             "destination",
             "source_container",
             "destination_container",
+            "self",
         ]
 
         cp_cmd += parameters_to_options(parameters, exclude=remove_parameters)
@@ -578,18 +584,17 @@ class DockerComposeWrapper:
         cp_cmd += [f"{source}"]
         cp_cmd += [f"{destination}"]
 
-        iterator = run_command_with_exit_code(self.docker_compose_cmd + cp_cmd, stream=stream)
-        return iterator
+        return self.docker_compose_cmd + cp_cmd
 
     # ==================== NEW: Convenience Methods ====================
 
     def is_service_running(self, service: str) -> bool:
         """
         Check if a service is running.
-        
+
         Args:
             service: Service name to check
-        
+
         Returns:
             True if service is running, False otherwise
         """
@@ -597,8 +602,9 @@ class DockerComposeWrapper:
             output = self.ps(service=[service], format="json", stream=False)
             if not output.stdout:
                 return False
-            
+
             import json
+
             for line in output.stdout:
                 status = json.loads(line)
                 if status.get('State') == 'running':
@@ -610,10 +616,10 @@ class DockerComposeWrapper:
     def get_service_status(self, service: str) -> Optional[dict]:
         """
         Get detailed status for a service.
-        
+
         Args:
             service: Service name
-        
+
         Returns:
             Dict with status info or None if not found
         """
@@ -621,6 +627,7 @@ class DockerComposeWrapper:
             output = self.ps(service=[service], format="json", all=True, stream=False)
             if output.stdout:
                 import json
+
                 return json.loads(output.stdout[0])
             return None
         except Exception:
@@ -629,7 +636,7 @@ class DockerComposeWrapper:
     def get_all_services_status(self) -> List[dict]:
         """
         Get status for all services in compose file.
-        
+
         Returns:
             List of status dicts
         """
@@ -637,73 +644,60 @@ class DockerComposeWrapper:
         try:
             output = self.ps(format="json", all=True, stream=False)
             import json
+
             for line in output.stdout:
                 statuses.append(json.loads(line))
         except Exception:
             pass
         return statuses
 
-    def wait_for_service(
-        self,
-        service: str,
-        timeout: int = 30,
-        check_interval: float = 0.5
-    ) -> bool:
+    def wait_for_service(self, service: str, timeout: int = 30, check_interval: float = 0.5) -> bool:
         """
         Wait for a service to be running.
-        
+
         Args:
             service: Service name
             timeout: Max seconds to wait
             check_interval: Seconds between checks
-        
+
         Returns:
             True if service started, False if timeout
         """
         import time
+
         start_time = time.time()
-        
+
         while time.time() - start_time < timeout:
             if self.is_service_running(service):
                 return True
             time.sleep(check_interval)
-        
+
         return False
 
-    def exec_capture(
-        self,
-        service: str,
-        command: str,
-        **kwargs
-    ) -> SubprocessOutput:
+    def exec_capture(self, service: str, command: str, **kwargs) -> SubprocessOutput:
         """
         Execute command and capture output (stream=False wrapper).
-        
+
         Args:
             service: Service name
             command: Command to execute
             **kwargs: Additional exec arguments
-        
+
         Returns:
             SubprocessOutput with stdout/stderr/exit_code
         """
         kwargs['stream'] = False
         return self.exec(service=service, command=command, **kwargs)
 
-    def exec_stream(
-        self,
-        service: str,
-        command: str,
-        **kwargs
-    ) -> Iterable[Tuple[str, bytes]]:
+    def exec_stream(self, service: str, command: str, **kwargs) -> Iterable[Tuple[str, bytes]]:
         """
         Execute command and stream output (stream=True wrapper).
-        
+
         Args:
             service: Service name
             command: Command to execute
             **kwargs: Additional exec arguments
-        
+
         Returns:
             Iterator of (source, line) tuples
         """
@@ -711,14 +705,14 @@ class DockerComposeWrapper:
         return self.exec(service=service, command=command, **kwargs)
 
     # Context Manager Support
-    
+
     def __enter__(self) -> 'DockerComposeWrapper':
         """
         Enter context manager - returns self for use in 'with' statement.
-        
+
         Returns:
             Self for method chaining
-        
+
         Example:
             with DockerComposeWrapper(path).with_auto_cleanup() as compose:
                 compose.up(detach=True, stream=False)
@@ -726,19 +720,19 @@ class DockerComposeWrapper:
                 # Auto-cleanup on exit
         """
         return self
-    
+
     def __exit__(self, exc_type, exc_val, exc_tb) -> bool:
         """
         Exit context manager - performs cleanup if services are registered.
-        
+
         Args:
             exc_type: Exception type (if any)
             exc_val: Exception value (if any)
             exc_tb: Exception traceback (if any)
-        
+
         Returns:
             False (does not suppress exceptions)
-        
+
         Note:
             If services were registered via with_auto_cleanup(), this will
             call down() to stop and remove containers. Cleanup errors are
@@ -750,32 +744,32 @@ class DockerComposeWrapper:
                 self.down(remove_orphans=True, stream=False)
             except Exception:
                 pass  # Silently ignore cleanup errors
-        
+
         # Don't suppress exceptions - return False
         return False
-    
+
     def with_auto_cleanup(self, services: Optional[List[str]] = None) -> 'DockerComposeWrapper':
         """
         Register services for automatic cleanup when context exits.
-        
+
         Args:
             services: List of service names to cleanup. If None, all services
                      in the compose file will be cleaned up.
-        
+
         Returns:
             Self for method chaining
-        
+
         Example:
             # Cleanup all services
             with DockerComposeWrapper(path).with_auto_cleanup() as compose:
                 compose.up(detach=True, stream=False)
                 # Auto-cleanup on exit
-            
+
             # Cleanup specific services
             with DockerComposeWrapper(path).with_auto_cleanup(['redis', 'db']) as compose:
                 compose.up(services=['redis', 'db'], detach=True, stream=False)
                 # Auto-cleanup on exit
-        
+
         Note:
             Must be used with context manager (with statement).
             Cleanup happens even if an exception occurs.

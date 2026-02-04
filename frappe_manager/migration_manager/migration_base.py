@@ -112,7 +112,7 @@ class MigrationBase(ABC):
                 self.output.print(f"Skipping {bench_name} (--exclude-bench)", emoji_code="")
                 continue
 
-            bench = MigrationBench(name=bench_name, path=bench_path.parent)
+            bench = MigrationBench(name=bench_name, path=bench_path.parent, output=self.output)
 
             bench_version = get_bench_migration_version(bench.path)
 
