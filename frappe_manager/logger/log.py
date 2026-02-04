@@ -55,18 +55,10 @@ class ConsoleLogFilter(logging.Filter):
     MAX_LINE_LENGTH = 150
 
     def filter(self, record: logging.LogRecord) -> bool:
-        """
-        Process and clean up log messages before display.
-
-        Args:
-            record: The log record to filter
-
-        Returns:
-            True (always allow the message through, just modify it)
-        """
         msg = str(record.getMessage())
 
-        # Shorten long separator lines
+        msg = re.sub(r'\[corr=[^\]]+\]\s*', '', msg)
+
         if msg.strip() == "- -- -- -- -- -- -- -- -- -- -":
             record.msg = "[dim]---[/dim]"
             record.args = ()
@@ -78,40 +70,32 @@ class ConsoleLogFilter(logging.Filter):
             record.args = ()
             return True
 
-        # Dim RETURN CODE
         if msg.startswith("RETURN CODE:"):
-            # Only show return code if it's non-zero (error)
             if "RETURN CODE: 0" in msg:
-                # Suppress successful return codes to reduce noise
                 return False
-            # Highlight non-zero return codes
             record.msg = f"[yellow]{msg}[/yellow]"
             record.args = ()
             return True
 
-        # Truncate long JSON blobs (likely from Docker commands)
         if msg.startswith("{") and len(msg) > self.MAX_JSON_LENGTH:
-            # Try to extract useful summary from JSON if it's docker container info
             if '"Name":' in msg or '"Image":' in msg:
-                # Docker container/image JSON - just show truncated version
                 truncated = msg[: self.MAX_JSON_LENGTH] + "... [dim][see log file][/dim]"
                 record.msg = truncated
                 record.args = ()
             else:
-                # Generic JSON
                 truncated = msg[: self.MAX_JSON_LENGTH] + "... [dim][truncated][/dim]"
                 record.msg = truncated
                 record.args = ()
             return True
 
-        # Truncate other excessively long lines
         if len(msg) > self.MAX_LINE_LENGTH and not msg.startswith("["):
-            # Don't truncate if it already has Rich markup
             truncated = msg[: self.MAX_LINE_LENGTH] + "... [dim][truncated][/dim]"
             record.msg = truncated
             record.args = ()
             return True
 
+        record.msg = msg
+        record.args = ()
         return True
 
     def _simplify_command(self, cmd_line: str) -> str:

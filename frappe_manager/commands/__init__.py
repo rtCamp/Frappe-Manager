@@ -8,6 +8,7 @@ import os
 import sys
 import shutil
 import secrets
+import uuid
 from typing import Annotated, List, Optional, cast
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType, AppConfig, RestartPolicyEnum
 from frappe_manager.docker import ComposeFile, DockerClient
@@ -144,6 +145,9 @@ def app_callback(
     """
     ctx.obj = {}
 
+    correlation_id = str(uuid.uuid4())
+    ctx.obj["correlation_id"] = correlation_id
+
     # Import early for validation error reporting
     from frappe_manager.output_manager import get_global_output_handler, set_global_output_handler
 
@@ -174,7 +178,8 @@ def app_callback(
     from frappe_manager.logger import ContextualLogger
 
     basic_handler = get_global_output_handler()
-    contextual_logger = ContextualLogger(log.get_logger(file_level="DEBUG"), context=None)
+    logger_context = LoggerContext(correlation_id=correlation_id)
+    contextual_logger = ContextualLogger(log.get_logger(file_level="DEBUG"), context=logger_context)
     upgraded_handler = LoggingOutputHandler(basic_handler, contextual_logger)
     set_global_output_handler(upgraded_handler)
 

@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Callable
 
 from frappe_manager import SSL_RENEW_BEFORE_DAYS
+from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import (
@@ -54,6 +55,7 @@ class SSLCertificateManager:
 
     def __init__(
         self,
+        logger: ContextualLogger,
         certificates: list[SSLCertificate],
         service_factory: Callable[[SSLCertificate, SSLStorageConfig, OutputHandler], SSLCertificateService],
         link_manager: CertificateLinkManager,
@@ -66,6 +68,7 @@ class SSLCertificateManager:
         Initialize the SSL certificate manager.
 
         Args:
+            logger: Contextual logger for audit/debug logging
             certificates: List of SSL certificate configurations to manage
             service_factory: Factory function to create certificate services
             link_manager: Manager for certificate symlink operations
@@ -77,6 +80,8 @@ class SSLCertificateManager:
         Raises:
             ValueError: If any required dependency is None or invalid
         """
+        if logger is None:
+            raise ValueError("Logger is required")
         if certificates is None:
             raise ValueError("Certificate configuration is required")
         if service_factory is None:
@@ -90,6 +95,7 @@ class SSLCertificateManager:
         if output_handler is None:
             raise ValueError("Output handler is required")
 
+        self.logger = logger.child(component="ssl_manager")
         self.certificates: list[SSLCertificate] = certificates if isinstance(certificates, list) else [certificates]
         self.service_factory = service_factory
         self.storage_config = storage_config
@@ -114,48 +120,43 @@ class SSLCertificateManager:
         return self.certificates[0] if self.certificates else None
 
     def add_certificate(self, certificate: SSLCertificate, dry_run: bool = False):
-        """
-        Add a new certificate and issue it.
+        self.logger.info("Adding certificate", extra={"domain": certificate.domain, "dry_run": dry_run})
 
-        This method:
-        1. Checks if certificate already exists
-        2. Creates appropriate service for the certificate
-        3. Generates individual certificate (no SANs)
-        4. (Dry run mode) Uses staging server, skips symlinks, nginx restart, and config save
-        5. (Normal mode) Creates symlinks, restarts nginx, persists config
-
-        Args:
-            certificate: Certificate configuration to add
-            dry_run: If True, uses Let's Encrypt staging server and skips system modifications
-
-        Raises:
-            ValueError: If certificate for domain already exists
-            SSLCertificateGenerateFailed: If certificate generation fails
-        """
-        # Check if certificate already exists
         if any(cert.domain == certificate.domain for cert in self.certificates):
+            self.logger.warning("Certificate already exists", extra={"domain": certificate.domain})
             raise ValueError(f"Certificate for {certificate.domain} already exists")
 
         if self.service_factory and self.storage_config and self.output_handler:
             service = self.service_factory(certificate, self.storage_config, self.output_handler)
             self.services[certificate.domain] = service
+            self.logger.debug("Created certificate service", extra={"domain": certificate.domain})
         else:
+            self.logger.error("Cannot add certificate: missing dependencies")
             raise RuntimeError(
                 "Cannot add certificate: service_factory, storage_config, and output_handler are required"
             )
 
         original_staging = None
         if dry_run:
-            self.output_handler.print("[bold yellow]DRY RUN MODE: Using Let's Encrypt staging server[/bold yellow]", emoji_code="🧪")
+            self.output_handler.print(
+                "[bold yellow]DRY RUN MODE: Using Let's Encrypt staging server[/bold yellow]", emoji_code="🧪"
+            )
             self.output_handler.print(
                 "[dim]No system modifications will be made (no symlinks, nginx restart, or config save)[/dim]"
             )
 
             original_staging = os.environ.get("FM_LETSENCRYPT_STAGING")
             os.environ["FM_LETSENCRYPT_STAGING"] = "1"
+            self.logger.debug("Enabled staging mode for dry run")
 
         try:
+            self.logger.info("Generating certificate", extra={"domain": certificate.domain})
             privkey_path, fullchain_path = service.generate_certificate(certificate, dry_run=dry_run)
+            self.logger.info(
+                "Certificate generated",
+                extra={"domain": certificate.domain, "privkey": str(privkey_path), "fullchain": str(fullchain_path)},
+            )
+
             ssl_dir = self.storage_config.ssl_dir
 
             try:
@@ -165,14 +166,18 @@ class SSLCertificateManager:
                 actual_cert_type = getattr(certificate, 'acme_client', 'letsencrypt')
 
             if dry_run:
-                self.output_handler.print(
-                    f"[green]Certificate validated successfully for {certificate.domain}[/green]"
-                )
+                self.output_handler.print(f"[green]Certificate validated successfully for {certificate.domain}[/green]")
                 self.output_handler.print("[yellow]Skipped: Creating symlinks (dry run)[/yellow]", emoji_code="⏭️ ")
-                self.output_handler.print("[yellow]Skipped: Creating vhost.d redirect config (dry run)[/yellow]", emoji_code="⏭️ ")
+                self.output_handler.print(
+                    "[yellow]Skipped: Creating vhost.d redirect config (dry run)[/yellow]", emoji_code="⏭️ "
+                )
                 self.output_handler.print("[yellow]Skipped: Restarting nginx (dry run)[/yellow]", emoji_code="⏭️ ")
                 self.output_handler.print("[yellow]Skipped: Saving configuration (dry run)[/yellow]", emoji_code="⏭️ ")
+                self.logger.info("Dry run completed successfully", extra={"domain": certificate.domain})
             else:
+                self.logger.info(
+                    "Creating certificate symlinks", extra={"domain": certificate.domain, "cert_type": actual_cert_type}
+                )
                 self.link_manager.link_certificate(
                     cert_type=actual_cert_type,
                     domain=certificate.domain,
@@ -183,11 +188,16 @@ class SSLCertificateManager:
 
                 self.vhost_manager.enable_https_redirect(certificate.domain)
                 self.output_handler.print(f"Created vhost.d redirect config for {certificate.domain}")
+                self.logger.debug("Enabled HTTPS redirect", extra={"domain": certificate.domain})
 
                 self.certificates.append(certificate)
+                self.logger.info("Restarting nginx")
                 self.nginx_controller.restart()
                 if self.config_save_callback:
                     self.config_save_callback()
+                    self.logger.debug("Saved configuration")
+
+                self.logger.info("Certificate added successfully", extra={"domain": certificate.domain})
 
         finally:
             if dry_run:
@@ -197,23 +207,8 @@ class SSLCertificateManager:
                     os.environ.pop("FM_LETSENCRYPT_STAGING", None)
 
     def remove_certificate_by_domain(self, domain: str):
-        """
-        Remove a certificate by domain name.
+        self.logger.info("Removing certificate", extra={"domain": domain})
 
-        This method:
-        1. Finds the certificate for the domain
-        2. Removes symlinks
-        3. Removes actual certificate files
-        4. Removes from managed certificates list
-        5. Persists the config via callback
-
-        Args:
-            domain: Domain name of certificate to remove
-
-        Raises:
-            SSLCertificateNotFoundError: If no certificate exists for domain
-        """
-        # Find certificate
         cert_to_remove = None
         for cert in self.certificates:
             if cert.domain == domain:
@@ -221,28 +216,34 @@ class SSLCertificateManager:
                 break
 
         if not cert_to_remove:
+            self.logger.warning("Certificate not found", extra={"domain": domain})
             raise SSLCertificateNotFoundError(domain)
 
         service = self.services.get(domain)
         if not service:
+            self.logger.error("No service found for domain", extra={"domain": domain})
             raise RuntimeError(f"No service found for domain {domain}")
 
+        self.logger.debug("Unlinking certificate symlinks", extra={"domain": domain})
         self.link_manager.unlink_certificate(domain, alias_domains=None)
 
-        # Disable HTTPS redirect for this domain (remove vhost.d config)
         self.vhost_manager.disable_https_redirect(domain)
+        self.logger.debug("Disabled HTTPS redirect", extra={"domain": domain})
 
+        self.logger.debug("Removing certificate files", extra={"domain": domain})
         service.remove_certificate(cert_to_remove)
 
         self.certificates.remove(cert_to_remove)
         del self.services[domain]
 
-        # Restart nginx to apply changes
+        self.logger.info("Restarting nginx")
         self.nginx_controller.restart()
 
-        # Persist config if callback provided
         if self.config_save_callback:
             self.config_save_callback()
+            self.logger.debug("Saved configuration")
+
+        self.logger.info("Certificate removed successfully", extra={"domain": domain})
 
     def list_certificates(self) -> list[dict]:
         """
@@ -468,12 +469,14 @@ class SSLCertificateManager:
             raise RuntimeError(f"No service found for domain {certificate.domain}")
 
         # Renew the certificate
-        self.output_handler.print(f"Renewing certificate for {certificate.domain}",emoji_code="🔄" )
+        self.output_handler.print(f"Renewing certificate for {certificate.domain}", emoji_code="🔄")
         renewal_success = service.renew_certificate(certificate, dry_run=dry_run)
 
         reissued_paths = None
         if not renewal_success:
-            self.output_handler.print(f"[yellow]Certificate not found in acme.sh, re-issuing...[/yellow]",emoji_code="⚠️")
+            self.output_handler.print(
+                f"[yellow]Certificate not found in acme.sh, re-issuing...[/yellow]", emoji_code="⚠️"
+            )
             key_path, fullchain_path = service.generate_certificate(certificate, dry_run=dry_run)
             reissued_paths = (key_path, fullchain_path)
 
@@ -481,7 +484,9 @@ class SSLCertificateManager:
                 self.output_handler.print(f"[green]Certificate re-issued successfully for {certificate.domain}[/green]")
 
         if dry_run:
-            self.output_handler.print(f"[green]Certificate renewal validated successfully for {certificate.domain}[/green]")
+            self.output_handler.print(
+                f"[green]Certificate renewal validated successfully for {certificate.domain}[/green]"
+            )
             self.output_handler.print("[yellow]️Skipped: Updating symlinks (dry run)[/yellow]", emoji_code="⏭ ")
             if not skip_nginx_restart:
                 self.output_handler.print("[yellow]Skipped: Restarting nginx (dry run)[/yellow]", emoji_code="⏭️ ")
@@ -515,52 +520,45 @@ class SSLCertificateManager:
             self.output_handler.print(f"Successfully renewed {certificate.domain}")
 
     def renew_certificate(self, domain: str | None = None, dry_run: bool = False, force: bool = False):
-        """
-        Renew an existing SSL certificate.
+        self.logger.info(
+            "Renewing certificate", extra={"domain": domain or "primary", "dry_run": dry_run, "force": force}
+        )
 
-        This renews the certificate if it's due for renewal, updates symlinks,
-        and restarts nginx.
-
-        Args:
-            domain: Domain to renew. If None, uses primary certificate.
-            dry_run: If True, uses Let's Encrypt staging server and skips system modifications
-            force: If True, forces renewal even if certificate is not due for renewal
-
-        Raises:
-            SSLCertificateNotDueForRenewalError: If certificate doesn't need renewal yet
-        """
         if domain is None:
             primary = self.get_primary_certificate()
             if not primary:
+                self.logger.error("No primary certificate configured")
                 raise ValueError("No primary certificate configured")
             certificate = primary
         else:
-            # Find certificate for this domain
             certificate = None
             for cert in self.certificates:
                 if cert.domain == domain:
                     certificate = cert
                     break
             if not certificate:
+                self.logger.warning("Certificate not found for renewal", extra={"domain": domain})
                 raise SSLCertificateNotFoundError(domain)
 
         original_staging = None
         if dry_run:
-            self.output_handler.print("[bold yellow]DRY RUN MODE: Using Let's Encrypt staging server[/bold yellow]", emoji_code="🧪 ")
+            self.output_handler.print(
+                "[bold yellow]DRY RUN MODE: Using Let's Encrypt staging server[/bold yellow]", emoji_code="🧪 "
+            )
             self.output_handler.print("[dim]No system modifications will be made (no symlinks or nginx restart)[/dim]")
 
-            # Set staging environment variable
             original_staging = os.environ.get("FM_LETSENCRYPT_STAGING")
             os.environ["FM_LETSENCRYPT_STAGING"] = "1"
+            self.logger.debug("Enabled staging mode for dry run")
 
         try:
             self._renew_single_certificate(
                 certificate=certificate, dry_run=dry_run, force=force, skip_nginx_restart=False
             )
+            self.logger.info("Certificate renewed successfully", extra={"domain": certificate.domain})
 
         finally:
             if dry_run:
-                # Restore original staging setting
                 if original_staging is not None:
                     os.environ["FM_LETSENCRYPT_STAGING"] = original_staging
                 else:
@@ -588,7 +586,9 @@ class SSLCertificateManager:
 
         original_staging = None
         if dry_run:
-            self.output_handler.print("[bold yellow]DRY RUN MODE: Using Let's Encrypt staging server[/bold yellow]", emoji_code="🧪")
+            self.output_handler.print(
+                "[bold yellow]DRY RUN MODE: Using Let's Encrypt staging server[/bold yellow]", emoji_code="🧪"
+            )
             self.output_handler.print("[dim]No system modifications will be made (no symlinks or nginx restart)[/dim]")
 
             original_staging = os.environ.get("FM_LETSENCRYPT_STAGING")
@@ -606,14 +606,14 @@ class SSLCertificateManager:
                     renewed_count += 1
 
                 except SSLCertificateNotDueForRenewalError as e:
-                    self.output_handler.print(f"{e}",emoji_code="⏭️ ")
+                    self.output_handler.print(f"{e}", emoji_code="⏭️ ")
                     skipped_count += 1
                 except Exception as e:
                     self.output_handler.print(f"Failed to renew {certificate.domain}: {e}", emoji_code="❌")
 
             if renewed_count > 0:
                 if dry_run:
-                    self.output_handler.print("[yellow]Skipped: Restarting nginx (dry run)[/yellow]",emoji_code="⏭️ ")
+                    self.output_handler.print("[yellow]Skipped: Restarting nginx (dry run)[/yellow]", emoji_code="⏭️ ")
                 else:
                     self.nginx_controller.restart()
                 self.output_handler.print(f"Renewal complete: {renewed_count} renewed, {skipped_count} skipped")
