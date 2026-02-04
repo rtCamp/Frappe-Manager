@@ -1,4 +1,5 @@
 import atexit
+import signal
 
 from frappe_manager import CLI_LOG_DIRECTORY
 from frappe_manager.commands import app
@@ -19,6 +20,9 @@ def cli_entrypoint():
     CLI arguments are parsed. Exception handling uses bare richprint for
     backward compatibility.
     """
+    if hasattr(signal, 'SIGPIPE'):
+        signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
     # Initialize basic output handler early (before app() runs)
     # This will be upgraded to LoggingOutputHandler in app_callback after CLI args are parsed
     basic_handler = RichOutputHandler()

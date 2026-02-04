@@ -43,6 +43,8 @@ def shell(
         output.print(f"Available services: {', '.join(sorted(available_services))}")
         raise typer.Exit(1)
 
+    output.stop()
+
     # Check if we have passthrough arguments (-- syntax)
     passthrough_args = ctx.args if ctx.args else None
 
