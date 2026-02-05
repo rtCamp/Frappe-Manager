@@ -27,8 +27,9 @@ def shell(
     """
     Spawn shell for the bench or execute a command.
 
-    Supports interactive shell mode and command execution mode (use -c or -- syntax).
-    Exit code from the executed command is preserved for scripting.
+    In interactive mode, provides full terminal support for commands like 'bench console'.
+    In non-interactive mode (-n flag or piped input), captures output for scripting.
+    Exit code from the executed command is preserved.
     """
 
     check_bench_migration_required(benchname)
@@ -48,24 +49,46 @@ def shell(
 
     output.stop()
 
-    # Check if we have passthrough arguments (-- syntax)
     passthrough_args = ctx.args if ctx.args else None
+    is_interactive = output.is_interactive()
 
-    # Determine mode: interactive or command execution
     if command or passthrough_args:
-        # Command execution mode
         if passthrough_args:
-            # Use passthrough arguments (everything after --)
-            exec_command = " ".join(passthrough_args)
+            if service == "frappe" and not user:
+                user = "frappe"
+
+            if not shell_path:
+                non_bash_supported = ["redis-cache", "redis-queue", "adminer", "mailpit"]
+                shell_path = "/bin/bash" if service not in non_bash_supported else "sh"
+
+            if run:
+                exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["run", "--rm"]
+                if user:
+                    exec_cmd += ["--user", user]
+                exec_cmd += ["--entrypoint", shell_path]
+                exec_cmd += [service, "-c", " ".join(passthrough_args)]
+            else:
+                exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["exec"]
+                if user:
+                    exec_cmd += ["--user", user]
+                if service == "frappe":
+                    exec_cmd += ["--workdir", "/workspace/frappe-bench"]
+                exec_cmd += [service, shell_path, "-c", " ".join(passthrough_args)]
+
+            if is_interactive:
+                import os
+
+                os.execvp(exec_cmd[0], exec_cmd)
+            else:
+                command_str = " ".join(passthrough_args)
+                exit_code = bench.execute_command(service, command_str, user, shell_path=shell_path, use_run=run)
+
+                if exit_code != 0:
+                    raise typer.Exit(exit_code)
         else:
-            # Use -c command
-            exec_command = command
+            exit_code = bench.execute_command(service, command, user, shell_path=shell_path, use_run=run)
 
-        exit_code = bench.execute_command(service, exec_command, user, shell_path=shell_path, use_run=run)
-
-        # Exit with the command's exit code
-        if exit_code != 0:
-            raise typer.Exit(exit_code)
+            if exit_code != 0:
+                raise typer.Exit(exit_code)
     else:
-        # Interactive shell mode (original behavior)
         bench.shell(service, user, shell_path=shell_path, use_run=run)
