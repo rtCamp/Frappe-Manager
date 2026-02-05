@@ -134,7 +134,13 @@ class BenchService:
         compose_file_manager = ComposeFile(compose_path)
         docker_client = DockerClient(compose_file_path=compose_path, output=self.output)
 
+        from frappe_manager.logger.contextual import ContextualLogger
+        from frappe_manager.logger.context import LoggerContext
+
+        bench_logger = ContextualLogger(self.logger, context=LoggerContext(bench=bench_name, operation="create"))
+
         bench = Bench(
+            logger=bench_logger,
             path=bench_path,
             name=bench_name,
             bench_config=bench_config,
@@ -314,9 +320,21 @@ class BenchService:
             root_path=bench_path / "bench_config.toml",
             admin_tools_username=None,
             admin_tools_password=None,
+            github_token=None,
+            use_uv=True,
+            python_version=None,
+            node_version=None,
+            db_name=None,
+            migration_state=None,
         )
 
+        from frappe_manager.logger.contextual import ContextualLogger
+        from frappe_manager.logger.context import LoggerContext
+
+        cleanup_logger = ContextualLogger(self.logger, context=LoggerContext(bench=bench_name, operation="cleanup"))
+
         return Bench(
+            logger=cleanup_logger,
             path=bench_path,
             name=bench_name,
             bench_config=fake_config,

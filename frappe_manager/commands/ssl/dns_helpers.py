@@ -58,10 +58,10 @@ def _show_dns_credentials(ctx: typer.Context, provider_name: str, benchname: Opt
 def _remove_dns_credentials(ctx: typer.Context, provider_name: str, benchname: Optional[str] = None):
     """Remove DNS credentials for a provider."""
     if benchname:
-        # Remove bench-level config
         services_manager = ctx.obj["services"]
         context = LoggerContext(bench=benchname, operation="dns-config-remove")
         output = get_output_handler(ctx, context=context)
+        logger = ctx.obj.get("logger")
         bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
 
         if bench.bench_config.dns_providers and provider_name in bench.bench_config.dns_providers:
@@ -80,7 +80,7 @@ def _remove_dns_credentials(ctx: typer.Context, provider_name: str, benchname: O
         fm_config = FMConfigManager.import_from_toml()
 
         if provider_name == DNS_PROVIDER.cloudflare.value:
-            fm_config.cloudflare = FMCloudflareConfig()
+            fm_config.cloudflare = FMCloudflareConfig(email=None, api_token=None, api_key=None)
 
         fm_config.export_to_toml()
         output = get_global_output_handler()
@@ -97,10 +97,10 @@ def _configure_dns_credentials(
 ):
     """Configure DNS credentials for a provider."""
     if benchname:
-        # Configure bench-level credentials
         services_manager = ctx.obj["services"]
         context = LoggerContext(bench=benchname, operation="dns-config")
         output = get_output_handler(ctx, context=context)
+        logger = ctx.obj.get("logger")
         bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
 
         output.change_head(f"Configuring {provider_name} credentials for bench '{benchname}'")

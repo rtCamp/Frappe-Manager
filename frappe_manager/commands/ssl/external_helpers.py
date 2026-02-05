@@ -404,10 +404,8 @@ def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
         bench_domains = set()
         for bench_name in benches:
             try:
-                # Create silent output handler for internal bench detection
                 output = SilentOutputHandler()
-                logger = ctx.obj.get("logger")
-                bench = Bench.get_object(bench_name, services_manager, logger=logger, output_handler=output)
+                bench = Bench.get_object(bench_name, services_manager, logger=None, output_handler=output)
                 bench_domains.update(bench.bench_config.get_all_domains())
             except Exception:
                 continue

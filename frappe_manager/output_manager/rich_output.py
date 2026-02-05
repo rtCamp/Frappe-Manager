@@ -12,7 +12,7 @@ import threading
 import warnings
 from collections import deque
 from collections.abc import Iterable, Sequence
-from typing import Any
+from typing import Any, Optional
 
 import typer
 from rich.console import Console, Group
