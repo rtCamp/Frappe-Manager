@@ -292,24 +292,24 @@
       "examples": [
         {
           "desc": "Add SSL certificate for {benchname} with HTTP-01 challenge",
-          "code": " example.com --challenge http01"
+          "code": " {domain} --challenge http01"
         },
         {
           "desc": "Add SSL certificate with DNS-01 challenge (Cloudflare)",
-          "code": " example.com --challenge dns01"
+          "code": " {domain} --challenge dns01"
         },
         {
           "desc": "Add for external Docker project (standalone mode)",
-          "code": " example.com --standalone",
+          "code": " {domain} --standalone",
           "benchname": ""
         },
         {
           "desc": "Test with Let's Encrypt staging (dry-run)",
-          "code": " example.com --dry-run"
+          "code": " {domain} --dry-run"
         },
         {
           "desc": "Add with CNAME delegation for DNS validation",
-          "code": " example.com --challenge dns01 --cname _acme-challenge.delegated.com"
+          "code": " {domain} --challenge dns01 --cname delegated.example.com"
         }
       ]
     },
@@ -317,15 +317,15 @@
       "examples": [
         {
           "desc": "Remove SSL certificate from {benchname}",
-          "code": " example.com"
+          "code": " {domain}"
         },
         {
           "desc": "Remove without confirmation",
-          "code": " example.com --yes"
+          "code": " {domain} --yes"
         },
         {
           "desc": "Remove external (standalone) certificate",
-          "code": " example.com --standalone",
+          "code": " {domain} --standalone",
           "benchname": ""
         }
       ]
@@ -338,7 +338,7 @@
         },
         {
           "desc": "Renew certificate for specific domain on {benchname}",
-          "code": " www.example.com"
+          "code": " {domain}"
         },
         {
           "desc": "Renew all certificates for all benches",
@@ -351,7 +351,7 @@
         },
         {
           "desc": "Renew specific external (standalone) domain",
-          "code": " --standalone example.com",
+          "code": " --standalone {domain}",
           "benchname": ""
         },
         {

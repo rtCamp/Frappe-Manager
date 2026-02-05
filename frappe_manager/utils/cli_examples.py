@@ -13,12 +13,15 @@ def get_examples_from_toml(
     commands_stack: List[str],
     frappe_version: str,
     toml_path: Path = get_frappe_manager_own_files('./utils/examples.json'),
-    benchname: str = 'mybench',
+    example_data: Dict[str, str] | None = None,
 ):
     file_data = toml_path.read_bytes()
     data: Dict[str, List[Dict[str, str]]] = json.loads(file_data)
 
-    example_data = {'benchname': benchname, 'default_version': frappe_version}
+    if example_data is None:
+        example_data = {'benchname': 'mybench', 'domain': 'example.com'}
+
+    example_data['default_version'] = frappe_version
 
     examples_data = deepcopy(data)
 
@@ -40,9 +43,9 @@ def get_examples_from_toml(
     COMMANDS_WITHOUT_BENCHNAME = ['list', 'services']
 
     if examples_data:
-        element_example_data = deepcopy(example_data)
-
         for element in examples_data:
+            element_example_data = deepcopy(example_data)
+
             desc = element.get('desc', 'None')
             code = element.get('code', 'None')
 
@@ -64,7 +67,7 @@ def get_examples_from_toml(
                     if benchname_is_nonempty:
                         cmd += f" {element_example_data['benchname']}"
                 else:
-                    cmd += f" {benchname}"
+                    cmd += f" {element_example_data.get('benchname', 'mybench')}"
 
             if code and code.strip():
                 cmd += code.format(**element_example_data)
