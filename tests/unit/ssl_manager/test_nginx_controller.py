@@ -42,7 +42,7 @@ class TestNginxControllerReload:
 
         # Verify output handler was called for status updates
         mock_output.change_head.assert_called_once_with("Reloading nginx")
-        mock_output.print.assert_called_once_with("Reloaded nginx.")
+        mock_output.print.assert_called_once_with("Reloaded nginx")
 
         # Verify docker exec was called with correct parameters
         mock_docker_client.compose.exec.assert_called_once_with(
@@ -105,7 +105,7 @@ class TestNginxControllerRestart:
 
         # Verify output handler was called for status updates
         mock_output.change_head.assert_called_once_with("Restarting nginx")
-        mock_output.print.assert_called_once_with("Restarting nginx.")
+        mock_output.print.assert_called_once_with("Restarting nginx")
 
         # Verify docker restart was called with correct parameters
         mock_docker_client.compose.restart.assert_called_once_with(services=["nginx-proxy"], stream=False)

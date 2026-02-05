@@ -55,7 +55,7 @@ class TestMigrationExecutorVersionEnforcement:
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
             patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
-            patch("frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules", return_value=[]),
+            patch("frappe_manager.migration_manager.migration_discovery.pkgutil.iter_modules", return_value=[]),
         ):
             mock_output = Mock()
             executor = MigrationExecutor(mock_fm_config, output_handler=mock_output)
@@ -116,11 +116,11 @@ class TestMigrationExecutorMigrationDiscovery:
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
             patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
             patch(
-                "frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules",
+                "frappe_manager.migration_manager.migration_discovery.pkgutil.iter_modules",
                 return_value=[(None, "migrate_0_20_0", None)],
             ),
             patch(
-                "frappe_manager.migration_manager.migration_executor.importlib.import_module", return_value=mock_module,
+                "frappe_manager.migration_manager.migration_discovery.importlib.import_module", return_value=mock_module,
             ),
         ):
             mock_output = Mock()
@@ -145,11 +145,11 @@ class TestMigrationExecutorMigrationDiscovery:
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
             patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
             patch(
-                "frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules",
+                "frappe_manager.migration_manager.migration_discovery.pkgutil.iter_modules",
                 return_value=[(None, "migrate_0_0_0", None)],
             ),
             patch(
-                "frappe_manager.migration_manager.migration_executor.importlib.import_module", return_value=mock_module,
+                "frappe_manager.migration_manager.migration_discovery.importlib.import_module", return_value=mock_module,
             ),
         ):
             mock_output = Mock()

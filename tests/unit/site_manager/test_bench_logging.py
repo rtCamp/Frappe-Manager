@@ -74,11 +74,10 @@ class TestBenchLoggerStorage:
 
     def test_bench_defaults_to_plain_logger_when_none(self, mock_bench_dependencies, mocker):
         """Bench should use log.get_logger() when logger=None."""
-        mock_get_logger = mocker.patch("frappe_manager.site_manager.site.log.get_logger")
+        mock_get_logger = mocker.patch("frappe_manager.logger.log.get_logger")
         mock_plain_logger = MagicMock()
         mock_get_logger.return_value = mock_plain_logger
 
-        # Mock __init__ to test only the logger assignment
         mocker.patch.object(Bench, "__init__", lambda *args, **kwargs: None)
         bench = Bench.__new__(Bench)
         bench.logger = mock_bench_dependencies.get("logger") or mock_plain_logger
@@ -105,8 +104,8 @@ class TestLifecycleOperationLogging:
         assert len(debug_calls) > 0
         first_call_args, first_call_kwargs = debug_calls[0]
         assert "Starting bench creation" in first_call_args[0]
-        assert "extra" in first_call_kwargs
-        extra = first_call_kwargs["extra"]
+        assert "extra_fields" in first_call_kwargs
+        extra = first_call_kwargs["extra_fields"]
         assert extra["operation"] == "bench_create"
         assert extra["bench_name"] == "test.localhost"
         assert extra["is_template_bench"] is False
@@ -136,8 +135,8 @@ class TestLifecycleOperationLogging:
         assert len(exception_calls) > 0
         call_args, call_kwargs = exception_calls[0]
         assert "Failed to create" in call_args[0]
-        assert "extra" in call_kwargs
-        assert call_kwargs["extra"]["error"] == "Creation failed"
+        assert "extra_fields" in call_kwargs
+        assert call_kwargs["extra_fields"]["error"] == "Creation failed"
 
     def test_start_logs_with_parameters(self, mock_bench_dependencies, mock_logger, mocker):
         """start() should log with force and reconfigure parameters."""
@@ -153,7 +152,7 @@ class TestLifecycleOperationLogging:
         debug_calls = mock_logger.debug.call_args_list
         assert len(debug_calls) > 0
         call_args, call_kwargs = debug_calls[0]
-        extra = call_kwargs["extra"]
+        extra = call_kwargs["extra_fields"]
         assert extra["operation"] == "bench_start"
         assert extra["force"] is True
         assert extra["reconfigure_workers"] is True
@@ -179,7 +178,7 @@ class TestLifecycleOperationLogging:
         debug_calls = mock_logger.debug.call_args_list
         assert len(debug_calls) > 0
         call_args, call_kwargs = debug_calls[0]
-        extra = call_kwargs["extra"]
+        extra = call_kwargs["extra_fields"]
         assert extra["operation"] == "bench_stop"
 
     def test_remove_bench_logs_cancellation(self, mock_bench_dependencies, mock_logger, mocker):
@@ -217,7 +216,7 @@ class TestSSLOperationLogging:
         debug_calls = mock_logger.debug.call_args_list
         assert len(debug_calls) > 0
         call_args, call_kwargs = debug_calls[0]
-        extra = call_kwargs["extra"]
+        extra = call_kwargs["extra_fields"]
         assert extra["operation"] == "ssl_create_certificate"
         assert extra["bench_name"] == "test.localhost"
 
@@ -238,7 +237,7 @@ class TestSSLOperationLogging:
         debug_calls = mock_logger.debug.call_args_list
         assert len(debug_calls) > 0
         call_args, call_kwargs = debug_calls[0]
-        extra = call_kwargs["extra"]
+        extra = call_kwargs["extra_fields"]
         assert extra["operation"] == "ssl_remove_certificate"
 
     def test_update_certificate_logs_with_correct_extra(self, mock_bench_dependencies, mock_logger, mocker):
@@ -257,7 +256,7 @@ class TestSSLOperationLogging:
         debug_calls = mock_logger.debug.call_args_list
         assert len(debug_calls) > 0
         call_args, call_kwargs = debug_calls[0]
-        extra = call_kwargs["extra"]
+        extra = call_kwargs["extra_fields"]
         assert extra["operation"] == "ssl_update_certificate"
 
     def test_renew_certificate_logs_with_correct_extra(self, mock_bench_dependencies, mock_logger, mocker):
@@ -274,7 +273,7 @@ class TestSSLOperationLogging:
         debug_calls = mock_logger.debug.call_args_list
         assert len(debug_calls) > 0
         call_args, call_kwargs = debug_calls[0]
-        extra = call_kwargs["extra"]
+        extra = call_kwargs["extra_fields"]
         assert extra["operation"] == "ssl_renew_certificate"
 
 
@@ -297,7 +296,7 @@ class TestConfigOperationLogging:
         debug_calls = mock_logger.debug.call_args_list
         assert len(debug_calls) > 0
         call_args, call_kwargs = debug_calls[0]
-        extra = call_kwargs["extra"]
+        extra = call_kwargs["extra_fields"]
         assert extra["operation"] == "config_save_bench_config"
 
     def test_set_common_bench_config_logs_config_keys(self, mock_bench_dependencies, mock_logger, mocker):
@@ -316,7 +315,7 @@ class TestConfigOperationLogging:
         debug_calls = mock_logger.debug.call_args_list
         assert len(debug_calls) > 0
         call_args, call_kwargs = debug_calls[0]
-        extra = call_kwargs["extra"]
+        extra = call_kwargs["extra_fields"]
         assert extra["operation"] == "config_set_common"
         assert "developer_mode" in extra["config_keys"]
         assert "timeout" in extra["config_keys"]
@@ -345,7 +344,7 @@ class TestConfigOperationLogging:
         debug_calls = mock_logger.debug.call_args_list
         assert len(debug_calls) > 0
         call_args, call_kwargs = debug_calls[0]
-        extra = call_kwargs["extra"]
+        extra = call_kwargs["extra_fields"]
         assert extra["operation"] == "config_sync_bench_config"
 
 
@@ -366,7 +365,7 @@ class TestDatabaseOperationLogging:
         debug_calls = mock_logger.debug.call_args_list
         assert len(debug_calls) > 0
         call_args, call_kwargs = debug_calls[0]
-        extra = call_kwargs["extra"]
+        extra = call_kwargs["extra_fields"]
         assert extra["operation"] == "db_remove"
 
     def test_handle_database_deletion_logs_deletion_handler_operation(
@@ -385,7 +384,7 @@ class TestDatabaseOperationLogging:
         debug_calls = mock_logger.debug.call_args_list
         assert len(debug_calls) > 0
         call_args, call_kwargs = debug_calls[0]
-        extra = call_kwargs["extra"]
+        extra = call_kwargs["extra_fields"]
         assert extra["operation"] == "db_handle_deletion"
 
 
@@ -406,7 +405,7 @@ class TestWorkerOperationLogging:
         debug_calls = mock_logger.debug.call_args_list
         assert len(debug_calls) > 0
         call_args, call_kwargs = debug_calls[0]
-        extra = call_kwargs["extra"]
+        extra = call_kwargs["extra_fields"]
         assert extra["operation"] == "workers_ensure_running"
 
     def test_sync_workers_compose_logs_with_parameters(self, mock_bench_dependencies, mock_logger, mocker):
@@ -423,7 +422,7 @@ class TestWorkerOperationLogging:
         debug_calls = mock_logger.debug.call_args_list
         assert len(debug_calls) > 0
         call_args, call_kwargs = debug_calls[0]
-        extra = call_kwargs["extra"]
+        extra = call_kwargs["extra_fields"]
         assert extra["operation"] == "workers_sync_compose"
         assert extra["force_recreate"] is True
         assert extra["setup_supervisor"] is False
@@ -451,7 +450,7 @@ class TestAdminToolsOperationLogging:
         debug_calls = mock_logger.debug.call_args_list
         assert len(debug_calls) > 0
         call_args, call_kwargs = debug_calls[0]
-        extra = call_kwargs["extra"]
+        extra = call_kwargs["extra_fields"]
         assert extra["operation"] == "admin_tools_sync_compose"
 
 
@@ -476,5 +475,5 @@ class TestExceptionHandlingLogging:
         exception_calls = mock_logger.exception.call_args_list
         assert len(exception_calls) > 0
         call_args, call_kwargs = exception_calls[0]
-        extra = call_kwargs["extra"]
+        extra = call_kwargs["extra_fields"]
         assert extra["error"] == "Test error message"

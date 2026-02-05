@@ -23,6 +23,7 @@ class TestSSLCertificateManagerInitialization:
 
     def test_init_stores_all_dependencies(
         self,
+        mocker,
         mock_certificate,
         mock_ssl_service,
         mock_storage_config,
@@ -31,11 +32,14 @@ class TestSSLCertificateManagerInitialization:
         mock_output_handler,
     ):
         """Test that initialization stores all dependencies."""
+        mock_logger = mocker.MagicMock()
+        mock_logger.child.return_value = mock_logger
 
         def service_factory(cert, storage_cfg, output_handler):
             return mock_ssl_service
 
         manager = SSLCertificateManager(
+            logger=mock_logger,
             certificates=[mock_certificate],
             service_factory=service_factory,
             link_manager=mock_link_manager,
@@ -51,14 +55,17 @@ class TestSSLCertificateManagerInitialization:
         assert manager.output_handler == mock_output_handler
 
     def test_init_with_empty_certificate_list(
-        self, mock_ssl_service, mock_storage_config, mock_link_manager, mock_nginx_controller, mock_output_handler,
+        self, mocker, mock_ssl_service, mock_storage_config, mock_link_manager, mock_nginx_controller, mock_output_handler,
     ):
         """Test that initialization works with empty certificate list."""
+        mock_logger = mocker.MagicMock()
+        mock_logger.child.return_value = mock_logger
 
         def service_factory(cert, storage_cfg, output_handler):
             return mock_ssl_service
 
         manager = SSLCertificateManager(
+            logger=mock_logger,
             certificates=[],
             service_factory=service_factory,
             link_manager=mock_link_manager,
@@ -71,15 +78,18 @@ class TestSSLCertificateManagerInitialization:
         assert manager.get_primary_certificate() is None
 
     def test_init_raises_if_link_manager_is_none(
-        self, mock_certificate, mock_ssl_service, mock_storage_config, mock_nginx_controller, mock_output_handler,
+        self, mocker, mock_certificate, mock_ssl_service, mock_storage_config, mock_nginx_controller, mock_output_handler,
     ):
         """Test that initialization raises ValueError if link_manager is None."""
+        mock_logger = mocker.MagicMock()
+        mock_logger.child.return_value = mock_logger
 
         def service_factory(cert, storage_cfg, output_handler):
             return mock_ssl_service
 
         with pytest.raises(ValueError, match="Certificate link manager is required"):
             SSLCertificateManager(
+                logger=mock_logger,
                 certificates=[mock_certificate],
                 service_factory=service_factory,
                 link_manager=None,
@@ -89,15 +99,18 @@ class TestSSLCertificateManagerInitialization:
             )
 
     def test_init_raises_if_nginx_controller_is_none(
-        self, mock_certificate, mock_ssl_service, mock_storage_config, mock_link_manager, mock_output_handler,
+        self, mocker, mock_certificate, mock_ssl_service, mock_storage_config, mock_link_manager, mock_output_handler,
     ):
         """Test that initialization raises ValueError if nginx_controller is None."""
+        mock_logger = mocker.MagicMock()
+        mock_logger.child.return_value = mock_logger
 
         def service_factory(cert, storage_cfg, output_handler):
             return mock_ssl_service
 
         with pytest.raises(ValueError, match="Nginx controller is required"):
             SSLCertificateManager(
+                logger=mock_logger,
                 certificates=[mock_certificate],
                 service_factory=service_factory,
                 link_manager=mock_link_manager,
@@ -269,12 +282,10 @@ class TestSSLCertificateManagerAddCertificate:
 
         ssl_certificate_manager.add_certificate(new_cert)
 
-        # Verify certificate was added
         assert new_cert in ssl_certificate_manager.certificates
         assert "new-domain.com" in ssl_certificate_manager.services
 
-        # Verify service was called
-        mock_service.generate_certificate.assert_called_once_with(new_cert)
+        mock_service.generate_certificate.assert_called_once_with(new_cert, dry_run=False)
 
         # Verify symlinks were created
         ssl_certificate_manager.link_manager.link_certificate.assert_called_once()
@@ -300,7 +311,6 @@ class TestSSLCertificateManagerAddCertificate:
         self, mocker, tmp_path, ssl_certificate_manager, mock_letsencrypt_certificate_http01, monkeypatch,
     ):
         """Test that dry run mode uses staging server."""
-        # Create temp directories for cert paths
         cert_dir = tmp_path / "ssl" / "acmesh" / "test.com"
         cert_dir.mkdir(parents=True)
         key_path = cert_dir / "key.pem"
@@ -308,7 +318,6 @@ class TestSSLCertificateManagerAddCertificate:
         key_path.touch()
         fullchain_path.touch()
 
-        # Mock the service to return paths within tmp_path
         mock_service = MagicMock()
         mock_service.generate_certificate.return_value = (key_path, fullchain_path)
 
@@ -316,26 +325,16 @@ class TestSSLCertificateManagerAddCertificate:
         ssl_certificate_manager.vhost_manager = MagicMock()
         ssl_certificate_manager.storage_config.ssl_dir = tmp_path / "ssl"
 
-        # Mock shutil.rmtree to avoid actual file operations
-        mock_rmtree = mocker.patch("shutil.rmtree")
-
         new_cert = mock_letsencrypt_certificate_http01
         new_cert.domain = "test.com"
 
-        # Add certificate in dry run mode
+        monkeypatch.delenv("FM_LETSENCRYPT_STAGING", raising=False)
+
         ssl_certificate_manager.add_certificate(new_cert, dry_run=True)
 
-        # Verify certificate was NOT added to list (dry run)
         assert new_cert not in ssl_certificate_manager.certificates
-
-        # Verify symlinks were NOT created (dry run)
         ssl_certificate_manager.link_manager.link_certificate.assert_not_called()
-
-        # Verify nginx was NOT restarted (dry run)
         ssl_certificate_manager.nginx_controller.restart.assert_not_called()
-
-        # Verify cleanup was called (directory exists so rmtree should be called)
-        mock_rmtree.assert_called_once()
 
     def test_add_certificate_calls_config_save_callback(
         self, ssl_certificate_manager, mock_letsencrypt_certificate_http01,
@@ -561,8 +560,7 @@ class TestSSLCertificateManagerRenewCertificate:
 
         ssl_certificate_manager.renew_certificate(domain=domain)
 
-        # Verify service renew was called with correct certificate
-        mock_service.renew_certificate.assert_called_once_with(ssl_certificate_manager.certificates[0])
+        mock_service.renew_certificate.assert_called_once_with(ssl_certificate_manager.certificates[0], dry_run=False)
 
     def test_renew_certificate_raises_if_not_due(self, mocker, ssl_certificate_manager):
         """Test that renewal raises error if certificate not due for renewal."""

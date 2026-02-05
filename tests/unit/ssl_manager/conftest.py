@@ -77,8 +77,9 @@ def mock_letsencrypt_certificate_http01():
         domain="example.com",
         ssl_type=SUPPORTED_SSL_TYPES.le,
         challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
-        email="admin@example.com",
         hsts="off",
+        api_token=None,
+        api_key=None,
     )
 
 
@@ -89,8 +90,8 @@ def mock_letsencrypt_certificate_dns01():
         domain="example.com",
         ssl_type=SUPPORTED_SSL_TYPES.le,
         challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
-        email="admin@example.com",
         api_token="test_cloudflare_token_123",
+        api_key=None,
         hsts="off",
     )
 
@@ -102,7 +103,7 @@ def mock_letsencrypt_certificate_dns01_with_key():
         domain="example.com",
         ssl_type=SUPPORTED_SSL_TYPES.le,
         challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
-        email="admin@example.com",
+        api_token=None,
         api_key="test_cloudflare_global_key_456",
         hsts="off",
     )
@@ -115,8 +116,9 @@ def mock_http_certificate():
         domain="example.com",
         ssl_type=SUPPORTED_SSL_TYPES.le,
         challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
-        email="admin@example.com",
         hsts="off",
+        api_token=None,
+        api_key=None,
     )
 
 
@@ -127,8 +129,8 @@ def mock_dns_certificate():
         domain="example.com",
         ssl_type=SUPPORTED_SSL_TYPES.le,
         challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
-        email="admin@example.com",
         api_token="test_cloudflare_token_123",
+        api_key=None,
         hsts="off",
     )
 
@@ -281,6 +283,14 @@ def mock_output_handler(mocker):
     return mock_handler
 
 
+@pytest.fixture
+def mock_logger(mocker):
+    """Returns a mock ContextualLogger."""
+    mock_log = mocker.MagicMock()
+    mock_log.child.return_value = mock_log
+    return mock_log
+
+
 # ============================================================================
 # Manager Fixtures
 # ============================================================================
@@ -288,6 +298,7 @@ def mock_output_handler(mocker):
 
 @pytest.fixture
 def ssl_certificate_manager(
+    mocker,
     mock_certificate,
     mock_storage_config,
     mock_link_manager,
@@ -298,11 +309,14 @@ def ssl_certificate_manager(
     """Returns a fully initialized SSLCertificateManager for testing (multi-cert API)."""
     from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
 
-    # Factory function that returns the mock service
+    mock_logger = mocker.MagicMock()
+    mock_logger.child.return_value = mock_logger
+
     def certificate_service_factory(cert, storage_cfg, output_handler):
         return mock_ssl_service
 
     return SSLCertificateManager(
+        logger=mock_logger,
         certificates=[mock_certificate],
         service_factory=certificate_service_factory,
         link_manager=mock_link_manager,

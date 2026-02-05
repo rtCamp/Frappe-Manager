@@ -128,8 +128,8 @@ class TestMigrationExecutorAutoProceedFlag:
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
             patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
-            patch("frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules") as mock_iter,
-            patch("frappe_manager.migration_manager.migration_executor.importlib.import_module") as mock_import,
+            patch("frappe_manager.migration_manager.migration_discovery.pkgutil.iter_modules") as mock_iter,
+            patch("frappe_manager.migration_manager.migration_discovery.importlib.import_module") as mock_import,
         ):
             mock_iter.return_value = [(None, "migrate_0_19_0", False)]
 
@@ -166,7 +166,7 @@ class TestMigrationExecutorAutoProceedFlag:
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
             patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
-            patch("frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules") as mock_iter,
+            patch("frappe_manager.migration_manager.migration_discovery.pkgutil.iter_modules") as mock_iter,
         ):
             mock_iter.return_value = []
 
