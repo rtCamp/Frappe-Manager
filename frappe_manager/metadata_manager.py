@@ -41,7 +41,8 @@ class FMLetsencryptConfig(BaseModel):
     """Let's Encrypt configuration for certificate registration."""
 
     email: EmailStr | None = Field(
-        None, description="Email for Let's Encrypt certificate registration and notifications.",
+        None,
+        description="Email for Let's Encrypt certificate registration and notifications.",
     )
 
     @property
@@ -87,7 +88,8 @@ class FMLogsConfig(BaseModel):
     """Logging configuration for file and console output."""
 
     file_level: str = Field(
-        default="DEBUG", description="Log level for file logs (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+        default="DEBUG",
+        description="Log level for file logs (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
     )
 
     def get_toml_doc(self):

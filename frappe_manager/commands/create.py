@@ -36,10 +36,12 @@ def create(
         ),
     ] = [],
     environment: Annotated[
-        FMBenchEnvType, typer.Option("--environment", "-e", help="Environment type (dev or prod)"),
+        FMBenchEnvType,
+        typer.Option("--environment", "-e", help="Environment type (dev or prod)"),
     ] = FMBenchEnvType.dev,
     developer_mode: Annotated[
-        EnableDisableOptionsEnum, typer.Option(help="Enable/disable developer mode"),
+        EnableDisableOptionsEnum,
+        typer.Option(help="Enable/disable developer mode"),
     ] = EnableDisableOptionsEnum.disable,
     template: Annotated[bool, typer.Option(help="Create as template bench")] = False,
     admin_pass: Annotated[

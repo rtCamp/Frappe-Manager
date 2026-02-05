@@ -247,7 +247,10 @@ class BenchDockerOps:
         if self.compose_file_manager.exists():
             self.output.change_head("Removing bench containers")
             output = self.docker_client.compose.down(
-                remove_orphans=True, volumes=remove_volumes, timeout=timeout, stream=True,
+                remove_orphans=True,
+                volumes=remove_volumes,
+                timeout=timeout,
+                stream=True,
             )
             self.output.live_lines(cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2))
             self.output.print("Removed bench containers")
@@ -255,7 +258,11 @@ class BenchDockerOps:
             self.output.warning("Bench compose file not found. Skipping containers removal.")
 
     def shell(
-        self, compose_service: str, user: str | None = None, shell_path: str | None = None, use_run: bool = False,
+        self,
+        compose_service: str,
+        user: str | None = None,
+        shell_path: str | None = None,
+        use_run: bool = False,
     ) -> None:
         """
         Spawn a shell for the specified service.

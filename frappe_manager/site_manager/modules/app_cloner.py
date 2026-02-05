@@ -27,7 +27,6 @@ class AppClonerError(Exception):
     """Custom exception for app cloning errors."""
 
 
-
 class AppCloner:
     """
     Handles parallel Git cloning with authentication fallback.

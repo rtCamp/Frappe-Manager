@@ -20,7 +20,8 @@ def list_certificates(
     benchname: Annotated[
         str | None,
         typer.Argument(
-            help="Name of the bench (omit for standalone mode).", autocompletion=sites_autocompletion_callback,
+            help="Name of the bench (omit for standalone mode).",
+            autocompletion=sites_autocompletion_callback,
         ),
     ] = None,
     standalone: Annotated[

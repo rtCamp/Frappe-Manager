@@ -25,7 +25,11 @@ if TYPE_CHECKING:
 
 class BenchAdminTools:
     def __init__(
-        self, bench: "Bench", nginx_proxy: Any, verbose: bool = True, output_handler: OutputHandler | None = None,
+        self,
+        bench: "Bench",
+        nginx_proxy: Any,
+        verbose: bool = True,
+        output_handler: OutputHandler | None = None,
     ):
         """
         Initialize BenchAdminTools.
@@ -208,7 +212,10 @@ class BenchAdminTools:
         # Use docker_client directly instead of compose_project wrapper
         try:
             self.docker_client.compose.up(
-                services=[], detach=True, pull="never", force_recreate=force_recreate_container,
+                services=[],
+                detach=True,
+                pull="never",
+                force_recreate=force_recreate_container,
             )
         except DockerException as e:
             from frappe_manager.compose_project.exceptions import DockerComposeProjectFailedToStartError
@@ -230,7 +237,8 @@ class BenchAdminTools:
             from frappe_manager.compose_project.exceptions import DockerComposeProjectFailedToStopError
 
             raise DockerComposeProjectFailedToStopError(
-                self.compose_path, self.compose_file_manager.get_services_list(),
+                self.compose_path,
+                self.compose_file_manager.get_services_list(),
             )
 
     def disable(self):

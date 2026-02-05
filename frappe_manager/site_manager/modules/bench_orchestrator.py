@@ -295,7 +295,8 @@ class BenchOrchestrator:
 
         current_fm_version = Version(get_current_fm_version())
         bench.bench_config.migration_state = MigrationState(
-            migrated_to=str(current_fm_version.version), last_migration_date=datetime.now().isoformat(),
+            migrated_to=str(current_fm_version.version),
+            last_migration_date=datetime.now().isoformat(),
         )
 
         bench.save_bench_config()
@@ -364,7 +365,8 @@ class BenchOrchestrator:
 
         try:
             bench.app_manager._container_run(
-                migrate_cmd, raise_exception_obj=BenchOperationException(bench.name, "bench migrate failed"),
+                migrate_cmd,
+                raise_exception_obj=BenchOperationException(bench.name, "bench migrate failed"),
             )
         except Exception as e:
             self.logger.warning(f"{bench.name}: bench migrate failed: {e}")
@@ -387,7 +389,8 @@ class BenchOrchestrator:
 
         current_fm_version = Version(get_current_fm_version())
         bench.bench_config.migration_state = MigrationState(
-            migrated_to=str(current_fm_version.version), last_migration_date=datetime.now().isoformat(),
+            migrated_to=str(current_fm_version.version),
+            last_migration_date=datetime.now().isoformat(),
         )
 
         bench.save_bench_config()

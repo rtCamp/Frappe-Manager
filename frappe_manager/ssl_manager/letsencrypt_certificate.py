@@ -1,4 +1,3 @@
-
 from pydantic import Field, model_validator
 
 from frappe_manager.ssl_manager.certificate import SSLCertificate

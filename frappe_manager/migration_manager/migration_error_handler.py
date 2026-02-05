@@ -147,14 +147,17 @@ class MigrationErrorHandler:
             ]
 
             rollback_decision = self.executor.output.prompt_ask(
-                prompt="\n".join(rollback_msg), choices=["yes", "no"], required_flag="--on-failure",
+                prompt="\n".join(rollback_msg),
+                choices=["yes", "no"],
+                required_flag="--on-failure",
             )
 
             if rollback_decision == "yes":
                 return "no"
             self.executor.output.print("\nSkipping rollback. Bench remains in current state.", emoji_code="")
             self.executor.output.print(
-                f"You can manually fix the bench or retry with: fm migrate {bench_name}", emoji_code="",
+                f"You can manually fix the bench or retry with: fm migrate {bench_name}",
+                emoji_code="",
             )
             return "skip"
 
@@ -173,7 +176,9 @@ class MigrationErrorHandler:
         ]
 
         return self.executor.output.prompt_ask(
-            prompt="\n".join(archive_msg), choices=["yes", "no"], required_flag="--on-failure",
+            prompt="\n".join(archive_msg),
+            choices=["yes", "no"],
+            required_flag="--on-failure",
         )
 
     def _archive_failed_benches(self):
@@ -216,10 +221,12 @@ class MigrationErrorHandler:
         if show_cli_downgrade_instructions:
             self.executor.output.print("", emoji_code="")
             self.executor.output.print(
-                f"To revert FM CLI to v{self.executor.rollback_version.version!s}, run:", emoji_code="",
+                f"To revert FM CLI to v{self.executor.rollback_version.version!s}, run:",
+                emoji_code="",
             )
             self.executor.output.print(
-                f"  uv tool install frappe-manager=={self.executor.rollback_version.version!s}", emoji_code="",
+                f"  uv tool install frappe-manager=={self.executor.rollback_version.version!s}",
+                emoji_code="",
             )
 
         self.executor.output.print("", emoji_code="")

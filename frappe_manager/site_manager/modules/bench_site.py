@@ -174,7 +174,10 @@ class BenchSiteManager:
             self._container_run(
                 f"wait-for-it -t {timeout} {host}:{port}",
                 raise_exception_obj=BenchOperationWaitForRequiredServiceFailed(
-                    bench_name=self.bench_name, host=host, port=str(port), timeout=timeout,
+                    bench_name=self.bench_name,
+                    host=host,
+                    port=str(port),
+                    timeout=timeout,
                 ),
                 capture_output=True,
             ),
@@ -221,7 +224,8 @@ class BenchSiteManager:
         self._container_run(
             " ".join(self.bench_cli_cmd + [f"use {self.bench_name}"]),
             raise_exception_obj=BenchOperationException(
-                self.bench_name, f"Failed to set {self.bench_name} as default site.",
+                self.bench_name,
+                f"Failed to set {self.bench_name} as default site.",
             ),
         )
 
@@ -229,7 +233,8 @@ class BenchSiteManager:
         self._container_run(
             " ".join(self.bench_cli_cmd + [f"--site {self.bench_name} scheduler enable"]),
             raise_exception_obj=BenchOperationException(
-                self.bench_name, f"Failed to enable {self.bench_name}'s scheduler.",
+                self.bench_name,
+                f"Failed to enable {self.bench_name}'s scheduler.",
             ),
         )
 
@@ -265,7 +270,8 @@ class BenchSiteManager:
         self._container_run(
             reset_bench_site_command,
             raise_exception_obj=BenchOperationException(
-                bench_name=self.bench_name, message=f"Failed to reset bench site {self.bench_name}.",
+                bench_name=self.bench_name,
+                message=f"Failed to reset bench site {self.bench_name}.",
             ),
         )
 
@@ -336,14 +342,22 @@ class BenchSiteManager:
                     output = cast(
                         "SubprocessOutput",
                         self.docker_client.compose.exec(
-                            service=service, command=exec_command, user=user, workdir=workdir, stream=False,
+                            service=service,
+                            command=exec_command,
+                            user=user,
+                            workdir=workdir,
+                            stream=False,
                         ),
                     )
                     return output
                 output = cast(
                     "Iterator[tuple[str, bytes]]",
                     self.docker_client.compose.exec(
-                        service=service, command=exec_command, workdir=workdir, user=user, stream=True,
+                        service=service,
+                        command=exec_command,
+                        workdir=workdir,
+                        user=user,
+                        stream=True,
                     ),
                 )
                 self.output.live_lines(output)

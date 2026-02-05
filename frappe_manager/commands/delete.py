@@ -13,7 +13,9 @@ def delete(
     benchname: Annotated[
         str | None,
         typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback,
+            help="Name of the bench.",
+            autocompletion=sites_autocompletion_callback,
+            callback=sitename_callback,
         ),
     ] = None,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation prompts")] = False,

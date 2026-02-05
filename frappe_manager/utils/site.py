@@ -205,10 +205,12 @@ def get_all_docker_images():
 
     temp_bench_compose_file_manager = ComposeFile(loadfile=Path("/dev/null/docker-compose.yml"))
     services_manager_compose_file_manager = ComposeFile(
-        loadfile=Path("/dev/null/docker-compose.yml"), template_name="docker-compose.services.tmpl",
+        loadfile=Path("/dev/null/docker-compose.yml"),
+        template_name="docker-compose.services.tmpl",
     )
     admin_tools_manager_compose_file_manager = ComposeFile(
-        loadfile=Path("/dev/null/docker-compose.yml"), template_name="docker-compose.admin-tools.tmpl",
+        loadfile=Path("/dev/null/docker-compose.yml"),
+        template_name="docker-compose.admin-tools.tmpl",
     )
 
     images = temp_bench_compose_file_manager.get_all_images()

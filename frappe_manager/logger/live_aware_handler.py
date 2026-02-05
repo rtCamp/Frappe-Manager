@@ -4,7 +4,6 @@ Live-aware logging handlers.
 Handlers that coordinate with Rich Live display to prevent output corruption.
 """
 
-
 from rich.logging import RichHandler
 
 

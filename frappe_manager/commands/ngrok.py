@@ -16,7 +16,9 @@ def ngrok(
     benchname: Annotated[
         str | None,
         typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback,
+            help="Name of the bench.",
+            autocompletion=sites_autocompletion_callback,
+            callback=sitename_callback,
         ),
     ] = None,
     auth_token: Annotated[
@@ -26,7 +28,8 @@ def ngrok(
     save_token: Annotated[
         bool | None,
         typer.Option(
-            "--save-token/--no-save-token", help="Save or don't save the ngrok auth token to config for future use",
+            "--save-token/--no-save-token",
+            help="Save or don't save the ngrok auth token to config for future use",
         ),
     ] = None,
 ):

@@ -90,7 +90,6 @@ def extract_python_version_requirement(frappe_app_path: Path) -> str | None:
         return None
 
     try:
-
         data = tomlkit.parse(pyproject.read_text())
 
         # Check [project] requires-python (PEP 621 standard)
@@ -761,7 +760,10 @@ class AppConfig(BaseModel):
 
     @classmethod
     def validate_repos_batch(
-        cls, apps: list["AppConfig"], github_token: str | None = None, max_workers: int = 10,
+        cls,
+        apps: list["AppConfig"],
+        github_token: str | None = None,
+        max_workers: int = 10,
     ) -> AppBatchValidationResult:
         """
         Validate multiple app repositories in parallel.
@@ -906,7 +908,8 @@ class BenchConfig(BaseModel):
 
     # DNS provider credentials for DNS-01 challenge (optional, bench-specific override)
     dns_providers: dict[str, DNSProviderConfig] | None = Field(
-        default=None, description="DNS provider credentials for DNS-01 challenge (e.g., {'cloudflare': {...}})",
+        default=None,
+        description="DNS provider credentials for DNS-01 challenge (e.g., {'cloudflare': {...}})",
     )
 
     alias_domains: list[str] = Field(default=[], description="List of alias domains for the bench")
@@ -926,12 +929,14 @@ class BenchConfig(BaseModel):
 
     # NEW: UV installation preference (always True, with fallback)
     use_uv: bool = Field(
-        True, description="Use UV for faster Python package installation (with automatic fallback to pip)",
+        True,
+        description="Use UV for faster Python package installation (with automatic fallback to pip)",
     )
 
     # NEW: Auto-detected Python and Node version requirements from frappe
     python_version: str | None = Field(
-        None, description="Python version requirement from frappe app (e.g., '>=3.10,<3.14')",
+        None,
+        description="Python version requirement from frappe app (e.g., '>=3.10,<3.14')",
     )
     node_version: str | None = Field(None, description="Node version requirement from frappe app (e.g., '>=18')")
 
@@ -939,11 +944,13 @@ class BenchConfig(BaseModel):
     db_name: str | None = Field(None, description="Database name for this bench (auto-generated random string)")
 
     restart_policy: RestartPolicyEnum | None = Field(
-        default=None, description="Docker Compose restart policy for all services in this bench",
+        default=None,
+        description="Docker Compose restart policy for all services in this bench",
     )
 
     migration_state: MigrationState | None = Field(
-        None, description="Migration state tracking (managed by migration system)",
+        None,
+        description="Migration state tracking (managed by migration system)",
     )
 
     @field_validator("restart_policy", mode="before")

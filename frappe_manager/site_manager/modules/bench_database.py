@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 class BenchDatabase:
     """
     Manages database operations for a bench.
-    
+
     Responsibilities:
     - Get database connection information
     - Remove database and user from global-db
@@ -40,7 +40,7 @@ class BenchDatabase:
     ):
         """
         Initialize BenchDatabase module.
-        
+
         Args:
             bench_name: Name of the bench
             bench_path: Path to bench directory
@@ -57,7 +57,7 @@ class BenchDatabase:
     def get_connection_info(self) -> dict:
         """
         Get database connection information for the bench.
-        
+
         Returns:
             dict: Database connection info containing name, user, password, host, port
         """
@@ -66,7 +66,7 @@ class BenchDatabase:
     def remove_database_and_user(self):
         """
         Remove database and user from global-db for this bench.
-        
+
         This function removes both the database and user associated with the bench
         from the global database service.
         """
@@ -94,10 +94,10 @@ class BenchDatabase:
     def sync_common_site_config(self, services_db_host: str, services_db_port: int):
         """
         Sync the common site configuration with the global database information.
-        
+
         This function sets the common site configuration data including the socketio port,
         database host and port, and the Redis cache, queue, and socketio URLs.
-        
+
         Args:
             services_db_host: Database host from services
             services_db_port: Database port from services

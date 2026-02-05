@@ -16,16 +16,20 @@ def start(
     benchname: Annotated[
         str | None,
         typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback,
+            help="Name of the bench.",
+            autocompletion=sites_autocompletion_callback,
+            callback=sitename_callback,
         ),
     ] = None,
     force: Annotated[bool, typer.Option("--force", "-f", help="Recreate containers")] = False,
     sync_bench_config_changes: Annotated[bool, typer.Option("--sync-config", help="Sync config changes")] = False,
     reconfigure_supervisor: Annotated[
-        bool, typer.Option("--reconfigure-supervisor", help="Reconfigure supervisor"),
+        bool,
+        typer.Option("--reconfigure-supervisor", help="Reconfigure supervisor"),
     ] = False,
     reconfigure_common_site_config: Annotated[
-        bool, typer.Option("--reconfigure-common-site-config", help="Reconfigure site config"),
+        bool,
+        typer.Option("--reconfigure-common-site-config", help="Reconfigure site config"),
     ] = False,
     reconfigure_workers: Annotated[bool, typer.Option("--reconfigure-workers", help="Reconfigure workers")] = False,
     include_default_workers: Annotated[bool, typer.Option(help="Include default workers")] = True,

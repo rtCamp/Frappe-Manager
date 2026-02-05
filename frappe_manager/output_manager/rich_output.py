@@ -394,7 +394,8 @@ class RichOutputHandler(OutputHandler):
         if not self.is_interactive():
             if required_flag:
                 raise NonInteractiveError(
-                    f"Cannot prompt in non-interactive mode: {prompt}", suggestions=[f"Use: {required_flag}"],
+                    f"Cannot prompt in non-interactive mode: {prompt}",
+                    suggestions=[f"Use: {required_flag}"],
                 )
             if default is None:
                 suggestions = []
@@ -402,7 +403,8 @@ class RichOutputHandler(OutputHandler):
                     suggestions.append(f"Pass one of: {', '.join(choices)}")
                 suggestions.append("Run without --non-interactive to enable prompts")
                 raise NonInteractiveError(
-                    f"Cannot prompt in non-interactive mode: {prompt}", suggestions=suggestions if suggestions else None,
+                    f"Cannot prompt in non-interactive mode: {prompt}",
+                    suggestions=suggestions if suggestions else None,
                 )
             return default
 
@@ -484,7 +486,8 @@ class RichOutputHandler(OutputHandler):
         if not self.is_interactive():
             if required_flag:
                 raise NonInteractiveError(
-                    f"Cannot prompt in non-interactive mode: {prompt}", suggestions=[f"Provide: {required_flag}"],
+                    f"Cannot prompt in non-interactive mode: {prompt}",
+                    suggestions=[f"Provide: {required_flag}"],
                 )
             if default is None:
                 raise NonInteractiveError(

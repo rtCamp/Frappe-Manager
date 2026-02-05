@@ -209,7 +209,10 @@ class BenchDevTools:
         self.compose_file_manager.configure_service("frappe", labels=labels)
         self.output.print("Regenerated bench compose")
         self.docker_client.compose.up(
-            services=["frappe"], detach=True, pull="never", force_recreate=False,
+            services=["frappe"],
+            detach=True,
+            pull="never",
+            force_recreate=False,
         )
 
     def _setup_debugger_config(self, workdir: str) -> None:

@@ -23,7 +23,8 @@ class DomainConflictError(Exception):
 
 
 def build_global_domain_map(
-    benches_root: Path = CLI_BENCHES_DIRECTORY, exclude_bench: str | None = None,
+    benches_root: Path = CLI_BENCHES_DIRECTORY,
+    exclude_bench: str | None = None,
 ) -> dict[str, tuple[str, bool]]:
     domain_map = {}
 

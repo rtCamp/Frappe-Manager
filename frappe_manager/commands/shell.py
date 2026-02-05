@@ -13,7 +13,9 @@ def shell(
     benchname: Annotated[
         str | None,
         typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback,
+            help="Name of the bench.",
+            autocompletion=sites_autocompletion_callback,
+            callback=sitename_callback,
         ),
     ] = None,
     command: Annotated[str | None, typer.Option("-c", "--command", help="Execute command and exit")] = None,

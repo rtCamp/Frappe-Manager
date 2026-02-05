@@ -1,4 +1,3 @@
-
 from frappe_manager.compose_project.exceptions import DockerComposeProjectFailedToRemoveError
 from frappe_manager.docker import ComposeFile, DockerClient, DockerComposeWrapper, DockerException
 from frappe_manager.output_manager import OutputHandler
@@ -7,11 +6,16 @@ from frappe_manager.output_manager.rich_output import RichOutputHandler
 
 class ComposeProject:
     def __init__(
-        self, compose_file_manager: ComposeFile, verbose: bool = False, output_handler: OutputHandler | None = None,
+        self,
+        compose_file_manager: ComposeFile,
+        verbose: bool = False,
+        output_handler: OutputHandler | None = None,
     ):
         self.compose_file_manager: ComposeFile = compose_file_manager
         self.output = output_handler or RichOutputHandler()
-        self.docker: DockerClient = DockerClient(compose_file_path=self.compose_file_manager.compose_path, output=self.output)
+        self.docker: DockerClient = DockerClient(
+            compose_file_path=self.compose_file_manager.compose_path, output=self.output
+        )
 
         assert self.docker.compose is not None, "DockerClient.compose must be initialized with compose_file_path"
 
@@ -57,5 +61,6 @@ class ComposeProject:
             self.output.live_lines(output, padding=(0, 0, 0, 2))
         except DockerException as e:
             raise DockerComposeProjectFailedToRemoveError(
-                self.compose_file_manager.compose_path, self.compose_file_manager.get_services_list(),
+                self.compose_file_manager.compose_path,
+                self.compose_file_manager.get_services_list(),
             )

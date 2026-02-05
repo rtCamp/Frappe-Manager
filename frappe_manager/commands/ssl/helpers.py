@@ -1,6 +1,5 @@
 """Helper functions for SSL commands."""
 
-
 import typer
 
 from frappe_manager.output_manager import OutputHandler, get_global_output_handler

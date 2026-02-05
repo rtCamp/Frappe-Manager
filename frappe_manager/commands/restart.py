@@ -13,7 +13,9 @@ def restart(
     benchname: Annotated[
         str | None,
         typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback,
+            help="Name of the bench.",
+            autocompletion=sites_autocompletion_callback,
+            callback=sitename_callback,
         ),
     ] = None,
     web: Annotated[

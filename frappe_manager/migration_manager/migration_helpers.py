@@ -20,10 +20,12 @@ class MigrationBench:
         self.docker = DockerClient(compose_file_path=self.compose_file_manager.compose_path, output=output)
 
         self.workers_compose_file_manager = ComposeFile(
-            self.path / "docker-compose.workers.yml", "docker-compose.workers.tmpl",
+            self.path / "docker-compose.workers.yml",
+            "docker-compose.workers.tmpl",
         )
         self.workers_docker = DockerClient(
-            compose_file_path=self.workers_compose_file_manager.compose_path, output=output,
+            compose_file_path=self.workers_compose_file_manager.compose_path,
+            output=output,
         )
 
     @property

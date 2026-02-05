@@ -131,7 +131,8 @@ def app_callback(
         ),
     ] = False,
     version: Annotated[
-        bool | None, typer.Option("--version", "-V", help="Show Version.", callback=version_callback),
+        bool | None,
+        typer.Option("--version", "-V", help="Show Version.", callback=version_callback),
     ] = None,
 ):
     """

@@ -8,7 +8,6 @@ This module handles all SSL certificate operations for a bench including:
 - Renewing certificates
 """
 
-
 from frappe_manager.site_manager.bench_config import SSLCertificate
 from frappe_manager.site_manager.exceptions import (
     BenchServiceNotRunning,

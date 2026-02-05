@@ -27,7 +27,10 @@ def update(
                 "\nDo you want to update ?"
             )
             continue_update = output.prompt_ask(
-                prompt=update_msg, choices=["yes", "no"], force_yes=yes, required_flag="--yes",
+                prompt=update_msg,
+                choices=["yes", "no"],
+                force_yes=yes,
+                required_flag="--yes",
             )
 
             if continue_update == "yes":

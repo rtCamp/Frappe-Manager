@@ -238,7 +238,8 @@ def get_unix_groups():
 
 def install_package(package_name, version):
     output_lines = run_command_with_exit_code(
-        [sys.executable, "-m", "pip", "install", f"{package_name}=={version}"], stream=True,
+        [sys.executable, "-m", "pip", "install", f"{package_name}=={version}"],
+        stream=True,
     )
     output = get_global_output_handler()
     output.live_lines(output_lines)
@@ -315,7 +316,11 @@ def capture_and_format_exception(traceback_max_frames: int = 100) -> str:
     exc_type, exc_value, exc_traceback = sys.exc_info()
 
     traceback = Traceback.from_exception(
-        exc_type, exc_value, exc_traceback, show_locals=True, max_frames=traceback_max_frames,
+        exc_type,
+        exc_value,
+        exc_traceback,
+        show_locals=True,
+        max_frames=traceback_max_frames,
     )
 
     # Convert the Traceback object to a formatted string

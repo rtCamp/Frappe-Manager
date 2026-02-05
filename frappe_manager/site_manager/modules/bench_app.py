@@ -120,7 +120,10 @@ class BenchAppManager:
 
         try:
             result = self._container_run(
-                "node --version", capture_output=True, raise_exception_obj=None, use_run=use_run,
+                "node --version",
+                capture_output=True,
+                raise_exception_obj=None,
+                use_run=use_run,
             )
             if result and result.exit_code == 0:
                 output = " ".join(result.combined)
@@ -171,7 +174,10 @@ class BenchAppManager:
             try:
                 check_current_version_cmd = "/workspace/frappe-bench/env/bin/python --version"
                 result = self._container_run(
-                    check_current_version_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run,
+                    check_current_version_cmd,
+                    capture_output=True,
+                    raise_exception_obj=None,
+                    use_run=use_run,
                 )
 
                 if result and result.exit_code == 0:
@@ -185,7 +191,9 @@ class BenchAppManager:
                         current_minor = int(version_match.group(2))
 
                         if self._python_version_satisfies_requirement(
-                            current_major, current_minor, python_version_requirement,
+                            current_major,
+                            current_minor,
+                            python_version_requirement,
                         ):
                             if frappe_python_req:
                                 self.output.print(
@@ -220,7 +228,10 @@ if [ -d /workspace/.uv/python ]; then
 fi
 """
                     result = self._container_run(
-                        scan_pythons_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run,
+                        scan_pythons_cmd,
+                        capture_output=True,
+                        raise_exception_obj=None,
+                        use_run=use_run,
                     )
 
                     selected_python_full = None
@@ -261,7 +272,10 @@ fi
                             f"ls -1 /workspace/.uv/python/ | grep '^{quoted_pkg}' | sort -V | tail -1"
                         )
                         result = self._container_run(
-                            detect_installed_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run,
+                            detect_installed_cmd,
+                            capture_output=True,
+                            raise_exception_obj=None,
+                            use_run=use_run,
                         )
                         if result and result.exit_code == 0 and result.combined:
                             selected_python_full = result.combined[0].strip()
@@ -314,7 +328,10 @@ fi
             try:
                 check_current_node_cmd = "node --version"
                 result = self._container_run(
-                    check_current_node_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run,
+                    check_current_node_cmd,
+                    capture_output=True,
+                    raise_exception_obj=None,
+                    use_run=use_run,
                 )
 
                 if result and result.exit_code == 0:
@@ -353,7 +370,10 @@ fi
                 try:
                     check_cmd = f"fnm list | grep 'v{node_version}' || true"
                     result = self._container_run(
-                        check_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run,
+                        check_cmd,
+                        capture_output=True,
+                        raise_exception_obj=None,
+                        use_run=use_run,
                     )
 
                     needs_install = True
@@ -367,7 +387,10 @@ fi
                         self.output.print(f"Installing Node {node_version} via fnm..")
                         install_cmd = f"fnm install {node_version}"
                         install_result = self._container_run(
-                            install_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run,
+                            install_cmd,
+                            capture_output=True,
+                            raise_exception_obj=None,
+                            use_run=use_run,
                         )
                         if install_result and install_result.exit_code == 0:
                             self.output.print(f"Installed Node {node_version} via fnm")
@@ -378,7 +401,10 @@ fi
 
                     set_default_cmd = f"fnm default {node_version}"
                     default_result = self._container_run(
-                        set_default_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run,
+                        set_default_cmd,
+                        capture_output=True,
+                        raise_exception_obj=None,
+                        use_run=use_run,
                     )
                     if default_result and default_result.exit_code == 0:
                         self.output.print(f"Set Node {node_version} as default")
@@ -484,7 +510,8 @@ fi
                 self._update_apps_list_with_corrected_names(apps_config)
             except AppClonerError as e:
                 raise BenchOperationBenchInstallAppInPythonEnvFailed(
-                    bench_name=self.bench_name, app_name="multiple apps",
+                    bench_name=self.bench_name,
+                    app_name="multiple apps",
                 ) from e
 
         if clone_only:
@@ -676,7 +703,8 @@ fi
         self._container_run(
             app_rm_env_command,
             raise_exception_obj=BenchOperationBenchRemoveAppFromPythonEnvFailed(
-                bench_name=self.bench_name, app_name=app,
+                bench_name=self.bench_name,
+                app_name=app,
             ),
         )
 
@@ -868,7 +896,11 @@ fi
                     output = cast(
                         "SubprocessOutput",
                         self.docker_client.compose.exec(
-                            service=service, command=exec_command, user=user, workdir=workdir, stream=False,
+                            service=service,
+                            command=exec_command,
+                            user=user,
+                            workdir=workdir,
+                            stream=False,
                         ),
                     )
                     output = self._filter_docker_warnings(output)
@@ -876,7 +908,11 @@ fi
                 output = cast(
                     "Iterator[tuple[str, bytes]]",
                     self.docker_client.compose.exec(
-                        service=service, command=exec_command, workdir=workdir, user=user, stream=True,
+                        service=service,
+                        command=exec_command,
+                        workdir=workdir,
+                        user=user,
+                        stream=True,
                     ),
                 )
                 self.output.live_lines(output)

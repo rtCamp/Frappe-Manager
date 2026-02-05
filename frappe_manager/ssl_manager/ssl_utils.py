@@ -14,7 +14,8 @@ from frappe_manager.ssl_manager.certificate_exceptions import SSLDNSChallengeCre
 
 
 def get_dns_credentials_for_certificate(
-    certificate: SSLCertificate, bench_config: Optional["BenchConfig"] = None,
+    certificate: SSLCertificate,
+    bench_config: Optional["BenchConfig"] = None,
 ) -> dict[str, str] | None:
     """
     Load DNS credentials and format for acme.sh.
@@ -87,7 +88,9 @@ def get_dns_credentials_for_certificate(
 
 
 def get_dns_credentials_dict(
-    api_token: str | None = None, api_key: str | None = None, email: str | None = None,
+    api_token: str | None = None,
+    api_key: str | None = None,
+    email: str | None = None,
 ) -> dict[str, str]:
     """
     Create DNS credentials dictionary from individual parameters.

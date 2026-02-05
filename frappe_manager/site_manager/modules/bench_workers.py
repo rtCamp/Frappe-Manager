@@ -56,7 +56,9 @@ class BenchWorkers:
         self.docker_client = DockerClient(compose_file_path=self.compose_path, output=self.output)
 
     def get_expected_workers(
-        self, include_default_workers: bool = True, include_custom_workers: bool = True,
+        self,
+        include_default_workers: bool = True,
+        include_custom_workers: bool = True,
     ) -> list[str]:
         """
         Get list of expected workers from supervisor configuration.
@@ -153,11 +155,13 @@ class BenchWorkers:
         del self.compose_file_manager.yml["services"]["worker-name"]
 
         workers_expected_service_names = self.get_expected_workers(
-            include_default_workers=include_default_workers, include_custom_workers=include_custom_workers,
+            include_default_workers=include_default_workers,
+            include_custom_workers=include_custom_workers,
         )
 
         if len(workers_expected_service_names) > 0:
             import os
+
             for worker in workers_expected_service_names:
                 worker_config = deepcopy(template_worker_config)
                 worker_config["environment"]["USERID"] = os.getuid()
@@ -166,7 +170,8 @@ class BenchWorkers:
                 self.compose_file_manager.yml["services"][worker] = worker_config
 
             self.compose_file_manager.with_prefix(
-                get_container_name_prefix(self.bench.name), "site-network",
+                get_container_name_prefix(self.bench.name),
+                "site-network",
             ).with_version(get_current_fm_version()).with_restart(self.bench.bench_config.restart_policy.value).commit()
 
             self.output.print(f"{' '.join(workers_expected_service_names)} configurations generated")
@@ -254,12 +259,16 @@ class BenchWorkerCoordinator:
             return
 
         start_required = self.workers.generate_compose(
-            include_default_workers=include_default_workers, include_custom_workers=include_custom_workers,
+            include_default_workers=include_default_workers,
+            include_custom_workers=include_custom_workers,
         )
 
         if start_required:
             self.workers.docker_client.compose.up(
-                services=[], detach=True, pull="never", force_recreate=force_recreate,
+                services=[],
+                detach=True,
+                pull="never",
+                force_recreate=force_recreate,
             )
 
     def backup_restore_workers_supervisor(self, backup_manager: BackupManager):
@@ -315,7 +324,10 @@ class BenchWorkerCoordinator:
             if not workers_running:
                 if self.is_running():
                     self.workers.docker_client.compose.up(
-                        services=[], detach=True, pull="never", force_recreate=False,
+                        services=[],
+                        detach=True,
+                        pull="never",
+                        force_recreate=False,
                     )
 
     def restart_workers_containers_services(self, use_container_restart: bool = False, force: bool = False):
@@ -349,7 +361,9 @@ class BenchWorkerCoordinator:
                 self.output.print(f"{action} container - {service}")
             else:
                 is_restarted = self.restart_supervisor_service(
-                    service, docker_client_obj=self.workers.docker_client, force=force,
+                    service,
+                    docker_client_obj=self.workers.docker_client,
+                    force=force,
                 )
                 if is_restarted:
                     action = "Stopped and started" if force else "Restarted"

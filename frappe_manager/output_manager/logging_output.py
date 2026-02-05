@@ -41,7 +41,10 @@ class LoggingOutputHandler(OutputHandler):
     """
 
     def __init__(
-        self, delegate: OutputHandler, logger: logging.Logger | ContextualLogger, log_prefix: str = "[OUTPUT]",
+        self,
+        delegate: OutputHandler,
+        logger: logging.Logger | ContextualLogger,
+        log_prefix: str = "[OUTPUT]",
     ):
         """
         Initialize logging wrapper.
@@ -251,7 +254,12 @@ class LoggingOutputHandler(OutputHandler):
         self._log_message(logging.INFO, f"PROMPT: {prompt}")
 
         response = self.delegate.prompt_ask(
-            prompt=prompt, choices=choices, default=default, force_yes=force_yes, required_flag=required_flag, **kwargs,
+            prompt=prompt,
+            choices=choices,
+            default=default,
+            force_yes=force_yes,
+            required_flag=required_flag,
+            **kwargs,
         )
 
         if "password" not in prompt.lower():

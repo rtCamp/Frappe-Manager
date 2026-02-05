@@ -1,6 +1,5 @@
 """Helper functions for bench SSL certificate operations."""
 
-
 import typer
 from rich.table import Table
 

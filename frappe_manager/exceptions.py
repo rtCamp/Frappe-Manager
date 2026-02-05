@@ -45,45 +45,36 @@ class ValidationError(FrappeManagerException):
     """Raised when input validation fails."""
 
 
-
 class OperationAborted(FrappeManagerException):
     """Raised when an operation is aborted by user or system."""
-
 
 
 class ServiceNotAvailable(FrappeManagerException):
     """Raised when a required service is not available."""
 
 
-
 class BenchOperationError(FrappeManagerException):
     """Raised when a bench operation fails."""
-
 
 
 class SSLCertificateError(FrappeManagerException):
     """Raised when SSL certificate operations fail."""
 
 
-
 class DockerOperationError(FrappeManagerException):
     """Raised when Docker operations fail."""
-
 
 
 class MigrationError(FrappeManagerException):
     """Raised when migrations fail."""
 
 
-
 class ConfigurationError(FrappeManagerException):
     """Raised when configuration is invalid or missing."""
 
 
-
 class DependencyError(FrappeManagerException):
     """Raised when external dependencies are missing."""
-
 
 
 class NonInteractiveError(FrappeManagerException):

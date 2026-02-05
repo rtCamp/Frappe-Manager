@@ -1,5 +1,3 @@
-
-
 class ComposeFileException(Exception):
     """Exception raised for Docker Compose file errors."""
 

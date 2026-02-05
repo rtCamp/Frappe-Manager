@@ -193,7 +193,10 @@ class AcmeShCertificateService:
             self.output.warning(f"Failed to clear cached credentials: {e}")
 
     def _stream_acmesh_command(
-        self, args: list, env: dict[str, str] | None = None, show_live_output: bool = True,
+        self,
+        args: list,
+        env: dict[str, str] | None = None,
+        show_live_output: bool = True,
     ) -> int:
         """
         Run acme.sh command with live output streaming from stdout/stderr.
@@ -263,7 +266,8 @@ class AcmeShCertificateService:
         use_staging = os.getenv("FM_LETSENCRYPT_STAGING", "").lower() in ("1", "true", "yes")
         if use_staging:
             self.output.print(
-                "[yellow]Using Let's Encrypt STAGING server (test certificates)[/yellow]", emoji_code=":warning:",
+                "[yellow]Using Let's Encrypt STAGING server (test certificates)[/yellow]",
+                emoji_code=":warning:",
             )
 
         ca_server = LETSENCRYPT_STAGING_SERVER if use_staging else LETSENCRYPT_PRODUCTION_SERVER
@@ -332,7 +336,8 @@ class AcmeShCertificateService:
         if dry_run:
             self.output.print(f"[green]Certificate generated successfully (staging) for {certificate.domain}[/green]")
             self.output.print(
-                "[yellow]Skipped: Copying certificate files (dry run)[/yellow]", emoji_code=":fast_forward:",
+                "[yellow]Skipped: Copying certificate files (dry run)[/yellow]",
+                emoji_code=":fast_forward:",
             )
             return (key_path, fullchain_path)
 
@@ -405,7 +410,8 @@ class AcmeShCertificateService:
             if dry_run:
                 self.output.print(f"[green]Certificate renewed successfully (staging) for {certificate.domain}[/green]")
                 self.output.print(
-                    "[yellow]Skipped: Copying certificate files (dry run)[/yellow]", emoji_code=":fast_forward:",
+                    "[yellow]Skipped: Copying certificate files (dry run)[/yellow]",
+                    emoji_code=":fast_forward:",
                 )
                 return True
 

@@ -1,6 +1,5 @@
 """Helper functions for DNS provider credential management."""
 
-
 import typer
 
 from frappe_manager.logger.context import LoggerContext
@@ -29,10 +28,12 @@ def _show_dns_credentials(ctx: typer.Context, provider_name: str, benchname: str
             output.print(f"Provider: [green]{provider_name}[/green]", emoji_code="")
             output.print(f"Email: {config.email if config.email else '[dim]Not set[/dim]'}", emoji_code="")
             output.print(
-                f"API Token: {'[green]*** (set)[/green]' if config.api_token else '[dim]Not set[/dim]'}", emoji_code="",
+                f"API Token: {'[green]*** (set)[/green]' if config.api_token else '[dim]Not set[/dim]'}",
+                emoji_code="",
             )
             output.print(
-                f"API Key: {'[yellow]*** (set)[/yellow]' if config.api_key else '[dim]Not set[/dim]'}", emoji_code="",
+                f"API Key: {'[yellow]*** (set)[/yellow]' if config.api_key else '[dim]Not set[/dim]'}",
+                emoji_code="",
             )
         else:
             output.print(

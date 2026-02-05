@@ -5,7 +5,6 @@ This module provides a factory function that creates the appropriate SSL certifi
 service based on certificate configuration, following the dependency injection pattern.
 """
 
-
 from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES

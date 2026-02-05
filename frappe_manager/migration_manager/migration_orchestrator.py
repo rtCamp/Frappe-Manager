@@ -115,7 +115,8 @@ class MigrationOrchestrator:
             if not services_manager.path.exists():
                 with temporary_stop(self.executor.output):
                     self.executor.output.print(
-                        "Global services not initialized. Creating...", emoji_code=":construction:",
+                        "Global services not initialized. Creating...",
+                        emoji_code=":construction:",
                     )
                     services_manager.init()
                     services_manager.entrypoint_checks(start=True)
@@ -130,7 +131,8 @@ class MigrationOrchestrator:
             if not all_running:
                 with temporary_stop(self.executor.output):
                     self.executor.output.print(
-                        "Global services not running. Starting them now...", emoji_code=":construction:",
+                        "Global services not running. Starting them now...",
+                        emoji_code=":construction:",
                     )
                     services_manager.start_service()
                     self.executor.output.print("Global services started successfully", emoji_code=":white_check_mark:")

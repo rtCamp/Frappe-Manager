@@ -31,7 +31,9 @@ def update(
     benchname: Annotated[
         str | None,
         typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback,
+            help="Name of the bench.",
+            autocompletion=sites_autocompletion_callback,
+            callback=sitename_callback,
         ),
     ] = None,
     admin_tools: Annotated[
@@ -49,7 +51,9 @@ def update(
     mailpit_as_default_mail_server: Annotated[
         bool,
         typer.Option(
-            "--mailpit-as-default-mail-server", help="Configure Mailpit as default mail server", show_default=False,
+            "--mailpit-as-default-mail-server",
+            help="Configure Mailpit as default mail server",
+            show_default=False,
         ),
     ] = False,
     add_alias: Annotated[
@@ -257,7 +261,8 @@ def update(
                     frappe_python_req = extract_python_version_requirement(frappe_app_path)
                     if frappe_python_req and not skip_version_check:
                         is_compatible, error_msg = validate_python_version_compatibility(
-                            python_version, frappe_python_req,
+                            python_version,
+                            frappe_python_req,
                         )
                         if not is_compatible:
                             output.change_head("Python version validation failed")

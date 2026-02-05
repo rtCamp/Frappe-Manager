@@ -18,7 +18,9 @@ def code(
     benchname: Annotated[
         str | None,
         typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback,
+            help="Name of the bench.",
+            autocompletion=sites_autocompletion_callback,
+            callback=sitename_callback,
         ),
     ] = None,
     user: Annotated[str, typer.Option(help="User to connect as")] = "frappe",
@@ -35,7 +37,8 @@ def code(
     force_start: Annotated[bool, typer.Option("--force-start", "-f", help="Start bench before opening VSCode")] = False,
     debugger: Annotated[bool, typer.Option("--debugger", "-d", help="Setup debugger config")] = False,
     workdir: Annotated[
-        str, typer.Option("--work-dir", "-w", help="Working directory in VSCode"),
+        str,
+        typer.Option("--work-dir", "-w", help="Working directory in VSCode"),
     ] = "/workspace/frappe-bench",
 ):
     """Open bench in vscode."""

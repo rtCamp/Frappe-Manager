@@ -112,17 +112,22 @@ class BenchSupervisor:
                 docker_client_obj.compose.exec(service=service, user="frappe", command=start_command, stream=False)
             except DockerException as e:
                 raise BenchOperationException(
-                    self.bench_name, message=f"Failed to force restart supervisor for {service} service: {e!s}",
+                    self.bench_name,
+                    message=f"Failed to force restart supervisor for {service} service: {e!s}",
                 )
         else:
             restart_supervisor_command = "supervisorctl -c /opt/user/supervisord.conf restart all"
             try:
                 docker_client_obj.compose.exec(
-                    service=service, user="frappe", command=restart_supervisor_command, stream=False,
+                    service=service,
+                    user="frappe",
+                    command=restart_supervisor_command,
+                    stream=False,
                 )
             except DockerException as e:
                 raise BenchOperationException(
-                    self.bench_name, message=f"Failed to restart supervisor for {service} service: {e!s}",
+                    self.bench_name,
+                    message=f"Failed to restart supervisor for {service} service: {e!s}",
                 )
 
         # Verify supervisor socket was created after restart
@@ -130,7 +135,10 @@ class BenchSupervisor:
         for _ in range(timeout):
             try:
                 self.docker_client.compose.exec(
-                    service=service, user="frappe", command=f"test -e {socket_path}", stream=False,
+                    service=service,
+                    user="frappe",
+                    command=f"test -e {socket_path}",
+                    stream=False,
                 )
                 return True
             except DockerException:
@@ -193,7 +201,8 @@ class BenchSupervisor:
 
             bench_setup_supervisor_command = " ".join(bench_setup_supervisor_command)
             bench_setup_supervisor_exception = BenchOperationException(
-                self.bench_name, "Failed to configure supervisor.",
+                self.bench_name,
+                "Failed to configure supervisor.",
             )
 
             try:

@@ -223,7 +223,10 @@ def _update_console_handler(logger: logging.Logger, console_level: str | None) -
 
 
 def get_logger(
-    log_dir=CLI_LOG_DIRECTORY, log_file_name="fm", console_level: str | None = None, file_level: str = "DEBUG",
+    log_dir=CLI_LOG_DIRECTORY,
+    log_file_name="fm",
+    console_level: str | None = None,
+    file_level: str = "DEBUG",
 ) -> FMLOGGER:
     """
     Creates a Log File and returns Logger object.

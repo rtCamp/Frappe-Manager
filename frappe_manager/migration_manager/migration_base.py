@@ -187,7 +187,9 @@ class MigrationBase(ABC):
         self.backup_manager.backup(bench_site_config, bench_name=bench.name)
 
         bench_db_info = DatabaseServerServiceInfo.import_from_bench(
-            bench_path=bench.path, bench_name=bench.name, raise_exception=False,
+            bench_path=bench.path,
+            bench_name=bench.name,
+            raise_exception=False,
         )
 
         self.bench_db_backup(

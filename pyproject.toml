@@ -52,6 +52,7 @@ ignore = [
     "ARG002",  # Unused method argument (required by interface/ABC)
     "BLE001",  # Catching broad exception (intentional for robustness)
     "S110",    # Try-except-pass (intentional no-op in silent handler)
+    "COM812",  # Trailing comma (conflicts with formatter - formatter handles this)
     
     # Test-related
     "S101",    # Assert statement (standard in pytest)

@@ -292,7 +292,8 @@ class Bench:
 
             # ssl
             certificate_updated = self.update_certificate(
-                self.bench_config.get_primary_certificate(), raise_error=False,
+                self.bench_config.get_primary_certificate(),
+                raise_error=False,
             )
             if certificate_updated:
                 self.output.print("Certificate Updated")
@@ -1054,7 +1055,8 @@ class Bench:
 
         if not admin_pass:
             admin_pass = self.output.prompt_ask(
-                prompt=f"Please enter admin password for site {self.name}", required_flag="--admin-pass",
+                prompt=f"Please enter admin password for site {self.name}",
+                required_flag="--admin-pass",
             )
 
         self.output.change_head(f"Resetting bench site {self.name}")
@@ -1124,7 +1126,8 @@ class Bench:
     def restart_workers_containers_services(self, use_container_restart: bool = False, force: bool = False):
         """Restarts workers and schedule containers"""
         self.worker_coordinator.restart_workers_containers_services(
-            use_container_restart=use_container_restart, force=force,
+            use_container_restart=use_container_restart,
+            force=force,
         )
 
     def update_upload_limit(self, upload_limit: str):
@@ -1145,7 +1148,8 @@ class Bench:
         # Validate format (e.g., "50M", "100M", "500M", "1G")
         if not re.match(r"^\d+[MG]$", upload_limit, re.IGNORECASE):
             raise BenchException(
-                self.name, message=f"Invalid upload limit format: '{upload_limit}'. Use format like '50M' or '1G'",
+                self.name,
+                message=f"Invalid upload limit format: '{upload_limit}'. Use format like '50M' or '1G'",
             )
 
         # 1. Update site_config.json (convert to bytes)

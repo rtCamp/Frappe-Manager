@@ -949,7 +949,10 @@ class ComposeFile:
         return self
 
     def migrate_images(
-        self, tag_updates: dict[str, str], new_version: str | None = None, auto_save: bool = True,
+        self,
+        tag_updates: dict[str, str],
+        new_version: str | None = None,
+        auto_save: bool = True,
     ) -> "ComposeFile":
         """
         Update multiple image tags and optionally version (common in migrations).
@@ -1128,7 +1131,9 @@ class ComposeFile:
 
     @classmethod
     def get_template_images(
-        cls, template_name: str = "docker-compose.tmpl", template_dir: str = "templates",
+        cls,
+        template_name: str = "docker-compose.tmpl",
+        template_dir: str = "templates",
     ) -> dict[str, dict[str, str]]:
         """
         Get all images from a template.
@@ -1153,7 +1158,9 @@ class ComposeFile:
 
     @classmethod
     def get_template_services(
-        cls, template_name: str = "docker-compose.tmpl", template_dir: str = "templates",
+        cls,
+        template_name: str = "docker-compose.tmpl",
+        template_dir: str = "templates",
     ) -> list[str]:
         """
         Get list of services from template.

@@ -5,7 +5,6 @@ Ensures only one output handler exists at a time, preventing concurrent
 spinner conflicts with the shared DisplayManager singleton.
 """
 
-
 from frappe_manager.output_manager.base import OutputHandler
 
 _global_output_handler: OutputHandler | None = None

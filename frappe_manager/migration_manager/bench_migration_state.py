@@ -14,10 +14,10 @@ from frappe_manager.site_manager.bench_config import BenchConfig, MigrationState
 def get_bench_migration_version(bench_path: Path) -> Version:
     """
     Get the version bench is migrated to.
-    
+
     Args:
         bench_path: Path to bench directory
-        
+
     Returns:
         Version object representing bench migration state
     """
@@ -39,7 +39,7 @@ def get_bench_migration_version(bench_path: Path) -> Version:
 def set_bench_migration_version(bench_path: Path, version: Version) -> None:
     """
     Update bench migration version.
-    
+
     Args:
         bench_path: Path to bench directory
         version: Version to set
@@ -60,11 +60,11 @@ def set_bench_migration_version(bench_path: Path, version: Version) -> None:
 def bench_needs_migration(bench_path: Path, target_version: Version) -> bool:
     """
     Check if bench needs migration to target version.
-    
+
     Args:
         bench_path: Path to bench directory
         target_version: Target migration version
-        
+
     Returns:
         True if bench needs migration, False otherwise
     """
@@ -75,10 +75,10 @@ def bench_needs_migration(bench_path: Path, target_version: Version) -> bool:
 def get_bench_migration_date(bench_path: Path) -> str | None:
     """
     Get last migration date for bench.
-    
+
     Args:
         bench_path: Path to bench directory
-        
+
     Returns:
         ISO format date string or None
     """
@@ -95,4 +95,3 @@ def get_bench_migration_date(bench_path: Path) -> str | None:
         return None
 
     return None
-

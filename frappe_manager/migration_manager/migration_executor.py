@@ -223,7 +223,8 @@ class MigrationExecutor:
             if continue_migration == "no":
                 self.output.print("", emoji_code="")
                 self.output.print(
-                    f"Migration aborted. To revert to v{self.prev_version.version!s}, run:", emoji_code="",
+                    f"Migration aborted. To revert to v{self.prev_version.version!s}, run:",
+                    emoji_code="",
                 )
                 self.output.print(f"  uv tool install frappe-manager=={self.prev_version.version!s}", emoji_code="")
                 self.output.print("", emoji_code="")
