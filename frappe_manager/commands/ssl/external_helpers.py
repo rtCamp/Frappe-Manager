@@ -1,26 +1,29 @@
 """Helper functions for external domain SSL certificate operations."""
 
-from datetime import datetime, timezone
-import typer
 import re
 import subprocess
+from datetime import datetime, timezone
+
+import typer
+from rich.table import Table
+
 from frappe_manager import CLI_BENCHES_DIRECTORY, SSL_RENEW_BEFORE_DAYS
+from frappe_manager.logger import ContextualLogger, log
+from frappe_manager.logger.context import LoggerContext
+from frappe_manager.output_manager import spinner, temporary_stop
+from frappe_manager.output_manager.silent_output import SilentOutputHandler
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
-from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate, CustomDomainCertificate
-from frappe_manager.ssl_manager.external_domain_manager import ExternalDomainConfigManager, ExternalDomainConfig
-from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
 from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkManager
-from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
+from frappe_manager.ssl_manager.external_domain_manager import ExternalDomainConfig, ExternalDomainConfigManager
+from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate, LetsencryptSSLCertificate
 from frappe_manager.ssl_manager.service_factory import create_certificate_service
+from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
 from frappe_manager.ssl_manager.standalone_nginx_config_manager import StandaloneNginxConfigManager
-from frappe_manager.logger import log, ContextualLogger
-from frappe_manager.logger.context import LoggerContext
-from frappe_manager.output_manager import temporary_stop, spinner
-from frappe_manager.output_manager.silent_output import SilentOutputHandler
+from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
 from frappe_manager.utils.helpers import get_certificate_expiry_date
-from rich.table import Table
+
 from .helpers import get_output_handler
 
 
@@ -89,8 +92,8 @@ def _add_external_certificate(
                     if not propagation.propagated:
                         output.display_error("DNS propagation timeout")
                         output.print("", emoji_code="")
-                        output.print(f"CNAME record did not propagate within 5 minutes.", emoji_code="")
-                        output.print(f"Expected CNAME:", emoji_code="")
+                        output.print("CNAME record did not propagate within 5 minutes.", emoji_code="")
+                        output.print("Expected CNAME:", emoji_code="")
                         output.print(f"  _acme-challenge.{domain}  →  _acme-challenge.{cname}", emoji_code="")
                         output.print("", emoji_code="")
                         output.print("Please verify your DNS configuration and try again.", emoji_code="")
@@ -105,12 +108,12 @@ def _add_external_certificate(
                         output.display_error("DNS validation failed")
                         output.print("", emoji_code="")
                         output.print(f"Domain: {domain}", emoji_code="")
-                        output.print(f"Expected CNAME:", emoji_code="")
+                        output.print("Expected CNAME:", emoji_code="")
                         output.print(f"  _acme-challenge.{domain}  →  _acme-challenge.{cname}", emoji_code="")
 
                         if validation.actual_value:
                             output.print("", emoji_code="")
-                            output.print(f"Current CNAME:", emoji_code="")
+                            output.print("Current CNAME:", emoji_code="")
                             output.print(f"  _acme-challenge.{domain}  →  {validation.actual_value}", emoji_code="")
                             output.print("", emoji_code="")
                             output.print("The CNAME record exists but points to the wrong target.", emoji_code="")
@@ -147,7 +150,7 @@ def _add_external_certificate(
                     output.print(f"Domain resolves to {validation.actual_value}", emoji_code=":white_check_mark:")
                 else:
                     output.warning(f"Domain {domain} doesn't have an A record")
-                    output.print(f"HTTP-01 challenge may fail if DNS is not configured correctly.", emoji_code="")
+                    output.print("HTTP-01 challenge may fail if DNS is not configured correctly.", emoji_code="")
                     output.print(f"Make sure {domain} points to this server's IP address.", emoji_code="")
 
         global_proxy_storage = services_manager.proxy_storage
@@ -230,7 +233,7 @@ def _add_external_certificate(
                     challenge_type=challenge.lower(),
                     delegation_cname=cname,
                     acme_client="acme.sh",
-                )
+                ),
             )
 
             output.print(f"SSL certificate added for {domain}", emoji_code=":white_check_mark:")
@@ -388,10 +391,10 @@ def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
         # Parse upstream blocks to find domains
         # Format: "# domain.com/"
         # Followed by: "upstream domain.com {"
-        domain_pattern = r'^# (.+?)/$'
+        domain_pattern = r"^# (.+?)/$"
 
         detected_domains = set()
-        for line in result.stdout.split('\n'):
+        for line in result.stdout.split("\n"):
             match = re.match(domain_pattern, line)
             if match:
                 domain = match.group(1)
@@ -474,7 +477,7 @@ def _list_external_certificates(ctx: typer.Context):
 
             expiry_date = get_certificate_expiry_date(fullchain_path)
             if expiry_date:
-                expiry = expiry_date.strftime('%Y-%m-%d %H:%M')
+                expiry = expiry_date.strftime("%Y-%m-%d %H:%M")
                 # Make datetime.now() timezone-aware to match expiry_date
                 now = datetime.now(timezone.utc)
                 days_left = (expiry_date - now).days
@@ -504,7 +507,7 @@ def _list_external_certificates(ctx: typer.Context):
 
     if non_ssl_domains:
         output.print("\n[yellow]💡 Tip: Add SSL certificates for non-SSL domains:[/yellow]", emoji_code="")
-        output.print(f"[dim]  fm ssl add --standalone <domain>[/dim]", emoji_code="")
+        output.print("[dim]  fm ssl add --standalone <domain>[/dim]", emoji_code="")
 
 
 def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool, force: bool = False):

@@ -74,7 +74,7 @@ VSCODE_TASKS_JSON = {
             "presentation": {"reveal": "never", "panel": "dedicated"},
             "options": {"ignoreExitCode": True},
             "problemMatcher": [],
-        }
+        },
     ],
 }
 

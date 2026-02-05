@@ -7,8 +7,8 @@ allowing business logic to be independent of the presentation layer.
 
 import sys
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Iterator
-from typing import Any, Optional
+from collections.abc import Iterable
+from typing import Any
 
 
 class OutputHandler(ABC):
@@ -29,10 +29,10 @@ class OutputHandler(ABC):
         """
         self.verbose = verbose
         self._spinner_active = False
-        self._current_text: Optional[str] = None
+        self._current_text: str | None = None
 
         # Interactive mode state (3-level priority system)
-        self._interactive: Optional[bool] = None  # None = not initialized
+        self._interactive: bool | None = None  # None = not initialized
         self._tty_available: bool = sys.stdin.isatty() and sys.stdout.isatty()
 
     @abstractmethod
@@ -209,10 +209,10 @@ class OutputHandler(ABC):
     def prompt_ask(
         self,
         prompt: str = "",
-        choices: Optional[list] = None,
-        default: Optional[str] = None,
+        choices: list | None = None,
+        default: str | None = None,
         force_yes: bool = False,
-        required_flag: Optional[str] = None,
+        required_flag: str | None = None,
         **kwargs,
     ) -> str:
         """
@@ -244,8 +244,8 @@ class OutputHandler(ABC):
         self,
         prompt: str,
         choices: list[str],
-        default: Optional[str] = None,
-        required_flag: Optional[str] = None,
+        default: str | None = None,
+        required_flag: str | None = None,
         **kwargs,
     ) -> str:
         """

@@ -1,72 +1,50 @@
-import copy
-import time
 import itertools
-from datetime import datetime
-import shlex
 import shutil
-import json
-import subprocess
-from typing import Any, Dict, Iterator, List, Optional, Tuple, cast
+import time
+from collections.abc import Iterator
 from pathlib import Path
-from rich.table import Table
-from frappe_manager.docker import DockerException
-from frappe_manager.docker import ComposeFile, DockerClient
+from typing import Any, cast
+
+from frappe_manager import (
+    CLI_BENCH_CONFIG_FILE_NAME,
+    CLI_BENCHES_DIRECTORY,
+    SiteServicesEnum,
+)
+from frappe_manager.docker import ComposeFile, DockerClient, DockerException
+from frappe_manager.logger import ContextualLogger
+from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.logger import log, ContextualLogger
-from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.services_manager.services import ServicesManager
-from frappe_manager.site_manager import VSCODE_LAUNCH_JSON, VSCODE_SETTINGS_JSON, VSCODE_TASKS_JSON
-from frappe_manager.site_manager.modules.bench_admin_tools import BenchAdminTools
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.site_manager.exceptions import (
-    BenchAttachTocontainerFailed,
     BenchException,
-    BenchFailedToRemoveDevPackages,
-    BenchFrappeServiceSupervisorNotRunning,
-    BenchNotRunning,
-    BenchOperationException,
     BenchRemoveDirectoryError,
-    BenchSSLCertificateAlreadyIssued,
-    BenchSSLCertificateNotIssued,
-    BenchServiceNotRunning,
 )
-from frappe_manager.site_manager.modules.bench_workers import BenchWorkers
-from frappe_manager.site_manager.modules.bench_docker import BenchDockerOps
-from frappe_manager.site_manager.modules.bench_supervisor import BenchSupervisor
-from frappe_manager.site_manager.modules.bench_ssl import BenchSSL
-from frappe_manager.site_manager.modules.bench_devtools import BenchDevTools
-from frappe_manager.site_manager.modules.bench_database import BenchDatabase
-from frappe_manager.site_manager.modules.bench_info import BenchInfo
-from frappe_manager.site_manager.modules.bench_workers import BenchWorkerCoordinator
-from frappe_manager.site_manager.modules.bench_site import BenchSiteManager
+from frappe_manager.site_manager.modules.bench_admin_tools import BenchAdminTools
 from frappe_manager.site_manager.modules.bench_app import BenchAppManager
+from frappe_manager.site_manager.modules.bench_database import BenchDatabase
+from frappe_manager.site_manager.modules.bench_devtools import BenchDevTools
+from frappe_manager.site_manager.modules.bench_docker import BenchDockerOps
+from frappe_manager.site_manager.modules.bench_info import BenchInfo
 from frappe_manager.site_manager.modules.bench_orchestrator import BenchOrchestrator
+from frappe_manager.site_manager.modules.bench_site import BenchSiteManager
+from frappe_manager.site_manager.modules.bench_ssl import BenchSSL
+from frappe_manager.site_manager.modules.bench_supervisor import BenchSupervisor
+from frappe_manager.site_manager.modules.bench_workers import BenchWorkerCoordinator, BenchWorkers
 from frappe_manager.site_manager.modules.upload_limit_manager import UploadLimitManager
-from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
-from frappe_manager.ssl_manager.proxy_storage import ProxyStoragePaths
+from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkManager
 from frappe_manager.ssl_manager.nginx_controller import NginxController
+from frappe_manager.ssl_manager.proxy_storage import ProxyStoragePaths
+from frappe_manager.ssl_manager.service_factory import create_certificate_service
 from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
 from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
-from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkManager
-from frappe_manager.ssl_manager.service_factory import create_certificate_service
 from frappe_manager.utils.helpers import (
-    capture_and_format_exception,
-    format_ssl_certificate_time_remaining,
-    get_current_fm_version,
     log_file,
     save_dict_to_file,
 )
-from frappe_manager.utils.docker import host_run_cp
-from frappe_manager import (
-    STABLE_APP_BRANCH_MAPPING_LIST,
-    CLI_BENCH_CONFIG_FILE_NAME,
-    CLI_BENCHES_DIRECTORY,
-    CLI_DIR,
-    SiteServicesEnum,
-)
-from frappe_manager.utils.site import domain_level, generate_services_table
+from frappe_manager.utils.site import domain_level
 
 
 class Bench:
@@ -88,7 +66,7 @@ class Bench:
         self.name = name
         self.output = output_handler or RichOutputHandler()
         self.services = services
-        self.backup_path = self.path / 'backups'
+        self.backup_path = self.path / "backups"
         self.bench_config: BenchConfig = bench_config
         self.logger = logger.child(bench=name)
 
@@ -113,18 +91,18 @@ class Bench:
         )
 
         # Initialize local nginx proxy components
-        self.bench_proxy_storage = ProxyStoragePaths('nginx', self.compose_file_manager)
-        self.bench_nginx_controller = NginxController('nginx', self.compose_file_manager, self.docker_client)
+        self.bench_proxy_storage = ProxyStoragePaths("nginx", self.compose_file_manager)
+        self.bench_nginx_controller = NginxController("nginx", self.compose_file_manager, self.docker_client)
 
         # For backward compatibility with admin_tools
         # Create a simple proxy manager object with required attributes
         self.proxy_manager = type(
-            'ProxyManager',
+            "ProxyManager",
             (),
             {
-                'dirs': self.bench_proxy_storage.dirs,
-                'restart': self.bench_nginx_controller.restart,
-                'reload': self.bench_nginx_controller.reload,
+                "dirs": self.bench_proxy_storage.dirs,
+                "restart": self.bench_nginx_controller.restart,
+                "reload": self.bench_nginx_controller.reload,
             },
         )()
 
@@ -251,7 +229,7 @@ class Bench:
         admin_tools_check: bool = False,
         verbose: bool = False,
         output_handler: OutputHandler | None = None,
-    ) -> 'Bench':
+    ) -> "Bench":
         if domain_level(bench_name) == 0:
             bench_name = bench_name + ".localhost"
 
@@ -270,25 +248,25 @@ class Bench:
 
         if logger is None:
             from frappe_manager.logger import log as base_log
-            from frappe_manager.logger.contextual import ContextualLogger
             from frappe_manager.logger.context import LoggerContext
+            from frappe_manager.logger.contextual import ContextualLogger
 
             logger = ContextualLogger(base_log.get_logger(), context=LoggerContext())
 
-        parms: Dict[str, Any] = {
-            'logger': logger,
-            'name': bench_name,
-            'path': bench_path,
-            'bench_config': bench_config,
-            'compose_file_manager': compose_file_manager,
-            'docker_client': docker_client,
-            'services': services,
-            'workers_check': workers_check,
-            'admin_tools_check': admin_tools_check,
+        parms: dict[str, Any] = {
+            "logger": logger,
+            "name": bench_name,
+            "path": bench_path,
+            "bench_config": bench_config,
+            "compose_file_manager": compose_file_manager,
+            "docker_client": docker_client,
+            "services": services,
+            "workers_check": workers_check,
+            "admin_tools_check": admin_tools_check,
         }
 
         if output_handler is not None:
-            parms['output_handler'] = output_handler
+            parms["output_handler"] = output_handler
 
         return cls(**parms)
 
@@ -310,11 +288,11 @@ class Bench:
         self.logger.debug(f"Syncing bench config configuration: {self.name}", extra_fields=extra)
         try:
             # set developer_mode based on config
-            self.set_common_bench_config({'developer_mode': self.bench_config.developer_mode})
+            self.set_common_bench_config({"developer_mode": self.bench_config.developer_mode})
 
             # ssl
             certificate_updated = self.update_certificate(
-                self.bench_config.get_primary_certificate(), raise_error=False
+                self.bench_config.get_primary_certificate(), raise_error=False,
             )
             if certificate_updated:
                 self.output.print("Certificate Updated")
@@ -327,15 +305,14 @@ class Bench:
                     self.admin_tools.enable(force_configure=True)
                 self.output.print("Enabled Admin-tools")
 
+            elif not self.admin_tools.compose_file_manager.compose_path.exists():
+                self.output.print("Admin tools is already disabled")
             else:
-                if not self.admin_tools.compose_file_manager.compose_path.exists():
-                    self.output.print("Admin tools is already disabled")
-                else:
-                    self.admin_tools.disable()
-                    self.output.print("Disabled Admin-tools")
+                self.admin_tools.disable()
+                self.output.print("Disabled Admin-tools")
 
             self.output.change_head("Restarting frappe server")
-            self.restart_supervisor_service('frappe')
+            self.restart_supervisor_service("frappe")
             self.output.print("Restarted frappe server")
             self.logger.info(f"Bench config synchronized: {self.name}", extra_fields=extra)
         except Exception as e:
@@ -394,7 +371,7 @@ class Bench:
         try:
             common_bench_config_path = self.path / "workspace/frappe-bench/sites/common_site_config.json"
             if not common_bench_config_path.exists():
-                raise BenchException(self.name, message=f'File not found {common_bench_config_path.name}.')
+                raise BenchException(self.name, message=f"File not found {common_bench_config_path.name}.")
 
             save_dict_to_file(config, common_bench_config_path)
             self.logger.info(f"Common bench configuration set: {self.name}", extra_fields=extra)
@@ -412,7 +389,7 @@ class Bench:
         """
         site_config_path = self.path / "workspace/frappe-bench/sites" / self.name / "site_config.json"
         if not site_config_path.exists():
-            raise BenchException(self.name, message=f'File not found {site_config_path.name}.')
+            raise BenchException(self.name, message=f"File not found {site_config_path.name}.")
         save_dict_to_file(config, site_config_path)
 
     def get_common_bench_config(self):
@@ -536,15 +513,15 @@ class Bench:
             self.docker_ops.remove_containers(remove_volumes=True, timeout=5)
             self.output.print("Removed bench containers")
         else:
-            self.output.warning('Bench compose file not found. Skipping containers removal.')
+            self.output.warning("Bench compose file not found. Skipping containers removal.")
 
         if self.workers.compose_file_manager.exists():
             self.output.change_head("Removing bench workers containers")
             output = self.workers.docker_client.compose.down(remove_orphans=True, volumes=True, timeout=5, stream=True)
-            self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
+            self.output.live_lines(cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2))
             self.output.print("Removed bench workers containers")
         else:
-            self.output.warning('Bench workers compose file not found. Skipping containers removal.')
+            self.output.warning("Bench workers compose file not found. Skipping containers removal.")
 
         if self.admin_tools.compose_file_manager.exists():
             self.output.change_head("Removing bench admin tools containers")
@@ -555,7 +532,7 @@ class Bench:
                 pass  # Best effort cleanup
             self.output.print("Removed bench admin tools containers")
         else:
-            self.output.warning('Bench admin tools compose file not found. Skipping containers removal.')
+            self.output.warning("Bench admin tools compose file not found. Skipping containers removal.")
 
         self.output.change_head("Removing all bench files and directories")
         try:
@@ -580,9 +557,9 @@ class Bench:
         self.output.print("Removed all bench files and directories")
 
     def is_bench_created(self, retry=60, interval=1) -> bool:
-        curl_command = 'curl -I --max-time {retry} --connect-timeout {retry} {headers} {url}'
-        url = 'http://localhost'
-        headers = ''
+        curl_command = "curl -I --max-time {retry} --connect-timeout {retry} {headers} {url}"
+        url = "http://localhost"
+        headers = ""
         if self.bench_config.environment_type == FMBenchEnvType.prod:
             headers = f"-H 'Host: {self.name}'"
 
@@ -597,7 +574,7 @@ class Bench:
                     stream=False,
                 )
                 for line in result.stdout:
-                    if 'HTTP/1.1 200 OK' in line:
+                    if "HTTP/1.1 200 OK" in line:
                         return True
             except Exception:
                 time.sleep(interval)
@@ -708,7 +685,7 @@ class Bench:
             self.logger.exception(f"Failed to renew SSL certificate: {self.name}", extra_fields=extra)
             raise
 
-    def update_alias_domains(self, add_domains: Optional[List[str]] = None, remove_domains: Optional[List[str]] = None):
+    def update_alias_domains(self, add_domains: list[str] | None = None, remove_domains: list[str] | None = None):
         """
         Update alias domains for the bench with atomic rollback support.
 
@@ -791,7 +768,7 @@ class Bench:
 
             # Open log files and create generators
             for path in log_file_paths:
-                log_generators.append(log_file(open(path, 'r'), follow=follow))
+                log_generators.append(log_file(open(path), follow=follow))
 
             if follow:
                 while True:
@@ -810,7 +787,7 @@ class Bench:
             for logfile in log_generators:
                 logfile.close()
 
-    def logs(self, follow: bool, service: Optional[str] = None):
+    def logs(self, follow: bool, service: str | None = None):
         """
         Display logs for the site or a specific service.
 
@@ -826,7 +803,7 @@ class Bench:
                 if not self._is_service_running(service):
                     self.output.stop()
                     self.output.display_error(
-                        f"Cannot show logs. [blue]{self.name}[/blue]'s compose service '{service}' not running!"
+                        f"Cannot show logs. [blue]{self.name}[/blue]'s compose service '{service}' not running!",
                     )
                     return
                 self.docker_ops.logs(services=[service], follow=follow)
@@ -834,7 +811,7 @@ class Bench:
         except KeyboardInterrupt:
             print("Detected CTRL+C. Exiting..")
 
-    def attach_to_bench(self, user: str, extensions: List[str], workdir: str, debugger: bool = False) -> None:
+    def attach_to_bench(self, user: str, extensions: list[str], workdir: str, debugger: bool = False) -> None:
         """
         Attaches to a running bench's container using Visual Studio Code Remote Containers extension.
 
@@ -876,14 +853,14 @@ class Bench:
         extra = {"operation": "bench_remove", "bench_name": self.name, "default_choice": default_choice}
         self.logger.debug(f"Attempting to remove bench: {self.name}", extra_fields=extra)
 
-        params: Dict[str, Any] = {}
-        params['prompt'] = f"🤔 Do you want to remove [bold][green]'{self.name}'[/bold][/green]"
-        params['choices'] = ["yes", "no"]
+        params: dict[str, Any] = {}
+        params["prompt"] = f"🤔 Do you want to remove [bold][green]'{self.name}'[/bold][/green]"
+        params["choices"] = ["yes", "no"]
 
         if default_choice:
-            params['default'] = 'no'
+            params["default"] = "no"
 
-        params['required_flag'] = '--yes or -y'
+        params["required_flag"] = "--yes or -y"
         continue_remove = self.output.prompt_ask(**params)
 
         if continue_remove == "no":
@@ -902,7 +879,7 @@ class Bench:
                 try:
                     self._handle_database_deletion(delete_db_from_global_db)
                 except Exception as e:
-                    self.output.warning(f"Database deletion failed: {str(e)}")
+                    self.output.warning(f"Database deletion failed: {e!s}")
                     self.output.warning("Continuing with bench removal...")
 
                 self.remove_containers_and_dirs()
@@ -953,10 +930,10 @@ class Bench:
 
             if should_delete is None:
                 params = {
-                    'prompt': f"🗄️  Do you want to remove the database '[bold]{self.name}[/bold]' from global-db?",
-                    'choices': ["yes", "no"],
-                    'default': 'yes',
-                    'required_flag': '--delete-db-from-global-db or --no-delete-db-from-global-db',
+                    "prompt": f"🗄️  Do you want to remove the database '[bold]{self.name}[/bold]' from global-db?",
+                    "choices": ["yes", "no"],
+                    "default": "yes",
+                    "required_flag": "--delete-db-from-global-db or --no-delete-db-from-global-db",
                 }
                 choice = self.output.prompt_ask(**params)
                 should_delete = choice == "yes"
@@ -1017,7 +994,7 @@ class Bench:
                         if status.get("Name") in containers
                     }
                     for service in running_services:
-                        if service == 'running':
+                        if service == "running":
                             atleast_one_service_running = True
                 except Exception:
                     atleast_one_service_running = False
@@ -1040,11 +1017,11 @@ class Bench:
 
     def frappe_service_run_command(self, command: str):
         try:
-            self.docker_client.compose.exec('frappe', command, user='frappe', stream=False)
+            self.docker_client.compose.exec("frappe", command, user="frappe", stream=False)
         except DockerException as e:
             raise BenchException("frappe", f"Faild to run {command} in frappe service.")
 
-    def get_apps_dev_requirements(self) -> List[str]:
+    def get_apps_dev_requirements(self) -> list[str]:
         """Parse pip requirement string to package name and version"""
         return self.devtools.get_apps_dev_requirements()
 
@@ -1057,7 +1034,7 @@ class Bench:
     def is_supervisord_running(self, interval: int = 2, timeout: int = 30):
         return self.supervisor.is_supervisord_running(interval, timeout)
 
-    def reset(self, admin_password: Optional[str] = None):
+    def reset(self, admin_password: str | None = None):
         admin_pass = None
 
         if admin_password:
@@ -1065,32 +1042,32 @@ class Bench:
         else:
             if not admin_pass:
                 site_config = self.get_bench_site_config()
-                if 'admin_password' in site_config:
-                    admin_pass = site_config['admin_password']
+                if "admin_password" in site_config:
+                    admin_pass = site_config["admin_password"]
                     self.output.print("Using admin_password defined in site_config.json")
 
             if not admin_pass:
                 common_site_config = self.get_common_bench_config()
-                if 'admin_password' in common_site_config:
-                    admin_pass = common_site_config['admin_password']
+                if "admin_password" in common_site_config:
+                    admin_pass = common_site_config["admin_password"]
                     self.output.print("Using admin_password defined in common_site_config.json")
 
         if not admin_pass:
             admin_pass = self.output.prompt_ask(
-                prompt=f"Please enter admin password for site {self.name}", required_flag="--admin-pass"
+                prompt=f"Please enter admin password for site {self.name}", required_flag="--admin-pass",
             )
 
         self.output.change_head(f"Resetting bench site {self.name}")
 
         self.site_manager.reset_bench_site(admin_pass)
-        self.set_bench_site_config({'admin_password': admin_pass})
+        self.set_bench_site_config({"admin_password": admin_pass})
 
         self.output.print(f"Reset bench site {self.name}")
 
     def restart_supervisor_service(
         self,
         service: str,
-        docker_client_obj: Optional[DockerClient] = None,
+        docker_client_obj: DockerClient | None = None,
         timeout: int = 30,
         interval: int = 1,
         force: bool = False,
@@ -1139,7 +1116,7 @@ class Bench:
             force: If True, use timeout=0 for immediate kill. If False, use default graceful timeout.
         """
         nginx_service = [SiteServicesEnum.nginx.value]
-        self.output.change_head(f"Restarting nginx service")
+        self.output.change_head("Restarting nginx service")
         self.docker_ops.restart_services(nginx_service, force=force)
         action = "Force restarted" if force else "Restarted"
         self.output.print(f"{action} nginx service")
@@ -1147,7 +1124,7 @@ class Bench:
     def restart_workers_containers_services(self, use_container_restart: bool = False, force: bool = False):
         """Restarts workers and schedule containers"""
         self.worker_coordinator.restart_workers_containers_services(
-            use_container_restart=use_container_restart, force=force
+            use_container_restart=use_container_restart, force=force,
         )
 
     def update_upload_limit(self, upload_limit: str):
@@ -1163,29 +1140,28 @@ class Bench:
         Raises:
             BenchException: If format is invalid or operation fails
         """
-        from frappe_manager.site_manager.modules.upload_limit_manager import UploadLimitManager
         import re
 
         # Validate format (e.g., "50M", "100M", "500M", "1G")
-        if not re.match(r'^\d+[MG]$', upload_limit, re.IGNORECASE):
+        if not re.match(r"^\d+[MG]$", upload_limit, re.IGNORECASE):
             raise BenchException(
-                self.name, message=f"Invalid upload limit format: '{upload_limit}'. Use format like '50M' or '1G'"
+                self.name, message=f"Invalid upload limit format: '{upload_limit}'. Use format like '50M' or '1G'",
             )
 
         # 1. Update site_config.json (convert to bytes)
         size_bytes = self._parse_size_to_bytes(upload_limit)
-        self.set_bench_site_config({'max_file_size': size_bytes})
+        self.set_bench_site_config({"max_file_size": size_bytes})
         self.output.print(f"Updated site_config.json (max_file_size: {size_bytes} bytes)")
 
         # 2. Update BenchConfig (will affect nginx template on restart)
         self.bench_config.upload_limit = upload_limit.upper()
         self.save_bench_config()
-        self.output.print(f"Updated bench configuration")
+        self.output.print("Updated bench configuration")
 
         # 2b. Regenerate docker-compose to include new environment variable
         inputs = self.bench_config.export_to_compose_inputs()
         self.generate_compose(inputs)
-        self.output.print(f"Regenerated docker-compose configuration")
+        self.output.print("Regenerated docker-compose configuration")
 
         # 3. Create custom nginx config file for bench nginx
         custom_conf_dir = self.path / "configs" / "nginx" / "conf" / "custom"
@@ -1211,7 +1187,7 @@ class Bench:
             self.services.nginx_controller.reload()
 
         self.output.print(
-            f"Upload size limit updated to {upload_limit} (site_config: {size_bytes} bytes, nginx: {upload_limit.lower()})"
+            f"Upload size limit updated to {upload_limit} (site_config: {size_bytes} bytes, nginx: {upload_limit.lower()})",
         )
 
     def _parse_size_to_bytes(self, size_str: str) -> int:
@@ -1233,7 +1209,7 @@ class Bench:
         """
         import re
 
-        match = re.match(r'^(\d+)([MG])$', size_str, re.IGNORECASE)
+        match = re.match(r"^(\d+)([MG])$", size_str, re.IGNORECASE)
         if not match:
             raise BenchException(
                 self.name,
@@ -1243,15 +1219,15 @@ class Bench:
         value = int(match.group(1))
         unit = match.group(2).upper()
 
-        if unit == 'M':
+        if unit == "M":
             return value * 1024 * 1024  # Convert MB to bytes
-        elif unit == 'G':
+        if unit == "G":
             return value * 1024 * 1024 * 1024  # Convert GB to bytes
 
         # Should never reach here due to regex validation
         raise BenchException(self.name, message=f"Unsupported unit: {unit}")
 
-    def get_available_services(self) -> List[str]:
+    def get_available_services(self) -> list[str]:
         """
         Get all available services from all compose files.
 

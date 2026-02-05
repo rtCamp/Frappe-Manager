@@ -1,32 +1,35 @@
 """Cloudflare DNS configuration command."""
 
-from typing import Annotated, Optional
+from typing import Annotated
+
 import typer
-from frappe_manager.ssl_manager import DNS_PROVIDER
+
 from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.ssl_manager import DNS_PROVIDER
 from frappe_manager.utils.callbacks import sites_autocompletion_callback
-from ..dns_helpers import _show_dns_credentials, _remove_dns_credentials, _configure_dns_credentials
+
+from ..dns_helpers import _configure_dns_credentials, _remove_dns_credentials, _show_dns_credentials
 
 
 def dns_config_cloudflare(
     ctx: typer.Context,
     benchname: Annotated[
-        Optional[str],
+        str | None,
         typer.Argument(
             help="Bench name for bench-specific credentials. Omit for global configuration.",
             autocompletion=sites_autocompletion_callback,
         ),
     ] = None,
     api_token: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--api-token", help="Cloudflare API Token (recommended - scoped permissions)"),
     ] = None,
     api_key: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--api-key", help="Cloudflare Global API Key (legacy - full account access)"),
     ] = None,
     email: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--email", help="Cloudflare account email (required with Global API Key)"),
     ] = None,
     show: Annotated[

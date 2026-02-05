@@ -1,40 +1,38 @@
-from typing import Annotated, Optional
+from typing import Annotated
 
 import typer
 
-from frappe_manager.logger.context import LoggerContext
-from frappe_manager.site_manager.site import Bench
-from frappe_manager.output_manager import get_global_output_handler
-from frappe_manager.commands import check_bench_migration_required
-from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
-from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.metadata_manager import FMConfigManager
-from frappe_manager.output_manager.context_managers import spinner, temporary_stop
 from frappe_manager.ngrok import create_tunnel
+from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.output_manager.context_managers import spinner, temporary_stop
+from frappe_manager.site_manager.exceptions import BenchNotRunning
+from frappe_manager.site_manager.site import Bench
+from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
 
 
 def ngrok(
     ctx: typer.Context,
     benchname: Annotated[
-        Optional[str],
+        str | None,
         typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
+            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback,
         ),
     ] = None,
     auth_token: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--auth-token", "-t", help="Ngrok authentication token", envvar="NGROK_AUTHTOKEN"),
     ] = None,
     save_token: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option(
-            "--save-token/--no-save-token", help="Save or don't save the ngrok auth token to config for future use"
+            "--save-token/--no-save-token", help="Save or don't save the ngrok auth token to config for future use",
         ),
     ] = None,
 ):
     """Create ngrok tunnel for bench"""
     services_manager = ctx.obj["services"]
-    verbose = ctx.obj['verbose']
+    verbose = ctx.obj["verbose"]
 
     output = get_global_output_handler()
     logger = ctx.obj.get("logger")
@@ -51,7 +49,7 @@ def ngrok(
             output.print("Using ngrok auth token from config file", emoji_code=":key:")
         elif not auth_token:
             output.display_error(
-                "Ngrok auth token is required. Please provide it with --auth-token or set NGROK_AUTHTOKEN environment variable."
+                "Ngrok auth token is required. Please provide it with --auth-token or set NGROK_AUTHTOKEN environment variable.",
             )
             raise typer.Exit(1)
 
@@ -62,13 +60,13 @@ def ngrok(
                 with temporary_stop(output):
                     should_save = output.prompt_ask(
                         prompt="Do you want to save the ngrok auth token in config for future use?",
-                        choices=['yes', 'no'],
+                        choices=["yes", "no"],
                         required_flag="--save-token or --no-save-token",
                     )
             else:
-                should_save = 'yes' if save_token else 'no'
+                should_save = "yes" if save_token else "no"
 
-            if should_save == 'yes':
+            if should_save == "yes":
                 output.print("Saving auth token to config...", emoji_code=":floppy_disk:")
                 fm_config_manager.ngrok_auth_token = auth_token
                 fm_config_manager.export_to_toml()
@@ -79,5 +77,5 @@ def ngrok(
         try:
             create_tunnel(bench.name, auth_token)
         except Exception as e:
-            output.display_error(f"Failed to create tunnel: {str(e)}")
+            output.display_error(f"Failed to create tunnel: {e!s}")
             raise

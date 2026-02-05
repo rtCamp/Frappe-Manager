@@ -8,25 +8,27 @@ Handles information retrieval and display for the bench including:
 - Getting log file paths
 """
 
-from typing import TYPE_CHECKING, List, Dict, Any
-from pathlib import Path
 import json
-from rich.table import Table
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
 from rich.console import Console
+from rich.table import Table
+
+from frappe_manager.docker import DockerException
 from frappe_manager.output_manager import OutputHandler, temporary_stop
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.exceptions import BenchException
-from frappe_manager.docker import DockerException
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.utils.helpers import format_ssl_certificate_time_remaining
 from frappe_manager.utils.site import generate_services_table
 
 if TYPE_CHECKING:
-    from frappe_manager.site_manager.bench_config import BenchConfig
     from frappe_manager.services_manager.services import ServicesManager
-    from frappe_manager.site_manager.modules.bench_workers import BenchWorkers
+    from frappe_manager.site_manager.bench_config import BenchConfig
     from frappe_manager.site_manager.modules.bench_admin_tools import BenchAdminTools
+    from frappe_manager.site_manager.modules.bench_workers import BenchWorkers
     from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
 
 
@@ -98,7 +100,7 @@ class BenchInfo:
         """
         common_bench_config_path = self.bench_path / "workspace/frappe-bench/sites/common_site_config.json"
         if not common_bench_config_path.exists():
-            raise BenchException(self.bench_name, message='common_site_config.json not found.')
+            raise BenchException(self.bench_name, message="common_site_config.json not found.")
         return json.loads(common_bench_config_path.read_text())
 
     def get_site_config(self) -> dict:
@@ -113,10 +115,10 @@ class BenchInfo:
         """
         site_config_path = self.bench_path / "workspace/frappe-bench/sites" / self.bench_name / "site_config.json"
         if not site_config_path.exists():
-            raise BenchException(self.bench_name, message='site_config.json not found.')
+            raise BenchException(self.bench_name, message="site_config.json not found.")
         return json.loads(site_config_path.read_text())
 
-    def get_installed_apps_list(self) -> Dict[str, Any]:
+    def get_installed_apps_list(self) -> dict[str, Any]:
         """
         Get list of installed apps from apps.json.
 
@@ -126,11 +128,11 @@ class BenchInfo:
         apps_json_file = self.bench_path / "workspace/frappe-bench/sites/apps.json"
         if not apps_json_file.exists():
             return {}
-        with open(apps_json_file, "r") as f:
+        with open(apps_json_file) as f:
             apps_data = json.load(f)
         return apps_data
 
-    def get_log_file_paths(self) -> List[Path]:
+    def get_log_file_paths(self) -> list[Path]:
         """
         Get log file paths based on environment type.
 
@@ -141,10 +143,9 @@ class BenchInfo:
         if self.bench_config.environment_type.value == "dev":
             bench_dev_server_log_path = base_log_dir / "web.dev.log"
             return [bench_dev_server_log_path]
-        else:
-            bench_prod_server_log_path_stdout = base_log_dir / "web.log"
-            bench_prod_server_log_path_stderr = base_log_dir / "web.error.log"
-            return [bench_prod_server_log_path_stderr, bench_prod_server_log_path_stdout]
+        bench_prod_server_log_path_stdout = base_log_dir / "web.log"
+        bench_prod_server_log_path_stderr = base_log_dir / "web.error.log"
+        return [bench_prod_server_log_path_stderr, bench_prod_server_log_path_stdout]
 
     def display_info(self) -> None:
         """
@@ -162,21 +163,21 @@ class BenchInfo:
         services_db_info = self.services.database_manager.database_server_info
         bench_info_table = Table(show_lines=True, show_header=False, highlight=True)
 
-        protocol = 'https' if self.has_certificate() else 'http'
+        protocol = "https" if self.has_certificate() else "http"
 
         # Get admin password from site_config.json if available
         admin_pass = self.bench_config.admin_pass + " (default)"
         site_config = self.get_site_config()
-        if 'admin_password' in site_config:
-            admin_pass = site_config['admin_password']
+        if "admin_password" in site_config:
+            admin_pass = site_config["admin_password"]
 
         ssl_cert = self.bench_config.get_primary_certificate()
-        ssl_service_type = f'{ssl_cert.ssl_type.value}'
+        ssl_service_type = f"{ssl_cert.ssl_type.value}"
         if ssl_cert.ssl_type == SUPPORTED_SSL_TYPES.le:
             if isinstance(ssl_cert, LetsencryptSSLCertificate):
-                ssl_service_type = f'[{ssl_cert.challenge_type.value}] {ssl_cert.ssl_type.value}'
+                ssl_service_type = f"[{ssl_cert.challenge_type.value}] {ssl_cert.ssl_type.value}"
             else:
-                ssl_service_type = f'{ssl_cert.ssl_type.value}'
+                ssl_service_type = f"{ssl_cert.ssl_type.value}"
 
         is_running = self.is_running()
         status = "Active" if is_running else "Inactive"
@@ -197,19 +198,19 @@ class BenchInfo:
             "DB Password": db_pass,
             "Environment": self.bench_config.environment_type.value,
             "HTTPS": (
-                f'{ssl_service_type.upper()} ({format_ssl_certificate_time_remaining(self.certificate_manager.get_certificate_expiry())})'
+                f"{ssl_service_type.upper()} ({format_ssl_certificate_time_remaining(self.certificate_manager.get_certificate_expiry())})"
                 if self.has_certificate()
-                else 'Not Enabled'
+                else "Not Enabled"
             ),
         }
 
         # Add alias domains if present (independent of SSL status)
         if self.bench_config.alias_domains:
-            alias_list = '\n'.join(sorted(self.bench_config.alias_domains))
-            data['Alias Domains'] = alias_list
+            alias_list = "\n".join(sorted(self.bench_config.alias_domains))
+            data["Alias Domains"] = alias_list
 
         if not self.bench_config.admin_tools:
-            data['Admin Tools'] = 'Not Enabled'
+            data["Admin Tools"] = "Not Enabled"
         else:
             # Create main admin tools table
             admin_tools_Table = Table(show_lines=False, show_edge=False, pad_edge=False, expand=True)
@@ -229,12 +230,12 @@ class BenchInfo:
             # Combine table and auth info
             from rich.console import Group
 
-            data['Admin Tools'] = Group(admin_tools_Table, auth_info)
+            data["Admin Tools"] = Group(admin_tools_Table, auth_info)
 
         bench_info_table.add_column(no_wrap=True)
         bench_info_table.add_column(no_wrap=True)
 
-        for key in data.keys():
+        for key in data:
             bench_info_table.add_row(key, data[key])
 
         # Get bench apps data

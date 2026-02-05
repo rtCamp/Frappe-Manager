@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from functools import total_ordering
+
 from packaging.version import Version as PackagingVersion
 
 

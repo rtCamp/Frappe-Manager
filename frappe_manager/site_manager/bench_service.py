@@ -13,16 +13,16 @@ Benefits:
 """
 
 from pathlib import Path
-from typing import List, Optional, Tuple
+
 from rich.table import Table
 
 from frappe_manager.docker import ComposeFile, DockerClient
-from frappe_manager.services_manager.services import ServicesManager
-from frappe_manager.site_manager.site import Bench
-from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
+from frappe_manager.logger import log
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.logger import log
+from frappe_manager.services_manager.services import ServicesManager
+from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
+from frappe_manager.site_manager.site import Bench
 
 
 class BenchService:
@@ -129,13 +129,13 @@ class BenchService:
             >>> bench = service.create_bench("site.localhost", config)
         """
         bench_path = self.benches_directory / bench_name
-        compose_path = bench_path / 'docker-compose.yml'
+        compose_path = bench_path / "docker-compose.yml"
 
         compose_file_manager = ComposeFile(compose_path)
         docker_client = DockerClient(compose_file_path=compose_path, output=self.output)
 
-        from frappe_manager.logger.contextual import ContextualLogger
         from frappe_manager.logger.context import LoggerContext
+        from frappe_manager.logger.contextual import ContextualLogger
 
         bench_logger = ContextualLogger(self.logger, context=LoggerContext(bench=bench_name, operation="create"))
 
@@ -177,13 +177,12 @@ class BenchService:
                 try:
                     self._handle_database_deletion(bench, delete_db_from_global_db)
                 except Exception as e:
-                    self.output.warning(f"Database deletion failed: {str(e)}")
+                    self.output.warning(f"Database deletion failed: {e!s}")
                     self.output.warning("Continuing with bench removal...")
 
                 bench.remove_containers_and_dirs()
             return True
-        else:
-            return bench.remove_bench(delete_db_from_global_db=delete_db_from_global_db)
+        return bench.remove_bench(delete_db_from_global_db=delete_db_from_global_db)
 
     def discover_benches(self) -> dict[str, Path]:
         """
@@ -280,7 +279,7 @@ class BenchService:
                 self.output.update_live(table, padding=(0, 0, 0, 0))
 
             except FileNotFoundError as e:
-                self.output.warning(f'[red][bold]{bench_name}[/bold][/red] : Bench config not found at {e.filename}')
+                self.output.warning(f"[red][bold]{bench_name}[/bold][/red] : Bench config not found at {e.filename}")
 
         self.output.stop()
         return table
@@ -297,13 +296,10 @@ class BenchService:
         Returns:
             Minimal Bench instance
         """
-        from frappe_manager import STABLE_APP_BRANCH_MAPPING_LIST
-        from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
-        from frappe_manager.ssl_manager.certificate import SSLCertificate
         import os
 
         bench_path = self.benches_directory / bench_name
-        compose_path = bench_path / 'docker-compose.yml'
+        compose_path = bench_path / "docker-compose.yml"
 
         compose_file_manager = ComposeFile(compose_path)
         docker_client = DockerClient(compose_file_path=compose_path, output=self.output)
@@ -315,7 +311,7 @@ class BenchService:
             apps_list=[],
             developer_mode=False,
             admin_tools=False,
-            admin_pass='pass',
+            admin_pass="pass",
             environment_type=FMBenchEnvType.dev,
             root_path=bench_path / "bench_config.toml",
             admin_tools_username=None,
@@ -328,8 +324,8 @@ class BenchService:
             migration_state=None,
         )
 
-        from frappe_manager.logger.contextual import ContextualLogger
         from frappe_manager.logger.context import LoggerContext
+        from frappe_manager.logger.contextual import ContextualLogger
 
         cleanup_logger = ContextualLogger(self.logger, context=LoggerContext(bench=bench_name, operation="cleanup"))
 
@@ -386,10 +382,10 @@ class BenchService:
 
         if should_delete is None:
             params = {
-                'prompt': f"🗄️  Do you want to remove the database '[bold]{bench.name}[/bold]' from global-db?",
-                'choices': ["yes", "no"],
-                'default': 'yes',
-                'required_flag': '--delete-db-from-global-db or --no-delete-db-from-global-db',
+                "prompt": f"🗄️  Do you want to remove the database '[bold]{bench.name}[/bold]' from global-db?",
+                "choices": ["yes", "no"],
+                "default": "yes",
+                "required_flag": "--delete-db-from-global-db or --no-delete-db-from-global-db",
             }
             choice = self.output.prompt_ask(**params)
             should_delete = choice == "yes"

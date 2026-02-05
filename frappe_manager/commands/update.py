@@ -1,57 +1,59 @@
-from typing import Annotated, List, Optional
+from typing import Annotated
+
 import typer
+
+from frappe_manager import CLI_BENCHES_DIRECTORY, EnableDisableOptionsEnum
+from frappe_manager.metadata_manager import FMConfigManager
+from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.bench_config import (
+    AppConfig,
     FMBenchEnvType,
     RestartPolicyEnum,
-    AppConfig,
-    extract_python_version_requirement,
     extract_node_version_requirement,
-    validate_python_version_compatibility,
-    validate_node_version_compatibility,
-    parse_python_version_for_runtime,
+    extract_python_version_requirement,
     parse_node_version_for_runtime,
+    parse_python_version_for_runtime,
+    validate_node_version_compatibility,
+    validate_python_version_compatibility,
 )
+from frappe_manager.site_manager.domain_conflict import DomainConflictError, validate_domains_unique
 from frappe_manager.site_manager.exceptions import BenchNotRunning
-from frappe_manager.site_manager.domain_conflict import validate_domains_unique, DomainConflictError
-from frappe_manager.output_manager import spinner, get_global_output_handler
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import (
     alias_domains_validation_callback,
     sitename_callback,
     sites_autocompletion_callback,
 )
-from frappe_manager import CLI_BENCHES_DIRECTORY, EnableDisableOptionsEnum
-from frappe_manager.metadata_manager import FMConfigManager
 
 
 def update(
     ctx: typer.Context,
     benchname: Annotated[
-        Optional[str],
+        str | None,
         typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
+            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback,
         ),
     ] = None,
     admin_tools: Annotated[
-        Optional[EnableDisableOptionsEnum],
+        EnableDisableOptionsEnum | None,
         typer.Option("--admin-tools", help="Toggle admin-tools.", show_default=False),
     ] = None,
     environment: Annotated[
-        Optional[FMBenchEnvType],
+        FMBenchEnvType | None,
         typer.Option("--environment", "-e", help="Switch bench environment.", show_default=False),
     ] = None,
     developer_mode: Annotated[
-        Optional[EnableDisableOptionsEnum],
+        EnableDisableOptionsEnum | None,
         typer.Option(help="Toggle frappe developer mode.", show_default=False),
     ] = None,
     mailpit_as_default_mail_server: Annotated[
         bool,
         typer.Option(
-            "--mailpit-as-default-mail-server", help="Configure Mailpit as default mail server", show_default=False
+            "--mailpit-as-default-mail-server", help="Configure Mailpit as default mail server", show_default=False,
         ),
     ] = False,
     add_alias: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--add-alias",
             help="Add alias domains to the site (comma-separated, e.g., www.example.com,api.example.com)",
@@ -60,7 +62,7 @@ def update(
         ),
     ] = None,
     remove_alias: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--remove-alias",
             help="Remove alias domains from the site (comma-separated, e.g., shop.example.com)",
@@ -69,7 +71,7 @@ def update(
         ),
     ] = None,
     upload_limit: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--upload-limit",
             help="Set maximum upload size for files (e.g., '50M', '100M', '500M', '1G')",
@@ -77,7 +79,7 @@ def update(
         ),
     ] = None,
     python_version: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--python",
             help="Update Python version (e.g., '3.11', '3.12', '>=3.11,<3.14'). Will recreate virtual environment.",
@@ -85,7 +87,7 @@ def update(
         ),
     ] = None,
     node_version: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--node",
             help="Update Node version (e.g., '18', '20', '>=18'). Will install and set as default.",
@@ -101,7 +103,7 @@ def update(
         ),
     ] = False,
     restart: Annotated[
-        Optional[RestartPolicyEnum],
+        RestartPolicyEnum | None,
         typer.Option(
             "--restart",
             help="Update Docker restart policy for all bench services.",
@@ -120,7 +122,7 @@ def update(
     """Update bench configuration and settings"""
 
     services_manager = ctx.obj["services"]
-    fm_config: FMConfigManager = ctx.obj['fm_config_manager']
+    fm_config: FMConfigManager = ctx.obj["fm_config_manager"]
 
     output = get_global_output_handler()
     logger = ctx.obj.get("logger")
@@ -136,12 +138,12 @@ def update(
             if developer_mode == EnableDisableOptionsEnum.enable:
                 bench.bench_config.developer_mode = True
                 output.change_head("Enabling frappe developer mode")
-                bench.set_common_bench_config({'developer_mode': bench.bench_config.developer_mode})
+                bench.set_common_bench_config({"developer_mode": bench.bench_config.developer_mode})
                 output.print("Enabled frappe developer mode")
             elif developer_mode == EnableDisableOptionsEnum.disable:
                 bench.bench_config.developer_mode = False
                 output.change_head("Disabling frappe developer mode")
-                bench.set_common_bench_config({'developer_mode': bench.bench_config.developer_mode})
+                bench.set_common_bench_config({"developer_mode": bench.bench_config.developer_mode})
                 output.print("Disabled frappe developer mode")
 
             bench_config_save = True
@@ -151,8 +153,8 @@ def update(
             bench.bench_config.environment_type = environment
 
             compose_inputs = bench.bench_config.export_to_compose_inputs()
-            compose_inputs.setdefault('environment', {}).setdefault('frappe', {})
-            compose_inputs['environment']['frappe']['FRAPPE_ENV'] = environment.value
+            compose_inputs.setdefault("environment", {}).setdefault("frappe", {})
+            compose_inputs["environment"]["frappe"]["FRAPPE_ENV"] = environment.value
 
             bench.generate_compose(compose_inputs)
 
@@ -209,10 +211,9 @@ def update(
                 ):
                     output.print("Admin tools is already disabled")
                     return
-                else:
-                    bench.bench_config.admin_tools = False
-                    bench.admin_tools.disable()
-                    bench_config_save = True
+                bench.bench_config.admin_tools = False
+                bench.admin_tools.disable()
+                bench_config_save = True
 
         if add_alias or remove_alias:
             add_domains_list = add_alias if add_alias else []
@@ -249,14 +250,14 @@ def update(
                 current_versions = bench.app_manager.get_current_runtime_versions(use_run=True)
 
             if python_version:
-                old_python = current_versions.get('python') or "not set"
+                old_python = current_versions.get("python") or "not set"
 
                 frappe_python_req = None
                 if frappe_app_path.exists():
                     frappe_python_req = extract_python_version_requirement(frappe_app_path)
                     if frappe_python_req and not skip_version_check:
                         is_compatible, error_msg = validate_python_version_compatibility(
-                            python_version, frappe_python_req
+                            python_version, frappe_python_req,
                         )
                         if not is_compatible:
                             output.change_head("Python version validation failed")
@@ -285,7 +286,7 @@ def update(
                 bench_config_save = True
 
             if node_version:
-                old_node = current_versions.get('node') or "not set"
+                old_node = current_versions.get("node") or "not set"
                 frappe_node_req = None
                 if frappe_app_path.exists():
                     frappe_node_req = extract_node_version_requirement(frappe_app_path)

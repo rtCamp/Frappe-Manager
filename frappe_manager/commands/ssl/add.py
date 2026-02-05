@@ -1,31 +1,34 @@
 """Add SSL certificate command."""
 
-from typing import Annotated, Optional
+from typing import Annotated
+
 import typer
-from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
-from frappe_manager.output_manager import temporary_stop
+
 from frappe_manager.logger.context import LoggerContext
-from frappe_manager.utils.callbacks import sites_autocompletion_callback, prompt_for_bench_selection
-from .helpers import get_output_handler
+from frappe_manager.output_manager import temporary_stop
+from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
+from frappe_manager.utils.callbacks import prompt_for_bench_selection, sites_autocompletion_callback
+
 from .bench_helpers import _add_bench_certificate
 from .external_helpers import _add_external_certificate
+from .helpers import get_output_handler
 
 
 def add_certificate(
     ctx: typer.Context,
     benchname: Annotated[
-        Optional[str],
+        str | None,
         typer.Argument(
-            help="Name of the bench (omit for standalone mode).", autocompletion=sites_autocompletion_callback
+            help="Name of the bench (omit for standalone mode).", autocompletion=sites_autocompletion_callback,
         ),
     ] = None,
-    domain: Annotated[Optional[str], typer.Argument(help="Domain name for the certificate")] = None,
+    domain: Annotated[str | None, typer.Argument(help="Domain name for the certificate")] = None,
     challenge: Annotated[
         LETSENCRYPT_PREFERRED_CHALLENGE,
         typer.Option("--challenge", "-c", help="Challenge type"),
     ] = LETSENCRYPT_PREFERRED_CHALLENGE.http01,
     cname: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--cname", help="CNAME delegation record for DNS-01 challenge (requires dns01)"),
     ] = None,
     dry_run: Annotated[

@@ -186,7 +186,7 @@ class SilentOutputHandler(OutputHandler):
 
         if required_flag:
             raise NonInteractiveError(
-                f"Cannot prompt in non-interactive mode: {prompt}", suggestions=[f"Provide: {required_flag}"]
+                f"Cannot prompt in non-interactive mode: {prompt}", suggestions=[f"Provide: {required_flag}"],
             )
 
         if default is not None:
@@ -209,7 +209,7 @@ class SilentOutputHandler(OutputHandler):
 
         if required_flag:
             raise NonInteractiveError(
-                f"Cannot prompt in non-interactive mode: {prompt}", suggestions=[f"Provide: {required_flag}"]
+                f"Cannot prompt in non-interactive mode: {prompt}", suggestions=[f"Provide: {required_flag}"],
             )
 
         if default is not None:

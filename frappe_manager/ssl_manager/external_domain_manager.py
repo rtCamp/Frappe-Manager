@@ -18,15 +18,13 @@ Example external_domains.toml structure:
 """
 
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
+
 import tomlkit
 
-from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES, LETSENCRYPT_PREFERRED_CHALLENGE
+from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
-from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate
-from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
+from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate, LetsencryptSSLCertificate
 
 
 @dataclass
@@ -47,7 +45,7 @@ class ExternalDomainConfig:
     ssl_type: str
     added_at: str
     challenge_type: str  # Changed from preferred_challenge to challenge_type
-    delegation_cname: Optional[str] = None
+    delegation_cname: str | None = None
     acme_client: str = "acme.sh"
 
 
@@ -145,7 +143,7 @@ class ExternalDomainConfigManager:
 
         doc["domains"] = domains_table
 
-        with open(self.config_path, 'w') as f:
+        with open(self.config_path, "w") as f:
             f.write(tomlkit.dumps(doc))
 
     def add_domain(self, config: ExternalDomainConfig):
@@ -185,7 +183,7 @@ class ExternalDomainConfigManager:
         self._save(domains)
         return True
 
-    def get_domain(self, domain: str) -> Optional[ExternalDomainConfig]:
+    def get_domain(self, domain: str) -> ExternalDomainConfig | None:
         """
         Get configuration for a specific domain.
 
@@ -220,7 +218,7 @@ class ExternalDomainConfigManager:
         """
         return domain in self._load()
 
-    def to_ssl_certificate(self, domain: str) -> Optional[SSLCertificate]:
+    def to_ssl_certificate(self, domain: str) -> SSLCertificate | None:
         """
         Convert external domain config to SSLCertificate object.
 
@@ -256,17 +254,16 @@ class ExternalDomainConfigManager:
                 delegation_cname=config.delegation_cname,
                 acme_client=config.acme_client,
             )
-        else:
-            return LetsencryptSSLCertificate(
-                domain=config.domain,
-                ssl_type=SUPPORTED_SSL_TYPES.le,
-                # Email removed - Let's Encrypt discontinued notifications (June 2025)
-                # Cloudflare credentials loaded from FM config at runtime
-                api_token=None,
-                api_key=None,
-                challenge_type=challenge_type,
-                acme_client=config.acme_client,
-            )
+        return LetsencryptSSLCertificate(
+            domain=config.domain,
+            ssl_type=SUPPORTED_SSL_TYPES.le,
+            # Email removed - Let's Encrypt discontinued notifications (June 2025)
+            # Cloudflare credentials loaded from FM config at runtime
+            api_token=None,
+            api_key=None,
+            challenge_type=challenge_type,
+            acme_client=config.acme_client,
+        )
 
     def get_count(self) -> int:
         """

@@ -1,13 +1,15 @@
+from typing import Annotated
+
 import typer
-from typing import Annotated, Optional
-from frappe_manager.services_manager.services import ServicesManager
+
 from frappe_manager.services_manager import ServicesEnum
+from frappe_manager.services_manager.services import ServicesManager
 
 
 def shell_services(
     ctx: typer.Context,
     service_name: Annotated[ServicesEnum, typer.Argument(help="Name of the service.")],
-    user: Annotated[Optional[str], typer.Option(help="Connect as this user.")] = None,
+    user: Annotated[str | None, typer.Option(help="Connect as this user.")] = None,
 ):
     """
     Open shell for the specificed global service.

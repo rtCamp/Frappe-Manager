@@ -1,22 +1,22 @@
-from datetime import datetime
 import json
+from datetime import datetime
 from pathlib import Path
+
 import typer
-from typing import List, Optional, Set
-from frappe_manager.site_manager.exceptions import BenchNotFoundError
-from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version
-from frappe_manager.output_manager import get_global_output_handler
+
 from frappe_manager import (
     CLI_BENCHES_DIRECTORY,
     CLI_CACHE_PATH,
     CLI_RECENT_USED_SITES_CACHE_PATH,
-    STABLE_APP_BRANCH_MAPPING_LIST,
     DEFAULT_EXTENSIONS,
 )
-from frappe_manager.utils.site import get_sitename_from_current_path, validate_sitename, is_fqdn, is_wildcard_fqdn
+from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.site_manager.exceptions import BenchNotFoundError
+from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version
+from frappe_manager.utils.site import get_sitename_from_current_path, is_fqdn, is_wildcard_fqdn, validate_sitename
 
 
-def apps_list_validation_callback(value: List[str] | None):
+def apps_list_validation_callback(value: list[str] | None):
     """
     Parse and validate the list of apps provided, returning AppConfig objects.
 
@@ -54,24 +54,21 @@ def apps_list_validation_callback(value: List[str] | None):
                 temp_appx = appx
                 appx = [":".join(appx[:2])]
 
-                if len(temp_appx) == 3:
+                if len(temp_appx) == 3 or len(temp_appx) > 3:
                     appx.append(temp_appx[2])
-                elif len(temp_appx) > 3:
-                    appx.append(temp_appx[2])
-            else:
-                # Split on ':' for branch/ref (handle subdirectory '#' first)
-                # e.g., "frappe/payments:version-15#apps/payments"
-                if '#' in app:
-                    # Has subdirectory - split carefully
-                    app_part = app.split('#')[0]
-                    appx = app_part.split(":")
-                    # Reconstruct with subdirectory
-                    if len(appx) == 2:
-                        appx = [appx[0], app.split(':', 1)[1]]
-                    else:
-                        appx = [app]
+            # Split on ':' for branch/ref (handle subdirectory '#' first)
+            # e.g., "frappe/payments:version-15#apps/payments"
+            elif "#" in app:
+                # Has subdirectory - split carefully
+                app_part = app.split("#")[0]
+                appx = app_part.split(":")
+                # Reconstruct with subdirectory
+                if len(appx) == 2:
+                    appx = [appx[0], app.split(":", 1)[1]]
                 else:
-                    appx = app.split(":")
+                    appx = [app]
+            else:
+                appx = app.split(":")
 
             # Basic format validation
             if len(appx) > 2:
@@ -113,11 +110,10 @@ def frappe_branch_validation_callback(value: str):
         exists = check_frappe_app_exists("frappe", value)
         if exists["branch"]:
             return value
-        else:
-            raise typer.BadParameter(f"Frappe branch -> {value} is not valid!! ")
+        raise typer.BadParameter(f"Frappe branch -> {value} is not valid!! ")
 
 
-def version_callback(version: Optional[bool] = None):
+def version_callback(version: bool | None = None):
     """
     Callback function to handle version option.
 
@@ -145,7 +141,7 @@ def val(answers, current):
     print(answers, current)
 
 
-def sitename_callback(sitename: Optional[str]):
+def sitename_callback(sitename: str | None):
     if not sitename:
         sitename = get_sitename_from_current_path()
 
@@ -162,8 +158,8 @@ def sitename_callback(sitename: Optional[str]):
                     choices=sorted_sites,
                     vi_mode=True,
                     mandatory=True,
-                    qmark='🤔',
-                    amark='🤔',
+                    qmark="🤔",
+                    amark="🤔",
                 )
 
                 if sitename:
@@ -172,7 +168,7 @@ def sitename_callback(sitename: Optional[str]):
                 output.error(
                     "Bench name is required in non-interactive mode",
                     exception=Exception(
-                        "Specify bench name as positional argument. Use 'fm list' to see available benches."
+                        "Specify bench name as positional argument. Use 'fm list' to see available benches.",
                     ),
                 )
                 raise typer.Exit(1)
@@ -201,7 +197,7 @@ def update_sites_cache(sitename: str) -> None:
     cache_file = get_cache_file()
     try:
         if cache_file.exists():
-            with open(cache_file, "r") as f:
+            with open(cache_file) as f:
                 cache = json.load(f)
         else:
             cache = {"sites": []}
@@ -225,7 +221,7 @@ def get_sorted_sites_list(sites_list: list[str]) -> list[str]:
     cache_file = get_cache_file()
     try:
         if cache_file.exists():
-            with open(cache_file, "r") as f:
+            with open(cache_file) as f:
                 cache = json.load(f)
 
             # Get cached site names, but only if they exist in the actual sites_list
@@ -242,7 +238,7 @@ def get_sorted_sites_list(sites_list: list[str]) -> list[str]:
     return sites_list
 
 
-def prompt_for_bench_selection(current_value: Optional[str]) -> Optional[str]:
+def prompt_for_bench_selection(current_value: str | None) -> str | None:
     if current_value:
         return current_value
 
@@ -266,8 +262,8 @@ def prompt_for_bench_selection(current_value: Optional[str]) -> Optional[str]:
             choices=sorted_sites,
             vi_mode=True,
             mandatory=True,
-            qmark='🤔',
-            amark='🤔',
+            qmark="🤔",
+            amark="🤔",
         )
 
         if selected:
@@ -280,10 +276,10 @@ def prompt_for_bench_selection(current_value: Optional[str]) -> Optional[str]:
     return None
 
 
-def code_command_extensions_callback(extensions: List[str]) -> List[str]:
+def code_command_extensions_callback(extensions: list[str]) -> list[str]:
     extx = extensions + DEFAULT_EXTENSIONS
-    unique_ext: Set = set(extx)
-    unique_ext_list: List[str] = [x for x in unique_ext]
+    unique_ext: set = set(extx)
+    unique_ext_list: list[str] = [x for x in unique_ext]
     return unique_ext_list
 
 
@@ -300,7 +296,7 @@ def create_command_sitename_callback(sitename: str):
     return sitename
 
 
-def alias_domains_validation_callback(value: Optional[str]) -> List[str]:
+def alias_domains_validation_callback(value: str | None) -> list[str]:
     """
     Validate the comma-separated list of alias domains.
 
@@ -317,7 +313,7 @@ def alias_domains_validation_callback(value: Optional[str]) -> List[str]:
         return []
 
     # Split by comma and strip whitespace
-    domains = [domain.strip() for domain in value.split(',') if domain.strip()]
+    domains = [domain.strip() for domain in value.split(",") if domain.strip()]
 
     if not domains:
         return []
@@ -326,12 +322,12 @@ def alias_domains_validation_callback(value: Optional[str]) -> List[str]:
 
     for domain in domains:
         # Check if it's a wildcard domain
-        if domain.startswith('*.'):
+        if domain.startswith("*."):
             if not is_wildcard_fqdn(domain):
                 output = get_global_output_handler()
                 output.stop()
                 raise typer.BadParameter(
-                    f"Invalid wildcard domain '{domain}'. Wildcard domains must be in format '*.example.com'."
+                    f"Invalid wildcard domain '{domain}'. Wildcard domains must be in format '*.example.com'.",
                 )
             validated_domains.append(domain)
         else:
@@ -340,10 +336,10 @@ def alias_domains_validation_callback(value: Optional[str]) -> List[str]:
                 output = get_global_output_handler()
                 output.stop()
                 raise typer.BadParameter(
-                    f"Invalid domain '{domain}'. Domain must be a valid FQDN (e.g., 'www.example.com')."
+                    f"Invalid domain '{domain}'. Domain must be a valid FQDN (e.g., 'www.example.com').",
                 )
             # Additional check: domain must have at least one dot (TLD)
-            if '.' not in domain:
+            if "." not in domain:
                 output = get_global_output_handler()
                 output.stop()
                 raise typer.BadParameter(f"Invalid domain '{domain}'. Domain must include a TLD (e.g., 'example.com').")

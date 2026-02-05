@@ -1,5 +1,4 @@
 from contextlib import contextmanager
-from typing import Optional
 
 from frappe_manager.output_manager.base import OutputHandler
 

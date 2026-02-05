@@ -1,6 +1,5 @@
-import pytest
-from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch
+from unittest.mock import MagicMock, patch
+
 from frappe_manager.migration_manager.migration_helpers import (
     MigrationBench,
     MigrationBenches,
@@ -11,31 +10,31 @@ from frappe_manager.migration_manager.migration_helpers import (
 class TestMigrationBench:
     def test_init_loads_existing_compose_file(self, mock_bench_path):
         with (
-            patch('frappe_manager.migration_manager.migration_helpers.ComposeFile') as mock_compose_file,
-            patch('frappe_manager.migration_manager.migration_helpers.DockerClient') as mock_docker_client,
+            patch("frappe_manager.migration_manager.migration_helpers.ComposeFile") as mock_compose_file,
+            patch("frappe_manager.migration_manager.migration_helpers.DockerClient") as mock_docker_client,
         ):
             bench = MigrationBench("test-bench", mock_bench_path)
 
             assert bench.name == "test-bench"
             assert bench.path == mock_bench_path
 
-            mock_compose_file.assert_any_call(mock_bench_path / 'docker-compose.yml', 'docker-compose.tmpl')
+            mock_compose_file.assert_any_call(mock_bench_path / "docker-compose.yml", "docker-compose.tmpl")
 
     def test_init_uses_main_templates_not_base_templates(self, mock_bench_path):
         with (
-            patch('frappe_manager.migration_manager.migration_helpers.ComposeFile') as mock_compose_file,
-            patch('frappe_manager.migration_manager.migration_helpers.DockerClient'),
+            patch("frappe_manager.migration_manager.migration_helpers.ComposeFile") as mock_compose_file,
+            patch("frappe_manager.migration_manager.migration_helpers.DockerClient"),
         ):
             MigrationBench("test-bench", mock_bench_path)
 
             call_args = mock_compose_file.call_args_list[0]
-            assert 'template_dir' not in call_args[1]
+            assert "template_dir" not in call_args[1]
 
     def test_get_db_connection_info_calls_helper(self, mock_bench_path):
         with (
-            patch('frappe_manager.migration_manager.migration_helpers.ComposeFile'),
-            patch('frappe_manager.migration_manager.migration_helpers.DockerClient'),
-            patch('frappe_manager.utils.site.get_bench_db_connection_info') as mock_db_info,
+            patch("frappe_manager.migration_manager.migration_helpers.ComposeFile"),
+            patch("frappe_manager.migration_manager.migration_helpers.DockerClient"),
+            patch("frappe_manager.utils.site.get_bench_db_connection_info") as mock_db_info,
         ):
             mock_db_info.return_value = {"host": "mariadb", "port": 3306}
 
@@ -47,8 +46,8 @@ class TestMigrationBench:
 
     def test_common_bench_config_set_updates_json(self, mock_bench_path):
         with (
-            patch('frappe_manager.migration_manager.migration_helpers.ComposeFile'),
-            patch('frappe_manager.migration_manager.migration_helpers.DockerClient'),
+            patch("frappe_manager.migration_manager.migration_helpers.ComposeFile"),
+            patch("frappe_manager.migration_manager.migration_helpers.DockerClient"),
         ):
             bench = MigrationBench("test-bench", mock_bench_path)
 
@@ -67,8 +66,8 @@ class TestMigrationBench:
 
     def test_common_bench_config_set_returns_false_if_file_missing(self, tmp_path):
         with (
-            patch('frappe_manager.migration_manager.migration_helpers.ComposeFile'),
-            patch('frappe_manager.migration_manager.migration_helpers.DockerClient'),
+            patch("frappe_manager.migration_manager.migration_helpers.ComposeFile"),
+            patch("frappe_manager.migration_manager.migration_helpers.DockerClient"),
         ):
             bench_path = tmp_path / "no-config-bench"
             bench_path.mkdir()
@@ -131,7 +130,7 @@ class TestMigrationBenches:
         bench1.mkdir()
         (bench1 / "docker-compose.yml").write_text("version: '3.9'")
 
-        with patch('frappe_manager.migration_manager.migration_helpers.MigrationBench') as mock_bench_class:
+        with patch("frappe_manager.migration_manager.migration_helpers.MigrationBench") as mock_bench_class:
             mock_bench_instance = MagicMock()
             mock_bench_class.return_value = mock_bench_instance
 
@@ -144,32 +143,32 @@ class TestMigrationBenches:
 class TestMigrationServicesManager:
     def test_init_uses_main_templates_not_base_templates(self, mock_services_path):
         with (
-            patch('frappe_manager.migration_manager.migration_helpers.ComposeFile') as mock_compose_file,
-            patch('frappe_manager.migration_manager.migration_helpers.DockerClient'),
+            patch("frappe_manager.migration_manager.migration_helpers.ComposeFile") as mock_compose_file,
+            patch("frappe_manager.migration_manager.migration_helpers.DockerClient"),
         ):
             MigrationServicesManager(mock_services_path)
 
             call_args = mock_compose_file.call_args_list[0]
-            assert 'template_dir' not in call_args[1]
+            assert "template_dir" not in call_args[1]
 
     def test_init_uses_linux_template_by_default(self, mock_services_path):
         with (
-            patch('frappe_manager.migration_manager.migration_helpers.ComposeFile') as mock_compose_file,
-            patch('frappe_manager.migration_manager.migration_helpers.DockerClient'),
-            patch('frappe_manager.migration_manager.migration_helpers.platform.system', return_value='Linux'),
+            patch("frappe_manager.migration_manager.migration_helpers.ComposeFile") as mock_compose_file,
+            patch("frappe_manager.migration_manager.migration_helpers.DockerClient"),
+            patch("frappe_manager.migration_manager.migration_helpers.platform.system", return_value="Linux"),
         ):
             MigrationServicesManager(mock_services_path)
 
             call_args = mock_compose_file.call_args_list[0]
-            assert call_args[0][1] == 'docker-compose.services.tmpl'
+            assert call_args[0][1] == "docker-compose.services.tmpl"
 
     def test_init_uses_osx_template_on_darwin(self, mock_services_path):
         with (
-            patch('frappe_manager.migration_manager.migration_helpers.ComposeFile') as mock_compose_file,
-            patch('frappe_manager.migration_manager.migration_helpers.DockerClient'),
-            patch('frappe_manager.migration_manager.migration_helpers.platform.system', return_value='Darwin'),
+            patch("frappe_manager.migration_manager.migration_helpers.ComposeFile") as mock_compose_file,
+            patch("frappe_manager.migration_manager.migration_helpers.DockerClient"),
+            patch("frappe_manager.migration_manager.migration_helpers.platform.system", return_value="Darwin"),
         ):
             MigrationServicesManager(mock_services_path)
 
             call_args = mock_compose_file.call_args_list[0]
-            assert call_args[0][1] == 'docker-compose.services.osx.tmpl'
+            assert call_args[0][1] == "docker-compose.services.osx.tmpl"

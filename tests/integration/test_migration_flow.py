@@ -1,9 +1,10 @@
-import pytest
-from pathlib import Path
 from unittest.mock import Mock, patch
+
+import pytest
+
+from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.migration_manager.version import Version
-from frappe_manager.metadata_manager import FMConfigManager
 
 
 @pytest.mark.integration
@@ -15,7 +16,7 @@ class TestMigrationFlowIntegration:
 version = "0.19.0"
 """)
 
-        with patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"):
+        with patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"):
             config = FMConfigManager.import_from_toml(config_path)
             executor = MigrationExecutor(config)
 
@@ -32,7 +33,7 @@ version = "0.19.0"
 version = "0.18.0"
 """)
 
-        with patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"):
+        with patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"):
             config = FMConfigManager.import_from_toml(config_path)
             executor = MigrationExecutor(config)
 
@@ -49,7 +50,7 @@ version = "0.17.0"
 """)
 
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
         ):
             config = FMConfigManager.import_from_toml(config_path)
             executor = MigrationExecutor(config)
@@ -91,8 +92,8 @@ version = "0.18.0"
 """)
 
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.CLI_BENCHES_DIRECTORY', benches_dir),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.CLI_BENCHES_DIRECTORY", benches_dir),
         ):
             config = FMConfigManager.import_from_toml(config_path)
             executor = MigrationExecutor(config)
@@ -112,9 +113,9 @@ version = "0.18.0"
 """)
 
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.install_package') as mock_install,
-            patch('frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules', return_value=[]),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.install_package") as mock_install,
+            patch("frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules", return_value=[]),
         ):
             config = FMConfigManager.import_from_toml(config_path)
             executor = MigrationExecutor(config)

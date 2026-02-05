@@ -1,10 +1,9 @@
-from rich.table import Table
-from pathlib import Path
-import re
 import json
-from frappe_manager.utils.helpers import get_frappe_manager_own_files
+import re
+from pathlib import Path
 
-from typing import Optional
+from rich.table import Table
+
 from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
 from frappe_manager.output_manager import get_global_output_handler
@@ -65,7 +64,7 @@ def create_service_element(service, running_status):
 
 
 def parse_docker_volume(volume_string: str, root_volumes: dict, compose_path: Path):
-    string_parts = volume_string.split(':')
+    string_parts = volume_string.split(":")
 
     if len(string_parts) > 1:
         src = string_parts[0]
@@ -73,7 +72,7 @@ def parse_docker_volume(volume_string: str, root_volumes: dict, compose_path: Pa
 
         is_bind_mount = True
 
-        if string_parts[0] in root_volumes.keys():
+        if string_parts[0] in root_volumes:
             is_bind_mount = False
 
         if len(string_parts) > 1:
@@ -97,17 +96,17 @@ def is_fqdn(hostname: str) -> bool:
         return False
 
     # Remove trailing dot
-    if hostname[-1] == '.':
+    if hostname[-1] == ".":
         hostname = hostname[0:-1]
 
     #  Split hostname into list of DNS labels
-    labels = hostname.split('.')
+    labels = hostname.split(".")
 
     #  Define pattern of DNS label
     #  Can begin and end with a number or letter only
     #  Can contain hyphens, a-z, A-Z, 0-9
     #  1 - 63 chars allowed
-    fqdn = re.compile(r'^[a-z0-9]([a-z-0-9-]{0,61}[a-z0-9])?$', re.IGNORECASE)
+    fqdn = re.compile(r"^[a-z0-9]([a-z-0-9-]{0,61}[a-z0-9])?$", re.IGNORECASE)
 
     # Check that all labels match that pattern.
     return all(fqdn.match(label) for label in labels)
@@ -124,17 +123,17 @@ def is_wildcard_fqdn(hostname: str) -> bool:
         return False
 
     # Remove trailing dot
-    if hostname[-1] == '.':
+    if hostname[-1] == ".":
         hostname = hostname[:-1]
 
     # Split hostname into list of DNS labels
-    labels = hostname.split('.')
+    labels = hostname.split(".")
 
     # Define pattern for a standard DNS label
-    fqdn_pattern = re.compile(r'^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$', re.IGNORECASE)
+    fqdn_pattern = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", re.IGNORECASE)
 
     # Define pattern for a wildcard DNS label (only valid in the first label)
-    wildcard_pattern = re.compile(r'^\*\.?$', re.IGNORECASE)
+    wildcard_pattern = re.compile(r"^\*\.?$", re.IGNORECASE)
 
     status = (wildcard_pattern.match(labels[0])) and all(fqdn_pattern.match(label) for label in labels[1:])
 
@@ -147,7 +146,7 @@ def is_wildcard_fqdn(hostname: str) -> bool:
 
 def domain_level(domain):
     # Split the domain name into individual parts
-    parts = domain.split('.')
+    parts = domain.split(".")
 
     # Return the number of parts minus 1 (excluding the TLD)
     return len(parts) - 1
@@ -166,7 +165,7 @@ def validate_sitename(sitename: str | None) -> str:
         output = get_global_output_handler()
         output.error(
             f"The {sitename} must follow Fully Qualified Domain Name (FQDN) format.",
-            exception=BenchException(sitename, f"Valid FQDN site name not provided."),
+            exception=BenchException(sitename, "Valid FQDN site name not provided."),
         )
 
     return sitename
@@ -175,19 +174,19 @@ def validate_sitename(sitename: str | None) -> str:
 def get_bench_db_connection_info(bench_name: str, bench_path: Path):
     db_info = {}
     site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / bench_name / "site_config.json"
-    common_site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / 'common_site_config.json'
+    common_site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
 
     db_info["password"] = None
 
     if common_site_config_file.exists():
-        with open(common_site_config_file, "r") as f:
+        with open(common_site_config_file) as f:
             common_site_config = json.load(f)
             if common_site_config:
                 db_info["host"] = common_site_config.get("db_host")
                 db_info["port"] = common_site_config.get("db_port")
 
     if site_config_file.exists():
-        with open(site_config_file, "r") as f:
+        with open(site_config_file) as f:
             site_config = json.load(f)
             if site_config:
                 db_info["name"] = site_config["db_name"]
@@ -204,12 +203,12 @@ def get_bench_db_connection_info(bench_name: str, bench_path: Path):
 def get_all_docker_images():
     from frappe_manager.docker import ComposeFile
 
-    temp_bench_compose_file_manager = ComposeFile(loadfile=Path('/dev/null/docker-compose.yml'))
+    temp_bench_compose_file_manager = ComposeFile(loadfile=Path("/dev/null/docker-compose.yml"))
     services_manager_compose_file_manager = ComposeFile(
-        loadfile=Path('/dev/null/docker-compose.yml'), template_name='docker-compose.services.tmpl'
+        loadfile=Path("/dev/null/docker-compose.yml"), template_name="docker-compose.services.tmpl",
     )
     admin_tools_manager_compose_file_manager = ComposeFile(
-        loadfile=Path('/dev/null/docker-compose.yml'), template_name='docker-compose.admin-tools.tmpl'
+        loadfile=Path("/dev/null/docker-compose.yml"), template_name="docker-compose.admin-tools.tmpl",
     )
 
     images = temp_bench_compose_file_manager.get_all_images()
@@ -221,8 +220,7 @@ def get_all_docker_images():
 
 
 def pull_docker_images() -> bool:
-    from frappe_manager.docker import DockerException
-    from frappe_manager.docker import DockerClient
+    from frappe_manager.docker import DockerClient, DockerException
 
     docker = DockerClient()
     images = get_all_docker_images()
@@ -251,7 +249,7 @@ def pull_docker_images() -> bool:
     return no_error
 
 
-def get_sitename_from_current_path() -> Optional[str]:
+def get_sitename_from_current_path() -> str | None:
     current_path = Path().absolute()
     sites_path = CLI_BENCHES_DIRECTORY.absolute()
 
@@ -269,7 +267,7 @@ def get_sitename_from_current_path() -> Optional[str]:
 
 
 def is_default_worker(worker_name: str) -> bool:
-    default_workers = ['long-worker', 'short-worker']
+    default_workers = ["long-worker", "short-worker"]
 
     for dw in default_workers:
         if dw == worker_name:

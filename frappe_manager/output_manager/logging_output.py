@@ -7,7 +7,7 @@ providing a single source of truth for debugging.
 
 import logging
 from collections.abc import Iterable
-from typing import Any, Union
+from typing import Any
 
 from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager.base import OutputHandler
@@ -41,7 +41,7 @@ class LoggingOutputHandler(OutputHandler):
     """
 
     def __init__(
-        self, delegate: OutputHandler, logger: Union[logging.Logger, ContextualLogger], log_prefix: str = "[OUTPUT]"
+        self, delegate: OutputHandler, logger: logging.Logger | ContextualLogger, log_prefix: str = "[OUTPUT]",
     ):
         """
         Initialize logging wrapper.
@@ -185,7 +185,7 @@ class LoggingOutputHandler(OutputHandler):
         Raises:
             Exception: Always raises the provided exception
         """
-        self._log_message(logging.ERROR, f"{text} | Exception: {type(exception).__name__}: {str(exception)}")
+        self._log_message(logging.ERROR, f"{text} | Exception: {type(exception).__name__}: {exception!s}")
         self.logger.exception(f"{self.log_prefix} Exception details:", exc_info=exception)
         self.delegate.error(text, exception, emoji_code)
 
@@ -251,7 +251,7 @@ class LoggingOutputHandler(OutputHandler):
         self._log_message(logging.INFO, f"PROMPT: {prompt}")
 
         response = self.delegate.prompt_ask(
-            prompt=prompt, choices=choices, default=default, force_yes=force_yes, required_flag=required_flag, **kwargs
+            prompt=prompt, choices=choices, default=default, force_yes=force_yes, required_flag=required_flag, **kwargs,
         )
 
         if "password" not in prompt.lower():
@@ -296,7 +296,7 @@ class LoggingOutputHandler(OutputHandler):
         super().set_interactive_mode(non_interactive_flag)
 
         # Forward to delegate so it respects the flag too
-        if hasattr(self.delegate, 'set_interactive_mode'):
+        if hasattr(self.delegate, "set_interactive_mode"):
             self.delegate.set_interactive_mode(non_interactive_flag)
 
     @property

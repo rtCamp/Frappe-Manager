@@ -1,4 +1,3 @@
-from enum import Enum
 import json
 import os
 import re
@@ -6,14 +5,16 @@ import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from enum import Enum
-from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo
-import tomlkit
-from tomlkit.items import Array as TOMLArray
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
+
+import tomlkit
 from pydantic import BaseModel, EmailStr, Field, field_validator
-from frappe_manager import CLI_DEFAULT_DELIMETER, STABLE_APP_BRANCH_MAPPING_LIST
+from tomlkit.items import Array as TOMLArray
+
+from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.metadata_manager import FMConfigManager
+from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
@@ -72,7 +73,7 @@ def extract_app_python_module_name(app_path: Path) -> str:
     return app_path.name
 
 
-def extract_python_version_requirement(frappe_app_path: Path) -> Optional[str]:
+def extract_python_version_requirement(frappe_app_path: Path) -> str | None:
     """
     Extract Python version requirement from frappe app's pyproject.toml.
 
@@ -89,7 +90,6 @@ def extract_python_version_requirement(frappe_app_path: Path) -> Optional[str]:
         return None
 
     try:
-        import json
 
         data = tomlkit.parse(pyproject.read_text())
 
@@ -105,7 +105,7 @@ def extract_python_version_requirement(frappe_app_path: Path) -> Optional[str]:
                     # Poetry format can be string or dict
                     if isinstance(python_dep, str):
                         return python_dep
-                    elif isinstance(python_dep, dict) and "version" in python_dep:
+                    if isinstance(python_dep, dict) and "version" in python_dep:
                         return str(python_dep["version"])
 
         return None
@@ -113,7 +113,7 @@ def extract_python_version_requirement(frappe_app_path: Path) -> Optional[str]:
         return None
 
 
-def extract_node_version_requirement(frappe_app_path: Path) -> Optional[str]:
+def extract_node_version_requirement(frappe_app_path: Path) -> str | None:
     """
     Extract Node version requirement from frappe app's package.json.
 
@@ -143,7 +143,7 @@ def extract_node_version_requirement(frappe_app_path: Path) -> Optional[str]:
         return None
 
 
-def parse_python_version_for_runtime(version_requirement: Optional[str]) -> Optional[str]:
+def parse_python_version_for_runtime(version_requirement: str | None) -> str | None:
     """
     Parse Python version requirement string to extract a usable Python version.
 
@@ -189,7 +189,7 @@ def parse_python_version_for_runtime(version_requirement: Optional[str]) -> Opti
         return None
 
 
-def parse_node_version_for_runtime(version_requirement: Optional[str]) -> Optional[str]:
+def parse_node_version_for_runtime(version_requirement: str | None) -> str | None:
     """
     Parse Node version requirement string to extract a usable Node version.
 
@@ -278,9 +278,8 @@ def validate_python_version_compatibility(user_version: str, frappe_requirement:
     if frappe_max:
         if user_min < frappe_min or (user_max and user_max > frappe_max):
             return False, f"Python {user_version} is incompatible with Frappe requirement {frappe_requirement}"
-    else:
-        if user_min < frappe_min:
-            return False, f"Python {user_version} is incompatible with Frappe requirement {frappe_requirement}"
+    elif user_min < frappe_min:
+        return False, f"Python {user_version} is incompatible with Frappe requirement {frappe_requirement}"
 
     return True, ""
 
@@ -325,8 +324,8 @@ def validate_node_version_compatibility(user_version: str, frappe_requirement: s
 
 
 class FMBenchEnvType(str, Enum):
-    prod = 'prod'
-    dev = 'dev'
+    prod = "prod"
+    dev = "dev"
 
 
 class RestartPolicyEnum(str, Enum):
@@ -351,11 +350,11 @@ class AppValidationResult:
 
     app_name: str
     repo: str
-    ref: Optional[str]
+    ref: str | None
     success: bool
-    auth_method: Optional[str]
-    validated_url: Optional[str]
-    error_message: Optional[str] = None
+    auth_method: str | None
+    validated_url: str | None
+    error_message: str | None = None
 
     @property
     def display_message(self) -> str:
@@ -370,15 +369,14 @@ class AppValidationResult:
             )
             auth = self.auth_method.lower().replace("github token", "token")
             return f"{self.app_name} → {self.repo}:{ref_info} accessible via {auth}"
-        else:
-            return self.error_message or f"{self.app_name} ({self.repo}): Validation failed"
+        return self.error_message or f"{self.app_name} ({self.repo}): Validation failed"
 
 
 @dataclass
 class AppBatchValidationResult:
     """Result of validating multiple app repositories."""
 
-    results: List[AppValidationResult]
+    results: list[AppValidationResult]
 
     @property
     def all_valid(self) -> bool:
@@ -396,7 +394,7 @@ class AppBatchValidationResult:
         return sum(1 for r in self.results if not r.success)
 
     @property
-    def messages(self) -> List[str]:
+    def messages(self) -> list[str]:
         """Get all display messages (success + error)."""
         return [r.display_message for r in self.results]
 
@@ -414,10 +412,10 @@ class AppConfig(BaseModel):
 
     name: str = Field(..., description="App name (e.g., 'erpnext')")
     repo: str = Field(..., description="GitHub repo (e.g., 'frappe/erpnext')")
-    ref: Optional[str] = Field(None, description="Branch, tag, or commit SHA")
-    repo_url: Optional[str] = Field(None, description="Full repo URL (auto-generated)")
+    ref: str | None = Field(None, description="Branch, tag, or commit SHA")
+    repo_url: str | None = Field(None, description="Full repo URL (auto-generated)")
     shallow_clone: bool = Field(True, description="Use shallow clone (depth=1)")
-    subdir_path: Optional[str] = Field(None, description="Subdirectory path for monorepo apps")
+    subdir_path: str | None = Field(None, description="Subdirectory path for monorepo apps")
     symlink: bool = Field(False, description="Use symlink for subdirectory apps")
 
     @property
@@ -425,10 +423,10 @@ class AppConfig(BaseModel):
         """Check if ref is a commit SHA (40 hex characters)."""
         if self.ref is None:
             return False
-        return len(self.ref) == 40 and all(c in '0123456789abcdef' for c in self.ref.lower())
+        return len(self.ref) == 40 and all(c in "0123456789abcdef" for c in self.ref.lower())
 
     @classmethod
-    def from_string(cls, app_string: str) -> 'AppConfig':
+    def from_string(cls, app_string: str) -> "AppConfig":
         """
         Parse app string into AppConfig.
 
@@ -446,15 +444,15 @@ class AppConfig(BaseModel):
             AppConfig instance
         """
         # Split on '#' for subdirectory
-        if '#' in app_string:
-            app_part, subdir_path = app_string.split('#', 1)
+        if "#" in app_string:
+            app_part, subdir_path = app_string.split("#", 1)
         else:
             app_part = app_string
             subdir_path = None
 
         # Check if this is a full URL (starts with protocol or git@)
-        is_full_url = app_part.startswith(('http://', 'https://'))
-        is_ssh_url = app_part.startswith('git@')
+        is_full_url = app_part.startswith(("http://", "https://"))
+        is_ssh_url = app_part.startswith("git@")
 
         # Split on ':' for branch/ref
         # For URLs: skip protocol colon, find the LAST colon (if any) for ref
@@ -465,49 +463,48 @@ class AppConfig(BaseModel):
             # For http(s):// URLs, look for colon AFTER the protocol and host
             # e.g., "https://github.com/frappe/frappe:version-15"
             #       split at ":" -> ["https", "//github.com/frappe/frappe", "version-15"]
-            parts = app_part.split(':')
+            parts = app_part.split(":")
             if len(parts) > 2:  # Has protocol + potential ref
                 # Rejoin protocol + host/path, last part is ref
-                repo_part = ':'.join(parts[:-1])
+                repo_part = ":".join(parts[:-1])
                 ref = parts[-1]
             else:
                 repo_part = app_part
         elif is_ssh_url:
             # For git@ URLs: git@github.com:frappe/frappe:version-15
             # Find last colon after @ for ref
-            at_index = app_part.index('@')
+            at_index = app_part.index("@")
             remainder = app_part[at_index + 1 :]
-            if remainder.count(':') > 1:
+            if remainder.count(":") > 1:
                 # Multiple colons: last one is ref separator
-                last_colon_idx = remainder.rfind(':')
+                last_colon_idx = remainder.rfind(":")
                 repo_part = app_part[: at_index + 1 + last_colon_idx]
                 ref = remainder[last_colon_idx + 1 :]
             else:
                 repo_part = app_part
+        # Short form: org/repo:ref or app:ref
+        elif ":" in app_part:
+            repo_part, ref = app_part.split(":", 1)
         else:
-            # Short form: org/repo:ref or app:ref
-            if ':' in app_part:
-                repo_part, ref = app_part.split(':', 1)
-            else:
-                repo_part = app_part
+            repo_part = app_part
 
         # Parse repo (e.g., "frappe/erpnext" or just "erpnext" or full URL)
         if is_full_url or is_ssh_url:
             # Full URL: keep as-is, extract name from path
             repo = repo_part
             # Extract name from URL path (last segment before .git)
-            path_part = repo_part.split('/')[-1]
-            name = path_part.replace('.git', '')
-        elif '/' in repo_part:
+            path_part = repo_part.split("/")[-1]
+            name = path_part.replace(".git", "")
+        elif "/" in repo_part:
             repo = repo_part
-            name = repo_part.split('/')[-1]
+            name = repo_part.split("/")[-1]
         else:
             name = repo_part
             repo = f"frappe/{name}"  # Default to frappe org
 
         # Override name if subdirectory specified
         if subdir_path:
-            name = subdir_path.split('/')[-1]
+            name = subdir_path.split("/")[-1]
 
         return cls(
             name=name,
@@ -519,7 +516,7 @@ class AppConfig(BaseModel):
         )
 
     @classmethod
-    def from_dict(cls, app_dict: Dict[str, Optional[str]], github_token: Optional[str] = None) -> 'AppConfig':
+    def from_dict(cls, app_dict: dict[str, str | None], github_token: str | None = None) -> "AppConfig":
         """
         Convert from simple dict format to AppConfig.
 
@@ -544,7 +541,7 @@ class AppConfig(BaseModel):
         return cls.from_string(app_string)
 
     @staticmethod
-    def validate_github_token(github_token: str) -> Tuple[bool, Optional[str]]:
+    def validate_github_token(github_token: str) -> tuple[bool, str | None]:
         """
         Validate GitHub token by making an API call to GitHub.
 
@@ -563,22 +560,20 @@ class AppConfig(BaseModel):
         try:
             cmd = ["git", "ls-remote", f"https://{github_token}@github.com/octocat/hello-world.git", "HEAD"]
             env = os.environ.copy()
-            env['GIT_TERMINAL_PROMPT'] = '0'
-            env['GIT_ASKPASS'] = 'echo'
+            env["GIT_TERMINAL_PROMPT"] = "0"
+            env["GIT_ASKPASS"] = "echo"
 
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, env=env)
 
             if result.returncode == 0:
                 logger.debug("GitHub token validated successfully")
                 return (True, None)
-            else:
-                error = result.stderr.strip()
-                if 'bad credentials' in error.lower() or 'authentication failed' in error.lower():
-                    return (False, "Invalid or expired GitHub token")
-                elif 'could not resolve host' in error.lower():
-                    return (False, "Network error: Cannot reach GitHub")
-                else:
-                    return (False, f"Token validation failed: {error}")
+            error = result.stderr.strip()
+            if "bad credentials" in error.lower() or "authentication failed" in error.lower():
+                return (False, "Invalid or expired GitHub token")
+            if "could not resolve host" in error.lower():
+                return (False, "Network error: Cannot reach GitHub")
+            return (False, f"Token validation failed: {error}")
 
         except subprocess.TimeoutExpired:
             return (False, "Timeout while validating token (network issue?)")
@@ -587,9 +582,9 @@ class AppConfig(BaseModel):
             return (False, "Git is not installed")
         except Exception as e:
             logger.debug(f"Exception during token validation: {e}")
-            return (False, f"Unexpected error: {str(e)}")
+            return (False, f"Unexpected error: {e!s}")
 
-    def get_auth_methods(self, github_token: Optional[str] = None) -> List[Tuple[str, str]]:
+    def get_auth_methods(self, github_token: str | None = None) -> list[tuple[str, str]]:
         """
         Get ordered list of authentication methods to try for this app.
 
@@ -608,7 +603,7 @@ class AppConfig(BaseModel):
         if self.repo_url:
             methods.append(("Validated URL", self.repo_url))
 
-        if self.repo.startswith(('http://', 'https://', 'git@')):
+        if self.repo.startswith(("http://", "https://", "git@")):
             if self.repo not in [m[1] for m in methods]:
                 methods.append(("Full URL", self.repo))
         else:
@@ -627,7 +622,7 @@ class AppConfig(BaseModel):
 
         return methods
 
-    def validate_repo_exists(self, github_token: Optional[str] = None) -> AppValidationResult:
+    def validate_repo_exists(self, github_token: str | None = None) -> AppValidationResult:
         """
         Validate that this app's repository exists and is accessible.
 
@@ -647,7 +642,7 @@ class AppConfig(BaseModel):
 
         logger = log.get_logger()
 
-        if github_token and 'github.com' in self.repo:
+        if github_token and "github.com" in self.repo:
             is_valid, error_msg = AppConfig.validate_github_token(github_token)
             if not is_valid:
                 logger.warning(f"GitHub token validation failed: {error_msg}")
@@ -667,8 +662,8 @@ class AppConfig(BaseModel):
                         cmd.extend([self.ref])
 
                 env = os.environ.copy()
-                env['GIT_TERMINAL_PROMPT'] = '0'
-                env['GIT_ASKPASS'] = 'echo'
+                env["GIT_TERMINAL_PROMPT"] = "0"
+                env["GIT_ASKPASS"] = "echo"
 
                 result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, env=env)
 
@@ -766,7 +761,7 @@ class AppConfig(BaseModel):
 
     @classmethod
     def validate_repos_batch(
-        cls, apps: List['AppConfig'], github_token: Optional[str] = None, max_workers: int = 10
+        cls, apps: list["AppConfig"], github_token: str | None = None, max_workers: int = 10,
     ) -> AppBatchValidationResult:
         """
         Validate multiple app repositories in parallel.
@@ -795,9 +790,9 @@ class AppConfig(BaseModel):
 class DNSProviderConfig(BaseModel):
     """DNS provider credentials for DNS-01 challenge at bench level."""
 
-    email: Optional[EmailStr] = Field(None, description="DNS provider account email (if required).")
-    api_token: Optional[str] = Field(None, description="DNS provider API Token.")
-    api_key: Optional[str] = Field(None, description="DNS provider API Key.")
+    email: EmailStr | None = Field(None, description="DNS provider account email (if required).")
+    api_token: str | None = Field(None, description="DNS provider API Token.")
+    api_key: str | None = Field(None, description="DNS provider API Key.")
 
     @property
     def exists(self) -> bool:
@@ -819,28 +814,28 @@ class DNSProviderConfig(BaseModel):
         return cls(**toml_doc)
 
 
-def ssl_certificate_from_toml_data(ssl_data: Dict, domain: str) -> SSLCertificate:
+def ssl_certificate_from_toml_data(ssl_data: dict, domain: str) -> SSLCertificate:
     """Parse a single certificate from TOML data."""
-    ssl_type = ssl_data.get('ssl_type', SUPPORTED_SSL_TYPES.none)
+    ssl_type = ssl_data.get("ssl_type", SUPPORTED_SSL_TYPES.none)
 
     if ssl_type == SUPPORTED_SSL_TYPES.le:
         # Email field removed - Let's Encrypt discontinued notifications (June 2025)
         # Remove email from TOML data if present (backward compatibility)
-        ssl_data.pop('email', None)
+        ssl_data.pop("email", None)
 
         fm_config_manager = FMConfigManager.import_from_toml()
 
         # Read challenge_type (new field) or preferred_challenge (backward compat)
-        challenge_type = ssl_data.get("challenge_type", None)
+        challenge_type = ssl_data.get("challenge_type")
         if not challenge_type:
             # Fall back to preferred_challenge for backward compatibility
-            challenge_type = ssl_data.get("preferred_challenge", None)
+            challenge_type = ssl_data.get("preferred_challenge")
 
-        api_token = ssl_data.get('api_token', None)
+        api_token = ssl_data.get("api_token")
         if not api_token:
             api_token = fm_config_manager.cloudflare.api_token
 
-        api_key = ssl_data.get('api_key', None)
+        api_key = ssl_data.get("api_key")
         if not api_key:
             api_key = fm_config_manager.cloudflare.api_key
 
@@ -852,7 +847,7 @@ def ssl_certificate_from_toml_data(ssl_data: Dict, domain: str) -> SSLCertificat
                 challenge_type = LETSENCRYPT_PREFERRED_CHALLENGE.http01
 
         # Read acme_client field (defaults to "acme.sh" if not specified)
-        acme_client = ssl_data.get('acme_client', 'acme.sh')
+        acme_client = ssl_data.get("acme_client", "acme.sh")
 
         return LetsencryptSSLCertificate(
             domain=domain,
@@ -863,17 +858,16 @@ def ssl_certificate_from_toml_data(ssl_data: Dict, domain: str) -> SSLCertificat
             api_token=api_token,
             acme_client=acme_client,
         )
-    else:
-        return SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none)
+    return SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none)
 
 
-def ssl_certificate_to_toml_doc(cert: SSLCertificate) -> Optional[tomlkit.TOMLDocument]:
+def ssl_certificate_to_toml_doc(cert: SSLCertificate) -> tomlkit.TOMLDocument | None:
     """Convert a single certificate to TOML document."""
     if cert.ssl_type == SUPPORTED_SSL_TYPES.none:
         return None
 
     # Explicitly exclude only the computed field, but INCLUDE domain
-    model_dict = cert.model_dump(exclude={'toml_exclude'}, exclude_none=True)
+    model_dict = cert.model_dump(exclude={"toml_exclude"}, exclude_none=True)
     toml_doc = tomlkit.document()
 
     for key, value in model_dict.items():
@@ -884,7 +878,7 @@ def ssl_certificate_to_toml_doc(cert: SSLCertificate) -> Optional[tomlkit.TOMLDo
     return toml_doc
 
 
-def ssl_certificates_to_toml_array(certs: List[SSLCertificate]) -> TOMLArray:
+def ssl_certificates_to_toml_array(certs: list[SSLCertificate]) -> TOMLArray:
     """Convert a list of certificates to TOML array-of-tables."""
     # Use aot() for array-of-tables format [[ssl_certificates]]
     toml_aot = tomlkit.aot()
@@ -897,8 +891,8 @@ def ssl_certificates_to_toml_array(certs: List[SSLCertificate]) -> TOMLArray:
 
 
 class MigrationState(BaseModel):
-    migrated_to: Optional[str] = Field(None, description="Version bench is migrated to (e.g., '0.19.0')")
-    last_migration_date: Optional[str] = Field(None, description="ISO timestamp of last migration")
+    migrated_to: str | None = Field(None, description="Version bench is migrated to (e.g., '0.19.0')")
+    last_migration_date: str | None = Field(None, description="ISO timestamp of last migration")
 
 
 class BenchConfig(BaseModel):
@@ -908,62 +902,61 @@ class BenchConfig(BaseModel):
     environment_type: FMBenchEnvType = Field(..., description="The type of environment")
 
     # Multi-certificate support
-    ssl_certificates: List[SSLCertificate] = Field(default=[], description="List of SSL certificates for this bench")
+    ssl_certificates: list[SSLCertificate] = Field(default=[], description="List of SSL certificates for this bench")
 
     # DNS provider credentials for DNS-01 challenge (optional, bench-specific override)
-    dns_providers: Optional[Dict[str, DNSProviderConfig]] = Field(
-        default=None, description="DNS provider credentials for DNS-01 challenge (e.g., {'cloudflare': {...}})"
+    dns_providers: dict[str, DNSProviderConfig] | None = Field(
+        default=None, description="DNS provider credentials for DNS-01 challenge (e.g., {'cloudflare': {...}})",
     )
 
-    alias_domains: List[str] = Field(default=[], description="List of alias domains for the bench")
+    alias_domains: list[str] = Field(default=[], description="List of alias domains for the bench")
 
     upload_limit: str = Field(default="50M", description="Maximum upload size (e.g., '50M', '100M', '500M', '1G')")
 
-    admin_pass: str = Field('admin', description="The admin password")
+    admin_pass: str = Field("admin", description="The admin password")
     root_path: Path = Field(..., description="The root path")
-    apps_list: List['AppConfig'] = Field(default=[], description="List of apps")
+    apps_list: list["AppConfig"] = Field(default=[], description="List of apps")
     userid: int = Field(default_factory=os.getuid, description="The user ID of the current process")
     usergroup: int = Field(default_factory=os.getgid, description="The group ID of the current process")
-    admin_tools_username: Optional[str] = Field(None, description="Username for admin tools basic auth")
-    admin_tools_password: Optional[str] = Field(None, description="Password for admin tools basic auth")
+    admin_tools_username: str | None = Field(None, description="Username for admin tools basic auth")
+    admin_tools_password: str | None = Field(None, description="Password for admin tools basic auth")
 
     # NEW: GitHub token for private repositories
-    github_token: Optional[str] = Field(None, description="GitHub personal access token for private repositories")
+    github_token: str | None = Field(None, description="GitHub personal access token for private repositories")
 
     # NEW: UV installation preference (always True, with fallback)
     use_uv: bool = Field(
-        True, description="Use UV for faster Python package installation (with automatic fallback to pip)"
+        True, description="Use UV for faster Python package installation (with automatic fallback to pip)",
     )
 
     # NEW: Auto-detected Python and Node version requirements from frappe
-    python_version: Optional[str] = Field(
-        None, description="Python version requirement from frappe app (e.g., '>=3.10,<3.14')"
+    python_version: str | None = Field(
+        None, description="Python version requirement from frappe app (e.g., '>=3.10,<3.14')",
     )
-    node_version: Optional[str] = Field(None, description="Node version requirement from frappe app (e.g., '>=18')")
+    node_version: str | None = Field(None, description="Node version requirement from frappe app (e.g., '>=18')")
 
     # Database name (randomized on creation to avoid conflicts)
-    db_name: Optional[str] = Field(None, description="Database name for this bench (auto-generated random string)")
+    db_name: str | None = Field(None, description="Database name for this bench (auto-generated random string)")
 
-    restart_policy: Optional[RestartPolicyEnum] = Field(
-        default=None, description="Docker Compose restart policy for all services in this bench"
+    restart_policy: RestartPolicyEnum | None = Field(
+        default=None, description="Docker Compose restart policy for all services in this bench",
     )
 
-    migration_state: Optional[MigrationState] = Field(
-        None, description="Migration state tracking (managed by migration system)"
+    migration_state: MigrationState | None = Field(
+        None, description="Migration state tracking (managed by migration system)",
     )
 
-    @field_validator('restart_policy', mode='before')
+    @field_validator("restart_policy", mode="before")
     @classmethod
     def set_default_restart_policy(cls, v, info):
-        if v is None and 'environment_type' in info.data:
-            env_type = info.data['environment_type']
+        if v is None and "environment_type" in info.data:
+            env_type = info.data["environment_type"]
             if env_type == FMBenchEnvType.prod:
                 return RestartPolicyEnum.unless_stopped
-            else:
-                return RestartPolicyEnum.no
+            return RestartPolicyEnum.no
         return v if v is not None else RestartPolicyEnum.no
 
-    def get_apps_config(self) -> List[AppConfig]:
+    def get_apps_config(self) -> list[AppConfig]:
         """
         Convert apps_list to AppConfig objects.
 
@@ -1040,7 +1033,7 @@ class BenchConfig(BaseModel):
     def container_name_prefix(self):
         return get_container_name_prefix(self.name)
 
-    def get_all_domains(self) -> List[str]:
+    def get_all_domains(self) -> list[str]:
         """
         Get all domains configured for this bench (primary + aliases).
 
@@ -1057,14 +1050,14 @@ class BenchConfig(BaseModel):
         Export bench configuration to TOML file.
         """
         exclude = {
-            'root_path',
-            'mariadb_root_pass',
-            'userid',
-            'mariadb_host',
-            'usergroup',
-            'apps_list',
-            'frappe_branch',
-            'admin_pass',
+            "root_path",
+            "mariadb_root_pass",
+            "userid",
+            "mariadb_host",
+            "usergroup",
+            "apps_list",
+            "frappe_branch",
+            "admin_pass",
         }
 
         # Convert the BenchConfig instance to a dictionary
@@ -1075,13 +1068,13 @@ class BenchConfig(BaseModel):
             # Export as array
             certs_array = ssl_certificates_to_toml_array(self.ssl_certificates)
             if len(certs_array) > 0:
-                bench_dict['ssl_certificates'] = certs_array
+                bench_dict["ssl_certificates"] = certs_array
             else:
                 # No active certificates, remove the key
-                bench_dict.pop('ssl_certificates', None)
+                bench_dict.pop("ssl_certificates", None)
         else:
             # No certificates at all
-            bench_dict.pop('ssl_certificates', None)
+            bench_dict.pop("ssl_certificates", None)
 
         # Handle DNS providers (convert to nested tables)
         if self.dns_providers:
@@ -1090,11 +1083,11 @@ class BenchConfig(BaseModel):
                 if provider_config.exists:
                     dns_providers_toml[provider_name] = provider_config.get_toml_doc()
             if len(dns_providers_toml) > 0:
-                bench_dict['dns_providers'] = dns_providers_toml
+                bench_dict["dns_providers"] = dns_providers_toml
             else:
-                bench_dict.pop('dns_providers', None)
+                bench_dict.pop("dns_providers", None)
         else:
-            bench_dict.pop('dns_providers', None)
+            bench_dict.pop("dns_providers", None)
 
         # Serialize the dictionary to a TOML string
         toml_doc = tomlkit.document()
@@ -1106,7 +1099,7 @@ class BenchConfig(BaseModel):
                 toml_doc[key] = value
 
         try:
-            with open(path, 'w') as f:
+            with open(path, "w") as f:
                 f.write(tomlkit.dumps(toml_doc))
             return True
         except Exception as e:
@@ -1120,16 +1113,16 @@ class BenchConfig(BaseModel):
         Uses the multi-certificate format (ssl_certificates array).
         """
         data = tomlkit.parse(path.read_text())
-        data['root_path'] = str(path)
+        data["root_path"] = str(path)
 
-        domain: str = data.get('name', '')
-        ssl_certificates_list: List[SSLCertificate] = []
+        domain: str = data.get("name", "")
+        ssl_certificates_list: list[SSLCertificate] = []
 
         # Parse multi-certificate format
-        ssl_certificates_data = data.get('ssl_certificates', None)
+        ssl_certificates_data = data.get("ssl_certificates", None)
         if ssl_certificates_data and isinstance(ssl_certificates_data, list):
             for cert_data in ssl_certificates_data:
-                cert_domain = cert_data.get('domain', domain)
+                cert_domain = cert_data.get("domain", domain)
                 ssl_cert = ssl_certificate_from_toml_data(cert_data, cert_domain)
                 ssl_certificates_list.append(ssl_cert)
 
@@ -1137,48 +1130,48 @@ class BenchConfig(BaseModel):
         # (default cert will be created via get_primary_certificate() when needed)
 
         # Read alias_domains from root level only
-        alias_domains_list = data.get('alias_domains', [])
+        alias_domains_list = data.get("alias_domains", [])
 
         # Parse DNS providers (nested tables)
         dns_providers_dict = {}
-        dns_providers_data = data.get('dns_providers', None)
+        dns_providers_data = data.get("dns_providers", None)
         if dns_providers_data and isinstance(dns_providers_data, dict):
             for provider_name, provider_data in dns_providers_data.items():
                 if isinstance(provider_data, dict):
                     dns_providers_dict[provider_name] = DNSProviderConfig.import_from_toml_doc(provider_data)
 
-        migration_state_data = data.get('migration_state', None)
+        migration_state_data = data.get("migration_state", None)
         migration_state_obj = None
         if migration_state_data and isinstance(migration_state_data, dict):
             migration_state_obj = MigrationState(**migration_state_data)
 
         input_data = {
-            'name': data.get('name', None),
-            'developer_mode': data.get('developer_mode', None),
-            'admin_tools': data.get('admin_tools', False),
-            'environment_type': data.get('environment_type', None),
-            'root_path': data.get('root_path', None),
-            'ssl_certificates': ssl_certificates_list,
-            'dns_providers': dns_providers_dict if dns_providers_dict else None,
-            'alias_domains': alias_domains_list,
-            'upload_limit': data.get('upload_limit', '50M'),
-            'admin_tools_username': data.get('admin_tools_username', None),
-            'admin_tools_password': data.get('admin_tools_password', None),
-            'admin_pass': data.get('admin_pass', 'admin'),
-            'apps_list': data.get('apps_list', []),
-            'github_token': data.get('github_token', None),
-            'use_uv': data.get('use_uv', True),
-            'python_version': data.get('python_version', None),
-            'node_version': data.get('node_version', None),
-            'db_name': data.get('db_name'),
-            'restart_policy': data.get('restart_policy', None),
-            'migration_state': migration_state_obj,
+            "name": data.get("name", None),
+            "developer_mode": data.get("developer_mode", None),
+            "admin_tools": data.get("admin_tools", False),
+            "environment_type": data.get("environment_type", None),
+            "root_path": data.get("root_path", None),
+            "ssl_certificates": ssl_certificates_list,
+            "dns_providers": dns_providers_dict if dns_providers_dict else None,
+            "alias_domains": alias_domains_list,
+            "upload_limit": data.get("upload_limit", "50M"),
+            "admin_tools_username": data.get("admin_tools_username", None),
+            "admin_tools_password": data.get("admin_tools_password", None),
+            "admin_pass": data.get("admin_pass", "admin"),
+            "apps_list": data.get("apps_list", []),
+            "github_token": data.get("github_token", None),
+            "use_uv": data.get("use_uv", True),
+            "python_version": data.get("python_version", None),
+            "node_version": data.get("node_version", None),
+            "db_name": data.get("db_name"),
+            "restart_policy": data.get("restart_policy", None),
+            "migration_state": migration_state_obj,
         }
 
         bench_config_instance = cls(**input_data)
         return bench_config_instance
 
-    def get_commmon_site_config_data(self, db_server_info: DatabaseServerServiceInfo) -> Dict[str, Any]:
+    def get_commmon_site_config_data(self, db_server_info: DatabaseServerServiceInfo) -> dict[str, Any]:
         common_site_config_data = {
             "install_apps": [],
             "db_host": db_server_info.host,
@@ -1194,7 +1187,7 @@ class BenchConfig(BaseModel):
 
         return common_site_config_data
 
-    def get_site_mappings(self) -> Dict[str, str]:
+    def get_site_mappings(self) -> dict[str, str]:
         mappings = {}
         mappings[self.name] = self.name
         if self.alias_domains:
@@ -1206,7 +1199,7 @@ class BenchConfig(BaseModel):
         all_domains = [self.name]
         if self.alias_domains:
             all_domains.extend(self.alias_domains)
-        domains_string = ','.join(all_domains)
+        domains_string = ",".join(all_domains)
 
         environment = {
             "frappe": {

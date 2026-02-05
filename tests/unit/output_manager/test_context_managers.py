@@ -25,9 +25,8 @@ def test_spinner_context_manager_basic():
 def test_spinner_context_manager_exception_safety():
     output = JSONOutputHandler()
 
-    with pytest.raises(ValueError):
-        with spinner(output, "Working"):
-            raise ValueError("Test error")
+    with pytest.raises(ValueError), spinner(output, "Working"):
+        raise ValueError("Test error")
 
     events = output.get_events()
     assert events[-1]["event_type"] == "stop"
@@ -94,9 +93,8 @@ def test_temporary_stop():
 def test_keyboard_interrupt_stops_spinner():
     output = JSONOutputHandler()
 
-    with pytest.raises(KeyboardInterrupt):
-        with spinner(output, "Working"):
-            raise KeyboardInterrupt()
+    with pytest.raises(KeyboardInterrupt), spinner(output, "Working"):
+        raise KeyboardInterrupt
 
     events = output.get_events()
     stop_events = [e for e in events if e["event_type"] == "stop"]

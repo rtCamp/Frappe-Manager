@@ -7,22 +7,19 @@ within this handler, implementing the OutputHandler interface.
 """
 
 import re
-import sys
 import threading
 import warnings
 from collections import deque
 from collections.abc import Iterable, Sequence
-from typing import Any, Optional
+from typing import Any
 
 import typer
-from rich.console import Console, Group
+from rich.console import Group
 from rich.live import Live
 from rich.padding import Padding
 from rich.spinner import Spinner
-from rich.style import Style
 from rich.table import Table
 from rich.text import Text
-from rich.theme import Theme
 
 from frappe_manager.output_manager.base import OutputHandler
 from frappe_manager.output_manager.console_singleton import get_stderr_console, get_stdout_console
@@ -111,7 +108,7 @@ class RichOutputHandler(OutputHandler):
                 if OutputRefactoringFlags.strict_mode():
                     raise RuntimeError(
                         "Direct output.start() is not allowed in strict mode. "
-                        "Use context managers: with spinner(output, 'text'): ..."
+                        "Use context managers: with spinner(output, 'text'): ...",
                     )
 
             super().start(text)
@@ -180,7 +177,7 @@ class RichOutputHandler(OutputHandler):
                 if OutputRefactoringFlags.strict_mode():
                     raise RuntimeError(
                         "Direct output.stop() is not allowed in strict mode. "
-                        "Use context managers: with spinner(output, 'text'): ..."
+                        "Use context managers: with spinner(output, 'text'): ...",
                     )
 
             super().stop()
@@ -397,7 +394,7 @@ class RichOutputHandler(OutputHandler):
         if not self.is_interactive():
             if required_flag:
                 raise NonInteractiveError(
-                    f"Cannot prompt in non-interactive mode: {prompt}", suggestions=[f"Use: {required_flag}"]
+                    f"Cannot prompt in non-interactive mode: {prompt}", suggestions=[f"Use: {required_flag}"],
                 )
             if default is None:
                 suggestions = []
@@ -405,11 +402,11 @@ class RichOutputHandler(OutputHandler):
                     suggestions.append(f"Pass one of: {', '.join(choices)}")
                 suggestions.append("Run without --non-interactive to enable prompts")
                 raise NonInteractiveError(
-                    f"Cannot prompt in non-interactive mode: {prompt}", suggestions=suggestions if suggestions else None
+                    f"Cannot prompt in non-interactive mode: {prompt}", suggestions=suggestions if suggestions else None,
                 )
             return default
 
-        prompt_clean = re.sub(r'\[/?[a-z]+\]', '', prompt)
+        prompt_clean = re.sub(r"\[/?[a-z]+\]", "", prompt)
 
         if self._is_interactive:
             from InquirerPy import inquirer
@@ -426,7 +423,7 @@ class RichOutputHandler(OutputHandler):
                     "pointer": "#61afef bold",
                     "highlighted": "#61afef bold",
                     "selected": "#e5c07b",
-                }
+                },
             )
 
             if choices:
@@ -435,53 +432,51 @@ class RichOutputHandler(OutputHandler):
                     choices=choices,
                     default=default,
                     vi_mode=True,
-                    qmark='',
-                    amark='',
+                    qmark="",
+                    amark="",
                     style=custom_style,
                 ).execute()
             else:
                 value = inquirer.text(
                     message=prompt_clean,
-                    default=default or '',
+                    default=default or "",
                     vi_mode=True,
-                    qmark='',
-                    amark='',
+                    qmark="",
+                    amark="",
                     style=custom_style,
                 ).execute()
 
             self.start("Working")
             return value
-        else:
-            if choices:
-                choices_str = "/".join(str(c) for c in choices)
-                prompt_full = f"{prompt_clean} [{choices_str}]"
-                if default:
-                    prompt_full += f" (default: {default})"
-                prompt_full += ": "
+        if choices:
+            choices_str = "/".join(str(c) for c in choices)
+            prompt_full = f"{prompt_clean} [{choices_str}]"
+            if default:
+                prompt_full += f" (default: {default})"
+            prompt_full += ": "
 
-                value = input(prompt_full).strip()
-                if not value and default:
-                    return default
+            value = input(prompt_full).strip()
+            if not value and default:
+                return default
 
-                if value not in choices:
-                    self.stderr.print(f"{EMOJI_WARNING}  Invalid choice '{value}', using default: {default}")
-                    return default or choices[0]
-                return value
-            else:
-                prompt_full = prompt_clean
-                if default:
-                    prompt_full += f" (default: {default})"
-                prompt_full += ": "
+            if value not in choices:
+                self.stderr.print(f"{EMOJI_WARNING}  Invalid choice '{value}', using default: {default}")
+                return default or choices[0]
+            return value
+        prompt_full = prompt_clean
+        if default:
+            prompt_full += f" (default: {default})"
+        prompt_full += ": "
 
-                value = input(prompt_full).strip()
-                return value if value else (default or "")
+        value = input(prompt_full).strip()
+        return value if value else (default or "")
 
     def prompt_fuzzy(
         self,
         prompt: str,
         choices: list[str],
-        default: Optional[str] = None,
-        required_flag: Optional[str] = None,
+        default: str | None = None,
+        required_flag: str | None = None,
         **kwargs,
     ) -> str:
         from frappe_manager.exceptions import NonInteractiveError
@@ -489,7 +484,7 @@ class RichOutputHandler(OutputHandler):
         if not self.is_interactive():
             if required_flag:
                 raise NonInteractiveError(
-                    f"Cannot prompt in non-interactive mode: {prompt}", suggestions=[f"Provide: {required_flag}"]
+                    f"Cannot prompt in non-interactive mode: {prompt}", suggestions=[f"Provide: {required_flag}"],
                 )
             if default is None:
                 raise NonInteractiveError(
@@ -504,10 +499,10 @@ class RichOutputHandler(OutputHandler):
             self.spinner.update()
             self.live.stop()
 
-            qmark = kwargs.pop('qmark', '🤔')
-            amark = kwargs.pop('amark', '🤔')
-            vi_mode = kwargs.pop('vi_mode', True)
-            mandatory = kwargs.pop('mandatory', True)
+            qmark = kwargs.pop("qmark", "🤔")
+            amark = kwargs.pop("amark", "🤔")
+            vi_mode = kwargs.pop("vi_mode", True)
+            mandatory = kwargs.pop("mandatory", True)
 
             value = inquirer.fuzzy(
                 message=prompt,
@@ -521,11 +516,10 @@ class RichOutputHandler(OutputHandler):
 
             self.start("Working")
             return value
-        else:
-            raise NonInteractiveError(
-                f"Cannot prompt in non-interactive mode: {prompt}",
-                suggestions=["Run without --non-interactive to enable prompts"],
-            )
+        raise NonInteractiveError(
+            f"Cannot prompt in non-interactive mode: {prompt}",
+            suggestions=["Run without --non-interactive to enable prompts"],
+        )
 
     @property
     def should_stream_docker(self) -> bool:
@@ -533,6 +527,7 @@ class RichOutputHandler(OutputHandler):
 
     def print_data(self, data: Any, **kwargs) -> None:
         import json
+
         from rich.table import Table as RichTable
 
         mode = OutputRefactoringFlags.stream_separation_mode()
@@ -542,14 +537,13 @@ class RichOutputHandler(OutputHandler):
                 self.stderr.print(data)
             else:
                 self.stderr.print(str(data))
+        elif isinstance(data, RichTable):
+            self.stdout.print(data)
+        elif isinstance(data, (dict, list)):
+            json_str = json.dumps(data, indent=2, default=str)
+            self.stdout.print(json_str)
         else:
-            if isinstance(data, RichTable):
-                self.stdout.print(data)
-            elif isinstance(data, (dict, list)):
-                json_str = json.dumps(data, indent=2, default=str)
-                self.stdout.print(json_str)
-            else:
-                self.stdout.print(str(data))
+            self.stdout.print(str(data))
 
     def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
         self.stderr.print(f"{emoji_code} {text}", **kwargs)

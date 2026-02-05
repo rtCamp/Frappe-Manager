@@ -8,7 +8,7 @@ to automatically add context information to all log messages.
 import logging
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -288,7 +288,7 @@ class TestContextualLoggerMessageFormatting:
     def test_full_context_formatting(self, mock_logger):
         """Test formatting with all context fields."""
         contextual = ContextualLogger(
-            mock_logger, LoggerContext(bench="mybench", operation="create", component="docker", extra={"step": 1})
+            mock_logger, LoggerContext(bench="mybench", operation="create", component="docker", extra={"step": 1}),
         )
 
         contextual.info("Test message")

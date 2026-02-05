@@ -6,15 +6,13 @@ archive operations, rollback coordination, and user-facing error reports.
 """
 
 import shutil
-from pathlib import Path
-from typing import TYPE_CHECKING, Dict, Any
+from typing import TYPE_CHECKING
+
 from frappe_manager import CLI_DIR, CLI_SITES_ARCHIVE
 from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
-from frappe_manager.migration_manager.version import Version
 
 if TYPE_CHECKING:
     from frappe_manager.migration_manager.migration_executor import MigrationExecutor
-    from frappe_manager.output_manager import OutputHandler
 
 
 class MigrationErrorHandler:
@@ -56,11 +54,10 @@ class MigrationErrorHandler:
         if archive_decision == "yes":
             self._archive_failed_benches()
             return True
-        elif archive_decision == "skip":
+        if archive_decision == "skip":
             return False
-        else:
-            self._rollback_all(show_cli_downgrade_instructions=not is_single_bench)
-            return False
+        self._rollback_all(show_cli_downgrade_instructions=not is_single_bench)
+        return False
 
     def handle_system_migration_failure(self, exception: Exception) -> bool:
         """
@@ -113,11 +110,8 @@ class MigrationErrorHandler:
         self.executor.output.print(f"For error specifics, refer to {CLI_DIR}/logs/fm.log", emoji_code="")
 
         # Print separator
-        if not failed_print_head:
+        if not failed_print_head or not passed_print_head:
             self.executor.output.print("=" * 60, emoji_code="")
-        else:
-            if not passed_print_head:
-                self.executor.output.print("=" * 60, emoji_code="")
 
     def _prompt_archive_or_rollback(self) -> str:
         """
@@ -143,44 +137,43 @@ class MigrationErrorHandler:
                 return "no"
 
             rollback_msg = [
-                'Migration failed for bench.',
-                '',
-                'Available options:',
-                '[blue][yes][/blue] Rollback bench : Restore the bench to its last working version before migration.',
-                f'[blue][no][/blue] Skip rollback : Leave bench in current state. You can manually fix or retry with: fm migrate {bench_name}',
-                '',
-                'Do you want to rollback the bench?',
+                "Migration failed for bench.",
+                "",
+                "Available options:",
+                "[blue][yes][/blue] Rollback bench : Restore the bench to its last working version before migration.",
+                f"[blue][no][/blue] Skip rollback : Leave bench in current state. You can manually fix or retry with: fm migrate {bench_name}",
+                "",
+                "Do you want to rollback the bench?",
             ]
 
             rollback_decision = self.executor.output.prompt_ask(
-                prompt="\n".join(rollback_msg), choices=["yes", "no"], required_flag='--on-failure'
+                prompt="\n".join(rollback_msg), choices=["yes", "no"], required_flag="--on-failure",
             )
 
             if rollback_decision == "yes":
                 return "no"
-            else:
-                self.executor.output.print("\nSkipping rollback. Bench remains in current state.", emoji_code="")
-                self.executor.output.print(
-                    f"You can manually fix the bench or retry with: fm migrate {bench_name}", emoji_code=""
-                )
-                return "skip"
+            self.executor.output.print("\nSkipping rollback. Bench remains in current state.", emoji_code="")
+            self.executor.output.print(
+                f"You can manually fix the bench or retry with: fm migrate {bench_name}", emoji_code="",
+            )
+            return "skip"
 
         if self.executor.on_failure == "archive":
             self.executor.output.print("Archiving failed benches (--on-failure=archive)", emoji_code="")
             return "yes"
-        elif self.executor.on_failure == "rollback":
+        if self.executor.on_failure == "rollback":
             self.executor.output.print("Rolling back all benches (--on-failure=rollback)", emoji_code="")
             return "no"
 
         archive_msg = [
-            'Available options after migrations failure :',
+            "Available options after migrations failure :",
             rf"[blue][yes][/blue] Archive failed benches : Benches that have failed will be rolled back to there last successfully completed migration version and stored in '{CLI_SITES_ARCHIVE}'.",
-            r'[blue][no][/blue] Revert migration : Restore the FM CLI and FM environment to the last successfully completed migration version for all benches.',
-            '\nDo you wish to archive all benches that failed during migration ?',
+            r"[blue][no][/blue] Revert migration : Restore the FM CLI and FM environment to the last successfully completed migration version for all benches.",
+            "\nDo you wish to archive all benches that failed during migration ?",
         ]
 
         return self.executor.output.prompt_ask(
-            prompt="\n".join(archive_msg), choices=["yes", "no"], required_flag='--on-failure'
+            prompt="\n".join(archive_msg), choices=["yes", "no"], required_flag="--on-failure",
         )
 
     def _archive_failed_benches(self):
@@ -223,10 +216,10 @@ class MigrationErrorHandler:
         if show_cli_downgrade_instructions:
             self.executor.output.print("", emoji_code="")
             self.executor.output.print(
-                f"To revert FM CLI to v{str(self.executor.rollback_version.version)}, run:", emoji_code=""
+                f"To revert FM CLI to v{self.executor.rollback_version.version!s}, run:", emoji_code="",
             )
             self.executor.output.print(
-                f"  uv tool install frappe-manager=={str(self.executor.rollback_version.version)}", emoji_code=""
+                f"  uv tool install frappe-manager=={self.executor.rollback_version.version!s}", emoji_code="",
             )
 
         self.executor.output.print("", emoji_code="")

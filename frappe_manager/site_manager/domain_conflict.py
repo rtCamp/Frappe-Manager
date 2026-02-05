@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, Set, Optional, List
+
 from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.site_manager.bench_config import BenchConfig
 
@@ -16,15 +16,15 @@ class DomainConflict:
 
 
 class DomainConflictError(Exception):
-    def __init__(self, conflicts: List[DomainConflict]):
+    def __init__(self, conflicts: list[DomainConflict]):
         self.conflicts = conflicts
         conflict_msgs = "\n  - ".join(str(c) for c in conflicts)
         super().__init__(f"Domain conflicts detected:\n  - {conflict_msgs}")
 
 
 def build_global_domain_map(
-    benches_root: Path = CLI_BENCHES_DIRECTORY, exclude_bench: Optional[str] = None
-) -> Dict[str, tuple[str, bool]]:
+    benches_root: Path = CLI_BENCHES_DIRECTORY, exclude_bench: str | None = None,
+) -> dict[str, tuple[str, bool]]:
     domain_map = {}
 
     if not benches_root.exists():
@@ -57,10 +57,10 @@ def build_global_domain_map(
 
 
 def check_domain_conflicts(
-    candidate_domains: Set[str] | List[str],
+    candidate_domains: set[str] | list[str],
     benches_root: Path = CLI_BENCHES_DIRECTORY,
-    exclude_bench: Optional[str] = None,
-) -> List[DomainConflict]:
+    exclude_bench: str | None = None,
+) -> list[DomainConflict]:
     domain_map = build_global_domain_map(benches_root, exclude_bench)
 
     conflicts = []
@@ -74,9 +74,9 @@ def check_domain_conflicts(
 
 
 def validate_domains_unique(
-    candidate_domains: Set[str] | List[str],
+    candidate_domains: set[str] | list[str],
     benches_root: Path = CLI_BENCHES_DIRECTORY,
-    exclude_bench: Optional[str] = None,
+    exclude_bench: str | None = None,
     skip_check: bool = False,
 ) -> None:
     if skip_check:

@@ -1,25 +1,26 @@
 import shutil
+import time
 from dataclasses import dataclass
 from datetime import datetime
-import time
 from pathlib import Path
-from typing import Optional, Set, ClassVar
-from frappe_manager import CLI_DIR, CLI_BENCHES_DIRECTORY
-from frappe_manager.migration_manager.migration_constants import TIMESTAMP_COLLISION_RETRY_DELAY_MS
+from typing import ClassVar
+
+from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_DIR
 from frappe_manager.logger import log
+from frappe_manager.migration_manager.migration_constants import TIMESTAMP_COLLISION_RETRY_DELAY_MS
 
 
 @dataclass
 class BackupData:
     src: Path
     dest: Path
-    bench: Optional[str] = None
-    bench_path: Optional[Path] = None
+    bench: str | None = None
+    bench_path: Path | None = None
     prefix_timestamp: bool = False
     allow_restore: bool = True
     _is_restored: bool = False
 
-    _used_timestamps: ClassVar[Set[str]] = set()
+    _used_timestamps: ClassVar[set[str]] = set()
 
     @property
     def is_restored(self) -> bool:
@@ -40,11 +41,11 @@ class BackupData:
 
     def _generate_unique_timestamp_filename(self) -> str:
         base_name = self.dest.name
-        timestamp = datetime.now().strftime('%d-%b-%y--%H-%M-%S')
+        timestamp = datetime.now().strftime("%d-%b-%y--%H-%M-%S")
 
         while timestamp in BackupData._used_timestamps:
             time.sleep(TIMESTAMP_COLLISION_RETRY_DELAY_MS)
-            timestamp = datetime.now().strftime('%d-%b-%y--%H-%M-%S-%f')[:23]
+            timestamp = datetime.now().strftime("%d-%b-%y--%H-%M-%S-%f")[:23]
 
         BackupData._used_timestamps.add(timestamp)
         return f"{base_name}-{timestamp}"
@@ -53,16 +54,16 @@ class BackupData:
         return self.dest.exists()
 
 
-CLI_MIGARATIONS_DIR = CLI_DIR / 'backups'
+CLI_MIGARATIONS_DIR = CLI_DIR / "backups"
 
 
 class BackupManager:
-    _active_sessions: ClassVar[Set[str]] = set()
+    _active_sessions: ClassVar[set[str]] = set()
 
     def __init__(
         self,
         name: str,
-        backup_group_name: str = 'migrations',
+        backup_group_name: str = "migrations",
         benches_dir: Path = CLI_BENCHES_DIRECTORY,
         backup_dir: Path = CLI_MIGARATIONS_DIR,
     ):
@@ -72,18 +73,18 @@ class BackupManager:
         self.root_backup_dir: Path = backup_dir / backup_group_name / self.migration_timestamp
         self.benches_dir: Path = benches_dir
         self.backup_dir: Path = self.root_backup_dir / self.name
-        self.bench_backup_dir: Path = Path('backups') / backup_group_name / self.migration_timestamp
+        self.bench_backup_dir: Path = Path("backups") / backup_group_name / self.migration_timestamp
         self.backups = []
         self.logger = log.get_logger()
 
         self.backup_dir.mkdir(parents=True, exist_ok=True)
 
     def _generate_unique_session_timestamp(self) -> str:
-        timestamp = datetime.now().strftime('%d-%b-%y--%H-%M-%S')
+        timestamp = datetime.now().strftime("%d-%b-%y--%H-%M-%S")
 
         while timestamp in BackupManager._active_sessions:
             time.sleep(TIMESTAMP_COLLISION_RETRY_DELAY_MS)
-            timestamp = datetime.now().strftime('%d-%b-%y--%H-%M-%S-%f')[:23]
+            timestamp = datetime.now().strftime("%d-%b-%y--%H-%M-%S-%f")[:23]
 
         BackupManager._active_sessions.add(timestamp)
         return timestamp
@@ -91,8 +92,8 @@ class BackupManager:
     def backup(
         self,
         src: Path,
-        dest: Optional[Path] = None,
-        bench_name: Optional[str] = None,
+        dest: Path | None = None,
+        bench_name: str | None = None,
         allow_restore: bool = True,
     ):
         if not src.exists():
@@ -156,7 +157,7 @@ class BackupManager:
         """
         if not backup_data.real_dest.exists():
             # print(f"No backup found at {backup_data.real_dest}")
-            return None
+            return
 
         shutil.rmtree(backup_data.real_dest)
 

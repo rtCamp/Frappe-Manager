@@ -6,13 +6,12 @@ Extracted from the monolithic Bench class for better separation of concerns.
 """
 
 import time
-from typing import Optional
 
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.logger.contextual import ContextualLogger
-from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.site_manager.bench_config import BenchConfig
 from frappe_manager.site_manager.exceptions import BenchOperationException
 
 
@@ -56,11 +55,11 @@ class BenchSupervisor:
         """
         for i in range(timeout):
             try:
-                status_command = 'supervisorctl -c /opt/user/supervisord.conf status all'
-                output = self.docker_client.compose.exec('frappe', status_command, user='frappe', stream=False)
+                status_command = "supervisorctl -c /opt/user/supervisord.conf status all"
+                output = self.docker_client.compose.exec("frappe", status_command, user="frappe", stream=False)
                 return True
             except DockerException as e:
-                if any('frappe-bench' in s for s in e.output.combined):
+                if any("frappe-bench" in s for s in e.output.combined):
                     return True
                 time.sleep(interval)
                 continue
@@ -69,7 +68,7 @@ class BenchSupervisor:
     def restart_supervisor_service(
         self,
         service: str,
-        docker_client_obj: Optional[DockerClient] = None,
+        docker_client_obj: DockerClient | None = None,
         timeout: int = 30,
         interval: int = 1,
         force: bool = False,
@@ -102,28 +101,28 @@ class BenchSupervisor:
             service_running = False
 
         if not service_running:
-            self.output.display_error(text=f'Service [blue]{service}[/blue] not running.')
+            self.output.display_error(text=f"Service [blue]{service}[/blue] not running.")
             return False
 
         if force:
-            stop_command = 'supervisorctl -c /opt/user/supervisord.conf stop all'
-            start_command = 'supervisorctl -c /opt/user/supervisord.conf start all'
+            stop_command = "supervisorctl -c /opt/user/supervisord.conf stop all"
+            start_command = "supervisorctl -c /opt/user/supervisord.conf start all"
             try:
-                docker_client_obj.compose.exec(service=service, user='frappe', command=stop_command, stream=False)
-                docker_client_obj.compose.exec(service=service, user='frappe', command=start_command, stream=False)
+                docker_client_obj.compose.exec(service=service, user="frappe", command=stop_command, stream=False)
+                docker_client_obj.compose.exec(service=service, user="frappe", command=start_command, stream=False)
             except DockerException as e:
                 raise BenchOperationException(
-                    self.bench_name, message=f'Failed to force restart supervisor for {service} service: {str(e)}'
+                    self.bench_name, message=f"Failed to force restart supervisor for {service} service: {e!s}",
                 )
         else:
-            restart_supervisor_command = 'supervisorctl -c /opt/user/supervisord.conf restart all'
+            restart_supervisor_command = "supervisorctl -c /opt/user/supervisord.conf restart all"
             try:
                 docker_client_obj.compose.exec(
-                    service=service, user='frappe', command=restart_supervisor_command, stream=False
+                    service=service, user="frappe", command=restart_supervisor_command, stream=False,
                 )
             except DockerException as e:
                 raise BenchOperationException(
-                    self.bench_name, message=f'Failed to restart supervisor for {service} service: {str(e)}'
+                    self.bench_name, message=f"Failed to restart supervisor for {service} service: {e!s}",
                 )
 
         # Verify supervisor socket was created after restart
@@ -131,7 +130,7 @@ class BenchSupervisor:
         for _ in range(timeout):
             try:
                 self.docker_client.compose.exec(
-                    service=service, user='frappe', command=f"test -e {socket_path}", stream=False
+                    service=service, user="frappe", command=f"test -e {socket_path}", stream=False,
                 )
                 return True
             except DockerException:
@@ -139,7 +138,7 @@ class BenchSupervisor:
 
         # Socket not found, but don't fail - it might be dev mode where socket isn't used
         self.output.warning(
-            f'Supervisor socket {socket_path} not found after restart, but services may still be running'
+            f"Supervisor socket {socket_path} not found after restart, but services may still be running",
         )
         return True
 
@@ -154,7 +153,7 @@ class BenchSupervisor:
             DockerException: If command fails
         """
         try:
-            self.docker_client.compose.exec('frappe', command, user='frappe', stream=False)
+            self.docker_client.compose.exec("frappe", command, user="frappe", stream=False)
         except DockerException as e:
             from frappe_manager.site_manager.exceptions import BenchException
 
@@ -182,26 +181,26 @@ class BenchSupervisor:
         frappe_bench_dir = bench_path / "workspace" / "frappe-bench"
         config_dir_path: Path = frappe_bench_dir / "config"
         supervisor_conf_path: Path = config_dir_path / "supervisor.conf"
-        bench_cli_cmd = ['/usr/local/bin/bench']
+        bench_cli_cmd = ["/usr/local/bin/bench"]
 
         self.output.change_head("Checking supervisor configuration")
         if not supervisor_conf_path.exists() or force:
             self.output.change_head("Configuring supervisor configs")
 
             bench_setup_supervisor_command = bench_cli_cmd + [
-                "setup supervisor --skip-redis --skip-supervisord --yes --user frappe"
+                "setup supervisor --skip-redis --skip-supervisord --yes --user frappe",
             ]
 
             bench_setup_supervisor_command = " ".join(bench_setup_supervisor_command)
             bench_setup_supervisor_exception = BenchOperationException(
-                self.bench_name, "Failed to configure supervisor."
+                self.bench_name, "Failed to configure supervisor.",
             )
 
             try:
                 if use_run:
                     run_command = f"-c 'cd /workspace/frappe-bench && {bench_setup_supervisor_command}'"
                     output = self.docker_client.compose.run(
-                        service='frappe',
+                        service="frappe",
                         command=run_command,
                         entrypoint="/bin/bash",
                         user="frappe",
@@ -211,9 +210,9 @@ class BenchSupervisor:
                 else:
                     command = f"/bin/bash -c '{bench_setup_supervisor_command}'"
                     output = self.docker_client.compose.exec(
-                        service='frappe',
+                        service="frappe",
                         command=command,
-                        user='frappe',
+                        user="frappe",
                         workdir="/workspace/frappe-bench",
                         stream=False,
                     )
@@ -271,18 +270,18 @@ class BenchSupervisor:
                             value = value.replace("127.0.0.1:80", "0.0.0.0:80")
                             cpu_count = os.cpu_count() or 2
                             workers = (cpu_count * 2) + 1
-                            value = re.sub(r'-w\s+\d+', f'-w {workers}', value)
+                            value = re.sub(r"-w\s+\d+", f"-w {workers}", value)
 
                     if "node-socketio" in section_name:
                         if key == "command":
-                            value = re.sub(r'\S+/node\s+', '/workspace/.fnm/aliases/default/bin/node ', value)
+                            value = re.sub(r"\S+/node\s+", "/workspace/.fnm/aliases/default/bin/node ", value)
 
                     section_config.set(section_name, key, value)
 
-                section_name_delimeter = '-frappe-'
+                section_name_delimeter = "-frappe-"
 
-                if '-node-' in section_name:
-                    section_name_delimeter = '-node-'
+                if "-node-" in section_name:
+                    section_name_delimeter = "-node-"
 
                 file_name_prefix = section_name.split(section_name_delimeter)[-1]
                 file_name = file_name_prefix + ".fm.supervisor.conf"

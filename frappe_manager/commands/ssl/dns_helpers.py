@@ -1,17 +1,19 @@
 """Helper functions for DNS provider credential management."""
 
-from typing import Optional
+
 import typer
-from frappe_manager.site_manager.site import Bench
-from frappe_manager.site_manager.bench_config import DNSProviderConfig
-from frappe_manager.ssl_manager import DNS_PROVIDER
+
 from frappe_manager.logger.context import LoggerContext
+from frappe_manager.metadata_manager import FMCloudflareConfig, FMConfigManager
 from frappe_manager.output_manager import get_global_output_handler
-from frappe_manager.metadata_manager import FMConfigManager, FMCloudflareConfig
+from frappe_manager.site_manager.bench_config import DNSProviderConfig
+from frappe_manager.site_manager.site import Bench
+from frappe_manager.ssl_manager import DNS_PROVIDER
+
 from .helpers import get_output_handler
 
 
-def _show_dns_credentials(ctx: typer.Context, provider_name: str, benchname: Optional[str] = None):
+def _show_dns_credentials(ctx: typer.Context, provider_name: str, benchname: str | None = None):
     """Show DNS credentials for a provider."""
     if benchname:
         # Show bench-level config
@@ -27,10 +29,10 @@ def _show_dns_credentials(ctx: typer.Context, provider_name: str, benchname: Opt
             output.print(f"Provider: [green]{provider_name}[/green]", emoji_code="")
             output.print(f"Email: {config.email if config.email else '[dim]Not set[/dim]'}", emoji_code="")
             output.print(
-                f"API Token: {'[green]*** (set)[/green]' if config.api_token else '[dim]Not set[/dim]'}", emoji_code=""
+                f"API Token: {'[green]*** (set)[/green]' if config.api_token else '[dim]Not set[/dim]'}", emoji_code="",
             )
             output.print(
-                f"API Key: {'[yellow]*** (set)[/yellow]' if config.api_key else '[dim]Not set[/dim]'}", emoji_code=""
+                f"API Key: {'[yellow]*** (set)[/yellow]' if config.api_key else '[dim]Not set[/dim]'}", emoji_code="",
             )
         else:
             output.print(
@@ -42,20 +44,20 @@ def _show_dns_credentials(ctx: typer.Context, provider_name: str, benchname: Opt
     # Show global config (always show, no output handler needed for global info display)
     fm_config = FMConfigManager.import_from_toml()
     output = get_global_output_handler()
-    output.print(f"\n[bold cyan]Global DNS Credentials:[/bold cyan]")
+    output.print("\n[bold cyan]Global DNS Credentials:[/bold cyan]")
     output.print(f"Provider: [green]{provider_name}[/green]")
 
     if provider_name == DNS_PROVIDER.cloudflare.value:
         output.print(f"Email: {fm_config.cloudflare.email if fm_config.cloudflare.email else '[dim]Not set[/dim]'}")
         output.print(
-            f"API Token: {'[green]*** (set)[/green]' if fm_config.cloudflare.api_token else '[dim]Not set[/dim]'}"
+            f"API Token: {'[green]*** (set)[/green]' if fm_config.cloudflare.api_token else '[dim]Not set[/dim]'}",
         )
         output.print(
-            f"API Key: {'[yellow]*** (set)[/yellow]' if fm_config.cloudflare.api_key else '[dim]Not set[/dim]'}"
+            f"API Key: {'[yellow]*** (set)[/yellow]' if fm_config.cloudflare.api_key else '[dim]Not set[/dim]'}",
         )
 
 
-def _remove_dns_credentials(ctx: typer.Context, provider_name: str, benchname: Optional[str] = None):
+def _remove_dns_credentials(ctx: typer.Context, provider_name: str, benchname: str | None = None):
     """Remove DNS credentials for a provider."""
     if benchname:
         services_manager = ctx.obj["services"]
@@ -90,10 +92,10 @@ def _remove_dns_credentials(ctx: typer.Context, provider_name: str, benchname: O
 def _configure_dns_credentials(
     ctx: typer.Context,
     provider_name: str,
-    benchname: Optional[str],
-    api_token: Optional[str],
-    api_key: Optional[str],
-    email: Optional[str],
+    benchname: str | None,
+    api_token: str | None,
+    api_key: str | None,
+    email: str | None,
 ):
     """Configure DNS credentials for a provider."""
     if benchname:
@@ -121,7 +123,7 @@ def _configure_dns_credentials(
             f"[green]{provider_name}[/green] credentials configured for bench '{benchname}'",
             emoji_code=":white_check_mark:",
         )
-        output.print(f"[dim]These credentials will be used for DNS-01 challenges on this bench[/dim]", emoji_code="")
+        output.print("[dim]These credentials will be used for DNS-01 challenges on this bench[/dim]", emoji_code="")
         output.print(f"[dim]Saved to: {bench.bench_config.root_path}[/dim]", emoji_code="")
     else:
         # Configure global credentials (use output handler for global operations)

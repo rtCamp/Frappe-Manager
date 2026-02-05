@@ -7,16 +7,16 @@ Handles database operations for the bench including:
 - Common site config synchronization
 """
 
-from typing import TYPE_CHECKING
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.utils.site import get_bench_db_connection_info
-from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.utils.helpers import get_container_name_prefix
+from frappe_manager.utils.site import get_bench_db_connection_info
 
 if TYPE_CHECKING:
-    from frappe_manager.site_manager.bench_config import BenchConfig
     from frappe_manager.services_manager.services import ServicesManager
 
 
@@ -72,7 +72,7 @@ class BenchDatabase:
         """
         bench_db_info = self.get_connection_info()
         self.output.change_head("Removing bench db and db users from global-db")
-        
+
         if "name" in bench_db_info:
             db_name = bench_db_info["name"]
             db_user = bench_db_info["user"]

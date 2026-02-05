@@ -3,7 +3,7 @@ import platform
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from jinja2 import Template
 
@@ -37,7 +37,7 @@ class ServicesManager:
         self,
         path=CLI_SERVICES_DIRECTORY,
         verbose: bool = False,
-        invoked_subcommand: Optional[str] = None,
+        invoked_subcommand: str | None = None,
         output_handler: OutputHandler | None = None,
     ) -> None:
         self.path = path
@@ -55,7 +55,7 @@ class ServicesManager:
                 self.create(clean_install=True)
 
             except Exception as e:
-                self.output.error(f"Error during service creation", e)
+                self.output.error("Error during service creation", e)
                 import traceback
 
                 traceback.print_exc()

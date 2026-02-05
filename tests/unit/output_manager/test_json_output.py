@@ -6,7 +6,9 @@ are properly captured and can be serialized.
 """
 
 import json
+
 import pytest
+
 from frappe_manager.output_manager.json_output import JSONOutputHandler, OutputEvent
 
 
@@ -169,7 +171,7 @@ class TestJSONOutputHandlerAdvancedOperations:
                 ("stdout", b"Line 1\n"),
                 ("stderr", b"Error 1\n"),
                 ("stdout", b"Line 2\n"),
-            ]
+            ],
         )
 
         handler.live_lines(data, stdout=True, stderr=True, lines=4)
@@ -189,7 +191,7 @@ class TestJSONOutputHandlerAdvancedOperations:
             [
                 ("stdout", b"Line 1\n"),
                 ("stderr", b"Error 1\n"),
-            ]
+            ],
         )
 
         handler.live_lines(data, stdout=False, stderr=True)
@@ -207,7 +209,7 @@ class TestJSONOutputHandlerAdvancedOperations:
                 ("stdout", b"Line 1\n"),
                 ("stdout", b"STOP HERE\n"),
                 ("stdout", b"Line 3\n"),  # Should not be captured
-            ]
+            ],
         )
 
         handler.live_lines(data, stop_string="STOP")

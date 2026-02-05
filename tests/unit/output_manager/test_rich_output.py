@@ -4,8 +4,10 @@ Tests for RichOutputHandler.
 Tests the Rich terminal output handler implementation (inlined from DisplayManager).
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, patch, Mock
+
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 
 
@@ -39,7 +41,7 @@ class TestRichOutputHandlerBasicOperations:
         handler._interactive = True  # Force interactive
         handler._tty_available = True
 
-        with patch.object(handler.live, 'start') as mock_start:
+        with patch.object(handler.live, "start") as mock_start:
             handler.start("Starting operation")
             mock_start.assert_called_once()
 
@@ -48,7 +50,7 @@ class TestRichOutputHandlerBasicOperations:
         handler = RichOutputHandler()
         handler._interactive = False  # Force non-interactive
 
-        with patch.object(handler.stderr, 'print') as mock_print:
+        with patch.object(handler.stderr, "print") as mock_print:
             handler.start("Starting operation")
             mock_print.assert_called_once()
             # Check that it printed the status message
@@ -62,7 +64,7 @@ class TestRichOutputHandlerBasicOperations:
         handler._tty_available = True
         handler._spinner_active = True
 
-        with patch.object(handler.live, 'stop') as mock_stop:
+        with patch.object(handler.live, "stop") as mock_stop:
             handler.stop()
             mock_stop.assert_called_once()
 
@@ -71,7 +73,7 @@ class TestRichOutputHandlerBasicOperations:
         handler = RichOutputHandler()
         handler._interactive = False
 
-        with patch.object(handler.live, 'stop') as mock_stop:
+        with patch.object(handler.live, "stop") as mock_stop:
             handler.stop()
             mock_stop.assert_not_called()
 
@@ -79,7 +81,7 @@ class TestRichOutputHandlerBasicOperations:
         """print() outputs message to stderr."""
         handler = RichOutputHandler()
 
-        with patch.object(handler.stderr, 'print') as mock_print:
+        with patch.object(handler.stderr, "print") as mock_print:
             handler.print("Test message")
             mock_print.assert_called_once()
 
@@ -87,7 +89,7 @@ class TestRichOutputHandlerBasicOperations:
         """print() includes emoji when provided."""
         handler = RichOutputHandler()
 
-        with patch.object(handler.stderr, 'print') as mock_print:
+        with patch.object(handler.stderr, "print") as mock_print:
             handler.print("Test message", emoji_code=":rocket:")
             mock_print.assert_called_once()
             # Verify emoji is in the output
@@ -98,7 +100,7 @@ class TestRichOutputHandlerBasicOperations:
         """display_error() prints directly to stderr."""
         handler = RichOutputHandler()
 
-        with patch.object(handler.stderr, 'print') as mock_print:
+        with patch.object(handler.stderr, "print") as mock_print:
             handler.display_error("Error message")
             mock_print.assert_called_once()
             call_str = str(mock_print.call_args)
@@ -117,7 +119,7 @@ class TestRichOutputHandlerBasicOperations:
         """warning() prints directly to stderr."""
         handler = RichOutputHandler()
 
-        with patch.object(handler.stderr, 'print') as mock_print:
+        with patch.object(handler.stderr, "print") as mock_print:
             handler.warning("Warning message")
             mock_print.assert_called_once()
             call_str = str(mock_print.call_args)
@@ -134,11 +136,11 @@ class TestRichOutputHandlerHeadOperations:
         handler._tty_available = True
         handler._spinner_active = True
 
-        with patch.object(handler.spinner, 'update') as mock_update:
+        with patch.object(handler.spinner, "update") as mock_update:
             handler.change_head("Updated text", style="bold")
             mock_update.assert_called_once()
             args, kwargs = mock_update.call_args
-            text_content = str(args[0] if args else kwargs.get('text', ''))
+            text_content = str(args[0] if args else kwargs.get("text", ""))
             assert "Updated text" in text_content
 
     def test_change_head_in_non_interactive_mode(self):
@@ -146,7 +148,7 @@ class TestRichOutputHandlerHeadOperations:
         handler = RichOutputHandler()
         handler._interactive = False
 
-        with patch.object(handler.spinner, 'update') as mock_update:
+        with patch.object(handler.spinner, "update") as mock_update:
             handler.change_head("Updated text")
             mock_update.assert_not_called()
 
@@ -157,7 +159,7 @@ class TestRichOutputHandlerHeadOperations:
         handler._tty_available = True
         handler._spinner_active = True
 
-        with patch.object(handler.spinner, 'update') as mock_update:
+        with patch.object(handler.spinner, "update") as mock_update:
             handler.update_head("New head")
             mock_update.assert_called_once()
 
@@ -172,7 +174,7 @@ class TestRichOutputHandlerAdvancedOperations:
         data = iter([("stdout", b"Line 1\n"), ("stdout", b"Line 2\n")])
 
         # Mock the panel and live update
-        with patch.object(handler, 'update_live'):
+        with patch.object(handler, "update_live"):
             handler.live_lines(data, stdout=True, stderr=False)
             # Should have processed the data (exact assertion depends on implementation)
 
@@ -183,7 +185,7 @@ class TestRichOutputHandlerAdvancedOperations:
 
         mock_renderable = MagicMock()
 
-        with patch.object(handler.live, 'update') as mock_update:
+        with patch.object(handler.live, "update") as mock_update:
             handler.update_live(renderable=mock_renderable)
             mock_update.assert_called_once()
 
@@ -197,17 +199,16 @@ class TestRichOutputHandlerCompleteSequence:
         handler._interactive = True
         handler._tty_available = True
 
-        with patch.object(handler.live, 'start'):
-            with patch.object(handler.live, 'stop'):
-                with patch.object(handler.spinner, 'update'):
-                    with patch.object(handler.stderr, 'print'):
-                        handler.start("Starting operation")
-                        handler.change_head("Processing")
-                        handler.print("Step 1 complete")
-                        handler.warning("Minor issue detected")
-                        handler.change_head("Finalizing")
-                        handler.print("Done")
-                        handler.stop()
+        with patch.object(handler.live, "start"), patch.object(handler.live, "stop"):
+            with patch.object(handler.spinner, "update"):
+                with patch.object(handler.stderr, "print"):
+                    handler.start("Starting operation")
+                    handler.change_head("Processing")
+                    handler.print("Step 1 complete")
+                    handler.warning("Minor issue detected")
+                    handler.change_head("Finalizing")
+                    handler.print("Done")
+                    handler.stop()
 
                         # Operations completed without errors
                         # (Detailed assertions would be too coupled to implementation)
@@ -218,18 +219,17 @@ class TestRichOutputHandlerCompleteSequence:
         handler._interactive = True
         handler._tty_available = True
 
-        with patch.object(handler.live, 'start'):
-            with patch.object(handler.live, 'stop'):
-                with patch.object(handler.stderr, 'print'):
-                    # First operation
-                    handler.start("Operation 1")
-                    handler.print("Message 1")
-                    handler.stop()
+        with patch.object(handler.live, "start"), patch.object(handler.live, "stop"):
+            with patch.object(handler.stderr, "print"):
+                # First operation
+                handler.start("Operation 1")
+                handler.print("Message 1")
+                handler.stop()
 
-                    # Second operation
-                    handler.start("Operation 2")
-                    handler.print("Message 2")
-                    handler.stop()
+                # Second operation
+                handler.start("Operation 2")
+                handler.print("Message 2")
+                handler.stop()
 
 
 class TestRichOutputHandlerInteractiveMode:
@@ -241,7 +241,7 @@ class TestRichOutputHandlerInteractiveMode:
         handler._interactive = True
         handler._tty_available = True
 
-        with patch.object(handler.live, 'start') as mock_start:
+        with patch.object(handler.live, "start") as mock_start:
             handler.start("Test")
             mock_start.assert_called_once()
 
@@ -250,7 +250,7 @@ class TestRichOutputHandlerInteractiveMode:
         handler = RichOutputHandler()
         handler._interactive = False
 
-        with patch.object(handler.stderr, 'print') as mock_print:
+        with patch.object(handler.stderr, "print") as mock_print:
             handler.start("Test")
             mock_print.assert_called_once()
 

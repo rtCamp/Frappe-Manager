@@ -1,8 +1,11 @@
 """acme.sh passthrough command."""
 
 import os
+
 import typer
+
 from frappe_manager.utils.subprocess import stream_command_output
+
 from .helpers import get_output_handler
 
 
@@ -74,6 +77,5 @@ def acmesh_passthrough(
         output.print("")
         output.display_error(f"acme.sh exited with code {exit_code_holder[0]}")
         raise typer.Exit(exit_code_holder[0])
-    else:
-        output.print("")
-        output.print("Command completed successfully", emoji_code=":white_check_mark:")
+    output.print("")
+    output.print("Command completed successfully", emoji_code=":white_check_mark:")

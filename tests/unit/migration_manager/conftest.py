@@ -1,8 +1,10 @@
 """Pytest fixtures for migration_manager tests."""
 
-import pytest
 from pathlib import Path
-from unittest.mock import Mock, MagicMock
+from unittest.mock import MagicMock, Mock
+
+import pytest
+
 from frappe_manager.migration_manager.version import Version
 
 

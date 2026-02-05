@@ -20,9 +20,8 @@ def namer(name):
 
 
 def rotator(source, dest):
-    with open(source, "rb") as f_in:
-        with gzip.open(dest, "wb") as f_out:
-            shutil.copyfileobj(f_in, f_out)
+    with open(source, "rb") as f_in, gzip.open(dest, "wb") as f_out:
+        shutil.copyfileobj(f_in, f_out)
     os.remove(source)
 
 
@@ -57,7 +56,7 @@ class ConsoleLogFilter(logging.Filter):
     def filter(self, record: logging.LogRecord) -> bool:
         msg = str(record.getMessage())
 
-        msg = re.sub(r'\[corr=[^\]]+\]\s*', '', msg)
+        msg = re.sub(r"\[corr=[^\]]+\]\s*", "", msg)
 
         if msg.strip() == "- -- -- -- -- -- -- -- -- -- -":
             record.msg = "[dim]---[/dim]"
@@ -224,7 +223,7 @@ def _update_console_handler(logger: logging.Logger, console_level: str | None) -
 
 
 def get_logger(
-    log_dir=CLI_LOG_DIRECTORY, log_file_name="fm", console_level: str | None = None, file_level: str = "DEBUG"
+    log_dir=CLI_LOG_DIRECTORY, log_file_name="fm", console_level: str | None = None, file_level: str = "DEBUG",
 ) -> FMLOGGER:
     """
     Creates a Log File and returns Logger object.

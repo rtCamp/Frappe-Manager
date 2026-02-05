@@ -2,20 +2,20 @@
 SSL Manager utility functions for credentials and configuration management.
 """
 
-from typing import Optional, Dict, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from frappe_manager.site_manager.bench_config import BenchConfig
 
 from frappe_manager.metadata_manager import FMConfigManager
-from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
+from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import SSLDNSChallengeCredentailsNotFound
 
 
 def get_dns_credentials_for_certificate(
-    certificate: SSLCertificate, bench_config: Optional['BenchConfig'] = None
-) -> Optional[Dict[str, str]]:
+    certificate: SSLCertificate, bench_config: Optional["BenchConfig"] = None,
+) -> dict[str, str] | None:
     """
     Load DNS credentials and format for acme.sh.
 
@@ -52,33 +52,33 @@ def get_dns_credentials_for_certificate(
     credentials = {}
 
     if bench_config and bench_config.dns_providers:
-        cloudflare_config = bench_config.dns_providers.get('cloudflare')
+        cloudflare_config = bench_config.dns_providers.get("cloudflare")
         if cloudflare_config and cloudflare_config.exists:
             if cloudflare_config.api_token:
-                credentials['CF_Token'] = cloudflare_config.api_token
+                credentials["CF_Token"] = cloudflare_config.api_token
             elif cloudflare_config.api_key:
-                credentials['CF_Key'] = cloudflare_config.api_key
+                credentials["CF_Key"] = cloudflare_config.api_key
                 if cloudflare_config.email:
-                    credentials['CF_Email'] = str(cloudflare_config.email)
+                    credentials["CF_Email"] = str(cloudflare_config.email)
             if credentials:
                 return credentials
 
     fm_config = FMConfigManager.import_from_toml()
 
     if fm_config.cloudflare.api_token:
-        credentials['CF_Token'] = fm_config.cloudflare.api_token
+        credentials["CF_Token"] = fm_config.cloudflare.api_token
     elif fm_config.cloudflare.api_key:
-        credentials['CF_Key'] = fm_config.cloudflare.api_key
+        credentials["CF_Key"] = fm_config.cloudflare.api_key
         if fm_config.cloudflare.email:
-            credentials['CF_Email'] = str(fm_config.cloudflare.email)
+            credentials["CF_Email"] = str(fm_config.cloudflare.email)
 
     if not credentials:
-        if hasattr(certificate, 'api_token') and certificate.api_token:
-            credentials['CF_Token'] = certificate.api_token
-        elif hasattr(certificate, 'api_key') and certificate.api_key:
-            credentials['CF_Key'] = certificate.api_key
-            if hasattr(certificate, 'email') and certificate.email:
-                credentials['CF_Email'] = str(certificate.email)
+        if hasattr(certificate, "api_token") and certificate.api_token:
+            credentials["CF_Token"] = certificate.api_token
+        elif hasattr(certificate, "api_key") and certificate.api_key:
+            credentials["CF_Key"] = certificate.api_key
+            if hasattr(certificate, "email") and certificate.email:
+                credentials["CF_Email"] = str(certificate.email)
 
     if not credentials:
         raise SSLDNSChallengeCredentailsNotFound()
@@ -87,8 +87,8 @@ def get_dns_credentials_for_certificate(
 
 
 def get_dns_credentials_dict(
-    api_token: Optional[str] = None, api_key: Optional[str] = None, email: Optional[str] = None
-) -> Dict[str, str]:
+    api_token: str | None = None, api_key: str | None = None, email: str | None = None,
+) -> dict[str, str]:
     """
     Create DNS credentials dictionary from individual parameters.
 
@@ -112,15 +112,15 @@ def get_dns_credentials_dict(
     credentials = {}
 
     if api_token:
-        credentials['CF_Token'] = api_token
+        credentials["CF_Token"] = api_token
     elif api_key:
-        credentials['CF_Key'] = api_key
+        credentials["CF_Key"] = api_key
         if email:
-            credentials['CF_Email'] = email
+            credentials["CF_Email"] = email
 
     if not credentials:
         raise SSLDNSChallengeCredentailsNotFound(
-            "No Cloudflare credentials provided. Need either api_token or (api_key + email)"
+            "No Cloudflare credentials provided. Need either api_token or (api_key + email)",
         )
 
     return credentials

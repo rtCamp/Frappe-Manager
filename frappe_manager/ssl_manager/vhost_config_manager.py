@@ -46,7 +46,7 @@ if ($scheme = http) {
         if not self.vhostd_dir.exists():
             raise ValueError(
                 f"vhost.d directory does not exist: {self.vhostd_dir}. "
-                "Ensure nginx-proxy is running and volumes are mounted correctly."
+                "Ensure nginx-proxy is running and volumes are mounted correctly.",
             )
 
     def enable_https_redirect(self, domain: str) -> Path:

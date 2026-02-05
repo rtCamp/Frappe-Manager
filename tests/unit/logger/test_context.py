@@ -5,7 +5,6 @@ This module tests the LoggerContext dataclass that provides structured
 context information for logging (bench name, operation, component).
 """
 
-import pytest
 
 from frappe_manager.logger.context import LoggerContext
 

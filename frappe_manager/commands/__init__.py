@@ -1,76 +1,73 @@
-from pathlib import Path
-from rich.panel import Panel
-from frappe_manager.site_manager.exceptions import BenchNotRunning
-from frappe_manager.utils.site import pull_docker_images, validate_sitename
-from frappe_manager.site_manager.domain_conflict import validate_domains_unique, DomainConflictError
-import typer
 import os
-import sys
-import shutil
 import secrets
+import shutil
+import sys
 import uuid
+from pathlib import Path
 from typing import Annotated, List, Optional, cast
-from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType, AppConfig, RestartPolicyEnum
-from frappe_manager.docker import ComposeFile, DockerClient
-from frappe_manager.ngrok import create_tunnel
-from frappe_manager.services_manager.services_exceptions import ServicesNotCreated
-from frappe_manager.site_manager.bench_service import BenchService
-from frappe_manager.site_manager.modules.app_cloner import AppCloner
-from frappe_manager.output_manager import spinner, temporary_stop, get_global_output_handler
+
+import typer
+from rich.panel import Panel
+
 from frappe_manager import (
     CLI_BENCH_CONFIG_FILE_NAME,
+    CLI_BENCHES_DIRECTORY,
     CLI_DIR,
+    CLI_FM_CONFIG_PATH,
     DEFAULT_EXTENSIONS,
     STABLE_APP_BRANCH_MAPPING_LIST,
     EnableDisableOptionsEnum,
     SiteServicesEnum,
-    CLI_BENCHES_DIRECTORY,
-    CLI_FM_CONFIG_PATH,
 )
-from frappe_manager.docker import DockerClient
+from frappe_manager.commands.self import self_app
+from frappe_manager.commands.services import services_app
+from frappe_manager.commands.ssl import ssl_app
+from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.logger import log
 from frappe_manager.logger.context import LoggerContext
-from frappe_manager.services_manager.services import ServicesManager
-from frappe_manager.migration_manager.migration_executor import (
-    MigrationExecutor,
-    needs_migration,
-    needs_fm_infrastructure_migration,
-    get_benches_needing_migration,
-)
+from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.migration_manager.bench_migration_state import (
+    bench_needs_migration,
     get_bench_migration_version,
     set_bench_migration_version,
-    bench_needs_migration,
 )
+from frappe_manager.migration_manager.migration_executor import (
+    MigrationExecutor,
+    get_benches_needing_migration,
+    needs_fm_infrastructure_migration,
+    needs_migration,
+)
+from frappe_manager.migration_manager.version import Version
+from frappe_manager.ngrok import create_tunnel
+from frappe_manager.output_manager import OutputHandler, get_global_output_handler, spinner, temporary_stop
+from frappe_manager.output_manager.logging_output import LoggingOutputHandler
+from frappe_manager.services_manager.services import ServicesManager
+from frappe_manager.services_manager.services_exceptions import ServicesNotCreated
+from frappe_manager.site_manager.bench_config import AppConfig, BenchConfig, FMBenchEnvType, RestartPolicyEnum
+from frappe_manager.site_manager.bench_service import BenchService
+from frappe_manager.site_manager.domain_conflict import DomainConflictError, validate_domains_unique
+from frappe_manager.site_manager.exceptions import BenchNotRunning
+from frappe_manager.site_manager.modules.app_cloner import AppCloner
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import (
+    alias_domains_validation_callback,
     apps_list_validation_callback,
+    code_command_extensions_callback,
     create_command_sitename_callback,
+    sitename_callback,
     sites_autocompletion_callback,
     version_callback,
-    sitename_callback,
-    code_command_extensions_callback,
-    alias_domains_validation_callback,
 )
 from frappe_manager.utils.helpers import (
-    is_cli_help_called,
     get_current_fm_version,
+    is_cli_help_called,
 )
-from frappe_manager.commands.services import services_app
-from frappe_manager.commands.self import self_app
-from frappe_manager.commands.ssl import ssl_app
-from frappe_manager.metadata_manager import FMConfigManager
-from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType, RestartPolicyEnum
-from frappe_manager.migration_manager.version import Version
-from frappe_manager.docker import ComposeFile
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.logging_output import LoggingOutputHandler
-
+from frappe_manager.utils.site import pull_docker_images, validate_sitename
 
 # Helper functions
 
 
-def get_bench_arg_from_context(ctx: typer.Context) -> Optional[str]:
+def get_bench_arg_from_context(ctx: typer.Context) -> str | None:
     """
     Extract bench/site name from command context.
     Commands use different parameter names (benchname, sitename, bench_name).
@@ -78,7 +75,7 @@ def get_bench_arg_from_context(ctx: typer.Context) -> Optional[str]:
     return ctx.params.get("benchname") or ctx.params.get("sitename") or ctx.params.get("bench_name")
 
 
-def check_bench_migration_required(bench_name: Optional[str]) -> None:
+def check_bench_migration_required(bench_name: str | None) -> None:
     from frappe_manager.migration_manager.bench_migration_state import bench_needs_migration
 
     if not bench_name:
@@ -122,7 +119,7 @@ def app_callback(
     ctx: typer.Context,
     verbose: Annotated[bool, typer.Option("--verbose", "-v", help="Enable verbose output (info level)")] = False,
     log_level: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--log-level", help="Set log level explicitly (debug|info|warning|error)"),
     ] = None,
     non_interactive: Annotated[
@@ -134,7 +131,7 @@ def app_callback(
         ),
     ] = False,
     version: Annotated[
-        Optional[bool], typer.Option("--version", "-V", help="Show Version.", callback=version_callback)
+        bool | None, typer.Option("--version", "-V", help="Show Version.", callback=version_callback),
     ] = None,
 ):
     """
@@ -197,7 +194,7 @@ def app_callback(
             if not CLI_DIR.exists():
                 CLI_DIR.mkdir(parents=True, exist_ok=True)
                 CLI_BENCHES_DIRECTORY.mkdir(parents=True, exist_ok=True)
-                output.print(f"fm directory doesn't exists! Created at -> {str(CLI_DIR)}")
+                output.print(f"fm directory doesn't exists! Created at -> {CLI_DIR!s}")
             elif not CLI_DIR.is_dir():
                 output.exit("Sites directory is not a directory! Aborting!")
 
@@ -239,8 +236,8 @@ def app_callback(
             invoked_command = ctx.invoked_subcommand or "no-command"
 
             from frappe_manager.migration_manager.migration_constants import (
-                MIGRATION_CHECK_WHITELIST_COMMANDS,
                 MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS,
+                MIGRATION_CHECK_WHITELIST_COMMANDS,
             )
 
             def get_full_command_path() -> str:
@@ -252,7 +249,7 @@ def app_callback(
                 Stops parsing at flags (--) or path-like arguments (/ or ~). Limits depth to 2 levels max.
                 """
                 # Commands that have subcommands (multi-level structure)
-                MULTI_LEVEL_COMMANDS = {'self', 'ssl', 'services'}
+                MULTI_LEVEL_COMMANDS = {"self", "ssl", "services"}
 
                 if len(sys.argv) < 2:
                     return invoked_command
@@ -261,16 +258,16 @@ def app_callback(
 
                 # If it's not a multi-level command, return just the first command
                 if first_command not in MULTI_LEVEL_COMMANDS:
-                    return first_command if not first_command.startswith('-') else invoked_command
+                    return first_command if not first_command.startswith("-") else invoked_command
 
                 # For multi-level commands, build the full path (max 2 levels)
                 command_parts = []
                 for arg in sys.argv[1:]:
                     # Stop at flags
-                    if arg.startswith('-'):
+                    if arg.startswith("-"):
                         break
                     # Stop at paths (likely bench names like /path or ~/path)
-                    if arg.startswith('/') or arg.startswith('~'):
+                    if arg.startswith("/") or arg.startswith("~"):
                         break
                     # Limit to max 2 command levels (e.g., "self compose")
                     if len(command_parts) >= 2:
@@ -278,7 +275,7 @@ def app_callback(
 
                     command_parts.append(arg)
 
-                return ' '.join(command_parts) if command_parts else invoked_command
+                return " ".join(command_parts) if command_parts else invoked_command
 
             full_command = get_full_command_path()
 
@@ -313,7 +310,7 @@ def app_callback(
                 # Scenario 1: Infra needs migration
                 if infra_needs_migration:
                     output.warning(
-                        f"FM infrastructure needs update: v{fm_infrastructure_version} -> v{current_version}"
+                        f"FM infrastructure needs update: v{fm_infrastructure_version} -> v{current_version}",
                     )
                     output.print("This updates CLI config and global services", emoji_code="  ")
                     output.print("", emoji_code="")
@@ -356,7 +353,7 @@ def app_callback(
                         # Now check bench migration if bench arg present
                         if bench_needs_migration_flag and bench_arg and bench_version:
                             output.warning(
-                                f"Bench '{bench_arg}' needs migration: v{bench_version} -> v{current_version}"
+                                f"Bench '{bench_arg}' needs migration: v{bench_version} -> v{current_version}",
                             )
                             output.print("This may modify bench configuration and services.", emoji_code="")
                             output.print("", emoji_code="")
@@ -474,30 +471,29 @@ def app_callback(
                 output.exit(f"Not able to create services. {e}")
 
         ctx.obj["services"] = services_manager
-        ctx.obj['fm_config_manager'] = fm_config_manager
+        ctx.obj["fm_config_manager"] = fm_config_manager
 
 
 # Import extracted read-only commands (Step 3)
-from frappe_manager.commands.list import list as list_benches
-from frappe_manager.commands.info import info
-from frappe_manager.commands.logs import logs
-
-# Import extracted lifecycle commands (Step 4)
-from frappe_manager.commands.start import start
-from frappe_manager.commands.stop import stop
-from frappe_manager.commands.restart import restart
-from frappe_manager.commands.shell import shell
+# Import extracted remaining commands (Step 6)
+from frappe_manager.commands.code import code
 
 # Import extracted complex commands (Step 5)
 from frappe_manager.commands.create import create
 from frappe_manager.commands.delete import delete
-from frappe_manager.commands.update import update
-from frappe_manager.commands.reset import reset
-
-# Import extracted remaining commands (Step 6)
-from frappe_manager.commands.code import code
-from frappe_manager.commands.ngrok import ngrok
+from frappe_manager.commands.info import info
+from frappe_manager.commands.list import list as list_benches
+from frappe_manager.commands.logs import logs
 from frappe_manager.commands.migrate import migrate
+from frappe_manager.commands.ngrok import ngrok
+from frappe_manager.commands.reset import reset
+from frappe_manager.commands.restart import restart
+from frappe_manager.commands.shell import shell
+
+# Import extracted lifecycle commands (Step 4)
+from frappe_manager.commands.start import start
+from frappe_manager.commands.stop import stop
+from frappe_manager.commands.update import update
 
 # Register all commands with the app
 app.command(name="create", no_args_is_help=True)(create)

@@ -1,21 +1,23 @@
-from typing import Annotated, Optional
+from typing import Annotated
+
 import typer
-from frappe_manager.output_manager import spinner, get_global_output_handler
+
+from frappe_manager.commands import check_bench_migration_required
+from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
-from frappe_manager.commands import check_bench_migration_required
 
 
 def reset(
     ctx: typer.Context,
     benchname: Annotated[
-        Optional[str],
+        str | None,
         typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
+            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback,
         ),
     ] = None,
     admin_pass: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(help="Password for the 'Administrator' User."),
     ] = None,
 ):

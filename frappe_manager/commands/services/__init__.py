@@ -1,10 +1,11 @@
 """Services subcommands for managing global services."""
 
 import typer
-from frappe_manager.commands.services.start import start_services
-from frappe_manager.commands.services.stop import stop_services
+
 from frappe_manager.commands.services.restart import restart_services
 from frappe_manager.commands.services.shell import shell_services
+from frappe_manager.commands.services.start import start_services
+from frappe_manager.commands.services.stop import stop_services
 
 services_app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
 

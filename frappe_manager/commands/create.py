@@ -1,18 +1,8 @@
-from typing import Annotated, List, Optional, cast
-import typer
 import secrets
-from frappe_manager.logger.context import LoggerContext
-from frappe_manager.output_manager import spinner, get_global_output_handler
-from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType, AppConfig, RestartPolicyEnum
-from frappe_manager.site_manager.domain_conflict import validate_domains_unique, DomainConflictError
-from frappe_manager.site_manager.bench_service import BenchService
-from frappe_manager.site_manager.modules.app_cloner import AppCloner
-from frappe_manager.services_manager.services import ServicesManager
-from frappe_manager.utils.site import validate_sitename
-from frappe_manager.utils.callbacks import (
-    apps_list_validation_callback,
-    alias_domains_validation_callback,
-)
+from typing import Annotated, cast
+
+import typer
+
 from frappe_manager import (
     CLI_BENCH_CONFIG_FILE_NAME,
     CLI_BENCHES_DIRECTORY,
@@ -20,13 +10,23 @@ from frappe_manager import (
     EnableDisableOptionsEnum,
 )
 from frappe_manager.metadata_manager import FMConfigManager
+from frappe_manager.output_manager import get_global_output_handler, spinner
+from frappe_manager.services_manager.services import ServicesManager
+from frappe_manager.site_manager.bench_config import AppConfig, BenchConfig, FMBenchEnvType, RestartPolicyEnum
+from frappe_manager.site_manager.bench_service import BenchService
+from frappe_manager.site_manager.domain_conflict import DomainConflictError, validate_domains_unique
+from frappe_manager.utils.callbacks import (
+    alias_domains_validation_callback,
+    apps_list_validation_callback,
+)
+from frappe_manager.utils.site import validate_sitename
 
 
 def create(
     ctx: typer.Context,
     benchname: Annotated[str, typer.Argument(help="Bench name")],
     apps: Annotated[
-        List[str],
+        list[str],
         typer.Option(
             "--apps",
             "-a",
@@ -36,10 +36,10 @@ def create(
         ),
     ] = [],
     environment: Annotated[
-        FMBenchEnvType, typer.Option("--environment", "-e", help="Environment type (dev or prod)")
+        FMBenchEnvType, typer.Option("--environment", "-e", help="Environment type (dev or prod)"),
     ] = FMBenchEnvType.dev,
     developer_mode: Annotated[
-        EnableDisableOptionsEnum, typer.Option(help="Enable/disable developer mode")
+        EnableDisableOptionsEnum, typer.Option(help="Enable/disable developer mode"),
     ] = EnableDisableOptionsEnum.disable,
     template: Annotated[bool, typer.Option(help="Create as template bench")] = False,
     admin_pass: Annotated[
@@ -47,7 +47,7 @@ def create(
         typer.Option(help="Administrator password"),
     ] = "admin",
     alias_domains: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             help="Alias domains (comma-separated). Use 'fm ssl add' for SSL.",
             callback=alias_domains_validation_callback,
@@ -55,7 +55,7 @@ def create(
         ),
     ] = None,
     github_token: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--github-token",
             "-t",
@@ -65,7 +65,7 @@ def create(
         ),
     ] = None,
     python_version: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--python",
             help="Python version (e.g., '3.11'). Auto-detected by default.",
@@ -73,7 +73,7 @@ def create(
         ),
     ] = None,
     node_version: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--node",
             help="Node version (e.g., '18', '20'). Auto-detected by default.",
@@ -81,7 +81,7 @@ def create(
         ),
     ] = None,
     restart: Annotated[
-        Optional[RestartPolicyEnum],
+        RestartPolicyEnum | None,
         typer.Option(
             "--restart",
             help="Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).",
@@ -102,8 +102,8 @@ def create(
     """
 
     services_manager: ServicesManager = ctx.obj["services"]
-    verbose = ctx.obj['verbose']
-    fm_config: FMConfigManager = ctx.obj['fm_config_manager']
+    verbose = ctx.obj["verbose"]
+    fm_config: FMConfigManager = ctx.obj["fm_config_manager"]
 
     benchname = validate_sitename(benchname)
 
@@ -136,7 +136,7 @@ def create(
     # If user specified frappe, move it to first position
 
     # Callback returns List[AppConfig], cast for type checker
-    apps_config = cast(List[AppConfig], apps)
+    apps_config = cast("list[AppConfig]", apps)
 
     final_apps_list = []
     frappe_app = None
@@ -190,7 +190,7 @@ def create(
 
         if not validation_result.all_valid:
             output.display_error(
-                f"\n⚠️  {validation_result.failure_count}/{len(apps_config)} repositories failed validation"
+                f"\n⚠️  {validation_result.failure_count}/{len(apps_config)} repositories failed validation",
             )
             output.display_error("Please check the repository names, branches, and authentication")
             raise typer.Exit(1)

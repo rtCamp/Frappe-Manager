@@ -1,12 +1,11 @@
 from dataclasses import dataclass
-from typing import List
 
 
 @dataclass
 class SubprocessOutput:
-    stdout: List[str]
-    stderr: List[str]
-    combined: List[str]
+    stdout: list[str]
+    stderr: list[str]
+    combined: list[str]
     exit_code: int
 
     @classmethod
@@ -18,14 +17,14 @@ class SubprocessOutput:
 
         for source, line in output:
             line = line.decode()
-            if source == 'exit_code':
+            if source == "exit_code":
                 exit_code = int(line)
             else:
                 combined.append(line)
-            if source == 'stdout':
+            if source == "stdout":
                 stdout.append(line)
-            if source == 'stderr':
+            if source == "stderr":
                 stderr.append(line)
 
-        data = {'stdout': stdout, 'stderr': stderr, 'combined': combined, 'exit_code': exit_code}
+        data = {"stdout": stdout, "stderr": stderr, "combined": combined, "exit_code": exit_code}
         return cls(**data)

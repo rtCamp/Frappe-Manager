@@ -1,24 +1,25 @@
-from typing import Annotated, Optional
+from typing import Annotated
+
 import typer
-from frappe_manager.logger.context import LoggerContext
+
+from frappe_manager.commands import check_bench_migration_required
+from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
-from frappe_manager.output_manager import get_global_output_handler
-from frappe_manager.commands import check_bench_migration_required
 
 
 def shell(
     ctx: typer.Context,
     benchname: Annotated[
-        Optional[str],
+        str | None,
         typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
+            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback,
         ),
     ] = None,
-    command: Annotated[Optional[str], typer.Option("-c", "--command", help="Execute command and exit")] = None,
-    user: Annotated[Optional[str], typer.Option(help="User to connect as", show_default=False)] = None,
+    command: Annotated[str | None, typer.Option("-c", "--command", help="Execute command and exit")] = None,
+    user: Annotated[str | None, typer.Option(help="User to connect as", show_default=False)] = None,
     service: Annotated[str, typer.Option(help="Service to connect to")] = "frappe",
-    shell_path: Annotated[Optional[str], typer.Option(help="Shell path (e.g., /bin/bash, /bin/sh)")] = None,
+    shell_path: Annotated[str | None, typer.Option(help="Shell path (e.g., /bin/bash, /bin/sh)")] = None,
     run: Annotated[bool, typer.Option(help="Use 'docker compose run --rm'")] = False,
 ):
     """
@@ -31,7 +32,7 @@ def shell(
     check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
-    verbose = ctx.obj['verbose']
+    verbose = ctx.obj["verbose"]
 
     output = get_global_output_handler()
     logger = ctx.obj.get("logger")

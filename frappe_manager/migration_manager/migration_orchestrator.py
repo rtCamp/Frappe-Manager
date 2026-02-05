@@ -5,15 +5,15 @@ Handles the main migration loop, progress tracking, error handling coordination,
 and service management during migrations.
 """
 
-from typing import TYPE_CHECKING, Optional
-from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
-from frappe_manager.migration_manager.version import Version
-from frappe_manager.utils.helpers import capture_and_format_exception
+from typing import TYPE_CHECKING
+
 from frappe_manager.logger import log
+from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
+from frappe_manager.utils.helpers import capture_and_format_exception
 
 if TYPE_CHECKING:
-    from frappe_manager.migration_manager.migration_executor import MigrationExecutor
     from frappe_manager.migration_manager.migration_base import MigrationBase
+    from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 
 
 class MigrationOrchestrator:
@@ -31,7 +31,7 @@ class MigrationOrchestrator:
     def __init__(self, executor: "MigrationExecutor"):
         self.executor = executor
         self.logger = log.get_logger()
-        self.undo_stack: list["MigrationBase"] = []
+        self.undo_stack: list[MigrationBase] = []
         self.exception_in_bench_occurred = False
 
     def execute_migrations(self) -> bool:
@@ -47,7 +47,7 @@ class MigrationOrchestrator:
         """
         self._ensure_global_services_running()
 
-        prev_migration: Optional["MigrationBase"] = None
+        prev_migration: MigrationBase | None = None
 
         for migration in self.executor.migrations:
             self.executor.output.update_head(f"Running migration introduced in v{migration.version}")
@@ -78,7 +78,7 @@ class MigrationOrchestrator:
 
         # If any bench exceptions occurred during migration loop, raise now
         if self.exception_in_bench_occurred:
-            raise MigrationExceptionInBench('')
+            raise MigrationExceptionInBench("")
 
         return True
 
@@ -105,9 +105,9 @@ class MigrationOrchestrator:
         Creates services if not initialized, starts them if stopped.
         Logs warnings if services check fails but continues migration.
         """
-        from frappe_manager.services_manager.services import ServicesManager
-        from frappe_manager.output_manager.silent_output import SilentOutputHandler
         from frappe_manager.output_manager.context_managers import temporary_stop
+        from frappe_manager.output_manager.silent_output import SilentOutputHandler
+        from frappe_manager.services_manager.services import ServicesManager
 
         try:
             services_manager = ServicesManager(output_handler=SilentOutputHandler())
@@ -115,7 +115,7 @@ class MigrationOrchestrator:
             if not services_manager.path.exists():
                 with temporary_stop(self.executor.output):
                     self.executor.output.print(
-                        "Global services not initialized. Creating...", emoji_code=":construction:"
+                        "Global services not initialized. Creating...", emoji_code=":construction:",
                     )
                     services_manager.init()
                     services_manager.entrypoint_checks(start=True)
@@ -130,7 +130,7 @@ class MigrationOrchestrator:
             if not all_running:
                 with temporary_stop(self.executor.output):
                     self.executor.output.print(
-                        "Global services not running. Starting them now...", emoji_code=":construction:"
+                        "Global services not running. Starting them now...", emoji_code=":construction:",
                     )
                     services_manager.start_service()
                     self.executor.output.print("Global services started successfully", emoji_code=":white_check_mark:")

@@ -1,7 +1,7 @@
 import json
-from pathlib import Path
 import platform
-from typing import Dict, Optional
+from pathlib import Path
+
 from frappe_manager import CLI_SERVICES_DIRECTORY
 from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.migration_manager.migration_constants import MIGRATION_BENCH_STOP_TIMEOUT_SECONDS
@@ -9,21 +9,21 @@ from frappe_manager.output_manager.base import OutputHandler
 
 
 class MigrationBench:
-    def __init__(self, name: str, path: Path, output: Optional[OutputHandler] = None) -> None:
+    def __init__(self, name: str, path: Path, output: OutputHandler | None = None) -> None:
         self.name = name
         self.path = path
         self.output = output
         self.compose_file_manager = ComposeFile(
-            self.path / 'docker-compose.yml',
-            'docker-compose.tmpl',
+            self.path / "docker-compose.yml",
+            "docker-compose.tmpl",
         )
         self.docker = DockerClient(compose_file_path=self.compose_file_manager.compose_path, output=output)
 
         self.workers_compose_file_manager = ComposeFile(
-            self.path / 'docker-compose.workers.yml', 'docker-compose.workers.tmpl'
+            self.path / "docker-compose.workers.yml", "docker-compose.workers.tmpl",
         )
         self.workers_docker = DockerClient(
-            compose_file_path=self.workers_compose_file_manager.compose_path, output=output
+            compose_file_path=self.workers_compose_file_manager.compose_path, output=output,
         )
 
     @property
@@ -99,7 +99,7 @@ class MigrationBench:
 
         common_site_config = {}
 
-        with open(common_bench_config_path, "r") as f:
+        with open(common_bench_config_path) as f:
             common_site_config = json.load(f)
 
         try:
@@ -118,7 +118,7 @@ class MigrationBenches:
 
     def get_all_benches(self, exclude: list[str] | None = None):
         exclude = exclude or []
-        benches: Dict[str, Path] = {}
+        benches: dict[str, Path] = {}
         for dir in self.benches_path.iterdir():
             if dir.is_dir() and dir.parts[-1] not in exclude:
                 name = dir.parts[-1]
@@ -138,13 +138,13 @@ class MigrationServicesManager:
     def __init__(self, services_path: Path = CLI_SERVICES_DIRECTORY):
         self.services_path = services_path
 
-        template_name = 'docker-compose.services.tmpl'
+        template_name = "docker-compose.services.tmpl"
 
         if platform.system() == "Darwin":
-            template_name = 'docker-compose.services.osx.tmpl'
+            template_name = "docker-compose.services.osx.tmpl"
 
         self.compose_file_manager = ComposeFile(
-            self.services_path / 'docker-compose.yml',
+            self.services_path / "docker-compose.yml",
             template_name,
         )
         self.docker = DockerClient(compose_file_path=self.compose_file_manager.compose_path)

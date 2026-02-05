@@ -5,14 +5,13 @@ Ensures only one output handler exists at a time, preventing concurrent
 spinner conflicts with the shared DisplayManager singleton.
 """
 
-from typing import Optional
 
 from frappe_manager.output_manager.base import OutputHandler
 
-_global_output_handler: Optional[OutputHandler] = None
+_global_output_handler: OutputHandler | None = None
 
 
-def set_global_output_handler(handler: Optional[OutputHandler]) -> None:
+def set_global_output_handler(handler: OutputHandler | None) -> None:
     """
     Set the global output handler.
 
@@ -43,7 +42,7 @@ def get_global_output_handler() -> OutputHandler:
     if _global_output_handler is None:
         raise RuntimeError(
             "Global output handler not initialized. "
-            "This should be set in main.py:cli_entrypoint() before app() is called."
+            "This should be set in main.py:cli_entrypoint() before app() is called.",
         )
     return _global_output_handler
 

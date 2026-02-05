@@ -5,16 +5,17 @@ Tests all custom exceptions used in the SSL manager module including
 message formatting, attributes, and proper inheritance.
 """
 
-import pytest
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
+import pytest
+
 from frappe_manager.ssl_manager.certificate_exceptions import (
-    SSLCertificateNotFoundError,
-    SSLDNSChallengeCredentailsNotFound,
     SSLCertificateChallengeFailed,
     SSLCertificateGenerateFailed,
     SSLCertificateNotDueForRenewalError,
+    SSLCertificateNotFoundError,
+    SSLDNSChallengeCredentailsNotFound,
 )
 
 
@@ -35,7 +36,7 @@ class TestSSLCertificateNotFoundError:
         custom_message = "Certificate missing for domain: {}"
         exception = SSLCertificateNotFoundError(domain, message=custom_message)
 
-        assert "Certificate missing for domain: test.com" == exception.message
+        assert exception.message == "Certificate missing for domain: test.com"
 
     def test_domain_attribute_accessible(self):
         """Test that domain attribute is accessible."""
@@ -73,7 +74,7 @@ class TestSSLDNSChallengeCredentailsNotFound:
         """Test that message attribute is accessible."""
         exception = SSLDNSChallengeCredentailsNotFound()
 
-        assert hasattr(exception, 'message')
+        assert hasattr(exception, "message")
         assert isinstance(exception.message, str)
 
 
@@ -130,7 +131,7 @@ class TestSSLCertificateNotDueForRenewalError:
         expiry_date = datetime.now() + timedelta(days=60)
 
         with patch(
-            'frappe_manager.ssl_manager.certificate_exceptions.format_ssl_certificate_time_remaining'
+            "frappe_manager.ssl_manager.certificate_exceptions.format_ssl_certificate_time_remaining",
         ) as mock_format:
             mock_format.return_value = "60 days"
             exception = SSLCertificateNotDueForRenewalError(domain, expiry_date)
@@ -145,7 +146,7 @@ class TestSSLCertificateNotDueForRenewalError:
         expiry_date = datetime.now() + timedelta(days=30)
 
         with patch(
-            'frappe_manager.ssl_manager.certificate_exceptions.format_ssl_certificate_time_remaining'
+            "frappe_manager.ssl_manager.certificate_exceptions.format_ssl_certificate_time_remaining",
         ) as mock_format:
             mock_format.return_value = "30 days"
             exception = SSLCertificateNotDueForRenewalError(domain, expiry_date)
@@ -159,7 +160,7 @@ class TestSSLCertificateNotDueForRenewalError:
         expiry_date = datetime.now() + timedelta(days=45)
 
         with patch(
-            'frappe_manager.ssl_manager.certificate_exceptions.format_ssl_certificate_time_remaining'
+            "frappe_manager.ssl_manager.certificate_exceptions.format_ssl_certificate_time_remaining",
         ) as mock_format:
             mock_format.return_value = "45 days, 0 hours"
             exception = SSLCertificateNotDueForRenewalError(domain, expiry_date)
@@ -173,7 +174,7 @@ class TestSSLCertificateNotDueForRenewalError:
         custom_message = "Domain {} is not ready for renewal. Time left: {}"
 
         with patch(
-            'frappe_manager.ssl_manager.certificate_exceptions.format_ssl_certificate_time_remaining'
+            "frappe_manager.ssl_manager.certificate_exceptions.format_ssl_certificate_time_remaining",
         ) as mock_format:
             mock_format.return_value = "20 days"
             exception = SSLCertificateNotDueForRenewalError(domain, expiry_date, message=custom_message)
@@ -209,7 +210,7 @@ class TestExceptionInheritance:
         expiry_date = datetime.now() + timedelta(days=30)
 
         with patch(
-            'frappe_manager.ssl_manager.certificate_exceptions.format_ssl_certificate_time_remaining'
+            "frappe_manager.ssl_manager.certificate_exceptions.format_ssl_certificate_time_remaining",
         ) as mock_format:
             mock_format.return_value = "30 days"
 
@@ -257,7 +258,7 @@ class TestExceptionUsageScenarios:
         expiry_date = datetime.now() + timedelta(days=50)
 
         with patch(
-            'frappe_manager.ssl_manager.certificate_exceptions.format_ssl_certificate_time_remaining'
+            "frappe_manager.ssl_manager.certificate_exceptions.format_ssl_certificate_time_remaining",
         ) as mock_format:
             mock_format.return_value = "50 days remaining"
 

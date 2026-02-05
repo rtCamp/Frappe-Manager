@@ -1,11 +1,13 @@
-from pathlib import Path
-from enum import Enum
-from typing import Optional
 import os
-from typer.core import TyperCommand
-from frappe_manager.utils.cli_examples import get_examples_from_toml
+from enum import Enum
+from pathlib import Path
+from typing import Optional
+
 import typer.rich_utils as ut
 from rich.panel import Panel
+from typer.core import TyperCommand
+
+from frappe_manager.utils.cli_examples import get_examples_from_toml
 
 # patch rich_format_help to display examples Panel
 # save the function so that recurssion doesn't occur
@@ -13,32 +15,32 @@ rich_format_help_original = ut.rich_format_help
 
 
 def print_fm_examples(*, obj, ctx, markup_mode):
-    import sys
     import inspect
+    import sys
 
     rich_format_help_original(obj=obj, ctx=ctx, markup_mode=markup_mode)
 
-    commands_stack = ctx.command_path.split(' ')[1:]
+    commands_stack = ctx.command_path.split(" ")[1:]
 
-    example_data = {'benchname': 'mybench', 'domain': 'example.com'}
+    example_data = {"benchname": "mybench", "domain": "example.com"}
 
     command_param_names = []
-    if hasattr(obj, 'callback') and obj.callback:
+    if hasattr(obj, "callback") and obj.callback:
         sig = inspect.signature(obj.callback)
-        command_param_names = [p for p in sig.parameters.keys() if p not in ['ctx', 'return']]
+        command_param_names = [p for p in sig.parameters.keys() if p not in ["ctx", "return"]]
 
     if ctx.params:
         for param_name in command_param_names:
-            if param_name in ctx.params and ctx.params[param_name]:
+            if ctx.params.get(param_name):
                 example_data[param_name] = ctx.params[param_name]
 
-    if '--help' in sys.argv:
-        help_index = sys.argv.index('--help')
+    if "--help" in sys.argv:
+        help_index = sys.argv.index("--help")
         args_before_help = []
 
         for i in range(1, help_index):
             arg = sys.argv[i]
-            if not arg.startswith('-') and arg not in commands_stack:
+            if not arg.startswith("-") and arg not in commands_stack:
                 args_before_help.append(arg)
 
         for i, param_name in enumerate(command_param_names):
@@ -61,7 +63,7 @@ def print_fm_examples(*, obj, ctx, markup_mode):
                 border_style=ut.STYLE_OPTIONS_PANEL_BORDER,
                 title="Examples",
                 title_align=ut.ALIGN_OPTIONS_PANEL,
-            )
+            ),
         )
 
 
@@ -81,8 +83,8 @@ CLI_SERVICES_NGINX_PROXY_SSL_DIR = CLI_SERVICES_NGINX_PROXY_DIR / "ssl"
 
 CLI_BENCH_CONFIG_FILE_NAME = "bench_config.toml"
 SSL_RENEW_BEFORE_DAYS = 30
-CLI_DEFAULT_DELIMETER = '__'
-CLI_SITE_NAME_DELIMETER = '_'
+CLI_DEFAULT_DELIMETER = "__"
+CLI_SITE_NAME_DELIMETER = "_"
 
 
 DEFAULT_EXTENSIONS = [

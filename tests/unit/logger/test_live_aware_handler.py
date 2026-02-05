@@ -9,8 +9,6 @@ and regular print() calls, so no manual stop/start logic is needed.
 import logging
 from unittest.mock import MagicMock
 
-import pytest
-
 from frappe_manager.logger.live_aware_handler import LiveAwareRichHandler
 
 
@@ -104,8 +102,9 @@ class TestLoggerIntegration:
 
     def test_handler_removes_old_handlers(self):
         """Verify old handlers are removed when adding new one."""
-        from frappe_manager.logger.log import _add_console_handler
         from rich.logging import RichHandler
+
+        from frappe_manager.logger.log import _add_console_handler
 
         logger = logging.getLogger("test_replace")
 

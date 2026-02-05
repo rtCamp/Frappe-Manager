@@ -44,55 +44,46 @@ class FrappeManagerException(Exception):
 class ValidationError(FrappeManagerException):
     """Raised when input validation fails."""
 
-    pass
 
 
 class OperationAborted(FrappeManagerException):
     """Raised when an operation is aborted by user or system."""
 
-    pass
 
 
 class ServiceNotAvailable(FrappeManagerException):
     """Raised when a required service is not available."""
 
-    pass
 
 
 class BenchOperationError(FrappeManagerException):
     """Raised when a bench operation fails."""
 
-    pass
 
 
 class SSLCertificateError(FrappeManagerException):
     """Raised when SSL certificate operations fail."""
 
-    pass
 
 
 class DockerOperationError(FrappeManagerException):
     """Raised when Docker operations fail."""
 
-    pass
 
 
 class MigrationError(FrappeManagerException):
     """Raised when migrations fail."""
 
-    pass
 
 
 class ConfigurationError(FrappeManagerException):
     """Raised when configuration is invalid or missing."""
 
-    pass
 
 
 class DependencyError(FrappeManagerException):
     """Raised when external dependencies are missing."""
 
-    pass
 
 
 class NonInteractiveError(FrappeManagerException):

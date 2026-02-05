@@ -1,11 +1,10 @@
 from builtins import len
 from pathlib import Path
-from typing import List, Optional
+
+from rich.box import Box
 
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.utils import helpers
-from rich.box import Box
-from rich.style import Style
 
 
 class BenchException(Exception):
@@ -430,7 +429,7 @@ class BenchOperationBenchBuildFailed(BenchOperationException):
     def __init__(
         self,
         bench_name,
-        apps: Optional[List[str]] = None,
+        apps: list[str] | None = None,
         message: str = "Failed to build",
         print_combined: bool = True,
         print_stdout: bool = False,

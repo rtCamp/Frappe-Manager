@@ -1,23 +1,26 @@
 """List SSL certificates command."""
 
-from typing import Annotated, Optional
+from typing import Annotated
+
 import typer
+
 from frappe_manager import CLI_BENCHES_DIRECTORY
-from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.logger.context import LoggerContext
 from frappe_manager.output_manager import temporary_stop
-from frappe_manager.utils.callbacks import sites_autocompletion_callback, prompt_for_bench_selection
-from .helpers import get_output_handler
+from frappe_manager.site_manager.bench_service import BenchService
+from frappe_manager.utils.callbacks import prompt_for_bench_selection, sites_autocompletion_callback
+
 from .bench_helpers import _list_bench_certificates
 from .external_helpers import _list_external_certificates
+from .helpers import get_output_handler
 
 
 def list_certificates(
     ctx: typer.Context,
     benchname: Annotated[
-        Optional[str],
+        str | None,
         typer.Argument(
-            help="Name of the bench (omit for standalone mode).", autocompletion=sites_autocompletion_callback
+            help="Name of the bench (omit for standalone mode).", autocompletion=sites_autocompletion_callback,
         ),
     ] = None,
     standalone: Annotated[

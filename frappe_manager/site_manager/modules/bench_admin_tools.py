@@ -9,14 +9,13 @@ Handles admin tools (Mailpit, Adminer) management including:
 """
 
 import json
-import os
 from pathlib import Path
-from typing import Any, TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
+
 from frappe_manager import CLI_DEFAULT_DELIMETER
-from frappe_manager.docker import ComposeFile, DockerClient
+from frappe_manager.docker import ComposeFile, DockerClient, DockerException
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.docker import DockerException
 from frappe_manager.site_manager.exceptions import AdminToolsFailedToStart, BenchException
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version, get_template_path
 
@@ -26,7 +25,7 @@ if TYPE_CHECKING:
 
 class BenchAdminTools:
     def __init__(
-        self, bench: 'Bench', nginx_proxy: Any, verbose: bool = True, output_handler: OutputHandler | None = None
+        self, bench: "Bench", nginx_proxy: Any, verbose: bool = True, output_handler: OutputHandler | None = None,
     ):
         """
         Initialize BenchAdminTools.
@@ -42,13 +41,13 @@ class BenchAdminTools:
         self.bench_name = bench.name
         self.output = output_handler or RichOutputHandler()
 
-        self.compose_file_manager = ComposeFile(self.compose_path, template_name='docker-compose.admin-tools.tmpl')
+        self.compose_file_manager = ComposeFile(self.compose_path, template_name="docker-compose.admin-tools.tmpl")
 
         self.docker_client = DockerClient(compose_file_path=self.compose_path, output=self.output)
 
         self.nginx_proxy = nginx_proxy
-        self.nginx_config_location_path: Path = self.nginx_proxy.dirs.conf.host / 'custom' / 'admin-tools.conf'
-        self.http_auth_path: Path = self.nginx_proxy.dirs.conf.host / 'http_auth'
+        self.nginx_config_location_path: Path = self.nginx_proxy.dirs.conf.host / "custom" / "admin-tools.conf"
+        self.http_auth_path: Path = self.nginx_proxy.dirs.conf.host / "http_auth"
 
     def generate_compose(self, db_host: str):
         self.compose_file_manager.yml = self.compose_file_manager.load_template()
@@ -57,7 +56,7 @@ class BenchAdminTools:
             prefix=get_container_name_prefix(self.bench_name),
             version=get_current_fm_version(),
             envs={"adminer": {"ADMINER_DEFAULT_SERVER": db_host}},
-            network_name='site-network',
+            network_name="site-network",
             auto_save=False,
         )
 
@@ -93,7 +92,7 @@ class BenchAdminTools:
         # Generate and save htpasswd file
         from passlib.apache import HtpasswdFile
 
-        auth_file = self.http_auth_path / f'{self.bench_name}-admin-tools.htpasswd'
+        auth_file = self.http_auth_path / f"{self.bench_name}-admin-tools.htpasswd"
 
         if not self.http_auth_path.exists():
             self.http_auth_path.mkdir(exist_ok=True)
@@ -111,7 +110,7 @@ class BenchAdminTools:
 
         from jinja2 import Template
 
-        template_path: Path = get_template_path('admin-tools-location.tmpl')
+        template_path: Path = get_template_path("admin-tools-location.tmpl")
 
         template = Template(template_path.read_text())
         output = template.render(data)
@@ -126,7 +125,7 @@ class BenchAdminTools:
             self.nginx_config_location_path.unlink()
 
         # Remove htpasswd file if exists
-        auth_file = self.http_auth_path / f'{self.bench_name}-admin-tools.htpasswd'
+        auth_file = self.http_auth_path / f"{self.bench_name}-admin-tools.htpasswd"
         if auth_file.exists():
             auth_file.unlink()
 
@@ -141,7 +140,7 @@ class BenchAdminTools:
     def _get_common_site_config(self) -> dict:
         config_path = self._get_common_site_config_path()
         if not config_path.exists():
-            raise BenchException(self.bench_name, message='common_site_config.json not found.')
+            raise BenchException(self.bench_name, message="common_site_config.json not found.")
         return json.loads(config_path.read_bytes())
 
     def _save_common_site_config(self, config: dict):
@@ -158,10 +157,7 @@ class BenchAdminTools:
         }
 
         for key, value in new_conf.items():
-            if key not in current_common_site_config:
-                current_common_site_config[key] = value
-
-            elif not current_common_site_config[key] == value:
+            if key not in current_common_site_config or not current_common_site_config[key] == value:
                 current_common_site_config[key] = value
 
         self._save_common_site_config(current_common_site_config)
@@ -178,7 +174,7 @@ class BenchAdminTools:
         }
 
         for key, value in new_conf.items():
-            if not key in current_common_site_config:
+            if key not in current_common_site_config:
                 continue
 
             if not current_common_site_config[key] == value:
@@ -190,14 +186,14 @@ class BenchAdminTools:
         self.output.print("Removed Mailpit as default mail server")
 
     def wait_till_services_started(self, interval=2, timeout=30):
-        admin_tools_services = ['mailpit:8025', 'adminer:8080']
+        admin_tools_services = ["mailpit:8025", "adminer:8080"]
 
         for tool in admin_tools_services:
             running = False
             for i in range(timeout):
                 try:
                     check_command = f"wait-for-it -t {interval} {get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}{tool}"
-                    self.bench.docker_client.compose.exec(service='nginx', command=check_command, stream=False)
+                    self.bench.docker_client.compose.exec(service="nginx", command=check_command, stream=False)
 
                     running = True
                     break
@@ -212,7 +208,7 @@ class BenchAdminTools:
         # Use docker_client directly instead of compose_project wrapper
         try:
             self.docker_client.compose.up(
-                services=[], detach=True, pull="never", force_recreate=force_recreate_container
+                services=[], detach=True, pull="never", force_recreate=force_recreate_container,
             )
         except DockerException as e:
             from frappe_manager.compose_project.exceptions import DockerComposeProjectFailedToStartError
@@ -234,7 +230,7 @@ class BenchAdminTools:
             from frappe_manager.compose_project.exceptions import DockerComposeProjectFailedToStopError
 
             raise DockerComposeProjectFailedToStopError(
-                self.compose_path, self.compose_file_manager.get_services_list()
+                self.compose_path, self.compose_file_manager.get_services_list(),
             )
 
     def disable(self):

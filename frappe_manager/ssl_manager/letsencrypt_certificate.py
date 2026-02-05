@@ -1,11 +1,7 @@
-from typing import Optional
+
 from pydantic import Field, model_validator
 
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
 from frappe_manager.ssl_manager.certificate import SSLCertificate
-from frappe_manager.ssl_manager.certificate_exceptions import SSLDNSChallengeCredentailsNotFound
 
 
 class LetsencryptSSLCertificate(SSLCertificate):
@@ -46,7 +42,7 @@ class CustomDomainCertificate(LetsencryptSSLCertificate):
     direct access to their DNS provider.
     """
 
-    delegation_cname: Optional[str] = None  # e.g., a-gg-com.fm.com
+    delegation_cname: str | None = None  # e.g., a-gg-com.fm.com
 
     @model_validator(mode="after")
     def validate_credentials(self) -> "CustomDomainCertificate":

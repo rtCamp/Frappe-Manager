@@ -5,6 +5,7 @@ Ensures the abstract base class correctly enforces the interface contract.
 """
 
 import pytest
+
 from frappe_manager.output_manager.base import OutputHandler
 
 
@@ -70,7 +71,7 @@ class TestOutputHandlerInterface:
                 pass
 
             def live_lines(
-                self, data, stdout=True, stderr=True, lines=4, padding=(0, 0, 0, 2), stop_string=None, log_prefix="=>"
+                self, data, stdout=True, stderr=True, lines=4, padding=(0, 0, 0, 2), stop_string=None, log_prefix="=>",
             ) -> None:
                 pass
 

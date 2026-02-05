@@ -1,6 +1,6 @@
-import pytest
-from unittest.mock import Mock, MagicMock, patch
-from frappe_manager.migration_manager.migration_executor import MigrationExecutor, MINIMUM_SUPPORTED_VERSION
+from unittest.mock import Mock, patch
+
+from frappe_manager.migration_manager.migration_executor import MINIMUM_SUPPORTED_VERSION, MigrationExecutor
 from frappe_manager.migration_manager.version import Version
 
 
@@ -9,8 +9,8 @@ class TestMigrationExecutorVersionEnforcement:
         mock_fm_config.version = Version("0.19.0")
 
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
         ):
             executor = MigrationExecutor(mock_fm_config)
             result = executor.execute()
@@ -22,8 +22,8 @@ class TestMigrationExecutorVersionEnforcement:
         mock_fm_config.version = Version("0.19.0")
 
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.18.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.18.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
         ):
             executor = MigrationExecutor(mock_fm_config)
             result = executor.execute()
@@ -35,8 +35,8 @@ class TestMigrationExecutorVersionEnforcement:
         mock_fm_config.version = Version("0.17.0")
 
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
         ):
             mock_output = Mock()
             executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True, output_handler=mock_output)
@@ -53,9 +53,9 @@ class TestMigrationExecutorVersionEnforcement:
         mock_fm_config.version = Version("0.18.0")
 
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
-            patch('frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules', return_value=[]),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+            patch("frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules", return_value=[]),
         ):
             mock_output = Mock()
             executor = MigrationExecutor(mock_fm_config, output_handler=mock_output)
@@ -64,14 +64,14 @@ class TestMigrationExecutorVersionEnforcement:
             assert result is True
 
     def test_minimum_supported_version_is_0_18_0(self):
-        assert MINIMUM_SUPPORTED_VERSION == Version("0.18.0")
+        assert Version("0.18.0") == MINIMUM_SUPPORTED_VERSION
 
     def test_migration_executor_sets_correct_versions(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
 
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
         ):
             executor = MigrationExecutor(mock_fm_config)
 
@@ -86,8 +86,8 @@ class TestMigrationExecutorMigrationDiscovery:
         mock_fm_config.export_to_toml = Mock(return_value=True)
 
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
         ):
             mock_output = Mock()
             executor = MigrationExecutor(mock_fm_config, output_handler=mock_output)
@@ -110,17 +110,17 @@ class TestMigrationExecutorMigrationDiscovery:
         mock_migration_class.return_value = mock_migration_instance
 
         mock_module = Mock()
-        setattr(mock_module, 'Migrate_0_20_0', mock_migration_class)
+        mock_module.Migrate_0_20_0 = mock_migration_class
 
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
             patch(
-                'frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules',
-                return_value=[(None, 'migrate_0_20_0', None)],
+                "frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules",
+                return_value=[(None, "migrate_0_20_0", None)],
             ),
             patch(
-                'frappe_manager.migration_manager.migration_executor.importlib.import_module', return_value=mock_module
+                "frappe_manager.migration_manager.migration_executor.importlib.import_module", return_value=mock_module,
             ),
         ):
             mock_output = Mock()
@@ -139,17 +139,17 @@ class TestMigrationExecutorMigrationDiscovery:
         mock_migration_class.set_migration_executor = Mock()
 
         mock_module = Mock()
-        setattr(mock_module, 'Migrate_0_0_0', mock_migration_class)
+        mock_module.Migrate_0_0_0 = mock_migration_class
 
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
             patch(
-                'frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules',
-                return_value=[(None, 'migrate_0_0_0', None)],
+                "frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules",
+                return_value=[(None, "migrate_0_0_0", None)],
             ),
             patch(
-                'frappe_manager.migration_manager.migration_executor.importlib.import_module', return_value=mock_module
+                "frappe_manager.migration_manager.migration_executor.importlib.import_module", return_value=mock_module,
             ),
         ):
             mock_output = Mock()
@@ -169,8 +169,8 @@ class TestMigrationExecutorUserPrompt:
         mock_migration.get_rollback_version = Mock(return_value=Version("0.19.0"))
 
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
         ):
             mock_output = Mock()
             executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True, output_handler=mock_output)
@@ -178,13 +178,13 @@ class TestMigrationExecutorUserPrompt:
             mock_output.prompt_ask.return_value = "yes"
 
             with (
-                patch.object(executor.discovery, 'discover_migrations', return_value=[mock_migration]),
-                patch.object(executor, '_check_benches_need_migration', return_value=False),
+                patch.object(executor.discovery, "discover_migrations", return_value=[mock_migration]),
+                patch.object(executor, "_check_benches_need_migration", return_value=False),
             ):
                 executor.execute()
 
             assert mock_output.prompt_ask.called
-            prompt_text = mock_output.prompt_ask.call_args[1]['prompt']
+            prompt_text = mock_output.prompt_ask.call_args[1]["prompt"]
             assert "Do you want to proceed" in prompt_text
 
     def test_aborts_and_reverts_when_user_says_no(self, mock_fm_config):
@@ -194,8 +194,8 @@ class TestMigrationExecutorUserPrompt:
         mock_migration.version = Version("0.19.0")
 
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
         ):
             mock_output = Mock()
             executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True, output_handler=mock_output)
@@ -203,8 +203,8 @@ class TestMigrationExecutorUserPrompt:
             mock_output.prompt_ask.return_value = "no"
 
             with (
-                patch.object(executor.discovery, 'discover_migrations', return_value=[mock_migration]),
-                patch.object(executor, '_check_benches_need_migration', return_value=False),
+                patch.object(executor.discovery, "discover_migrations", return_value=[mock_migration]),
+                patch.object(executor, "_check_benches_need_migration", return_value=False),
             ):
                 result = executor.execute()
 

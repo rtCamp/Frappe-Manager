@@ -5,9 +5,10 @@ Verifies that DockerComposeWrapper properly uses ContextualLogger with structure
 extra fields for all Docker Compose operations.
 """
 
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import MagicMock, patch, call
-from pathlib import Path
+
 from frappe_manager.docker.docker_compose import DockerComposeWrapper
 from frappe_manager.logger.contextual import ContextualLogger
 

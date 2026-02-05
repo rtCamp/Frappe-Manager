@@ -1,7 +1,12 @@
 from abc import ABC
 from logging import Logger
 from pathlib import Path
-from frappe_manager import CLI_SITES_ARCHIVE, CLI_DIR
+
+from frappe_manager import CLI_DIR
+from frappe_manager.logger import log
+from frappe_manager.migration_manager.backup_manager import BackupManager
+from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
+from frappe_manager.migration_manager.migration_constants import DOCKER_COMPOSE_DOWN_TIMEOUT_SECONDS
 from frappe_manager.migration_manager.migration_exections import (
     MigrationExceptionInBench,
 )
@@ -10,14 +15,10 @@ from frappe_manager.migration_manager.migration_helpers import (
     MigrationBenches,
     MigrationServicesManager,
 )
-from frappe_manager.migration_manager.backup_manager import BackupManager
-from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
-from frappe_manager.migration_manager.migration_constants import DOCKER_COMPOSE_DOWN_TIMEOUT_SECONDS
 from frappe_manager.migration_manager.version import Version
-from frappe_manager.logger import log
-from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo, MariaDBManager
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo, MariaDBManager
 from frappe_manager.utils.helpers import capture_and_format_exception
 
 
@@ -34,11 +35,11 @@ class MigrationBase(ABC):
     def init(self):
         self.backup_manager = BackupManager(name=str(self.version), benches_dir=self.benches_dir)
         self.benches_manager = MigrationBenches(self.benches_dir)
-        self.services_manager: MigrationServicesManager = MigrationServicesManager(services_path=CLI_DIR / 'services')
+        self.services_manager: MigrationServicesManager = MigrationServicesManager(services_path=CLI_DIR / "services")
 
     def set_migration_executor(self, migration_executor):
         self.migration_executor = migration_executor
-        if hasattr(migration_executor, 'output'):
+        if hasattr(migration_executor, "output"):
             self.output = migration_executor.output
 
     def get_rollback_version(self):
@@ -48,8 +49,8 @@ class MigrationBase(ABC):
         if self.skip:
             return True
 
-        self.output.print(f':package: [bold][blue]v{str(self.version)}[/blue][/bold]', emoji_code="")
-        self.logger.info(f"v{str(self.version)}: Started")
+        self.output.print(f":package: [bold][blue]v{self.version!s}[/blue][/bold]", emoji_code="")
+        self.logger.info(f"v{self.version!s}: Started")
         self.logger.info("-" * 40)
 
         self.init()
@@ -63,13 +64,13 @@ class MigrationBase(ABC):
         self.logger.info("-" * 40)
 
     def down(self):
-        self.output.change_head(f"Working on v{str(self.version)} rollback")
+        self.output.change_head(f"Working on v{self.version!s} rollback")
         self.logger.info("-" * 40)
 
         # undo each bench
         for bench_name, bench_data in self.migration_executor.migrate_benches.items():
-            if not bench_data['exception']:
-                self.undo_bench_migrate(bench_data['object'])
+            if not bench_data["exception"]:
+                self.undo_bench_migrate(bench_data["object"])
 
         for backup in self.backup_manager.backups:
             self.backup_manager.restore(backup, force=True)
@@ -77,13 +78,13 @@ class MigrationBase(ABC):
 
         self.undo_services_migrate()
 
-        self.output.print(f"[bold]v{str(self.version)}[/bold] rollback successfull")
+        self.output.print(f"[bold]v{self.version!s}[/bold] rollback successfull")
         self.logger.info("-" * 40)
 
     def services_basic_backup(self):
         if not self.services_manager.compose_file_manager.exists():
             raise MigrationExceptionInBench(
-                f"Services compose at {self.services_manager.compose_file_manager} not found."
+                f"Services compose at {self.services_manager.compose_file_manager} not found.",
             )
         self.backup_manager.backup(self.services_manager.compose_file_manager.compose_path)
 
@@ -119,13 +120,13 @@ class MigrationBase(ABC):
             # Check if bench is already at or above this migration version
             if bench_version >= self.version:
                 self.output.print(
-                    f"Bench {bench_name} already at v{bench_version}, skipping migration to v{self.version}"
+                    f"Bench {bench_name} already at v{bench_version}, skipping migration to v{self.version}",
                 )
                 continue
 
             if bench.name in self.migration_executor.migrate_benches.keys():
                 bench_info = self.migration_executor.migrate_benches[bench.name]
-                if bench_info['exception']:
+                if bench_info["exception"]:
                     self.output.print(f"Skipping migration for failed bench [blue]{bench.name}[/blue]")
                     main_error = True
                     continue
@@ -147,7 +148,7 @@ class MigrationBase(ABC):
                         self.backup_manager.restore(backup, force=True)
 
                 self.undo_bench_migrate(bench)
-                self.logger.info(f'Undo successfull for bench: {bench.name}')
+                self.logger.info(f"Undo successfull for bench: {bench.name}")
 
                 try:
                     output = bench.docker.compose.down(
@@ -160,7 +161,7 @@ class MigrationBase(ABC):
                     pass
 
         if main_error:
-            raise MigrationExceptionInBench('')
+            raise MigrationExceptionInBench("")
 
     def bench_basic_backup(self, bench: MigrationBench):
         self.output.print(f"Migrating bench [bold][blue]{bench.name}[/blue][/bold]")
@@ -186,7 +187,7 @@ class MigrationBase(ABC):
         self.backup_manager.backup(bench_site_config, bench_name=bench.name)
 
         bench_db_info = DatabaseServerServiceInfo.import_from_bench(
-            bench_path=bench.path, bench_name=bench.name, raise_exception=False
+            bench_path=bench.path, bench_name=bench.name, raise_exception=False,
         )
 
         self.bench_db_backup(
@@ -212,7 +213,7 @@ class MigrationBase(ABC):
             try:
                 import tomlkit
 
-                with open(bench_config_path, 'r') as f:
+                with open(bench_config_path) as f:
                     bench_config = tomlkit.parse(f.read())
                     db_name = bench_config.get("db_name")
                     if db_name:
@@ -230,14 +231,14 @@ class MigrationBase(ABC):
         bench_compose_file,
         backup_manager: BackupManager,
     ):
-        self.output.change_head(f'Commencing db {bench.name} backup')
+        self.output.change_head(f"Commencing db {bench.name} backup")
 
         db_name = self._resolve_database_name(bench, db_info)
 
         if not db_name:
             self.output.warning(
                 f"Could not determine database name for {bench.name}.\n"
-                f"Checked: site_config.json, db_info, bench_config.toml."
+                f"Checked: site_config.json, db_info, bench_config.toml.",
             )
 
             skip_backup_prompt = [
@@ -255,7 +256,7 @@ class MigrationBase(ABC):
                 self.output.display_error(f"User chose to abort migration for {bench.name}")
                 raise MigrationExceptionInBench(
                     f"Migration aborted for {bench.name}: Unable to determine database name. "
-                    f"User declined to skip database backup."
+                    f"User declined to skip database backup.",
                 )
 
             self.output.warning(f"Skipping database backup for {bench.name}")
@@ -275,7 +276,7 @@ class MigrationBase(ABC):
         container_db_sql_file_path: Path = Path("/workspace") / ".cache" / db_sql_file_name
 
         backup_gz_file_backup_data_path: Path = (
-            bench.path / backup_manager.bench_backup_dir / self.version.version / f'{db_sql_file_name}.gz'
+            bench.path / backup_manager.bench_backup_dir / self.version.version / f"{db_sql_file_name}.gz"
         )
 
         mariadb_manager.db_export(db_name, container_db_sql_file_path)
@@ -284,10 +285,10 @@ class MigrationBase(ABC):
         import shutil
 
         # Compress the file using gzip
-        with open(host_db_sql_file_path, 'rb') as f_in:
-            with gzip.open(backup_gz_file_backup_data_path, 'wb') as f_out:
+        with open(host_db_sql_file_path, "rb") as f_in:
+            with gzip.open(backup_gz_file_backup_data_path, "wb") as f_out:
                 shutil.copyfileobj(f_in, f_out)
 
         host_db_sql_file_path.unlink()
 
-        self.output.print(f'[blue]{bench.name}[/blue] db backup completed successfully.')
+        self.output.print(f"[blue]{bench.name}[/blue] db backup completed successfully.")

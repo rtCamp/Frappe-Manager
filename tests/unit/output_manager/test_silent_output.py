@@ -6,6 +6,7 @@ while maintaining proper interface behavior.
 """
 
 import pytest
+
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
 
 

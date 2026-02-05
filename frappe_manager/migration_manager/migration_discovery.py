@@ -6,13 +6,14 @@ import importlib
 import pkgutil
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+from frappe_manager.logger import log
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.utils.helpers import capture_and_format_exception
-from frappe_manager.logger import log
 
 if TYPE_CHECKING:
-    from frappe_manager.output_manager import OutputHandler
     from frappe_manager.migration_manager.migration_base import MigrationBase
+    from frappe_manager.output_manager import OutputHandler
 
 
 class MigrationDiscovery:
@@ -59,7 +60,7 @@ class MigrationDiscovery:
                 exception_str = capture_and_format_exception()
                 self.logger.error(f"Failed to register migration {module_name}: {exception_str}")
                 self.output.warning(
-                    f"Skipping migration module '{module_name}' due to load failure. Check logs for details."
+                    f"Skipping migration module '{module_name}' due to load failure. Check logs for details.",
                 )
 
         return sorted(migrations, key=lambda m: m.version)
@@ -76,7 +77,7 @@ class MigrationDiscovery:
             attr = getattr(module, attr_name)
 
             if self._is_valid_migration_class(attr):
-                if getattr(attr, "version") != Version('0.0.0'):
+                if attr.version != Version("0.0.0"):
                     return attr
 
         return None

@@ -42,6 +42,7 @@ target-version = "py310"
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 select = ["E", "F", "I", "B", "C", "W", "UP", "N", "YTT", "S", "BLE", "FBT", "A", "COM", "C4", "DTZ", "T10", "EM", "EXE", "ISC", "ICN", "G", "INP", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "RUF"]
 ignore = [
+    # Existing exceptions
     "F841",    # Unused variables
     "E501",    # Line too long (handled by formatter)
     "C901",    # Function is too complex
@@ -51,6 +52,32 @@ ignore = [
     "ARG002",  # Unused method argument (required by interface/ABC)
     "BLE001",  # Catching broad exception (intentional for robustness)
     "S110",    # Try-except-pass (intentional no-op in silent handler)
+    
+    # Test-related
+    "S101",    # Assert statement (standard in pytest)
+    "PT011",   # pytest.raises() too broad (acceptable for integration tests)
+    
+    # CLI tool patterns
+    "T201",    # Print statements (CLI tool requires them for output)
+    
+    # Code organization
+    "G004",    # F-string in logging (more readable than % formatting)
+    "PLC0415", # Import outside top-level (lazy/conditional imports for performance)
+    "E402",    # Module import not at top (conditional imports)
+    "INP001",  # Implicit namespace package (intentional project structure)
+    
+    # Exception handling style (high noise, low value)
+    "TRY003",  # Raise with string message (common, readable pattern)
+    "EM101",   # Raw string in exception (no practical benefit to extract)
+    "EM102",   # F-string in exception (more readable than concatenation)
+    "TRY002",  # Raise vanilla class (custom exceptions not always needed)
+    "TRY201",  # Verbose raise (explicit re-raise can be clearer)
+    "TRY400",  # Use Exception instead of error (minor distinction)
+    
+    # Complexity rules (context-dependent, often necessary)
+    "PLR0912", # Too many branches (sometimes unavoidable in business logic)
+    "PLR0915", # Too many statements (sometimes needed for clarity)
+    "PLR2004", # Magic value comparison (often clear from context)
 ]
 fixable = ["ALL"]
 unfixable = []

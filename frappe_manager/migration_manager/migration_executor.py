@@ -1,25 +1,22 @@
-import shutil
-from typing import Optional
-from frappe_manager.migration_manager.migration_helpers import MigrationBench, MigrationBenches
-import importlib
-import pkgutil
 from pathlib import Path
-from frappe_manager import CLI_DIR, CLI_SITES_ARCHIVE, CLI_BENCHES_DIRECTORY
+
+from frappe_manager import CLI_BENCHES_DIRECTORY
+from frappe_manager.logger import log
 from frappe_manager.metadata_manager import FMConfigManager
+from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
+from frappe_manager.migration_manager.migration_constants import MINIMUM_SUPPORTED_VERSION
+from frappe_manager.migration_manager.migration_discovery import MigrationDiscovery
+from frappe_manager.migration_manager.migration_error_handler import MigrationErrorHandler
 from frappe_manager.migration_manager.migration_exections import (
     MigrationExceptionInBench,
 )
-from frappe_manager.utils.helpers import capture_and_format_exception, get_current_fm_version
-from frappe_manager.logger import log
-from frappe_manager.migration_manager.version import Version
-from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
-from frappe_manager.migration_manager.migration_constants import MINIMUM_SUPPORTED_VERSION
-from frappe_manager.migration_manager.migration_validator import MigrationValidator, BenchFilter
-from frappe_manager.migration_manager.migration_discovery import MigrationDiscovery
+from frappe_manager.migration_manager.migration_helpers import MigrationBench, MigrationBenches
 from frappe_manager.migration_manager.migration_orchestrator import MigrationOrchestrator
-from frappe_manager.migration_manager.migration_error_handler import MigrationErrorHandler
+from frappe_manager.migration_manager.migration_validator import BenchFilter, MigrationValidator
+from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.utils.helpers import get_current_fm_version
 
 
 def needs_migration(fm_config_manager: FMConfigManager) -> bool:
@@ -35,8 +32,8 @@ def needs_fm_infrastructure_migration(fm_config_manager: FMConfigManager) -> boo
 
 
 def get_benches_needing_migration(benches_directory: Path, current_version: Version) -> list[str]:
-    from frappe_manager.migration_manager.bench_migration_state import bench_needs_migration
     from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME
+    from frappe_manager.migration_manager.bench_migration_state import bench_needs_migration
 
     needs_migration_list = []
 
@@ -203,10 +200,10 @@ class MigrationExecutor:
                             running.append(bench_name)
                 if running:
                     self.output.warning(
-                        f"The following target benches are currently running and will be restarted (containers recreated) during migration: {', '.join(running)}"
+                        f"The following target benches are currently running and will be restarted (containers recreated) during migration: {', '.join(running)}",
                     )
                     self.output.print(
-                        "If you'd prefer no disruption, stop these benches (fm stop <bench>) and re-run migration."
+                        "If you'd prefer no disruption, stop these benches (fm stop <bench>) and re-run migration.",
                     )
                     self.output.print("", emoji_code="")
 
@@ -217,7 +214,7 @@ class MigrationExecutor:
                         {"name": "yes - Start migration", "value": "yes"},
                         {"name": "no - Abort and revert to previous fm version", "value": "no"},
                     ],
-                    required_flag='--auto-proceed',
+                    required_flag="--auto-proceed",
                 )
             else:
                 continue_migration = "yes"
@@ -226,9 +223,9 @@ class MigrationExecutor:
             if continue_migration == "no":
                 self.output.print("", emoji_code="")
                 self.output.print(
-                    f"Migration aborted. To revert to v{str(self.prev_version.version)}, run:", emoji_code=""
+                    f"Migration aborted. To revert to v{self.prev_version.version!s}, run:", emoji_code="",
                 )
-                self.output.print(f"  uv tool install frappe-manager=={str(self.prev_version.version)}", emoji_code="")
+                self.output.print(f"  uv tool install frappe-manager=={self.prev_version.version!s}", emoji_code="")
                 self.output.print("", emoji_code="")
                 return False
 
@@ -249,8 +246,8 @@ class MigrationExecutor:
         self,
         bench: MigrationBench,
         exception=None,
-        migration_version: Optional[Version] = None,
-        traceback_str: Optional[str] = None,
+        migration_version: Version | None = None,
+        traceback_str: str | None = None,
     ):
         self.migrate_benches[bench.name] = {
             "object": bench,

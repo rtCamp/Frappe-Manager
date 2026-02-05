@@ -1,12 +1,13 @@
 """Tests for prompt_fuzzy() method in all OutputHandler implementations."""
 
+from unittest.mock import MagicMock
+
 import pytest
-from unittest.mock import MagicMock, patch
 
 from frappe_manager.exceptions import NonInteractiveError
 from frappe_manager.output_manager import (
-    RichOutputHandler,
     JSONOutputHandler,
+    RichOutputHandler,
     SilentOutputHandler,
 )
 from frappe_manager.output_manager.logging_output import LoggingOutputHandler

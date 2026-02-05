@@ -13,22 +13,19 @@ Key Features:
 """
 
 import os
-import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
-from git import Repo, GitCommandError  # type: ignore
+from git import GitCommandError, Repo  # type: ignore
 
+from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.site_manager.bench_config import AppConfig, extract_app_python_module_name
-from frappe_manager.logger.contextual import ContextualLogger
 
 
 class AppClonerError(Exception):
     """Custom exception for app cloning errors."""
 
-    pass
 
 
 class AppCloner:
@@ -50,8 +47,8 @@ class AppCloner:
         self,
         logger: ContextualLogger,
         apps_dir: Path,
-        github_token: Optional[str] = None,
-        output_handler: Optional[OutputHandler] = None,
+        github_token: str | None = None,
+        output_handler: OutputHandler | None = None,
     ):
         """
         Initialize AppCloner.
@@ -69,7 +66,7 @@ class AppCloner:
 
         self.apps_dir.mkdir(parents=True, exist_ok=True)
 
-    def clone_apps_parallel(self, apps: List[AppConfig], max_workers: int = 5) -> Dict[str, Path]:
+    def clone_apps_parallel(self, apps: list[AppConfig], max_workers: int = 5) -> dict[str, Path]:
         """
         Clone multiple apps in parallel.
 
@@ -144,7 +141,7 @@ class AppCloner:
 
         return cloned_apps
 
-    def _clone_monorepo_apps(self, apps: List[AppConfig]) -> Dict[str, Path]:
+    def _clone_monorepo_apps(self, apps: list[AppConfig]) -> dict[str, Path]:
         """
         Clone multiple apps from the same monorepo efficiently.
 
@@ -214,7 +211,7 @@ class AppCloner:
                 if not subdir_path.exists():
                     raise Exception(
                         f"Subdirectory '{app.subdir_path}' not found in monorepo. "
-                        f"Available: {[d.name for d in shared_clone_path.iterdir() if d.is_dir() and not d.name.startswith('.')]}"
+                        f"Available: {[d.name for d in shared_clone_path.iterdir() if d.is_dir() and not d.name.startswith('.')]}",
                     )
 
                 # Copy subdirectory to temporary location
@@ -230,13 +227,13 @@ class AppCloner:
                     if final_app_path.exists():
                         # Target already exists - should not happen, but handle it
                         self.logger.warning(
-                            f"App directory {actual_app_name} already exists. Using subdirectory name instead."
+                            f"App directory {actual_app_name} already exists. Using subdirectory name instead.",
                         )
                         actual_app_name = app.name
                         final_app_path = temp_app_path
                     else:
                         self.logger.info(
-                            f"Renaming app directory from '{app.name}' to '{actual_app_name}' (Python module name)"
+                            f"Renaming app directory from '{app.name}' to '{actual_app_name}' (Python module name)",
                         )
                         shutil.move(str(temp_app_path), str(final_app_path))
                 else:
@@ -260,7 +257,7 @@ class AppCloner:
 
         return result
 
-    def _clone_app(self, app: AppConfig) -> Tuple[str, Path]:
+    def _clone_app(self, app: AppConfig) -> tuple[str, Path]:
         """
         Clone a single standalone app (non-subdirectory) with authentication fallback.
 
@@ -282,7 +279,7 @@ class AppCloner:
         if app.subdir_path:
             raise ValueError(
                 f"_clone_app() called with subdirectory app {app.name}. "
-                "Subdirectory apps must be handled by _clone_monorepo_apps()."
+                "Subdirectory apps must be handled by _clone_monorepo_apps().",
             )
 
         clone_path = self.apps_dir / app.name
@@ -317,7 +314,7 @@ class AppCloner:
                         final_path = clone_path
                     else:
                         self.logger.info(
-                            f"Renaming app directory from '{app.name}' to '{actual_app_name}' (Python module name)"
+                            f"Renaming app directory from '{app.name}' to '{actual_app_name}' (Python module name)",
                         )
                         import shutil
 
@@ -341,10 +338,10 @@ class AppCloner:
 
         # All methods failed
         raise Exception(
-            f"Failed to clone {app.name} from {app.repo}. Tried all authentication methods. Last error: {last_error}"
+            f"Failed to clone {app.name} from {app.repo}. Tried all authentication methods. Last error: {last_error}",
         )
 
-    def _get_auth_methods(self, app: AppConfig) -> List[Tuple[str, str]]:
+    def _get_auth_methods(self, app: AppConfig) -> list[tuple[str, str]]:
         """
         Get list of authentication methods to try in order.
 
@@ -373,9 +370,9 @@ class AppCloner:
         }
 
         env = os.environ.copy()
-        env['GIT_TERMINAL_PROMPT'] = '0'
-        env['GIT_ASKPASS'] = 'echo'
-        clone_kwargs['env'] = env
+        env["GIT_TERMINAL_PROMPT"] = "0"
+        env["GIT_ASKPASS"] = "echo"
+        clone_kwargs["env"] = env
 
         clone_kwargs = {k: v for k, v in clone_kwargs.items() if v is not None}
 
@@ -390,7 +387,7 @@ class AppCloner:
             repo.git.checkout(app.ref)
 
     @staticmethod
-    def validate_repos_exist(apps: List[AppConfig], github_token: Optional[str] = None) -> Tuple[bool, List[str]]:
+    def validate_repos_exist(apps: list[AppConfig], github_token: str | None = None) -> tuple[bool, list[str]]:
         """
         Validate that all app repositories exist before attempting to clone.
 

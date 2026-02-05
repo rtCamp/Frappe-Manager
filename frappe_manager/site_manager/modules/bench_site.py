@@ -8,16 +8,16 @@ Extracted from the monolithic Bench class and BenchOperations for better
 separation of concerns.
 """
 
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Optional, Tuple, Literal, Union, overload, cast
+from typing import cast
 
 from frappe_manager import CLI_DEFAULT_DELIMETER
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger.contextual import ContextualLogger
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import BenchConfig
 from frappe_manager.site_manager.exceptions import (
@@ -96,9 +96,9 @@ class BenchSiteManager:
         self.output = output_handler or RichOutputHandler()
 
         self.frappe_bench_dir: Path = bench_path / "workspace" / "frappe-bench"
-        self.bench_cli_cmd = ['/usr/local/bin/bench']
+        self.bench_cli_cmd = ["/usr/local/bin/bench"]
 
-    def is_site_created(self, site_name: Optional[str] = None) -> bool:
+    def is_site_created(self, site_name: str | None = None) -> bool:
         """
         Check if a Frappe site exists in the bench.
 
@@ -148,8 +148,8 @@ class BenchSiteManager:
         for service, port in required_services.items():
             output: SubprocessOutput = self._wait_for_service(host=service, port=port, timeout=timeout)
             if output.combined:
-                command_output = output.combined[-1].replace('wait-for-it: ', '')
-                service_name = command_output.split(' ')[0]
+                command_output = output.combined[-1].replace("wait-for-it: ", "")
+                service_name = command_output.split(" ")[0]
                 simplified_service_name = service_name.split(":")[0]
                 simplified_service_name = simplified_service_name.split(CLI_DEFAULT_DELIMETER)[-1]
                 self.output.print(command_output.replace(service_name, simplified_service_name), highlight=False)
@@ -170,17 +170,17 @@ class BenchSiteManager:
             BenchOperationWaitForRequiredServiceFailed: If service is not available
         """
         return cast(
-            SubprocessOutput,
+            "SubprocessOutput",
             self._container_run(
                 f"wait-for-it -t {timeout} {host}:{port}",
                 raise_exception_obj=BenchOperationWaitForRequiredServiceFailed(
-                    bench_name=self.bench_name, host=host, port=str(port), timeout=timeout
+                    bench_name=self.bench_name, host=host, port=str(port), timeout=timeout,
                 ),
                 capture_output=True,
             ),
         )
 
-    def create_bench_site(self, admin_pass: Optional[str] = None) -> None:
+    def create_bench_site(self, admin_pass: str | None = None) -> None:
         """
         Create a new Frappe site in the bench.
 
@@ -221,7 +221,7 @@ class BenchSiteManager:
         self._container_run(
             " ".join(self.bench_cli_cmd + [f"use {self.bench_name}"]),
             raise_exception_obj=BenchOperationException(
-                self.bench_name, f"Failed to set {self.bench_name} as default site."
+                self.bench_name, f"Failed to set {self.bench_name} as default site.",
             ),
         )
 
@@ -229,7 +229,7 @@ class BenchSiteManager:
         self._container_run(
             " ".join(self.bench_cli_cmd + [f"--site {self.bench_name} scheduler enable"]),
             raise_exception_obj=BenchOperationException(
-                self.bench_name, f"Failed to enable {self.bench_name}'s scheduler."
+                self.bench_name, f"Failed to enable {self.bench_name}'s scheduler.",
             ),
         )
 
@@ -255,30 +255,30 @@ class BenchSiteManager:
         global_db_info = self.services.database_manager.database_server_info
 
         reset_bench_site_command = self.bench_cli_cmd + ["--site", self.bench_name]
-        reset_bench_site_command += ['reinstall', '--admin-password', admin_password]
-        reset_bench_site_command += ['--db-root-username', global_db_info.user]
-        reset_bench_site_command += ['--db-root-password', global_db_info.password]
-        reset_bench_site_command += ['--yes']
+        reset_bench_site_command += ["reinstall", "--admin-password", admin_password]
+        reset_bench_site_command += ["--db-root-username", global_db_info.user]
+        reset_bench_site_command += ["--db-root-password", global_db_info.password]
+        reset_bench_site_command += ["--yes"]
 
         reset_bench_site_command = " ".join(reset_bench_site_command)
 
         self._container_run(
             reset_bench_site_command,
             raise_exception_obj=BenchOperationException(
-                bench_name=self.bench_name, message=f'Failed to reset bench site {self.bench_name}.'
+                bench_name=self.bench_name, message=f"Failed to reset bench site {self.bench_name}.",
             ),
         )
 
     def _container_run(
         self,
         command: str,
-        raise_exception_obj: Optional[BenchOperationException] = None,
+        raise_exception_obj: BenchOperationException | None = None,
         capture_output: bool = False,
         user: str = "frappe",
         workdir: str = "/workspace/frappe-bench",
-        service: str = 'frappe',
+        service: str = "frappe",
         use_run: bool = False,
-    ) -> Union[SubprocessOutput, None]:
+    ) -> SubprocessOutput | None:
         """
         Execute a command inside the bench container.
 
@@ -307,7 +307,7 @@ class BenchSiteManager:
                 run_command = f"-c '{wrapped_command}'"
                 if capture_output:
                     output = cast(
-                        SubprocessOutput,
+                        "SubprocessOutput",
                         self.docker_client.compose.run(
                             service=service,
                             command=run_command,
@@ -318,37 +318,35 @@ class BenchSiteManager:
                         ),
                     )
                     return output
-                else:
-                    output = cast(
-                        Iterator[Tuple[str, bytes]],
-                        self.docker_client.compose.run(
-                            service=service,
-                            command=run_command,
-                            entrypoint="/bin/bash",
-                            user=user,
-                            rm=True,
-                            stream=True,
-                        ),
-                    )
-                    self.output.live_lines(output)
+                output = cast(
+                    "Iterator[tuple[str, bytes]]",
+                    self.docker_client.compose.run(
+                        service=service,
+                        command=run_command,
+                        entrypoint="/bin/bash",
+                        user=user,
+                        rm=True,
+                        stream=True,
+                    ),
+                )
+                self.output.live_lines(output)
             else:
                 exec_command = f"/bin/bash -c '{command}'"
                 if capture_output:
                     output = cast(
-                        SubprocessOutput,
+                        "SubprocessOutput",
                         self.docker_client.compose.exec(
-                            service=service, command=exec_command, user=user, workdir=workdir, stream=False
+                            service=service, command=exec_command, user=user, workdir=workdir, stream=False,
                         ),
                     )
                     return output
-                else:
-                    output = cast(
-                        Iterator[Tuple[str, bytes]],
-                        self.docker_client.compose.exec(
-                            service=service, command=exec_command, workdir=workdir, user=user, stream=True
-                        ),
-                    )
-                    self.output.live_lines(output)
+                output = cast(
+                    "Iterator[tuple[str, bytes]]",
+                    self.docker_client.compose.exec(
+                        service=service, command=exec_command, workdir=workdir, user=user, stream=True,
+                    ),
+                )
+                self.output.live_lines(output)
 
         except DockerException as e:
             if raise_exception_obj:

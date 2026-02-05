@@ -4,9 +4,10 @@ Unit tests for AppConfig model.
 Tests the parsing and validation of app configuration strings.
 """
 
+
 import pytest
-from typing import Optional, Dict
-from frappe_manager.site_manager.bench_config import AppConfig, AppValidationResult, AppBatchValidationResult
+
+from frappe_manager.site_manager.bench_config import AppBatchValidationResult, AppConfig, AppValidationResult
 
 
 class TestAppConfigParsing:
@@ -175,7 +176,7 @@ class TestAppConfigFromDict:
 
     def test_from_dict_simple(self):
         """Test converting simple dict format."""
-        app_dict: Dict[str, Optional[str]] = {"app": "erpnext", "branch": "version-15"}
+        app_dict: dict[str, str | None] = {"app": "erpnext", "branch": "version-15"}
         config = AppConfig.from_dict(app_dict)
 
         assert config.name == "erpnext"
@@ -184,7 +185,7 @@ class TestAppConfigFromDict:
 
     def test_from_dict_without_branch(self):
         """Test converting dict without branch."""
-        app_dict: Dict[str, Optional[str]] = {"app": "erpnext", "branch": None}
+        app_dict: dict[str, str | None] = {"app": "erpnext", "branch": None}
         config = AppConfig.from_dict(app_dict)
 
         assert config.name == "erpnext"
@@ -192,7 +193,7 @@ class TestAppConfigFromDict:
 
     def test_from_dict_with_token(self):
         """Test converting dict with GitHub token (repo_url should be None to allow fallback)."""
-        app_dict: Dict[str, Optional[str]] = {"app": "mycompany/private-app", "branch": "main"}
+        app_dict: dict[str, str | None] = {"app": "mycompany/private-app", "branch": "main"}
         token = "ghp_test123"
         config = AppConfig.from_dict(app_dict, github_token=token)
 
@@ -202,14 +203,14 @@ class TestAppConfigFromDict:
 
     def test_from_dict_invalid_empty_app(self):
         """Test that empty app name raises ValueError."""
-        app_dict: Dict[str, Optional[str]] = {"app": "", "branch": "main"}
+        app_dict: dict[str, str | None] = {"app": "", "branch": "main"}
 
         with pytest.raises(ValueError, match="app_dict must contain 'app' key"):
             AppConfig.from_dict(app_dict)
 
     def test_from_dict_invalid_missing_app(self):
         """Test that missing app key raises ValueError."""
-        app_dict: Dict[str, Optional[str]] = {"branch": "main"}
+        app_dict: dict[str, str | None] = {"branch": "main"}
 
         with pytest.raises(ValueError, match="app_dict must contain 'app' key"):
             AppConfig.from_dict(app_dict)

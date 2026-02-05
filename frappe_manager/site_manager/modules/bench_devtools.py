@@ -14,26 +14,26 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import List, TYPE_CHECKING, Optional, Any
+from typing import TYPE_CHECKING, Any
 
+from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.docker.docker_exceptions import DockerException
-from frappe_manager.site_manager.exceptions import (
-    BenchNotRunning,
-    BenchAttachTocontainerFailed,
-    BenchFailedToRemoveDevPackages,
-)
-from frappe_manager.utils.helpers import capture_and_format_exception
 from frappe_manager.site_manager import (
+    VSCODE_LAUNCH_JSON,
     VSCODE_SETTINGS_JSON,
     VSCODE_TASKS_JSON,
-    VSCODE_LAUNCH_JSON,
 )
+from frappe_manager.site_manager.exceptions import (
+    BenchAttachTocontainerFailed,
+    BenchFailedToRemoveDevPackages,
+    BenchNotRunning,
+)
+from frappe_manager.utils.helpers import capture_and_format_exception
 
 if TYPE_CHECKING:
-    from frappe_manager.docker.docker_client import DockerClient
     from frappe_manager.docker.compose_file import ComposeFile
+    from frappe_manager.docker.docker_client import DockerClient
 
 
 class BenchDevTools:
@@ -41,8 +41,8 @@ class BenchDevTools:
 
     def __init__(
         self,
-        docker_client: 'DockerClient',
-        compose_file_manager: 'ComposeFile',
+        docker_client: "DockerClient",
+        compose_file_manager: "ComposeFile",
         bench_path: Path,
         bench_name: str,
         is_running_fn,
@@ -65,19 +65,19 @@ class BenchDevTools:
         self.bench_name = bench_name
         self._is_running = is_running_fn
         self.output = output_handler or RichOutputHandler()
-        self.logger: Optional[Any] = None  # Set externally if needed
+        self.logger: Any | None = None  # Set externally if needed
 
-    def get_apps_dev_requirements(self) -> List[str]:
+    def get_apps_dev_requirements(self) -> list[str]:
         """
         Parse dev requirements from all apps' pyproject.toml files.
 
         Returns:
             List of package specs with versions
         """
-        apps_path = self.bench_path / 'workspace' / 'frappe-bench' / 'apps'
+        apps_path = self.bench_path / "workspace" / "frappe-bench" / "apps"
         apps_path = apps_path.absolute()
 
-        pattern = '**/pyproject.toml'
+        pattern = "**/pyproject.toml"
         pyproject_files = list(apps_path.glob(pattern))
 
         import tomlkit
@@ -85,7 +85,7 @@ class BenchDevTools:
         packages_list = []
         for pyproject_path in pyproject_files:
             pyproject = tomlkit.parse(pyproject_path.read_text())
-            packages = pyproject.get('tool', {}).get('bench', {}).get('dev-dependencies', {})
+            packages = pyproject.get("tool", {}).get("bench", {}).get("dev-dependencies", {})
             for name, version in packages.items():
                 full_name = name + version
                 packages_list.append(full_name)
@@ -96,9 +96,9 @@ class BenchDevTools:
         """Remove dev packages from the bench environment."""
         self.output.change_head("Removing dev packages from env")
         dev_packages = self.get_apps_dev_requirements()
-        remove_command = '/workspace/frappe-bench/env/bin/python -m pip uninstall --yes ' + " ".join(dev_packages)
+        remove_command = "/workspace/frappe-bench/env/bin/python -m pip uninstall --yes " + " ".join(dev_packages)
         try:
-            self.docker_client.compose.exec('frappe', command=remove_command, user='frappe', stream=False)
+            self.docker_client.compose.exec("frappe", command=remove_command, user="frappe", stream=False)
         except DockerException as e:
             raise BenchFailedToRemoveDevPackages(self.bench_name)
         self.output.print("Removed dev packages from env")
@@ -107,16 +107,16 @@ class BenchDevTools:
         """Install dev packages in the bench environment."""
         self.output.change_head("Installing dev packages in env")
         dev_packages = self.get_apps_dev_requirements()
-        install_command = '/workspace/frappe-bench/env/bin/python -m pip install --quiet --upgrade ' + " ".join(
-            dev_packages
+        install_command = "/workspace/frappe-bench/env/bin/python -m pip install --quiet --upgrade " + " ".join(
+            dev_packages,
         )
         try:
-            self.docker_client.compose.exec('frappe', command=install_command, user='frappe', stream=False)
+            self.docker_client.compose.exec("frappe", command=install_command, user="frappe", stream=False)
         except DockerException as e:
             raise BenchFailedToRemoveDevPackages(self.bench_name)
         self.output.print("Installed dev packages in env")
 
-    def attach_to_bench(self, user: str, extensions: List[str], workdir: str, debugger: bool = False) -> None:
+    def attach_to_bench(self, user: str, extensions: list[str], workdir: str, debugger: bool = False) -> None:
         """
         Attach to running bench container using VS Code Remote Containers.
 
@@ -166,7 +166,7 @@ class BenchDevTools:
         assert vscode_path is not None, "VS Code binary not found"
         return shlex.join([vscode_path, f"--folder-uri=vscode-remote://attached-container+{container_hex}+{workdir}"])
 
-    def _update_container_config(self, user: str, extensions: List[str]) -> None:
+    def _update_container_config(self, user: str, extensions: list[str]) -> None:
         """Update container configuration with user and extensions."""
         base_config = [
             {
@@ -175,22 +175,22 @@ class BenchDevTools:
                 "customizations": {
                     "vscode": {
                         "settings": VSCODE_SETTINGS_JSON,
-                    }
+                    },
                 },
-            }
+            },
         ]
 
         config_with_extensions = copy.deepcopy(base_config)
-        config_with_extensions[0]['customizations']['vscode']["extensions"] = extensions
+        config_with_extensions[0]["customizations"]["vscode"]["extensions"] = extensions
 
-        labels = {'devcontainer.metadata': json.dumps(config_with_extensions)}
+        labels = {"devcontainer.metadata": json.dumps(config_with_extensions)}
 
         previous_config = self._get_previous_container_config()
 
         if self._config_needs_update(previous_config, extensions, user):
             self._apply_new_config(labels)
 
-    def _get_previous_container_config(self) -> List[str]:
+    def _get_previous_container_config(self) -> list[str]:
         """Get previous container extension configuration."""
         try:
             labels = self.compose_file_manager.get_labels("frappe")[0]
@@ -199,7 +199,7 @@ class BenchDevTools:
         except KeyError:
             return []
 
-    def _config_needs_update(self, previous_extensions: List[str], new_extensions: List[str], user: str) -> bool:
+    def _config_needs_update(self, previous_extensions: list[str], new_extensions: list[str], user: str) -> bool:
         """Check if container config needs updating."""
         return not previous_extensions == new_extensions or not user == user
 
@@ -209,13 +209,13 @@ class BenchDevTools:
         self.compose_file_manager.configure_service("frappe", labels=labels)
         self.output.print("Regenerated bench compose")
         self.docker_client.compose.up(
-            services=['frappe'], detach=True, pull="never", force_recreate=False
+            services=["frappe"], detach=True, pull="never", force_recreate=False,
         )
 
     def _setup_debugger_config(self, workdir: str) -> None:
         """Setup debugger configuration if workdir is in workspace."""
-        workdir = workdir.strip('/')
-        if not workdir.startswith('workspace'):
+        workdir = workdir.strip("/")
+        if not workdir.startswith("workspace"):
             self.output.warning("Debugger configuration is only supported for workspace directory")
             return
 
@@ -225,7 +225,7 @@ class BenchDevTools:
 
     def _sync_vscode_config_files(self, workdir: str) -> None:
         """Sync VS Code configuration files."""
-        workdir = workdir.strip('/')
+        workdir = workdir.strip("/")
         vscode_dir = self.bench_path / workdir / ".vscode"
         vscode_dir.mkdir(exist_ok=True, parents=True)
 
@@ -254,7 +254,7 @@ class BenchDevTools:
             self.docker_client.compose.exec(
                 service="frappe",
                 command="/workspace/frappe-bench/env/bin/pip install ruff",
-                user='frappe',
+                user="frappe",
                 stream=True,
             )
         except DockerException as e:
@@ -268,4 +268,4 @@ class BenchDevTools:
         output = subprocess.run(vscode_cmd, shell=True)
 
         if output.returncode != 0:
-            raise BenchAttachTocontainerFailed(self.bench_name, 'frappe')
+            raise BenchAttachTocontainerFailed(self.bench_name, "frappe")

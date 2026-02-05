@@ -7,7 +7,7 @@ to all log messages.
 """
 
 import logging
-from typing import Any, Dict, Optional
+from typing import Any
 
 from frappe_manager.logger.context import LoggerContext
 
@@ -35,7 +35,7 @@ class ContextualLogger:
         # Logs: "[bench=mybench] [op=create] Site created | environment=dev | apps=frappe,erpnext"
     """
 
-    def __init__(self, logger: logging.Logger, context: Optional[LoggerContext] = None):
+    def __init__(self, logger: logging.Logger, context: LoggerContext | None = None):
         """
         Initialize contextual logger.
 
@@ -46,7 +46,7 @@ class ContextualLogger:
         self.logger = logger
         self.context = context or LoggerContext()
 
-    def _format_message(self, msg: str, extra_fields: Optional[Dict[str, Any]] = None) -> str:
+    def _format_message(self, msg: str, extra_fields: dict[str, Any] | None = None) -> str:
         prefix = self.context.format()
         extra_suffix = (
             self._format_extra_fields(extra_fields) if extra_fields and isinstance(extra_fields, dict) else ""
@@ -54,13 +54,13 @@ class ContextualLogger:
 
         if prefix and extra_suffix:
             return f"{prefix} {msg}{extra_suffix}"
-        elif prefix:
+        if prefix:
             return f"{prefix} {msg}"
-        elif extra_suffix:
+        if extra_suffix:
             return f"{msg}{extra_suffix}"
         return msg
 
-    def _format_extra_fields(self, extra_fields: Dict[str, Any]) -> str:
+    def _format_extra_fields(self, extra_fields: dict[str, Any]) -> str:
         if not extra_fields:
             return ""
 
@@ -73,22 +73,22 @@ class ContextualLogger:
             return " | " + " | ".join(parts)
         return ""
 
-    def debug(self, msg: str, *args, extra_fields: Optional[Dict[str, Any]] = None, **kwargs):
+    def debug(self, msg: str, *args, extra_fields: dict[str, Any] | None = None, **kwargs):
         self.logger.debug(self._format_message(msg, extra_fields), *args, **kwargs)
 
-    def info(self, msg: str, *args, extra_fields: Optional[Dict[str, Any]] = None, **kwargs):
+    def info(self, msg: str, *args, extra_fields: dict[str, Any] | None = None, **kwargs):
         self.logger.info(self._format_message(msg, extra_fields), *args, **kwargs)
 
-    def warning(self, msg: str, *args, extra_fields: Optional[Dict[str, Any]] = None, **kwargs):
+    def warning(self, msg: str, *args, extra_fields: dict[str, Any] | None = None, **kwargs):
         self.logger.warning(self._format_message(msg, extra_fields), *args, **kwargs)
 
-    def error(self, msg: str, *args, extra_fields: Optional[Dict[str, Any]] = None, **kwargs):
+    def error(self, msg: str, *args, extra_fields: dict[str, Any] | None = None, **kwargs):
         self.logger.error(self._format_message(msg, extra_fields), *args, **kwargs)
 
-    def exception(self, msg: str, *args, extra_fields: Optional[Dict[str, Any]] = None, **kwargs):
+    def exception(self, msg: str, *args, extra_fields: dict[str, Any] | None = None, **kwargs):
         self.logger.exception(self._format_message(msg, extra_fields), *args, **kwargs)
 
-    def child(self, **context_overrides) -> 'ContextualLogger':
+    def child(self, **context_overrides) -> "ContextualLogger":
         """
         Create child logger with extended context.
 

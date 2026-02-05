@@ -1,16 +1,16 @@
 """Helper functions for bench SSL certificate operations."""
 
-from typing import Optional
+
 import typer
-from frappe_manager import CLI_BENCHES_DIRECTORY, SSL_RENEW_BEFORE_DAYS
-from frappe_manager.site_manager.bench_service import BenchService
+from rich.table import Table
+
+from frappe_manager.logger.context import LoggerContext
+from frappe_manager.output_manager import spinner, temporary_stop
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
-from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate, CustomDomainCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotFoundError
-from frappe_manager.logger.context import LoggerContext
-from frappe_manager.output_manager import temporary_stop, spinner
-from rich.table import Table
+from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate, LetsencryptSSLCertificate
+
 from .helpers import get_output_handler
 
 
@@ -19,7 +19,7 @@ def _add_bench_certificate(
     benchname: str,
     domain: str,
     challenge: LETSENCRYPT_PREFERRED_CHALLENGE,
-    cname: Optional[str],
+    cname: str | None,
     dry_run: bool,
 ):
     """Add SSL certificate for a bench domain (existing logic extracted)."""
@@ -36,7 +36,7 @@ def _add_bench_certificate(
         output.display_error(
             f"Domain '{domain}' is not configured for bench '{benchname}'.\n"
             f"Allowed domains: {', '.join(allowed_domains)}\n"
-            f"To add an alias domain, use: fm update {benchname} --add-alias {domain}"
+            f"To add an alias domain, use: fm update {benchname} --add-alias {domain}",
         )
         raise typer.Exit(1)
 
@@ -78,7 +78,7 @@ def _add_bench_certificate(
         raise typer.Exit(1)
     except Exception as e:
         output.display_error(f"Failed to add certificate: {e}")
-        output.display_error(f"Error details: {str(e)}")
+        output.display_error(f"Error details: {e!s}")
         raise typer.Exit(1)
 
 
@@ -122,7 +122,7 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
         raise typer.Exit(1)
     except Exception as e:
         output.display_error(f"Failed to remove certificate: {e}")
-        output.display_error(f"Error details: {str(e)}")
+        output.display_error(f"Error details: {e!s}")
         raise typer.Exit(1)
 
 
@@ -140,7 +140,7 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
 
     certs = bench.certificate_manager.list_certificates()
 
-    cert_map = {cert['domain']: cert for cert in certs}
+    cert_map = {cert["domain"]: cert for cert in certs}
 
     table = Table(show_header=True, header_style="bold magenta")
     table.add_column("Domain", style="cyan")
@@ -156,14 +156,14 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
         if domain in cert_map:
             # Domain has a certificate configured
             cert = cert_map[domain]
-            ssl_type = cert['ssl_type']
-            challenge_type = cert.get('challenge_type', 'N/A')
-            status = "✅ Issued" if cert['exists'] else "❌ Not Issued"
+            ssl_type = cert["ssl_type"]
+            challenge_type = cert.get("challenge_type", "N/A")
+            status = "✅ Issued" if cert["exists"] else "❌ Not Issued"
 
-            if cert['exists'] and cert['expiry_date']:
-                expiry = cert['expiry_date'].strftime('%Y-%m-%d %H:%M')
-                days_left = str(cert['days_until_expiry'])
-                renewal = "⚠️ DUE" if cert['needs_renewal'] else "✓ OK"
+            if cert["exists"] and cert["expiry_date"]:
+                expiry = cert["expiry_date"].strftime("%Y-%m-%d %H:%M")
+                days_left = str(cert["days_until_expiry"])
+                renewal = "⚠️ DUE" if cert["needs_renewal"] else "✓ OK"
             else:
                 expiry = "N/A"
                 days_left = "N/A"

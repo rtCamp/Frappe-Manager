@@ -1,4 +1,3 @@
-from typing import List
 
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 
@@ -8,10 +7,10 @@ class DockerException(Exception):
 
     def __init__(
         self,
-        command_launched: List[str],
+        command_launched: list[str],
         output: SubprocessOutput,
     ):
-        self.docker_command: List[str] = command_launched
+        self.docker_command: list[str] = command_launched
         self.output = output
 
         command_launched_str = " ".join(command_launched)

@@ -6,7 +6,7 @@ This module provides LoggerContext for adding contextual information
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any
 
 
 @dataclass
@@ -28,13 +28,13 @@ class LoggerContext:
         '[corr=550e8400] [bench=mybench] [op=create] [component=docker]'
     """
 
-    bench: Optional[str] = None
-    operation: Optional[str] = None
-    component: Optional[str] = None
-    correlation_id: Optional[str] = None
-    extra: Dict[str, Any] = field(default_factory=dict)
+    bench: str | None = None
+    operation: str | None = None
+    component: str | None = None
+    correlation_id: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
 
-    def child(self, **overrides) -> 'LoggerContext':
+    def child(self, **overrides) -> "LoggerContext":
         """
         Create a child context with inherited values and overrides.
 
@@ -59,13 +59,13 @@ class LoggerContext:
             '550e8400-...'
         """
         # Extract extra overrides if provided
-        extra_overrides = overrides.pop('extra', {})
+        extra_overrides = overrides.pop("extra", {})
 
         return LoggerContext(
-            bench=overrides.get('bench', self.bench),
-            operation=overrides.get('operation', self.operation),
-            component=overrides.get('component', self.component),
-            correlation_id=overrides.get('correlation_id', self.correlation_id),
+            bench=overrides.get("bench", self.bench),
+            operation=overrides.get("operation", self.operation),
+            component=overrides.get("component", self.component),
+            correlation_id=overrides.get("correlation_id", self.correlation_id),
             extra={**self.extra, **extra_overrides},
         )
 
@@ -110,7 +110,7 @@ class LoggerContext:
             return "[" + "] [".join(parts) + "]"
         return ""
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """
         Convert context to dictionary for structured logging.
 
@@ -157,5 +157,5 @@ class LoggerContext:
                 self.component is not None,
                 self.correlation_id is not None,
                 bool(self.extra),
-            ]
+            ],
         )

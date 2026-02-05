@@ -2,12 +2,11 @@
 Migration validation and filtering logic.
 """
 
-from pathlib import Path
 from frappe_manager import CLI_BENCHES_DIRECTORY
-from frappe_manager.migration_manager.version import Version
-from frappe_manager.migration_manager.migration_helpers import MigrationBenches
 from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
 from frappe_manager.migration_manager.migration_constants import MINIMUM_SUPPORTED_VERSION
+from frappe_manager.migration_manager.migration_helpers import MigrationBenches
+from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager import OutputHandler
 
 
@@ -84,8 +83,7 @@ class MigrationValidator:
 
             bench_version = get_bench_migration_version(bench_path.parent)
 
-            if bench_version < min_version:
-                min_version = bench_version
+            min_version = min(min_version, bench_version)
 
         return min_version
 
@@ -119,15 +117,15 @@ class MigrationValidator:
         if effective_prev_version < MINIMUM_SUPPORTED_VERSION:
             self.output.display_error(
                 f"Cannot migrate from v{effective_prev_version.version}. "
-                f"Minimum supported version is v{MINIMUM_SUPPORTED_VERSION.version}."
+                f"Minimum supported version is v{MINIMUM_SUPPORTED_VERSION.version}.",
             )
             self.output.display_error(
                 f"\nPlease upgrade to v{MINIMUM_SUPPORTED_VERSION.version} first, "
-                f"then upgrade to v{self.current_version.version}."
+                f"then upgrade to v{self.current_version.version}.",
             )
             self.output.display_error(
                 f"\nMigration path: v{effective_prev_version.version} → "
-                f"v{MINIMUM_SUPPORTED_VERSION.version} → v{self.current_version.version}"
+                f"v{MINIMUM_SUPPORTED_VERSION.version} → v{self.current_version.version}",
             )
             return False
 

@@ -5,7 +5,6 @@ This module tests that the -v/--verbose and --log-level flags interact correctly
 in the CLI application callback.
 """
 
-import logging
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -184,7 +183,6 @@ class TestInvalidLogLevel:
 
     def test_invalid_log_level_raises_exit(self):
         """Test that invalid log level shows error and exits."""
-        from unittest.mock import call
 
         ctx = MagicMock(spec=typer.Context)
         ctx.obj = {}
@@ -196,7 +194,7 @@ class TestInvalidLogLevel:
             original_get = output_manager.get_global_output_handler
             mock_handler = MagicMock()
 
-            with patch.object(output_manager, 'get_global_output_handler', return_value=mock_handler):
+            with patch.object(output_manager, "get_global_output_handler", return_value=mock_handler):
                 with pytest.raises(typer.Exit) as exc_info:
                     app_callback(ctx, verbose=False, log_level="invalid", version=None)
 

@@ -6,13 +6,10 @@ enabling proper Unix piping (e.g., fm list | jq).
 """
 
 import json
-from io import StringIO
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-import pytest
 from rich.table import Table
 
-from frappe_manager.output_manager.flags import OutputRefactoringFlags
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 
 
@@ -22,8 +19,8 @@ class TestStreamSeparation:
     def test_print_data_uses_stdout_in_transition_mode(self):
         output = RichOutputHandler()
 
-        with patch.object(output.stdout, 'print') as mock_stdout:
-            with patch.dict('os.environ', {'FM_STREAM_SEPARATION': 'transition'}):
+        with patch.object(output.stdout, "print") as mock_stdout:
+            with patch.dict("os.environ", {"FM_STREAM_SEPARATION": "transition"}):
                 output.print_data("test data")
 
                 mock_stdout.assert_called_once()
@@ -31,8 +28,8 @@ class TestStreamSeparation:
     def test_print_data_uses_stderr_in_legacy_mode(self):
         output = RichOutputHandler()
 
-        with patch.object(output.stderr, 'print') as mock_stderr:
-            with patch.dict('os.environ', {'FM_STREAM_SEPARATION': 'legacy'}):
+        with patch.object(output.stderr, "print") as mock_stderr:
+            with patch.dict("os.environ", {"FM_STREAM_SEPARATION": "legacy"}):
                 output.print_data("test data")
 
                 mock_stderr.assert_called_once()
@@ -40,7 +37,7 @@ class TestStreamSeparation:
     def test_print_status_always_uses_stderr(self):
         output = RichOutputHandler()
 
-        with patch.object(output.stderr, 'print') as mock_stderr:
+        with patch.object(output.stderr, "print") as mock_stderr:
             output.print_status("Working...")
 
             mock_stderr.assert_called_once()
@@ -53,8 +50,8 @@ class TestStreamSeparation:
         table.add_column("Name")
         table.add_row("test")
 
-        with patch.object(output.stdout, 'print') as mock_stdout:
-            with patch.dict('os.environ', {'FM_STREAM_SEPARATION': 'transition'}):
+        with patch.object(output.stdout, "print") as mock_stdout:
+            with patch.dict("os.environ", {"FM_STREAM_SEPARATION": "transition"}):
                 output.print_data(table)
 
                 mock_stdout.assert_called_once()
@@ -64,8 +61,8 @@ class TestStreamSeparation:
         output = RichOutputHandler()
         data = {"key": "value", "number": 42}
 
-        with patch.object(output.stdout, 'print') as mock_stdout:
-            with patch.dict('os.environ', {'FM_STREAM_SEPARATION': 'transition'}):
+        with patch.object(output.stdout, "print") as mock_stdout:
+            with patch.dict("os.environ", {"FM_STREAM_SEPARATION": "transition"}):
                 output.print_data(data)
 
                 mock_stdout.assert_called_once()
@@ -77,8 +74,8 @@ class TestStreamSeparation:
         output = RichOutputHandler()
         data = ["item1", "item2", "item3"]
 
-        with patch.object(output.stdout, 'print') as mock_stdout:
-            with patch.dict('os.environ', {'FM_STREAM_SEPARATION': 'transition'}):
+        with patch.object(output.stdout, "print") as mock_stdout:
+            with patch.dict("os.environ", {"FM_STREAM_SEPARATION": "transition"}):
                 output.print_data(data)
 
                 mock_stdout.assert_called_once()
@@ -98,11 +95,11 @@ class TestRichOutputHandlerStreamSeparation:
             [
                 ("stdout", b"data line 1"),
                 ("stdout", b"data line 2"),
-            ]
+            ],
         )
 
-        with patch.object(output.stdout, 'print') as mock_stdout:
-            with patch.object(output.stderr, 'print') as mock_stderr:
+        with patch.object(output.stdout, "print") as mock_stdout:
+            with patch.object(output.stderr, "print") as mock_stderr:
                 output.live_lines(data, stdout=True, stderr=False)
 
                 assert mock_stdout.call_count == 2
@@ -116,11 +113,11 @@ class TestRichOutputHandlerStreamSeparation:
             [
                 ("stderr", b"error line 1"),
                 ("stderr", b"error line 2"),
-            ]
+            ],
         )
 
-        with patch.object(output.stdout, 'print') as mock_stdout:
-            with patch.object(output.stderr, 'print') as mock_stderr:
+        with patch.object(output.stdout, "print") as mock_stdout:
+            with patch.object(output.stderr, "print") as mock_stderr:
                 output.live_lines(data, stdout=False, stderr=True)
 
                 assert mock_stdout.call_count == 0
@@ -135,11 +132,11 @@ class TestRichOutputHandlerStreamSeparation:
                 ("stdout", b"data line"),
                 ("stderr", b"error line"),
                 ("stdout", b"another data line"),
-            ]
+            ],
         )
 
-        with patch.object(output.stdout, 'print') as mock_stdout:
-            with patch.object(output.stderr, 'print') as mock_stderr:
+        with patch.object(output.stdout, "print") as mock_stdout:
+            with patch.object(output.stderr, "print") as mock_stderr:
                 output.live_lines(data, stdout=True, stderr=True)
 
                 assert mock_stdout.call_count == 2
@@ -153,11 +150,11 @@ class TestRichOutputHandlerStreamSeparation:
             [
                 ("stdout", b"data line"),
                 ("stderr", b"error line"),
-            ]
+            ],
         )
 
-        with patch.object(output.stdout, 'print') as mock_stdout:
-            with patch.object(output.stderr, 'print') as mock_stderr:
+        with patch.object(output.stdout, "print") as mock_stdout:
+            with patch.object(output.stderr, "print") as mock_stderr:
                 output.live_lines(data, stdout=False, stderr=True)
 
                 assert mock_stdout.call_count == 0
@@ -171,11 +168,11 @@ class TestRichOutputHandlerStreamSeparation:
             [
                 ("stdout", b"data line"),
                 ("stderr", b"error line"),
-            ]
+            ],
         )
 
-        with patch.object(output.stdout, 'print') as mock_stdout:
-            with patch.object(output.stderr, 'print') as mock_stderr:
+        with patch.object(output.stdout, "print") as mock_stdout:
+            with patch.object(output.stderr, "print") as mock_stderr:
                 output.live_lines(data, stdout=True, stderr=False)
 
                 assert mock_stdout.call_count == 1

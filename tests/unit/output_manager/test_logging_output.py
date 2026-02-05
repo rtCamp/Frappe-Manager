@@ -13,7 +13,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from frappe_manager.exceptions import ValidationError
-from frappe_manager.logger import log
 from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager.logging_output import LoggingOutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler

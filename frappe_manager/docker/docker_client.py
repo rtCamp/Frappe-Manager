@@ -1,8 +1,8 @@
 import json
 import shlex
-
-from typing import Literal, Optional, List
 from pathlib import Path
+from typing import Literal
+
 from frappe_manager.docker.docker_compose import DockerComposeWrapper
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.output_manager.base import OutputHandler
@@ -26,7 +26,7 @@ class DockerClient:
             command. Defaults to False.
     """
 
-    def __init__(self, compose_file_path: Optional[Path] = None, output: Optional[OutputHandler] = None):
+    def __init__(self, compose_file_path: Path | None = None, output: OutputHandler | None = None):
         """
         Initializes a DockerClient object.
         Args:
@@ -35,7 +35,7 @@ class DockerClient:
         """
         self.docker_cmd = ["docker"]
         self.output = output
-        self.compose: Optional[DockerComposeWrapper] = None
+        self.compose: DockerComposeWrapper | None = None
         if compose_file_path:
             self.compose = DockerComposeWrapper(compose_file_path, output=output)
 
@@ -72,21 +72,19 @@ class DockerClient:
         docker_info = self.version()
 
         if "Server" in docker_info:
-            if docker_info['Server']:
+            if docker_info["Server"]:
                 return True
-            else:
-                return False
-        else:
-            # check if the current user in the docker group and notify the user
-            is_current_user_in_group("docker")
             return False
+        # check if the current user in the docker group and notify the user
+        is_current_user_in_group("docker")
+        return False
 
     def cp(
         self,
         source: str,
         destination: str,
-        source_container: Optional[str] = None,
-        destination_container: Optional[str] = None,
+        source_container: str | None = None,
+        destination_container: str | None = None,
         archive: bool = False,
         follow_link: bool = False,
         stream: bool = False,
@@ -119,7 +117,7 @@ class DockerClient:
     def kill(
         self,
         container: str,
-        signal: Optional[str] = None,
+        signal: str | None = None,
         stream: bool = False,
     ):
         parameters: dict = locals()
@@ -155,14 +153,14 @@ class DockerClient:
     def run(
         self,
         image: str,
-        command: Optional[str] = None,
-        env: Optional[dict[str, str]] = None,
-        name: Optional[str] = None,
-        user: Optional[str] = None,
-        volume: Optional[List[str]] = None,
+        command: str | None = None,
+        env: dict[str, str] | None = None,
+        name: str | None = None,
+        user: str | None = None,
+        volume: list[str] | None = None,
         detach: bool = False,
-        entrypoint: Optional[str] = None,
-        workdir: Optional[str] = None,
+        entrypoint: str | None = None,
+        workdir: str | None = None,
         pull: Literal["missing", "never", "always"] = "missing",
         use_shlex_split: bool = True,
         stream: bool = False,
@@ -194,7 +192,7 @@ class DockerClient:
         self,
         container_name: str,
         all_tags: bool = False,
-        platform: Optional[str] = None,
+        platform: str | None = None,
         stream: bool = False,
     ):
         parameters: dict = locals()
@@ -214,7 +212,7 @@ class DockerClient:
 
     def images(
         self,
-        format: Literal['json'] = 'json',
+        format: Literal["json"] = "json",
     ):
         parameters: dict = locals()
 
@@ -238,7 +236,7 @@ class DockerClient:
 
     # ==================== NEW: Convenience Methods ====================
 
-    def create_temp_container(self, image: str, name: Optional[str] = None, **run_kwargs) -> 'TempContainer':
+    def create_temp_container(self, image: str, name: str | None = None, **run_kwargs) -> "TempContainer":
         """
         Create a temporary container (context manager).
 
@@ -268,7 +266,7 @@ class DockerClient:
 
     # ==================== Context Manager Support ====================
 
-    def __enter__(self) -> 'DockerClient':
+    def __enter__(self) -> "DockerClient":
         """
         Enter context manager - enables automatic cleanup of compose environment.
 
@@ -325,7 +323,7 @@ class TempContainer:
         self.run_kwargs = run_kwargs
         self._started = False
 
-    def __enter__(self) -> 'TempContainer':
+    def __enter__(self) -> "TempContainer":
         """Start the temporary container"""
         from frappe_manager.docker import DockerException
 
@@ -334,7 +332,7 @@ class TempContainer:
                 image=self.image,
                 name=self.name,
                 detach=True,
-                entrypoint='bash',
+                entrypoint="bash",
                 command="tail -f /dev/null",
                 stream=False,
                 **self.run_kwargs,

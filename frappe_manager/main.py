@@ -20,7 +20,7 @@ def cli_entrypoint():
     CLI arguments are parsed. Exception handling uses bare richprint for
     backward compatibility.
     """
-    if hasattr(signal, 'SIGPIPE'):
+    if hasattr(signal, "SIGPIPE"):
         signal.signal(signal.SIGPIPE, signal.SIG_DFL)
 
     # Initialize basic output handler early (before app() runs)
@@ -36,23 +36,23 @@ def cli_entrypoint():
 
             fm_config = FMConfigManager.import_from_toml()
             file_level = fm_config.logs.file_level
-        except:
+        except Exception:
             file_level = "DEBUG"
 
         logger = log.get_logger(file_level=file_level)
         output = get_global_output_handler()
 
-        output.display_error(f'[red]Error Occurred[/red] {str(e).strip()}')
+        output.display_error(f"[red]Error Occurred[/red] {str(e).strip()}")
 
         # Show details if available
         if e.details:
             output.display_error(f"Details: {e.details}")
 
-        output.print(f"More info about error is logged in {CLI_LOG_DIRECTORY / 'fm.log'}", emoji_code=':mag:')
+        output.print(f"More info about error is logged in {CLI_LOG_DIRECTORY / 'fm.log'}", emoji_code=":mag:")
         output.stop()
 
         exception_traceback: str = capture_and_format_exception()
-        logger.error(f"FM Exception: {e.__class__.__name__}: {str(e)}\n{exception_traceback}")
+        logger.error(f"FM Exception: {e.__class__.__name__}: {e!s}\n{exception_traceback}")
         exit(1)
 
     except Exception as e:
@@ -61,14 +61,14 @@ def cli_entrypoint():
 
             fm_config = FMConfigManager.import_from_toml()
             file_level = fm_config.logs.file_level
-        except:
+        except Exception:
             file_level = "DEBUG"
 
         logger = log.get_logger(file_level=file_level)
         output = get_global_output_handler()
 
-        output.display_error(f'[red]Unexpected Error[/red] {str(e).strip()}')
-        output.print(f"More info about error is logged in {CLI_LOG_DIRECTORY / 'fm.log'}", emoji_code=':mag:')
+        output.display_error(f"[red]Unexpected Error[/red] {str(e).strip()}")
+        output.print(f"More info about error is logged in {CLI_LOG_DIRECTORY / 'fm.log'}", emoji_code=":mag:")
         output.stop()
 
         exception_traceback: str = capture_and_format_exception()

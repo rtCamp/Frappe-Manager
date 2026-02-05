@@ -1,17 +1,20 @@
 """Renew SSL certificates command."""
 
-from typing import Annotated, Optional
+from typing import Annotated
+
 import typer
+
 from frappe_manager import CLI_BENCHES_DIRECTORY
-from frappe_manager.site_manager.bench_service import BenchService
-from frappe_manager.site_manager.site import Bench
-from frappe_manager.site_manager.exceptions import BenchSSLCertificateNotIssued
-from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotDueForRenewalError
 from frappe_manager.logger.context import LoggerContext
-from frappe_manager.output_manager import temporary_stop, spinner
-from frappe_manager.utils.callbacks import sites_autocompletion_callback, prompt_for_bench_selection
+from frappe_manager.output_manager import spinner, temporary_stop
+from frappe_manager.site_manager.bench_service import BenchService
+from frappe_manager.site_manager.exceptions import BenchSSLCertificateNotIssued
+from frappe_manager.site_manager.site import Bench
+from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotDueForRenewalError
+from frappe_manager.utils.callbacks import prompt_for_bench_selection, sites_autocompletion_callback
+
+from .external_helpers import _renew_all_external_certificates, _renew_external_certificate
 from .helpers import get_output_handler
-from .external_helpers import _renew_external_certificate, _renew_all_external_certificates
 
 ssl_renew_command = typer.Typer(no_args_is_help=True)
 
@@ -20,13 +23,13 @@ ssl_renew_command = typer.Typer(no_args_is_help=True)
 def renew(
     ctx: typer.Context,
     benchname: Annotated[
-        Optional[str],
+        str | None,
         typer.Argument(
-            help="Name of the bench (omit for standalone mode).", autocompletion=sites_autocompletion_callback
+            help="Name of the bench (omit for standalone mode).", autocompletion=sites_autocompletion_callback,
         ),
     ] = None,
     domain: Annotated[
-        Optional[str],
+        str | None,
         typer.Argument(help="Specific domain to renew. If omitted, renews all certificates for the bench/standalone."),
     ] = None,
     all: Annotated[bool, typer.Option(help="Renew ssl cert for all benches.")] = False,
@@ -94,7 +97,7 @@ def renew(
                         output.display_error(
                             f"No SSL certificate found for domain '{domain}'.\n"
                             f"Configured certificates: {', '.join(cert_domains) if cert_domains else 'None'}\n"
-                            f"To add a certificate, use: fm ssl add {benchname} {domain}"
+                            f"To add a certificate, use: fm ssl add {benchname} {domain}",
                         )
                         raise typer.Exit(1)
 

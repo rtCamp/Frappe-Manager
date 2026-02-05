@@ -6,10 +6,10 @@ that works for any subprocess (Docker, acme.sh, git, npm, etc.).
 """
 
 import os
+from collections.abc import Iterator
 from queue import Queue
 from subprocess import PIPE, Popen
 from threading import Thread
-from typing import Dict, Iterator, Optional, Tuple
 
 from frappe_manager.logger import log
 
@@ -30,7 +30,7 @@ def reader(pipe, pipe_name: str, queue: Queue):
     try:
         with pipe:
             for line in iter(pipe.readline, b""):
-                queue_line = line.decode().strip('\n')
+                queue_line = line.decode().strip("\n")
                 logger.debug(queue_line)
                 queue.put((pipe_name, str(queue_line).encode()))
     finally:
@@ -39,9 +39,9 @@ def reader(pipe, pipe_name: str, queue: Queue):
 
 def stream_command_output(
     cmd: list,
-    env: Optional[Dict[str, str]] = None,
-    cwd: Optional[str] = None,
-) -> Iterator[Tuple[str, bytes]]:
+    env: dict[str, str] | None = None,
+    cwd: str | None = None,
+) -> Iterator[tuple[str, bytes]]:
     """
     Execute a command and stream stdout/stderr output in real-time.
 
@@ -77,7 +77,7 @@ def stream_command_output(
         preventing deadlocks when the process produces large amounts of output.
     """
     logger = log.get_logger()
-    logger.debug('- -' * 10)
+    logger.debug("- -" * 10)
     logger.debug(f"COMMAND: {' '.join(cmd)}")
 
     # Prepare environment
@@ -114,6 +114,6 @@ def stream_command_output(
     exit_code = process.wait()
 
     logger.debug(f"RETURN CODE: {exit_code}")
-    logger.debug('- -' * 10)
+    logger.debug("- -" * 10)
 
     yield ("exit_code", str(exit_code).encode())

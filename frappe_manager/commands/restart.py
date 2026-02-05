@@ -1,18 +1,19 @@
-from typing import Annotated, Optional
+from typing import Annotated
+
 import typer
-from frappe_manager.logger.context import LoggerContext
-from frappe_manager.output_manager import spinner, get_global_output_handler
+
+from frappe_manager.commands import check_bench_migration_required
+from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
-from frappe_manager.commands import check_bench_migration_required
 
 
 def restart(
     ctx: typer.Context,
     benchname: Annotated[
-        Optional[str],
+        str | None,
         typer.Argument(
-            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback
+            help="Name of the bench.", autocompletion=sites_autocompletion_callback, callback=sitename_callback,
         ),
     ] = None,
     web: Annotated[
@@ -58,7 +59,7 @@ def restart(
     check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
-    verbose = ctx.obj['verbose']
+    verbose = ctx.obj["verbose"]
 
     output = get_global_output_handler()
     logger = ctx.obj.get("logger")

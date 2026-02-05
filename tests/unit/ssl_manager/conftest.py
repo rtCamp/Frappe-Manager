@@ -8,15 +8,14 @@ including mock certificates, storage configurations, and dependencies.
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
-from unittest.mock import Mock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
-from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES, LETSENCRYPT_PREFERRED_CHALLENGE
+
+from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
-
 
 # ============================================================================
 # Pytest Configuration
@@ -47,7 +46,7 @@ def configure_logging(request):
         pytest tests/unit/ssl_manager/ -v --show-app-logs  # With logs for debugging
     """
     # Store original log level
-    fm_logger = logging.getLogger('frappe_manager')
+    fm_logger = logging.getLogger("frappe_manager")
     original_level = fm_logger.level
 
     # Suppress logs unless --show-app-logs flag is used
@@ -216,8 +215,8 @@ def mock_compose_project(mocker):
 def mock_compose_file_manager(mocker):
     """Returns a mock ComposeFile instance."""
     mock_cf = MagicMock()
-    mock_cf.get_services_list.return_value = ['nginx-proxy']
-    mock_cf.get_container_names.return_value = {'nginx-proxy': 'nginx-proxy-container'}
+    mock_cf.get_services_list.return_value = ["nginx-proxy"]
+    mock_cf.get_container_names.return_value = {"nginx-proxy": "nginx-proxy-container"}
     mock_cf.get_service_volumes.return_value = []
     return mock_cf
 
@@ -230,7 +229,7 @@ def mock_docker_client(mocker):
     mock_client.compose.exec = MagicMock(return_value="OK")
     mock_client.compose.restart = MagicMock(return_value="OK")
     mock_client.compose.get_all_services_status.return_value = [
-        {"Name": "nginx-proxy-container", "Service": "nginx-proxy", "State": "running"}
+        {"Name": "nginx-proxy-container", "Service": "nginx-proxy", "State": "running"},
     ]
     return mock_client
 
@@ -334,7 +333,7 @@ def reset_env_vars(monkeypatch):
     """
     # Store original values
     original_env = {}
-    env_vars = ['FM_LETSENCRYPT_STAGING']
+    env_vars = ["FM_LETSENCRYPT_STAGING"]
 
     for var in env_vars:
         import os

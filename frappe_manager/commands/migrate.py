@@ -1,20 +1,19 @@
-from typing import Annotated, Optional
-from pathlib import Path
 from enum import Enum
+from typing import Annotated
 
 import typer
+from rich.table import Table
 
-from frappe_manager.utils.helpers import get_current_fm_version, CLI_BENCHES_DIRECTORY
-from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME
+from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY
 from frappe_manager.metadata_manager import FMConfigManager
-from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.migration_manager.bench_migration_state import (
     get_bench_migration_version,
     set_bench_migration_version,
 )
+from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager import get_global_output_handler, spinner
-from rich.table import Table
+from frappe_manager.utils.helpers import get_current_fm_version
 
 
 class MigrationFailureAction(str, Enum):
@@ -28,7 +27,7 @@ class MigrationFailureAction(str, Enum):
 def migrate(
     ctx: typer.Context,
     benchname: Annotated[
-        Optional[str],
+        str | None,
         typer.Argument(help="Bench name to migrate"),
     ] = None,
     all_benches: Annotated[
@@ -40,11 +39,11 @@ def migrate(
         typer.Option("--skip-all-backup", help="Skip all backups (DANGEROUS - use only if backups fail)"),
     ] = False,
     skip_backup_for: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--skip-backup-for", help="Skip backup for specific benches (comma-separated)"),
     ] = None,
     exclude_bench: Annotated[
-        Optional[str],
+        str | None,
         typer.Option("--exclude-bench", help="Exclude specific benches from migration (only with --all-benches)"),
     ] = None,
     auto_proceed: Annotated[
@@ -52,7 +51,7 @@ def migrate(
         typer.Option("--auto-proceed", help="Skip migration confirmation prompt (proceed automatically)"),
     ] = False,
     on_failure: Annotated[
-        Optional[MigrationFailureAction],
+        MigrationFailureAction | None,
         typer.Option(
             "--on-failure",
             help="What to do if migration fails: prompt (ask user), archive (save failed benches), rollback (revert all)",
@@ -155,12 +154,12 @@ def migrate(
         for bench_name in target_benches:
             if bench_name in migrations.migrate_benches:
                 bench_data = migrations.migrate_benches[bench_name]
-                if bench_data['last_migration_version'] == current_version and not bench_data['exception']:
+                if bench_data["last_migration_version"] == current_version and not bench_data["exception"]:
                     bench_path = CLI_BENCHES_DIRECTORY / bench_name
                     if bench_path.exists() and (bench_path / CLI_BENCH_CONFIG_FILE_NAME).exists():
                         set_bench_migration_version(bench_path, current_version)
                         benches_migrated.append(bench_name)
-                elif bench_data['exception']:
+                elif bench_data["exception"]:
                     benches_failed.append(bench_name)
             else:
                 benches_skipped.append(bench_name)

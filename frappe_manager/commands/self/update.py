@@ -1,7 +1,9 @@
 import json
 from typing import Annotated
-import typer
+
 import requests
+import typer
+
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.utils.helpers import get_current_fm_version, install_package
 
@@ -25,10 +27,10 @@ def update(
                 "\nDo you want to update ?"
             )
             continue_update = output.prompt_ask(
-                prompt=update_msg, choices=["yes", "no"], force_yes=yes, required_flag="--yes"
+                prompt=update_msg, choices=["yes", "no"], force_yes=yes, required_flag="--yes",
             )
 
-            if continue_update == 'yes':
+            if continue_update == "yes":
                 install_package("frappe-manager", latest_version)
     except Exception as e:
         output = get_global_output_handler()

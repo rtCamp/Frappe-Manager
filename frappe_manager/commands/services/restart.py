@@ -1,8 +1,10 @@
-import typer
 from typing import Annotated
-from frappe_manager.services_manager.services import ServicesManager
+
+import typer
+
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.services_manager import ServicesEnum
+from frappe_manager.services_manager.services import ServicesManager
 
 
 def restart_services(
