@@ -56,7 +56,7 @@ jobs:
 
       - name: e2e run
         timeout-minutes: 20
-        working-directory: test
+        working-directory: scripts/e2e
         run: |
           ./migration_test.sh oldToNew
 
@@ -131,7 +131,7 @@ jobs:
 
       - name: e2e run
         timeout-minutes: 30
-        working-directory: test
+        working-directory: scripts/e2e
         run: |
           ./migration_test.sh semiNewToNew
 
