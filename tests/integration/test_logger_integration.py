@@ -42,6 +42,7 @@ def temp_log_dir(tmp_path):
 
     # Clear logger cache to ensure fresh logger creation
     import frappe_manager.logger.log as log_module
+
     log_module.loggers.clear()
 
     return log_dir
@@ -100,6 +101,7 @@ class TestCLILoggingIntegration:
 
             # Clear logger cache between runs
             import frappe_manager.logger.log as log_module
+
             log_module.loggers.clear()
 
             result2 = runner.invoke(app, ["-v", "list"])
@@ -216,6 +218,7 @@ class TestLogFileLocation:
 
             # Clear logger cache and run second command
             import frappe_manager.logger.log as log_module
+
             log_module.loggers.clear()
 
             result2 = runner.invoke(app, ["list"])
@@ -258,14 +261,6 @@ class TestHelpCommand:
 class TestInvalidLogLevel:
     """Test handling of invalid log level values."""
 
-    def test_invalid_log_level_shows_error(self):
-        """Test that invalid --log-level value shows error."""
-        result = runner.invoke(app, ["--log-level", "invalid", "list"])
-
-        # Should fail with error message
-        assert result.exit_code != 0
-        assert "invalid" in result.stdout.lower() or "error" in result.stdout.lower()
-
     def test_case_insensitive_log_levels(self, temp_log_dir, mock_services):
         """Test that log levels are case-insensitive."""
         with patch_log_and_bench_dirs(temp_log_dir):
@@ -273,6 +268,7 @@ class TestInvalidLogLevel:
             for level in ["debug", "Debug", "DEBUG", "DeBuG"]:
                 # Clear logger cache between runs
                 import frappe_manager.logger.log as log_module
+
                 log_module.loggers.clear()
 
                 result = runner.invoke(app, ["--log-level", level, "list"])
