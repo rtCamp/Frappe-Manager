@@ -370,3 +370,39 @@ class TestLoggingOutputHandlerInteractiveMode:
         output.set_interactive_mode(non_interactive_flag=True)
 
         assert rich._is_interactive is False
+
+
+class TestLoggingOutputHandlerExit:
+
+    def test_exit_delegates_to_rich_handler(self, test_logger):
+        logger, log_file = test_logger
+        rich = RichOutputHandler()
+        output = LoggingOutputHandler(rich, logger)
+
+        with pytest.raises(Exception):
+            output.exit("Test error message")
+
+        log_contents = log_file.read_text()
+        assert "[ERROR] [OUTPUT] EXIT: Test error message" in log_contents
+
+    def test_exit_with_error_msg(self, test_logger):
+        logger, log_file = test_logger
+        rich = RichOutputHandler()
+        output = LoggingOutputHandler(rich, logger)
+
+        with pytest.raises(Exception):
+            output.exit("Test error", error_msg="Additional details")
+
+        log_contents = log_file.read_text()
+        assert "[ERROR] [OUTPUT] EXIT: Test error | Error: Additional details" in log_contents
+
+    def test_exit_with_silent_handler_fallback(self, test_logger):
+        logger, log_file = test_logger
+        silent = SilentOutputHandler()
+        output = LoggingOutputHandler(silent, logger)
+
+        with pytest.raises(Exception):
+            output.exit("Test error message")
+
+        log_contents = log_file.read_text()
+        assert "[ERROR] [OUTPUT] EXIT: Test error message" in log_contents
