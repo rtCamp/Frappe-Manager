@@ -25,7 +25,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-ver: ["3.11", "3.12"]
+        python-ver: ["3.14"]
         os: [ubuntu-latest]
     
     steps:
