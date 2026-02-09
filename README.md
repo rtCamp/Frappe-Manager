@@ -71,13 +71,17 @@
 
 ```bash
 # Run directly without installation (requires uv)
-uvx frappe-manager create mysite
+uvx --from frappe-manager fm create mysite
+
+# Run latest development version without installation
+uvx --from git+https://github.com/rtcamp/frappe-manager@develop fm --help
 
 # Install with uv tool (persistent installation)
 uv tool install frappe-manager
 
 # Install latest development version
 uv tool install git+https://github.com/rtcamp/frappe-manager@develop
+
 
 # Upgrade to latest version
 uv tool upgrade frappe-manager
