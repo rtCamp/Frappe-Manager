@@ -1,5 +1,5 @@
 version = 1
-requires-python = ">=3.14"
+requires-python = ">=3.14.2"
 
 [[package]]
 name = "annotated-types"
