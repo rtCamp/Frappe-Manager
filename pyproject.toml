@@ -3,7 +3,7 @@ name = "frappe-manager"
 version = "0.19.0"
 description = "A CLI tool based on Docker Compose to easily manage Frappe based projects. As of now, only suitable for development in local machines running on Mac and Linux based OS."
 readme = "README.md"
-requires-python = ">=3.14.2"
+requires-python = ">=3.13"
 license = { text = "MIT" }
 authors = [ { name = "rtCamp", email = "sys@rtcamp.com" } ]
 maintainers = [ { name = "Alok Singh", email = "alok.singh@rtcamp.com" } ]
@@ -14,8 +14,7 @@ dependencies = [
     "configargparse!=1.7",
     "ruamel-yaml>=0.19.0,<0.20.0",
     "tomlkit>=0.14.0,<0.15.0",
-    "pydantic>=2.12.5,<3.0.0",
-    "pydantic-core>=2.41.5,<3.0.0",
+    "pydantic>=2.9.0,<3.0.0",
     "email-validator>=2.3.0,<3.0.0",
     "jinja2>=3.1.6,<4.0.0",
     "ngrok>=1.7.0,<2.0.0",
@@ -37,7 +36,7 @@ fm = "frappe_manager.main:cli_entrypoint"
 [tool.ruff]
 line-length = 120
 indent-width = 4
-target-version = "py314"
+target-version = "py313"
 
 [tool.ruff.lint]
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
