@@ -424,6 +424,21 @@ class AppConfig(BaseModel):
             return False
         return len(self.ref) == 40 and all(c in "0123456789abcdef" for c in self.ref.lower())
 
+    def _is_github_repo(self) -> bool:
+        from urllib.parse import urlparse
+
+        if self.repo.startswith(("http://", "https://")):
+            parsed = urlparse(self.repo)
+            return parsed.netloc == "github.com"
+
+        if self.repo.startswith("git@"):
+            return self.repo.startswith("git@github.com:")
+
+        if "/" in self.repo and not self.repo.startswith(("http://", "https://", "git@")):
+            return True
+
+        return False
+
     @classmethod
     def from_string(cls, app_string: str) -> "AppConfig":
         """
@@ -641,7 +656,7 @@ class AppConfig(BaseModel):
 
         logger = log.get_logger()
 
-        if github_token and "github.com" in self.repo:
+        if github_token and self._is_github_repo():
             is_valid, error_msg = AppConfig.validate_github_token(github_token)
             if not is_valid:
                 logger.warning(f"GitHub token validation failed: {error_msg}")

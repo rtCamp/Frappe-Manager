@@ -57,7 +57,7 @@ def get_examples_from_toml(
 
             cmd = f"fm {' '.join(commands_stack)}"
 
-            command_requires_benchname = commands_stack[0] not in COMMANDS_WITHOUT_BENCHNAME
+            command_requires_benchname = bool(commands_stack) and commands_stack[0] not in COMMANDS_WITHOUT_BENCHNAME
             element_has_benchname_key = "benchname" in element
             benchname_is_nonempty = element_example_data["benchname"]
 

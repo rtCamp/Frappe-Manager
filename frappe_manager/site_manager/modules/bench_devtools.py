@@ -201,7 +201,7 @@ class BenchDevTools:
 
     def _config_needs_update(self, previous_extensions: list[str], new_extensions: list[str], user: str) -> bool:
         """Check if container config needs updating."""
-        return not previous_extensions == new_extensions or not user == user
+        return previous_extensions != new_extensions
 
     def _apply_new_config(self, labels: dict) -> None:
         """Apply new container configuration."""
