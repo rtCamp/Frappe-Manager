@@ -130,12 +130,36 @@
         "code": " -c \"bench --version\""
       },
       {
+        "desc": "Execute commands from heredoc",
+        "code": " <<'EOF'\nls -la\nbench --version\nEOF"
+      },
+      {
         "desc": "Open shell in nginx container",
         "code": " --service nginx --user nginx"
       },
       {
         "desc": "Run command with passthrough syntax",
         "code": " -- bench migrate"
+      },
+      {
+        "desc": "Open interactive bench console with IPython",
+        "code": " --bench-console"
+      },
+      {
+        "desc": "Open bench console for specific site",
+        "code": " --bench-console --site mysite.localhost"
+      },
+      {
+        "desc": "Execute Python code in Frappe context",
+        "code": " --bench-console -c \"import frappe; print(frappe.__version__)\""
+      },
+      {
+        "desc": "Execute Python script from heredoc in Frappe context",
+        "code": " --bench-console <<'EOF'\nimport frappe\nprint(frappe.__version__)\nEOF"
+      },
+      {
+        "desc": "Execute Python script file in Frappe context",
+        "code": " --bench-console --site mysite.localhost < script.py"
       }
     ]
   },

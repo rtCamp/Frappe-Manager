@@ -295,12 +295,8 @@ class BenchDockerOps:
             if user:
                 run_cmd += ["--user", user]
 
-            if compose_service == "frappe":
-                run_cmd += ["--entrypoint", "/bin/bash"]
-                run_cmd += [compose_service]
-            else:
-                run_cmd += ["--entrypoint", shell_path]
-                run_cmd += [compose_service]
+            run_cmd += ["--entrypoint", shell_path]
+            run_cmd += [compose_service]
 
             import os
 
@@ -313,9 +309,8 @@ class BenchDockerOps:
 
             if compose_service == "frappe":
                 exec_cmd += ["--workdir", "/workspace/frappe-bench"]
-                exec_cmd += [compose_service, "/bin/bash"]
-            else:
-                exec_cmd += [compose_service, shell_path]
+
+            exec_cmd += [compose_service, shell_path]
 
             import os
 
