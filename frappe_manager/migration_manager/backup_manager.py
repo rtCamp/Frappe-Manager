@@ -7,7 +7,7 @@ from typing import ClassVar
 
 from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_DIR
 from frappe_manager.logger import log
-from frappe_manager.migration_manager.migration_constants import TIMESTAMP_COLLISION_RETRY_DELAY_MS
+from frappe_manager.migration_manager.migration_constants import TIMESTAMP_COLLISION_RETRY_DELAY_SECONDS
 
 
 @dataclass
@@ -44,7 +44,7 @@ class BackupData:
         timestamp = datetime.now().strftime("%d-%b-%y--%H-%M-%S")
 
         while timestamp in BackupData._used_timestamps:
-            time.sleep(TIMESTAMP_COLLISION_RETRY_DELAY_MS)
+            time.sleep(TIMESTAMP_COLLISION_RETRY_DELAY_SECONDS)
             timestamp = datetime.now().strftime("%d-%b-%y--%H-%M-%S-%f")[:23]
 
         BackupData._used_timestamps.add(timestamp)
@@ -83,7 +83,7 @@ class BackupManager:
         timestamp = datetime.now().strftime("%d-%b-%y--%H-%M-%S")
 
         while timestamp in BackupManager._active_sessions:
-            time.sleep(TIMESTAMP_COLLISION_RETRY_DELAY_MS)
+            time.sleep(TIMESTAMP_COLLISION_RETRY_DELAY_SECONDS)
             timestamp = datetime.now().strftime("%d-%b-%y--%H-%M-%S-%f")[:23]
 
         BackupManager._active_sessions.add(timestamp)

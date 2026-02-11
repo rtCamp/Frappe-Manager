@@ -7,7 +7,8 @@ import time
 
 import ngrok
 
-from frappe_manager.output_manager import get_global_output_handler, spinner
+from frappe_manager.output_manager import get_global_output_handler, set_global_output_handler, spinner
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 
 
 def create_tunnel(site_name: str, auth_token: str, port: int = 80) -> None:
@@ -19,7 +20,13 @@ def create_tunnel(site_name: str, auth_token: str, port: int = 80) -> None:
         auth_token: Ngrok authentication token
         port: The local port to tunnel to (default: 80)
     """
-    with spinner(get_global_output_handler(), f"Forwarding all requests from {site_name}"):
+    try:
+        output = get_global_output_handler()
+    except RuntimeError:
+        output = RichOutputHandler()
+        set_global_output_handler(output)
+
+    with spinner(output, f"Forwarding all requests from {site_name}"):
         try:
             ngrok.set_auth_token(auth_token)
 
