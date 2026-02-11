@@ -162,8 +162,8 @@ def update(
 
             bench.generate_compose(compose_inputs)
 
-            output.print("Recreating containers to apply environment change..")
-            bench.docker_client.compose.up(detach=True, force_recreate=True)
+            output.print("Recreating frappe container to apply environment change..")
+            bench.docker_client.compose.up(services=["frappe"], detach=True, force_recreate=True)
 
             output.print(f"Switched bench environment to {environment.value}")
             bench_config_save = True

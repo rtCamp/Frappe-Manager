@@ -511,9 +511,7 @@ class BenchOrchestrator:
 
     def update_alias_domains(self, add_domains: list[str] | None = None, remove_domains: list[str] | None = None):
         """
-        Update alias domains for the bench.
-        - Updates alias configuration
-        - Restarts services with new configuration
+        Update alias domains without restarting services.
 
         SSL certificates are NOT automatically generated for new alias domains.
         Users must explicitly add SSL certificates using: fm ssl add <bench> <domain>
@@ -571,7 +569,7 @@ class BenchOrchestrator:
             bench.save_bench_config()
             self.output.print("Configuration saved")
 
-            self._restart_services_with_updated_config()
+            self._update_alias_domains_lightweight()
 
             if added_domains:
                 self.output.print("To add SSL certificates for new alias domains, use:", emoji_code="")
@@ -583,6 +581,28 @@ class BenchOrchestrator:
             self.output.stop()
             self.logger.error(f"Failed to update alias domains: {e}")
             raise Exception(f"Failed to update alias domains: {e}")
+
+    def _update_alias_domains_lightweight(self):
+        bench = self.bench
+
+        self.output.change_head("Updating compose configuration")
+        bench.generate_compose(bench.bench_config.export_to_compose_inputs())
+        self.output.print("Updated compose configuration with new domains")
+
+        self.output.change_head("Applying changes")
+        bench.docker_client.compose.up(
+            services=["nginx"],
+            detach=True,
+            pull="never",
+            force_recreate=False,
+        )
+
+        nginx_config_path = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
+        if nginx_config_path.exists():
+            nginx_config_path.unlink()
+
+        bench.bench_nginx_controller.reload()
+        self.output.print("Applied configuration changes")
 
     def _restart_services_with_updated_config(self):
         """Restart all bench services with updated configuration."""
