@@ -1,3 +1,5 @@
+import base64
+import os
 import sys
 from typing import Annotated
 
@@ -5,8 +7,76 @@ import typer
 
 from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.site_manager import NON_BASH_SUPPORTED_SERVICES
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
+
+
+def _get_default_user(service: str, user: str | None) -> str | None:
+    if service == "frappe" and not user:
+        return "frappe"
+    return user
+
+
+def _get_default_shell_path(service: str, shell_path: str | None) -> str:
+    if shell_path:
+        return shell_path
+    return "/bin/bash" if service not in NON_BASH_SUPPORTED_SERVICES else "sh"
+
+
+def _handle_bench_console(
+    bench: Bench,
+    benchname: str,
+    command: str | None,
+    site: str | None,
+    user: str | None,
+    run: bool,
+    output,
+) -> None:
+    if not site:
+        site = benchname
+
+    python_code = None
+
+    if command:
+        python_code = command
+    elif not sys.stdin.isatty():
+        python_code = sys.stdin.read()
+    else:
+        if run:
+            exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["run", "--rm"]
+            if user:
+                exec_cmd += ["--user", user]
+            exec_cmd += ["--entrypoint", "/bin/bash"]
+            exec_cmd += ["frappe", "-c", f"cd /workspace/frappe-bench && bench --site {site} console"]
+        else:
+            exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["exec"]
+            if user:
+                exec_cmd += ["--user", user]
+            exec_cmd += ["--workdir", "/workspace/frappe-bench"]
+            exec_cmd += ["frappe", "bench", "--site", site, "console"]
+
+        os.execvp(exec_cmd[0], exec_cmd)
+
+    frappe_init_wrapper = f"""import sys
+import os
+os.chdir('/workspace/frappe-bench/sites')
+sys.path.insert(0, '/workspace/frappe-bench/apps')
+import frappe
+frappe.init(site='{site}')
+frappe.connect()
+
+{python_code}
+"""
+
+    encoded_code = base64.b64encode(frappe_init_wrapper.encode()).decode()
+    bench_console_cmd = (
+        f"FM_EXEC_CODE='{encoded_code}' && echo $FM_EXEC_CODE | base64 -d | /workspace/frappe-bench/env/bin/python"
+    )
+
+    exit_code = bench.execute_command("frappe", bench_console_cmd, user, use_run=run)
+    if exit_code != 0:
+        raise typer.Exit(exit_code)
 
 
 def shell(
@@ -32,7 +102,7 @@ def shell(
         ),
     ] = False,
     site: Annotated[
-        str | None, typer.Option(help="Site name for bench console (auto-detected if not specified)")
+        str | None, typer.Option(help="Site name for bench console (defaults to benchname if not specified)")
     ] = None,
 ):
     """
@@ -55,9 +125,9 @@ def shell(
 
     check_bench_migration_required(benchname)
 
-    services_manager = ctx.obj["services"]
-    verbose = ctx.obj["verbose"]
+    assert benchname is not None
 
+    services_manager = ctx.obj["services"]
     output = get_global_output_handler()
     logger = ctx.obj.get("logger")
     bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
@@ -73,167 +143,55 @@ def shell(
             output.display_error("--bench-console only works with the frappe service")
             raise typer.Exit(1)
 
-        if not user:
-            user = "frappe"
-
+        user = _get_default_user(service, user)
         output.stop()
-
-        python_code = None
-
-        if command:
-            python_code = command
-        elif not sys.stdin.isatty():
-            python_code = sys.stdin.read()
-        else:
-            if not site:
-                get_current_site_cmd = "cat /workspace/frappe-bench/sites/currentsite.txt 2>/dev/null || ls -1 /workspace/frappe-bench/sites/ | grep -v '^\\.\\|^apps.txt$\\|^assets$\\|^common_site_config.json$\\|currentsite.txt' | head -1"
-                result = bench.docker_client.compose.exec(
-                    service="frappe",
-                    command=f'/bin/bash -c "{get_current_site_cmd}"',
-                    stream=False,
-                    capture_output=True,
-                )
-
-                if result.stdout and result.stdout[0].strip():
-                    site = result.stdout[0].strip()
-                    output.print(f"Using site: {site}")
-                else:
-                    output.display_error("Could not detect site. Please specify --site option")
-                    output.print("Example: fm shell mybench --bench-console --site mysite.localhost")
-                    raise typer.Exit(1)
-
-            import os
-
-            if run:
-                exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["run", "--rm"]
-                if user:
-                    exec_cmd += ["--user", user]
-                exec_cmd += ["--entrypoint", "/bin/bash"]
-                exec_cmd += ["frappe", "-c", f"cd /workspace/frappe-bench && bench --site {site} console"]
-            else:
-                exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["exec"]
-                if user:
-                    exec_cmd += ["--user", user]
-                exec_cmd += ["--workdir", "/workspace/frappe-bench"]
-                exec_cmd += ["frappe", "bench", "--site", site, "console"]
-
-            os.execvp(exec_cmd[0], exec_cmd)
-
-        import base64
-
-        if not site:
-            get_current_site_cmd = "cat /workspace/frappe-bench/sites/currentsite.txt 2>/dev/null || ls -1 /workspace/frappe-bench/sites/ | grep -v '^\\.\\|^apps.txt$\\|^assets$\\|^common_site_config.json$\\|currentsite.txt' | head -1"
-            result = bench.docker_client.compose.exec(
-                service="frappe",
-                command=f'/bin/bash -c "{get_current_site_cmd}"',
-                stream=False,
-                capture_output=True,
-            )
-
-            if result.stdout and result.stdout[0].strip():
-                site = result.stdout[0].strip()
-                output.print(f"Using site: {site}")
-            else:
-                output.display_error("Could not detect site. Please specify --site option")
-                output.print("Example: fm shell mybench --bench-console --site mysite.localhost")
-                raise typer.Exit(1)
-
-        frappe_init_wrapper = f"""
-import sys
-import os
-
-os.chdir('/workspace/frappe-bench/sites')
-sys.path.insert(0, '/workspace/frappe-bench/apps')
-
-import frappe
-frappe.init(site={repr(site)})
-frappe.connect()
-
-{python_code}
-"""
-
-        frappe_init_wrapper = f"""import sys
-import os
-os.chdir('/workspace/frappe-bench/sites')
-sys.path.insert(0, '/workspace/frappe-bench/apps')
-import frappe
-frappe.init(site='{site}')
-frappe.connect()
-
-{python_code}
-"""
-
-        import base64
-
-        encoded_code = base64.b64encode(frappe_init_wrapper.encode()).decode()
-
-        bench_console_cmd = (
-            f"FM_EXEC_CODE='{encoded_code}' && echo $FM_EXEC_CODE | base64 -d | /workspace/frappe-bench/env/bin/python"
-        )
-
-        exit_code = bench.execute_command(service, bench_console_cmd, user, use_run=run)
-
-        if exit_code != 0:
-            raise typer.Exit(exit_code)
-
+        _handle_bench_console(bench, benchname, command, site, user, run, output)
         return
 
     output.stop()
+
+    user = _get_default_user(service, user)
+    shell_path = _get_default_shell_path(service, shell_path)
 
     passthrough_args = ctx.args if ctx.args else None
     is_interactive = output.is_interactive()
     has_stdin_data = not sys.stdin.isatty()
 
-    if command or passthrough_args or has_stdin_data:
-        if has_stdin_data and not command and not passthrough_args:
-            stdin_commands = sys.stdin.read()
-            if service == "frappe" and not user:
-                user = "frappe"
+    if has_stdin_data and not command and not passthrough_args:
+        stdin_commands = sys.stdin.read()
+        exit_code = bench.execute_command(service, stdin_commands, user, shell_path=shell_path, use_run=run)
+        if exit_code != 0:
+            raise typer.Exit(exit_code)
+        return
 
-            if not shell_path:
-                non_bash_supported = ["redis-cache", "redis-queue", "adminer", "mailpit"]
-                shell_path = "/bin/bash" if service not in non_bash_supported else "sh"
-
-            exit_code = bench.execute_command(service, stdin_commands, user, shell_path=shell_path, use_run=run)
-
-            if exit_code != 0:
-                raise typer.Exit(exit_code)
-        elif passthrough_args:
-            if service == "frappe" and not user:
-                user = "frappe"
-
-            if not shell_path:
-                non_bash_supported = ["redis-cache", "redis-queue", "adminer", "mailpit"]
-                shell_path = "/bin/bash" if service not in non_bash_supported else "sh"
-
-            if run:
-                exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["run", "--rm"]
-                if user:
-                    exec_cmd += ["--user", user]
-                exec_cmd += ["--entrypoint", shell_path]
-                exec_cmd += [service, "-c", " ".join(passthrough_args)]
-            else:
-                exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["exec"]
-                if user:
-                    exec_cmd += ["--user", user]
-                if service == "frappe":
-                    exec_cmd += ["--workdir", "/workspace/frappe-bench"]
-                exec_cmd += [service, shell_path, "-c", " ".join(passthrough_args)]
-
-            if is_interactive:
-                import os
-
-                os.execvp(exec_cmd[0], exec_cmd)
-            else:
-                command_str = " ".join(passthrough_args)
-                exit_code = bench.execute_command(service, command_str, user, shell_path=shell_path, use_run=run)
-
-                if exit_code != 0:
-                    raise typer.Exit(exit_code)
+    if passthrough_args:
+        if run:
+            exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["run", "--rm"]
+            if user:
+                exec_cmd += ["--user", user]
+            exec_cmd += ["--entrypoint", shell_path]
+            exec_cmd += [service, "-c", " ".join(passthrough_args)]
         else:
-            exit_code = bench.execute_command(service, command, user, shell_path=shell_path, use_run=run)
+            exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["exec"]
+            if user:
+                exec_cmd += ["--user", user]
+            if service == "frappe":
+                exec_cmd += ["--workdir", "/workspace/frappe-bench"]
+            exec_cmd += [service, shell_path, "-c", " ".join(passthrough_args)]
 
+        if is_interactive:
+            os.execvp(exec_cmd[0], exec_cmd)
+        else:
+            command_str = " ".join(passthrough_args)
+            exit_code = bench.execute_command(service, command_str, user, shell_path=shell_path, use_run=run)
             if exit_code != 0:
                 raise typer.Exit(exit_code)
-    else:
-        bench.shell(service, user, shell_path=shell_path, use_run=run)
+        return
+
+    if command:
+        exit_code = bench.execute_command(service, command, user, shell_path=shell_path, use_run=run)
+        if exit_code != 0:
+            raise typer.Exit(exit_code)
+        return
+
+    bench.shell(service, user, shell_path=shell_path, use_run=run)

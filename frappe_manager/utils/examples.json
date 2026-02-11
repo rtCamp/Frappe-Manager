@@ -159,7 +159,7 @@
       },
       {
         "desc": "Execute Python script file in Frappe context",
-        "code": " --bench-console --site mysite.localhost < script.py"
+        "code": " --bench-console < script.py"
       }
     ]
   },

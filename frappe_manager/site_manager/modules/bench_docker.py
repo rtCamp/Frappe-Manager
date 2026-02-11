@@ -16,6 +16,7 @@ from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.site_manager import NON_BASH_SUPPORTED_SERVICES
 from frappe_manager.site_manager.bench_config import BenchConfig
 from frappe_manager.utils.docker import host_run_cp
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version
@@ -286,8 +287,7 @@ class BenchDockerOps:
         self.output.stop()
 
         if not shell_path:
-            non_bash_supported = ["redis-cache", "redis-queue", "adminer", "mailpit"]
-            shell_path = "/bin/bash" if compose_service not in non_bash_supported else "sh"
+            shell_path = "/bin/bash" if compose_service not in NON_BASH_SUPPORTED_SERVICES else "sh"
 
         if use_run:
             run_cmd = self.docker_client.compose.docker_compose_cmd + ["run", "--rm"]
@@ -345,8 +345,7 @@ class BenchDockerOps:
             return 1
 
         if not shell_path:
-            non_bash_supported = ["redis-cache", "redis-queue", "adminer", "mailpit"]
-            shell_path = "/bin/bash" if compose_service not in non_bash_supported else "sh"
+            shell_path = "/bin/bash" if compose_service not in NON_BASH_SUPPORTED_SERVICES else "sh"
 
         if use_run:
             run_args: dict[str, Any] = {
