@@ -243,10 +243,14 @@ class TestHelpCommand:
 
     def test_help_shows_log_level_flag(self):
         """Test that fm --help shows --log-level flag."""
+        import re
+
         result = runner.invoke(app, ["--help"])
 
         assert result.exit_code == 0
-        assert "--log-level" in result.stdout
+        # Strip ANSI escape codes before checking (Rich may color each character separately in CI)
+        clean_output = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+        assert "--log-level" in clean_output
 
     def test_help_describes_log_levels(self):
         """Test that help text describes available log levels."""
