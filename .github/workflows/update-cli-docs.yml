@@ -12,7 +12,6 @@ on:
     branches:
       - main
       - develop
-      - ref/0
     paths:
       - 'frappe_manager/commands/**/*.py'
       - 'frappe_manager/utils/examples.json'
