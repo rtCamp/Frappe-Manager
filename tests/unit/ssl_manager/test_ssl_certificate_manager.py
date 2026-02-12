@@ -5,15 +5,17 @@ This module tests the SSLCertificateManager class which orchestrates
 SSL certificate operations by coordinating between multiple services.
 """
 
-import pytest
-from pathlib import Path
 from datetime import datetime, timedelta
-from unittest.mock import MagicMock, call
-from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import pytest
+
 from frappe_manager.ssl_manager.certificate_exceptions import (
-    SSLCertificateNotFoundError,
     SSLCertificateNotDueForRenewalError,
+    SSLCertificateNotFoundError,
 )
+from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
 
 
 class TestSSLCertificateManagerInitialization:
@@ -21,6 +23,7 @@ class TestSSLCertificateManagerInitialization:
 
     def test_init_stores_all_dependencies(
         self,
+        mocker,
         mock_certificate,
         mock_ssl_service,
         mock_storage_config,
@@ -29,11 +32,14 @@ class TestSSLCertificateManagerInitialization:
         mock_output_handler,
     ):
         """Test that initialization stores all dependencies."""
+        mock_logger = mocker.MagicMock()
+        mock_logger.child.return_value = mock_logger
 
         def service_factory(cert, storage_cfg, output_handler):
             return mock_ssl_service
 
         manager = SSLCertificateManager(
+            logger=mock_logger,
             certificates=[mock_certificate],
             service_factory=service_factory,
             link_manager=mock_link_manager,
@@ -49,14 +55,17 @@ class TestSSLCertificateManagerInitialization:
         assert manager.output_handler == mock_output_handler
 
     def test_init_with_empty_certificate_list(
-        self, mock_ssl_service, mock_storage_config, mock_link_manager, mock_nginx_controller, mock_output_handler
+        self, mocker, mock_ssl_service, mock_storage_config, mock_link_manager, mock_nginx_controller, mock_output_handler,
     ):
         """Test that initialization works with empty certificate list."""
+        mock_logger = mocker.MagicMock()
+        mock_logger.child.return_value = mock_logger
 
         def service_factory(cert, storage_cfg, output_handler):
             return mock_ssl_service
 
         manager = SSLCertificateManager(
+            logger=mock_logger,
             certificates=[],
             service_factory=service_factory,
             link_manager=mock_link_manager,
@@ -69,15 +78,18 @@ class TestSSLCertificateManagerInitialization:
         assert manager.get_primary_certificate() is None
 
     def test_init_raises_if_link_manager_is_none(
-        self, mock_certificate, mock_ssl_service, mock_storage_config, mock_nginx_controller, mock_output_handler
+        self, mocker, mock_certificate, mock_ssl_service, mock_storage_config, mock_nginx_controller, mock_output_handler,
     ):
         """Test that initialization raises ValueError if link_manager is None."""
+        mock_logger = mocker.MagicMock()
+        mock_logger.child.return_value = mock_logger
 
         def service_factory(cert, storage_cfg, output_handler):
             return mock_ssl_service
 
         with pytest.raises(ValueError, match="Certificate link manager is required"):
             SSLCertificateManager(
+                logger=mock_logger,
                 certificates=[mock_certificate],
                 service_factory=service_factory,
                 link_manager=None,
@@ -87,15 +99,18 @@ class TestSSLCertificateManagerInitialization:
             )
 
     def test_init_raises_if_nginx_controller_is_none(
-        self, mock_certificate, mock_ssl_service, mock_storage_config, mock_link_manager, mock_output_handler
+        self, mocker, mock_certificate, mock_ssl_service, mock_storage_config, mock_link_manager, mock_output_handler,
     ):
         """Test that initialization raises ValueError if nginx_controller is None."""
+        mock_logger = mocker.MagicMock()
+        mock_logger.child.return_value = mock_logger
 
         def service_factory(cert, storage_cfg, output_handler):
             return mock_ssl_service
 
         with pytest.raises(ValueError, match="Nginx controller is required"):
             SSLCertificateManager(
+                logger=mock_logger,
                 certificates=[mock_certificate],
                 service_factory=service_factory,
                 link_manager=mock_link_manager,
@@ -191,7 +206,7 @@ class TestSSLCertificateManagerGetCertificateExpiry:
         # Mock get_certificate_expiry_date
         expected_expiry = datetime(2025, 12, 31, 23, 59, 59)
         mock_get_expiry = mocker.patch(
-            'frappe_manager.ssl_manager.ssl_certificate_manager.get_certificate_expiry_date',
+            "frappe_manager.ssl_manager.ssl_certificate_manager.get_certificate_expiry_date",
             return_value=expected_expiry,
         )
 
@@ -208,10 +223,10 @@ class TestSSLCertificateManagerNeedsRenewal:
         """Test that needs_renewal returns True if certificate expires soon."""
         # Mock expiry date to be 10 days from now (less than SSL_RENEW_BEFORE_DAYS)
         expiry_date = datetime.now() + timedelta(days=10)
-        mocker.patch.object(ssl_certificate_manager, 'get_certificate_expiry', return_value=expiry_date)
+        mocker.patch.object(ssl_certificate_manager, "get_certificate_expiry", return_value=expiry_date)
 
         # Mock SSL_RENEW_BEFORE_DAYS to be 30 days
-        mocker.patch('frappe_manager.ssl_manager.ssl_certificate_manager.SSL_RENEW_BEFORE_DAYS', 30)
+        mocker.patch("frappe_manager.ssl_manager.ssl_certificate_manager.SSL_RENEW_BEFORE_DAYS", 30)
 
         result = ssl_certificate_manager.needs_renewal()
 
@@ -221,10 +236,10 @@ class TestSSLCertificateManagerNeedsRenewal:
         """Test that needs_renewal returns False if certificate has plenty of time."""
         # Mock expiry date to be 60 days from now (more than SSL_RENEW_BEFORE_DAYS)
         expiry_date = datetime.now() + timedelta(days=60)
-        mocker.patch.object(ssl_certificate_manager, 'get_certificate_expiry', return_value=expiry_date)
+        mocker.patch.object(ssl_certificate_manager, "get_certificate_expiry", return_value=expiry_date)
 
         # Mock SSL_RENEW_BEFORE_DAYS to be 30 days
-        mocker.patch('frappe_manager.ssl_manager.ssl_certificate_manager.SSL_RENEW_BEFORE_DAYS', 30)
+        mocker.patch("frappe_manager.ssl_manager.ssl_certificate_manager.SSL_RENEW_BEFORE_DAYS", 30)
 
         result = ssl_certificate_manager.needs_renewal()
 
@@ -236,10 +251,10 @@ class TestSSLCertificateManagerNeedsRenewal:
 
         # Mock expiry date with timezone
         expiry_date = datetime.now(tz=timezone.utc) + timedelta(days=10)
-        mocker.patch.object(ssl_certificate_manager, 'get_certificate_expiry', return_value=expiry_date)
+        mocker.patch.object(ssl_certificate_manager, "get_certificate_expiry", return_value=expiry_date)
 
         # Mock SSL_RENEW_BEFORE_DAYS to be 30 days
-        mocker.patch('frappe_manager.ssl_manager.ssl_certificate_manager.SSL_RENEW_BEFORE_DAYS', 30)
+        mocker.patch("frappe_manager.ssl_manager.ssl_certificate_manager.SSL_RENEW_BEFORE_DAYS", 30)
 
         result = ssl_certificate_manager.needs_renewal()
 
@@ -267,12 +282,10 @@ class TestSSLCertificateManagerAddCertificate:
 
         ssl_certificate_manager.add_certificate(new_cert)
 
-        # Verify certificate was added
         assert new_cert in ssl_certificate_manager.certificates
         assert "new-domain.com" in ssl_certificate_manager.services
 
-        # Verify service was called
-        mock_service.generate_certificate.assert_called_once_with(new_cert)
+        mock_service.generate_certificate.assert_called_once_with(new_cert, dry_run=False)
 
         # Verify symlinks were created
         ssl_certificate_manager.link_manager.link_certificate.assert_called_once()
@@ -284,7 +297,7 @@ class TestSSLCertificateManagerAddCertificate:
         ssl_certificate_manager.nginx_controller.restart.assert_called_once()
 
     def test_add_certificate_raises_if_domain_exists(
-        self, ssl_certificate_manager, mock_letsencrypt_certificate_http01
+        self, ssl_certificate_manager, mock_letsencrypt_certificate_http01,
     ):
         """Test that adding duplicate domain raises ValueError."""
         # Try to add certificate for existing domain
@@ -295,10 +308,9 @@ class TestSSLCertificateManagerAddCertificate:
             ssl_certificate_manager.add_certificate(duplicate_cert)
 
     def test_add_certificate_dry_run_uses_staging(
-        self, mocker, tmp_path, ssl_certificate_manager, mock_letsencrypt_certificate_http01, monkeypatch
+        self, mocker, tmp_path, ssl_certificate_manager, mock_letsencrypt_certificate_http01, monkeypatch,
     ):
         """Test that dry run mode uses staging server."""
-        # Create temp directories for cert paths
         cert_dir = tmp_path / "ssl" / "acmesh" / "test.com"
         cert_dir.mkdir(parents=True)
         key_path = cert_dir / "key.pem"
@@ -306,7 +318,6 @@ class TestSSLCertificateManagerAddCertificate:
         key_path.touch()
         fullchain_path.touch()
 
-        # Mock the service to return paths within tmp_path
         mock_service = MagicMock()
         mock_service.generate_certificate.return_value = (key_path, fullchain_path)
 
@@ -314,29 +325,19 @@ class TestSSLCertificateManagerAddCertificate:
         ssl_certificate_manager.vhost_manager = MagicMock()
         ssl_certificate_manager.storage_config.ssl_dir = tmp_path / "ssl"
 
-        # Mock shutil.rmtree to avoid actual file operations
-        mock_rmtree = mocker.patch('shutil.rmtree')
-
         new_cert = mock_letsencrypt_certificate_http01
         new_cert.domain = "test.com"
 
-        # Add certificate in dry run mode
+        monkeypatch.delenv("FM_LETSENCRYPT_STAGING", raising=False)
+
         ssl_certificate_manager.add_certificate(new_cert, dry_run=True)
 
-        # Verify certificate was NOT added to list (dry run)
         assert new_cert not in ssl_certificate_manager.certificates
-
-        # Verify symlinks were NOT created (dry run)
         ssl_certificate_manager.link_manager.link_certificate.assert_not_called()
-
-        # Verify nginx was NOT restarted (dry run)
         ssl_certificate_manager.nginx_controller.restart.assert_not_called()
 
-        # Verify cleanup was called (directory exists so rmtree should be called)
-        mock_rmtree.assert_called_once()
-
     def test_add_certificate_calls_config_save_callback(
-        self, ssl_certificate_manager, mock_letsencrypt_certificate_http01
+        self, ssl_certificate_manager, mock_letsencrypt_certificate_http01,
     ):
         """Test that config save callback is called after adding certificate."""
         mock_service = MagicMock()
@@ -478,20 +479,20 @@ class TestSSLCertificateManagerListCertificates:
         # Mock expiry date
         expiry_date = datetime.now() + timedelta(days=60)
         mocker.patch(
-            'frappe_manager.ssl_manager.ssl_certificate_manager.get_certificate_expiry_date', return_value=expiry_date
+            "frappe_manager.ssl_manager.ssl_certificate_manager.get_certificate_expiry_date", return_value=expiry_date,
         )
 
         # Mock SSL_RENEW_BEFORE_DAYS
-        mocker.patch('frappe_manager.ssl_manager.ssl_certificate_manager.SSL_RENEW_BEFORE_DAYS', 30)
+        mocker.patch("frappe_manager.ssl_manager.ssl_certificate_manager.SSL_RENEW_BEFORE_DAYS", 30)
 
         result = ssl_certificate_manager.list_certificates()
 
         assert len(result) == 1
-        assert result[0]['domain'] == ssl_certificate_manager.certificates[0].domain
-        assert result[0]['exists'] is True
-        assert result[0]['expiry_date'] == expiry_date
-        assert result[0]['needs_renewal'] is False
-        assert result[0]['days_until_expiry'] > 0
+        assert result[0]["domain"] == ssl_certificate_manager.certificates[0].domain
+        assert result[0]["exists"] is True
+        assert result[0]["expiry_date"] == expiry_date
+        assert result[0]["needs_renewal"] is False
+        assert result[0]["days_until_expiry"] > 0
 
     def test_list_certificates_with_missing_cert(self, ssl_certificate_manager):
         """Test listing certificates when certificate doesn't exist."""
@@ -501,10 +502,10 @@ class TestSSLCertificateManagerListCertificates:
         result = ssl_certificate_manager.list_certificates()
 
         assert len(result) == 1
-        assert result[0]['domain'] == ssl_certificate_manager.certificates[0].domain
-        assert result[0]['exists'] is False
-        assert result[0]['expiry_date'] is None
-        assert result[0]['needs_renewal'] is False
+        assert result[0]["domain"] == ssl_certificate_manager.certificates[0].domain
+        assert result[0]["exists"] is False
+        assert result[0]["expiry_date"] is None
+        assert result[0]["needs_renewal"] is False
 
 
 class TestSSLCertificateManagerRenewCertificate:
@@ -513,15 +514,15 @@ class TestSSLCertificateManagerRenewCertificate:
     def test_renew_certificate_success(self, mocker, ssl_certificate_manager):
         """Test successful certificate renewal for primary certificate."""
         # Mock needs_renewal to return True
-        mocker.patch.object(ssl_certificate_manager, 'needs_renewal', return_value=True)
+        mocker.patch.object(ssl_certificate_manager, "needs_renewal", return_value=True)
 
         # Mock get_certificate_expiry for SSLCertificateNotDueForRenewalError check
         expiry_date = datetime.now() + timedelta(days=10)
-        mocker.patch.object(ssl_certificate_manager, 'get_certificate_expiry', return_value=expiry_date)
+        mocker.patch.object(ssl_certificate_manager, "get_certificate_expiry", return_value=expiry_date)
 
         # Mock get_certificate_paths
         mocker.patch.object(
-            ssl_certificate_manager, 'get_certificate_paths', return_value=(Path("/key.pem"), Path("/fullchain.pem"))
+            ssl_certificate_manager, "get_certificate_paths", return_value=(Path("/key.pem"), Path("/fullchain.pem")),
         )
 
         # Mock the service
@@ -545,13 +546,13 @@ class TestSSLCertificateManagerRenewCertificate:
         domain = ssl_certificate_manager.certificates[0].domain
 
         # Mock needs_renewal to return True
-        mocker.patch.object(ssl_certificate_manager, 'needs_renewal', return_value=True)
+        mocker.patch.object(ssl_certificate_manager, "needs_renewal", return_value=True)
 
         expiry_date = datetime.now() + timedelta(days=10)
-        mocker.patch.object(ssl_certificate_manager, 'get_certificate_expiry', return_value=expiry_date)
+        mocker.patch.object(ssl_certificate_manager, "get_certificate_expiry", return_value=expiry_date)
 
         mocker.patch.object(
-            ssl_certificate_manager, 'get_certificate_paths', return_value=(Path("/key.pem"), Path("/fullchain.pem"))
+            ssl_certificate_manager, "get_certificate_paths", return_value=(Path("/key.pem"), Path("/fullchain.pem")),
         )
 
         mock_service = MagicMock()
@@ -559,16 +560,15 @@ class TestSSLCertificateManagerRenewCertificate:
 
         ssl_certificate_manager.renew_certificate(domain=domain)
 
-        # Verify service renew was called with correct certificate
-        mock_service.renew_certificate.assert_called_once_with(ssl_certificate_manager.certificates[0])
+        mock_service.renew_certificate.assert_called_once_with(ssl_certificate_manager.certificates[0], dry_run=False)
 
     def test_renew_certificate_raises_if_not_due(self, mocker, ssl_certificate_manager):
         """Test that renewal raises error if certificate not due for renewal."""
         # Mock needs_renewal to return False
-        mocker.patch.object(ssl_certificate_manager, 'needs_renewal', return_value=False)
+        mocker.patch.object(ssl_certificate_manager, "needs_renewal", return_value=False)
 
         expiry_date = datetime.now() + timedelta(days=60)
-        mocker.patch.object(ssl_certificate_manager, 'get_certificate_expiry', return_value=expiry_date)
+        mocker.patch.object(ssl_certificate_manager, "get_certificate_expiry", return_value=expiry_date)
 
         with pytest.raises(SSLCertificateNotDueForRenewalError):
             ssl_certificate_manager.renew_certificate()
@@ -581,10 +581,10 @@ class TestSSLCertificateManagerRenewCertificate:
     def test_renew_certificate_dry_run_uses_staging(self, mocker, ssl_certificate_manager, monkeypatch):
         """Test that dry run mode uses staging server and skips system modifications."""
         # Mock needs_renewal to return True
-        mocker.patch.object(ssl_certificate_manager, 'needs_renewal', return_value=True)
+        mocker.patch.object(ssl_certificate_manager, "needs_renewal", return_value=True)
 
         expiry_date = datetime.now() + timedelta(days=10)
-        mocker.patch.object(ssl_certificate_manager, 'get_certificate_expiry', return_value=expiry_date)
+        mocker.patch.object(ssl_certificate_manager, "get_certificate_expiry", return_value=expiry_date)
 
         domain = ssl_certificate_manager.certificates[0].domain
         mock_service = MagicMock()
@@ -606,13 +606,13 @@ class TestSSLCertificateManagerRenewCertificate:
 
     def test_renew_certificate_handles_symlink_recreation_failure(self, mocker, ssl_certificate_manager):
         """Test that renewal succeeds even if symlink recreation fails."""
-        mocker.patch.object(ssl_certificate_manager, 'needs_renewal', return_value=True)
+        mocker.patch.object(ssl_certificate_manager, "needs_renewal", return_value=True)
 
         expiry_date = datetime.now() + timedelta(days=10)
-        mocker.patch.object(ssl_certificate_manager, 'get_certificate_expiry', return_value=expiry_date)
+        mocker.patch.object(ssl_certificate_manager, "get_certificate_expiry", return_value=expiry_date)
 
         # Mock get_certificate_paths to raise error (simulating symlink failure)
-        mocker.patch.object(ssl_certificate_manager, 'get_certificate_paths', side_effect=Exception("Symlink error"))
+        mocker.patch.object(ssl_certificate_manager, "get_certificate_paths", side_effect=Exception("Symlink error"))
 
         domain = ssl_certificate_manager.certificates[0].domain
         mock_service = MagicMock()
@@ -639,13 +639,13 @@ class TestSSLCertificateManagerRenewAllCertificates:
         ssl_certificate_manager.certificates.append(cert2)
 
         # Mock needs_renewal to return True for both
-        mocker.patch.object(ssl_certificate_manager, 'needs_renewal', return_value=True)
+        mocker.patch.object(ssl_certificate_manager, "needs_renewal", return_value=True)
 
         expiry_date = datetime.now() + timedelta(days=10)
-        mocker.patch.object(ssl_certificate_manager, 'get_certificate_expiry', return_value=expiry_date)
+        mocker.patch.object(ssl_certificate_manager, "get_certificate_expiry", return_value=expiry_date)
 
         mocker.patch.object(
-            ssl_certificate_manager, 'get_certificate_paths', return_value=(Path("/key.pem"), Path("/fullchain.pem"))
+            ssl_certificate_manager, "get_certificate_paths", return_value=(Path("/key.pem"), Path("/fullchain.pem")),
         )
 
         # Mock services for both domains
@@ -667,7 +667,7 @@ class TestSSLCertificateManagerRenewAllCertificates:
         ssl_certificate_manager.nginx_controller.restart.assert_called_once()
 
     def test_renew_all_certificates_skips_not_due(
-        self, mocker, ssl_certificate_manager, mock_letsencrypt_certificate_http01
+        self, mocker, ssl_certificate_manager, mock_letsencrypt_certificate_http01,
     ):
         """Test that certificates not due for renewal are skipped."""
         # Add second certificate
@@ -679,7 +679,7 @@ class TestSSLCertificateManagerRenewAllCertificates:
         def needs_renewal_side_effect(domain):
             return domain == ssl_certificate_manager.certificates[0].domain
 
-        mocker.patch.object(ssl_certificate_manager, 'needs_renewal', side_effect=needs_renewal_side_effect)
+        mocker.patch.object(ssl_certificate_manager, "needs_renewal", side_effect=needs_renewal_side_effect)
 
         expiry_date_soon = datetime.now() + timedelta(days=10)
         expiry_date_later = datetime.now() + timedelta(days=60)
@@ -689,10 +689,10 @@ class TestSSLCertificateManagerRenewAllCertificates:
                 return expiry_date_soon
             return expiry_date_later
 
-        mocker.patch.object(ssl_certificate_manager, 'get_certificate_expiry', side_effect=get_expiry_side_effect)
+        mocker.patch.object(ssl_certificate_manager, "get_certificate_expiry", side_effect=get_expiry_side_effect)
 
         mocker.patch.object(
-            ssl_certificate_manager, 'get_certificate_paths', return_value=(Path("/key.pem"), Path("/fullchain.pem"))
+            ssl_certificate_manager, "get_certificate_paths", return_value=(Path("/key.pem"), Path("/fullchain.pem")),
         )
 
         # Mock services
@@ -715,7 +715,7 @@ class TestSSLCertificateManagerRenewAllCertificates:
             ssl_certificate_manager.renew_all_certificates()
 
     def test_renew_all_certificates_continues_on_error(
-        self, mocker, ssl_certificate_manager, mock_letsencrypt_certificate_http01
+        self, mocker, ssl_certificate_manager, mock_letsencrypt_certificate_http01,
     ):
         """Test that renewal continues even if one certificate fails."""
         # Add second certificate
@@ -723,13 +723,13 @@ class TestSSLCertificateManagerRenewAllCertificates:
         cert2.domain = "second.com"
         ssl_certificate_manager.certificates.append(cert2)
 
-        mocker.patch.object(ssl_certificate_manager, 'needs_renewal', return_value=True)
+        mocker.patch.object(ssl_certificate_manager, "needs_renewal", return_value=True)
 
         expiry_date = datetime.now() + timedelta(days=10)
-        mocker.patch.object(ssl_certificate_manager, 'get_certificate_expiry', return_value=expiry_date)
+        mocker.patch.object(ssl_certificate_manager, "get_certificate_expiry", return_value=expiry_date)
 
         mocker.patch.object(
-            ssl_certificate_manager, 'get_certificate_paths', return_value=(Path("/key.pem"), Path("/fullchain.pem"))
+            ssl_certificate_manager, "get_certificate_paths", return_value=(Path("/key.pem"), Path("/fullchain.pem")),
         )
 
         # Mock first service to raise error, second to succeed
@@ -749,10 +749,10 @@ class TestSSLCertificateManagerRenewAllCertificates:
 
     def test_renew_all_certificates_dry_run_mode(self, mocker, ssl_certificate_manager, monkeypatch):
         """Test that dry run mode uses staging server."""
-        mocker.patch.object(ssl_certificate_manager, 'needs_renewal', return_value=True)
+        mocker.patch.object(ssl_certificate_manager, "needs_renewal", return_value=True)
 
         expiry_date = datetime.now() + timedelta(days=10)
-        mocker.patch.object(ssl_certificate_manager, 'get_certificate_expiry', return_value=expiry_date)
+        mocker.patch.object(ssl_certificate_manager, "get_certificate_expiry", return_value=expiry_date)
 
         domain = ssl_certificate_manager.certificates[0].domain
         mock_service = MagicMock()

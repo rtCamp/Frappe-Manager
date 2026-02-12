@@ -170,20 +170,57 @@ class SilentOutputHandler(OutputHandler):
             padding: Padding (ignored)
         """
 
-    def prompt_ask(self, **kwargs) -> str:
-        """
-        Prompt the user for input (returns empty string).
+    def prompt_ask(
+        self,
+        prompt: str = "",
+        choices: list | None = None,
+        default: str | None = None,
+        force_yes: bool = False,
+        required_flag: str | None = None,
+        **kwargs,
+    ) -> str:
+        from frappe_manager.exceptions import NonInteractiveError
 
-        Note: In silent mode, this returns an empty string without prompting.
-        This is suitable for testing but not for interactive use.
+        if force_yes:
+            return "yes"
 
-        Args:
-            **kwargs: Prompt arguments (ignored)
+        if required_flag:
+            raise NonInteractiveError(
+                f"Cannot prompt in non-interactive mode: {prompt}",
+                suggestions=[f"Provide: {required_flag}"],
+            )
 
-        Returns:
-            Empty string
-        """
-        return ""
+        if default is not None:
+            return default
+
+        raise NonInteractiveError(
+            f"Cannot prompt in non-interactive mode: {prompt}",
+            suggestions=["Run without --non-interactive to enable prompts"],
+        )
+
+    def prompt_fuzzy(
+        self,
+        prompt: str,
+        choices: list[str],
+        default: str | None = None,
+        required_flag: str | None = None,
+        **kwargs,
+    ) -> str:
+        from frappe_manager.exceptions import NonInteractiveError
+
+        if required_flag:
+            raise NonInteractiveError(
+                f"Cannot prompt in non-interactive mode: {prompt}",
+                suggestions=[f"Provide: {required_flag}"],
+            )
+
+        if default is not None:
+            return default
+
+        raise NonInteractiveError(
+            f"Cannot prompt in non-interactive mode: {prompt}",
+            suggestions=["Run without --non-interactive to enable prompts"],
+        )
 
     @property
     def should_stream_docker(self) -> bool:

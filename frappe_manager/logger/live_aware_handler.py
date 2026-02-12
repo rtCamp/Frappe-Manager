@@ -4,54 +4,27 @@ Live-aware logging handlers.
 Handlers that coordinate with Rich Live display to prevent output corruption.
 """
 
-import logging
-from typing import Any
-
 from rich.logging import RichHandler
 
 
 class LiveAwareRichHandler(RichHandler):
     """
-    RichHandler that coordinates with Rich Live spinner display.
+    RichHandler that uses the same Console as the Live display.
 
-    When the Live display (spinner) is active, logger output can corrupt the
-    display and create visual artifacts. This handler temporarily stops the
-    Live display during emit(), then restarts it.
+    Rich Console automatically handles coordination between Live displays
+    and regular print() calls, so no manual stop/start is needed.
 
     Usage:
-        from frappe_manager.display_manager.DisplayManager import richprint
+        from frappe_manager.output_manager import get_global_output_handler
 
+        output = get_global_output_handler()
         handler = LiveAwareRichHandler(
-            console=richprint.stderr,
-            live_display=richprint.live,
+            console=output.stderr,
         )
         logger.addHandler(handler)
     """
 
-    def __init__(self, *args, live_display=None, **kwargs):
-        """
-        Initialize LiveAwareRichHandler.
-
-        Args:
-            *args: Positional arguments for RichHandler
-            live_display: Rich Live instance to coordinate with (optional)
-            **kwargs: Keyword arguments for RichHandler
-        """
+    def __init__(self, *args, live_display=None, output_lock=None, **kwargs):
         super().__init__(*args, **kwargs)
         self._live_display = live_display
-
-    def emit(self, record: logging.LogRecord) -> None:
-        """
-        Emit a record, temporarily stopping Live display if active.
-
-        Args:
-            record: The log record to emit
-        """
-        if self._live_display and self._live_display.is_started:
-            self._live_display.stop()
-            try:
-                super().emit(record)
-            finally:
-                self._live_display.start(refresh=True)
-        else:
-            super().emit(record)
+        self._output_lock = output_lock

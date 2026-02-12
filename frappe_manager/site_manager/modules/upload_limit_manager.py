@@ -2,9 +2,8 @@
 Manages client_max_body_size configuration for nginx-proxy vhost.d files.
 """
 
-from pathlib import Path
-from typing import List
 import re
+from pathlib import Path
 
 
 class UploadLimitManager:
@@ -40,14 +39,14 @@ class UploadLimitManager:
         # Check if client_max_body_size already exists
         if "client_max_body_size" in existing_content:
             # Update existing directive using regex
-            updated = re.sub(r'client_max_body_size\s+[^;]+;', f'client_max_body_size {size};', existing_content)
+            updated = re.sub(r"client_max_body_size\s+[^;]+;", f"client_max_body_size {size};", existing_content)
             vhost_file.write_text(updated)
         else:
             # Append to existing content
             new_directive = f"\nclient_max_body_size {size};\n"
             vhost_file.write_text(existing_content + new_directive)
 
-    def set_upload_limit_for_domains(self, domains: List[str], size: str):
+    def set_upload_limit_for_domains(self, domains: list[str], size: str):
         """
         Set upload limit for multiple domains.
 
@@ -59,8 +58,8 @@ class UploadLimitManager:
             size: Size in nginx format (e.g., "50m", "1g")
         """
         # Check if there are wildcard domains
-        wildcards = [d for d in domains if d.startswith('*.')]
-        non_wildcards = [d for d in domains if not d.startswith('*.')]
+        wildcards = [d for d in domains if d.startswith("*.")]
+        non_wildcards = [d for d in domains if not d.startswith("*.")]
 
         # First, update wildcard domains
         for domain in wildcards:
@@ -99,7 +98,7 @@ class UploadLimitManager:
         content = vhost_file.read_text()
 
         # Remove client_max_body_size directive
-        updated = re.sub(r'client_max_body_size\s+[^;]+;\n?', '', content)
+        updated = re.sub(r"client_max_body_size\s+[^;]+;\n?", "", content)
 
         # If file is now empty or only whitespace, remove it
         if not updated.strip():

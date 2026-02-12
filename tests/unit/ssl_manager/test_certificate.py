@@ -41,22 +41,22 @@ class TestSSLCertificateValidation:
         """Test that toml_exclude set contains expected fields."""
         cert = SSLCertificate(domain="example.com", ssl_type=SUPPORTED_SSL_TYPES.none)
 
-        assert 'domain' in cert.toml_exclude
-        assert 'toml_exclude' in cert.toml_exclude
+        assert "domain" in cert.toml_exclude
+        assert "toml_exclude" in cert.toml_exclude
 
     def test_domain_field_required(self):
         """Test that domain field is required."""
         with pytest.raises(ValidationError) as exc_info:
             SSLCertificate(ssl_type=SUPPORTED_SSL_TYPES.none)
 
-        assert 'domain' in str(exc_info.value)
+        assert "domain" in str(exc_info.value)
 
     def test_ssl_type_field_required(self):
         """Test that ssl_type field is required."""
         with pytest.raises(ValidationError) as exc_info:
             SSLCertificate(domain="example.com")
 
-        assert 'ssl_type' in str(exc_info.value)
+        assert "ssl_type" in str(exc_info.value)
 
     def test_invalid_ssl_type_raises_validation_error(self):
         """Test that invalid SSL type raises validation error."""
@@ -64,7 +64,7 @@ class TestSSLCertificateValidation:
             SSLCertificate(domain="example.com", ssl_type="invalid_type")
 
         error_msg = str(exc_info.value)
-        assert 'ssl_type' in error_msg
+        assert "ssl_type" in error_msg
 
     @pytest.mark.parametrize("domain", TEST_DOMAINS)
     def test_domain_accepts_various_formats(self, domain):
@@ -83,10 +83,10 @@ class TestSSLCertificateSerialization:
 
         data = cert.model_dump()
 
-        assert 'ssl_type' in data
-        assert 'hsts' in data
-        assert data['ssl_type'] == SUPPORTED_SSL_TYPES.le
-        assert data['hsts'] == "on"
+        assert "ssl_type" in data
+        assert "hsts" in data
+        assert data["ssl_type"] == SUPPORTED_SSL_TYPES.le
+        assert data["hsts"] == "on"
 
     def test_model_dump_excludes_toml_exclude_fields(self):
         """Test that model_dump can exclude toml_exclude fields."""
@@ -94,8 +94,8 @@ class TestSSLCertificateSerialization:
 
         data = cert.model_dump(exclude=cert.toml_exclude)
 
-        assert 'domain' not in data
-        assert 'toml_exclude' not in data
+        assert "domain" not in data
+        assert "toml_exclude" not in data
 
     def test_model_dump_json_works(self):
         """Test that model can be serialized to JSON."""
@@ -104,8 +104,8 @@ class TestSSLCertificateSerialization:
         json_str = cert.model_dump_json()
 
         assert isinstance(json_str, str)
-        assert 'example.com' in json_str
-        assert 'letsencrypt' in json_str
+        assert "example.com" in json_str
+        assert "letsencrypt" in json_str
 
     def test_serialize_and_deserialize_roundtrip(self):
         """Test that certificate can be serialized and deserialized."""
@@ -134,7 +134,7 @@ class TestSSLCertificateEdgeCases:
     def test_hsts_custom_value(self):
         """Test that custom HSTS value is accepted."""
         cert = SSLCertificate(
-            domain="example.com", ssl_type=SUPPORTED_SSL_TYPES.le, hsts="max-age=31536000; includeSubDomains"
+            domain="example.com", ssl_type=SUPPORTED_SSL_TYPES.le, hsts="max-age=31536000; includeSubDomains",
         )
 
         assert cert.hsts == "max-age=31536000; includeSubDomains"

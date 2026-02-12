@@ -2,7 +2,7 @@
 
 # 🚀 Frappe Manager
 
-[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.13+](https://img.shields.io/badge/python-3.13+-blue.svg)](https://www.python.org/downloads/)
 [![GHCR](https://img.shields.io/badge/ghcr-%232496ED.svg?logo=docker&logoColor=white)](https://github.com/orgs/rtCamp/packages?repo_name=Frappe-Manager)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![PyPI version](https://badge.fury.io/py/frappe-manager.svg)](https://badge.fury.io/py/frappe-manager)
@@ -59,63 +59,89 @@
 
 ## 🛠️ Requirements
 
-- Python 3.11 or higher
+- Python 3.13.+
 - Docker
 - VSCode (optional, for development features)
 
-## 🚀 Quick Start
+## 🚀 Installation
+
+### Using uv (Recommended)
+
+[uv](https://docs.astral.sh/uv/) is a fast Python package installer and resolver.
 
 ```bash
-# Install Frappe Manager (stable)
+# Run directly without installation (requires uv)
+uvx --from frappe-manager fm create mysite
+
+# Run latest development version without installation
+uvx --from git+https://github.com/rtcamp/frappe-manager@develop fm --help
+
+# Install with uv tool (persistent installation)
+uv tool install --python 3.13 frappe-manager
+
+# Install latest development version
+uv tool install git+https://github.com/rtcamp/frappe-manager@develop
+
+# Upgrade to latest version
+uv tool upgrade frappe-manager
+```
+
+### Using pipx (Alternative)
+
+```bash
+# Install stable version
 pipx install frappe-manager 
 
-# Install Frappe Manager (latest develop)
-pipx install git+https://github.com/rtcamp/frappe-manager@develop 
+# Install latest development version
+pipx install git+https://github.com/rtcamp/frappe-manager@develop
 
-# Setup shell completion
-fm --install-completion
-
-# Create your first site
-fm create mysite
+# Upgrade to latest version
+pipx upgrade frappe-manager
 ```
 
-## 📚 Examples
+## ⚡ Quick Start
 
-### Development Setup
-```bash
-# Create a dev environment with ERPNext
-fm create devsite --apps erpnext:version-15 --environment dev
-
-# Start coding (in VSCode)
-fm code devsite --debugger
-```
-
-### Production Setup
+Create your first Frappe bench:
 
 ```bash
-# Create Production Site
-fm create example.com --environment prod
+# Create a development bench (default)
+fm create mybench
 
-# Create production site with SSL using HTTP01 challenge
-fm create example.com --environment prod \
-  --ssl letsencrypt --letsencrypt-preferred-challenge http01 \
-  --letsencrypt-email admin@example.com
+# Create with ERPNext
+fm create mybench --apps frappe:version-16 --apps erpnext:version-16
 
-# Create production site with SSL using DNS01 challenge 
-fm create example.com --environment prod \
-  --ssl letsencrypt --letsencrypt-preferred-challenge dns01 \
-  --letsencrypt-email admin@example.com
+# Create with multiple apps
+fm create mybench --apps erpnext --apps hrms
+
+# Create production bench
+fm create mybench --environment prod
 ```
 
-### Daily Operations
-```bash
-# Common commands
-fm start mysite      # Start site
-fm stop mysite       # Stop site
-fm info mysite       # View site info
-fm logs mysite -f    # View logs
-fm shell mysite      # Access shell
-```
+That's it! Your bench is ready. Access it at `http://mybench.localhost`
+
+## 📋 Command Reference
+
+| Command | Description | Documentation |
+|---------|-------------|---------------|
+| `fm create` | Create a new bench with apps | [Wiki: Create](https://github.com/rtCamp/Frappe-Manager/wiki/Create) |
+| `fm start` | Start a bench | [Wiki: Start](https://github.com/rtCamp/Frappe-Manager/wiki/Start) |
+| `fm stop` | Stop a bench | [Wiki: Stop](https://github.com/rtCamp/Frappe-Manager/wiki/Stop) |
+| `fm restart` | Restart bench services | [Wiki: Restart](https://github.com/rtCamp/Frappe-Manager/wiki/Restart) |
+| `fm delete` | Delete a bench and its database | [Wiki: Delete](https://github.com/rtCamp/Frappe-Manager/wiki/Delete) |
+| `fm list` | List all benches | [Wiki: List](https://github.com/rtCamp/Frappe-Manager/wiki/List) |
+| `fm info` | Show bench information | [Wiki: Info](https://github.com/rtCamp/Frappe-Manager/wiki/Info) |
+| `fm logs` | Show bench logs | [Wiki: Logs](https://github.com/rtCamp/Frappe-Manager/wiki/Logs) |
+| `fm shell` | Spawn shell or execute commands | [Wiki: Shell](https://github.com/rtCamp/Frappe-Manager/wiki/Shell) |
+| `fm code` | Open bench in VSCode | [Wiki: Code](https://github.com/rtCamp/Frappe-Manager/wiki/Code) |
+| `fm update` | Update bench configuration | [Wiki: Update](https://github.com/rtCamp/Frappe-Manager/wiki/Update) |
+| `fm reset` | Drop database and reinstall apps | [Wiki: Reset](https://github.com/rtCamp/Frappe-Manager/wiki/Reset) |
+| `fm ngrok` | Create ngrok tunnel | [Wiki: Ngrok](https://github.com/rtCamp/Frappe-Manager/wiki/Ngrok) |
+| `fm ssl` | Manage SSL certificates | [Wiki: SSL](https://github.com/rtCamp/Frappe-Manager/wiki/SSL) |
+| `fm services` | Manage global services | [Wiki: Services](https://github.com/rtCamp/Frappe-Manager/wiki/Services) |
+| `fm migrate` | Migrate to current version | [Wiki: Migrate](https://github.com/rtCamp/Frappe-Manager/wiki/Migrate) |
+| `fm self` | Operations on fm itself | [Wiki: Self](https://github.com/rtCamp/Frappe-Manager/wiki/Self) |
+
+> 💡 **Tip**: Use `fm <command> --help` to see detailed options and examples for any command.
 
 ## 📖 Documentation
 

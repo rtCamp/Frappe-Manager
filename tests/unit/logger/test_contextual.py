@@ -8,7 +8,7 @@ to automatically add context information to all log messages.
 import logging
 import tempfile
 from pathlib import Path
-from unittest.mock import MagicMock, call
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -182,10 +182,7 @@ class TestContextualLoggerChildCreation:
 
     def test_child_inherits_parent_context(self, mock_logger):
         """Test that child logger inherits parent's context."""
-        parent = ContextualLogger(
-            mock_logger,
-            LoggerContext(bench="mybench", operation="create")
-        )
+        parent = ContextualLogger(mock_logger, LoggerContext(bench="mybench", operation="create"))
         child = parent.child(component="docker")
 
         child.info("Child message")
@@ -197,10 +194,7 @@ class TestContextualLoggerChildCreation:
 
     def test_child_can_override_parent_context(self, mock_logger):
         """Test that child can override parent's context values."""
-        parent = ContextualLogger(
-            mock_logger,
-            LoggerContext(bench="mybench", operation="create")
-        )
+        parent = ContextualLogger(mock_logger, LoggerContext(bench="mybench", operation="create"))
         child = parent.child(operation="update")
 
         child.info("Child message")
@@ -268,10 +262,7 @@ class TestContextualLoggerMessageFormatting:
 
     def test_format_message_with_args(self, mock_logger):
         """Test that format arguments are passed through correctly."""
-        contextual = ContextualLogger(
-            mock_logger,
-            LoggerContext(bench="mybench")
-        )
+        contextual = ContextualLogger(mock_logger, LoggerContext(bench="mybench"))
 
         contextual.info("Value: %s", "test")
 
@@ -281,30 +272,23 @@ class TestContextualLoggerMessageFormatting:
         assert "Value: %s" in call_args[0]
         assert call_args[1] == "test"
 
-    def test_format_message_with_kwargs(self, mock_logger):
-        """Test that keyword arguments are passed through correctly."""
-        contextual = ContextualLogger(
-            mock_logger,
-            LoggerContext(bench="mybench")
-        )
+    def test_format_message_with_extra_fields(self, mock_logger):
+        """Test that extra_fields are appended to message."""
+        contextual = ContextualLogger(mock_logger, LoggerContext(bench="mybench"))
 
-        contextual.info("Test message", extra={"custom": "value"})
+        contextual.info("Test message", extra_fields={"custom": "value", "count": 42})
 
         mock_logger.info.assert_called_once()
-        call_args = mock_logger.info.call_args
-        assert "[bench=mybench]" in call_args[0][0]
-        assert call_args[1]["extra"]["custom"] == "value"
+        call_args = mock_logger.info.call_args[0][0]
+        assert "[bench=mybench]" in call_args
+        assert "Test message" in call_args
+        assert "| custom=value" in call_args
+        assert "| count=42" in call_args
 
     def test_full_context_formatting(self, mock_logger):
         """Test formatting with all context fields."""
         contextual = ContextualLogger(
-            mock_logger,
-            LoggerContext(
-                bench="mybench",
-                operation="create",
-                component="docker",
-                extra={"step": 1}
-            )
+            mock_logger, LoggerContext(bench="mybench", operation="create", component="docker", extra={"step": 1}),
         )
 
         contextual.info("Test message")
@@ -457,10 +441,7 @@ class TestContextualLoggerEdgeCases:
 
     def test_empty_message(self, mock_logger):
         """Test logging an empty message with context."""
-        contextual = ContextualLogger(
-            mock_logger,
-            LoggerContext(bench="mybench")
-        )
+        contextual = ContextualLogger(mock_logger, LoggerContext(bench="mybench"))
 
         contextual.info("")
 
@@ -469,10 +450,7 @@ class TestContextualLoggerEdgeCases:
 
     def test_multiline_message(self, mock_logger):
         """Test logging a multiline message with context."""
-        contextual = ContextualLogger(
-            mock_logger,
-            LoggerContext(bench="mybench")
-        )
+        contextual = ContextualLogger(mock_logger, LoggerContext(bench="mybench"))
 
         contextual.info("Line 1\nLine 2\nLine 3")
 
@@ -482,10 +460,7 @@ class TestContextualLoggerEdgeCases:
 
     def test_message_with_special_characters(self, mock_logger):
         """Test logging message with special characters."""
-        contextual = ContextualLogger(
-            mock_logger,
-            LoggerContext(bench="mybench")
-        )
+        contextual = ContextualLogger(mock_logger, LoggerContext(bench="mybench"))
 
         contextual.info("Message with 'quotes' and \"double quotes\" and %s")
 
@@ -496,10 +471,7 @@ class TestContextualLoggerEdgeCases:
     def test_context_with_unicode(self, file_logger):
         """Test context with unicode characters logs correctly."""
         logger, log_file = file_logger
-        context = LoggerContext(
-            bench="测试",
-            extra={"user": "admin™"}
-        )
+        context = LoggerContext(bench="测试", extra={"user": "admin™"})
         contextual = ContextualLogger(logger, context)
 
         contextual.info("Unicode test")

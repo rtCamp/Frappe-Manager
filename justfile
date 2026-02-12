@@ -33,3 +33,7 @@ test-file FILE:
 # Run specific test with logs
 test-debug FILE:
     pytest {{FILE}} -vv --show-app-logs -s
+
+# Run fm in interactive mode (for AI agents - enables interactive prompts/selection)
+fm *ARGS:
+    bash /tmp/fm_interactive {{ARGS}}

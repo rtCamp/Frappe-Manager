@@ -1,18 +1,19 @@
-from typing import Optional
 from pathlib import Path
-from pydantic import BaseModel, EmailStr, Field
+
 import tomlkit
-from frappe_manager.migration_manager.version import Version
+from pydantic import BaseModel, EmailStr, Field
+
 from frappe_manager import CLI_FM_CONFIG_PATH
+from frappe_manager.migration_manager.version import Version
 from frappe_manager.utils.helpers import get_current_fm_version
 
 
 class FMCloudflareConfig(BaseModel):
     """Cloudflare DNS API credentials for DNS-01 challenge."""
 
-    email: Optional[EmailStr] = Field(None, description="Cloudflare account email (required for Global API Key).")
-    api_token: Optional[str] = Field(None, description="Cloudflare API Token (recommended - scoped permissions).")
-    api_key: Optional[str] = Field(None, description="Cloudflare Global API Key (legacy - full account access).")
+    email: EmailStr | None = Field(None, description="Cloudflare account email (required for Global API Key).")
+    api_token: str | None = Field(None, description="Cloudflare API Token (recommended - scoped permissions).")
+    api_key: str | None = Field(None, description="Cloudflare Global API Key (legacy - full account access).")
 
     @property
     def exists(self) -> bool:
@@ -39,14 +40,15 @@ class FMCloudflareConfig(BaseModel):
 class FMLetsencryptConfig(BaseModel):
     """Let's Encrypt configuration for certificate registration."""
 
-    email: Optional[EmailStr] = Field(
-        None, description="Email for Let's Encrypt certificate registration and notifications."
+    email: EmailStr | None = Field(
+        None,
+        description="Email for Let's Encrypt certificate registration and notifications.",
     )
 
     @property
     def exists(self) -> bool:
         """Check if Let's Encrypt email is configured."""
-        return bool(self.email and self.email != 'dummy@fm.fm')
+        return bool(self.email and self.email != "dummy@fm.fm")
 
     def get_toml_doc(self):
         model_dict = self.model_dump(exclude_none=True)
@@ -82,60 +84,82 @@ class FMValidationConfig(BaseModel):
         return cls(**toml_doc)
 
 
+class FMLogsConfig(BaseModel):
+    """Logging configuration for file and console output."""
+
+    file_level: str = Field(
+        default="DEBUG",
+        description="Log level for file logs (DEBUG, INFO, WARNING, ERROR, CRITICAL)",
+    )
+
+    def get_toml_doc(self):
+        model_dict = self.model_dump(exclude_none=True)
+        toml_doc = tomlkit.document()
+        for key, value in model_dict.items():
+            toml_doc[key] = value
+        return toml_doc
+
+    @classmethod
+    def import_from_toml_doc(cls, toml_doc):
+        return cls(**toml_doc)
+
+
 class FMConfigManager(BaseModel):
     root_path: Path
     version: Version
     cloudflare: FMCloudflareConfig = Field(default=FMCloudflareConfig())
-    ngrok_auth_token: Optional[str] = Field(None, description="Ngrok authentication token")
+    ngrok_auth_token: str | None = Field(None, description="Ngrok authentication token")
     validation: FMValidationConfig = Field(default=FMValidationConfig())
-    
+    logs: FMLogsConfig = Field(default=FMLogsConfig())
+
     def __init__(self, **data):
         super().__init__(**data)
         self._raw_config = {}
-    
+
     def get_system_migration_version(self) -> Version:
         """Get version system is migrated to."""
-        if hasattr(self, '_raw_config') and "migration_state" in self._raw_config:
+        if hasattr(self, "_raw_config") and "migration_state" in self._raw_config:
             version_str = self._raw_config["migration_state"].get("system_migrated_to")
             if version_str:
                 return Version(version_str)
         return self.version
-    
+
     def set_system_migration_version(self, version: Version) -> None:
         """Update system migration version."""
-        if not hasattr(self, '_raw_config'):
+        if not hasattr(self, "_raw_config"):
             self._raw_config = {}
-        
+
         if "migration_state" not in self._raw_config:
             self._raw_config["migration_state"] = {}
-        
+
         self._raw_config["migration_state"]["system_migrated_to"] = str(version.version)
         self.export_to_toml()
-    
+
     def _ensure_migration_state(self) -> None:
         """Ensure migration_state exists in config."""
-        if not hasattr(self, '_raw_config'):
+        if not hasattr(self, "_raw_config"):
             self._raw_config = {}
-        
+
         if "migration_state" not in self._raw_config:
             self._raw_config["migration_state"] = {
                 "system_migrated_to": str(self.version.version),
             }
             self.export_to_toml()
-    _config_data: Optional[dict] = None
+
+    _config_data: dict | None = None
 
     def export_to_toml(self, path: Path = CLI_FM_CONFIG_PATH) -> bool:
-        exclude = {'root_path'}
+        exclude = {"root_path"}
 
         if not self.cloudflare.exists:
-            exclude.add('cloudflare')
+            exclude.add("cloudflare")
 
         fm_config_dict = self.model_dump(exclude=exclude, exclude_none=True)
 
-        fm_config_dict['version'] = self.version.version
-        
-        if hasattr(self, '_raw_config') and 'migration_state' in self._raw_config:
-            fm_config_dict['migration_state'] = self._raw_config['migration_state']
+        fm_config_dict["version"] = self.version.version
+
+        if hasattr(self, "_raw_config") and "migration_state" in self._raw_config:
+            fm_config_dict["migration_state"] = self._raw_config["migration_state"]
 
         toml_doc = tomlkit.document()
 
@@ -143,7 +167,7 @@ class FMConfigManager(BaseModel):
             toml_doc[key] = value
 
         try:
-            with open(path, 'w') as f:
+            with open(path, "w") as f:
                 f.write(tomlkit.dumps(toml_doc))
             return True
         except Exception as e:
@@ -153,29 +177,34 @@ class FMConfigManager(BaseModel):
     def import_from_toml(cls, path: Path = CLI_FM_CONFIG_PATH) -> "FMConfigManager":
         input_data = {}
 
-        input_data['version'] = Version(get_current_fm_version())
-        input_data['cloudflare'] = FMCloudflareConfig(email=None, api_key=None, api_token=None)
-        input_data['root_path'] = str(path)
-        input_data['ngrok_auth_token'] = None
-        input_data['validation'] = FMValidationConfig()
+        input_data["version"] = Version(get_current_fm_version())
+        input_data["cloudflare"] = FMCloudflareConfig(email=None, api_key=None, api_token=None)
+        input_data["root_path"] = str(path)
+        input_data["ngrok_auth_token"] = None
+        input_data["validation"] = FMValidationConfig()
+        input_data["logs"] = FMLogsConfig()
 
         raw_config_data = {}
 
         if path.exists():
             data = tomlkit.parse(path.read_text())
-            input_data['version'] = Version(data.get('version', get_current_fm_version()))
+            input_data["version"] = Version(data.get("version", get_current_fm_version()))
 
-            if 'cloudflare' in data:
-                input_data['cloudflare'] = FMCloudflareConfig(**data['cloudflare'])
+            if "cloudflare" in data:
+                input_data["cloudflare"] = FMCloudflareConfig(**data["cloudflare"])
 
-            input_data['ngrok_auth_token'] = data.get('ngrok_auth_token', None)
+            input_data["ngrok_auth_token"] = data.get("ngrok_auth_token", None)
 
-            if 'validation' in data:
-                input_data['validation'] = FMValidationConfig(**data['validation'])
-            
-            if 'migration_state' in data:
+            if "validation" in data:
+                input_data["validation"] = FMValidationConfig(**data["validation"])
+
+            if "logs" in data:
+                input_data["logs"] = FMLogsConfig(**data["logs"])
+
+            if "migration_state" in data:
                 import json
-                raw_config_data['migration_state'] = json.loads(json.dumps(data['migration_state']))
+
+                raw_config_data["migration_state"] = json.loads(json.dumps(data["migration_state"]))
 
         fm_config_instance = cls(**input_data)
         fm_config_instance._raw_config = raw_config_data

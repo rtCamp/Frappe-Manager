@@ -5,7 +5,6 @@ This module tests the LoggerContext dataclass that provides structured
 context information for logging (bench name, operation, component).
 """
 
-import pytest
 
 from frappe_manager.logger.context import LoggerContext
 
@@ -48,11 +47,7 @@ class TestLoggerContextCreation:
 
     def test_create_with_all_fields(self):
         """Test creating context with all standard fields."""
-        ctx = LoggerContext(
-            bench="mybench",
-            operation="create",
-            component="docker"
-        )
+        ctx = LoggerContext(bench="mybench", operation="create", component="docker")
 
         assert ctx.bench == "mybench"
         assert ctx.operation == "create"
@@ -60,10 +55,7 @@ class TestLoggerContextCreation:
 
     def test_create_with_extra_fields(self):
         """Test creating context with extra custom fields."""
-        ctx = LoggerContext(
-            bench="mybench",
-            extra={"user": "admin", "step": 1}
-        )
+        ctx = LoggerContext(bench="mybench", extra={"user": "admin", "step": 1})
 
         assert ctx.bench == "mybench"
         assert ctx.extra["user"] == "admin"
@@ -100,20 +92,13 @@ class TestLoggerContextFormatting:
 
     def test_full_context_formats_correctly(self):
         """Test formatting with all standard fields."""
-        ctx = LoggerContext(
-            bench="mybench",
-            operation="create",
-            component="docker"
-        )
+        ctx = LoggerContext(bench="mybench", operation="create", component="docker")
         expected = "[bench=mybench] [op=create] [component=docker]"
         assert ctx.format() == expected
 
     def test_extra_fields_included_in_format(self):
         """Test that extra fields are included in formatted output."""
-        ctx = LoggerContext(
-            bench="mybench",
-            extra={"user": "admin", "step": 1}
-        )
+        ctx = LoggerContext(bench="mybench", extra={"user": "admin", "step": 1})
 
         formatted = ctx.format()
         assert "bench=mybench" in formatted
@@ -122,10 +107,7 @@ class TestLoggerContextFormatting:
 
     def test_extra_fields_with_none_value_excluded(self):
         """Test that extra fields with None values are excluded."""
-        ctx = LoggerContext(
-            bench="mybench",
-            extra={"user": "admin", "empty": None}
-        )
+        ctx = LoggerContext(bench="mybench", extra={"user": "admin", "empty": None})
 
         formatted = ctx.format()
         assert "user=admin" in formatted
@@ -133,12 +115,7 @@ class TestLoggerContextFormatting:
 
     def test_format_order_is_consistent(self):
         """Test that format order is bench, operation, component, then extra."""
-        ctx = LoggerContext(
-            bench="mybench",
-            operation="create",
-            component="docker",
-            extra={"step": 1}
-        )
+        ctx = LoggerContext(bench="mybench", operation="create", component="docker", extra={"step": 1})
 
         formatted = ctx.format()
         # Check order by finding indices
@@ -155,11 +132,7 @@ class TestLoggerContextChildCreation:
 
     def test_child_inherits_all_parent_values(self):
         """Test that child context inherits all parent values."""
-        parent = LoggerContext(
-            bench="mybench",
-            operation="create",
-            component="docker"
-        )
+        parent = LoggerContext(bench="mybench", operation="create", component="docker")
         child = parent.child()
 
         assert child.bench == "mybench"
@@ -210,10 +183,7 @@ class TestLoggerContextChildCreation:
 
     def test_child_inherits_extra_fields(self):
         """Test that child inherits parent's extra fields."""
-        parent = LoggerContext(
-            bench="mybench",
-            extra={"user": "admin", "step": 1}
-        )
+        parent = LoggerContext(bench="mybench", extra={"user": "admin", "step": 1})
         child = parent.child(component="docker")
 
         assert child.extra["user"] == "admin"
@@ -270,7 +240,8 @@ class TestLoggerContextDictConversion:
         assert d["bench"] is None
         assert d["operation"] is None
         assert d["component"] is None
-        assert len(d) == 3  # Only standard fields
+        assert d["correlation_id"] is None
+        assert len(d) == 4
 
     def test_partial_context_to_dict(self):
         """Test converting context with some fields to dictionary."""
@@ -283,11 +254,7 @@ class TestLoggerContextDictConversion:
 
     def test_full_context_to_dict(self):
         """Test converting full context to dictionary."""
-        ctx = LoggerContext(
-            bench="mybench",
-            operation="create",
-            component="docker"
-        )
+        ctx = LoggerContext(bench="mybench", operation="create", component="docker")
         d = ctx.to_dict()
 
         assert d["bench"] == "mybench"
@@ -296,10 +263,7 @@ class TestLoggerContextDictConversion:
 
     def test_context_with_extra_fields_to_dict(self):
         """Test that extra fields are included in dictionary."""
-        ctx = LoggerContext(
-            bench="mybench",
-            extra={"user": "admin", "step": 1}
-        )
+        ctx = LoggerContext(bench="mybench", extra={"user": "admin", "step": 1})
         d = ctx.to_dict()
 
         assert d["bench"] == "mybench"
@@ -352,11 +316,7 @@ class TestLoggerContextBooleanEvaluation:
 
     def test_context_with_any_field_evaluates_to_true(self):
         """Test that context with any non-None field evaluates to True."""
-        ctx = LoggerContext(
-            bench="mybench",
-            operation="create",
-            component="docker"
-        )
+        ctx = LoggerContext(bench="mybench", operation="create", component="docker")
         assert ctx
         assert bool(ctx) is True
 
@@ -375,11 +335,7 @@ class TestLoggerContextEdgeCases:
 
     def test_context_with_special_characters(self):
         """Test context with special characters in values."""
-        ctx = LoggerContext(
-            bench="my-bench_123",
-            operation="create/update",
-            component="docker.compose"
-        )
+        ctx = LoggerContext(bench="my-bench_123", operation="create/update", component="docker.compose")
 
         formatted = ctx.format()
         assert "bench=my-bench_123" in formatted
@@ -388,10 +344,7 @@ class TestLoggerContextEdgeCases:
 
     def test_context_with_unicode_values(self):
         """Test context with unicode characters."""
-        ctx = LoggerContext(
-            bench="mybench",
-            extra={"user": "admin™", "note": "测试"}
-        )
+        ctx = LoggerContext(bench="mybench", extra={"user": "admin™", "note": "测试"})
 
         formatted = ctx.format()
         assert "user=admin™" in formatted
@@ -416,9 +369,7 @@ class TestLoggerContextEdgeCases:
 
     def test_context_with_numeric_values_in_extra(self):
         """Test context with various numeric types in extra fields."""
-        ctx = LoggerContext(
-            extra={"int_val": 42, "float_val": 3.14, "bool_val": True}
-        )
+        ctx = LoggerContext(extra={"int_val": 42, "float_val": 3.14, "bool_val": True})
 
         formatted = ctx.format()
         assert "int_val=42" in formatted

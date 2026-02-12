@@ -1,12 +1,12 @@
+from collections.abc import Iterable
 from logging import Logger
-import os
 from pathlib import Path
 from subprocess import run
-from typing import Dict, Iterable, Tuple, Union, Optional
-from frappe_manager.logger import log
+
 from frappe_manager.docker.docker_exceptions import DockerException
-from frappe_manager.display_manager.DisplayManager import richprint
 from frappe_manager.docker.subprocess_output import SubprocessOutput
+from frappe_manager.logger import log
+from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.utils.subprocess import stream_command_output
 
 process_opened = []
@@ -14,10 +14,10 @@ process_opened = []
 
 def stream_stdout_and_stderr(
     full_cmd: list,
-    cwd: Optional[str] = None,
-    logger: Optional[Logger] = None,
-    env: Optional[Dict[str, str]] = None,
-) -> Iterable[Tuple[str, bytes]]:
+    cwd: str | None = None,
+    logger: Logger | None = None,
+    env: dict[str, str] | None = None,
+) -> Iterable[tuple[str, bytes]]:
     """
     Executes a Docker command and streams the stdout and stderr outputs.
 
@@ -58,9 +58,9 @@ def run_command_with_exit_code(
     full_cmd: list,
     stream: bool = True,
     capture_output: bool = True,
-    env: Optional[Dict[str, str]] = None,
-    cwd: Optional[str] = None,
-) -> Union[Iterable[Tuple[str, bytes]], SubprocessOutput]:
+    env: dict[str, str] | None = None,
+    cwd: str | None = None,
+) -> Iterable[tuple[str, bytes]] | SubprocessOutput:
     """
     Run a command and return the exit code.
 
@@ -72,25 +72,25 @@ def run_command_with_exit_code(
     if not stream:
         if not capture_output:
             logger = log.get_logger()
-            logger.debug('- -' * 10)
+            logger.debug("- -" * 10)
             logger.debug(f"COMMAND: {' '.join(full_cmd)}")
 
             run_output = run(full_cmd, cwd=cwd, env=env)
             exit_code = run_output.returncode
 
             logger.debug(f"RETURN CODE: {exit_code}")
-            logger.debug('- -' * 10)
+            logger.debug("- -" * 10)
 
             if exit_code != 0:
                 raise DockerException(full_cmd, SubprocessOutput([], [], [], exit_code))
-            return
+            return None
 
         stream_output: SubprocessOutput = SubprocessOutput.from_output(
-            stream_stdout_and_stderr(full_cmd, cwd=cwd, env=env)
+            stream_stdout_and_stderr(full_cmd, cwd=cwd, env=env),
         )
         return stream_output
 
-    output: Iterable[Tuple[str, bytes]] = stream_stdout_and_stderr(full_cmd, cwd=cwd, env=env)
+    output: Iterable[tuple[str, bytes]] = stream_stdout_and_stderr(full_cmd, cwd=cwd, env=env)
     return output
 
 
@@ -121,16 +121,14 @@ def parameters_to_options(param: dict, exclude: list = []) -> list:
     # remove the self parameter
     temp_param: dict = dict(param)
 
-    if "self" in temp_param:
-        del temp_param["self"]
+    temp_param.pop("self", None)
 
     for key in exclude:
-        if key in temp_param:
-            del temp_param[key]
+        temp_param.pop(key, None)
 
     params: list = []
 
-    for key in temp_param.keys():
+    for key in temp_param:
         value = temp_param[key]
         key = "--" + key.replace("_", "-")
 
@@ -167,14 +165,12 @@ def is_current_user_in_group(group_name) -> bool:
         bool: True if the current user is in the group, False otherwise.
     """
 
-    from frappe_manager.display_manager.DisplayManager import richprint
-
     import platform
 
-    if platform.system() == 'Linux':
+    if platform.system() == "Linux":
         import grp
-        import pwd
         import os
+        import pwd
 
         current_user = pwd.getpwuid(os.getuid()).pw_name
         try:
@@ -182,14 +178,15 @@ def is_current_user_in_group(group_name) -> bool:
             docker_group_members = grp.getgrgid(docker_gid).gr_mem
             if current_user in docker_group_members:
                 return True
-            else:
-                richprint.error(
-                    f"Your current user [blue][b] {current_user} [/b][/blue] is not in the 'docker' group. Please add it and restart your terminal."
-                )
-                return False
+            output = get_global_output_handler()
+            output.display_error(
+                f"Your current user [blue][b] {current_user} [/b][/blue] is not in the 'docker' group. Please add it and restart your terminal.",
+            )
+            return False
         except KeyError:
-            richprint.error(
-                f"The group '{group_name}' does not exist. Please create it and add your current user [blue][b] {current_user} [/b][/blue] to it."
+            output = get_global_output_handler()
+            output.display_error(
+                f"The group '{group_name}' does not exist. Please create it and add your current user [blue][b] {current_user} [/b][/blue] to it.",
             )
             return False
     else:
@@ -206,7 +203,8 @@ def generate_random_text(length=50):
     Returns:
     str: The randomly generated text.
     """
-    import random, string
+    import random
+    import string
 
     alphanumeric_chars = string.ascii_letters + string.digits
     return "".join(random.choice(alphanumeric_chars) for _ in range(length))
@@ -224,7 +222,8 @@ def host_run_cp(image: str, source: str, destination: str, docker):
     """
 
     dest_path = Path(destination)
-    richprint.change_head(f"Populating {dest_path.name} directory")
+    output = get_global_output_handler()
+    output.change_head(f"Populating {dest_path.name} directory")
 
     try:
         # Use context manager for automatic cleanup
@@ -241,7 +240,7 @@ def host_run_cp(image: str, source: str, destination: str, docker):
         if not Path(destination).exists():
             raise Exception(f"{destination} not found.")
 
-        richprint.change_head(f"Populated {dest_path.name} directory")
+        output.change_head(f"Populated {dest_path.name} directory")
 
     except DockerException as e:
         # Clean up destination if copy failed

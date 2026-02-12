@@ -73,7 +73,7 @@ jobs:
       - name: e2e run
         id: e2e_test
         timeout-minutes: 20
-        working-directory: test
+        working-directory: scripts/e2e
         run: |
           ./e2e_test.sh
 

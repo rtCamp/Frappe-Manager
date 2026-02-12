@@ -1,24 +1,25 @@
-import importlib
-import json
-from cryptography.hazmat.backends import default_backend
-from datetime import datetime
-from cryptography import x509
-from io import StringIO
-import sys
-from typing import Optional
-from frappe_manager.utils.docker import run_command_with_exit_code
-import requests
-import time
-import secrets
 import grp
-from pathlib import Path
+import importlib
 import importlib.resources as pkg_resources
+import json
+import secrets
+import sys
+import time
+from datetime import datetime
+from io import StringIO
+from pathlib import Path
+
+import requests
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
 from rich.console import Console
 from rich.traceback import Traceback
+
+from frappe_manager import CLI_DEFAULT_DELIMETER, CLI_SITE_NAME_DELIMETER
 from frappe_manager.logger import log
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager import PREBAKED_SITE_APPS
-from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_DEFAULT_DELIMETER, CLI_SITE_NAME_DELIMETER
+from frappe_manager.utils.docker import run_command_with_exit_code
 
 
 def remove_zombie_subprocess_process(process):
@@ -60,7 +61,8 @@ def generate_random_text(length=50):
     Returns:
     str: The randomly generated text.
     """
-    import random, string
+    import random
+    import string
 
     alphanumeric_chars = string.ascii_letters + string.digits
     return "".join(random.choice(alphanumeric_chars) for _ in range(length))
@@ -78,7 +80,7 @@ def is_cli_help_called(ctx):
     """
     help_called = False
 
-    if '--help' in " ".join(sys.argv[1:]):
+    if "--help" in " ".join(sys.argv[1:]):
         return True
 
     try:
@@ -86,7 +88,7 @@ def is_cli_help_called(ctx):
         if not subcommand:
             return False
 
-        if hasattr(subcommand, 'commands'):
+        if hasattr(subcommand, "commands"):
             check_command = " ".join(sys.argv[2:])
             if check_command in subcommand.commands:
                 sub_sub_command = subcommand.commands[check_command]
@@ -143,10 +145,11 @@ def check_repo_exists(app_url: str, branch_name: str | None = None, exclude_dict
         return {"app": True if app == 200 else False}
 
     except Exception as e:
-        richprint.error(f"Not able to validate app {app_url} for branch [blue]{branch_name}[/blue]", e)
+        output = get_global_output_handler()
+        output.error(f"Not able to validate app {app_url} for branch [blue]{branch_name}[/blue]", e)
 
 
-def check_frappe_app_exists(app: str, branch_name: Optional[str] = None):
+def check_frappe_app_exists(app: str, branch_name: str | None = None):
     if "github.com" not in app:
         app = f"https://github.com/frappe/{app}"
 
@@ -204,7 +207,7 @@ def get_container_name_prefix(site_name):
     Returns:
         str: The container name prefix.
     """
-    return 'fm' + CLI_DEFAULT_DELIMETER + site_name.replace(".", CLI_SITE_NAME_DELIMETER)
+    return "fm" + CLI_DEFAULT_DELIMETER + site_name.replace(".", CLI_SITE_NAME_DELIMETER)
 
 
 def random_password_generate(password_length=13, symbols=False):
@@ -234,10 +237,12 @@ def get_unix_groups():
 
 
 def install_package(package_name, version):
-    output = run_command_with_exit_code(
-        [sys.executable, "-m", "pip", "install", f"{package_name}=={version}"], stream=True
+    output_lines = run_command_with_exit_code(
+        [sys.executable, "-m", "pip", "install", f"{package_name}=={version}"],
+        stream=True,
     )
-    richprint.live_lines(output)
+    output = get_global_output_handler()
+    output.live_lines(output_lines)
 
 
 def create_class_from_dict(class_name, attributes_dict):
@@ -273,7 +278,7 @@ def create_symlink(source: Path, dest: Path):
     dest.symlink_to(source)
 
 
-def get_template_path(file_name: str, template_dir: str = 'templates') -> Path:
+def get_template_path(file_name: str, template_dir: str = "templates") -> Path:
     """
     Get the file path of a template.
 
@@ -298,7 +303,7 @@ def rich_object_to_string(obj) -> str:
     capture_buffer = StringIO()
 
     fake_console = Console(force_terminal=False, file=capture_buffer)
-    fake_console.print(obj, crop=False, overflow='ignore')
+    fake_console.print(obj, crop=False, overflow="ignore")
 
     captured_str = capture_buffer.getvalue()  # Retrieve the captured output as a string
     capture_buffer.close()
@@ -311,7 +316,11 @@ def capture_and_format_exception(traceback_max_frames: int = 100) -> str:
     exc_type, exc_value, exc_traceback = sys.exc_info()
 
     traceback = Traceback.from_exception(
-        exc_type, exc_value, exc_traceback, show_locals=True, max_frames=traceback_max_frames
+        exc_type,
+        exc_value,
+        exc_traceback,
+        show_locals=True,
+        max_frames=traceback_max_frames,
     )
 
     # Convert the Traceback object to a formatted string
@@ -321,7 +330,7 @@ def capture_and_format_exception(traceback_max_frames: int = 100) -> str:
 
 
 def pluralise(singular, count):
-    return '{} {}{}'.format(count, singular, '' if count == 1 else 's')
+    return "{} {}{}".format(count, singular, "" if count == 1 else "s")
 
 
 def format_ssl_certificate_time_remaining(expiry_date: datetime):
@@ -337,13 +346,13 @@ def format_ssl_certificate_time_remaining(expiry_date: datetime):
 
     minutes = int(seconds_unaccounted_for / seconds_per_minute)
 
-    return '{} {} {}'.format(pluralise('day', day_count), pluralise('hour', hours), pluralise('min', minutes))
+    return "{} {} {}".format(pluralise("day", day_count), pluralise("hour", hours), pluralise("min", minutes))
 
 
 def get_certificate_expiry_date(fullchain_path: Path) -> datetime:
     cert_content = fullchain_path.read_bytes()
     cert = x509.load_pem_x509_certificate(cert_content, default_backend())
-    if hasattr(cert, 'not_valid_after_utc'):
+    if hasattr(cert, "not_valid_after_utc"):
         expiry_date: datetime = cert.not_valid_after_utc
     else:
         expiry_date: datetime = cert.not_valid_after
@@ -359,7 +368,7 @@ def save_dict_to_file(config: dict, json_file_path: Path):
     """
 
     final_config = {}
-    with open(json_file_path, "r") as f:
+    with open(json_file_path) as f:
         final_config = json.load(f)
     for key, value in config.items():
         final_config[key] = value

@@ -8,25 +8,25 @@ Extracted from the monolithic Bench class and BenchOperations for better
 separation of concerns.
 """
 
-from collections.abc import Iterable, Iterator
+import shlex
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Literal, cast
+from typing import cast
 
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.logger import log
-from frappe_manager.site_manager.bench_config import BenchConfig, AppConfig
-from frappe_manager.site_manager.modules.app_cloner import AppCloner, AppClonerError
+from frappe_manager.logger.contextual import ContextualLogger
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.site_manager.bench_config import AppConfig, BenchConfig
 from frappe_manager.site_manager.exceptions import (
     BenchOperationBenchAppInSiteFailed,
     BenchOperationBenchBuildFailed,
     BenchOperationBenchInstallAppInPythonEnvFailed,
     BenchOperationBenchRemoveAppFromPythonEnvFailed,
     BenchOperationException,
-    BenchOperationFrappeBranchChangeFailed,
 )
+from frappe_manager.site_manager.modules.app_cloner import AppCloner, AppClonerError
 from frappe_manager.utils.docker import parameters_to_options
 
 
@@ -67,6 +67,7 @@ class BenchAppManager:
 
     def __init__(
         self,
+        logger: ContextualLogger,
         bench_name: str,
         bench_path: Path,
         docker_client: DockerClient,
@@ -77,29 +78,30 @@ class BenchAppManager:
         Initialize BenchAppManager.
 
         Args:
+            logger: Contextual logger for audit/debug logging
             bench_name: Name of the bench
             bench_path: Path to the bench directory on host
             docker_client: Docker client for container operations
             bench_config: Bench configuration object
             output_handler: Handler for output operations
         """
+        self.logger = logger.child(component="app_manager")
         self.bench_name = bench_name
         self.bench_path = bench_path
         self.docker_client = docker_client
         self.bench_config = bench_config
         self.output = output_handler or RichOutputHandler()
-        self.logger = log.get_logger()
 
         self.frappe_bench_dir: Path = bench_path / "workspace" / "frappe-bench"
-        self.bench_cli_cmd = ['/usr/local/bin/bench']
+        self.bench_cli_cmd = ["/usr/local/bin/bench"]
 
     def get_current_runtime_versions(self, use_run: bool = False) -> dict[str, str | None]:
         """Get currently installed Python and Node versions from the container."""
         import re
 
         versions: dict[str, str | None] = {}
-        versions['python'] = None
-        versions['node'] = None
+        versions["python"] = None
+        versions["node"] = None
 
         try:
             result = self._container_run(
@@ -112,19 +114,22 @@ class BenchAppManager:
                 output = " ".join(result.combined)
                 match = re.search(r"Python (\d+\.\d+\.\d+)", output)
                 if match:
-                    versions['python'] = match.group(1)
+                    versions["python"] = match.group(1)
         except Exception:
             pass
 
         try:
             result = self._container_run(
-                "node --version", capture_output=True, raise_exception_obj=None, use_run=use_run
+                "node --version",
+                capture_output=True,
+                raise_exception_obj=None,
+                use_run=use_run,
             )
             if result and result.exit_code == 0:
                 output = " ".join(result.combined)
                 match = re.search(r"v(\d+\.\d+\.\d+)", output)
                 if match:
-                    versions['node'] = match.group(1)
+                    versions["node"] = match.group(1)
         except Exception:
             pass
 
@@ -148,8 +153,8 @@ class BenchAppManager:
             }
         """
         from frappe_manager.site_manager.bench_config import (
-            parse_python_version_for_runtime,
             parse_node_version_for_runtime,
+            parse_python_version_for_runtime,
         )
 
         venv_recreated = False
@@ -157,7 +162,7 @@ class BenchAppManager:
         node_version_requirement = self.bench_config.node_version
 
         if python_version_requirement:
-            self.output.change_head(f"Checking Python version compatibility")
+            self.output.change_head("Checking Python version compatibility")
 
             from frappe_manager.site_manager.bench_config import extract_python_version_requirement
 
@@ -169,7 +174,10 @@ class BenchAppManager:
             try:
                 check_current_version_cmd = "/workspace/frappe-bench/env/bin/python --version"
                 result = self._container_run(
-                    check_current_version_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run
+                    check_current_version_cmd,
+                    capture_output=True,
+                    raise_exception_obj=None,
+                    use_run=use_run,
                 )
 
                 if result and result.exit_code == 0:
@@ -183,21 +191,23 @@ class BenchAppManager:
                         current_minor = int(version_match.group(2))
 
                         if self._python_version_satisfies_requirement(
-                            current_major, current_minor, python_version_requirement
+                            current_major,
+                            current_minor,
+                            python_version_requirement,
                         ):
                             if frappe_python_req:
                                 self.output.print(
                                     f"✓ Python {current_major}.{current_minor} already satisfies {python_version_requirement} "
-                                    f"(Frappe requires: {frappe_python_req}) - skipping installation"
+                                    f"(Frappe requires: {frappe_python_req}) - skipping installation",
                                 )
                             else:
                                 self.output.print(
-                                    f"✓ Python {current_major}.{current_minor} already satisfies {python_version_requirement} - skipping installation"
+                                    f"✓ Python {current_major}.{current_minor} already satisfies {python_version_requirement} - skipping installation",
                                 )
                             python_version_requirement = None
                         else:
                             self.output.print(
-                                f"Python {current_major}.{current_minor} does not satisfy {python_version_requirement} - will recreate venv"
+                                f"Python {current_major}.{current_minor} does not satisfy {python_version_requirement} - will recreate venv",
                             )
 
             except Exception as e:
@@ -218,7 +228,10 @@ if [ -d /workspace/.uv/python ]; then
 fi
 """
                     result = self._container_run(
-                        scan_pythons_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run
+                        scan_pythons_cmd,
+                        capture_output=True,
+                        raise_exception_obj=None,
+                        use_run=use_run,
                     )
 
                     selected_python_full = None
@@ -229,10 +242,10 @@ fi
                         candidates = []
 
                         for line in result.combined:
-                            if '/usr/bin' in line or 'download available' in line:
+                            if "/usr/bin" in line or "download available" in line:
                                 continue
 
-                            match = re.search(r'cpython-(\d+)\.(\d+)\.(\d+)', line)
+                            match = re.search(r"cpython-(\d+)\.(\d+)\.(\d+)", line)
                             if match:
                                 major = int(match.group(1))
                                 minor = int(match.group(2))
@@ -246,19 +259,23 @@ fi
                             selected_version = candidates[0]
                             selected_python_full = selected_version[3]
                             self.output.print(
-                                f"Found Python {selected_version[0]}.{selected_version[1]}.{selected_version[2]} satisfying {python_version_requirement}"
+                                f"Found Python {selected_version[0]}.{selected_version[1]}.{selected_version[2]} satisfying {python_version_requirement}",
                             )
 
                     if not selected_python_full:
                         self.output.print(f"Installing Python {python_version} via uv..")
-                        install_cmd = f"uv python install cpython-{python_version}"
+                        quoted_pkg = shlex.quote(f"cpython-{python_version}")
+                        install_cmd = f"uv python install {quoted_pkg}"
                         self._container_run(install_cmd, raise_exception_obj=None, use_run=use_run)
 
                         detect_installed_cmd = (
-                            f"ls -1 /workspace/.uv/python/ | grep '^cpython-{python_version}' | sort -V | tail -1"
+                            f"ls -1 /workspace/.uv/python/ | grep '^{quoted_pkg}' | sort -V | tail -1"
                         )
                         result = self._container_run(
-                            detect_installed_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run
+                            detect_installed_cmd,
+                            capture_output=True,
+                            raise_exception_obj=None,
+                            use_run=use_run,
                         )
                         if result and result.exit_code == 0 and result.combined:
                             selected_python_full = result.combined[0].strip()
@@ -276,12 +293,13 @@ fi
                         self._container_run(update_symlink_cmd, raise_exception_obj=None, use_run=use_run)
 
                     self.output.change_head(f"Creating virtual environment with {selected_python_full}")
+                    quoted_python = shlex.quote(selected_python_full)
                     recreate_venv_cmd = f"""
                     cd /workspace/frappe-bench
                     if [ -d env ]; then
                         mv env env.bak || rm -rf env.bak
                     fi
-                    uv venv env --python {selected_python_full} --seed --link-mode=copy
+                    uv venv env --python {quoted_python} --seed --link-mode=copy
                     """
                     self._container_run(recreate_venv_cmd, raise_exception_obj=None, use_run=use_run)
                     selected_version_str = (
@@ -298,7 +316,7 @@ fi
 
         node_version_requirement = self.bench_config.node_version
         if node_version_requirement:
-            self.output.change_head(f"Checking Node version compatibility")
+            self.output.change_head("Checking Node version compatibility")
 
             from frappe_manager.site_manager.bench_config import extract_node_version_requirement
 
@@ -310,7 +328,10 @@ fi
             try:
                 check_current_node_cmd = "node --version"
                 result = self._container_run(
-                    check_current_node_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run
+                    check_current_node_cmd,
+                    capture_output=True,
+                    raise_exception_obj=None,
+                    use_run=use_run,
                 )
 
                 if result and result.exit_code == 0:
@@ -321,22 +342,22 @@ fi
 
                     if version_match:
                         full_version = version_match.group(1)
-                        current_major = int(full_version.split('.')[0])
+                        current_major = int(full_version.split(".")[0])
 
                         if self._node_version_satisfies_requirement(current_major, node_version_requirement):
                             if frappe_node_req:
                                 self.output.print(
                                     f"Node {current_major} already satisfies {node_version_requirement} "
-                                    f"(Frappe requires: {frappe_node_req}) - skipping installation"
+                                    f"(Frappe requires: {frappe_node_req}) - skipping installation",
                                 )
                             else:
                                 self.output.print(
-                                    f"Node {current_major} already satisfies {node_version_requirement} - skipping installation"
+                                    f"Node {current_major} already satisfies {node_version_requirement} - skipping installation",
                                 )
                             node_version_requirement = None
                         else:
                             self.output.print(
-                                f"Node {current_major} does not satisfy {node_version_requirement} - will install"
+                                f"Node {current_major} does not satisfy {node_version_requirement} - will install",
                             )
 
             except Exception as e:
@@ -349,7 +370,10 @@ fi
                 try:
                     check_cmd = f"fnm list | grep 'v{node_version}' || true"
                     result = self._container_run(
-                        check_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run
+                        check_cmd,
+                        capture_output=True,
+                        raise_exception_obj=None,
+                        use_run=use_run,
                     )
 
                     needs_install = True
@@ -363,18 +387,24 @@ fi
                         self.output.print(f"Installing Node {node_version} via fnm..")
                         install_cmd = f"fnm install {node_version}"
                         install_result = self._container_run(
-                            install_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run
+                            install_cmd,
+                            capture_output=True,
+                            raise_exception_obj=None,
+                            use_run=use_run,
                         )
                         if install_result and install_result.exit_code == 0:
                             self.output.print(f"Installed Node {node_version} via fnm")
                         else:
                             raise Exception(
-                                f"fnm install {node_version} failed with exit code {install_result.exit_code if install_result else 'unknown'}"
+                                f"fnm install {node_version} failed with exit code {install_result.exit_code if install_result else 'unknown'}",
                             )
 
                     set_default_cmd = f"fnm default {node_version}"
                     default_result = self._container_run(
-                        set_default_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run
+                        set_default_cmd,
+                        capture_output=True,
+                        raise_exception_obj=None,
+                        use_run=use_run,
                     )
                     if default_result and default_result.exit_code == 0:
                         self.output.print(f"Set Node {node_version} as default")
@@ -444,14 +474,14 @@ fi
 
     def install_apps(
         self,
-        apps_list: List[AppConfig],
-        github_token: Optional[str] = None,
+        apps_list: list[AppConfig],
+        github_token: str | None = None,
         use_uv: bool = True,
         force_reinstall: bool = False,
         clone_only: bool = False,
         skip_clone: bool = False,
         use_run: bool = False,
-    ) -> List[AppConfig]:
+    ) -> list[AppConfig]:
         """
         Install apps to the bench (clone, install Python/Node deps, build).
 
@@ -468,6 +498,7 @@ fi
             self.output.change_head(f"Cloning {len(apps_config)} apps in parallel")
             try:
                 cloner = AppCloner(
+                    logger=self.logger,
                     apps_dir=self.frappe_bench_dir / "apps",
                     github_token=github_token,
                     output_handler=self.output,
@@ -479,7 +510,8 @@ fi
                 self._update_apps_list_with_corrected_names(apps_config)
             except AppClonerError as e:
                 raise BenchOperationBenchInstallAppInPythonEnvFailed(
-                    bench_name=self.bench_name, app_name="multiple apps"
+                    bench_name=self.bench_name,
+                    app_name="multiple apps",
                 ) from e
 
         if clone_only:
@@ -510,7 +542,7 @@ fi
             create_venv_cmd = f"python3.12 -m venv {venv_path}"
             self._container_run(create_venv_cmd, raise_exception_obj=None)
 
-    def _install_python_deps_with_uv(self, apps: List[AppConfig], use_uv: bool = True, use_run: bool = False) -> None:
+    def _install_python_deps_with_uv(self, apps: list[AppConfig], use_uv: bool = True, use_run: bool = False) -> None:
         """
         Install Python dependencies using UV (much faster than pip).
 
@@ -560,7 +592,7 @@ fi
         node_cmd = " ".join(self.bench_cli_cmd + ["setup", "requirements", "--node"])
         self._container_run(node_cmd, use_run=use_run)
 
-    def _update_apps_txt(self, apps: List[AppConfig]) -> None:
+    def _update_apps_txt(self, apps: list[AppConfig]) -> None:
         """
         Update apps.txt to register newly cloned apps.
 
@@ -575,7 +607,7 @@ fi
         # Read existing apps
         existing_apps = []
         if apps_txt_path.exists():
-            existing_apps = apps_txt_path.read_text().strip().split('\n')
+            existing_apps = apps_txt_path.read_text().strip().split("\n")
             existing_apps = [app.strip() for app in existing_apps if app.strip()]
 
         # Add new apps (avoid duplicates)
@@ -584,10 +616,10 @@ fi
                 existing_apps.append(app_config.name)
 
         # Write back to apps.txt
-        apps_txt_path.write_text('\n'.join(existing_apps) + '\n')
+        apps_txt_path.write_text("\n".join(existing_apps) + "\n")
         self.logger.debug(f"Updated apps.txt with {len(apps)} new apps")
 
-    def _update_apps_list_with_corrected_names(self, apps_config: List[AppConfig]) -> None:
+    def _update_apps_list_with_corrected_names(self, apps_config: list[AppConfig]) -> None:
         for i, app_config in enumerate(apps_config):
             if i < len(self.bench_config.apps_list):
                 self.bench_config.apps_list[i] = app_config
@@ -595,7 +627,7 @@ fi
     def install_app_to_env(
         self,
         app: str,
-        branch: Optional[str] = None,
+        branch: str | None = None,
         overwrite: bool = True,
         skip_assets: bool = False,
     ) -> None:
@@ -617,10 +649,10 @@ fi
         Example:
             >>> app_manager.install_app_to_env("erpnext", branch="version-15")
         """
-        parameters: Dict = {
-            'branch': branch,
-            'overwrite': overwrite,
-            'skip_assets': skip_assets,
+        parameters: dict = {
+            "branch": branch,
+            "overwrite": overwrite,
+            "skip_assets": skip_assets,
         }
 
         app_install_env_command = self.bench_cli_cmd + ["get-app"]
@@ -658,8 +690,8 @@ fi
             >>> app_manager.remove_app_from_env("erpnext")
         """
         parameters: dict = {
-            'no_backup': no_backup,
-            'force': force,
+            "no_backup": no_backup,
+            "force": force,
         }
 
         app_rm_env_command = self.bench_cli_cmd + ["remove-app"]
@@ -671,14 +703,15 @@ fi
         self._container_run(
             app_rm_env_command,
             raise_exception_obj=BenchOperationBenchRemoveAppFromPythonEnvFailed(
-                bench_name=self.bench_name, app_name=app
+                bench_name=self.bench_name,
+                app_name=app,
             ),
         )
 
     def install_app_to_site(
         self,
         app: str,
-        site_name: Optional[str] = None,
+        site_name: str | None = None,
     ) -> None:
         """
         Install an app to a Frappe site.
@@ -710,7 +743,7 @@ fi
 
     def install_apps_to_site(
         self,
-        site_name: Optional[str] = None,
+        site_name: str | None = None,
     ) -> None:
         """
         Install all available apps to a site in the order specified in bench_config.
@@ -732,7 +765,7 @@ fi
             self.install_app_to_site(app_name, site_name)
             self.output.print(f"Installed app {app_name} in site")
 
-    def build(self, app_list: Optional[List[str]] = None, use_run: bool = False) -> None:
+    def build(self, app_list: list[str] | None = None, use_run: bool = False) -> None:
         """
         Build bench assets.
 
@@ -760,7 +793,7 @@ fi
         build_cmd = " ".join(build_cmd)
         self._container_run(build_cmd, build_exception, use_run=use_run)
 
-    def get_installed_apps_list(self) -> List[Path]:
+    def get_installed_apps_list(self) -> list[Path]:
         """
         Get list of installed apps in the bench.
 
@@ -774,8 +807,8 @@ fi
             >>> print([app.name for app in apps])
             ['frappe', 'erpnext', 'hrms']
         """
-        apps_dir = self.frappe_bench_dir / 'apps'
-        apps_dirs: List[Path] = [item for item in apps_dir.iterdir() if item.is_dir()]
+        apps_dir = self.frappe_bench_dir / "apps"
+        apps_dirs: list[Path] = [item for item in apps_dir.iterdir() if item.is_dir()]
         return apps_dirs
 
     def _filter_docker_warnings(self, output: SubprocessOutput) -> SubprocessOutput:
@@ -798,13 +831,13 @@ fi
     def _container_run(
         self,
         command: str,
-        raise_exception_obj: Optional[BenchOperationException] = None,
+        raise_exception_obj: BenchOperationException | None = None,
         capture_output: bool = False,
         user: str = "frappe",
         workdir: str = "/workspace/frappe-bench",
-        service: str = 'frappe',
+        service: str = "frappe",
         use_run: bool = False,
-    ) -> Optional[SubprocessOutput]:
+    ) -> SubprocessOutput | None:
         """
         Execute a command inside the bench container.
 
@@ -833,7 +866,7 @@ fi
                 run_command = f"-c '{wrapped_command}'"
                 if capture_output:
                     output = cast(
-                        SubprocessOutput,
+                        "SubprocessOutput",
                         self.docker_client.compose.run(
                             service=service,
                             command=run_command,
@@ -845,38 +878,44 @@ fi
                     )
                     output = self._filter_docker_warnings(output)
                     return output
-                else:
-                    output = cast(
-                        Iterator[Tuple[str, bytes]],
-                        self.docker_client.compose.run(
-                            service=service,
-                            command=run_command,
-                            entrypoint="/bin/bash",
-                            user=user,
-                            rm=True,
-                            stream=True,
-                        ),
-                    )
-                    self.output.live_lines(output)
+                output = cast(
+                    "Iterator[tuple[str, bytes]]",
+                    self.docker_client.compose.run(
+                        service=service,
+                        command=run_command,
+                        entrypoint="/bin/bash",
+                        user=user,
+                        rm=True,
+                        stream=True,
+                    ),
+                )
+                self.output.live_lines(output)
             else:
                 exec_command = f"/bin/bash -c '{command}'"
                 if capture_output:
                     output = cast(
-                        SubprocessOutput,
+                        "SubprocessOutput",
                         self.docker_client.compose.exec(
-                            service=service, command=exec_command, user=user, workdir=workdir, stream=False
+                            service=service,
+                            command=exec_command,
+                            user=user,
+                            workdir=workdir,
+                            stream=False,
                         ),
                     )
                     output = self._filter_docker_warnings(output)
                     return output
-                else:
-                    output = cast(
-                        Iterator[Tuple[str, bytes]],
-                        self.docker_client.compose.exec(
-                            service=service, command=exec_command, workdir=workdir, user=user, stream=True
-                        ),
-                    )
-                    self.output.live_lines(output)
+                output = cast(
+                    "Iterator[tuple[str, bytes]]",
+                    self.docker_client.compose.exec(
+                        service=service,
+                        command=exec_command,
+                        workdir=workdir,
+                        user=user,
+                        stream=True,
+                    ),
+                )
+                self.output.live_lines(output)
 
         except DockerException as e:
             if raise_exception_obj:

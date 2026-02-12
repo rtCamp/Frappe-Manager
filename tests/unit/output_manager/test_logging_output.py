@@ -13,7 +13,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from frappe_manager.exceptions import ValidationError
-from frappe_manager.logger import log
 from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager.logging_output import LoggingOutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
@@ -335,3 +334,75 @@ class TestLoggingOutputHandlerDisplayError:
 
         content = log_file.read_text()
         assert "[ERROR] [OUTPUT] Error occurred" in content
+
+
+class TestLoggingOutputHandlerInteractiveMode:
+    """Test that set_interactive_mode forwards to delegate."""
+
+    def test_set_interactive_mode_forwards_to_delegate(self, test_logger):
+        """Test that set_interactive_mode is forwarded to the delegate RichOutputHandler."""
+        logger, _ = test_logger
+        rich = RichOutputHandler()
+        output = LoggingOutputHandler(rich, logger)
+
+        output.set_interactive_mode(non_interactive_flag=True)
+
+        assert output._interactive is False
+        assert rich._interactive is False
+
+    def test_set_interactive_mode_wrapper_only(self, test_logger):
+        """Test that wrapper respects non_interactive_flag."""
+        logger, _ = test_logger
+        rich = RichOutputHandler()
+        output = LoggingOutputHandler(rich, logger)
+
+        output.set_interactive_mode(non_interactive_flag=False)
+
+        assert output._interactive == rich._tty_available
+        assert rich._interactive == rich._tty_available
+
+    def test_delegate_spinner_respects_forwarded_flag(self, test_logger):
+        """Test that delegate's spinner behavior respects forwarded interactive flag."""
+        logger, _ = test_logger
+        rich = RichOutputHandler()
+        output = LoggingOutputHandler(rich, logger)
+
+        output.set_interactive_mode(non_interactive_flag=True)
+
+        assert rich._is_interactive is False
+
+
+class TestLoggingOutputHandlerExit:
+
+    def test_exit_delegates_to_rich_handler(self, test_logger):
+        logger, log_file = test_logger
+        rich = RichOutputHandler()
+        output = LoggingOutputHandler(rich, logger)
+
+        with pytest.raises(Exception):
+            output.exit("Test error message")
+
+        log_contents = log_file.read_text()
+        assert "[ERROR] [OUTPUT] EXIT: Test error message" in log_contents
+
+    def test_exit_with_error_msg(self, test_logger):
+        logger, log_file = test_logger
+        rich = RichOutputHandler()
+        output = LoggingOutputHandler(rich, logger)
+
+        with pytest.raises(Exception):
+            output.exit("Test error", error_msg="Additional details")
+
+        log_contents = log_file.read_text()
+        assert "[ERROR] [OUTPUT] EXIT: Test error | Error: Additional details" in log_contents
+
+    def test_exit_with_silent_handler_fallback(self, test_logger):
+        logger, log_file = test_logger
+        silent = SilentOutputHandler()
+        output = LoggingOutputHandler(silent, logger)
+
+        with pytest.raises(Exception):
+            output.exit("Test error message")
+
+        log_contents = log_file.read_text()
+        assert "[ERROR] [OUTPUT] EXIT: Test error message" in log_contents

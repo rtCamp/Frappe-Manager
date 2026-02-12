@@ -11,18 +11,18 @@ BREAKING CHANGES:
 - Runtime: pyenv/nvm → uv/fnm, certbot → acme.sh
 """
 
-from frappe_manager.migration_manager.migration_base import MigrationBase
-from frappe_manager.migration_manager.version import Version
-from frappe_manager.migration_manager.migration_helpers import MigrationBench
-from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo
-
-from frappe_manager.output_manager.context_managers import spinner
-from frappe_manager.docker.subprocess_output import SubprocessOutput
-from pathlib import Path
-import tomlkit
-from typing import Any, Dict, cast
-from ruamel.yaml import YAML
 import shlex
+from pathlib import Path
+from typing import Any, cast
+
+import tomlkit
+from ruamel.yaml import YAML
+
+from frappe_manager.docker.subprocess_output import SubprocessOutput
+from frappe_manager.migration_manager.migration_base import MigrationBase
+from frappe_manager.migration_manager.migration_helpers import MigrationBench
+from frappe_manager.migration_manager.version import Version
+from frappe_manager.output_manager.context_managers import spinner
 
 
 class MigrationV0190(MigrationBase):
@@ -46,7 +46,7 @@ class MigrationV0190(MigrationBase):
             supervisor_conf = supervisor_config_dir / "supervisor.conf"
             if supervisor_conf.exists():
                 self.backup_manager.backup(supervisor_conf, bench_name=bench.name)
-                self.output.print(f"Backed up supervisor.conf")
+                self.output.print("Backed up supervisor.conf")
 
             for conf_file in supervisor_config_dir.glob("*.fm.supervisor.conf"):
                 self.backup_manager.backup(conf_file, bench_name=bench.name)
@@ -60,7 +60,7 @@ class MigrationV0190(MigrationBase):
             if env_backup_path.exists():
                 shutil.rmtree(env_backup_path)
             shutil.move(str(env_dir), str(env_backup_path))
-            self.output.print(f"Moved env/ to env.backup.migration")
+            self.output.print("Moved env/ to env.backup.migration")
 
     def undo_bench_migrate(self, bench: MigrationBench):
         """
@@ -76,10 +76,10 @@ class MigrationV0190(MigrationBase):
 
         if env_backup_path.exists():
             if env_dir.exists():
-                self.output.print(f"Removing new env/")
+                self.output.print("Removing new env/")
                 shutil.rmtree(env_dir)
 
-            self.output.print(f"Restoring env/ from env.backup.migration")
+            self.output.print("Restoring env/ from env.backup.migration")
             shutil.move(str(env_backup_path), str(env_dir))
 
     def migrate_bench(self, bench: MigrationBench):
@@ -105,7 +105,7 @@ class MigrationV0190(MigrationBase):
 
     def _migrate_bench_config_toml(self, bench: MigrationBench, config_path: Path):
         """Transform bench_config.toml: [ssl] → [[ssl_certificates]], add new fields."""
-        self.output.print(f"Migrating bench_config.toml")
+        self.output.print("Migrating bench_config.toml")
 
         content = config_path.read_text()
         doc = tomlkit.parse(content)
@@ -114,7 +114,7 @@ class MigrationV0190(MigrationBase):
         self._add_new_config_fields(doc)
 
         config_path.write_text(tomlkit.dumps(doc))
-        self.output.print(f"Updated SSL configuration format")
+        self.output.print("Updated SSL configuration format")
 
     def _transform_ssl_config(self, doc: tomlkit.TOMLDocument, bench_name: str):
         """Transform [ssl] table to [[ssl_certificates]] array with proper field names."""
@@ -126,14 +126,14 @@ class MigrationV0190(MigrationBase):
         if isinstance(old_ssl, list):
             return
 
-        old_ssl_dict = cast(Dict[str, Any], old_ssl)
+        old_ssl_dict = cast("dict[str, Any]", old_ssl)
 
         ssl_type_value = old_ssl_dict.get("ssl_type", "letsencrypt")
         hsts_value = old_ssl_dict.get("hsts", "off")
 
         challenge_type_value = old_ssl_dict.get("preferred_challenge") or old_ssl_dict.get("challenge_type") or "http01"
 
-        ssl_cert: Dict[str, Any] = {
+        ssl_cert: dict[str, Any] = {
             "domain": str(bench_name),
             "ssl_type": ssl_type_value,
             "acme_client": "acme.sh",
@@ -146,7 +146,7 @@ class MigrationV0190(MigrationBase):
         del doc["ssl"]
         doc["ssl_certificates"] = [ssl_cert]
 
-    def _move_dns_credentials(self, doc: tomlkit.TOMLDocument, old_ssl_dict: Dict[str, Any]):
+    def _move_dns_credentials(self, doc: tomlkit.TOMLDocument, old_ssl_dict: dict[str, Any]):
         """Move api_token/api_key from ssl to dns_providers.cloudflare if present."""
         api_token = old_ssl_dict.get("api_token")
         api_key = old_ssl_dict.get("api_key")
@@ -165,7 +165,7 @@ class MigrationV0190(MigrationBase):
         dns_providers_table["cloudflare"] = cloudflare_table
         doc["dns_providers"] = dns_providers_table
 
-        self.output.print(f"Migrated DNS credentials to dns_providers.cloudflare")
+        self.output.print("Migrated DNS credentials to dns_providers.cloudflare")
 
     def _add_new_config_fields(self, doc: tomlkit.TOMLDocument):
         """Add alias_domains, upload_limit, restart_policy, use_uv if missing."""
@@ -184,13 +184,13 @@ class MigrationV0190(MigrationBase):
 
     def _migrate_docker_compose_yml(self, bench: MigrationBench, compose_path: Path):
         """Update compose: v0.18.0 → v0.19.0 images, SITENAME → SITE_MAPPINGS."""
-        self.output.print(f"Migrating docker-compose.yml")
+        self.output.print("Migrating docker-compose.yml")
 
         yaml = YAML(typ="rt")
         yaml.preserve_quotes = True
         yaml.default_flow_style = False
 
-        with open(compose_path, 'r') as f:
+        with open(compose_path) as f:
             compose_data = yaml.load(f)
 
         if not compose_data or "services" not in compose_data:
@@ -201,10 +201,10 @@ class MigrationV0190(MigrationBase):
         self._update_service_images(services)
         self._transform_nginx_environment(services)
 
-        with open(compose_path, 'w') as f:
+        with open(compose_path, "w") as f:
             yaml.dump(compose_data, f)
 
-    def _update_service_images(self, services: Dict[str, Any]):
+    def _update_service_images(self, services: dict[str, Any]):
         """Replace v0.18.0 image tags with v0.19.0."""
         for service_name, service_config in services.items():
             if "image" not in service_config:
@@ -215,7 +215,7 @@ class MigrationV0190(MigrationBase):
                 service_config["image"] = old_image.replace("v0.18.0", "v0.19.0")
                 self.output.print(f"Updated {service_name} image to v0.19.0")
 
-    def _transform_nginx_environment(self, services: Dict[str, Any]):
+    def _transform_nginx_environment(self, services: dict[str, Any]):
         """Transform nginx SITENAME → SITE_MAPPINGS environment variable."""
         if "nginx" not in services or "environment" not in services["nginx"]:
             return
@@ -227,11 +227,11 @@ class MigrationV0190(MigrationBase):
         elif isinstance(nginx_env, list):
             services["nginx"]["environment"] = self._transform_nginx_env_list(nginx_env)
 
-    def _transform_nginx_env_dict(self, nginx_env: Dict[str, Any]):
+    def _transform_nginx_env_dict(self, nginx_env: dict[str, Any]):
         """Transform dict format: {SITENAME: value} → {SITE_MAPPINGS: value}."""
         if "SITENAME" in nginx_env:
             nginx_env["SITE_MAPPINGS"] = nginx_env.pop("SITENAME")
-            self.output.print(f"Migrated SITENAME → SITE_MAPPINGS")
+            self.output.print("Migrated SITENAME → SITE_MAPPINGS")
 
     def _transform_nginx_env_list(self, nginx_env: list) -> list:
         """Transform list format: [SITENAME=value] → [SITE_MAPPINGS=value]."""
@@ -240,20 +240,20 @@ class MigrationV0190(MigrationBase):
             if isinstance(env_var, str) and env_var.startswith("SITENAME="):
                 sitename_value = env_var.split("=", 1)[1]
                 new_env.append(f"SITE_MAPPINGS={sitename_value}")
-                self.output.print(f"Migrated SITENAME → SITE_MAPPINGS")
+                self.output.print("Migrated SITENAME → SITE_MAPPINGS")
             else:
                 new_env.append(env_var)
         return new_env
 
     def _migrate_workers_compose_yml(self, bench: MigrationBench, compose_path: Path):
         """Update worker compose: v0.18.0 → v0.19.0 images."""
-        self.output.print(f"Migrating docker-compose.workers.yml")
+        self.output.print("Migrating docker-compose.workers.yml")
 
         yaml = YAML(typ="rt")
         yaml.preserve_quotes = True
         yaml.default_flow_style = False
 
-        with open(compose_path, 'r') as f:
+        with open(compose_path) as f:
             compose_data = yaml.load(f)
 
         if not compose_data or "services" not in compose_data:
@@ -261,7 +261,7 @@ class MigrationV0190(MigrationBase):
 
         self._update_service_images(compose_data["services"])
 
-        with open(compose_path, 'w') as f:
+        with open(compose_path, "w") as f:
             yaml.dump(compose_data, f)
 
     def _cleanup_admin_tools_nginx_config(self, bench: MigrationBench):
@@ -270,7 +270,7 @@ class MigrationV0190(MigrationBase):
 
         if admin_tools_config.exists():
             admin_tools_config.unlink()
-            self.output.print(f"Cleaned up stale admin-tools nginx config")
+            self.output.print("Cleaned up stale admin-tools nginx config")
 
         if htpasswd_file.exists():
             htpasswd_file.unlink()
@@ -313,21 +313,30 @@ class MigrationV0190(MigrationBase):
 
         config_doc = None
         if bench_config_path.exists():
+            from frappe_manager.site_manager.bench_config import (
+                parse_node_version_for_runtime,
+                parse_python_version_for_runtime,
+            )
+
             config_doc = tomlkit.parse(bench_config_path.read_text())
-            python_version = config_doc.get("python_version")
-            node_version = config_doc.get("node_version")
+            raw_python_version = config_doc.get("python_version")
+            raw_node_version = config_doc.get("node_version")
+
+            python_version = parse_python_version_for_runtime(raw_python_version) if raw_python_version else None
+            node_version = parse_node_version_for_runtime(raw_node_version) if raw_node_version else None
+
             self.logger.debug(
-                f"[_rebuild_runtime_environment] From config: Python={python_version}, Node={node_version}"
+                f"[_rebuild_runtime_environment] From config (parsed): Python={python_version}, Node={node_version}",
             )
 
         if not python_version or not node_version:
             self.output.print(
-                f"No Python/Node versions in config, auto-detecting from container and Frappe requirements..."
+                "No Python/Node versions in config, auto-detecting from container and Frappe requirements...",
             )
-            self.logger.info(f"[_rebuild_runtime_environment] Auto-detecting versions...")
+            self.logger.info("[_rebuild_runtime_environment] Auto-detecting versions...")
             python_version, node_version = self._auto_detect_runtime_versions(bench)
             self.logger.info(
-                f"[_rebuild_runtime_environment] Auto-detected: Python={python_version}, Node={node_version}"
+                f"[_rebuild_runtime_environment] Auto-detected: Python={python_version}, Node={node_version}",
             )
 
             if config_doc and (python_version or node_version):
@@ -336,10 +345,10 @@ class MigrationV0190(MigrationBase):
                 if node_version:
                     config_doc["node_version"] = node_version
                 bench_config_path.write_text(tomlkit.dumps(config_doc))
-                self.output.print(f"Updated bench_config.toml with detected versions")
+                self.output.print("Updated bench_config.toml with detected versions")
 
-        with spinner(self.output, f"Rebuilding runtime environment (pyenv/nvm → uv/fnm)"):  # type: ignore[arg-type]
-            self.output.print(f"Cleaning up old runtime directories...")
+        with spinner(self.output, "Rebuilding runtime environment (pyenv/nvm → uv/fnm)"):  # type: ignore[arg-type]
+            self.output.print("Cleaning up old runtime directories...")
             self._cleanup_old_runtime_dirs(bench)
 
             if python_version:
@@ -350,22 +359,24 @@ class MigrationV0190(MigrationBase):
                 self.output.print(f"Setting up Node {node_version} with fnm...")
                 self._setup_node_with_fnm(bench, node_version)
 
-            self.output.print(f"Reinstalling apps and rebuilding assets...")
+            self.output.print("Reinstalling apps and rebuilding assets...")
             self._reinstall_apps_and_rebuild(bench)
 
-            self.output.print(f"Regenerating supervisor configuration...")
+            self.output.print("Regenerating supervisor configuration...")
             self._regenerate_supervisor_config(bench)
 
             if bench.running or bench.workers_running:
-                self.output.print(f"Recreating & restarting services (force-recreate)...")
+                self.output.print("Recreating & restarting services (force-recreate)...")
                 self._restart_services(bench)
 
-        self.output.print(f"Runtime environment rebuilt successfully")
+        self.output.print("Runtime environment rebuilt successfully")
         self.logger.info(f"[_rebuild_runtime_environment] Completed successfully for {bench.name}")
 
     def _setup_python_with_uv(self, bench: MigrationBench, python_version: str):
         """Setup Python using uv python manager."""
         self.logger.debug(f"[_setup_python_with_uv] Starting Python {python_version} setup for {bench.name}")
+
+        quoted_pkg = shlex.quote(f"cpython-{python_version}")
 
         setup_script = f"""
 cd /workspace/frappe-bench
@@ -376,10 +387,10 @@ if [ -d env ]; then
 fi
 
 echo "Installing Python {python_version} via uv..."
-uv python install cpython-{python_version}
+uv python install {quoted_pkg}
 
 echo "Detecting installed Python..."
-PYTHON_DIR=$(ls -1d /workspace/.uv/python/cpython-{python_version}* 2>/dev/null | sort -V | tail -1 || echo "")
+PYTHON_DIR=$(ls -1d /workspace/.uv/python/{quoted_pkg}* 2>/dev/null | sort -V | tail -1 || echo "")
 if [ -z "$PYTHON_DIR" ]; then
     echo "Error: Could not find installed Python"
     exit 1
@@ -399,7 +410,7 @@ echo "Python environment setup complete"
 echo "Verifying env directory..."
 ls -la env/ || echo "ERROR: env directory not found!"
 """
-        self.logger.debug(f"[_setup_python_with_uv] Executing docker compose run...")
+        self.logger.debug("[_setup_python_with_uv] Executing docker compose run...")
 
         try:
             result = bench.compose.run(
@@ -408,7 +419,6 @@ ls -la env/ || echo "ERROR: env directory not found!"
                 rm=True,
                 user="frappe",
                 entrypoint="bash",
-                stream=False,
             )
         except Exception as e:
             error_str = str(e)
@@ -417,12 +427,12 @@ ls -la env/ || echo "ERROR: env directory not found!"
             ):
                 self.logger.error(f"[_setup_python_with_uv] Docker network error: {e}")
                 raise Exception(
-                    "Docker network not found. Global services may not be running. Try: fm services start"
+                    "Docker network not found. Global services may not be running. Try: fm services start",
                 ) from e
             raise
 
         if not isinstance(result, SubprocessOutput):
-            self.logger.error(f"[_setup_python_with_uv] Unexpected streaming output received")
+            self.logger.error("[_setup_python_with_uv] Unexpected streaming output received")
             raise Exception("Unexpected streaming output received")
 
         self.logger.debug(f"[_setup_python_with_uv] Exit code: {result.exit_code}")
@@ -433,7 +443,7 @@ ls -la env/ || echo "ERROR: env directory not found!"
             self.logger.error(f"[_setup_python_with_uv] Output: {result.combined}")
             raise Exception(f"Python setup failed with exit code {result.exit_code}")
 
-        self.logger.debug(f"[_setup_python_with_uv] Python setup completed successfully")
+        self.logger.debug("[_setup_python_with_uv] Python setup completed successfully")
 
     def _setup_node_with_fnm(self, bench: MigrationBench, node_version: str):
         """Setup Node using fnm node manager."""
@@ -458,7 +468,7 @@ fi
 
 echo "Node environment setup complete"
 """
-        self.logger.debug(f"[_setup_node_with_fnm] Executing docker compose run...")
+        self.logger.debug("[_setup_node_with_fnm] Executing docker compose run...")
 
         result = bench.compose.run(
             service="frappe",
@@ -466,11 +476,10 @@ echo "Node environment setup complete"
             rm=True,
             user="frappe",
             entrypoint="bash",
-            stream=False,
         )
 
         if not isinstance(result, SubprocessOutput):
-            self.logger.error(f"[_setup_node_with_fnm] Unexpected streaming output received")
+            self.logger.error("[_setup_node_with_fnm] Unexpected streaming output received")
             raise Exception("Unexpected streaming output received")
 
         self.logger.debug(f"[_setup_node_with_fnm] Exit code: {result.exit_code}")
@@ -481,7 +490,7 @@ echo "Node environment setup complete"
             self.logger.error(f"[_setup_node_with_fnm] Output: {result.combined}")
             raise Exception(f"Node setup failed with exit code {result.exit_code}")
 
-        self.logger.debug(f"[_setup_node_with_fnm] Node setup completed successfully")
+        self.logger.debug("[_setup_node_with_fnm] Node setup completed successfully")
 
     def _cleanup_old_runtime_dirs(self, bench: MigrationBench):
         """Remove old pyenv and nvm directories to prevent path conflicts."""
@@ -494,7 +503,7 @@ rm -rf /workspace/.pyenv 2>/dev/null || true
 rm -rf /workspace/.nvm 2>/dev/null || true
 echo "Old runtime directories cleaned up"
 """
-        self.logger.debug(f"[_cleanup_old_runtime_dirs] Executing docker compose run...")
+        self.logger.debug("[_cleanup_old_runtime_dirs] Executing docker compose run...")
 
         result = bench.compose.run(
             service="frappe",
@@ -502,19 +511,18 @@ echo "Old runtime directories cleaned up"
             rm=True,
             user="frappe",
             entrypoint="bash",
-            stream=False,
         )
 
         if not isinstance(result, SubprocessOutput):
-            self.logger.error(f"[_cleanup_old_runtime_dirs] Unexpected streaming output received")
+            self.logger.error("[_cleanup_old_runtime_dirs] Unexpected streaming output received")
             raise Exception("Unexpected streaming output received")
 
         self.logger.debug(f"[_cleanup_old_runtime_dirs] Exit code: {result.exit_code}")
 
         if result.exit_code != 0:
-            self.logger.warning(f"[_cleanup_old_runtime_dirs] Cleanup had non-zero exit, but continuing...")
+            self.logger.warning("[_cleanup_old_runtime_dirs] Cleanup had non-zero exit, but continuing...")
         else:
-            self.logger.debug(f"[_cleanup_old_runtime_dirs] Cleanup completed successfully")
+            self.logger.debug("[_cleanup_old_runtime_dirs] Cleanup completed successfully")
 
     def _reinstall_apps_and_rebuild(self, bench: MigrationBench):
         """Reinstall apps into new venv and rebuild static assets."""
@@ -530,7 +538,7 @@ echo "Old runtime directories cleaned up"
         installed_apps = [line.strip() for line in apps_txt_path.read_text().splitlines() if line.strip()]
 
         if not installed_apps:
-            self.logger.warning(f"[_reinstall_apps_and_rebuild] No apps in apps.txt")
+            self.logger.warning("[_reinstall_apps_and_rebuild] No apps in apps.txt")
             self.output.warning("No apps found in apps.txt")
             return
 
@@ -557,7 +565,7 @@ bench build
 
 echo "Apps reinstalled and assets built successfully"
 """
-        self.logger.debug(f"[_reinstall_apps_and_rebuild] Executing docker compose run...")
+        self.logger.debug("[_reinstall_apps_and_rebuild] Executing docker compose run...")
 
         result = bench.compose.run(
             service="frappe",
@@ -565,11 +573,10 @@ echo "Apps reinstalled and assets built successfully"
             rm=True,
             user="frappe",
             entrypoint="bash",
-            stream=False,
         )
 
         if not isinstance(result, SubprocessOutput):
-            self.logger.error(f"[_reinstall_apps_and_rebuild] Unexpected streaming output received")
+            self.logger.error("[_reinstall_apps_and_rebuild] Unexpected streaming output received")
             raise Exception("Unexpected streaming output received")
 
         self.logger.debug(f"[_reinstall_apps_and_rebuild] Exit code: {result.exit_code}")
@@ -581,7 +588,7 @@ echo "Apps reinstalled and assets built successfully"
             self.logger.error(f"[_reinstall_apps_and_rebuild] Full output: {output_str}")
             raise Exception(f"App reinstallation failed with exit code {result.exit_code}")
 
-        self.logger.debug(f"[_reinstall_apps_and_rebuild] Completed successfully")
+        self.logger.debug("[_reinstall_apps_and_rebuild] Completed successfully")
 
     def _regenerate_supervisor_config(self, bench: MigrationBench):
         """Regenerate supervisor configuration with updated paths."""
@@ -597,7 +604,6 @@ echo "Supervisor configuration regenerated"
             rm=True,
             user="frappe",
             entrypoint="bash",
-            stream=False,
         )
 
         if not isinstance(result, SubprocessOutput):
@@ -636,17 +642,17 @@ echo "Supervisor configuration regenerated"
                         value = value.replace("127.0.0.1:80", "0.0.0.0:80")
                         cpu_count = os.cpu_count() or 2
                         workers = (cpu_count * 2) + 1
-                        value = re.sub(r'-w\s+\d+', f'-w {workers}', value)
+                        value = re.sub(r"-w\s+\d+", f"-w {workers}", value)
 
                 if "node-socketio" in section:
                     if key == "command":
-                        value = re.sub(r'\S+/node\s+', '/workspace/.fnm/aliases/default/bin/node ', value)
+                        value = re.sub(r"\S+/node\s+", "/workspace/.fnm/aliases/default/bin/node ", value)
 
                 section_config.set(section, key, value)
 
-            section_name_delimeter = '-frappe-'
-            if '-node-' in section:
-                section_name_delimeter = '-node-'
+            section_name_delimeter = "-frappe-"
+            if "-node-" in section:
+                section_name_delimeter = "-node-"
 
             file_name_prefix = section.split(section_name_delimeter)[-1]
             file_name = file_name_prefix + ".fm.supervisor.conf"
@@ -661,12 +667,10 @@ echo "Supervisor configuration regenerated"
 
     def _restart_services(self, bench: MigrationBench):
         try:
-            bench.compose.up(
-                services=["frappe", "socketio", "schedule"], force_recreate=True, detach=True, stream=False
-            )
+            bench.compose.up(services=["frappe", "socketio", "schedule"], force_recreate=True, detach=True)
 
             if bench.workers_running:
-                bench.workers_docker.compose.up(force_recreate=True, detach=True, stream=False)
+                bench.workers_docker.compose.up(force_recreate=True, detach=True)
 
         except Exception as e:
             self.output.warning(f"Service restart (force-recreate) failed: {e}")
@@ -685,8 +689,8 @@ echo "Supervisor configuration regenerated"
             (python_version, node_version) - versions to use for rebuild
         """
         from frappe_manager.site_manager.bench_config import (
-            extract_python_version_requirement,
             extract_node_version_requirement,
+            extract_python_version_requirement,
         )
 
         current_python = None
@@ -699,7 +703,6 @@ echo "Supervisor configuration regenerated"
                 rm=True,
                 user="frappe",
                 entrypoint="bash",
-                stream=False,
             )
             if isinstance(result, SubprocessOutput) and result.exit_code == 0:
                 import re
@@ -720,7 +723,6 @@ echo "Supervisor configuration regenerated"
                 rm=True,
                 user="frappe",
                 entrypoint="bash",
-                stream=False,
             )
             if isinstance(result, SubprocessOutput) and result.exit_code == 0:
                 import re
@@ -762,8 +764,9 @@ echo "Supervisor configuration regenerated"
         3. If current version too old → upgrade to Frappe minimum
         4. If no Frappe requirement → keep current (if valid) or default to 3.11
         """
-        from frappe_manager.site_manager.bench_config import parse_python_version_for_runtime
         import re
+
+        from frappe_manager.site_manager.bench_config import parse_python_version_for_runtime
 
         frappe_min_version = None
         if frappe_requirement:
@@ -772,7 +775,7 @@ echo "Supervisor configuration regenerated"
                 self.output.print(f"Frappe minimum Python: {frappe_min_version}")
 
         if current:
-            current_tuple = tuple(map(int, current.split('.')))
+            current_tuple = tuple(map(int, current.split(".")))
 
             if frappe_requirement and frappe_min_version:
                 match_min = re.search(r">=(\d+)\.(\d+)", frappe_requirement)
@@ -787,20 +790,17 @@ echo "Supervisor configuration regenerated"
                         if min_ver <= current_tuple < max_ver:
                             self.output.print(f"Current Python {current} satisfies Frappe requirement")
                             return current
-                        else:
-                            self.output.print(
-                                f"Current Python {current} doesn't satisfy requirement, upgrading to {frappe_min_version}"
-                            )
-                            return frappe_min_version
-                    else:
-                        if current_tuple >= min_ver:
-                            self.output.print(f"Current Python {current} satisfies Frappe requirement")
-                            return current
-                        else:
-                            self.output.print(
-                                f"Current Python {current} doesn't satisfy requirement, upgrading to {frappe_min_version}"
-                            )
-                            return frappe_min_version
+                        self.output.print(
+                            f"Current Python {current} doesn't satisfy requirement, upgrading to {frappe_min_version}",
+                        )
+                        return frappe_min_version
+                    if current_tuple >= min_ver:
+                        self.output.print(f"Current Python {current} satisfies Frappe requirement")
+                        return current
+                    self.output.print(
+                        f"Current Python {current} doesn't satisfy requirement, upgrading to {frappe_min_version}",
+                    )
+                    return frappe_min_version
 
             if current_tuple >= (3, 10):
                 self.output.print(f"Keeping current Python {current}")
@@ -810,7 +810,7 @@ echo "Supervisor configuration regenerated"
             self.output.print(f"Using Frappe minimum Python: {frappe_min_version}")
             return frappe_min_version
 
-        self.output.print(f"Using safe default Python: 3.11")
+        self.output.print("Using safe default Python: 3.11")
         return "3.11"
 
     def _choose_best_node_version(self, current: str | None, frappe_requirement: str | None) -> str | None:
@@ -819,8 +819,8 @@ echo "Supervisor configuration regenerated"
 
         Strategy similar to Python version selection.
         """
+
         from frappe_manager.site_manager.bench_config import parse_node_version_for_runtime
-        import re
 
         frappe_min_version = None
         if frappe_requirement:
@@ -837,11 +837,10 @@ echo "Supervisor configuration regenerated"
                 if current_major >= frappe_major:
                     self.output.print(f"Current Node {current} satisfies Frappe requirement")
                     return current
-                else:
-                    self.output.print(
-                        f"Current Node {current} doesn't satisfy requirement, upgrading to {frappe_min_version}"
-                    )
-                    return frappe_min_version
+                self.output.print(
+                    f"Current Node {current} doesn't satisfy requirement, upgrading to {frappe_min_version}",
+                )
+                return frappe_min_version
 
             if current_major >= 18:
                 self.output.print(f"Keeping current Node {current}")
@@ -851,5 +850,5 @@ echo "Supervisor configuration regenerated"
             self.output.print(f"Using Frappe minimum Node: {frappe_min_version}")
             return frappe_min_version
 
-        self.output.print(f"Using safe default Node: 18")
+        self.output.print("Using safe default Node: 18")
         return "18"

@@ -8,15 +8,14 @@ including mock certificates, storage configurations, and dependencies.
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
-from unittest.mock import Mock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
-from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES, LETSENCRYPT_PREFERRED_CHALLENGE
+
+from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
-
 
 # ============================================================================
 # Pytest Configuration
@@ -47,7 +46,7 @@ def configure_logging(request):
         pytest tests/unit/ssl_manager/ -v --show-app-logs  # With logs for debugging
     """
     # Store original log level
-    fm_logger = logging.getLogger('frappe_manager')
+    fm_logger = logging.getLogger("frappe_manager")
     original_level = fm_logger.level
 
     # Suppress logs unless --show-app-logs flag is used
@@ -78,8 +77,9 @@ def mock_letsencrypt_certificate_http01():
         domain="example.com",
         ssl_type=SUPPORTED_SSL_TYPES.le,
         challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
-        email="admin@example.com",
         hsts="off",
+        api_token=None,
+        api_key=None,
     )
 
 
@@ -90,8 +90,8 @@ def mock_letsencrypt_certificate_dns01():
         domain="example.com",
         ssl_type=SUPPORTED_SSL_TYPES.le,
         challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
-        email="admin@example.com",
         api_token="test_cloudflare_token_123",
+        api_key=None,
         hsts="off",
     )
 
@@ -103,7 +103,7 @@ def mock_letsencrypt_certificate_dns01_with_key():
         domain="example.com",
         ssl_type=SUPPORTED_SSL_TYPES.le,
         challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
-        email="admin@example.com",
+        api_token=None,
         api_key="test_cloudflare_global_key_456",
         hsts="off",
     )
@@ -116,8 +116,9 @@ def mock_http_certificate():
         domain="example.com",
         ssl_type=SUPPORTED_SSL_TYPES.le,
         challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
-        email="admin@example.com",
         hsts="off",
+        api_token=None,
+        api_key=None,
     )
 
 
@@ -128,8 +129,8 @@ def mock_dns_certificate():
         domain="example.com",
         ssl_type=SUPPORTED_SSL_TYPES.le,
         challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
-        email="admin@example.com",
         api_token="test_cloudflare_token_123",
+        api_key=None,
         hsts="off",
     )
 
@@ -216,8 +217,8 @@ def mock_compose_project(mocker):
 def mock_compose_file_manager(mocker):
     """Returns a mock ComposeFile instance."""
     mock_cf = MagicMock()
-    mock_cf.get_services_list.return_value = ['nginx-proxy']
-    mock_cf.get_container_names.return_value = {'nginx-proxy': 'nginx-proxy-container'}
+    mock_cf.get_services_list.return_value = ["nginx-proxy"]
+    mock_cf.get_container_names.return_value = {"nginx-proxy": "nginx-proxy-container"}
     mock_cf.get_service_volumes.return_value = []
     return mock_cf
 
@@ -229,8 +230,9 @@ def mock_docker_client(mocker):
     mock_client.compose = MagicMock()
     mock_client.compose.exec = MagicMock(return_value="OK")
     mock_client.compose.restart = MagicMock(return_value="OK")
+    mock_client.compose.is_service_running = MagicMock(return_value=True)
     mock_client.compose.get_all_services_status.return_value = [
-        {"Name": "nginx-proxy-container", "Service": "nginx-proxy", "State": "running"}
+        {"Name": "nginx-proxy-container", "Service": "nginx-proxy", "State": "running"},
     ]
     return mock_client
 
@@ -282,6 +284,14 @@ def mock_output_handler(mocker):
     return mock_handler
 
 
+@pytest.fixture
+def mock_logger(mocker):
+    """Returns a mock ContextualLogger."""
+    mock_log = mocker.MagicMock()
+    mock_log.child.return_value = mock_log
+    return mock_log
+
+
 # ============================================================================
 # Manager Fixtures
 # ============================================================================
@@ -289,6 +299,7 @@ def mock_output_handler(mocker):
 
 @pytest.fixture
 def ssl_certificate_manager(
+    mocker,
     mock_certificate,
     mock_storage_config,
     mock_link_manager,
@@ -299,11 +310,14 @@ def ssl_certificate_manager(
     """Returns a fully initialized SSLCertificateManager for testing (multi-cert API)."""
     from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
 
-    # Factory function that returns the mock service
+    mock_logger = mocker.MagicMock()
+    mock_logger.child.return_value = mock_logger
+
     def certificate_service_factory(cert, storage_cfg, output_handler):
         return mock_ssl_service
 
     return SSLCertificateManager(
+        logger=mock_logger,
         certificates=[mock_certificate],
         service_factory=certificate_service_factory,
         link_manager=mock_link_manager,
@@ -317,17 +331,6 @@ def ssl_certificate_manager(
 # ============================================================================
 # Helper Fixtures
 # ============================================================================
-
-
-@pytest.fixture
-def mock_richprint(mocker):
-    """Mocks all richprint methods."""
-    mock_rich = MagicMock()
-    mocker.patch('frappe_manager.ssl_manager.nginx_controller.richprint', mock_rich)
-    mocker.patch('frappe_manager.ssl_manager.letsencrypt_certificate_service.richprint', mock_rich)
-    mocker.patch('frappe_manager.ssl_manager.no_op_certificate_service.richprint', mock_rich)
-    mocker.patch('frappe_manager.ssl_manager.letsencrypt_certificate.richprint', mock_rich)
-    return mock_rich
 
 
 @pytest.fixture
@@ -345,7 +348,7 @@ def reset_env_vars(monkeypatch):
     """
     # Store original values
     original_env = {}
-    env_vars = ['FM_LETSENCRYPT_STAGING']
+    env_vars = ["FM_LETSENCRYPT_STAGING"]
 
     for var in env_vars:
         import os

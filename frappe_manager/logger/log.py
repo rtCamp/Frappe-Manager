@@ -20,9 +20,8 @@ def namer(name):
 
 
 def rotator(source, dest):
-    with open(source, "rb") as f_in:
-        with gzip.open(dest, "wb") as f_out:
-            shutil.copyfileobj(f_in, f_out)
+    with open(source, "rb") as f_in, gzip.open(dest, "wb") as f_out:
+        shutil.copyfileobj(f_in, f_out)
     os.remove(source)
 
 
@@ -55,18 +54,10 @@ class ConsoleLogFilter(logging.Filter):
     MAX_LINE_LENGTH = 150
 
     def filter(self, record: logging.LogRecord) -> bool:
-        """
-        Process and clean up log messages before display.
-
-        Args:
-            record: The log record to filter
-
-        Returns:
-            True (always allow the message through, just modify it)
-        """
         msg = str(record.getMessage())
 
-        # Shorten long separator lines
+        msg = re.sub(r"\[corr=[^\]]+\]\s*", "", msg)
+
         if msg.strip() == "- -- -- -- -- -- -- -- -- -- -":
             record.msg = "[dim]---[/dim]"
             record.args = ()
@@ -78,40 +69,32 @@ class ConsoleLogFilter(logging.Filter):
             record.args = ()
             return True
 
-        # Dim RETURN CODE
         if msg.startswith("RETURN CODE:"):
-            # Only show return code if it's non-zero (error)
             if "RETURN CODE: 0" in msg:
-                # Suppress successful return codes to reduce noise
                 return False
-            # Highlight non-zero return codes
             record.msg = f"[yellow]{msg}[/yellow]"
             record.args = ()
             return True
 
-        # Truncate long JSON blobs (likely from Docker commands)
         if msg.startswith("{") and len(msg) > self.MAX_JSON_LENGTH:
-            # Try to extract useful summary from JSON if it's docker container info
             if '"Name":' in msg or '"Image":' in msg:
-                # Docker container/image JSON - just show truncated version
                 truncated = msg[: self.MAX_JSON_LENGTH] + "... [dim][see log file][/dim]"
                 record.msg = truncated
                 record.args = ()
             else:
-                # Generic JSON
                 truncated = msg[: self.MAX_JSON_LENGTH] + "... [dim][truncated][/dim]"
                 record.msg = truncated
                 record.args = ()
             return True
 
-        # Truncate other excessively long lines
         if len(msg) > self.MAX_LINE_LENGTH and not msg.startswith("["):
-            # Don't truncate if it already has Rich markup
             truncated = msg[: self.MAX_LINE_LENGTH] + "... [dim][truncated][/dim]"
             record.msg = truncated
             record.args = ()
             return True
 
+        record.msg = msg
+        record.args = ()
         return True
 
     def _simplify_command(self, cmd_line: str) -> str:
@@ -172,23 +155,54 @@ def _add_console_handler(logger: logging.Logger, console_level: str) -> None:
         if isinstance(handler, (RichHandler, LiveAwareRichHandler)):
             logger.removeHandler(handler)
 
-    from frappe_manager.display_manager.DisplayManager import richprint
+    from frappe_manager.output_manager import get_global_output_handler, has_global_output_handler
+    from frappe_manager.output_manager.logging_output import LoggingOutputHandler
+    from frappe_manager.output_manager.rich_output import RichOutputHandler
 
-    console_handler = LiveAwareRichHandler(
-        level=getattr(logging, console_level),
-        rich_tracebacks=True,
-        tracebacks_show_locals=True,
-        show_time=False,
-        show_path=False,
-        show_level=True,
-        markup=True,
-        console=richprint.stderr,
-        live_display=richprint.live,
-    )
+    if has_global_output_handler():
+        output = get_global_output_handler()
+
+        if isinstance(output, LoggingOutputHandler):
+            underlying_output = output.delegate
+        else:
+            underlying_output = output
+
+        if isinstance(underlying_output, RichOutputHandler):
+            console_handler = LiveAwareRichHandler(
+                level=getattr(logging, console_level),
+                rich_tracebacks=True,
+                tracebacks_show_locals=True,
+                show_time=False,
+                show_path=False,
+                show_level=True,
+                markup=True,
+                console=underlying_output.stderr,
+                live_display=underlying_output.live,
+                output_lock=underlying_output._lock,
+            )
+        else:
+            console_handler = RichHandler(
+                level=getattr(logging, console_level),
+                rich_tracebacks=True,
+                tracebacks_show_locals=True,
+                show_time=False,
+                show_path=False,
+                show_level=True,
+                markup=True,
+            )
+    else:
+        console_handler = RichHandler(
+            level=getattr(logging, console_level),
+            rich_tracebacks=True,
+            tracebacks_show_locals=True,
+            show_time=False,
+            show_path=False,
+            show_level=True,
+            markup=True,
+        )
+
     console_handler.setFormatter(logging.Formatter("%(message)s"))
-
     console_handler.addFilter(ConsoleLogFilter())
-
     logger.addHandler(console_handler)
 
 
@@ -208,7 +222,12 @@ def _update_console_handler(logger: logging.Logger, console_level: str | None) -
                 logger.removeHandler(handler)
 
 
-def get_logger(log_dir=CLI_LOG_DIRECTORY, log_file_name="fm", console_level: str | None = None) -> FMLOGGER:
+def get_logger(
+    log_dir=CLI_LOG_DIRECTORY,
+    log_file_name="fm",
+    console_level: str | None = None,
+    file_level: str = "DEBUG",
+) -> FMLOGGER:
     """
     Creates a Log File and returns Logger object.
 
@@ -216,6 +235,7 @@ def get_logger(log_dir=CLI_LOG_DIRECTORY, log_file_name="fm", console_level: str
         log_dir: Directory to store log files (default: CLI_LOG_DIRECTORY)
         log_file_name: Name of the log file without extension (default: 'fm')
         console_level: If specified, enables console logging at this level (DEBUG, INFO, WARNING, ERROR)
+        file_level: Log level for file handler (default: DEBUG)
 
     Returns:
         FMLOGGER instance configured with file handler and optional console handler
@@ -224,7 +244,7 @@ def get_logger(log_dir=CLI_LOG_DIRECTORY, log_file_name="fm", console_level: str
     logPath = log_dir / f"{log_file_name}.log"
 
     try:
-        log_dir.mkdir(parents=False, exist_ok=True)
+        log_dir.mkdir(parents=True, exist_ok=True)
     except PermissionError as e:
         # Use print since logger hasn't been initialized yet
         print(f"FATAL: Logging not working. {e}")
@@ -242,6 +262,7 @@ def get_logger(log_dir=CLI_LOG_DIRECTORY, log_file_name="fm", console_level: str
         # configured to roatate after 10 mb
         handler = logging.handlers.RotatingFileHandler(logPath, "a+", maxBytes=10485760, backupCount=3)
         handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s"))
+        handler.setLevel(getattr(logging, file_level.upper()))
         handler.rotator = rotator
         logger.addHandler(handler)
 

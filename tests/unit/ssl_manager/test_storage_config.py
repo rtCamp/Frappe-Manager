@@ -5,8 +5,9 @@ Tests the SSL storage configuration dataclass including initialization,
 validation, and path management.
 """
 
-import pytest
 from pathlib import Path
+
+import pytest
 
 from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
 

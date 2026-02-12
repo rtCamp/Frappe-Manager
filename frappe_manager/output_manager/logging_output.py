@@ -6,8 +6,11 @@ providing a single source of truth for debugging.
 """
 
 import logging
+import sys
 from collections.abc import Iterable
-from typing import Any, Union
+from typing import Any
+
+import typer
 
 from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager.base import OutputHandler
@@ -41,7 +44,10 @@ class LoggingOutputHandler(OutputHandler):
     """
 
     def __init__(
-        self, delegate: OutputHandler, logger: Union[logging.Logger, ContextualLogger], log_prefix: str = "[OUTPUT]"
+        self,
+        delegate: OutputHandler,
+        logger: logging.Logger | ContextualLogger,
+        log_prefix: str = "[OUTPUT]",
     ):
         """
         Initialize logging wrapper.
@@ -185,7 +191,7 @@ class LoggingOutputHandler(OutputHandler):
         Raises:
             Exception: Always raises the provided exception
         """
-        self._log_message(logging.ERROR, f"{text} | Exception: {type(exception).__name__}: {str(exception)}")
+        self._log_message(logging.ERROR, f"{text} | Exception: {type(exception).__name__}: {exception!s}")
         self.logger.exception(f"{self.log_prefix} Exception details:", exc_info=exception)
         self.delegate.error(text, exception, emoji_code)
 
@@ -239,27 +245,70 @@ class LoggingOutputHandler(OutputHandler):
         """
         self.delegate.update_live(renderable, padding)
 
-    def prompt_ask(self, **kwargs) -> str:
-        """
-        Prompt user (logged with response).
+    def prompt_ask(
+        self,
+        prompt: str = "",
+        choices: list | None = None,
+        default: str | None = None,
+        force_yes: bool = False,
+        required_flag: str | None = None,
+        **kwargs,
+    ) -> str:
+        self._log_message(logging.INFO, f"PROMPT: {prompt}")
 
-        Args:
-            **kwargs: Prompt arguments
+        response = self.delegate.prompt_ask(
+            prompt=prompt,
+            choices=choices,
+            default=default,
+            force_yes=force_yes,
+            required_flag=required_flag,
+            **kwargs,
+        )
 
-        Returns:
-            User's input as string
-        """
-        prompt_text = kwargs.get("prompt", "unknown prompt")
-        self._log_message(logging.INFO, f"PROMPT: {prompt_text}")
-
-        response = self.delegate.prompt_ask(**kwargs)
-
-        if "password" not in str(prompt_text).lower():
+        if "password" not in prompt.lower():
             self._log_message(logging.INFO, f"PROMPT_RESPONSE: {response}")
         else:
             self._log_message(logging.INFO, "PROMPT_RESPONSE: [password hidden]")
 
         return response
+
+    def prompt_fuzzy(
+        self,
+        prompt: str,
+        choices: list[str],
+        default: str | None = None,
+        required_flag: str | None = None,
+        **kwargs,
+    ) -> str:
+        self.logger.info(f"[OUTPUT] FUZZY_PROMPT: {prompt} (choices: {len(choices)})")
+
+        result = self.delegate.prompt_fuzzy(
+            prompt=prompt,
+            choices=choices,
+            default=default,
+            required_flag=required_flag,
+            **kwargs,
+        )
+
+        self.logger.info(f"[OUTPUT] FUZZY_RESPONSE: {result}")
+        return result
+
+    def set_interactive_mode(self, non_interactive_flag: bool) -> None:
+        """
+        Set interactive mode on wrapper AND delegate.
+
+        This ensures the delegate (RichOutputHandler) respects the non-interactive flag
+        when deciding whether to show spinners.
+
+        Args:
+            non_interactive_flag: True to disable interactive features (spinners, prompts)
+        """
+        # Set on wrapper itself
+        super().set_interactive_mode(non_interactive_flag)
+
+        # Forward to delegate so it respects the flag too
+        if hasattr(self.delegate, "set_interactive_mode"):
+            self.delegate.set_interactive_mode(non_interactive_flag)
 
     @property
     def should_stream_docker(self) -> bool:
@@ -272,3 +321,16 @@ class LoggingOutputHandler(OutputHandler):
     def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:
         self._log_message(logging.INFO, f"STATUS: {text}")
         self.delegate.print_status(text, emoji_code, **kwargs)
+
+    def exit(self, text: str, emoji_code: str = ":no_entry:", os_exit=False, error_msg=None):
+        self._log_message(logging.ERROR, f"EXIT: {text}" + (f" | Error: {error_msg}" if error_msg else ""))
+        exit_method = getattr(self.delegate, "exit", None)
+        if exit_method and callable(exit_method):
+            exit_method(text, emoji_code, os_exit, error_msg)
+        else:
+            self.display_error(text, emoji_code)
+            if os_exit:
+                sys.exit(1)
+            raise typer.Exit(1)
+
+

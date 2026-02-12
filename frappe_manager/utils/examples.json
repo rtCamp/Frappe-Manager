@@ -38,8 +38,8 @@
         "code": ""
       },
       {
-        "desc": "Force delete without confirmation",
-        "code": " --force"
+        "desc": "Delete without confirmation",
+        "code": " --yes"
       },
       {
         "desc": "Delete bench and its database from global-db",
@@ -79,19 +79,19 @@
       },
       {
         "desc": "Open bench with debugger config",
-        "code": " -d"
+        "code": " --debugger"
       },
       {
         "desc": "Force start bench before opening",
-        "code": " -f"
+        "code": " --force-start"
       },
       {
         "desc": "Add custom VSCode extension",
-        "code": " -e vscodevim.vim"
+        "code": " --extension vscodevim.vim"
       },
       {
         "desc": "Open with custom working directory",
-        "code": " -w /workspace"
+        "code": " --work-dir /workspace"
       }
     ]
   },
@@ -130,12 +130,36 @@
         "code": " -c \"bench --version\""
       },
       {
+        "desc": "Execute commands from heredoc",
+        "code": " <<'EOF'\nls -la\nbench --version\nEOF"
+      },
+      {
         "desc": "Open shell in nginx container",
         "code": " --service nginx --user nginx"
       },
       {
         "desc": "Run command with passthrough syntax",
         "code": " -- bench migrate"
+      },
+      {
+        "desc": "Open interactive bench console with IPython",
+        "code": " --bench-console"
+      },
+      {
+        "desc": "Open bench console for specific site",
+        "code": " --bench-console --site mysite.localhost"
+      },
+      {
+        "desc": "Execute Python code in Frappe context",
+        "code": " --bench-console -c \"import frappe; print(frappe.__version__)\""
+      },
+      {
+        "desc": "Execute Python script from heredoc in Frappe context",
+        "code": " --bench-console <<'EOF'\nimport frappe\nprint(frappe.__version__)\nEOF"
+      },
+      {
+        "desc": "Execute Python script file in Frappe context",
+        "code": " --bench-console < script.py"
       }
     ]
   },
@@ -292,24 +316,24 @@
       "examples": [
         {
           "desc": "Add SSL certificate for {benchname} with HTTP-01 challenge",
-          "code": " example.com --challenge http01"
+          "code": " {domain} --challenge http01"
         },
         {
           "desc": "Add SSL certificate with DNS-01 challenge (Cloudflare)",
-          "code": " example.com --challenge dns01"
+          "code": " {domain} --challenge dns01"
         },
         {
           "desc": "Add for external Docker project (standalone mode)",
-          "code": " example.com --standalone",
+          "code": " {domain} --standalone",
           "benchname": ""
         },
         {
           "desc": "Test with Let's Encrypt staging (dry-run)",
-          "code": " example.com --dry-run"
+          "code": " {domain} --dry-run"
         },
         {
           "desc": "Add with CNAME delegation for DNS validation",
-          "code": " example.com --challenge dns01 --cname _acme-challenge.delegated.com"
+          "code": " {domain} --challenge dns01 --cname delegated.example.com"
         }
       ]
     },
@@ -317,15 +341,15 @@
       "examples": [
         {
           "desc": "Remove SSL certificate from {benchname}",
-          "code": " example.com"
+          "code": " {domain}"
         },
         {
-          "desc": "Force remove without confirmation",
-          "code": " example.com --force"
+          "desc": "Remove without confirmation",
+          "code": " {domain} --yes"
         },
         {
           "desc": "Remove external (standalone) certificate",
-          "code": " example.com --standalone",
+          "code": " {domain} --standalone",
           "benchname": ""
         }
       ]
@@ -338,7 +362,7 @@
         },
         {
           "desc": "Renew certificate for specific domain on {benchname}",
-          "code": " www.example.com"
+          "code": " {domain}"
         },
         {
           "desc": "Renew all certificates for all benches",
@@ -351,7 +375,7 @@
         },
         {
           "desc": "Renew specific external (standalone) domain",
-          "code": " --standalone example.com",
+          "code": " --standalone {domain}",
           "benchname": ""
         },
         {
@@ -545,36 +569,42 @@
   "migrate": {
     "examples": [
       {
-        "desc": "Migrate system only",
-        "code": " --system",
+        "desc": "Migrate FM infrastructure only (safe)",
+        "code": "",
         "benchname": ""
       },
       {
-        "desc": "Migrate specific bench only",
+        "desc": "Migrate specific bench",
         "code": ""
       },
       {
-        "desc": "Migrate system + specific bench",
-        "code": " --system"
-      },
-      {
-        "desc": "Migrate all benches only",
+        "desc": "Migrate all benches",
         "code": " --all-benches",
         "benchname": ""
       },
       {
-        "desc": "Migrate system + all benches",
-        "code": " --system --all-benches",
+        "desc": "Skip confirmation prompt",
+        "code": " --all-benches --auto-proceed",
         "benchname": ""
       },
       {
-        "desc": "Migrate with no prompts",
-        "code": " --system --all-benches --force",
+        "desc": "Auto-proceed with auto-rollback on failure",
+        "code": " --all-benches --auto-proceed --on-failure=rollback",
         "benchname": ""
       },
       {
-        "desc": "Skip backup (dangerous)",
-        "code": " --all-benches --skip-backup",
+        "desc": "Auto-proceed, archive failed benches (partial success OK)",
+        "code": " --all-benches --auto-proceed --on-failure=archive",
+        "benchname": ""
+      },
+      {
+        "desc": "Skip all backups (dangerous)",
+        "code": " --all-benches --skip-all-backup",
+        "benchname": ""
+      },
+      {
+        "desc": "Exclude specific benches",
+        "code": " --all-benches --exclude-bench mybench1,mybench2",
         "benchname": ""
       }
     ]

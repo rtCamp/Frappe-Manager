@@ -9,19 +9,19 @@ Provides worker management for the bench including:
 """
 
 from copy import deepcopy
-from pathlib import Path
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING
+
+from frappe_manager import SiteServicesEnum
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
+from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.site_manager.exceptions import (
     BenchOperationException,
     BenchWorkersSupervisorConfigurtionNotFoundError,
 )
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version
 from frappe_manager.utils.site import is_default_worker
-from frappe_manager import SiteServicesEnum
 
 if TYPE_CHECKING:
     from frappe_manager.site_manager.site import Bench
@@ -38,7 +38,7 @@ class BenchWorkers:
     - Clean up worker compose files when no longer needed
     """
 
-    def __init__(self, bench: 'Bench', verbose: bool = True, output_handler: OutputHandler | None = None):
+    def __init__(self, bench: "Bench", verbose: bool = True, output_handler: OutputHandler | None = None):
         """
         Initialize BenchWorkers.
 
@@ -52,12 +52,14 @@ class BenchWorkers:
         self.config_dir = self.bench.path / "workspace" / "frappe-bench" / "config"
         self.supervisor_config_path = self.config_dir / "supervisor.conf"
         self.output = output_handler or RichOutputHandler()
-        self.compose_file_manager = ComposeFile(self.compose_path, template_name='docker-compose.workers.tmpl')
+        self.compose_file_manager = ComposeFile(self.compose_path, template_name="docker-compose.workers.tmpl")
         self.docker_client = DockerClient(compose_file_path=self.compose_path, output=self.output)
 
     def get_expected_workers(
-        self, include_default_workers: bool = True, include_custom_workers: bool = True
-    ) -> List[str]:
+        self,
+        include_default_workers: bool = True,
+        include_custom_workers: bool = True,
+    ) -> list[str]:
         """
         Get list of expected workers from supervisor configuration.
 
@@ -94,9 +96,8 @@ class BenchWorkers:
             if is_default_worker(worker_name):
                 if include_default_workers:
                     workers_expected_service_names.append(worker_name)
-            else:
-                if include_custom_workers:
-                    workers_expected_service_names.append(worker_name)
+            elif include_custom_workers:
+                workers_expected_service_names.append(worker_name)
 
         workers_expected_service_names.sort()
 
@@ -120,16 +121,15 @@ class BenchWorkers:
             # get custom workers from common_site_config.json
             common_site_config_data = self.bench.get_common_bench_config()
 
-            if 'workers' in common_site_config_data:
-                custom_workers: List[str] = common_site_config_data['workers'].keys()
+            if "workers" in common_site_config_data:
+                custom_workers: list[str] = common_site_config_data["workers"].keys()
                 for worker in custom_workers:
-                    worker = f'{worker}-worker'
+                    worker = f"{worker}-worker"
                     if worker not in prev_workers:
                         return False
             return prev_workers == expected_workers
 
-        else:
-            return False
+        return False
 
     def generate_compose(self, include_default_workers: bool = True, include_custom_workers: bool = True) -> bool:
         """
@@ -155,11 +155,13 @@ class BenchWorkers:
         del self.compose_file_manager.yml["services"]["worker-name"]
 
         workers_expected_service_names = self.get_expected_workers(
-            include_default_workers=include_default_workers, include_custom_workers=include_custom_workers
+            include_default_workers=include_default_workers,
+            include_custom_workers=include_custom_workers,
         )
 
         if len(workers_expected_service_names) > 0:
             import os
+
             for worker in workers_expected_service_names:
                 worker_config = deepcopy(template_worker_config)
                 worker_config["environment"]["USERID"] = os.getuid()
@@ -168,19 +170,19 @@ class BenchWorkers:
                 self.compose_file_manager.yml["services"][worker] = worker_config
 
             self.compose_file_manager.with_prefix(
-                get_container_name_prefix(self.bench.name), 'site-network'
+                get_container_name_prefix(self.bench.name),
+                "site-network",
             ).with_version(get_current_fm_version()).with_restart(self.bench.bench_config.restart_policy.value).commit()
 
             self.output.print(f"{' '.join(workers_expected_service_names)} configurations generated")
             return True
 
-        else:
-            if self.compose_file_manager.exists():
-                self.output.print("No workers found, cleaning up existing configuration")
-                self.docker_client.compose.down(remove_orphans=True, volumes=False, timeout=5, stream=True)
-                self.compose_file_manager.compose_path.unlink()
+        if self.compose_file_manager.exists():
+            self.output.print("No workers found, cleaning up existing configuration")
+            self.docker_client.compose.down(remove_orphans=True, volumes=False, timeout=5, stream=True)
+            self.compose_file_manager.compose_path.unlink()
 
-            return False
+        return False
 
 
 class BenchWorkerCoordinator:
@@ -257,12 +259,16 @@ class BenchWorkerCoordinator:
             return
 
         start_required = self.workers.generate_compose(
-            include_default_workers=include_default_workers, include_custom_workers=include_custom_workers
+            include_default_workers=include_default_workers,
+            include_custom_workers=include_custom_workers,
         )
 
         if start_required:
             self.workers.docker_client.compose.up(
-                services=[], detach=True, pull="never", force_recreate=force_recreate
+                services=[],
+                detach=True,
+                pull="never",
+                force_recreate=force_recreate,
             )
 
     def backup_restore_workers_supervisor(self, backup_manager: BackupManager):
@@ -283,7 +289,7 @@ class BenchWorkerCoordinator:
         Returns:
             BackupManager: Manager containing backed up files
         """
-        backup_workers_manager = BackupManager(name='workers', backup_group_name='workers')
+        backup_workers_manager = BackupManager(name="workers", backup_group_name="workers")
         backup_workers_manager.backup(self.workers.supervisor_config_path, bench_name=self.bench_name)
 
         if self.workers.supervisor_config_path.exists():
@@ -318,7 +324,10 @@ class BenchWorkerCoordinator:
             if not workers_running:
                 if self.is_running():
                     self.workers.docker_client.compose.up(
-                        services=[], detach=True, pull="never", force_recreate=False
+                        services=[],
+                        detach=True,
+                        pull="never",
+                        force_recreate=False,
                     )
 
     def restart_workers_containers_services(self, use_container_restart: bool = False, force: bool = False):
@@ -352,7 +361,9 @@ class BenchWorkerCoordinator:
                 self.output.print(f"{action} container - {service}")
             else:
                 is_restarted = self.restart_supervisor_service(
-                    service, docker_client_obj=self.workers.docker_client, force=force
+                    service,
+                    docker_client_obj=self.workers.docker_client,
+                    force=force,
                 )
                 if is_restarted:
                     action = "Stopped and started" if force else "Restarted"

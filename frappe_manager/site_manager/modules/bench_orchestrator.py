@@ -19,10 +19,9 @@ By centralizing orchestration logic here, we maintain separation of concerns:
 
 import copy
 import time
-from collections.abc import Iterator
-from typing import TYPE_CHECKING, Tuple, cast
+from typing import TYPE_CHECKING
 
-from frappe_manager.logger import log
+from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.bench_config import FMBenchEnvType
@@ -48,16 +47,17 @@ class BenchOrchestrator:
         >>> orchestrator.create_bench(is_template=False)
     """
 
-    def __init__(self, bench: "Bench", output_handler: OutputHandler | None = None):
+    def __init__(self, logger: ContextualLogger, bench: "Bench", output_handler: OutputHandler | None = None):
         """
         Initialize orchestrator with bench reference.
 
         Args:
+            logger: Contextual logger for audit/debug logging
             bench: Parent Bench instance that owns this orchestrator
             output_handler: Output handler for UI/logging (defaults to RichOutputHandler)
         """
+        self.logger = logger.child(component="orchestrator")
         self.bench = bench
-        self.logger = log.get_logger()
         self.output = output_handler or RichOutputHandler()
 
     def create_bench(self, is_template_bench: bool = False) -> None:
@@ -147,11 +147,11 @@ class BenchOrchestrator:
         self.output.change_head("Generating bench compose")
         compose_inputs = bench.bench_config.export_to_compose_inputs()
 
-        if 'environment' not in compose_inputs:
-            compose_inputs['environment'] = {}
+        if "environment" not in compose_inputs:
+            compose_inputs["environment"] = {}
 
-        compose_inputs['environment']['frappe'] = compose_inputs['environment'].get('frappe', {})
-        compose_inputs['environment']['frappe']['FRAPPE_ENV'] = bench.bench_config.environment_type.value
+        compose_inputs["environment"]["frappe"] = compose_inputs["environment"].get("frappe", {})
+        compose_inputs["environment"]["frappe"]["FRAPPE_ENV"] = bench.bench_config.environment_type.value
 
         bench.generate_compose(compose_inputs)
         bench.create_compose_dirs()
@@ -199,8 +199,8 @@ class BenchOrchestrator:
         bench = self.bench
 
         from frappe_manager.site_manager.bench_config import (
-            extract_python_version_requirement,
             extract_node_version_requirement,
+            extract_python_version_requirement,
         )
 
         frappe_app_path = bench.path / "workspace" / "frappe-bench" / "apps" / "frappe"
@@ -250,14 +250,14 @@ class BenchOrchestrator:
         for i in range(max_retries):
             try:
                 result = bench.docker_client.compose.exec(
-                    service='frappe',
+                    service="frappe",
                     command='curl -s -o /dev/null -w "%{http_code}" http://localhost:80',
-                    user='frappe',
+                    user="frappe",
                     stream=False,
                 )
-                status_code = ''.join(result.stdout).strip()
+                status_code = "".join(result.stdout).strip()
 
-                if status_code in ['200', '404']:
+                if status_code in ["200", "404"]:
                     self.output.print("Bench server is responding correctly")
                     return
 
@@ -287,14 +287,16 @@ class BenchOrchestrator:
         bench.sync_workers_compose(force_recreate=True, setup_supervisor=False)
         self.output.print("Configured bench workers")
 
-        from frappe_manager.site_manager.bench_config import MigrationState
-        from frappe_manager.migration_manager.version import Version
-        from frappe_manager.utils.helpers import get_current_fm_version
         from datetime import datetime
+
+        from frappe_manager.migration_manager.version import Version
+        from frappe_manager.site_manager.bench_config import MigrationState
+        from frappe_manager.utils.helpers import get_current_fm_version
 
         current_fm_version = Version(get_current_fm_version())
         bench.bench_config.migration_state = MigrationState(
-            migrated_to=str(current_fm_version.version), last_migration_date=datetime.now().isoformat()
+            migrated_to=str(current_fm_version.version),
+            last_migration_date=datetime.now().isoformat(),
         )
 
         bench.save_bench_config()
@@ -351,7 +353,7 @@ class BenchOrchestrator:
                 f"   bench --site {bench.name} install-app <app_name>\n"
                 "3. Check logs for specific errors:\n"
                 f"   fm logs {bench.name} -f\n\n"
-                f"📋 Check detailed logs at: {CLI_DIR / 'logs' / 'fm.log'}\n"
+                f"📋 Check detailed logs at: {CLI_DIR / 'logs' / 'fm.log'}\n",
             )
             return False
 
@@ -363,13 +365,14 @@ class BenchOrchestrator:
 
         try:
             bench.app_manager._container_run(
-                migrate_cmd, raise_exception_obj=BenchOperationException(bench.name, "bench migrate failed")
+                migrate_cmd,
+                raise_exception_obj=BenchOperationException(bench.name, "bench migrate failed"),
             )
         except Exception as e:
             self.logger.warning(f"{bench.name}: bench migrate failed: {e}")
             self.output.warning(
                 "⚠️  Database migration failed. You may need to run:\n"
-                f"  fm shell {bench.name} -- bench --site {bench.name} migrate"
+                f"  fm shell {bench.name} -- bench --site {bench.name} migrate",
             )
 
     def _create_template_bench(self):
@@ -378,14 +381,16 @@ class BenchOrchestrator:
         global_db_info = bench.services.database_manager.database_server_info
         bench.sync_bench_common_site_config(global_db_info.host, global_db_info.port)
 
-        from frappe_manager.site_manager.bench_config import MigrationState
-        from frappe_manager.migration_manager.version import Version
-        from frappe_manager.utils.helpers import get_current_fm_version
         from datetime import datetime
+
+        from frappe_manager.migration_manager.version import Version
+        from frappe_manager.site_manager.bench_config import MigrationState
+        from frappe_manager.utils.helpers import get_current_fm_version
 
         current_fm_version = Version(get_current_fm_version())
         bench.bench_config.migration_state = MigrationState(
-            migrated_to=str(current_fm_version.version), last_migration_date=datetime.now().isoformat()
+            migrated_to=str(current_fm_version.version),
+            last_migration_date=datetime.now().isoformat(),
         )
 
         bench.save_bench_config()
@@ -506,9 +511,7 @@ class BenchOrchestrator:
 
     def update_alias_domains(self, add_domains: list[str] | None = None, remove_domains: list[str] | None = None):
         """
-        Update alias domains for the bench.
-        - Updates alias configuration
-        - Restarts services with new configuration
+        Update alias domains without restarting services.
 
         SSL certificates are NOT automatically generated for new alias domains.
         Users must explicitly add SSL certificates using: fm ssl add <bench> <domain>
@@ -566,7 +569,7 @@ class BenchOrchestrator:
             bench.save_bench_config()
             self.output.print("Configuration saved")
 
-            self._restart_services_with_updated_config()
+            self._update_alias_domains_lightweight()
 
             if added_domains:
                 self.output.print("To add SSL certificates for new alias domains, use:", emoji_code="")
@@ -578,6 +581,28 @@ class BenchOrchestrator:
             self.output.stop()
             self.logger.error(f"Failed to update alias domains: {e}")
             raise Exception(f"Failed to update alias domains: {e}")
+
+    def _update_alias_domains_lightweight(self):
+        bench = self.bench
+
+        self.output.change_head("Updating compose configuration")
+        bench.generate_compose(bench.bench_config.export_to_compose_inputs())
+        self.output.print("Updated compose configuration with new domains")
+
+        self.output.change_head("Applying changes")
+        bench.docker_client.compose.up(
+            services=["nginx"],
+            detach=True,
+            pull="never",
+            force_recreate=False,
+        )
+
+        nginx_config_path = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
+        if nginx_config_path.exists():
+            nginx_config_path.unlink()
+
+        bench.bench_nginx_controller.reload()
+        self.output.print("Applied configuration changes")
 
     def _restart_services_with_updated_config(self):
         """Restart all bench services with updated configuration."""

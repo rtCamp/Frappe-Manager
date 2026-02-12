@@ -9,7 +9,6 @@ management but don't have Frappe benches as backends. It handles:
 """
 
 from pathlib import Path
-from typing import Optional
 
 
 class StandaloneNginxConfigManager:

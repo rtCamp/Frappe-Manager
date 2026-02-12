@@ -6,20 +6,19 @@ following dependency injection pattern for testability and maintainability.
 """
 
 import os
-import subprocess
 import shutil
+import subprocess
 from pathlib import Path
-from typing import Tuple, Optional, Dict
 
+from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.ssl_manager.ssl_certificate_service import SSLCertificateService
 from frappe_manager.ssl_manager.certificate import SSLCertificate
-from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate, LetsencryptSSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateGenerateFailed,
     SSLCertificateNotFoundError,
 )
+from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate
 from frappe_manager.utils.subprocess import stream_command_output
 
 LETSENCRYPT_PRODUCTION_SERVER = "https://acme-v02.api.letsencrypt.org/directory"
@@ -43,32 +42,21 @@ class AcmeShCertificateService:
 
     def __init__(
         self,
+        logger: ContextualLogger,
         ssl_service_dir: Path,
         webroot_dir: Path,
-        acmesh_home: Optional[Path] = None,
+        acmesh_home: Path | None = None,
         output_handler: OutputHandler | None = None,
     ):
-        """
-        Initialize acme.sh certificate service.
-
-        Args:
-            ssl_service_dir: Base directory for SSL certificates storage
-            webroot_dir: Directory for HTTP-01 challenge files (.well-known/acme-challenge)
-            acmesh_home: acme.sh installation directory (defaults to ssl_service_dir/acmesh/.acme.sh)
-            output_handler: Output handler for display operations (defaults to RichOutputHandler)
-        """
+        self.logger = logger.child(component="acmesh")
         self.webroot_dir = webroot_dir
         self.root_dir = ssl_service_dir / "acmesh"
-        # Default acmesh_home to ssl_service_dir/acmesh/.acme.sh for centralized management
-        # This keeps all acme.sh files (binary, config, working certs) in FM's ssl directory
         self.acmesh_home = acmesh_home or (ssl_service_dir / "acmesh" / ".acme.sh")
         self.acmesh_bin = self.acmesh_home / "acme.sh"
         self.output = output_handler or RichOutputHandler()
 
-        # Ensure root directory exists
         self.root_dir.mkdir(parents=True, exist_ok=True)
 
-        # Ensure acme.sh is installed
         self._ensure_acmesh_installed()
 
     def _ensure_acmesh_installed(self):
@@ -110,7 +98,7 @@ class AcmeShCertificateService:
             self.output.display_error(error_msg)
             raise Exception(error_msg)
 
-    def _run_acmesh_command(self, args: list, env: Optional[Dict[str, str]] = None) -> subprocess.CompletedProcess:
+    def _run_acmesh_command(self, args: list, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
         """
         Run acme.sh command with proper environment.
 
@@ -138,7 +126,7 @@ class AcmeShCertificateService:
             if result.stdout:
                 self.output.debug(f"acme.sh stdout: {result.stdout}")
         else:
-            self.output.debug(f"acme.sh succeeded")
+            self.output.debug("acme.sh succeeded")
             # Show output in debug mode
             if result.stdout:
                 self.output.debug(f"acme.sh output: {result.stdout}")
@@ -175,7 +163,7 @@ class AcmeShCertificateService:
         try:
             # Read current configuration
             content = account_conf.read_text()
-            lines = content.split('\n')
+            lines = content.split("\n")
 
             # Credential prefixes to remove (acme.sh uses SAVED_ prefix for mutable account config)
             stale_cred_prefixes = (
@@ -192,7 +180,7 @@ class AcmeShCertificateService:
             removed_count = original_count - len(filtered_lines)
 
             # Write back filtered configuration
-            account_conf.write_text('\n'.join(filtered_lines))
+            account_conf.write_text("\n".join(filtered_lines))
 
             if removed_count > 0:
                 self.output.debug(f"Cleared {removed_count} cached DNS credential line(s) from account.conf")
@@ -205,7 +193,10 @@ class AcmeShCertificateService:
             self.output.warning(f"Failed to clear cached credentials: {e}")
 
     def _stream_acmesh_command(
-        self, args: list, env: Optional[Dict[str, str]] = None, show_live_output: bool = True
+        self,
+        args: list,
+        env: dict[str, str] | None = None,
+        show_live_output: bool = True,
     ) -> int:
         """
         Run acme.sh command with live output streaming from stdout/stderr.
@@ -246,15 +237,14 @@ class AcmeShCertificateService:
             # Display with rolling window (last 5 lines)
             self.output.live_lines(stream_with_exit_tracking(), padding=(0, 0, 0, 2), lines=5)
             return exit_code_holder[0]
-        else:
-            # No output display - just run and return exit code
-            exit_code = 0
-            for source, line in stream_command_output(cmd, env=command_env, cwd=None):
-                if source == "exit_code":
-                    exit_code = int(line.decode())
-            return exit_code
+        # No output display - just run and return exit code
+        exit_code = 0
+        for source, line in stream_command_output(cmd, env=command_env, cwd=None):
+            if source == "exit_code":
+                exit_code = int(line.decode())
+        return exit_code
 
-    def generate_certificate(self, certificate: SSLCertificate, dry_run: bool = False) -> Tuple[Path, Path]:
+    def generate_certificate(self, certificate: SSLCertificate, dry_run: bool = False) -> tuple[Path, Path]:
         """
         Issue individual certificate using acme.sh.
 
@@ -275,7 +265,10 @@ class AcmeShCertificateService:
 
         use_staging = os.getenv("FM_LETSENCRYPT_STAGING", "").lower() in ("1", "true", "yes")
         if use_staging:
-            self.output.print("[yellow]Using Let's Encrypt STAGING server (test certificates)[/yellow]", emoji_code="⚠️ ")
+            self.output.print(
+                "[yellow]Using Let's Encrypt STAGING server (test certificates)[/yellow]",
+                emoji_code=":warning:",
+            )
 
         ca_server = LETSENCRYPT_STAGING_SERVER if use_staging else LETSENCRYPT_PRODUCTION_SERVER
 
@@ -342,7 +335,10 @@ class AcmeShCertificateService:
 
         if dry_run:
             self.output.print(f"[green]Certificate generated successfully (staging) for {certificate.domain}[/green]")
-            self.output.print(f"[yellow]Skipped: Copying certificate files (dry run)[/yellow]", emoji_code="⏭️ ")
+            self.output.print(
+                "[yellow]Skipped: Copying certificate files (dry run)[/yellow]",
+                emoji_code=":fast_forward:",
+            )
             return (key_path, fullchain_path)
 
         dest_dir = self.root_dir / certificate.domain
@@ -376,7 +372,10 @@ class AcmeShCertificateService:
 
         use_staging = os.getenv("FM_LETSENCRYPT_STAGING", "").lower() in ("1", "true", "yes")
         if use_staging:
-            self.output.print("[yellow]Using Let's Encrypt STAGING server for renewal (test certificates)[/yellow]", emoji_code="⚠️ ")
+            self.output.print(
+                "[yellow]Using Let's Encrypt STAGING server for renewal (test certificates)[/yellow]",
+                emoji_code=":warning:",
+            )
 
         ca_server = LETSENCRYPT_STAGING_SERVER if use_staging else LETSENCRYPT_PRODUCTION_SERVER
 
@@ -410,7 +409,10 @@ class AcmeShCertificateService:
         if fullchain_path.exists() and key_path.exists():
             if dry_run:
                 self.output.print(f"[green]Certificate renewed successfully (staging) for {certificate.domain}[/green]")
-                self.output.print(f"[yellow]Skipped: Copying certificate files (dry run)[/yellow]", emoji_code="⏭️ ")
+                self.output.print(
+                    "[yellow]Skipped: Copying certificate files (dry run)[/yellow]",
+                    emoji_code=":fast_forward:",
+                )
                 return True
 
             dest_dir = self.root_dir / certificate.domain

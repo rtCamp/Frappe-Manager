@@ -8,19 +8,14 @@ This module handles all SSL certificate operations for a bench including:
 - Renewing certificates
 """
 
-from typing import TYPE_CHECKING, List
-
 from frappe_manager.site_manager.bench_config import SSLCertificate
-from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
-from frappe_manager.ssl_manager.certificate import SUPPORTED_SSL_TYPES
 from frappe_manager.site_manager.exceptions import (
+    BenchServiceNotRunning,
     BenchSSLCertificateAlreadyIssued,
     BenchSSLCertificateNotIssued,
-    BenchServiceNotRunning,
 )
-
-if TYPE_CHECKING:
-    from frappe_manager.site_manager.site import Bench
+from frappe_manager.ssl_manager.certificate import SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
 
 
 class BenchSSL:
@@ -100,10 +95,8 @@ class BenchSSL:
             if self.has_certificate():
                 if raise_error:
                     raise BenchSSLCertificateAlreadyIssued(self.bench_name)
-                else:
-                    return False
-            else:
-                self.create_individual_certificates()
+                return False
+            self.create_individual_certificates()
 
         elif certificate.ssl_type == SUPPORTED_SSL_TYPES.none:
             if self.has_certificate():
@@ -131,8 +124,8 @@ class BenchSSL:
         if not self.has_certificate():
             raise BenchSSLCertificateNotIssued(self.bench_name)
 
-        if not self._is_service_running('nginx'):
-            raise BenchServiceNotRunning(self.bench_name, 'nginx')
+        if not self._is_service_running("nginx"):
+            raise BenchServiceNotRunning(self.bench_name, "nginx")
 
         self.certificate_manager.renew_certificate(domain, dry_run=dry_run, force=force)
 
@@ -154,7 +147,7 @@ class BenchSSL:
         if not self.has_certificate():
             raise BenchSSLCertificateNotIssued(self.bench_name)
 
-        if not self._is_service_running('nginx'):
-            raise BenchServiceNotRunning(self.bench_name, 'nginx')
+        if not self._is_service_running("nginx"):
+            raise BenchServiceNotRunning(self.bench_name, "nginx")
 
         self.certificate_manager.renew_all_certificates(dry_run=dry_run, force=force)

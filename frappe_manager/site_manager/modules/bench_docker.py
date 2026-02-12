@@ -6,19 +6,20 @@ Extracted from the monolithic Bench class for better separation of concerns.
 """
 
 import sys
+from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Any, Dict, Optional, Literal, cast, Iterable, Iterator, Tuple
+from typing import Any, Literal, cast
 
-from frappe_manager.output_manager import OutputHandler
-from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.docker.compose_file import ComposeFile
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.logger import log
+from frappe_manager.logger.contextual import ContextualLogger
+from frappe_manager.output_manager import OutputHandler
+from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.site_manager import NON_BASH_SUPPORTED_SERVICES
 from frappe_manager.site_manager.bench_config import BenchConfig
 from frappe_manager.utils.docker import host_run_cp
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version
-from frappe_manager import CLI_DEFAULT_DELIMETER
 
 
 class BenchDockerOps:
@@ -26,6 +27,7 @@ class BenchDockerOps:
 
     def __init__(
         self,
+        logger: ContextualLogger,
         docker_client: DockerClient,
         compose_file_manager: ComposeFile,
         config: BenchConfig,
@@ -36,18 +38,19 @@ class BenchDockerOps:
         Initialize BenchDockerOps.
 
         Args:
+            logger: Contextual logger for audit/debug logging
             docker_client: Docker client for operations
             compose_file_manager: Compose file manager
             config: Bench configuration
             path: Path to bench directory
             output_handler: Handler for output operations
         """
+        self.logger = logger.child(component="docker")
         self.docker_client = docker_client
         self.compose_file_manager = compose_file_manager
         self.config = config
         self.path = path
         self.output = output_handler or RichOutputHandler()
-        self.logger = log.get_logger()
 
     def _is_service_running(self, service: str) -> bool:
         """Check if a specific service is running."""
@@ -205,7 +208,7 @@ class BenchDockerOps:
 
     def start(
         self,
-        services: Optional[list] = None,
+        services: list | None = None,
         force_recreate: bool = False,
         pull: Literal["missing", "never", "always"] = "never",
     ) -> None:
@@ -219,9 +222,7 @@ class BenchDockerOps:
         """
         self.output.change_head("Starting bench services")
 
-        self.docker_client.compose.up(
-            services=services or [], detach=True, pull=pull, force_recreate=force_recreate
-        )
+        self.docker_client.compose.up(services=services or [], detach=True, pull=pull, force_recreate=force_recreate)
 
         self.output.print("Started bench services")
 
@@ -247,15 +248,22 @@ class BenchDockerOps:
         if self.compose_file_manager.exists():
             self.output.change_head("Removing bench containers")
             output = self.docker_client.compose.down(
-                remove_orphans=True, volumes=remove_volumes, timeout=timeout, stream=True
+                remove_orphans=True,
+                volumes=remove_volumes,
+                timeout=timeout,
+                stream=True,
             )
-            self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
+            self.output.live_lines(cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2))
             self.output.print("Removed bench containers")
         else:
-            self.output.warning('Bench compose file not found. Skipping containers removal.')
+            self.output.warning("Bench compose file not found. Skipping containers removal.")
 
     def shell(
-        self, compose_service: str, user: str | None = None, shell_path: str | None = None, use_run: bool = False
+        self,
+        compose_service: str,
+        user: str | None = None,
+        shell_path: str | None = None,
+        use_run: bool = False,
     ) -> None:
         """
         Spawn a shell for the specified service.
@@ -279,42 +287,34 @@ class BenchDockerOps:
         self.output.stop()
 
         if not shell_path:
-            non_bash_supported = ["redis-cache", "redis-queue", "adminer", "mailpit"]
-            shell_path = "/bin/bash" if compose_service not in non_bash_supported else "sh"
+            shell_path = "/bin/bash" if compose_service not in NON_BASH_SUPPORTED_SERVICES else "sh"
 
         if use_run:
-            run_args: Dict[str, Any] = {
-                "service": compose_service,
-                "rm": True,
-                "entrypoint": shell_path,
-            }
-
-            if compose_service == "frappe":
-                run_args["entrypoint"] = "/bin/bash"
+            run_cmd = self.docker_client.compose.docker_compose_cmd + ["run", "--rm"]
 
             if user:
-                run_args["user"] = user
+                run_cmd += ["--user", user]
 
-            try:
-                self.docker_client.compose.run(**run_args)
-            except DockerException as e:
-                self.output.warning(f"Shell exited with error code: {e.output.exit_code}")
+            run_cmd += ["--entrypoint", shell_path]
+            run_cmd += [compose_service]
+
+            import os
+
+            os.execvp(run_cmd[0], run_cmd)
         else:
-            exec_args: Dict[str, Any] = {"service": compose_service, "command": shell_path}
-
-            if compose_service == "frappe":
-                exec_args["command"] = "/bin/bash"
-                exec_args["workdir"] = "/workspace/frappe-bench"
+            exec_cmd = self.docker_client.compose.docker_compose_cmd + ["exec"]
 
             if user:
-                exec_args["user"] = user
+                exec_cmd += ["--user", user]
 
-            exec_args["capture_output"] = False
+            if compose_service == "frappe":
+                exec_cmd += ["--workdir", "/workspace/frappe-bench"]
 
-            try:
-                self.docker_client.compose.exec(**exec_args)
-            except DockerException as e:
-                self.output.warning(f"Shell exited with error code: {e.output.exit_code}")
+            exec_cmd += [compose_service, shell_path]
+
+            import os
+
+            os.execvp(exec_cmd[0], exec_cmd)
 
     def execute_command(
         self,
@@ -345,11 +345,10 @@ class BenchDockerOps:
             return 1
 
         if not shell_path:
-            non_bash_supported = ["redis-cache", "redis-queue", "adminer", "mailpit"]
-            shell_path = "/bin/bash" if compose_service not in non_bash_supported else "sh"
+            shell_path = "/bin/bash" if compose_service not in NON_BASH_SUPPORTED_SERVICES else "sh"
 
         if use_run:
-            run_args: Dict[str, Any] = {
+            run_args: dict[str, Any] = {
                 "service": compose_service,
                 "command": f'-c "{command}"',
                 "rm": True,
@@ -362,7 +361,7 @@ class BenchDockerOps:
                 run_args["user"] = user
 
             try:
-                result = cast(SubprocessOutput, self.docker_client.compose.run(**run_args))
+                result = cast("SubprocessOutput", self.docker_client.compose.run(**run_args))
 
                 if result.stdout:
                     for line in result.stdout:
@@ -381,7 +380,7 @@ class BenchDockerOps:
                         print(line, file=sys.stderr)
                 return e.output.exit_code
         else:
-            exec_args: Dict[str, Any] = {
+            exec_args: dict[str, Any] = {
                 "service": compose_service,
                 "command": f'{shell_path} -c "{command}"',
                 "stream": False,
@@ -415,7 +414,7 @@ class BenchDockerOps:
                         print(line, file=sys.stderr)
                 return e.output.exit_code
 
-    def logs(self, services: Optional[list] = None, follow: bool = False) -> None:
+    def logs(self, services: list | None = None, follow: bool = False) -> None:
         """
         Display logs for services.
 
@@ -432,14 +431,14 @@ class BenchDockerOps:
             return
 
         output = self.docker_client.compose.logs(services=services_list, follow=follow, stream=True)
-        self.output.live_lines(cast(Iterator[Tuple[str, bytes]], output), padding=(0, 0, 0, 2))
+        self.output.live_lines(cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2))
 
     def frappe_logs_till_start(self) -> None:
         """
         Retrieve and print the logs of the 'frappe' service until supervisor starts.
         """
         output = cast(
-            Iterable[Tuple[str, bytes]],
+            "Iterable[tuple[str, bytes]]",
             self.docker_client.compose.logs(
                 services=["frappe"],
                 no_log_prefix=True,
@@ -450,7 +449,7 @@ class BenchDockerOps:
         )
 
         self.output.live_lines(
-            cast(Iterator[Tuple[str, bytes]], output),
+            cast("Iterator[tuple[str, bytes]]", output),
             padding=(0, 0, 0, 2),
             stop_string="INFO supervisord started with pid",
         )
@@ -469,7 +468,7 @@ class BenchDockerOps:
         action = "Force restarted" if force else "Restarted"
         self.output.print(f"{action} services - {' '.join(services)}")
 
-    def exec_command(self, service: str, command: str, user: Optional[str] = None, stream: bool = False):
+    def exec_command(self, service: str, command: str, user: str | None = None, stream: bool = False):
         """
         Execute a command in a service container.
 
@@ -482,10 +481,10 @@ class BenchDockerOps:
         Returns:
             Command output
         """
-        exec_args = {'service': service, 'command': command, 'stream': stream}
+        exec_args = {"service": service, "command": command, "stream": stream}
 
         if user:
-            exec_args['user'] = user
+            exec_args["user"] = user
 
         return self.docker_client.compose.exec(**exec_args)
 
@@ -502,8 +501,8 @@ class BenchDockerOps:
         Example:
             >>> docker_ops.check_required_docker_images_available()
         """
-        from frappe_manager.utils.site import get_all_docker_images
         from frappe_manager.site_manager.exceptions import BenchOperationRequiredDockerImagesNotAvailable
+        from frappe_manager.utils.site import get_all_docker_images
 
         self.output.change_head("Checking required docker images availability")
         fm_images = get_all_docker_images()
@@ -512,13 +511,13 @@ class BenchDockerOps:
         not_available_images = []
 
         for key, value in fm_images.items():
-            name = value['name']
-            tag = value['tag']
+            name = value["name"]
+            tag = value["tag"]
 
             found = False
 
             for item in system_available_images:
-                if item.get('Repository') == name and item.get('Tag') == tag:
+                if item.get("Repository") == name and item.get("Tag") == tag:
                     found = True
                     break
 
@@ -532,5 +531,5 @@ class BenchDockerOps:
             for image in not_available_images:
                 self.output.display_error(f"Docker image '{image}' is not available locally")
 
-            bench_name = self.config.container_name_prefix.replace('-', '.')
-            raise BenchOperationRequiredDockerImagesNotAvailable(bench_name, 'fm self update-images')
+            bench_name = self.config.container_name_prefix.replace("-", ".")
+            raise BenchOperationRequiredDockerImagesNotAvailable(bench_name, "fm self update-images")

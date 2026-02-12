@@ -7,12 +7,11 @@ for CNAME delegation scenarios.
 
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Optional
 
 from pydantic import BaseModel
 
 from frappe_manager import SSL_RENEW_BEFORE_DAYS
-from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES, LETSENCRYPT_PREFERRED_CHALLENGE
+from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.utils.helpers import get_certificate_expiry_date
 
 
@@ -33,17 +32,17 @@ class SSLCertificate(BaseModel):
     hsts: str = "off"
 
     # System state fields (populated after certificate issuance)
-    cert_path: Optional[Path] = None
-    key_path: Optional[Path] = None
-    issued_date: Optional[datetime] = None
-    last_renewal_attempt: Optional[datetime] = None
+    cert_path: Path | None = None
+    key_path: Path | None = None
+    issued_date: datetime | None = None
+    last_renewal_attempt: datetime | None = None
     status: str = "pending"  # pending, active, expiring_soon, expired, error
 
     # Fields to exclude when serializing to TOML
-    toml_exclude: Optional[set] = {"domain", "toml_exclude"}
+    toml_exclude: set | None = {"domain", "toml_exclude"}
 
     @property
-    def expiry_date(self) -> Optional[datetime]:
+    def expiry_date(self) -> datetime | None:
         """
         Compute expiry date from certificate file at runtime.
 
@@ -86,7 +85,7 @@ class SSLCertificate(BaseModel):
         return now >= renewal_threshold
 
     @property
-    def days_until_expiry(self) -> Optional[int]:
+    def days_until_expiry(self) -> int | None:
         """
         Calculate days until certificate expires.
 

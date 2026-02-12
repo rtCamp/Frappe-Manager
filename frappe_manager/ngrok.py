@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 
-import ngrok
 import asyncio
 import signal
 import sys
 import time
-from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.output_manager import spinner
-from typing import Optional
+
+import ngrok
+
+from frappe_manager.output_manager import get_global_output_handler, set_global_output_handler, spinner
+from frappe_manager.output_manager.rich_output import RichOutputHandler
 
 
 def create_tunnel(site_name: str, auth_token: str, port: int = 80) -> None:
@@ -19,7 +20,13 @@ def create_tunnel(site_name: str, auth_token: str, port: int = 80) -> None:
         auth_token: Ngrok authentication token
         port: The local port to tunnel to (default: 80)
     """
-    with spinner(richprint, f"Forwarding all requests from {site_name}"):
+    try:
+        output = get_global_output_handler()
+    except RuntimeError:
+        output = RichOutputHandler()
+        set_global_output_handler(output)
+
+    with spinner(output, f"Forwarding all requests from {site_name}"):
         try:
             ngrok.set_auth_token(auth_token)
 
@@ -56,12 +63,13 @@ def create_tunnel(site_name: str, auth_token: str, port: int = 80) -> None:
         sys.exit(1)
 
 
-async def start_tunnel(site_name: str):
+async def start_tunnel(site_name: str, auth_token: str):
     """
     Start an ngrok tunnel and keep it running until interrupted.
 
     Args:
         site_name: The site name to use for host header
+        auth_token: Ngrok authentication token
     """
     listener = await ngrok.connect(
         80,
@@ -90,7 +98,7 @@ async def start_tunnel(site_name: str):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: ngrok.py <site_name>")
+    if len(sys.argv) != 3:
+        print("Usage: ngrok.py <site_name> <auth_token>")
         sys.exit(1)
-    asyncio.run(start_tunnel(sys.argv[1]))
+    asyncio.run(start_tunnel(sys.argv[1], sys.argv[2]))

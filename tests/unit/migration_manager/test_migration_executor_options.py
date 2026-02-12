@@ -1,5 +1,7 @@
+from unittest.mock import Mock, patch
+
 import pytest
-from unittest.mock import Mock, MagicMock, patch
+
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor, needs_migration
 from frappe_manager.migration_manager.version import Version
 
@@ -7,22 +9,22 @@ from frappe_manager.migration_manager.version import Version
 class TestNeedsMigration:
     def test_needs_migration_when_current_version_higher(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
-        
-        with patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"):
+
+        with patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"):
             result = needs_migration(mock_fm_config)
             assert result is True
 
     def test_no_migration_when_versions_equal(self, mock_fm_config):
         mock_fm_config.version = Version("0.19.0")
-        
-        with patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"):
+
+        with patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"):
             result = needs_migration(mock_fm_config)
             assert result is False
 
     def test_no_migration_when_current_version_lower(self, mock_fm_config):
         mock_fm_config.version = Version("0.19.0")
-        
-        with patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.18.0"):
+
+        with patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.18.0"):
             result = needs_migration(mock_fm_config)
             assert result is False
 
@@ -30,175 +32,175 @@ class TestNeedsMigration:
 class TestMigrationExecutorWithOptions:
     def test_executor_accepts_skip_backup_option(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
-        
+
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
         ):
             executor = MigrationExecutor(mock_fm_config, skip_backup=True)
-            
+
             assert executor.skip_backup is True
             assert executor.skip_backup_for == []
             assert executor.exclude_benches == []
-            assert executor.force is False
+            assert executor.auto_proceed is False
+            assert executor.on_failure == "prompt"
 
     def test_executor_accepts_skip_backup_for_list(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
-        
+
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
         ):
-            executor = MigrationExecutor(
-                mock_fm_config,
-                skip_backup_for=["bench1", "bench2"]
-            )
-            
+            executor = MigrationExecutor(mock_fm_config, skip_backup_for=["bench1", "bench2"])
+
             assert executor.skip_backup is False
             assert executor.skip_backup_for == ["bench1", "bench2"]
 
     def test_executor_accepts_exclude_benches_list(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
-        
+
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
         ):
-            executor = MigrationExecutor(
-                mock_fm_config,
-                exclude_benches=["old-bench", "test-bench"]
-            )
-            
+            executor = MigrationExecutor(mock_fm_config, exclude_benches=["old-bench", "test-bench"])
+
             assert executor.exclude_benches == ["old-bench", "test-bench"]
 
-    def test_executor_accepts_force_option(self, mock_fm_config):
+    def test_executor_accepts_auto_proceed_option(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
-        
+
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
         ):
-            executor = MigrationExecutor(mock_fm_config, force=True)
-            
-            assert executor.force is True
+            executor = MigrationExecutor(mock_fm_config, auto_proceed=True)
+
+            assert executor.auto_proceed is True
 
     def test_executor_accepts_all_options_combined(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
-        
+
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
         ):
             executor = MigrationExecutor(
                 mock_fm_config,
                 skip_backup=False,
                 skip_backup_for=["bench1"],
                 exclude_benches=["old-bench"],
-                force=True
+                auto_proceed=True,
+                on_failure="rollback",
             )
-            
+
             assert executor.skip_backup is False
             assert executor.skip_backup_for == ["bench1"]
             assert executor.exclude_benches == ["old-bench"]
-            assert executor.force is True
+            assert executor.auto_proceed is True
+            assert executor.on_failure == "rollback"
 
 
-class TestMigrationExecutorForceFlag:
-    def test_force_skips_initial_confirmation_prompt(self, mock_fm_config):
+class TestMigrationExecutorAutoProceedFlag:
+    def test_auto_proceed_skips_initial_confirmation_prompt(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
         mock_fm_config.export_to_toml = Mock(return_value=True)
-        
+
         class MockMigration:
             version = Version("0.19.0")
-            
+
             def __init__(self, output_handler=None):
                 self.output = output_handler
-            
+
             def up(self):
                 pass
-            
+
             def down(self):
                 pass
-            
+
             def set_migration_executor(self, migration_executor):
                 self.migration_executor = migration_executor
-            
+
             def get_rollback_version(self):
                 return Version("0.19.0")
-        
+
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
-            patch('frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules') as mock_iter,
-            patch('frappe_manager.migration_manager.migration_executor.importlib.import_module') as mock_import,
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+            patch("frappe_manager.migration_manager.migration_discovery.pkgutil.iter_modules") as mock_iter,
+            patch("frappe_manager.migration_manager.migration_discovery.importlib.import_module") as mock_import,
         ):
             mock_iter.return_value = [(None, "migrate_0_19_0", False)]
-            
-            mock_module = Mock()
-            setattr(mock_module, 'MigrationV0190', MockMigration)
-            mock_import.return_value = mock_module
-            
-            mock_output = Mock()
-            executor = MigrationExecutor(mock_fm_config, force=True, migrate_system=True, output_handler=mock_output)
-            
-            with (
-                patch.object(executor, '_ensure_global_services_running'),
-                patch.object(executor, '_check_benches_need_migration', return_value=False),
-            ):
-                result = executor.execute()
-            
-            mock_output.prompt_ask.assert_not_called()
-            
-            force_call_found = False
-            for call in mock_output.print.call_args_list:
-                if "Proceeding with migration (--force)" in str(call):
-                    force_call_found = True
-                    break
-            
-            assert force_call_found is True
 
-    def test_without_force_shows_confirmation_prompt(self, mock_fm_config):
+            mock_module = Mock()
+            mock_module.MigrationV0190 = MockMigration
+            mock_import.return_value = mock_module
+
+            mock_output = Mock()
+            executor = MigrationExecutor(
+                mock_fm_config,
+                auto_proceed=True,
+                on_failure="rollback",
+                migrate_fm_infrastructure=True,
+                output_handler=mock_output,
+            )
+
+            with patch.object(executor, "_check_benches_need_migration", return_value=False):
+                result = executor.execute()
+
+            mock_output.prompt_ask.assert_not_called()
+
+            auto_proceed_call_found = False
+            for call in mock_output.print.call_args_list:
+                if "Proceeding with migration (--auto-proceed)" in str(call):
+                    auto_proceed_call_found = True
+                    break
+
+            assert auto_proceed_call_found is True
+
+    def test_without_auto_proceed_shows_confirmation_prompt(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
         mock_fm_config.export_to_toml = Mock(return_value=True)
-        
+
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
-            patch('frappe_manager.migration_manager.migration_executor.pkgutil.iter_modules') as mock_iter,
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+            patch("frappe_manager.migration_manager.migration_discovery.pkgutil.iter_modules") as mock_iter,
         ):
             mock_iter.return_value = []
-            
+
             mock_output = Mock()
             mock_output.prompt_ask.return_value = "yes"
-            
-            executor = MigrationExecutor(mock_fm_config, force=False, output_handler=mock_output)
+
+            executor = MigrationExecutor(mock_fm_config, auto_proceed=False, output_handler=mock_output)
             result = executor.execute()
-            
+
             assert result is True
 
 
 class TestMigrationExecutorBackupOptions:
     def test_skip_backup_passed_to_migration_instance(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
-        
+
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
         ):
             executor = MigrationExecutor(mock_fm_config, skip_backup=True)
-            
+
             assert executor.skip_backup is True
 
     def test_skip_backup_for_list_available_to_migration(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
-        
+
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
         ):
             skip_list = ["bench1", "bench2", "bench3"]
             executor = MigrationExecutor(mock_fm_config, skip_backup_for=skip_list)
-            
+
             assert executor.skip_backup_for == skip_list
             assert "bench1" in executor.skip_backup_for
             assert "bench2" in executor.skip_backup_for
@@ -207,14 +209,14 @@ class TestMigrationExecutorBackupOptions:
 class TestMigrationExecutorExcludeBenches:
     def test_exclude_benches_list_available_to_migration(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")
-        
+
         with (
-            patch('frappe_manager.migration_manager.migration_executor.get_current_fm_version', return_value="0.19.0"),
-            patch('frappe_manager.migration_manager.migration_executor.log.get_logger'),
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
         ):
             exclude_list = ["old-bench", "broken-bench"]
             executor = MigrationExecutor(mock_fm_config, exclude_benches=exclude_list)
-            
+
             assert executor.exclude_benches == exclude_list
             assert "old-bench" in executor.exclude_benches
             assert "broken-bench" in executor.exclude_benches
@@ -226,3 +228,57 @@ def mock_fm_config():
     config.version = Version("0.18.0")
     config.export_to_toml = Mock(return_value=True)
     return config
+
+
+class TestMigrationExecutorOnFailureParameter:
+    def test_on_failure_archive_archives_failed_benches(self, mock_fm_config):
+        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.export_to_toml = Mock(return_value=True)
+
+        with (
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+        ):
+            mock_output = Mock()
+            executor = MigrationExecutor(mock_fm_config, on_failure="archive", output_handler=mock_output)
+
+            assert executor.on_failure == "archive"
+
+    def test_on_failure_rollback_rolls_back_all_benches(self, mock_fm_config):
+        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.export_to_toml = Mock(return_value=True)
+
+        with (
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+        ):
+            mock_output = Mock()
+            executor = MigrationExecutor(mock_fm_config, on_failure="rollback", output_handler=mock_output)
+
+            assert executor.on_failure == "rollback"
+
+    def test_on_failure_prompt_asks_user(self, mock_fm_config):
+        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.export_to_toml = Mock(return_value=True)
+
+        with (
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+        ):
+            mock_output = Mock()
+            executor = MigrationExecutor(mock_fm_config, on_failure="prompt", output_handler=mock_output)
+
+            assert executor.on_failure == "prompt"
+
+    def test_on_failure_default_is_prompt(self, mock_fm_config):
+        mock_fm_config.version = Version("0.18.0")
+        mock_fm_config.export_to_toml = Mock(return_value=True)
+
+        with (
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+        ):
+            mock_output = Mock()
+            executor = MigrationExecutor(mock_fm_config, output_handler=mock_output)
+
+            assert executor.on_failure == "prompt"

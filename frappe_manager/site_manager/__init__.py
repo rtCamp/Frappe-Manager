@@ -1,3 +1,13 @@
+"""Site Manager Module - Configuration and Constants"""
+
+__all__ = [
+    "VSCODE_LAUNCH_JSON",
+    "VSCODE_TASKS_JSON",
+    "VSCODE_SETTINGS_JSON",
+    "PREBAKED_SITE_APPS",
+    "NON_BASH_SUPPORTED_SERVICES",
+]
+
 VSCODE_LAUNCH_JSON = {
     "version": "0.2.0",
     "configurations": [
@@ -74,7 +84,7 @@ VSCODE_TASKS_JSON = {
             "presentation": {"reveal": "never", "panel": "dedicated"},
             "options": {"ignoreExitCode": True},
             "problemMatcher": [],
-        }
+        },
     ],
 }
 
@@ -98,3 +108,5 @@ PREBAKED_SITE_APPS = {
     "https://github.com/frappe/erpnext": "version-15",
     "https://github.com/frappe/hrms": "version-15",
 }
+
+NON_BASH_SUPPORTED_SERVICES = ["redis-cache", "redis-queue", "adminer", "mailpit"]

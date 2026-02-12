@@ -8,7 +8,6 @@ early feedback and better error messages to users.
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import Optional, List
 
 from frappe_manager.output_manager import OutputHandler
 
@@ -18,8 +17,8 @@ class ValidationResult:
     """Result of a DNS validation check."""
 
     valid: bool
-    actual_value: Optional[str]
-    expected_value: Optional[str]
+    actual_value: str | None
+    expected_value: str | None
     message: str
     dns_query_output: str  # Raw dig output for debugging
 
@@ -44,7 +43,7 @@ class DNSValidator:
     - DNS propagation status
     """
 
-    def __init__(self, output_handler: Optional[OutputHandler] = None):
+    def __init__(self, output_handler: OutputHandler | None = None):
         """
         Initialize DNS validator.
 
@@ -113,14 +112,13 @@ class DNSValidator:
                     message="CNAME record is correctly configured",
                     dns_query_output=dns_output,
                 )
-            else:
-                return ValidationResult(
-                    valid=False,
-                    actual_value=actual_value,
-                    expected_value=expected_target,
-                    message=f"CNAME mismatch: found {actual_value}, expected {expected_target}",
-                    dns_query_output=dns_output,
-                )
+            return ValidationResult(
+                valid=False,
+                actual_value=actual_value,
+                expected_value=expected_target,
+                message=f"CNAME mismatch: found {actual_value}, expected {expected_target}",
+                dns_query_output=dns_output,
+            )
 
         except subprocess.TimeoutExpired:
             return ValidationResult(
@@ -143,7 +141,7 @@ class DNSValidator:
                 valid=False,
                 actual_value=None,
                 expected_value=expected_target,
-                message=f"DNS validation error: {str(e)}",
+                message=f"DNS validation error: {e!s}",
                 dns_query_output="",
             )
 
@@ -189,14 +187,13 @@ class DNSValidator:
                     message=f"Domain resolves to {actual_value.split()[0]}",
                     dns_query_output=dns_output,
                 )
-            else:
-                return ValidationResult(
-                    valid=False,
-                    actual_value=actual_value,
-                    expected_value="An IP address",
-                    message=f"Invalid A record response: {actual_value}",
-                    dns_query_output=dns_output,
-                )
+            return ValidationResult(
+                valid=False,
+                actual_value=actual_value,
+                expected_value="An IP address",
+                message=f"Invalid A record response: {actual_value}",
+                dns_query_output=dns_output,
+            )
 
         except subprocess.TimeoutExpired:
             return ValidationResult(
@@ -219,7 +216,7 @@ class DNSValidator:
                 valid=False,
                 actual_value=None,
                 expected_value="An IP address",
-                message=f"DNS validation error: {str(e)}",
+                message=f"DNS validation error: {e!s}",
                 dns_query_output="",
             )
 
@@ -282,7 +279,7 @@ class DNSValidator:
             message=f"CNAME did not propagate within {timeout} seconds",
         )
 
-    def get_nameservers(self, domain: str) -> List[str]:
+    def get_nameservers(self, domain: str) -> list[str]:
         """
         Get authoritative nameservers for a domain.
 

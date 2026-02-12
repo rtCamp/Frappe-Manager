@@ -5,9 +5,10 @@ This module tests the CertificateLinkManager class which handles creating
 and managing symlinks between Let's Encrypt certificates and nginx-proxy.
 """
 
-import pytest
 from pathlib import Path
-from unittest.mock import MagicMock, call
+
+import pytest
+
 from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkManager
 from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
 
@@ -109,7 +110,7 @@ class TestCertificateLinkManagerLinkCertificate:
         letsencrypt_dir.mkdir()
 
         # Mock create_symlink
-        mock_create_symlink = mocker.patch('frappe_manager.ssl_manager.certificate_link_manager.create_symlink')
+        mock_create_symlink = mocker.patch("frappe_manager.ssl_manager.certificate_link_manager.create_symlink")
 
         manager = CertificateLinkManager(storage_config)
 
@@ -117,7 +118,7 @@ class TestCertificateLinkManagerLinkCertificate:
         fullchain_path = letsencrypt_dir / "fullchain.pem"
 
         manager.link_certificate(
-            cert_type="letsencrypt", domain="example.com", privkey_path=privkey_path, fullchain_path=fullchain_path
+            cert_type="letsencrypt", domain="example.com", privkey_path=privkey_path, fullchain_path=fullchain_path,
         )
 
         # Verify create_symlink was called twice (once for key, once for cert)
@@ -150,7 +151,7 @@ class TestCertificateLinkManagerLinkCertificate:
         letsencrypt_dir = storage_config.ssl_dir / "letsencrypt"
         letsencrypt_dir.mkdir()
 
-        mock_create_symlink = mocker.patch('frappe_manager.ssl_manager.certificate_link_manager.create_symlink')
+        mock_create_symlink = mocker.patch("frappe_manager.ssl_manager.certificate_link_manager.create_symlink")
 
         manager = CertificateLinkManager(storage_config)
 
@@ -198,7 +199,7 @@ class TestCertificateLinkManagerLinkCertificate:
         letsencrypt_dir = storage_config.ssl_dir / "letsencrypt"
         letsencrypt_dir.mkdir()
 
-        mock_create_symlink = mocker.patch('frappe_manager.ssl_manager.certificate_link_manager.create_symlink')
+        mock_create_symlink = mocker.patch("frappe_manager.ssl_manager.certificate_link_manager.create_symlink")
 
         manager = CertificateLinkManager(storage_config)
 
