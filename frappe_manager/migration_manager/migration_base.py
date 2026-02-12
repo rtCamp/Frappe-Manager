@@ -167,11 +167,11 @@ class MigrationBase(ABC):
         self.output.print(f"Migrating bench [bold][blue]{bench.name}[/blue][/bold]")
 
         if self.migration_executor.skip_backup:
-            self.output.warning(f"Skipping backup for {bench.name} (--skip-backup)")
+            self.output.warning(f"Skipping backup for {bench.name}")
             return
 
         if bench.name in self.migration_executor.skip_backup_for:
-            self.output.warning(f"Skipping backup for {bench.name} (--skip-backup-for)")
+            self.output.warning(f"Skipping backup for {bench.name}")
             return
 
         bench_config_path = bench.path / "bench_config.toml"
