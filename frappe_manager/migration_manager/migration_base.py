@@ -233,7 +233,7 @@ class MigrationBase(ABC):
         bench_compose_file,
         backup_manager: BackupManager,
     ):
-        self.output.change_head(f"Commencing db {bench.name} backup")
+        self.output.change_head(f"Taking {bench.name} db backup")
 
         db_name = self._resolve_database_name(bench, db_info)
 
