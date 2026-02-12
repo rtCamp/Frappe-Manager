@@ -25,6 +25,10 @@ on:
       - 'frappe_manager/utils/examples.json'
       - 'scripts/update_cli_docs.py'
 
+permissions:
+  contents: write
+  pull-requests: write
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
