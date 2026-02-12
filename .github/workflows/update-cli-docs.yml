@@ -96,7 +96,7 @@ jobs:
           fi
       
       - name: Commit and push to wiki
-        if: steps.check_changes.outputs.changes == 'true'
+        if: steps.check_changes.outputs.changes == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           cd wiki
           git config user.name "github-actions[bot]"
