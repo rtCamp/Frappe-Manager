@@ -48,21 +48,16 @@ class NginxController:
         """
         Reload nginx configuration without stopping the service.
 
-        This sends a SIGHUP signal to nginx, causing it to reload its
-        configuration files without interrupting active connections.
+        jwilder/nginx-proxy requires SIGHUP to PID 1 for docker-gen regeneration.
+        Regular nginx uses standard reload signal.
         """
         self.output.change_head("Reloading nginx")
 
-        services = self.compose_file_manager.get_services_list()
-        containers = self.compose_file_manager.get_container_names().values()
-        all_statuses = self.docker_client.compose.get_all_services_status()
-        running_statuses = {
-            status["Service"]: status["State"] for status in all_statuses if status.get("Name") in containers
-        }
-        all_running = all(running_statuses.get(s) == "running" for s in services)
-
-        if all_running:
-            output = self.docker_client.compose.exec(service=self.service_name, command="nginx -s reload", stream=False)
+        if self.docker_client.compose.is_service_running(self.service_name):
+            if self.service_name == "global-nginx-proxy":
+                self.docker_client.compose.exec(service=self.service_name, command="sh -c 'kill -HUP 1'", stream=False)
+            else:
+                self.docker_client.compose.exec(service=self.service_name, command="nginx -s reload", stream=False)
             self.output.print("Reloaded nginx")
 
     def restart(self):
@@ -74,14 +69,6 @@ class NginxController:
         """
         self.output.change_head("Restarting nginx")
 
-        services = self.compose_file_manager.get_services_list()
-        containers = self.compose_file_manager.get_container_names().values()
-        all_statuses = self.docker_client.compose.get_all_services_status()
-        running_statuses = {
-            status["Service"]: status["State"] for status in all_statuses if status.get("Name") in containers
-        }
-        all_running = all(running_statuses.get(s) == "running" for s in services)
-
-        if all_running:
+        if self.docker_client.compose.is_service_running(self.service_name):
             output = self.docker_client.compose.restart(services=[self.service_name], stream=False)
             self.output.print("Restarting nginx")

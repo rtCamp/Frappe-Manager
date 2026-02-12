@@ -230,6 +230,7 @@ def mock_docker_client(mocker):
     mock_client.compose = MagicMock()
     mock_client.compose.exec = MagicMock(return_value="OK")
     mock_client.compose.restart = MagicMock(return_value="OK")
+    mock_client.compose.is_service_running = MagicMock(return_value=True)
     mock_client.compose.get_all_services_status.return_value = [
         {"Name": "nginx-proxy-container", "Service": "nginx-proxy", "State": "running"},
     ]
