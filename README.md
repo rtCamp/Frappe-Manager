@@ -82,7 +82,6 @@ uv tool install --python 3.13 frappe-manager
 # Install latest development version
 uv tool install git+https://github.com/rtcamp/frappe-manager@develop
 
-
 # Upgrade to latest version
 uv tool upgrade frappe-manager
 ```
@@ -100,16 +99,6 @@ pipx install git+https://github.com/rtcamp/frappe-manager@develop
 pipx upgrade frappe-manager
 ```
 
-### Post-Installation
-
-```bash
-# Setup shell completion (bash, zsh, fish)
-fm --install-completion
-
-# Verify installation
-fm --version
-```
-
 ## ⚡ Quick Start
 
 Create your first Frappe bench:
@@ -119,7 +108,7 @@ Create your first Frappe bench:
 fm create mybench
 
 # Create with ERPNext
-fm create mybench --apps erpnext
+fm create mybench --apps frappe:version-16 --apps erpnext:version-16
 
 # Create with multiple apps
 fm create mybench --apps erpnext --apps hrms
@@ -153,129 +142,6 @@ That's it! Your bench is ready. Access it at `http://mybench.localhost`
 | `fm self` | Operations on fm itself | [Wiki: Self](https://github.com/rtCamp/Frappe-Manager/wiki/Self) |
 
 > 💡 **Tip**: Use `fm <command> --help` to see detailed options and examples for any command.
-
-## 📚 Examples
-
-<details>
-<summary><b>Development Workflow</b></summary>
-
-```bash
-# Create dev environment with ERPNext
-fm create devsite --apps erpnext:version-15 --environment dev
-
-# Open in VSCode with debugger support
-fm code devsite --debugger
-
-# View logs (follow mode)
-fm logs devsite -f
-
-# Access shell for bench commands
-fm shell devsite
-
-# Execute bench command directly
-fm shell devsite -- bench --help
-```
-
-</details>
-
-<details>
-<summary><b>Production Deployment</b></summary>
-
-```bash
-# Basic production site
-fm create example.com --environment prod
-
-# Production with custom admin password
-fm create example.com -e prod --admin-pass secretpass
-
-# Production with specific Python and Node versions
-fm create example.com -e prod --python 3.11 --node 20
-
-# Production with alias domains
-fm create example.com -e prod --alias-domains www.example.com,api.example.com
-```
-
-</details>
-
-<details>
-<summary><b>SSL Configuration</b></summary>
-
-```bash
-# Add SSL certificate with HTTP-01 challenge (default)
-fm ssl add mybench example.com --challenge http01
-
-# Add SSL certificate with DNS-01 challenge (requires DNS provider config)
-# First, configure Cloudflare credentials (example)
-fm ssl dns-config cloudflare --api-token YOUR_CLOUDFLARE_API_TOKEN
-
-# Then add SSL certificate using DNS-01
-fm ssl add mybench example.com --challenge dns01
-
-# Test certificate generation (staging server, no rate limits)
-fm ssl add mybench example.com --dry-run
-
-# Add SSL with CNAME delegation for DNS validation
-fm ssl add mybench example.com --challenge dns01 --cname delegated.example.com
-
-# Add SSL for standalone (non-bench) Docker project
-fm ssl add example.com --standalone
-
-# List all SSL certificates
-fm ssl list
-
-# Renew SSL certificates
-fm ssl renew
-
-# Remove SSL certificate
-fm ssl remove mybench example.com
-```
-
-</details>
-
-<details>
-<summary><b>Working with Apps</b></summary>
-
-```bash
-# Create bench with specific app branch
-fm create mybench --apps erpnext:version-14
-
-# Create bench with private app (using GitHub token)
-fm create mybench --apps myorg/private-app --github-token ghp_xxxxx
-
-# Or use environment variable
-export GITHUB_TOKEN=ghp_xxxxx
-fm create mybench --apps myorg/private-app
-```
-
-</details>
-
-<details>
-<summary><b>Bench Management</b></summary>
-
-```bash
-# Start bench
-fm start mybench
-
-# Stop bench
-fm stop mybench
-
-# Restart all services
-fm restart mybench
-
-# View bench info
-fm info mybench
-
-# List all benches
-fm list
-
-# Reset bench (drop DB and reinstall)
-fm reset mybench
-
-# Delete bench completely
-fm delete mybench
-```
-
-</details>
 
 ## 📖 Documentation
 
