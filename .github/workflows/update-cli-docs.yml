@@ -101,6 +101,6 @@ jobs:
           cd wiki
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add commands/
+          git add commands/ Home.md _Sidebar.md
           git commit -m "docs: update CLI documentation from ${{ github.sha }} (branch: $WIKI_BRANCH)"
           git push origin "$WIKI_BRANCH"
