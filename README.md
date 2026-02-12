@@ -77,7 +77,7 @@ uvx --from frappe-manager fm create mysite
 uvx --from git+https://github.com/rtcamp/frappe-manager@develop fm --help
 
 # Install with uv tool (persistent installation)
-uv tool install frappe-manager
+uv tool install --python 3.13 frappe-manager
 
 # Install latest development version
 uv tool install git+https://github.com/rtcamp/frappe-manager@develop
@@ -156,7 +156,9 @@ That's it! Your bench is ready. Access it at `http://mybench.localhost`
 
 ## 📚 Examples
 
-### Development Workflow
+<details>
+<summary><b>Development Workflow</b></summary>
+
 ```bash
 # Create dev environment with ERPNext
 fm create devsite --apps erpnext:version-15 --environment dev
@@ -174,7 +176,10 @@ fm shell devsite
 fm shell devsite -- bench --help
 ```
 
-### Production Deployment
+</details>
+
+<details>
+<summary><b>Production Deployment</b></summary>
 
 ```bash
 # Basic production site
@@ -190,7 +195,10 @@ fm create example.com -e prod --python 3.11 --node 20
 fm create example.com -e prod --alias-domains www.example.com,api.example.com
 ```
 
-### SSL Configuration
+</details>
+
+<details>
+<summary><b>SSL Configuration</b></summary>
 
 ```bash
 # Add SSL certificate with HTTP-01 challenge (default)
@@ -222,7 +230,10 @@ fm ssl renew
 fm ssl remove mybench example.com
 ```
 
-### Working with Apps
+</details>
+
+<details>
+<summary><b>Working with Apps</b></summary>
 
 ```bash
 # Create bench with specific app branch
@@ -236,7 +247,10 @@ export GITHUB_TOKEN=ghp_xxxxx
 fm create mybench --apps myorg/private-app
 ```
 
-### Bench Management
+</details>
+
+<details>
+<summary><b>Bench Management</b></summary>
 
 ```bash
 # Start bench
@@ -260,6 +274,8 @@ fm reset mybench
 # Delete bench completely
 fm delete mybench
 ```
+
+</details>
 
 ## 📖 Documentation
 
