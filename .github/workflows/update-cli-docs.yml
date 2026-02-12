@@ -6,7 +6,7 @@ on:
       wiki_branch:
         description: 'Wiki branch to update'
         required: true
-        default: 'main'
+        default: 'master'
         type: string
   push:
     branches:
@@ -96,11 +96,11 @@ jobs:
           fi
       
       - name: Commit and push to wiki
-        if: steps.check_changes.outputs.changes == 'true'
+        if: steps.check_changes.outputs.changes == 'true' || github.event_name == 'workflow_dispatch'
         run: |
           cd wiki
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add commands/
+          git add commands/ Home.md _Sidebar.md
           git commit -m "docs: update CLI documentation from ${{ github.sha }} (branch: $WIKI_BRANCH)"
           git push origin "$WIKI_BRANCH"
