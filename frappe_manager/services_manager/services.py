@@ -92,7 +92,7 @@ class ServicesManager:
                     self.output.print(
                         f"Started non running global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
                     )
-                    self.docker_client.compose.up(services=[], detach=True, pull="never")
+                    self.docker_client.compose.up(services=[], detach=True, pull="missing")
 
         self.database_manager: DatabaseServiceManager = MariaDBManager(
             DatabaseServerServiceInfo.import_from_compose_file("global-db", self.compose_file_manager),
