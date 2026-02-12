@@ -114,38 +114,38 @@ jobs:
           git commit -m "docs: update CLI documentation from ${{ github.sha }} (branch: $WIKI_BRANCH)"
           git push origin "$WIKI_BRANCH"
       
-      - name: Comment on PR with documentation preview
-        if: steps.check_changes.outputs.changes == 'true' && github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const path = require('path');
-            
-            const commandsDir = path.join(process.env.GITHUB_WORKSPACE, 'wiki', 'commands');
-            const files = fs.readdirSync(commandsDir).filter(f => f.endsWith('.md'));
-            
-            let comment = '## 📚 CLI Documentation Updated\n\n';
-            comment += `This PR updates CLI documentation for ${files.length} command(s).\n\n`;
-            comment += '### Changed Files:\n';
-            
-            for (const file of files.slice(0, 10)) {
-              comment += `- \`${file}\`\n`;
-            }
-            
-            if (files.length > 10) {
-              comment += `- ... and ${files.length - 10} more\n`;
-            }
-            
-            comment += '\n> ⚠️ Documentation will be automatically pushed to wiki **`' + process.env.WIKI_BRANCH + '`** branch after merge.\n';
-            
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
-            });
-      
+      # - name: Comment on PR with documentation preview
+      #   if: steps.check_changes.outputs.changes == 'true' && github.event_name == 'pull_request'
+      #   uses: actions/github-script@v7
+      #   with:
+      #     script: |
+      #       const fs = require('fs');
+      #       const path = require('path');
+
+      #       const commandsDir = path.join(process.env.GITHUB_WORKSPACE, 'wiki', 'commands');
+      #       const files = fs.readdirSync(commandsDir).filter(f => f.endsWith('.md'));
+
+      #       let comment = '## 📚 CLI Documentation Updated\n\n';
+      #       comment += `This PR updates CLI documentation for ${files.length} command(s).\n\n`;
+      #       comment += '### Changed Files:\n';
+
+      #       for (const file of files.slice(0, 10)) {
+      #         comment += `- \`${file}\`\n`;
+      #       }
+
+      #       if (files.length > 10) {
+      #         comment += `- ... and ${files.length - 10} more\n`;
+      #       }
+
+      #       comment += '\n> ⚠️ Documentation will be automatically pushed to wiki **`' + process.env.WIKI_BRANCH + '`** branch after merge.\n';
+
+      #       github.rest.issues.createComment({
+      #         issue_number: context.issue.number,
+      #         owner: context.repo.owner,
+      #         repo: context.repo.repo,
+      #         body: comment
+      #       });
+
       - name: Upload documentation as artifact
         if: github.event_name == 'pull_request'
         uses: actions/upload-artifact@v4
