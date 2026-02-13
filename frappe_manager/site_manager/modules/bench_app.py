@@ -278,9 +278,11 @@ fi
                             use_run=use_run,
                         )
                         if result and result.exit_code == 0 and result.combined:
-                            selected_python_full = result.combined[0].strip()
+                            selected_python_full = result.stdout[0].strip()
                         else:
                             selected_python_full = f"cpython-{python_version}"
+
+                        print(selected_python_full)
 
                         self.output.print(f"Installed Python {python_version} via uv")
 
