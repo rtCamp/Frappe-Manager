@@ -282,8 +282,6 @@ fi
                         else:
                             selected_python_full = f"cpython-{python_version}"
 
-                        print(selected_python_full)
-
                         self.output.print(f"Installed Python {python_version} via uv")
 
                     if selected_python_full:
