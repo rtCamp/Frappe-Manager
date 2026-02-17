@@ -189,6 +189,7 @@ RUN mkdir -p /etc/profile.d && \
     echo 'if [ -d "/workspace/.uv/python-default/bin" ]; then' >> /etc/profile.d/fnm.sh && \
     echo '    export PATH="/workspace/.uv/python-default/bin:$PATH"' >> /etc/profile.d/fnm.sh && \
     echo 'fi' >> /etc/profile.d/fnm.sh && \
+    echo 'export PATH="/opt/user/.bin:$PATH"' >> /etc/profile.d/fnm.sh && \
     chmod +x /etc/profile.d/fnm.sh && \
     echo '' >> /etc/bash.bashrc && \
     echo '. /etc/profile.d/fnm.sh' >> /etc/bash.bashrc
