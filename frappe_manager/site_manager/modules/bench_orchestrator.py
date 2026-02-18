@@ -424,7 +424,6 @@ class BenchOrchestrator:
     def start_bench(
         self,
         force: bool = False,
-        sync_bench_config_changes: bool = False,
         reconfigure_workers: bool = False,
         include_default_workers: bool = False,
         include_custom_workers: bool = False,
@@ -444,7 +443,6 @@ class BenchOrchestrator:
 
         Args:
             force: Force recreate containers
-            sync_bench_config_changes: Sync configuration changes after start
             reconfigure_workers: Regenerate worker configuration
             include_default_workers: Include default workers in reconfiguration
             include_custom_workers: Include custom workers in reconfiguration
@@ -491,10 +489,6 @@ class BenchOrchestrator:
                 bench.install_dev_packages()
             else:
                 bench.remove_dev_packages()
-
-        if sync_bench_config_changes:
-            self.output.print("Syncing bench configuration changes")
-            bench.sync_bench_config_configuration()
 
         if bench.workers.compose_file_manager.exists():
             self.output.change_head("Starting bench workers services")

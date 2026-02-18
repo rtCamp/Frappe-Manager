@@ -174,10 +174,6 @@
         "code": " --force"
       },
       {
-        "desc": "Start and sync config changes",
-        "code": " --sync-config"
-      },
-      {
         "desc": "Start and reconfigure workers",
         "code": " --reconfigure-workers"
       },
