@@ -249,3 +249,21 @@ class BenchAdminTools:
         self.nginx_proxy.reload()
 
         self.remove_mailpit_as_default_server()
+
+    def is_running(self) -> bool:
+        """Check if all admin tools services are running."""
+        try:
+            services = self.compose_file_manager.get_services_list()
+            containers = self.compose_file_manager.get_container_names().values()
+            all_statuses = self.docker_client.compose.get_all_services_status()
+
+            running_statuses = {
+                status["Service"]: status["State"] for status in all_statuses if status.get("Name") in containers
+            }
+
+            if not services:
+                return False
+
+            return all(running_statuses.get(service) == "running" for service in services)
+        except Exception:
+            return False

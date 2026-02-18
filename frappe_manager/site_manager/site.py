@@ -426,7 +426,6 @@ class Bench:
     def start(
         self,
         force: bool = False,
-        sync_bench_config_changes: bool = False,
         reconfigure_workers: bool = False,
         include_default_workers=False,
         include_custom_workers=False,
@@ -441,14 +440,12 @@ class Bench:
             "operation": "bench_start",
             "bench_name": self.name,
             "force": force,
-            "sync_bench_config_changes": sync_bench_config_changes,
             "reconfigure_workers": reconfigure_workers,
         }
         self.logger.debug(f"Starting bench: {self.name}", extra_fields=extra)
         try:
             self.orchestrator.start_bench(
                 force=force,
-                sync_bench_config_changes=sync_bench_config_changes,
                 reconfigure_workers=reconfigure_workers,
                 include_default_workers=include_default_workers,
                 include_custom_workers=include_custom_workers,

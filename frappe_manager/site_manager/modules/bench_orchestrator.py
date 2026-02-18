@@ -424,7 +424,6 @@ class BenchOrchestrator:
     def start_bench(
         self,
         force: bool = False,
-        sync_bench_config_changes: bool = False,
         reconfigure_workers: bool = False,
         include_default_workers: bool = False,
         include_custom_workers: bool = False,
@@ -444,7 +443,6 @@ class BenchOrchestrator:
 
         Args:
             force: Force recreate containers
-            sync_bench_config_changes: Sync configuration changes after start
             reconfigure_workers: Regenerate worker configuration
             include_default_workers: Include default workers in reconfiguration
             include_custom_workers: Include custom workers in reconfiguration
@@ -466,7 +464,8 @@ class BenchOrchestrator:
 
         if bench.admin_tools.compose_file_manager.compose_path.exists():
             self.output.change_head("Starting admin tools services")
-            bench.admin_tools.enable(force_recreate_container=force)
+            if force or not bench.admin_tools.is_running():
+                bench.admin_tools.enable(force_recreate_container=force)
             self.output.print("Started admin tools services")
 
             if not bench._is_service_running("nginx"):
@@ -491,10 +490,6 @@ class BenchOrchestrator:
                 bench.install_dev_packages()
             else:
                 bench.remove_dev_packages()
-
-        if sync_bench_config_changes:
-            self.output.print("Syncing bench configuration changes")
-            bench.sync_bench_config_configuration()
 
         if bench.workers.compose_file_manager.exists():
             self.output.change_head("Starting bench workers services")
@@ -590,18 +585,18 @@ class BenchOrchestrator:
         self.output.print("Updated compose configuration with new domains")
 
         self.output.change_head("Applying changes")
-        bench.docker_client.compose.up(
-            services=["nginx"],
-            detach=True,
-            pull="never",
-            force_recreate=False,
-        )
 
         nginx_config_path = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
         if nginx_config_path.exists():
             nginx_config_path.unlink()
 
-        bench.bench_nginx_controller.reload()
+        bench.docker_client.compose.up(
+            services=["nginx"],
+            detach=True,
+            pull="never",
+            force_recreate=True,
+        )
+
         self.output.print("Applied configuration changes")
 
     def _restart_services_with_updated_config(self):

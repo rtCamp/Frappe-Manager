@@ -1,0 +1,120 @@
+; Notes:
+; priority=1 --> Lower priorities indicate programs that start first and shut down last
+; killasgroup=true --> send kill signal to child processes too
+
+; graceful timeout should always be lower than stopwaitsecs to avoid orphan gunicorn workers.
+[program:{{ bench_name }}-frappe-web]
+command={{ bench_dir }}/env/bin/gunicorn -b 0.0.0.0:{{ webserver_port }} -w {{ gunicorn_workers }} --max-requests {{ gunicorn_max_requests }} --max-requests-jitter {{ gunicorn_max_requests_jitter }} -t {{ http_timeout }} --graceful-timeout 30 frappe.app:application --preload
+priority=4
+autostart=true
+autorestart=true
+stdout_logfile={{ bench_dir }}/logs/web.log
+stderr_logfile={{ bench_dir }}/logs/web.error.log
+stopwaitsecs=40
+killasgroup=true
+user={{ user }}
+directory={{ sites_dir }}
+startretries={{ supervisor_startretries }}
+
+[program:{{ bench_name }}-frappe-schedule]
+command={{ bench_cmd }} schedule
+priority=3
+autostart=true
+stdout_logfile={{ bench_dir }}/logs/schedule.log
+stderr_logfile={{ bench_dir }}/logs/schedule.error.log
+user={{ user }}
+directory={{ bench_dir }}
+startretries={{ supervisor_startretries }}
+
+{% if not multi_queue_consumption %}
+[program:{{ bench_name }}-frappe-default-worker]
+command={{ bench_cmd }} worker --queue default
+priority=4
+autostart=true
+autorestart=true
+stdout_logfile={{ bench_dir }}/logs/worker.log
+stderr_logfile={{ bench_dir }}/logs/worker.error.log
+user={{ user }}
+stopwaitsecs=1560
+directory={{ bench_dir }}
+killasgroup=true
+numprocs={{ background_workers }}
+process_name=%(program_name)s-%(process_num)d
+startretries={{ supervisor_startretries }}
+{% endif %}
+
+[program:{{ bench_name }}-frappe-short-worker]
+command={{ bench_cmd }} worker --queue short{{',default' if multi_queue_consumption else ''}}
+priority=4
+autostart=true
+autorestart=true
+stdout_logfile={{ bench_dir }}/logs/worker.log
+stderr_logfile={{ bench_dir }}/logs/worker.error.log
+user={{ user }}
+stopwaitsecs=360
+directory={{ bench_dir }}
+killasgroup=true
+numprocs={{ background_workers }}
+process_name=%(program_name)s-%(process_num)d
+startretries={{ supervisor_startretries }}
+
+[program:{{ bench_name }}-frappe-long-worker]
+command={{ bench_cmd }} worker --queue long{{',default,short' if multi_queue_consumption else ''}}
+priority=4
+autostart=true
+autorestart=true
+stdout_logfile={{ bench_dir }}/logs/worker.log
+stderr_logfile={{ bench_dir }}/logs/worker.error.log
+user={{ user }}
+stopwaitsecs=1560
+directory={{ bench_dir }}
+killasgroup=true
+numprocs={{ background_workers }}
+process_name=%(program_name)s-%(process_num)d
+startretries={{ supervisor_startretries }}
+
+{% for worker_name, worker_details in workers.items() %}
+[program:{{ bench_name }}-frappe-{{ worker_name }}-worker]
+command={{ bench_cmd }} worker --queue {{ worker_name }}
+priority=4
+autostart=true
+autorestart=true
+stdout_logfile={{ bench_dir }}/logs/worker.log
+stderr_logfile={{ bench_dir }}/logs/worker.error.log
+user={{ user }}
+stopwaitsecs={{ worker_details["timeout"] }}
+directory={{ bench_dir }}
+killasgroup=true
+numprocs={{ worker_details["background_workers"] or background_workers }}
+process_name=%(program_name)s-%(process_num)d
+startretries={{ supervisor_startretries }}
+{% endfor %}
+
+{% if node %}
+[program:{{ bench_name }}-node-socketio]
+command={{ node }} {{ bench_dir }}/apps/frappe/socketio.js
+priority=4
+autostart=true
+autorestart=true
+stdout_logfile={{ bench_dir }}/logs/node-socketio.log
+stderr_logfile={{ bench_dir }}/logs/node-socketio.error.log
+user={{ user }}
+directory={{ bench_dir }}
+startretries={{ supervisor_startretries }}
+{% endif %}
+
+[group:{{ bench_name }}-web]
+programs={{ bench_name }}-frappe-web {%- if node -%} ,{{ bench_name }}-node-socketio {%- endif%}
+
+
+{% if multi_queue_consumption %}
+
+[group:{{ bench_name }}-workers]
+programs={{ bench_name }}-frappe-schedule,{{ bench_name }}-frappe-short-worker,{{ bench_name }}-frappe-long-worker{%- for worker_name in workers -%},{{ bench_name }}-frappe-{{ worker_name }}-worker{%- endfor %}
+
+{% else %}
+
+[group:{{ bench_name }}-workers]
+programs={{ bench_name }}-frappe-schedule,{{ bench_name }}-frappe-default-worker,{{ bench_name }}-frappe-short-worker,{{ bench_name }}-frappe-long-worker{%- for worker_name in workers -%},{{ bench_name }}-frappe-{{ worker_name }}-worker{%- endfor %}
+
+{% endif %}

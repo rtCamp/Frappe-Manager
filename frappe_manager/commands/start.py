@@ -22,7 +22,6 @@ def start(
         ),
     ] = None,
     force: Annotated[bool, typer.Option("--force", "-f", help="Recreate containers")] = False,
-    sync_bench_config_changes: Annotated[bool, typer.Option("--sync-config", help="Sync config changes")] = False,
     reconfigure_supervisor: Annotated[
         bool,
         typer.Option("--reconfigure-supervisor", help="Reconfigure supervisor"),
@@ -41,7 +40,7 @@ def start(
 
     Starts all containers for the specified bench. Use --force to recreate containers.
     Various --reconfigure options allow syncing configuration changes without full restart.
-    Use --sync-config to apply bench config changes, --reconfigure-supervisor for process management,
+    Use --reconfigure-supervisor for process management,
     and --reconfigure-workers to update worker configurations.
     """
 
@@ -57,7 +56,6 @@ def start(
     with spinner(output, f"Starting {benchname}"):
         bench.start(
             force=force,
-            sync_bench_config_changes=sync_bench_config_changes,
             reconfigure_workers=reconfigure_workers,
             include_default_workers=include_default_workers,
             include_custom_workers=include_custom_workers,
