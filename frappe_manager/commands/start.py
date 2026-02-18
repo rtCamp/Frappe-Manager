@@ -46,9 +46,6 @@ def start(
 
     check_bench_migration_required(benchname)
 
-    if not benchname:
-        raise typer.BadParameter("Bench name could not be determined. Please specify a bench name.")
-
     services_manager = ctx.obj["services"]
     verbose = ctx.obj["verbose"]
     logger = ctx.obj.get("logger")
