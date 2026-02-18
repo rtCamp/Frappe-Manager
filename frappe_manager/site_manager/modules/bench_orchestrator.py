@@ -585,18 +585,18 @@ class BenchOrchestrator:
         self.output.print("Updated compose configuration with new domains")
 
         self.output.change_head("Applying changes")
-        bench.docker_client.compose.up(
-            services=["nginx"],
-            detach=True,
-            pull="never",
-            force_recreate=False,
-        )
 
         nginx_config_path = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
         if nginx_config_path.exists():
             nginx_config_path.unlink()
 
-        bench.bench_nginx_controller.reload()
+        bench.docker_client.compose.up(
+            services=["nginx"],
+            detach=True,
+            pull="never",
+            force_recreate=True,
+        )
+
         self.output.print("Applied configuration changes")
 
     def _restart_services_with_updated_config(self):
