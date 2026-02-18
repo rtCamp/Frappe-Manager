@@ -464,7 +464,8 @@ class BenchOrchestrator:
 
         if bench.admin_tools.compose_file_manager.compose_path.exists():
             self.output.change_head("Starting admin tools services")
-            bench.admin_tools.enable(force_recreate_container=force)
+            if force or not bench.admin_tools.is_running():
+                bench.admin_tools.enable(force_recreate_container=force)
             self.output.print("Started admin tools services")
 
             if not bench._is_service_running("nginx"):
