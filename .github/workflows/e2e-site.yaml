@@ -8,6 +8,9 @@ on:
       - main
       - develop
 
+permissions:
+  contents: read
+
 jobs:
   check-permissions:
     runs-on: ubuntu-latest
