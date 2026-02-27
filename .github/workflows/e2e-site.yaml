@@ -79,7 +79,7 @@ jobs:
 
       - name: Upload FM logs
         if: always()  # Upload logs whether the test succeeds or fails
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           name: fm-logs-${{ matrix.python-ver }}
           path: ~/frappe/logs/fm.log
