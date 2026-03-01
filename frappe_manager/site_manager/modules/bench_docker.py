@@ -291,12 +291,8 @@ class BenchDockerOps:
 
         if use_run:
             run_cmd = self.docker_client.compose.docker_compose_cmd + ["run", "--rm"]
-
-            if user:
-                run_cmd += ["--user", user]
-
-            run_cmd += ["--entrypoint", shell_path]
-            run_cmd += [compose_service]
+            # Let entrypoint handle UID remapping and environment setup via exec-command.sh wrapper
+            run_cmd += [compose_service, "exec-command.sh", shell_path]
 
             import os
 
@@ -350,15 +346,12 @@ class BenchDockerOps:
         if use_run:
             run_args: dict[str, Any] = {
                 "service": compose_service,
-                "command": f'-c "{command}"',
+                "command": f'exec-command.sh {shell_path} -c "{command}"',
                 "rm": True,
                 "use_shlex_split": True,
                 "stream": False,
-                "entrypoint": shell_path,
+                # Let entrypoint handle UID remapping via exec-command.sh wrapper
             }
-
-            if user:
-                run_args["user"] = user
 
             try:
                 result = cast("SubprocessOutput", self.docker_client.compose.run(**run_args))
