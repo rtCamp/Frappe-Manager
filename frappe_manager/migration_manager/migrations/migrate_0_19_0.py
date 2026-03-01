@@ -415,10 +415,8 @@ ls -la env/ || echo "ERROR: env directory not found!"
         try:
             result = bench.compose.run(
                 service="frappe",
-                command=f"-c {shlex.quote(setup_script)}",
+                command=f"exec-command.sh bash -c {shlex.quote(setup_script)}",
                 rm=True,
-                user="frappe",
-                entrypoint="bash",
             )
         except Exception as e:
             error_str = str(e)
@@ -472,10 +470,8 @@ echo "Node environment setup complete"
 
         result = bench.compose.run(
             service="frappe",
-            command=f"-c {shlex.quote(setup_script)}",
+            command=f"exec-command.sh bash -c {shlex.quote(setup_script)}",
             rm=True,
-            user="frappe",
-            entrypoint="bash",
         )
 
         if not isinstance(result, SubprocessOutput):
@@ -507,10 +503,8 @@ echo "Old runtime directories cleaned up"
 
         result = bench.compose.run(
             service="frappe",
-            command=f"-c {shlex.quote(cleanup_script)}",
+            command=f"exec-command.sh bash -c {shlex.quote(cleanup_script)}",
             rm=True,
-            user="frappe",
-            entrypoint="bash",
         )
 
         if not isinstance(result, SubprocessOutput):
@@ -569,10 +563,8 @@ echo "Apps reinstalled and assets built successfully"
 
         result = bench.compose.run(
             service="frappe",
-            command=f"-c {shlex.quote(reinstall_script)}",
+            command=f"exec-command.sh bash -c {shlex.quote(reinstall_script)}",
             rm=True,
-            user="frappe",
-            entrypoint="bash",
         )
 
         if not isinstance(result, SubprocessOutput):
@@ -600,10 +592,8 @@ echo "Supervisor configuration regenerated"
 """
         result = bench.compose.run(
             service="frappe",
-            command=f"-c {shlex.quote(setup_script)}",
+            command=f"exec-command.sh bash -c {shlex.quote(setup_script)}",
             rm=True,
-            user="frappe",
-            entrypoint="bash",
         )
 
         if not isinstance(result, SubprocessOutput):
@@ -699,10 +689,8 @@ echo "Supervisor configuration regenerated"
         try:
             result = bench.compose.run(
                 service="frappe",
-                command="-c '/workspace/frappe-bench/env/bin/python --version 2>&1'",
+                command="exec-command.sh bash -c '/workspace/frappe-bench/env/bin/python --version 2>&1'",
                 rm=True,
-                user="frappe",
-                entrypoint="bash",
             )
             if isinstance(result, SubprocessOutput) and result.exit_code == 0:
                 import re
@@ -719,10 +707,8 @@ echo "Supervisor configuration regenerated"
         try:
             result = bench.compose.run(
                 service="frappe",
-                command="node --version",
+                command="exec-command.sh bash -c 'node --version'",
                 rm=True,
-                user="frappe",
-                entrypoint="bash",
             )
             if isinstance(result, SubprocessOutput) and result.exit_code == 0:
                 import re

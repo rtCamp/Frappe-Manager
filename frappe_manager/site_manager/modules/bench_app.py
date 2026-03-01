@@ -863,15 +863,13 @@ fi
         try:
             if use_run:
                 wrapped_command = f"cd {workdir} && {command}"
-                run_command = f"-c '{wrapped_command}'"
+                run_command = f"exec-command.sh /bin/bash -c '{wrapped_command}'"
                 if capture_output:
                     output = cast(
                         "SubprocessOutput",
                         self.docker_client.compose.run(
                             service=service,
                             command=run_command,
-                            entrypoint="/bin/bash",
-                            user=user,
                             rm=True,
                             stream=False,
                         ),
@@ -883,8 +881,6 @@ fi
                     self.docker_client.compose.run(
                         service=service,
                         command=run_command,
-                        entrypoint="/bin/bash",
-                        user=user,
                         rm=True,
                         stream=True,
                     ),
