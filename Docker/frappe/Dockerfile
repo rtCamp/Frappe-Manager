@@ -165,12 +165,13 @@ RUN mkdir -p /workspace/.uv/python /workspace/.fnm /workspace/.cache && \
     chmod -R 777 /workspace/.cache
 
 ENV WKHTMLTOPDF_VERSION=0.12.6.1-3
-RUN if [ "$(uname -m)" = "aarch64" ]; then export ARCH=arm64; fi \
-    && if [ "$(uname -m)" = "x86_64" ]; then export ARCH=amd64; fi \
-    && downloaded_file=wkhtmltox_$WKHTMLTOPDF_VERSION.jammy_${ARCH}.deb \
-    && wget -q https://github.com/wkhtmltopdf/packaging/releases/download/$WKHTMLTOPDF_VERSION/$downloaded_file \
-    && dpkg -i $downloaded_file \
-    && rm $downloaded_file
+RUN ARCH="$(uname -m)" && \
+    if [ "$ARCH" = "aarch64" ]; then ARCH=arm64; fi && \
+    if [ "$ARCH" = "x86_64" ]; then ARCH=amd64; fi && \
+    downloaded_file=wkhtmltox_$WKHTMLTOPDF_VERSION.jammy_${ARCH}.deb && \
+    wget -q https://github.com/wkhtmltopdf/packaging/releases/download/$WKHTMLTOPDF_VERSION/$downloaded_file && \
+    dpkg -i $downloaded_file && \
+    rm $downloaded_file
 
 COPY --chmod=0755 ./entrypoint.sh /
 COPY --chmod=0755 ./exec-entrypoint.sh /
