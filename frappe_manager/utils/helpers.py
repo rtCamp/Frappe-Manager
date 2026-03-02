@@ -113,6 +113,35 @@ def get_current_fm_version():
     """
     return importlib.metadata.version("frappe-manager")
 
+def get_docker_image_tag():
+    """
+    Get the Docker image tag to use based on FM version.
+    
+    Returns version with 'v' prefix for Docker image tags.
+    Examples:
+        - '0.19.0' -> 'v0.19.0'
+        - '0.19.1.dev0' -> 'v0.19.1.dev0'
+        - '0.20.0.dev1' -> 'v0.20.0.dev1'
+    
+    Environment variable FM_DOCKER_IMAGE_TAG can override for testing.
+    
+    Returns:
+        str: The Docker image tag (e.g., 'v0.19.0' or 'v0.19.1.dev0').
+    """
+    import os
+    
+    # Allow environment variable override for testing
+    if override_tag := os.getenv('FM_DOCKER_IMAGE_TAG'):
+        return override_tag
+    
+    version = get_current_fm_version()
+    
+    # Always prepend 'v' if not already present
+    if not version.startswith('v'):
+        return f'v{version}'
+    
+    return version
+
 
 def check_repo_exists(app_url: str, branch_name: str | None = None, exclude_dict: dict[str, str] = PREBAKED_SITE_APPS):
     """

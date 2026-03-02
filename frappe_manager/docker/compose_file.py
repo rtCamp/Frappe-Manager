@@ -2,6 +2,7 @@ import copy
 from pathlib import Path
 from typing import Any
 
+from jinja2 import Template
 from ruamel.yaml import YAML
 from ruamel.yaml.comments import CommentedMap as OrderedDict
 from ruamel.yaml.comments import CommentedSeq as OrderedList
@@ -11,7 +12,7 @@ from frappe_manager.docker import DockerVolumeMount
 from frappe_manager.docker.compose_exceptions import ComposeSecretNotFoundError, ComposeServiceNotFound
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager import get_global_output_handler
-from frappe_manager.utils.helpers import get_template_path, represent_null_empty
+from frappe_manager.utils.helpers import get_template_path, represent_null_empty, get_docker_image_tag
 from frappe_manager.utils.site import parse_docker_volume
 
 yaml = YAML(typ="rt")
@@ -72,14 +73,24 @@ class ComposeFile:
     def load_template(self):
         """
         Load the template file and return its contents as a YAML object.
+        Renders Jinja2 template variables for dynamic Docker image tags.
 
         Returns:
             dict: The contents of the template file as a YAML object.
         """
         template_path: Path = get_template_path(self.template_name, self.template_dir)
-        with open(template_path) as f:
-            yml = yaml.load(f)
-            return yml
+        
+        # Render Jinja2 template with dynamic image tags
+        template = Template(template_path.read_text())
+        image_tag = get_docker_image_tag()
+        rendered_template = template.render(
+            frappe_image_tag=image_tag,
+            nginx_image_tag=image_tag
+        )
+        
+        # Parse rendered YAML
+        yml = yaml.load(rendered_template)
+        return yml
 
     def set_container_names(self, prefix):
         """
@@ -1116,6 +1127,7 @@ class ComposeFile:
     def load_template_yml(cls, template_name: str = "docker-compose.tmpl", template_dir: str = "templates") -> dict:
         """
         Load template YAML without instantiating ComposeFile.
+        Renders Jinja2 template variables for dynamic Docker image tags.
 
         Args:
             template_name: Template file name
@@ -1125,9 +1137,18 @@ class ComposeFile:
             Parsed YAML dictionary
         """
         template_path: Path = get_template_path(template_name, template_dir)
-        with open(template_path) as f:
-            yml = yaml.load(f)
-            return yml
+        
+        # Render Jinja2 template with dynamic image tags
+        template = Template(template_path.read_text())
+        image_tag = get_docker_image_tag()
+        rendered_template = template.render(
+            frappe_image_tag=image_tag,
+            nginx_image_tag=image_tag
+        )
+        
+        # Parse rendered YAML
+        yml = yaml.load(rendered_template)
+        return yml
 
     @classmethod
     def get_template_images(
