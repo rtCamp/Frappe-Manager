@@ -327,8 +327,11 @@ function setup_fnm_and_yarn() {
 
 	eval "$(fnm env --shell bash)"
 
-	echo "Installing yarn globally..."
-	npm install -g yarn
+	echo "Enabling Corepack for yarn/pnpm support..."
+	corepack enable || {
+		echo "Corepack not available, falling back to npm install yarn..."
+		npm install -g yarn
+	}
 
 	chmod -R 755 /opt/fnm
 }

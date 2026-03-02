@@ -159,8 +159,8 @@ RUN mkdir -p /workspace/.uv/python /workspace/.fnm && \
     echo "Prebaking Node ${DEFAULT_NODE_VERSION}..." && \
     fnm install ${DEFAULT_NODE_VERSION} && \
     fnm default ${DEFAULT_NODE_VERSION} && \
-    echo "Installing yarn globally..." && \
-    npm install -g yarn
+    echo "Enabling Corepack for yarn/pnpm support..." && \
+    corepack enable || npm install -g yarn
 
 USER root
 ENV WKHTMLTOPDF_VERSION=0.12.6.1-3

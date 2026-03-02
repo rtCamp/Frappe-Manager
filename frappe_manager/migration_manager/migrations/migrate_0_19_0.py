@@ -480,10 +480,12 @@ fi
 echo "Setting Node {node_version} as default..."
 fnm default {node_version}
 
-echo "Ensuring yarn is installed..."
-if [ ! -f "/workspace/.fnm/node-versions/v{node_version}/installation/bin/yarn" ]; then
-    npm install -g yarn
-fi
+echo "Ensuring yarn is available..."
+corepack enable || {{
+    if [ ! -f "/workspace/.fnm/node-versions/v{node_version}/installation/bin/yarn" ]; then
+        npm install -g yarn
+    fi
+}}
 
 echo "Node environment setup complete"
 """
