@@ -19,11 +19,21 @@ fi
 [[ "${USERID:-}" ]] || { echo "[ERROR] Please provide USERID environment variable."; exit 1; }
 [[ "${USERGROUP:-}" ]] || { echo "[ERROR] Please provide USERGROUP environment variable."; exit 1; }
 
-# Set HOME explicitly for numeric UID (gosu would default to /)
-# This ensures bashrc's $HOME/.local/bin resolves correctly
-export HOME=/workspace
 
 # Execute command using numeric UID:GID via gosu (NO usermod needed!)
 # gosu supports numeric UIDs without requiring /etc/passwd entries
-# This is INSTANT (~50ms) vs usermod which takes 16+ seconds
-exec gosu "${USERID}":"${USERGROUP}" "$@"
+# Pass all critical environment variables explicitly since gosu may reset them
+exec gosu "${USERID}":"${USERGROUP}" env \
+    HOME=/workspace \
+    PATH="${PATH}" \
+    FNM_DIR="${FNM_DIR}" \
+    FNM_NODE_DIST_MIRROR="${FNM_NODE_DIST_MIRROR}" \
+    FNM_MULTISHELL_PATH="${FNM_MULTISHELL_PATH}" \
+    UV_PYTHON_INSTALL_DIR=/workspace/.uv/python \
+    UV_CACHE_DIR=/workspace/.uv/cache \
+    BENCH_USE_UV=true \
+    PYTHONUNBUFFERED=1 \
+    LC_ALL=en_US.UTF-8 \
+    LANG=en_US.UTF-8 \
+    LANGUAGE=en_US.UTF-8 \
+    "$@"
