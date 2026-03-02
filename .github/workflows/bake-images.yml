@@ -100,8 +100,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           tags: ${{ env.image_name }}
           provenance: false
-          cache-from: ${{ env.USE_CACHE == 'true' && format('type=registry,ref=ghcr.io/{0}/frappe-manager-{1}:buildcache', env.owned, matrix.service_name) || '' }}
-          cache-to: ${{ format('type=registry,ref=ghcr.io/{0}/frappe-manager-{1}:buildcache,mode=max', env.owned, matrix.service_name) || '' }}
+          cache-from: ${{ env.USE_CACHE == 'true' && format('type=registry,ref=ghcr.io/{0}/frappe-manager-{1}:buildcache-{2}', env.owned, matrix.service_name, matrix.platform == 'linux/amd64' && 'amd64' || 'arm64') || '' }}
+          cache-to: ${{ format('type=registry,ref=ghcr.io/{0}/frappe-manager-{1}:buildcache-{2},mode=max', env.owned, matrix.service_name, matrix.platform == 'linux/amd64' && 'amd64' || 'arm64') || '' }}
 
       - name: Prune buildx cache (self-hosted only)
         if: startsWith(matrix.os, 'self-hosted')
