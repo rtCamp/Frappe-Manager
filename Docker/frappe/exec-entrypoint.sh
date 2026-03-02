@@ -1,5 +1,5 @@
 #!/bin/bash
-# Lightweight entrypoint for quick command execution via exec-command.sh
+# Lightweight entrypoint for quick command execution
 # ONLY handles UID/GID mismatch - skips supervisor setup and workspace configuration
 
 set -e

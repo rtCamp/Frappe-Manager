@@ -292,7 +292,7 @@ class BenchDockerOps:
         if use_run:
             run_cmd = self.docker_client.compose.docker_compose_cmd + ["run", "--rm", "--entrypoint", "/exec-entrypoint.sh"]
             # Use lightweight exec-entrypoint.sh that only handles UID/GID mismatch
-            run_cmd += [compose_service, "exec-command.sh", shell_path]
+            run_cmd += [compose_service, shell_path]
 
             import os
 
@@ -346,7 +346,7 @@ class BenchDockerOps:
         if use_run:
             run_args: dict[str, Any] = {
                 "service": compose_service,
-                "command": f'exec-command.sh {shell_path} -c "{command}"',
+                "command": f'{shell_path} -c "{command}"',
                 "rm": True,
                 "use_shlex_split": True,
                 "stream": False,

@@ -46,7 +46,7 @@ def _handle_bench_console(
         if run:
             exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["run", "--rm", "--entrypoint", "/exec-entrypoint.sh"]
             # Use lightweight exec-entrypoint.sh that only handles UID/GID mismatch
-            exec_cmd += ["frappe", "exec-command.sh", "/bin/bash", "-c", f"cd /workspace/frappe-bench && bench --site {site} console"]
+            exec_cmd += ["frappe", "/bin/bash", "-c", f"cd /workspace/frappe-bench && bench --site {site} console"]
         else:
             exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["exec"]
             if user:
@@ -166,7 +166,7 @@ def shell(
         if run:
             exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["run", "--rm", "--entrypoint", "/exec-entrypoint.sh"]
             # Use lightweight exec-entrypoint.sh that only handles UID/GID mismatch
-            exec_cmd += [service, "exec-command.sh", shell_path, "-c", " ".join(passthrough_args)]
+            exec_cmd += [service, shell_path, "-c", " ".join(passthrough_args)]
         else:
             exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["exec"]
             if user:

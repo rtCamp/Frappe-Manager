@@ -175,7 +175,6 @@ COPY --chmod=0755 ./entrypoint.sh /
 COPY --chmod=0755 ./exec-entrypoint.sh /
 COPY --chmod=0755 ./user-script.sh /scripts/
 COPY --chmod=0755 ./launch_supervisor_service.sh /scripts/
-COPY --chmod=0755 ./exec-command.sh /scripts/
 
 WORKDIR /workspace
 
