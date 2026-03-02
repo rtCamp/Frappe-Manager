@@ -319,6 +319,7 @@ class BenchSiteManager:
                             command=run_command,
                             rm=True,
                             stream=False,
+                            entrypoint="/exec-entrypoint.sh",
                         ),
                     )
                     return output
@@ -328,6 +329,7 @@ class BenchSiteManager:
                         service=service,
                         command=run_command,
                         rm=True,
+                            entrypoint="/exec-entrypoint.sh",
                         stream=True,
                     ),
                 )

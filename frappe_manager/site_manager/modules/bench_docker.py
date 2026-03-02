@@ -290,8 +290,8 @@ class BenchDockerOps:
             shell_path = "/bin/bash" if compose_service not in NON_BASH_SUPPORTED_SERVICES else "sh"
 
         if use_run:
-            run_cmd = self.docker_client.compose.docker_compose_cmd + ["run", "--rm"]
-            # Let entrypoint handle UID remapping and environment setup via exec-command.sh wrapper
+            run_cmd = self.docker_client.compose.docker_compose_cmd + ["run", "--rm", "--entrypoint", "/exec-entrypoint.sh"]
+            # Use lightweight exec-entrypoint.sh that only handles UID/GID mismatch
             run_cmd += [compose_service, "exec-command.sh", shell_path]
 
             import os
@@ -350,7 +350,8 @@ class BenchDockerOps:
                 "rm": True,
                 "use_shlex_split": True,
                 "stream": False,
-                # Let entrypoint handle UID remapping via exec-command.sh wrapper
+                "entrypoint": "/exec-entrypoint.sh",
+                # Use lightweight exec-entrypoint.sh that only handles UID/GID mismatch
             }
 
             try:

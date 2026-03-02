@@ -872,6 +872,7 @@ fi
                             command=run_command,
                             rm=True,
                             stream=False,
+                            entrypoint="/exec-entrypoint.sh",
                         ),
                     )
                     output = self._filter_docker_warnings(output)
@@ -882,6 +883,7 @@ fi
                         service=service,
                         command=run_command,
                         rm=True,
+                            entrypoint="/exec-entrypoint.sh",
                         stream=True,
                     ),
                 )

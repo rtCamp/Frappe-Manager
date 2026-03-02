@@ -437,6 +437,7 @@ ls -la env/ || echo "ERROR: env directory not found!"
                 service="frappe",
                 command=f"exec-command.sh bash -c {shlex.quote(setup_script)}",
                 rm=True,
+                entrypoint="/exec-entrypoint.sh",
             )
         except Exception as e:
             error_str = str(e)
@@ -492,6 +493,7 @@ echo "Node environment setup complete"
             service="frappe",
             command=f"exec-command.sh bash -c {shlex.quote(setup_script)}",
             rm=True,
+            entrypoint="/exec-entrypoint.sh",
         )
 
         if not isinstance(result, SubprocessOutput):
@@ -525,6 +527,7 @@ echo "Old runtime directories cleaned up"
             service="frappe",
             command=f"exec-command.sh bash -c {shlex.quote(cleanup_script)}",
             rm=True,
+            entrypoint="/exec-entrypoint.sh",
         )
 
         if not isinstance(result, SubprocessOutput):
@@ -585,6 +588,7 @@ echo "Apps reinstalled and assets built successfully"
             service="frappe",
             command=f"exec-command.sh bash -c {shlex.quote(reinstall_script)}",
             rm=True,
+            entrypoint="/exec-entrypoint.sh",
         )
 
         if not isinstance(result, SubprocessOutput):
@@ -614,6 +618,7 @@ echo "Supervisor configuration regenerated"
             service="frappe",
             command=f"exec-command.sh bash -c {shlex.quote(setup_script)}",
             rm=True,
+            entrypoint="/exec-entrypoint.sh",
         )
 
         if not isinstance(result, SubprocessOutput):
@@ -711,6 +716,7 @@ echo "Supervisor configuration regenerated"
                 service="frappe",
                 command="exec-command.sh bash -c '/workspace/frappe-bench/env/bin/python --version 2>&1'",
                 rm=True,
+                entrypoint="/exec-entrypoint.sh",
             )
             if isinstance(result, SubprocessOutput) and result.exit_code == 0:
                 import re
@@ -729,6 +735,7 @@ echo "Supervisor configuration regenerated"
                 service="frappe",
                 command="exec-command.sh bash -c 'node --version'",
                 rm=True,
+                entrypoint="/exec-entrypoint.sh",
             )
             if isinstance(result, SubprocessOutput) and result.exit_code == 0:
                 import re
