@@ -357,10 +357,11 @@ function configure_workspace() {
 		chown frappe:frappe /workspace/.hushlogin
 	fi
 
-	chown -R "$USERID":"$USERGROUP" /opt
+	# Removed in favor of specific chown dirs
+	# chown -R "$USERID":"$USERGROUP" /opt
 
 	end_time=$(date +%s.%N)
 	execution_time=$(awk "BEGIN {print $end_time - $start_time}")
 
-	echo "Time taken for chown /opt : $execution_time seconds"
+	echo "Time taken for configure_workspace : $execution_time seconds"
 }
