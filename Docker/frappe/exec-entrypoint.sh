@@ -15,24 +15,15 @@ else
 	export PATH="/workspace/.fnm/aliases/default/bin:/usr/local/bin:/opt/user/.bin:${PATH}"
 fi
 
-# Source helper functions (needed for update_uid_gid)
-source /scripts/helper-function.sh
-
 # Validate required environment variables
-[[ "${USERID:-}" ]] || emer "[ERROR] Please provide USERID environment variable."
-[[ "${USERGROUP:-}" ]] || emer "[ERROR] Please provide USERGROUP environment variable."
+[[ "${USERID:-}" ]] || { echo "[ERROR] Please provide USERID environment variable."; exit 1; }
+[[ "${USERGROUP:-}" ]] || { echo "[ERROR] Please provide USERGROUP environment variable."; exit 1; }
 
-# ONLY update UID/GID if there's a mismatch
-current_uid=$(id -u frappe 2>/dev/null || echo "0")
-current_gid=$(id -g frappe 2>/dev/null || echo "0")
+# Set HOME explicitly for numeric UID (gosu would default to /)
+# This ensures bashrc's $HOME/.local/bin resolves correctly
+export HOME=/workspace
 
-if [[ "$current_uid" != "$USERID" || "$current_gid" != "$USERGROUP" ]]; then
-	echo "UID/GID mismatch detected. Updating frappe user: $current_uid:$current_gid -> $USERID:$USERGROUP"
-	update_uid_gid "${USERID}" "${USERGROUP}" "frappe" "frappe"
-else
-	echo "UID/GID already correct ($USERID:$USERGROUP). Skipping update."
-fi
-
-# Execute command as frappe user using gosu
-# Note: No supervisor setup, no workspace configuration, no chown operations
+# Execute command using numeric UID:GID via gosu (NO usermod needed!)
+# gosu supports numeric UIDs without requiring /etc/passwd entries
+# This is INSTANT (~50ms) vs usermod which takes 16+ seconds
 exec gosu "${USERID}":"${USERGROUP}" "$@"
