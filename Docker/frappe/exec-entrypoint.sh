@@ -1,6 +1,15 @@
 #!/bin/bash
 # Lightweight entrypoint for quick command execution
 # ONLY handles UID/GID mismatch - skips supervisor setup and workspace configuration
+#
+# PERFORMANCE: Eliminates 16+ second usermod/groupmod delay on every 'docker compose run'
+# - entrypoint.sh: Full setup with usermod + chown (slow, but needed for long-running services)
+# - exec-entrypoint.sh: Direct numeric UID execution (ultra-fast, perfect for one-off commands)
+#
+# FILE PERMISSIONS: Cache directories are pre-created with 777 at build time (Dockerfile)
+# - /workspace/.cache/ writable by any UID (npm, yarn/pnpm via Corepack, pip, uv)
+# - USER=frappe env var fixes Python's getpass.getuser() without /etc/passwd entry
+# - No runtime chown needed = instant execution
 
 set -e
 

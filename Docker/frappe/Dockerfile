@@ -150,7 +150,7 @@ ENV ENV=/etc/profile.d/fnm.sh
 
 # Prebake Python 3.12 and Node 22 into /workspace for faster first site creation
 USER frappe
-RUN mkdir -p /workspace/.uv/python /workspace/.fnm && \
+RUN mkdir -p /workspace/.uv/python /workspace/.fnm /workspace/.cache && \
     echo "Prebaking Python ${DEFAULT_PYTHON_VERSION}..." && \
     uv python install ${DEFAULT_PYTHON_VERSION} && \
     PYTHON_PATH=$(uv python find ${DEFAULT_PYTHON_VERSION}) && \
@@ -160,7 +160,9 @@ RUN mkdir -p /workspace/.uv/python /workspace/.fnm && \
     fnm install ${DEFAULT_NODE_VERSION} && \
     fnm default ${DEFAULT_NODE_VERSION} && \
     echo "Enabling Corepack for yarn/pnpm support..." && \
-    corepack enable || npm install -g yarn
+    corepack enable || npm install -g yarn && \
+    echo "Making cache directories writable for any runtime UID..." && \
+    chmod -R 777 /workspace/.cache
 
 USER root
 ENV WKHTMLTOPDF_VERSION=0.12.6.1-3
