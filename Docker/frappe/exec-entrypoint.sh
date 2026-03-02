@@ -25,6 +25,8 @@ fi
 # Pass all critical environment variables explicitly since gosu may reset them
 exec gosu "${USERID}":"${USERGROUP}" env \
     HOME=/workspace \
+    USER=frappe \
+    GROUP=frappe \
     PATH="${PATH}" \
     FNM_DIR="${FNM_DIR}" \
     FNM_NODE_DIST_MIRROR="${FNM_NODE_DIST_MIRROR}" \
