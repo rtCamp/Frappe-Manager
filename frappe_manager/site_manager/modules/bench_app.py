@@ -297,7 +297,8 @@ fi
                     recreate_venv_cmd = f"""
                     cd /workspace/frappe-bench
                     if [ -d env ]; then
-                        mv env env.bak || rm -rf env.bak
+                        timestamp=$(date +%Y%m%d_%H%M%S)
+                        mv env env.bak-$timestamp
                     fi
                     uv venv env --python {quoted_python} --seed --link-mode=copy
                     """
