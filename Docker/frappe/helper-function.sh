@@ -327,11 +327,15 @@ function setup_fnm_and_yarn() {
 
 	eval "$(fnm env --shell bash)"
 
-	echo "Enabling Corepack for yarn/pnpm support..."
-	corepack enable || {
-		echo "Corepack not available, falling back to npm install yarn..."
-		npm install -g yarn
-	}
+	# Set FNM_COREPACK_ENABLED to auto-enable corepack for all Node versions
+	export FNM_COREPACK_ENABLED=true
+	
+	echo "Verifying yarn is available (auto-enabled by FNM_COREPACK_ENABLED)..."
+	if yarn --version >/dev/null 2>&1; then
+		echo "Yarn is available"
+	else
+		echo "WARNING: Yarn not available - corepack may have failed"
+	fi
 
 	chmod -R 755 /opt/fnm
 }

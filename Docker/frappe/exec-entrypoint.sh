@@ -40,6 +40,7 @@ exec gosu "${USERID}":"${USERGROUP}" env \
     FNM_DIR="${FNM_DIR}" \
     FNM_NODE_DIST_MIRROR="${FNM_NODE_DIST_MIRROR}" \
     FNM_MULTISHELL_PATH="${FNM_MULTISHELL_PATH}" \
+    FNM_COREPACK_ENABLED=true \
     UV_PYTHON_INSTALL_DIR=/workspace/.uv/python \
     UV_CACHE_DIR=/workspace/.uv/cache \
     BENCH_USE_UV=true \

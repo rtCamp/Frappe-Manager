@@ -412,9 +412,13 @@ fi
                     else:
                         self.output.warning(f"Could not set Node {node_version} as default, but continuing")
 
-                    yarn_check = f"corepack enable || test -f /workspace/.fnm/node-versions/v{node_version}/installation/bin/yarn || npm install -g yarn"
-                    self._container_run(yarn_check, capture_output=True, raise_exception_obj=None, use_run=use_run)
-                    self.output.print(f"Ensured yarn is available for Node {node_version}")
+                    # Verify yarn is available (should be auto-enabled by FNM_COREPACK_ENABLED)
+                    verify_yarn = f"yarn --version"
+                    yarn_result = self._container_run(verify_yarn, capture_output=True, raise_exception_obj=None, use_run=use_run)
+                    if yarn_result and yarn_result.exit_code == 0:
+                        self.output.print(f"Yarn is available for Node {node_version}")
+                    else:
+                        self.output.warning(f"Yarn not available after Node {node_version} installation - corepack may have failed")
 
                 except Exception as e:
                     self.output.warning(f"Failed to setup Node {node_version}: {e}")

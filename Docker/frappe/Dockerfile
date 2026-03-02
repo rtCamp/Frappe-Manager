@@ -140,9 +140,11 @@ FROM tooling AS frappe
 ENV UV_PYTHON_INSTALL_DIR=/workspace/.uv/python
 ENV UV_CACHE_DIR=/workspace/.uv/cache
 
+# fnm configuration - CRITICAL: FNM_COREPACK_ENABLED ensures corepack is enabled for ALL Node versions
 ENV FNM_DIR=/workspace/.fnm
 ENV FNM_NODE_DIST_MIRROR=https://nodejs.org/dist
 ENV FNM_MULTISHELL_PATH=/workspace/.fnm
+ENV FNM_COREPACK_ENABLED=true
 ENV PATH="/workspace/.fnm/aliases/default/bin:/usr/local/bin:/opt/user/.bin:${PATH}"
 
 ENV BASH_ENV=/etc/profile.d/fnm.sh
@@ -156,15 +158,12 @@ RUN mkdir -p /workspace/.uv/python /workspace/.fnm /workspace/.cache && \
     PYTHON_PATH=$(uv python find ${DEFAULT_PYTHON_VERSION}) && \
     PYTHON_DIR=$(dirname $(dirname $PYTHON_PATH)) && \
     ln -sf python/$(basename $PYTHON_DIR) /workspace/.uv/python-default && \
-    echo "Prebaking Node ${DEFAULT_NODE_VERSION}..." && \
+    echo "Prebaking Node ${DEFAULT_NODE_VERSION} (corepack auto-enabled via FNM_COREPACK_ENABLED)..." && \
     fnm install ${DEFAULT_NODE_VERSION} && \
     fnm default ${DEFAULT_NODE_VERSION} && \
-    echo "Enabling Corepack for yarn/pnpm support..." && \
-    corepack enable || npm install -g yarn && \
     echo "Making cache directories writable for any runtime UID..." && \
     chmod -R 777 /workspace/.cache
 
-USER root
 ENV WKHTMLTOPDF_VERSION=0.12.6.1-3
 RUN if [ "$(uname -m)" = "aarch64" ]; then export ARCH=arm64; fi \
     && if [ "$(uname -m)" = "x86_64" ]; then export ARCH=amd64; fi \
@@ -188,6 +187,7 @@ COPY --from=tooling /etc/bash.bashrc /etc/bash.bashrc
 RUN mkdir -p /etc/profile.d && \
     echo 'export FNM_DIR="/workspace/.fnm"' > /etc/profile.d/fnm.sh && \
     echo 'export FNM_MULTISHELL_PATH="/workspace/.fnm"' >> /etc/profile.d/fnm.sh && \
+    echo 'export FNM_COREPACK_ENABLED=true' >> /etc/profile.d/fnm.sh && \
     echo 'eval "$(fnm env --shell bash 2>/dev/null || true)"' >> /etc/profile.d/fnm.sh && \
     echo 'if [ -d "/workspace/.uv/python-default/bin" ]; then' >> /etc/profile.d/fnm.sh && \
     echo '    export PATH="/workspace/.uv/python-default/bin:$PATH"' >> /etc/profile.d/fnm.sh && \
