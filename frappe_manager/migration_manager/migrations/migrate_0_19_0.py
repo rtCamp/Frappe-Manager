@@ -26,7 +26,7 @@ from frappe_manager.output_manager.context_managers import spinner
 
 
 class MigrationV0190(MigrationBase):
-    version = Version("0.19.0")
+    version = Version("0.19.0.dev0")
 
     def bench_basic_backup(self, bench: MigrationBench):
         """
