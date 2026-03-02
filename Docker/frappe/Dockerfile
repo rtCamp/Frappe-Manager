@@ -106,6 +106,7 @@ COPY --chmod=0755 ./helper-function.sh /scripts/
 RUN mkdir -p /opt/user/conf.d && chown -R frappe:frappe /opt/user
 
 USER frappe
+
 WORKDIR /opt
 COPY --chown=frappe:frappe ./fmx /opt/user/fmx
 RUN mkdir -p /workspace && touch /opt/user/.hushlogin
@@ -162,6 +163,7 @@ ENV ENV=/etc/profile.d/fnm.sh
 
 # Prebake Python 3.12 and Node 22 into /workspace for faster first site creation
 USER frappe
+
 RUN mkdir -p /workspace/.uv/python /workspace/.fnm /workspace/.cache && \
     echo "Prebaking Python ${DEFAULT_PYTHON_VERSION}..." && \
     uv python install ${DEFAULT_PYTHON_VERSION} && \
@@ -173,6 +175,8 @@ RUN mkdir -p /workspace/.uv/python /workspace/.fnm /workspace/.cache && \
     fnm default ${DEFAULT_NODE_VERSION} && \
     echo "Making cache directories writable for any runtime UID..." && \
     chmod -R 777 /workspace/.cache
+
+USER root
 
 COPY --chmod=0755 ./entrypoint.sh /
 COPY --chmod=0755 ./exec-entrypoint.sh /
