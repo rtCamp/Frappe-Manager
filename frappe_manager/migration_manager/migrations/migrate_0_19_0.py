@@ -205,15 +205,35 @@ class MigrationV0190(MigrationBase):
             yaml.dump(compose_data, f)
 
     def _update_service_images(self, services: dict[str, Any]):
-        """Replace v0.18.0 image tags with current version."""
+        """Replace any existing version tag with current version."""
+        import re
+        
+        # Pattern matches: ghcr.io/rtcamp/frappe-manager-{image}:v{X.Y.Z} or v{X.Y.Z.devN}
+        version_pattern = re.compile(
+            r"(ghcr\.io/rtcamp/frappe-manager-[^:]+):v[0-9]+\.[0-9]+\.[0-9]+(?:\.dev[0-9]+)?"
+        )
+        
         for service_name, service_config in services.items():
             if "image" not in service_config:
                 continue
 
             old_image = service_config["image"]
-            if "v0.18.0" in old_image:
-                service_config["image"] = old_image.replace("v0.18.0", self.version.version_string())
-                self.output.print(f"Updated {service_name} image to {self.version.version_string()}")
+            
+            # Try to extract old version for logging
+            old_version_match = re.search(r":v([0-9]+\.[0-9]+\.[0-9]+(?:\.dev[0-9]+)?)", old_image)
+            old_version = old_version_match.group(1) if old_version_match else "unknown"
+            
+            # Replace version tag with current version
+            new_image = version_pattern.sub(
+                rf"\1:{self.version.version_string()}",
+                old_image
+            )
+            
+            if new_image != old_image:
+                service_config["image"] = new_image
+                self.output.print(
+                    f"Updated {service_name} image: v{old_version} → {self.version.version_string()}"
+                )
 
     def _transform_nginx_environment(self, services: dict[str, Any]):
         """Transform nginx SITENAME → SITE_MAPPINGS environment variable."""
