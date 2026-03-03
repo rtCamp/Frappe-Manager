@@ -108,5 +108,19 @@ class MigrationDiscovery:
         from_version: Version,
         to_version: Version,
     ) -> bool:
-        """Check if migration version is in the range we need to execute."""
-        return from_version < migration.version <= to_version
+        """
+        Check if migration version is in the range we need to execute.
+
+        Special handling for dev versions: If to_version is a dev/pre-release version
+        (e.g., 0.19.0.dev0), we normalize it to the base release version (0.19.0) for
+        comparison. This ensures migrations for the target release are included during
+        development cycles.
+
+        In PEP 440, dev versions come BEFORE their release: 0.19.0.dev0 < 0.19.0
+        Without normalization, migration 0.19.0 would be excluded when running 0.19.0.dev0.
+        """
+        # Normalize to_version to base version (strips .devN, .a, .b, .rc suffixes)
+        # This allows migrations for release X.Y.Z to run during X.Y.Z.devN development
+        # Access base_version through internal _parsed PackagingVersion object
+        normalized_to = Version(to_version._parsed.base_version)
+        return from_version < migration.version <= normalized_to

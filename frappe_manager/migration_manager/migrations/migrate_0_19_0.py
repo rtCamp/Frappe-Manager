@@ -26,7 +26,7 @@ from frappe_manager.output_manager.context_managers import spinner
 
 
 class MigrationV0190(MigrationBase):
-    version = Version("0.19.0")
+    version = Version("0.19.0.dev0")
 
     def bench_basic_backup(self, bench: MigrationBench):
         """
@@ -83,7 +83,7 @@ class MigrationV0190(MigrationBase):
             shutil.move(str(env_backup_path), str(env_dir))
 
     def migrate_bench(self, bench: MigrationBench):
-        """Migrate bench from v0.18.0 to v0.19.0."""
+        """Migrate bench from v0.18.0 to current version."""
         with spinner(self.output, f"Migrating bench configuration for {bench.name}"):  # type: ignore[arg-type]
             bench_config_path = bench.path / "bench_config.toml"
             if bench_config_path.exists():
@@ -101,7 +101,7 @@ class MigrationV0190(MigrationBase):
 
         self._rebuild_runtime_environment(bench)
 
-        self.output.print(f"Successfully migrated {bench.name}")
+        self.output.print(f"Successfully migrated {bench.name} to {self.version.version_string()}")
 
     def _migrate_bench_config_toml(self, bench: MigrationBench, config_path: Path):
         """Transform bench_config.toml: [ssl] → [[ssl_certificates]], add new fields."""
@@ -183,7 +183,7 @@ class MigrationV0190(MigrationBase):
             doc["use_uv"] = True
 
     def _migrate_docker_compose_yml(self, bench: MigrationBench, compose_path: Path):
-        """Update compose: v0.18.0 → v0.19.0 images, SITENAME → SITE_MAPPINGS."""
+        """Update compose: v0.18.0 → current version images, SITENAME → SITE_MAPPINGS."""
         self.output.print("Migrating docker-compose.yml")
 
         yaml = YAML(typ="rt")
@@ -205,15 +205,35 @@ class MigrationV0190(MigrationBase):
             yaml.dump(compose_data, f)
 
     def _update_service_images(self, services: dict[str, Any]):
-        """Replace v0.18.0 image tags with v0.19.0."""
+        """Replace any existing version tag with current version."""
+        import re
+        
+        # Pattern matches: ghcr.io/rtcamp/frappe-manager-{image}:v{X.Y.Z} or v{X.Y.Z.devN}
+        version_pattern = re.compile(
+            r"(ghcr\.io/rtcamp/frappe-manager-[^:]+):v[0-9]+\.[0-9]+\.[0-9]+(?:\.dev[0-9]+)?"
+        )
+        
         for service_name, service_config in services.items():
             if "image" not in service_config:
                 continue
 
             old_image = service_config["image"]
-            if "v0.18.0" in old_image:
-                service_config["image"] = old_image.replace("v0.18.0", "v0.19.0")
-                self.output.print(f"Updated {service_name} image to v0.19.0")
+            
+            # Try to extract old version for logging
+            old_version_match = re.search(r":v([0-9]+\.[0-9]+\.[0-9]+(?:\.dev[0-9]+)?)", old_image)
+            old_version = old_version_match.group(1) if old_version_match else "unknown"
+            
+            # Replace version tag with current version
+            new_image = version_pattern.sub(
+                rf"\1:{self.version.version_string()}",
+                old_image
+            )
+            
+            if new_image != old_image:
+                service_config["image"] = new_image
+                self.output.print(
+                    f"Updated {service_name} image: v{old_version} → {self.version.version_string()}"
+                )
 
     def _transform_nginx_environment(self, services: dict[str, Any]):
         """Transform nginx SITENAME → SITE_MAPPINGS environment variable."""
@@ -246,7 +266,7 @@ class MigrationV0190(MigrationBase):
         return new_env
 
     def _migrate_workers_compose_yml(self, bench: MigrationBench, compose_path: Path):
-        """Update worker compose: v0.18.0 → v0.19.0 images."""
+        """Update worker compose: v0.18.0 → current version images."""
         self.output.print("Migrating docker-compose.workers.yml")
 
         yaml = YAML(typ="rt")
@@ -277,16 +297,16 @@ class MigrationV0190(MigrationBase):
 
     def migrate_services(self):
         """
-        Pull v0.19.0 Docker images (system-level infrastructure).
+        Pull current version Docker images (system-level infrastructure).
 
         Images are shared resources across all benches - must be pulled
         at system level before any bench can use them.
         """
         from frappe_manager.utils.site import pull_docker_images
 
-        self.logger.info("[migrate_services] Starting Docker image pull for v0.19.0")
+        self.logger.info(f"[migrate_services] Starting Docker image pull for {self.version.version_string()}")
 
-        with spinner(self.output, "Pulling Docker images for v0.19.0"):  # type: ignore[arg-type]
+        with spinner(self.output, f"Pulling Docker images for {self.version.version_string()}"):  # type: ignore[arg-type]
             success = pull_docker_images()
 
             if not success:
@@ -295,15 +315,15 @@ class MigrationV0190(MigrationBase):
                 self.output.display_error(error_msg)
                 raise Exception(error_msg)
 
-        self.output.print("All v0.19.0 images pulled successfully")
+        self.output.print(f"All {self.version.version_string()} images pulled successfully")
         self.logger.info("[migrate_services] Docker image pull completed successfully")
 
     def undo_services_migrate(self):
         """No global services rollback needed."""
-        self.output.print("No services rollback needed for v0.19.0")
+        self.output.print(f"No services rollback needed for {self.version.version_string()}")
 
     def _rebuild_runtime_environment(self, bench: MigrationBench):
-        """Rebuild Python/Node environment using uv/fnm (v0.19.0 runtime system)."""
+        """Rebuild Python/Node environment using uv/fnm (current version runtime system)."""
         self.logger.info(f"[_rebuild_runtime_environment] Starting runtime rebuild for {bench.name}")
 
         bench_config_path = bench.path / "bench_config.toml"
@@ -415,10 +435,9 @@ ls -la env/ || echo "ERROR: env directory not found!"
         try:
             result = bench.compose.run(
                 service="frappe",
-                command=f"-c {shlex.quote(setup_script)}",
+                command=f"bash -c {shlex.quote(setup_script)}",
                 rm=True,
-                user="frappe",
-                entrypoint="bash",
+                entrypoint="/exec-entrypoint.sh",
             )
         except Exception as e:
             error_str = str(e)
@@ -461,9 +480,11 @@ fi
 echo "Setting Node {node_version} as default..."
 fnm default {node_version}
 
-echo "Ensuring yarn is installed..."
-if [ ! -f "/workspace/.fnm/node-versions/v{node_version}/installation/bin/yarn" ]; then
-    npm install -g yarn
+echo "Verifying yarn is available (auto-enabled by FNM_COREPACK_ENABLED)..."
+if yarn --version >/dev/null 2>&1; then
+    echo "Yarn is available"
+else
+    echo "WARNING: Yarn not available after Node installation - corepack may have failed"
 fi
 
 echo "Node environment setup complete"
@@ -472,10 +493,9 @@ echo "Node environment setup complete"
 
         result = bench.compose.run(
             service="frappe",
-            command=f"-c {shlex.quote(setup_script)}",
+                command=f"bash -c {shlex.quote(setup_script)}",
             rm=True,
-            user="frappe",
-            entrypoint="bash",
+            entrypoint="/exec-entrypoint.sh",
         )
 
         if not isinstance(result, SubprocessOutput):
@@ -507,10 +527,9 @@ echo "Old runtime directories cleaned up"
 
         result = bench.compose.run(
             service="frappe",
-            command=f"-c {shlex.quote(cleanup_script)}",
+                command=f"bash -c {shlex.quote(cleanup_script)}",
             rm=True,
-            user="frappe",
-            entrypoint="bash",
+            entrypoint="/exec-entrypoint.sh",
         )
 
         if not isinstance(result, SubprocessOutput):
@@ -569,10 +588,9 @@ echo "Apps reinstalled and assets built successfully"
 
         result = bench.compose.run(
             service="frappe",
-            command=f"-c {shlex.quote(reinstall_script)}",
+                command=f"bash -c {shlex.quote(reinstall_script)}",
             rm=True,
-            user="frappe",
-            entrypoint="bash",
+            entrypoint="/exec-entrypoint.sh",
         )
 
         if not isinstance(result, SubprocessOutput):
@@ -600,10 +618,9 @@ echo "Supervisor configuration regenerated"
 """
         result = bench.compose.run(
             service="frappe",
-            command=f"-c {shlex.quote(setup_script)}",
+                command=f"bash -c {shlex.quote(setup_script)}",
             rm=True,
-            user="frappe",
-            entrypoint="bash",
+            entrypoint="/exec-entrypoint.sh",
         )
 
         if not isinstance(result, SubprocessOutput):
@@ -699,10 +716,9 @@ echo "Supervisor configuration regenerated"
         try:
             result = bench.compose.run(
                 service="frappe",
-                command="-c '/workspace/frappe-bench/env/bin/python --version 2>&1'",
+                command="bash -c '/workspace/frappe-bench/env/bin/python --version 2>&1'",
                 rm=True,
-                user="frappe",
-                entrypoint="bash",
+                entrypoint="/exec-entrypoint.sh",
             )
             if isinstance(result, SubprocessOutput) and result.exit_code == 0:
                 import re
@@ -719,10 +735,9 @@ echo "Supervisor configuration regenerated"
         try:
             result = bench.compose.run(
                 service="frappe",
-                command="node --version",
+                command="bash -c 'node --version'",
                 rm=True,
-                user="frappe",
-                entrypoint="bash",
+                entrypoint="/exec-entrypoint.sh",
             )
             if isinstance(result, SubprocessOutput) and result.exit_code == 0:
                 import re

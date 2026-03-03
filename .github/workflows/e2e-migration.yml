@@ -33,9 +33,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: /tmp/docker-images
-          key: docker-images-${{ runner.os }}-${{ hashFiles('Docker/images-tag.json') }}
+          key: docker-images-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
-            docker-images-${{ runner.os }}-${{ hashFiles('Docker/images-tag.json') }}
+            docker-images-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
 
       - name: Load cached Docker images
         if: steps.cache-docker-images.outputs.cache-hit == 'true'
@@ -96,9 +96,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: /tmp/docker-images
-          key: docker-images-${{ runner.os }}-${{ hashFiles('Docker/images-tag.json') }}
+          key: docker-images-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
           restore-keys: |
-            docker-images-${{ runner.os }}-${{ hashFiles('Docker/images-tag.json') }}
+            docker-images-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
 
       - name: Load cached Docker images
         if: steps.cache-docker-images.outputs.cache-hit == 'true'

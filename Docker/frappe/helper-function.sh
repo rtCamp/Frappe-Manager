@@ -327,8 +327,15 @@ function setup_fnm_and_yarn() {
 
 	eval "$(fnm env --shell bash)"
 
-	echo "Installing yarn globally..."
-	npm install -g yarn
+	# Set FNM_COREPACK_ENABLED to auto-enable corepack for all Node versions
+	export FNM_COREPACK_ENABLED=true
+	
+	echo "Verifying yarn is available (auto-enabled by FNM_COREPACK_ENABLED)..."
+	if yarn --version >/dev/null 2>&1; then
+		echo "Yarn is available"
+	else
+		echo "WARNING: Yarn not available - corepack may have failed"
+	fi
 
 	chmod -R 755 /opt/fnm
 }
@@ -357,10 +364,11 @@ function configure_workspace() {
 		chown frappe:frappe /workspace/.hushlogin
 	fi
 
-	chown -R "$USERID":"$USERGROUP" /opt
+	# Removed in favor of specific chown dirs
+	# chown -R "$USERID":"$USERGROUP" /opt
 
 	end_time=$(date +%s.%N)
 	execution_time=$(awk "BEGIN {print $end_time - $start_time}")
 
-	echo "Time taken for chown /opt : $execution_time seconds"
+	echo "Time taken for configure_workspace : $execution_time seconds"
 }

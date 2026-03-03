@@ -728,7 +728,7 @@ class AppConfig(BaseModel):
                     success=False,
                     auth_method=None,
                     validated_url=None,
-                    error_message="❌ Git is not installed or not in PATH",
+                    error_message="Git is not installed or not in PATH",
                 )
             except Exception as e:
                 last_error = str(e)
@@ -738,16 +738,16 @@ class AppConfig(BaseModel):
         ref_info = f" (ref: {self.ref})" if self.ref else ""
 
         if last_error and "not found" in last_error.lower():
-            error_msg = f"❌ {self.name} ({self.repo}{ref_info}): Repository not found on GitHub"
+            error_msg = f"{self.name} ({self.repo}{ref_info}): Repository not found on GitHub"
         elif last_error and self.ref and "branch/tag" in last_error.lower():
             error_msg = (
-                f"❌ {self.name} ({self.repo}): Branch/tag '{self.ref}' not found\n"
+                f"{self.name} ({self.repo}): Branch/tag '{self.ref}' not found\n"
                 f"   Check branch name or use a valid tag/commit"
             )
         elif github_token:
             logger.warning(f"GitHub token provided but failed for {self.name}")
             error_msg = (
-                f"❌ {self.name} ({self.repo}{ref_info}): Could not access repository\n"
+                f"{self.name} ({self.repo}{ref_info}): Could not access repository\n"
                 f"   • HTTPS: Failed\n"
                 f"   • GitHub Token: Failed (token may be invalid/expired/insufficient permissions)\n"
                 f"   • SSH: Failed\n"
@@ -755,7 +755,7 @@ class AppConfig(BaseModel):
             )
         else:
             error_msg = (
-                f"❌ {self.name} ({self.repo}{ref_info}): Could not access repository\n"
+                f"{self.name} ({self.repo}{ref_info}): Could not access repository\n"
                 f"   • HTTPS: Failed (repo may be private)\n"
                 f"   • SSH: Failed\n"
                 f"   💡 If private repo: use --github-token or configure SSH keys\n"

@@ -297,7 +297,8 @@ fi
                     recreate_venv_cmd = f"""
                     cd /workspace/frappe-bench
                     if [ -d env ]; then
-                        mv env env.bak || rm -rf env.bak
+                        timestamp=$(date +%Y%m%d_%H%M%S)
+                        mv env env.bak-$timestamp
                     fi
                     uv venv env --python {quoted_python} --seed --link-mode=copy
                     """
@@ -411,9 +412,13 @@ fi
                     else:
                         self.output.warning(f"Could not set Node {node_version} as default, but continuing")
 
-                    yarn_check = f"test -f /workspace/.fnm/node-versions/v{node_version}/installation/bin/yarn || npm install -g yarn"
-                    self._container_run(yarn_check, capture_output=True, raise_exception_obj=None, use_run=use_run)
-                    self.output.print(f"Ensured yarn is installed for Node {node_version}")
+                    # Verify yarn is available (should be auto-enabled by FNM_COREPACK_ENABLED)
+                    verify_yarn = f"yarn --version"
+                    yarn_result = self._container_run(verify_yarn, capture_output=True, raise_exception_obj=None, use_run=use_run)
+                    if yarn_result and yarn_result.exit_code == 0:
+                        self.output.print(f"Yarn is available for Node {node_version}")
+                    else:
+                        self.output.warning(f"Yarn not available after Node {node_version} installation - corepack may have failed")
 
                 except Exception as e:
                     self.output.warning(f"Failed to setup Node {node_version}: {e}")
@@ -863,17 +868,16 @@ fi
         try:
             if use_run:
                 wrapped_command = f"cd {workdir} && {command}"
-                run_command = f"-c '{wrapped_command}'"
+                run_command = f"/bin/bash -c '{wrapped_command}'"
                 if capture_output:
                     output = cast(
                         "SubprocessOutput",
                         self.docker_client.compose.run(
                             service=service,
                             command=run_command,
-                            entrypoint="/bin/bash",
-                            user=user,
                             rm=True,
                             stream=False,
+                            entrypoint="/exec-entrypoint.sh",
                         ),
                     )
                     output = self._filter_docker_warnings(output)
@@ -883,9 +887,8 @@ fi
                     self.docker_client.compose.run(
                         service=service,
                         command=run_command,
-                        entrypoint="/bin/bash",
-                        user=user,
                         rm=True,
+                            entrypoint="/exec-entrypoint.sh",
                         stream=True,
                     ),
                 )

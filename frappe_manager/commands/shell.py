@@ -44,11 +44,9 @@ def _handle_bench_console(
         python_code = sys.stdin.read()
     else:
         if run:
-            exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["run", "--rm"]
-            if user:
-                exec_cmd += ["--user", user]
-            exec_cmd += ["--entrypoint", "/bin/bash"]
-            exec_cmd += ["frappe", "-c", f"cd /workspace/frappe-bench && bench --site {site} console"]
+            exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["run", "--rm", "--entrypoint", "/exec-entrypoint.sh"]
+            # Use lightweight exec-entrypoint.sh that only handles UID/GID mismatch
+            exec_cmd += ["frappe", "/bin/bash", "-c", f"cd /workspace/frappe-bench && bench --site {site} console"]
         else:
             exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["exec"]
             if user:
@@ -166,11 +164,9 @@ def shell(
 
     if passthrough_args:
         if run:
-            exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["run", "--rm"]
-            if user:
-                exec_cmd += ["--user", user]
-            exec_cmd += ["--entrypoint", shell_path]
-            exec_cmd += [service, "-c", " ".join(passthrough_args)]
+            exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["run", "--rm", "--entrypoint", "/exec-entrypoint.sh"]
+            # Use lightweight exec-entrypoint.sh that only handles UID/GID mismatch
+            exec_cmd += [service, shell_path, "-c", " ".join(passthrough_args)]
         else:
             exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["exec"]
             if user:

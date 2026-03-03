@@ -82,7 +82,9 @@ jobs:
       - name: Set image names
         run: |
           owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
-          tag=$( cat "$GITHUB_WORKSPACE/frappe_manager/images-tag.json" | jq -rc .${{ matrix.service_name }})
+          # Read version from pyproject.toml
+          version=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          tag="v${version}"
           echo "Image tag $tag"
           echo "image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
 
@@ -98,8 +100,8 @@ jobs:
           platforms: ${{ matrix.platform }}
           tags: ${{ env.image_name }}
           provenance: false
-          cache-from: ${{ env.USE_CACHE == 'true' && format('type=registry,ref=ghcr.io/{0}/frappe-manager-{1}:buildcache', env.owned, matrix.service_name) || '' }}
-          cache-to: ${{ format('type=registry,ref=ghcr.io/{0}/frappe-manager-{1}:buildcache,mode=max', env.owned, matrix.service_name) || '' }}
+          cache-from: ${{ env.USE_CACHE == 'true' && format('type=registry,ref=ghcr.io/{0}/frappe-manager-{1}:buildcache-{2}', env.owned, matrix.service_name, matrix.platform == 'linux/amd64' && 'amd64' || 'arm64') || '' }}
+          cache-to: ${{ format('type=registry,ref=ghcr.io/{0}/frappe-manager-{1}:buildcache-{2},mode=max', env.owned, matrix.service_name, matrix.platform == 'linux/amd64' && 'amd64' || 'arm64') || '' }}
 
       - name: Prune buildx cache (self-hosted only)
         if: startsWith(matrix.os, 'self-hosted')
@@ -147,7 +149,9 @@ jobs:
 
       - name: Combine manifest and push
         run: |
-          tag=$( cat "$GITHUB_WORKSPACE/frappe_manager/images-tag.json" | jq -rc .${{ matrix.service_name }})
+          # Read version from pyproject.toml
+          version=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          tag="v${version}"
           owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
           
           img="ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}"
