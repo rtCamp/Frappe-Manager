@@ -20,6 +20,7 @@ from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager import (
+    NVIM_DAP_LUA,
     VSCODE_LAUNCH_JSON,
     VSCODE_SETTINGS_JSON,
     VSCODE_TASKS_JSON,
@@ -272,3 +273,64 @@ class BenchDevTools:
 
         if output.returncode != 0:
             raise BenchAttachTocontainerFailed(self.bench_name, "frappe")
+
+    # ------------------------------------------------------------------
+    # Neovim / nvim-dap integration
+    # ------------------------------------------------------------------
+
+    def setup_neovim_debugger(self, workdir: str) -> None:
+        """
+        Write nvim-dap configuration for Frappe debugging.
+
+        Creates a ``.nvim.lua`` file in the bench workspace directory that
+        configures `nvim-dap` with the same debug sessions available via
+        the VS Code ``--debugger`` flag:
+
+        - **fm-frappe-debug** – dev-server with debugpy attached (kills port first)
+        - **Debug Specific Queue** – attach to a background worker queue
+        - **Debug Specific Function** – run a single ``frappe.execute()`` call
+
+        The file is written to the *host* path that maps to ``workdir`` inside
+        the container (e.g. ``<bench_path>/workspace/frappe-bench/.nvim.lua``).
+        Neovim loads ``.nvim.lua`` automatically when
+        ``vim.opt.exrc = true`` is set (Neovim ≥ 0.9 trusted files) and the
+        directory is opened as a workspace.
+
+        Also installs ``ruff`` in the bench env (same as the VS Code path) so
+        the Python LSP formatter is available.
+
+        Args:
+            workdir: Working directory path inside the container
+                     (e.g. ``/workspace/frappe-bench``).  Must start with
+                     ``workspace`` after stripping leading slashes.
+        """
+        workdir = workdir.strip("/")
+        if not workdir.startswith("workspace"):
+            self.output.warning("Neovim debugger configuration is only supported for workspace directory")
+            return
+
+        self._sync_nvim_config_files(workdir)
+        self._install_ruff()
+        self.output.print("Synced nvim-dap debugger configuration (.nvim.lua)")
+
+    def _sync_nvim_config_files(self, workdir: str) -> None:
+        """
+        Write the ``.nvim.lua`` project-local DAP config into the bench workspace.
+
+        The file is placed at ``<bench_path>/<workdir>/.nvim.lua`` so it sits
+        at the root of the Frappe bench tree that a developer opens in Neovim.
+        Any pre-existing file is backed up with a timestamped copy first.
+
+        Args:
+            workdir: Relative workspace path (leading/trailing slashes already stripped).
+        """
+        workdir = workdir.strip("/")
+        workspace_dir = self.bench_path / workdir
+        workspace_dir.mkdir(exist_ok=True, parents=True)
+
+        nvim_lua_path = workspace_dir / ".nvim.lua"
+        if nvim_lua_path.exists():
+            self._backup_config_file(nvim_lua_path)
+
+        with open(nvim_lua_path, "w") as f:
+            f.write(NVIM_DAP_LUA)
