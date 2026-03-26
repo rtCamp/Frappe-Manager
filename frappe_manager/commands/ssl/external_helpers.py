@@ -215,12 +215,24 @@ def _add_external_certificate(
 
         # Step 4: Update nginx config to enable HTTPS
         output.change_head("Enabling HTTPS for {domain}")
-        standalone_nginx.create_https_config(domain)
-        output.print("Created HTTPS configuration", emoji_code=":white_check_mark:")
+        try:
+            standalone_nginx.create_https_config(domain)
+            output.print("Created HTTPS configuration", emoji_code=":white_check_mark:")
 
-        # Step 5: Reload nginx again to enable HTTPS
-        nginx_controller.reload()
-        output.print("Nginx reloaded with HTTPS enabled", emoji_code=":white_check_mark:")
+            # Step 5: Reload nginx again to enable HTTPS
+            nginx_controller.reload()
+            output.print("Nginx reloaded with HTTPS enabled", emoji_code=":white_check_mark:")
+        except Exception as post_cert_error:
+            # HTTPS config or reload failed — cert was already issued; clean up to avoid orphan
+            output.change_head("Cleaning up after HTTPS configuration failure")
+            try:
+                cert_manager.remove_certificate_by_domain(domain)
+                standalone_nginx.remove_config(domain)
+                nginx_controller.reload()
+                output.print("Cleaned up nginx configuration and certificate", emoji_code=":white_check_mark:")
+            except Exception as cleanup_error:
+                output.debug(f"Failed to clean up after HTTPS config failure: {cleanup_error}")
+            raise post_cert_error
 
         if not dry_run:
             # Save to external domains config
