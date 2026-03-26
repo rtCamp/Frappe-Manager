@@ -82,8 +82,8 @@ jobs:
       - name: Set image names
         run: |
           owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
-          # Read version from pyproject.toml
-          version=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          # Read version from __about__.py
+          version=$(grep '^__version__' frappe_manager/__about__.py | sed 's/__version__ = "\(.*\)"/\1/')
           tag="v${version}"
           echo "Image tag $tag"
           echo "image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
@@ -149,8 +149,8 @@ jobs:
 
       - name: Combine manifest and push
         run: |
-          # Read version from pyproject.toml
-          version=$(grep '^version = ' pyproject.toml | sed 's/version = "\(.*\)"/\1/')
+          # Read version from __about__.py
+          version=$(grep '^__version__' frappe_manager/__about__.py | sed 's/__version__ = "\(.*\)"/\1/')
           tag="v${version}"
           owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
           
