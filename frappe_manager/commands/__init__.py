@@ -471,8 +471,8 @@ def app_callback(
                 services_manager.remove_itself()
                 output.exit(f"Not able to create services. {e}")
 
-        ctx.obj["services"] = services_manager
-        ctx.obj["fm_config_manager"] = fm_config_manager
+            ctx.obj["services"] = services_manager
+            ctx.obj["fm_config_manager"] = fm_config_manager
 
 
 # Import extracted read-only commands (Step 3)
