@@ -29,11 +29,12 @@ if [ "$ARCH" = "amd64" ]; then
 
 	MIRRORS=$(curl -s http://mirrors.ubuntu.com/mirrors.txt)
 
-	BEST_MIRROR=$(echo "$MIRRORS" |
+	BEST_RESULT=$(echo "$MIRRORS" |
 		xargs -P 10 -I {} bash -c 'test_mirror "{}/ubuntu"' |
 		sort -n |
-		head -1 |
-		awk '{print $2}')
+		head -1)
+	BEST_LATENCY=$(echo "$BEST_RESULT" | awk '{print $1}')
+	BEST_MIRROR=$(echo "$BEST_RESULT" | awk '{print $2}')
 
 	DEFAULT_MIRROR="http://archive.ubuntu.com/ubuntu"
 
@@ -49,11 +50,12 @@ http://mirrors.wikimedia.org/ubuntu-ports
 http://mirror.aarnet.edu.au/pub/ubuntu/ports
 http://ftp.kaist.ac.kr/ubuntu-ports"
 
-	BEST_MIRROR=$(echo "$MIRRORS" |
+	BEST_RESULT=$(echo "$MIRRORS" |
 		xargs -P 10 -I {} bash -c 'test_mirror "{}"' |
 		sort -n |
-		head -1 |
-		awk '{print $2}')
+		head -1)
+	BEST_LATENCY=$(echo "$BEST_RESULT" | awk '{print $1}')
+	BEST_MIRROR=$(echo "$BEST_RESULT" | awk '{print $2}')
 
 	DEFAULT_MIRROR="http://ports.ubuntu.com/ubuntu-ports"
 else
@@ -61,7 +63,7 @@ else
 	exit 1
 fi
 
-if [ -z "$BEST_MIRROR" ] || [ "$BEST_MIRROR" = "99999" ]; then
+if [ -z "$BEST_MIRROR" ] || [ "$BEST_LATENCY" = "99999" ]; then
 	echo "Warning: Could not find working mirror, using default: $DEFAULT_MIRROR"
 	BEST_MIRROR="$DEFAULT_MIRROR"
 else
