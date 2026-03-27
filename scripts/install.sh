@@ -3,6 +3,15 @@ PS4='+\[\033[0;33m\](\[\033[0;36m\]${BASH_SOURCE##*/}:${LINENO}\[\033[0;33m\])\[
 
 set -x
 
+# Function to detect if running inside WSL
+is_wsl() {
+    if grep -qi microsoft /proc/version 2>/dev/null || grep -qi microsoft /proc/sys/kernel/osrelease 2>/dev/null; then
+        return 0
+    else
+        return 1
+    fi
+}
+
 # Function to setup log file with proper permissions
 setup_logfile() {
     local cache_dir
@@ -400,13 +409,18 @@ install_docker_ubuntu() {
     fi
 
     # Check Docker service status before enabling/starting
-    if ! systemctl is-active --quiet docker.service; then
-        info_blue "Docker service is not running. Starting docker service..."
-        run_sudo systemctl enable docker.service
-        run_sudo systemctl start docker.service
-        info_green "Docker service started and enabled."
+    if is_wsl; then
+        info_yellow "Detected WSL environment. Skipping systemd docker service start."
+        info_yellow "Please ensure Docker Desktop is running on your Windows host."
     else
-        info_green "Docker service is already running."
+        if ! systemctl is-active --quiet docker.service; then
+            info_blue "Docker service is not running. Starting docker service..."
+            run_sudo systemctl enable docker.service
+            run_sudo systemctl start docker.service
+            info_green "Docker service started and enabled."
+        else
+            info_green "Docker service is already running."
+        fi
     fi
 }
 
