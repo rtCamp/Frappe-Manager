@@ -1,0 +1,15 @@
+benchname := "fmd.localhost"
+
+default:
+    @just --list
+
+run *args:
+    fm shell {{benchname}} -c 'env/bin/fmx {{args}}'
+
+sync:
+    rsync -avz . ~/frappe/sites/{{benchname}}/workspace/frappe-bench/fmx/
+    fm shell {{benchname}} -c "uv pip install --python env/bin/python -U -e fmx"
+
+shell:
+    just sync
+    fm shell {{benchname}}

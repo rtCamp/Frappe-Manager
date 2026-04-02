@@ -83,7 +83,7 @@ def _get_worker_states(connection):
     worker_states = []
 
     for worker in workers:
-        state = worker.state
+        state = worker.get_state()
         worker_states.append((worker.name, state))
         if state != 'suspended':
             non_suspended_workers.append(worker)
@@ -130,6 +130,8 @@ def control_rq_workers(action: ActionEnum, redis_url=None) -> bool:
             else:
                 print(f"[dim]Suspension flag was not present in Redis.[/dim]", file=sys.stderr)
             return True
+
+        return False
 
     except Exception as e:
         print(f"\n[bold red]Error:[/bold red] Failed during RQ {action.value}: {e}", file=sys.stderr)
@@ -187,7 +189,8 @@ def wait_for_rq_workers_suspended(
                                 f"[dim]Found {len(non_suspended_workers_list)} non-suspended worker(s). Attempting to enqueue noop jobs...[/dim]"
                             )
                         for worker in non_suspended_workers_list:
-                            if worker.state != 'busy':
+                            state = worker.get_state()
+                            if state != 'busy':
                                 try:
                                     listened_queue_names = worker.queue_names()
                                     if listened_queue_names:
@@ -196,7 +199,7 @@ def wait_for_rq_workers_suspended(
                                         queue.enqueue('fm_helper.rq_controller.noop', at_front=True)
                                         if verbose:
                                             verbose_messages.append(
-                                                f"[dim]  - Enqueued noop to '{target_queue_name}' for worker '{worker.name}' (state: {worker.state}).[/dim]"
+                                                f"[dim]  - Enqueued noop to '{target_queue_name}' for worker '{worker.name}' (state: {state}).[/dim]"
                                             )
                                 except Exception as enqueue_err:
                                     if verbose:
@@ -287,6 +290,63 @@ def wait_for_rq_workers_suspended(
 
         traceback.print_exc(file=sys.stderr)
         return False
+
+
+def get_rq_worker_status(redis_url=None) -> Optional[dict]:
+    """
+    Get RQ worker status including suspension state and worker details.
+
+    Args:
+        redis_url: Optional Redis URL to use
+
+    Returns:
+        dict: {
+            'suspended': bool,
+            'workers': [(name, state, current_job, job_stats), ...]
+        }
+        where job_stats is a dict: {
+            'successful': int,
+            'failed': int,
+            'total': int,
+            'working_time': float
+        }
+        None on error.
+    """
+    try:
+        connection = _get_redis_connection(redis_url=redis_url)
+        if not connection:
+            return None
+
+        suspended = is_suspended(connection)
+        workers = Worker.all(connection=connection)
+
+        worker_list = []
+        for worker in workers:
+            state = worker.get_state()
+            current_job = None
+            if state == 'busy':
+                job = worker.get_current_job()
+                current_job = job.func_name if job else None
+
+            job_stats = {
+                'successful': getattr(worker, 'successful_job_count', 0),
+                'failed': getattr(worker, 'failed_job_count', 0),
+                'working_time': getattr(worker, 'total_working_time', 0.0),
+            }
+            job_stats['total'] = job_stats['successful'] + job_stats['failed']
+
+            worker_list.append((worker.name, state, current_job, job_stats))
+
+        return {'suspended': bool(suspended), 'workers': worker_list}
+
+    except Exception as e:
+        print(
+            f"\n[bold red]Error (get_rq_worker_status):[/bold red] Failed to get RQ worker status: {e}",
+            file=sys.stderr,
+        )
+        if __debug__:
+            traceback.print_exc(file=sys.stderr)
+        return None
 
 
 def check_rq_suspension(redis_url=None) -> Optional[bool]:

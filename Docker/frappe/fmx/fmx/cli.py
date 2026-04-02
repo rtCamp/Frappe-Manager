@@ -71,6 +71,7 @@ def execute_parallel_command(
         display.print("No services specified or found to execute command on.")
         return
 
+    kwargs['verbose'] = verbose
     results = _run_parallel_tasks(services, command_func, action_verb, show_progress, **kwargs)
 
     if return_raw_results:
@@ -156,7 +157,6 @@ def _handle_info_results(results: dict, **kwargs):
     if kwargs.get('action') == 'INFO':
         return results
 
-    display.rule()
     output_printed = False
     for service in sorted(results.keys()):
         result = results.get(service)
@@ -166,7 +166,6 @@ def _handle_info_results(results: dict, **kwargs):
 
     if not output_printed:
         display.warning("No service status information could be retrieved.")
-    display.rule()
     return None
 
 

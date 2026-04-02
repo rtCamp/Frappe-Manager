@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 from rich.tree import Tree
 from rich.table import Table
 
@@ -43,7 +43,7 @@ def create_process_details_table(process_info: Dict[str, Any], verbose: bool = F
         elif field == 'exitstatus' and process_info.get('statename') == 'RUNNING':
             continue
         elif field in ['start', 'stop', 'now']:
-            value = format_timestamp(value)
+            value = format_timestamp(value if isinstance(value, int) else 0)
 
         if value is not None or field in ['pid', 'exitstatus']:
             table.add_row(f"{label}:", str(value))
@@ -72,7 +72,6 @@ def format_service_info(service_name: str, process_info_list: list, verbose: boo
             'green' if state == 'RUNNING' else ('yellow' if state in ['STARTING', 'BACKOFF', 'STOPPING'] else 'red')
         )
 
-        # Rearrange the elements: PID, Status, then Process Name
         process_tree = root.add(
             f"([dimmed]PID: {process.get('pid', 0) or 'N/A'}[/dimmed]) "
             f"([{state_color}]{state}[/{state_color}]) "
@@ -82,5 +81,54 @@ def format_service_info(service_name: str, process_info_list: list, verbose: boo
         details_table = create_process_details_table(process, verbose=verbose)
         if details_table.row_count > 0:
             process_tree.add(details_table)
+
+    return root
+
+
+def format_rq_status(rq_status: Optional[dict], verbose: bool = False) -> Optional[Tree]:
+    """Format RQ worker status as a Rich Tree.
+
+    Args:
+        rq_status: Dictionary with 'suspended' and 'workers' keys
+        verbose: If True, shows more detailed information
+
+    Returns:
+        Tree object with formatted RQ status, or None if no status available
+    """
+    if not rq_status:
+        return None
+
+    suspended = rq_status.get('suspended', False)
+    workers = rq_status.get('workers', [])
+
+    suspension_status = "🔴 SUSPENDED" if suspended else "🟢 ACTIVE"
+    root = Tree(f"⚙️  [highlight]RQ Workers[/highlight] ({suspension_status})", highlight=True)
+
+    if not workers:
+        root.add("[dimmed]No RQ workers registered[/dimmed]")
+        return root
+
+    for worker_name, state, current_job, job_stats in workers:
+        state_color = 'green' if state in ['idle', 'busy'] else 'yellow' if state == 'suspended' else 'red'
+
+        total_jobs = job_stats.get('total', 0)
+        successful = job_stats.get('successful', 0)
+        failed = job_stats.get('failed', 0)
+        working_time = job_stats.get('working_time', 0.0)
+
+        worker_label = (
+            f"([{state_color}]{state.upper()}[/{state_color}]) "
+            f"[heading]Worker:[/heading] [b]{worker_name}[/b] "
+            f"[dimmed]│ Jobs: {total_jobs}[/dimmed]"
+        )
+
+        if verbose:
+            if current_job:
+                worker_label += f"\n  [dimmed]Current job: {current_job}[/dimmed]"
+            worker_label += (
+                f"\n  [dimmed]✓ Successful: {successful}  ✗ Failed: {failed}  ⏱ Time: {working_time:.1f}s[/dimmed]"
+            )
+
+        root.add(worker_label)
 
     return root

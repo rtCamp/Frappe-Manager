@@ -1,6 +1,7 @@
 import os
 import socket
 from pathlib import Path
+from typing import Optional
 from xmlrpc.client import ServerProxy, Fault, ProtocolError
 import supervisor.xmlrpc as sxml
 from fmx.supervisor.exceptions import SupervisorConnectionError
@@ -12,7 +13,7 @@ SUPERVISOR_RPC_TIMEOUT = 10.0
 
 class SupervisorTransportWithTimeout(sxml.SupervisorTransport):
     def __init__(self, serverurl, timeout=SUPERVISOR_RPC_TIMEOUT):
-        super().__init__(serverurl)
+        super().__init__(serverurl=serverurl)
         self.timeout = timeout
 
     def make_connection(self, host):
@@ -22,7 +23,7 @@ class SupervisorTransportWithTimeout(sxml.SupervisorTransport):
         return conn
 
 
-def get_xml_connection(service_name: str) -> ServerProxy:
+def get_xml_connection(service_name: str) -> Optional[ServerProxy]:
     """
     Creates an XML-RPC connection to a supervisord instance via Unix socket.
 
@@ -43,9 +44,7 @@ def get_xml_connection(service_name: str) -> ServerProxy:
 
     return ServerProxy(
         "http://127.0.0.1",
-        transport=SupervisorTransportWithTimeout(
-            serverurl=f"unix://{socket_path.resolve()}", timeout=SUPERVISOR_RPC_TIMEOUT
-        ),
+        transport=SupervisorTransportWithTimeout(f"unix://{socket_path.resolve()}", timeout=SUPERVISOR_RPC_TIMEOUT),
     )
 
 
