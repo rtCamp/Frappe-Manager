@@ -109,6 +109,8 @@ def _run_parallel_tasks(services: List[str], command_func, action_verb: str, sho
 
         for future in as_completed(futures):
             service = futures[future]
+            if show_progress and task_id is not None and progress:
+                progress.update(task_id, description=f"{action_verb.capitalize()} {service}...")
             try:
                 result = future.result()
                 results[service] = result
@@ -154,7 +156,7 @@ def _handle_info_results(results: dict, **kwargs):
     if kwargs.get('action') == 'INFO':
         return results
 
-    display.print("-" * 30)
+    display.rule()
     output_printed = False
     for service in sorted(results.keys()):
         result = results.get(service)
@@ -164,7 +166,7 @@ def _handle_info_results(results: dict, **kwargs):
 
     if not output_printed:
         display.warning("No service status information could be retrieved.")
-    display.print("-" * 30)
+    display.rule()
     return None
 
 
@@ -247,7 +249,7 @@ def _display_start_results_by_service(results: dict) -> List[str]:
                     for process in started:
                         display.print(f"    - {display.highlight(process)}")
                 if already_running:
-                    display.dimmed("  - Restarted (was already running):")
+                    display.dimmed("  - Already Running (skipped):")
                     for process in already_running:
                         display.print(f"    - {display.highlight(process)}")
                 if failed:
@@ -287,7 +289,7 @@ def _display_stop_results_by_service(results: dict) -> List[str]:
                     for process in stopped:
                         display.print(f"    - {display.highlight(process)}")
                 if already_stopped:
-                    display.dimmed("  - Signaled (not waited for stop):")
+                    display.dimmed("  - Already Stopped (skipped):")
                     for process in already_stopped:
                         display.print(f"    - {display.highlight(process)}")
                 if failed:
@@ -462,11 +464,16 @@ app = typer.Typer(
 
 
 @app.callback()
-def main_callback(ctx: typer.Context):
+def main_callback(
+    ctx: typer.Context,
+    verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
+    debug: bool = typer.Option(False, "--debug", help="Enable debug mode (shows stack traces)"),
+):
     if ctx.obj is None:
         ctx.obj = {}
 
-    ctx.obj['display'] = DisplayManager()
+    ctx.obj['display'] = DisplayManager(verbose=verbose)
+    ctx.obj['debug'] = debug
 
 
 def register_commands():

@@ -19,7 +19,9 @@ from fmx.supervisor.api import (
 )
 
 
-def _set_common_site_config_key_value(key_name: str, value: Any, verbose: bool = False):
+def _set_common_site_config_key_value(
+    key_name: str, value: Any, display: Optional[DisplayManager] = None, verbose: bool = False
+):
     """Set a specific key's value in common_site_config.json."""
     common_config_path = Path("/workspace/frappe-bench/sites/common_site_config.json")
     config = {}
@@ -33,12 +35,12 @@ def _set_common_site_config_key_value(key_name: str, value: Any, verbose: bool =
         config[key_name] = value
         with open(common_config_path, 'w') as f:
             json.dump(config, f, indent=4)
-        if verbose:
-            print(f"[dim]Set {key_name} to {value} in {common_config_path}[/dim]")
+        if verbose and display:
+            display.info(f"Set {key_name} to {value} in {common_config_path}")
         return True
     except Exception as e:
-        if verbose:
-            print(f"[yellow]Warning:[/yellow] Could not write {key_name} to {common_config_path}: {e}")
+        if verbose and display:
+            display.warning(f"Could not write {key_name} to {common_config_path}: {e}")
         return False
 
 
@@ -48,8 +50,8 @@ ServiceNamesEnum = ServiceNameEnumFactory()
 
 
 def enable_maintenance_mode(display: DisplayManager):
-    display.print("[yellow]Enabling maintenance mode...[/yellow]")
-    if _set_common_site_config_key_value("maintenance_mode", 1):
+    display.warning("Enabling maintenance mode...")
+    if _set_common_site_config_key_value("maintenance_mode", 1, display=display):
         display.success("Maintenance mode enabled.")
     else:
         display.error("Failed to enable maintenance mode in common_site_config.json.")
@@ -57,8 +59,8 @@ def enable_maintenance_mode(display: DisplayManager):
 
 
 def disable_maintenance_mode(display: DisplayManager):
-    display.print("[yellow]Disabling maintenance mode...[/yellow]")
-    if _set_common_site_config_key_value("maintenance_mode", 0):
+    display.warning("Disabling maintenance mode...")
+    if _set_common_site_config_key_value("maintenance_mode", 0, display=display):
         display.success("Maintenance mode disabled.")
     else:
         display.error("Failed to disable maintenance mode in common_site_config.json.")
@@ -71,6 +73,7 @@ def _suspend_rq_workers(
     wait_workers_timeout: int,
     wait_workers_poll: int,
     wait_workers_verbose: bool,
+    debug: bool = False,
 ) -> bool:
     """Suspend RQ workers via Redis flag and optionally wait for completion.
 
@@ -113,7 +116,7 @@ def _suspend_rq_workers(
                 return False
 
             if wait_workers is True:
-                display.print("\n[cyan]Waiting for RQ workers to complete their current jobs...[/cyan]")
+                display.print("\nWaiting for RQ workers to complete their current jobs...")
                 if not wait_for_rq_workers_suspended(
                     timeout=wait_workers_timeout, poll_interval=wait_workers_poll, verbose=wait_workers_verbose
                 ):
@@ -124,7 +127,8 @@ def _suspend_rq_workers(
 
     except Exception as e:
         display.error(f"An unexpected error occurred during worker suspension or verification: {e}")
-        traceback.print_exc()
+        if debug:
+            traceback.print_exc()
         return False
 
     return True
@@ -228,7 +232,7 @@ def _run_migration(display: DisplayManager, migrate_timeout: int, migrate_comman
                 if output:
                     line = output.rstrip('\r\n')
                     if line:
-                        print(f"  {line}", flush=True)
+                        display.print(f"  {line}")
                         output_lines.append(line)
 
                 if time.time() - start_time > migrate_timeout:
@@ -260,7 +264,7 @@ def _run_migration(display: DisplayManager, migrate_timeout: int, migrate_comman
             if output_lines:
                 display.print("Recent migration output:")
                 for line in output_lines[-10:]:
-                    print(f"  {line}")
+                    display.print(f"  {line}")
             return False
 
     except subprocess.TimeoutExpired:
@@ -288,6 +292,7 @@ def _run_migrate_flow(
     wait: bool,
     maintenance_phases: set,
     force_kill_timeout: Optional[int],
+    debug: bool = False,
 ):
     """Execute zero-downtime migration flow with proper phase transitions.
 
@@ -317,7 +322,7 @@ def _run_migrate_flow(
 
         if suspension_needed:
             if not _suspend_rq_workers(
-                display, wait_workers, wait_workers_timeout, wait_workers_poll, wait_workers_verbose
+                display, wait_workers, wait_workers_timeout, wait_workers_poll, wait_workers_verbose, debug
             ):
                 raise typer.Exit(code=1)
 
@@ -539,6 +544,7 @@ def command(
     using --maintenance-mode. Example: --maintenance-mode stop,migrate
     """
     display: DisplayManager = ctx.obj['display']
+    debug: bool = ctx.obj.get('debug', False)
 
     valid_phases = {"stop", "migrate", "start"}
     maintenance_phases = set(maintenance_mode or [])
@@ -588,6 +594,7 @@ def command(
                 wait,
                 maintenance_phases,
                 force_kill_timeout,
+                debug,
             )
         finally:
             if suspension_needed:
@@ -603,7 +610,7 @@ def command(
 
             if suspension_needed:
                 if not _suspend_rq_workers(
-                    display, wait_workers, wait_workers_timeout, wait_workers_poll, wait_workers_verbose
+                    display, wait_workers, wait_workers_timeout, wait_workers_poll, wait_workers_verbose, debug
                 ):
                     raise typer.Exit(code=1)
 

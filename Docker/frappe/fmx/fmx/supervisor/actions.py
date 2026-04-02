@@ -126,10 +126,12 @@ def _handle_stop(
                 stop_results["failed"].append(process_name)
         except Fault as e:
             display.error(f"Error during stop operation for process {process_name}: {e.faultString}")
+            display.dimmed(f"  Check logs: supervisorctl tail {process_name}")
             _raise_exception_from_fault(e, service_name, action, process_name)
             stop_results["failed"].append(process_name)
         except Exception as e:
             display.error(f"Unexpected error stopping process {display.highlight(process_name)}: {e}")
+            display.dimmed(f"  Check logs: supervisorctl tail {process_name}")
             stop_results["failed"].append(process_name)
 
     logger.info(f"Stop operation completed: service={service_name}, results={stop_results}")
@@ -213,6 +215,8 @@ def _handle_start(
                     display.error(
                         f"Process {display.highlight(process_name_to_start)} entered FATAL state during start."
                     )
+                    display.dimmed(f"  Check logs: supervisorctl tail {process_name_to_start}")
+                    display.dimmed(f"  Full details: fmx status --verbose")
                     start_results["failed"].append(process_name_to_start)
                     _raise_exception_from_fault(start_fault, service_name, action, process_name_to_start)
                 elif "BAD_NAME" in fault_string:
@@ -280,6 +284,7 @@ def _handle_restart(
         display.error(
             f"Failed to stop some processes during standard restart of {display.highlight(service_name)}. Aborting start."
         )
+        display.dimmed("  Run 'fmx status --verbose' for detailed process states")
         # Return combined results showing the failure
         return {
             "stopped": stop_results.get("stopped", []),
