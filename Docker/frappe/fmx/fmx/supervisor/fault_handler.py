@@ -6,8 +6,10 @@ from fmx.supervisor.exceptions import (
     ProcessNotFoundError,
     ProcessNotRunningError,
     ProcessAlreadyStartedError,
-    SupervisorOperationFailedError
+    ProcessSpawnError,
+    SupervisorOperationFailedError,
 )
+
 
 def _raise_exception_from_fault(e: Fault, service_name: str, action: str, process_name: Optional[str] = None):
     """Raise a specific SupervisorError based on the XML-RPC Fault."""
@@ -20,13 +22,21 @@ def _raise_exception_from_fault(e: Fault, service_name: str, action: str, proces
         raise ProcessNotRunningError(f"Process not running: {fault_string}", service_name, process_name, e)
     elif "ALREADY_STARTED" in fault_string:
         raise ProcessAlreadyStartedError(f"Process already started: {fault_string}", service_name, process_name, e)
+    elif "SPAWN_ERROR" in fault_string:
+        raise ProcessSpawnError(f"Process failed to spawn: {fault_string}", service_name, process_name, e)
     elif "BAD_ARGUMENTS" in fault_string:
         raise SupervisorOperationFailedError(f"Invalid arguments: {fault_string}", service_name, process_name, e)
     elif "NO_FILE" in fault_string:
-        raise SupervisorConnectionError(f"Socket file error: {fault_string}", service_name, process_name, e) # Treat as connection issue
+        raise SupervisorConnectionError(
+            f"Socket file error: {fault_string}", service_name, process_name, e
+        )  # Treat as connection issue
     elif "FAILED" in fault_string:
-         raise SupervisorOperationFailedError(f"Action failed: {fault_string}", service_name, process_name, e)
+        raise SupervisorOperationFailedError(f"Action failed: {fault_string}", service_name, process_name, e)
     elif "SHUTDOWN_STATE" in fault_string:
-        raise SupervisorConnectionError(f"Supervisor is shutting down", service_name, process_name, e) # Treat as connection issue
+        raise SupervisorConnectionError(
+            f"Supervisor is shutting down", service_name, process_name, e
+        )  # Treat as connection issue
     else:
-        raise SupervisorOperationFailedError(f"Supervisor Fault {fault_code or 'N/A'}: '{fault_string}'", service_name, process_name, e)
+        raise SupervisorOperationFailedError(
+            f"Supervisor Fault {fault_code or 'N/A'}: '{fault_string}'", service_name, process_name, e
+        )

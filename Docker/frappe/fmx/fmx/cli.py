@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from contextlib import nullcontext
 from enum import Enum
+import functools
 import importlib
 import logging
 import os
@@ -24,27 +25,26 @@ from fmx.supervisor import (
     stop_service as util_stop_service,
 )
 
-_cached_service_names: Optional[List[str]] = None
 
 def setup_logging():
     """Setup logging for fmx application."""
     log_dir = Path("/workspace/frappe-bench/logs")
     log_dir.mkdir(exist_ok=True)
-    
+
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
             logging.FileHandler(log_dir / "fmx.log"),
-        ]
+        ],
     )
 
+
+@functools.lru_cache(maxsize=1)
 def get_service_names_for_completion() -> List[str]:
     """Get service names for autocompletion."""
-    global _cached_service_names
-    if _cached_service_names is None:
-        _cached_service_names = util_get_service_names()
-    return _cached_service_names
+    return util_get_service_names()
+
 
 def get_dynamic_service_name_enum():
     """Create Enum for service names."""
@@ -53,7 +53,9 @@ def get_dynamic_service_name_enum():
         return Enum("ServiceNames", {"NO_SERVICES_FOUND": "No services running or found"})
     return Enum("ServiceNames", {name: name for name in service_names})
 
+
 ServiceNameEnumFactory = get_dynamic_service_name_enum
+
 
 def execute_parallel_command(
     services: List[str],
@@ -62,7 +64,7 @@ def execute_parallel_command(
     show_progress: bool = True,
     verbose: bool = False,
     return_raw_results: bool = False,
-    **kwargs
+    **kwargs,
 ):
     """Execute command across multiple services in parallel."""
     if not services:
@@ -70,10 +72,10 @@ def execute_parallel_command(
         return
 
     results = _run_parallel_tasks(services, command_func, action_verb, show_progress, **kwargs)
-    
+
     if return_raw_results:
         return results
-    
+
     return _handle_command_results(results, command_func, action_verb, **kwargs)
 
 
@@ -83,13 +85,20 @@ def _run_parallel_tasks(services: List[str], command_func, action_verb: str, sho
     results = {}
     futures = {}
 
-    progress_manager = Progress(
-        SpinnerColumn(),
-        TextColumn("[progress.description]{task.description}"),
-        transient=True,
-    ) if show_progress else nullcontext()
+    progress_manager = (
+        Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            transient=True,
+        )
+        if show_progress
+        else nullcontext()
+    )
 
-    with progress_manager as progress, ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="fm_helper_worker") as executor:
+    with (
+        progress_manager as progress,
+        ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="fm_helper_worker") as executor,
+    ):
         task_id = None
         if show_progress and progress:
             task_id = progress.add_task(f"{action_verb.capitalize()} services...", total=len(services))
@@ -122,13 +131,8 @@ def _format_error_result(error_msg: str) -> dict:
                 error_msg = error_msg.split(" (Service:", 1)[0].strip()
             else:
                 error_msg = error_msg.replace("Supervisor Fault 50:", "")
-    
-    return {
-        'error': error_msg,
-        'failed': [],
-        'started': [],
-        'already_running': []
-    }
+
+    return {'error': error_msg, 'failed': [], 'started': [], 'already_running': []}
 
 
 def _handle_command_results(results: dict, command_func, action_verb: str, **kwargs):
@@ -194,26 +198,26 @@ def _handle_stop_results(results: dict):
 def _calculate_start_totals(results: dict) -> dict:
     """Calculate totals for start command results."""
     totals = {'started': 0, 'already_running': 0, 'failed': 0}
-    
+
     for result in results.values():
         if isinstance(result, dict) and 'error' not in result:
             totals['started'] += len(result.get("started", []))
             totals['already_running'] += len(result.get("already_running", []))
             totals['failed'] += len(result.get("failed", []))
-    
+
     return totals
 
 
 def _calculate_stop_totals(results: dict) -> dict:
     """Calculate totals for stop command results."""
     totals = {'stopped': 0, 'already_stopped': 0, 'failed': 0}
-    
+
     for result in results.values():
         if isinstance(result, dict) and 'error' not in result:
             totals['stopped'] += len(result.get("stopped", []))
             totals['already_stopped'] += len(result.get("already_stopped", []))
             totals['failed'] += len(result.get("failed", []))
-    
+
     return totals
 
 
@@ -231,7 +235,7 @@ def _display_start_results_by_service(results: dict) -> List[str]:
                 display.print(f"    - {result['error']}")
                 services_failed_entirely.append(service_name)
                 continue
-            
+
             started = result.get("started", [])
             already_running = result.get("already_running", [])
             failed = result.get("failed", [])
@@ -271,7 +275,7 @@ def _display_stop_results_by_service(results: dict) -> List[str]:
                 display.print(f"    - {result['error']}")
                 services_failed_entirely.append(service_name)
                 continue
-            
+
             stopped = result.get("stopped", [])
             already_stopped = result.get("already_stopped", [])
             failed = result.get("failed", [])
@@ -301,7 +305,7 @@ def _display_start_summary(totals: dict, services_failed_entirely: List[str], to
     """Display summary for start command."""
     display.heading("Overall Summary")
     summary_parts = []
-    
+
     if totals['started']:
         summary_parts.append(f"[green]{totals['started']} started[/green]")
     if totals['already_running']:
@@ -323,7 +327,7 @@ def _display_stop_summary(totals: dict, services_failed_entirely: List[str], tot
     """Display summary for stop command."""
     display.heading("Overall Summary")
     summary_parts = []
-    
+
     if totals['stopped']:
         summary_parts.append(f"[green]{totals['stopped']} stopped[/green]")
     if totals['already_stopped']:
@@ -351,7 +355,7 @@ def _handle_restart_results(results: dict):
 def _calculate_restart_totals(results: dict) -> dict:
     """Calculate totals for restart command results."""
     totals = {'stopped': 0, 'already_stopped': 0, 'started': 0, 'already_running': 0, 'failed': 0}
-    
+
     for result in results.values():
         if isinstance(result, dict) and 'error' not in result:
             totals['stopped'] += len(result.get("stopped", []))
@@ -359,7 +363,7 @@ def _calculate_restart_totals(results: dict) -> dict:
             totals['started'] += len(result.get("started", []))
             totals['already_running'] += len(result.get("already_running", []))
             totals['failed'] += len(result.get("failed", []))
-    
+
     return totals
 
 
@@ -377,7 +381,7 @@ def _display_restart_results_by_service(results: dict) -> List[str]:
                 display.print(f"    - {result['error']}")
                 services_failed_entirely.append(service_name)
                 continue
-            
+
             stopped = result.get("stopped", [])
             already_stopped = result.get("already_stopped", [])
             started = result.get("started", [])
@@ -417,7 +421,7 @@ def _display_restart_summary(totals: dict, services_failed_entirely: List[str], 
     """Display summary for restart command."""
     display.heading("Overall Summary")
     summary_parts = []
-    
+
     if totals['stopped']:
         summary_parts.append(f"[green]{totals['stopped']} stopped[/green]")
     if totals['already_stopped']:
@@ -438,6 +442,7 @@ def _display_restart_summary(totals: dict, services_failed_entirely: List[str], 
     else:
         display.warning("No processes were targeted for restarting or required restarting.")
 
+
 app = typer.Typer(
     invoke_without_command=True,
     no_args_is_help=True,
@@ -452,8 +457,9 @@ app = typer.Typer(
     epilog=f"""
     Uses supervisord socket files typically located in: {FM_SUPERVISOR_SOCKETS_DIR}
     (controlled by the SUPERVISOR_SOCKET_DIR environment variable).
-    """
+    """,
 )
+
 
 @app.callback()
 def main_callback(ctx: typer.Context):
@@ -461,6 +467,7 @@ def main_callback(ctx: typer.Context):
         ctx.obj = {}
 
     ctx.obj['display'] = DisplayManager()
+
 
 def register_commands():
     """Discover and register command functions from the commands directory."""
@@ -482,7 +489,7 @@ def register_commands():
                     if not cmd_name.strip():
                         continue
                     app.command(name=cmd_name, no_args_is_help=False)(cmd_func)
-                        
+
 
 def main():
     """Main entry point for the fmx CLI."""
@@ -491,6 +498,7 @@ def main():
     ServiceNameEnumFactory()
     register_commands()
     app()
+
 
 if __name__ == "__main__":
     main()

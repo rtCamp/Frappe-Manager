@@ -3,6 +3,7 @@ import subprocess
 import sys
 import time
 import json
+import traceback
 from pathlib import Path
 from typing import Annotated, Optional, List, Any
 import typer
@@ -123,8 +124,6 @@ def _suspend_rq_workers(
 
     except Exception as e:
         display.error(f"An unexpected error occurred during worker suspension or verification: {e}")
-        import traceback
-
         traceback.print_exc()
         return False
 
@@ -177,8 +176,6 @@ def _resume_rq_workers(display: DisplayManager) -> bool:
 
     except Exception as e:
         display.error(f"An unexpected error occurred while trying to call rq_controller to resume workers: {e}")
-        import traceback
-
         traceback.print_exc(file=sys.stderr)
         return False
 
@@ -243,6 +240,8 @@ def _run_migration(display: DisplayManager, migrate_timeout: int, migrate_comman
                     raise subprocess.TimeoutExpired(["bench", "migrate"], migrate_timeout)
 
         finally:
+            if process.stdout:
+                process.stdout.close()
             if process.poll() is None:
                 process.terminate()
                 try:
@@ -359,20 +358,18 @@ def _handle_migrate_success(
     """Handle migration success - full service restart.
 
     Success steps:
-    1. Resume RQ workers (remove Redis suspension flag)
-    2. Handle migrate→start phase transition for maintenance mode
-    3. Restart ALL supervisor services (full parallel restart)
-    4. Disable maintenance mode if enabled
+    1. Handle migrate→start phase transition for maintenance mode
+    2. Restart ALL supervisor services (full parallel restart)
+    3. Disable maintenance mode if enabled
 
     Full restart ensures all services pick up schema changes.
     Phase transition: If maintenance was ON from previous phases (stop/migrate)
     and "start" phase not requested, turn OFF before restart. If "start" phase
     requested, keep ON (or turn ON if not already).
-    """
-    display.success("Migration succeeded. Resuming RQ and restarting all services...")
 
-    if suspension_needed:
-        _resume_rq_workers(display)
+    Note: RQ resume is handled by caller's finally block.
+    """
+    display.success("Migration succeeded. Restarting all services...")
 
     # Check if maintenance currently ON from previous phases (stop or migrate)
     maintenance_currently_on = "stop" in maintenance_phases or "migrate" in maintenance_phases
@@ -412,16 +409,14 @@ def _handle_migrate_failure(
     """Handle migration failure recovery.
 
     Recovery steps:
-    1. Resume RQ workers (remove Redis suspension flag)
-    2. Start all non-running services to ensure full availability
+    1. Start all non-running services to ensure full availability
 
     Uses start (not restart) to avoid disrupting already-running services.
     Site stays up - only ensures all services are running.
-    """
-    display.error("Migration failed. Recovering — resuming RQ and starting all services...")
 
-    if suspension_needed:
-        _resume_rq_workers(display)
+    Note: RQ resume is handled by caller's finally block.
+    """
+    display.error("Migration failed. Recovering — starting all services...")
 
     execute_parallel_command(
         services_to_target,
@@ -430,47 +425,6 @@ def _handle_migrate_failure(
         show_progress=True,
         wait=wait,
     )
-
-
-def _restart_worker_processes(
-    display: DisplayManager,
-    services_to_target: List[str],
-    wait: bool,
-):
-    """Restart only worker processes across targeted services.
-
-    Logic:
-    1. For each service, connect to supervisor and get process list
-    2. Filter processes by is_worker_process() naming patterns
-    3. Call start_service() with explicit process_name_list for workers only
-    4. Uses start_service (not restart) - safe for already-running processes
-
-    Workers are identified by name patterns: -worker, worker-, _worker, worker_
-    """
-    from fmx.supervisor.connection import check_supervisord_connection
-    from fmx.supervisor.constants import is_worker_process
-    from fmx.supervisor.exceptions import SupervisorConnectionError
-
-    for service_name in services_to_target:
-        try:
-            conn = check_supervisord_connection(service_name)
-            all_info = conn.supervisor.getAllProcessInfo()
-            worker_names = [
-                info['name']  # type: ignore[index]
-                for info in all_info  # type: ignore[union-attr]
-                if is_worker_process(info['name'])  # type: ignore[index]
-            ]
-            if not worker_names:
-                display.dimmed(f"No worker processes found in {service_name}, skipping.")
-                continue
-
-            display.print(f"Restarting workers in {display.highlight(service_name)}: {', '.join(worker_names)}")
-            util_start_service(service_name, process_name_list=worker_names, wait=wait)
-
-        except SupervisorConnectionError as e:
-            display.warning(f"Could not connect to {service_name} to restart workers: {e}")
-        except Exception as e:
-            display.warning(f"Error restarting workers in {service_name}: {e}")
 
 
 def command(
