@@ -413,17 +413,23 @@ def _handle_migrate_failure(
 
     Recovery steps:
     1. Resume RQ workers (remove Redis suspension flag)
-    2. Restart worker supervisor processes only
-    3. Non-worker services (web, nginx, redis) remain untouched
+    2. Start all non-running services to ensure full availability
 
-    Site stays up - only workers were affected by suspension.
+    Uses start (not restart) to avoid disrupting already-running services.
+    Site stays up - only ensures all services are running.
     """
-    display.error("Migration failed. Recovering — resuming RQ and restarting worker processes...")
+    display.error("Migration failed. Recovering — resuming RQ and starting all services...")
 
     if suspension_needed:
         _resume_rq_workers(display)
 
-    _restart_worker_processes(display, services_to_target, wait)
+    execute_parallel_command(
+        services_to_target,
+        util_start_service,
+        action_verb="starting",
+        show_progress=True,
+        wait=wait,
+    )
 
 
 def _restart_worker_processes(
@@ -495,7 +501,7 @@ def command(
             "RQ workers are suspended (if --suspend-rq) and drained (if --wait-workers), "
             "then migration runs. Non-worker services (web, nginx, redis) stay up. "
             "On success: all services restart. "
-            "On failure: RQ resumes and worker processes restart; site stays up. "
+            "On failure: RQ resumes and all services are started (non-running ones only). "
             "Recommended: --suspend-rq --wait-workers for safe zero-job-loss migration. "
             "Use --migrate-command to customize the migration command.",
         ),
