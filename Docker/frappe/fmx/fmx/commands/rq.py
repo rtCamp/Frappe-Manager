@@ -73,7 +73,7 @@ def status_command(
 
     display.print("Fetching RQ worker status...")
 
-    rq_status = get_rq_worker_status(include_dead=True)
+    rq_status = get_rq_worker_status(include_dead=False)
 
     if not rq_status:
         display.error("✗ Could not fetch RQ worker status")

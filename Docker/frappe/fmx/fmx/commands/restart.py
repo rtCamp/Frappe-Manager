@@ -9,7 +9,6 @@ from typing import Annotated, Optional, List, Any
 import typer
 from fmx.rq_controller import (
     control_rq_workers,
-    check_rq_suspension,
     wait_for_rq_workers_suspended,
     is_rq_suspended,
     ActionEnum,
@@ -21,6 +20,8 @@ from fmx.supervisor.api import (
     start_service as util_start_service,
     restart_service as util_restart_service,
 )
+from fmx.supervisor.executor import execute_supervisor_command
+from fmx.supervisor.constants import is_worker_process
 
 
 def _set_common_site_config_key_value(
@@ -71,6 +72,24 @@ def disable_maintenance_mode(display: DisplayManager):
         # Do not exit, just warn
 
 
+def _get_active_worker_pids(services: List[str]) -> set:
+    pids = set()
+    for service in services:
+        try:
+            process_info_list = execute_supervisor_command(service, "INFO")
+            if process_info_list:
+                for proc in process_info_list:
+                    if (
+                        is_worker_process(proc.get('name', ''))
+                        and proc.get('statename') == 'RUNNING'
+                        and proc.get('pid', 0) > 0
+                    ):
+                        pids.add(proc['pid'])
+        except Exception:
+            pass
+    return pids
+
+
 def _suspend_rq_workers(
     display: DisplayManager,
     wait_workers: bool,
@@ -78,6 +97,7 @@ def _suspend_rq_workers(
     wait_workers_poll: int,
     wait_workers_verbose: bool,
     debug: bool = False,
+    active_pids: Optional[set] = None,
 ) -> bool:
     """Suspend RQ workers via Redis flag and optionally wait for completion.
 
@@ -99,7 +119,7 @@ def _suspend_rq_workers(
             display.print("Aborting restart.")
             return False
 
-        suspension_status = check_rq_suspension()
+        suspension_status = is_rq_suspended()
 
         if suspension_status is not True:
             display.error("Failed to verify RQ suspension flag in Redis.")
@@ -109,7 +129,10 @@ def _suspend_rq_workers(
         if wait_workers:
             display.print("\nWaiting for RQ workers to complete their current jobs...")
             if not wait_for_rq_workers_suspended(
-                timeout=wait_workers_timeout, poll_interval=wait_workers_poll, verbose=wait_workers_verbose
+                timeout=wait_workers_timeout,
+                poll_interval=wait_workers_poll,
+                verbose=wait_workers_verbose,
+                active_pids=active_pids,
             ):
                 display.error("Workers did not become idle within the timeout period.")
                 display.print("Aborting restart to avoid interrupting jobs.")
@@ -157,7 +180,7 @@ def _run_migration(display: DisplayManager, migrate_timeout: int, migrate_comman
     Args:
         display: DisplayManager for output
         migrate_timeout: Timeout in seconds
-        migrate_command: Custom migrate command (default: ["bench", "migrate", "--skip-failing-patches"])
+        migrate_command: Custom migrate command (default: ["bench", "migrate", "--skip-failing"])
 
     Returns:
         True if migration succeeded, False to abort restart
@@ -256,6 +279,7 @@ def _run_migrate_flow(
     maintenance_on_migrate: bool = False,
     force_kill_timeout: Optional[int] = None,
     debug: bool = False,
+    active_pids: Optional[set] = None,
 ):
     """Execute zero-downtime migration flow with proper phase transitions.
 
@@ -281,7 +305,13 @@ def _run_migrate_flow(
 
         if suspension_needed:
             if not _suspend_rq_workers(
-                display, wait_workers, wait_workers_timeout, wait_workers_poll, wait_workers_verbose, debug
+                display,
+                wait_workers,
+                wait_workers_timeout,
+                wait_workers_poll,
+                wait_workers_verbose,
+                debug,
+                active_pids=active_pids,
             ):
                 raise typer.Exit(code=1)
 
@@ -458,6 +488,15 @@ def command(
             help="Show detailed worker states during --wait-workers checks.",
         ),
     ] = False,
+    wait_active_workers: Annotated[
+        bool,
+        typer.Option(
+            "--wait-active-workers",
+            help="Like --wait-workers but only waits for workers that supervisor currently has running (by PID). "
+            "Skips stale Redis entries. Implies --wait-workers and --suspend-rq.",
+            is_flag=True,
+        ),
+    ] = False,
     force_kill_timeout: Annotated[
         Optional[int],
         typer.Option(
@@ -513,6 +552,9 @@ def command(
     maintenance_on_drain = "drain" in maintenance_set
     maintenance_on_migrate = "migrate" in maintenance_set
 
+    if wait_active_workers:
+        wait_workers = True
+
     suspension_needed = suspend_rq or wait_workers
 
     if maintenance_on_drain and not suspension_needed:
@@ -535,6 +577,8 @@ def command(
     valid, target_desc = validate_services(display, services_to_target, all_services, "restart")
     if not valid:
         return
+
+    active_pids: Optional[set] = _get_active_worker_pids(services_to_target) if wait_active_workers else None
 
     wait_desc = "(with wait)" if wait else "(without wait)"
     display.dimmed(f"\nAttempting to restart {target_desc} {wait_desc}...")
@@ -567,6 +611,7 @@ def command(
                 maintenance_on_migrate=maintenance_on_migrate,
                 force_kill_timeout=force_kill_timeout,
                 debug=debug,
+                active_pids=active_pids,
             )
         finally:
             if suspension_needed:
@@ -581,7 +626,13 @@ def command(
 
             if suspension_needed:
                 if not _suspend_rq_workers(
-                    display, wait_workers, wait_workers_timeout, wait_workers_poll, wait_workers_verbose, debug
+                    display,
+                    wait_workers,
+                    wait_workers_timeout,
+                    wait_workers_poll,
+                    wait_workers_verbose,
+                    debug,
+                    active_pids=active_pids,
                 ):
                     raise typer.Exit(code=1)
 

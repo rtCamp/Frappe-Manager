@@ -62,9 +62,7 @@ def create_process_details_table(process_info: Dict[str, Any], verbose: bool = F
 
     for field, label in fields_to_display:
         value = process_info.get(field)
-        if field == 'pid' and value == 0:
-            value = "N/A (Not Running)"
-        elif field == 'exitstatus' and process_info.get('statename') == 'RUNNING':
+        if field == 'exitstatus' and process_info.get('statename') == 'RUNNING':
             continue
         elif field in ['start', 'stop', 'now']:
             value = format_timestamp(value if isinstance(value, int) else 0)
@@ -113,7 +111,7 @@ def format_rq_status(rq_status: Optional[dict], verbose: bool = False) -> Option
     """Format RQ worker status as a Rich Tree.
 
     Args:
-        rq_status: Dictionary with 'suspended' and 'workers' keys
+        rq_status: Dictionary with 'suspended', 'workers', and 'queues' keys
         verbose: If True, shows more detailed information
 
     Returns:

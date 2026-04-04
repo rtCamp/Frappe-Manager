@@ -6,7 +6,7 @@ from fmx.display import display
 
 logger = logging.getLogger(__name__)
 
-from fmx.supervisor.executor import execute_supervisor_command, check_supervisord_connection
+from fmx.supervisor.executor import execute_supervisor_command
 from fmx.supervisor.connection import FM_SUPERVISOR_SOCKETS_DIR
 from fmx.supervisor.status_formatter import format_service_info
 from fmx.supervisor.exceptions import SupervisorError, SupervisorConnectionError
@@ -218,10 +218,6 @@ def get_service_info(service_name: str, verbose: bool = False) -> Tree:
     """
     logger.info(f"Get service info called: service={service_name}, verbose={verbose}")
     try:
-        if not check_supervisord_connection(service_name):
-            logger.warning(f"Service {service_name} supervisor connection failed, returning empty info")
-            return format_service_info(service_name, [], verbose=verbose)
-
         process_info = execute_supervisor_command(service_name, "INFO")
         process_count = len(process_info) if process_info else 0
         logger.info(f"Get service info completed: service={service_name}, process_count={process_count}")

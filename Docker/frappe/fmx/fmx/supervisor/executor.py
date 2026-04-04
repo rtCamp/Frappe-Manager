@@ -41,7 +41,6 @@ def execute_supervisor_command(
     wait_workers: bool = False,
     verbose: bool = False,
     signal_name: Optional[str] = None,
-    signal_num: Optional[int] = None,
     progress_callback=None,
 ) -> Any:
     """
@@ -61,8 +60,9 @@ def execute_supervisor_command(
 
     Returns:
         Action-specific results:
-        - stop/start: Dict with process lists or boolean success
-        - restart/signal: Boolean success status
+        - stop/start: Dict with process lists
+        - restart: Dict with stop and start phase results
+        - signal: Boolean success status
         - info: List of process information dictionaries
 
     Raises:
@@ -95,8 +95,6 @@ def execute_supervisor_command(
                 wait_workers,
                 progress_callback=progress_callback,
             )
-        elif action == "info":
-            return _handle_info(supervisor_api, service_name)
         elif action == "signal":
             if not signal_name:
                 raise ValueError("Signal name must be provided for the 'signal' action.")

@@ -64,57 +64,6 @@ def _kill_process(supervisor_api, service_name: str, process_name: str) -> bool:
         return False
 
 
-def _wait_for_worker_processes_stop(supervisor_api, service_name: str, timeout: int) -> bool:
-    worker_process_names = []
-    try:
-        all_info = supervisor_api.getAllProcessInfo()
-        worker_process_names = [info['name'] for info in all_info if is_worker_process(info['name'])]
-    except Fault as e:
-        display.error(f"Error getting process info to identify workers: {e.faultString}")
-        _raise_exception_from_fault(e, service_name, "getAllProcessInfo (worker wait identify)")
-        return False
-
-    if not worker_process_names:
-        display.print("  No worker processes found to wait for.")
-        return True
-
-    num_workers = len(worker_process_names)
-    worker_names_str = ", ".join(display.highlight(name) for name in worker_process_names)
-    display.print(f"  Waiting up to {timeout}s for {num_workers} worker process(es) ({worker_names_str}) to stop...")
-
-    start_time = time.monotonic()
-    while time.monotonic() - start_time < timeout:
-        all_workers_stopped_this_check = True
-        try:
-            current_all_info = supervisor_api.getAllProcessInfo()
-            current_states = {info['name']: info['state'] for info in current_all_info}
-
-            for worker_name in worker_process_names:
-                current_state = current_states.get(worker_name)
-                if current_state is None or current_state not in STOPPED_STATES:
-                    all_workers_stopped_this_check = False
-                    break
-
-            if all_workers_stopped_this_check:
-                display.success(f"  All {num_workers} identified worker process(es) stopped gracefully.")
-                return True
-
-        except Fault as e:
-            if "SHUTDOWN_STATE" in e.faultString:
-                display.print(
-                    f"  Supervisor in {display.highlight(service_name)} is shutting down, assuming workers stopped."
-                )
-                return True
-            display.error(f"Error checking worker status: {e.faultString}")
-            all_workers_stopped_this_check = False
-
-        if not all_workers_stopped_this_check:
-            time.sleep(0.5)
-
-    display.warning(f"Timeout reached. Not all identified worker processes stopped gracefully.")
-    return False
-
-
 def _stop_single_process_with_logic(
     supervisor_api,
     service_name: str,

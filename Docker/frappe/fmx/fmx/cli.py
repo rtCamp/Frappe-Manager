@@ -22,7 +22,6 @@ from fmx.supervisor import (
     get_service_info as util_get_service_info,
     get_service_names as util_get_service_names,
     restart_service as util_restart_service,
-    signal_service as util_signal_service,
     start_service as util_start_service,
     stop_service as util_stop_service,
 )
@@ -73,7 +72,6 @@ def _make_restart_callback(lock: threading.Lock):
             arrow = "↑"
 
         svc = service_name.ljust(14)
-        proc = process_name.ljust(18)
         pid_s = (f"pid {pid}" if pid else "pid ---").ljust(10)
         meth = method.ljust(16)
 
@@ -196,8 +194,6 @@ def _handle_command_results(results: dict, command_func, action_verb: str, elaps
         return _handle_info_results(results, **kwargs)
     elif command_func == util_restart_service:
         return _handle_restart_results(results, elapsed=elapsed)
-    elif command_func == util_signal_service:
-        return _handle_simple_results(results, action_verb)
     elif command_func == util_start_service:
         return _handle_start_results(results)
     elif command_func == util_stop_service:
@@ -219,19 +215,6 @@ def _handle_info_results(results: dict, **kwargs):
     if not output_printed:
         display.warning("No service status information could be retrieved.")
     return None
-
-
-def _handle_simple_results(results: dict, action_verb: str):
-    """Handle results from restart/signal commands."""
-    success_count = sum(1 for res in results.values() if res is True)
-    fail_count = len(results) - success_count
-
-    if fail_count == 0:
-        display.success(f"Successfully {action_verb} {success_count} service(s).")
-    elif success_count == 0:
-        display.error(f"Failed to {action_verb} {fail_count} service(s).")
-    else:
-        display.warning(f"Finished {action_verb}: {success_count} succeeded, {fail_count} failed.")
 
 
 def _handle_start_results(results: dict):

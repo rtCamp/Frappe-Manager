@@ -143,7 +143,7 @@ def is_rq_suspended(redis_url=None) -> bool:
         connection = _get_redis_connection(redis_url=redis_url)
         if not connection:
             return False
-        return is_suspended(connection)
+        return bool(is_suspended(connection))
     except Exception:
         return False
 
@@ -192,7 +192,11 @@ def control_rq_workers(action: ActionEnum, redis_url=None) -> bool:
 
 
 def wait_for_rq_workers_suspended(
-    timeout: int = 300, poll_interval: int = 5, verbose: bool = False, redis_url=None
+    timeout: int = 300,
+    poll_interval: int = 5,
+    verbose: bool = False,
+    redis_url=None,
+    active_pids: Optional[set] = None,
 ) -> bool:
     try:
         connection = _get_redis_connection(redis_url=redis_url)
@@ -213,6 +217,10 @@ def wait_for_rq_workers_suspended(
 
             try:
                 non_suspended, worker_states = _get_worker_states(connection)
+
+                if active_pids is not None:
+                    non_suspended = [w for w in non_suspended if getattr(w, 'pid', None) in active_pids]
+                    worker_states = [(w, s) for w, s in worker_states if getattr(w, 'pid', None) in active_pids]
 
                 if not worker_states:
                     final_status = "no_workers"
@@ -264,7 +272,11 @@ def wait_for_rq_workers_suspended(
         elif final_status == "timeout":
             try:
                 workers = Worker.all(connection=connection)
-                laggards = [_label(w) for w in workers if w.get_state() != 'suspended']
+                laggards = [
+                    _label(w)
+                    for w in workers
+                    if w.get_state() != 'suspended' and (active_pids is None or getattr(w, 'pid', None) in active_pids)
+                ]
             except Exception:
                 laggards = []
             suffix = f" — {', '.join(laggards)}" if laggards else ""
@@ -365,33 +377,6 @@ def get_rq_worker_status(redis_url=None, include_dead: bool = False) -> Optional
         return None
 
 
-def check_rq_suspension(redis_url=None) -> Optional[bool]:
-    """
-    Connects to Redis using common_site_config.json and checks if RQ workers are suspended.
-
-    Args:
-        redis_url: Optional Redis URL to use
-
-    Returns:
-        Optional[bool]: True if suspended, False if not suspended, None on error.
-    """
-    try:
-        connection = _get_redis_connection(redis_url=redis_url)
-        if not connection:
-            return None
-
-        suspended = is_suspended(connection)
-        return bool(suspended)
-
-    except Exception as e:
-        print(
-            f"\n[bold red]Error (check_rq_suspension):[/bold red] Failed during RQ suspension check: {e}",
-            file=sys.stderr,
-        )
-        traceback.print_exc(file=sys.stderr)
-        return None
-
-
 def main():
     parser = argparse.ArgumentParser(description="RQ Worker Controller CLI")
     parser.add_argument("--redis-url", type=str, default=None, help="Redis URL to use (overrides config file)")
@@ -424,10 +409,7 @@ def main():
         )
         sys.exit(0 if ok else 1)
     elif args.command == "check":
-        result = check_rq_suspension(redis_url=args.redis_url)
-        if result is None:
-            print("[red]Error: Could not determine suspension state.[/red]", file=sys.stderr)
-            sys.exit(2)
+        result = is_rq_suspended(redis_url=args.redis_url)
         print("suspended" if result else "not suspended")
         sys.exit(0 if result else 1)
 

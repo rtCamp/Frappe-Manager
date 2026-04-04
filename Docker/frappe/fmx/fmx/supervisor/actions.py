@@ -334,10 +334,10 @@ def _handle_restart(
     Performs a complete service restart using stop-then-start strategy.
 
     Logic:
-    1. Stops ALL processes in the service (ignores process_names parameter)
+    1. Stops processes in the service (all or specified by process_names)
     2. Waits for complete shutdown with optional force kill
     3. If stop fails, aborts the restart to prevent inconsistent state
-    4. Starts ALL defined processes (fresh start from configuration)
+    4. Starts processes (all defined or specified) from configuration
     5. Returns detailed results for both stop and start phases
     """
     logger.info(
@@ -345,9 +345,6 @@ def _handle_restart(
     )
 
     action = "restart"
-
-    if process_names and len(process_names) == 0:
-        process_names = None
 
     stop_results = _handle_stop(
         supervisor_api,
