@@ -151,5 +151,5 @@ def test_nvim_lua_integrates_with_dapui_and_virtual_text_when_available():
     assert 'pcall(require, "dapui")' in NVIM_DAP_LUA
     assert 'dap.listeners.after.event_initialized["fm_dapui"]' in NVIM_DAP_LUA
     assert 'dapui.open()' in NVIM_DAP_LUA
-    assert 'pcall(require, "nvim-dap-virtual-text")' in NVIM_DAP_LUA
-    assert 'dap_virtual_text.setup()' in NVIM_DAP_LUA
+    assert 'dapui.toggle({})' in NVIM_DAP_LUA
+    assert 'setup_dapui_listeners()' in NVIM_DAP_LUA

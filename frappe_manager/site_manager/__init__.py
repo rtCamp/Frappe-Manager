@@ -128,34 +128,6 @@ NVIM_DAP_LUA = """-- .nvim.lua  -  Frappe-Manager nvim-dap configuration
 
 local dap = require("dap")
 local uv = vim.uv or vim.loop
-local has_dapui, dapui = pcall(require, "dapui")
-local has_virtual_text, dap_virtual_text = pcall(require, "nvim-dap-virtual-text")
-
-if not vim.g.fm_nvim_debugger_ui_initialized then
-  if has_dapui then
-    dapui.setup()
-  end
-
-  if has_virtual_text then
-    dap_virtual_text.setup()
-  end
-
-  vim.g.fm_nvim_debugger_ui_initialized = true
-end
-
-if has_dapui then
-  dap.listeners.after.event_initialized["fm_dapui"] = function()
-    dapui.open()
-  end
-
-  dap.listeners.before.event_terminated["fm_dapui"] = function()
-    dapui.close()
-  end
-
-  dap.listeners.before.event_exited["fm_dapui"] = function()
-    dapui.close()
-  end
-end
 
 dap.listeners.before.event_debugpySockets = dap.listeners.before.event_debugpySockets or {}
 dap.listeners.before.event_debugpySockets["fm_debugpy_events"] = function()
@@ -580,13 +552,35 @@ local function replace_user_command(name, callback, opts)
 end
 
 local function toggle_debug_ui()
-  if not has_dapui then
+  local ok, dapui = pcall(require, "dapui")
+  if not ok then
     vim.notify("[fm] nvim-dap-ui is not installed", vim.log.levels.WARN)
     return
   end
 
   dapui.toggle({})
 end
+
+local function setup_dapui_listeners()
+  local ok, dapui = pcall(require, "dapui")
+  if not ok then
+    return
+  end
+
+  dap.listeners.after.event_initialized["fm_dapui"] = function()
+    dapui.open()
+  end
+
+  dap.listeners.before.event_terminated["fm_dapui"] = function()
+    dapui.close()
+  end
+
+  dap.listeners.before.event_exited["fm_dapui"] = function()
+    dapui.close()
+  end
+end
+
+setup_dapui_listeners()
 
 -- 1. Frappe dev-server debug session
 table.insert(dap.configurations.python, {
