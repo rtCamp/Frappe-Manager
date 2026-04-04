@@ -30,7 +30,7 @@ def command(
         typer.Option(
             "--process",
             "-p",
-            help="Target only specific process(es) within the selected service(s). Use multiple times for multiple processes (e.g., -p worker_short -p worker_long).",
+            help="Target only specific process(es) within the selected service(s). If omitted, stops ALL processes in the service. Use multiple times to target multiple processes.",
             show_default=False,
         ),
     ] = None,
@@ -53,37 +53,35 @@ def command(
         int,
         typer.Option(
             "--drain-workers-timeout",
-            help="Timeout (seconds) for --drain-workers (default: 300).",
+            help="Timeout in seconds to wait for workers to drain.",
         ),
     ] = 300,
     drain_workers_poll: Annotated[
         int,
         typer.Option(
             "--drain-workers-poll",
-            help="Polling interval (seconds) for --drain-workers (default: 5).",
+            help="Polling interval in seconds when waiting for workers to drain.",
         ),
     ] = 5,
     skip_stale_workers: Annotated[
         bool,
         typer.Option(
             "--skip-stale-workers/--no-skip-stale-workers",
-            help="When used with --drain-workers, skip workers that remain idle after suspension is set. "
-            "Workers idle longer than --skip-stale-timeout seconds are treated as dead and ignored.",
+            help="With --drain-workers, treat workers idle for more than --skip-stale-timeout seconds as dead and skip them.",
         ),
     ] = True,
     skip_stale_timeout: Annotated[
         int,
         typer.Option(
             "--skip-stale-timeout",
-            help="Seconds after which an idle post-suspension worker is considered stale and skipped (default: 15). "
-            "Used with --skip-stale-workers.",
+            help="Seconds after which an idle post-suspension worker is treated as dead and skipped. Used with --skip-stale-workers.",
         ),
     ] = 15,
     force_kill_timeout: Annotated[
         Optional[int],
         typer.Option(
             "--force-kill-timeout",
-            help="Timeout (seconds) after which stubborn non-worker processes will be forcefully killed during stop.",
+            help="Force-kill processes that haven't stopped within this timeout (seconds).",
         ),
     ] = None,
 ):

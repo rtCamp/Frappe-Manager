@@ -38,7 +38,7 @@ def command(
         bool,
         typer.Option(
             "--wait/--no-wait",
-            help="Wait for supervisor start/stop operations to complete before returning.",
+            help="Wait for supervisor start operations to complete before returning.",
         ),
     ] = True,
     verbose: Annotated[

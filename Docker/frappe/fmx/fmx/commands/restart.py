@@ -334,20 +334,16 @@ def command(
         bool,
         typer.Option(
             "--migrate",
-            help="Run migration without stopping all services first (default: 'bench migrate --skip-failing'). "
-            "RQ workers are suspended and drained (if --drain-workers), then migration runs. "
-            "Non-worker services (web, nginx, redis) stay up. "
-            "On success: all services restart. "
-            "On failure: RQ resumes and all services are started (non-running ones only). "
-            "Recommended: --drain-workers for safe zero-job-loss migration. "
-            "Use --migrate-command to customize the migration command.",
+            help="Run bench migrate before restarting. Non-worker services stay up during migration; "
+            "on success all services restart, on failure any stopped services are started. "
+            "Use with --drain-workers for zero-job-loss safety.",
         ),
     ] = False,
     migrate_timeout: Annotated[
         int,
         typer.Option(
             "--migrate-timeout",
-            help="Timeout (seconds) for bench migrate operation (default: 300).",
+            help="Timeout in seconds for bench migrate.",
         ),
     ] = 300,
     wait: Annotated[
@@ -369,45 +365,43 @@ def command(
         int,
         typer.Option(
             "--drain-workers-timeout",
-            help="Timeout (seconds) for --drain-workers (default: 300).",
+            help="Timeout in seconds to wait for workers to drain.",
         ),
     ] = 300,
     drain_workers_poll: Annotated[
         int,
         typer.Option(
             "--drain-workers-poll",
-            help="Polling interval (seconds) for --drain-workers (default: 5).",
+            help="Polling interval in seconds when waiting for workers to drain.",
         ),
     ] = 5,
     skip_stale_workers: Annotated[
         bool,
         typer.Option(
             "--skip-stale-workers/--no-skip-stale-workers",
-            help="When used with --drain-workers, skip workers that remain idle after suspension is set. "
-            "Workers idle longer than --skip-stale-timeout seconds are treated as dead and ignored.",
+            help="With --drain-workers, treat workers idle for more than --skip-stale-timeout seconds as dead and skip them.",
         ),
     ] = True,
     skip_stale_timeout: Annotated[
         int,
         typer.Option(
             "--skip-stale-timeout",
-            help="Seconds after which an idle post-suspension worker is considered stale and skipped (default: 15). "
-            "Used with --skip-stale-workers.",
+            help="Seconds after which an idle post-suspension worker is treated as dead and skipped. Used with --skip-stale-workers.",
         ),
     ] = 15,
     force_kill_timeout: Annotated[
         Optional[int],
         typer.Option(
             "--force-kill-timeout",
-            help="Timeout (seconds) after which stubborn non-worker processes will be forcefully killed during restart.",
+            help="Force-kill processes that haven't stopped within this timeout (seconds).",
         ),
     ] = None,
     migrate_command: Annotated[
         Optional[str],
         typer.Option(
             "--migrate-command",
-            help="Custom migrate command to run (default: 'bench migrate --skip-failing'). "
-            "Example: 'bench migrate' or 'bench --site mysite.localhost migrate'.",
+            help="Custom migrate command (default: 'bench migrate --skip-failing'). "
+            "Example: 'bench --site mysite.localhost migrate'.",
         ),
     ] = None,
     maintenance_mode: Annotated[
@@ -423,18 +417,7 @@ def command(
         ),
     ] = None,
 ):
-    """
-    Restart services with optional RQ worker coordination, migration, and maintenance mode.
-
-    Performs supervisor-based restart with optional Redis worker suspension.
-    Can run bench migrate between stop and start phases.
-    Can optionally wait for workers to complete jobs before restarting.
-    Always attempts to resume workers after restart completion.
-
-    Maintenance mode can be enabled for 'drain' (RQ drain phase) and/or 'migrate'
-    (bench migrate + restart phase) using --maintenance-mode.
-    Example: --maintenance-mode drain --maintenance-mode migrate
-    """
+    """Restart services with optional RQ drain, migration, and maintenance mode."""
     display: DisplayManager = ctx.obj['display']
     debug: bool = ctx.obj.get('debug', False)
 
