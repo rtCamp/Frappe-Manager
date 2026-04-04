@@ -293,8 +293,11 @@ def get_rq_worker_status(redis_url=None, include_dead: bool = False) -> Optional
         all_workers = Worker.all(connection=connection)
 
         all_queues = Queue.all(connection=connection)
+        active_queue_names = {q for w in all_workers for q in w.queue_names()}
         queue_list = []
         for q in sorted(all_queues, key=lambda q: q.name):
+            if q.name not in active_queue_names:
+                continue
             pending = len(q)
             failed = 0
             try:
