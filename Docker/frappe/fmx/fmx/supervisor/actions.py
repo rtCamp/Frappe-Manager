@@ -22,6 +22,7 @@ def _handle_stop(
     wait_workers: bool = False,
     called_from_restart: bool = False,
     verbose: bool = False,
+    progress_callback=None,
 ) -> Dict[str, List[str]]:
     """
     Stops processes in a service with intelligent worker handling.
@@ -92,11 +93,15 @@ def _handle_stop(
 
             process_info = process_info_map.get(process_name)
             current_state = process_info.get('state') if process_info else None
+            _pid = (process_info.get('pid') or 0) if process_info else 0
 
             if current_state in STOPPED_STATES:
                 stop_results["already_stopped"].append(process_name)
+                if progress_callback:
+                    progress_callback(service_name, process_name, "stop", 0, "already stopped", 0.0)
                 continue
 
+            _t0 = time.time()
             success = _stop_single_process_with_logic(
                 supervisor_api,
                 service_name,
@@ -107,11 +112,17 @@ def _handle_stop(
                 process_info=process_info,
                 verbose=verbose,
             )
+            _elapsed = time.time() - _t0
 
             if success:
                 stop_results["stopped"].append(process_name)
+                if progress_callback:
+                    _method = "killed (USR1)" if is_worker else "stopped"
+                    progress_callback(service_name, process_name, "stop", _pid, _method, _elapsed)
             else:
                 stop_results["failed"].append(process_name)
+                if progress_callback:
+                    progress_callback(service_name, process_name, "stop", _pid, "failed", _elapsed)
         except Fault as e:
             display.error(f"Error during stop operation for process {process_name}: {e.faultString}")
             display.dimmed(f"  Check logs: supervisorctl tail {process_name}")
@@ -127,7 +138,12 @@ def _handle_stop(
 
 
 def _handle_start(
-    supervisor_api, service_name: str, process_names: Optional[List[str]], wait: bool, verbose: bool = False
+    supervisor_api,
+    service_name: str,
+    process_names: Optional[List[str]],
+    wait: bool,
+    verbose: bool = False,
+    progress_callback=None,
 ) -> Dict[str, List[str]]:
     """
     Starts processes in a service with validation and conflict detection.
@@ -193,25 +209,44 @@ def _handle_start(
                 group_name = process_info.get('group')
                 name_for_api = make_supervisor_api_name(group_name, process_name_to_start)
 
+                _t0 = time.time()
                 supervisor_api.startProcess(name_for_api, wait)
+                _elapsed = time.time() - _t0
                 start_results["started"].append(process_name_to_start)
+                if progress_callback:
+                    _new_pid = 0
+                    try:
+                        _info = supervisor_api.getProcessInfo(name_for_api)
+                        _new_pid = _info.get('pid', 0)
+                    except Exception:
+                        pass
+                    progress_callback(service_name, process_name_to_start, "start", _new_pid, "started", _elapsed)
             except Fault as start_fault:
                 fault_string = getattr(start_fault, 'faultString', '')
                 if "ALREADY_STARTED" in fault_string:
+                    _elapsed = time.time() - _t0
                     start_results["already_running"].append(process_name_to_start)
+                    if progress_callback:
+                        progress_callback(service_name, process_name_to_start, "start", 0, "already running", _elapsed)
                 elif "FATAL" in fault_string:
+                    _elapsed = time.time() - _t0
                     display.error(
                         f"Process {display.highlight(process_name_to_start)} entered FATAL state during start."
                     )
                     display.dimmed(f"  Check logs: supervisorctl tail {process_name_to_start}")
                     display.dimmed(f"  Full details: fmx status --verbose")
                     start_results["failed"].append(process_name_to_start)
+                    if progress_callback:
+                        progress_callback(service_name, process_name_to_start, "start", 0, "failed (FATAL)", _elapsed)
                     _raise_exception_from_fault(start_fault, service_name, action, process_name_to_start)
                 elif "BAD_NAME" in fault_string:
+                    _elapsed = time.time() - _t0
                     display.error(
                         f"Process {display.highlight(process_name_to_start)} not found by supervisor (BAD_NAME)."
                     )
                     start_results["failed"].append(process_name_to_start)
+                    if progress_callback:
+                        progress_callback(service_name, process_name_to_start, "start", 0, "failed", _elapsed)
                     _raise_exception_from_fault(start_fault, service_name, action, process_name_to_start)
                 elif "ABNORMAL_TERMINATION" in fault_string and is_worker_process(process_name_to_start):
                     retry_interval = 2
@@ -232,24 +267,44 @@ def _handle_start(
                         time.sleep(retry_interval)
                         try:
                             supervisor_api.startProcess(name_for_api, wait)
+                            _elapsed = time.time() - _t0
                             start_results["started"].append(process_name_to_start)
                             started = True
+                            if progress_callback:
+                                _new_pid = 0
+                                try:
+                                    _info = supervisor_api.getProcessInfo(name_for_api)
+                                    _new_pid = _info.get('pid', 0)
+                                except Exception:
+                                    pass
+                                progress_callback(
+                                    service_name, process_name_to_start, "start", _new_pid, "started", _elapsed
+                                )
                             break
                         except Fault as retry_fault:
                             retry_fs = getattr(retry_fault, 'faultString', '')
                             if "ABNORMAL_TERMINATION" in retry_fs:
                                 continue
+                            _elapsed = time.time() - _t0
                             start_results["failed"].append(process_name_to_start)
+                            if progress_callback:
+                                progress_callback(service_name, process_name_to_start, "start", 0, "failed", _elapsed)
                             _raise_exception_from_fault(retry_fault, service_name, action, process_name_to_start)
                             break
                     if not started and process_name_to_start not in start_results["failed"]:
+                        _elapsed = time.time() - _t0
                         display.error(
                             f"Worker {display.highlight(process_name_to_start)} failed to start after {retry_timeout}s "
                             f"({attempt} attempts). Force-killed job did not exit in time. Try --wait-workers next time."
                         )
                         start_results["failed"].append(process_name_to_start)
+                        if progress_callback:
+                            progress_callback(service_name, process_name_to_start, "start", 0, "failed", _elapsed)
                 else:
+                    _elapsed = time.time() - _t0
                     start_results["failed"].append(process_name_to_start)
+                    if progress_callback:
+                        progress_callback(service_name, process_name_to_start, "start", 0, "failed", _elapsed)
                     _raise_exception_from_fault(start_fault, service_name, action, process_name_to_start)
 
         logger.info(f"Start operation completed: service={service_name}, results={start_results}")
@@ -273,6 +328,7 @@ def _handle_restart(
     wait: bool,
     force_kill_timeout: Optional[int] = None,
     wait_workers: bool = False,
+    progress_callback=None,
 ) -> Dict[str, List[str]]:
     """
     Performs a complete service restart using stop-then-start strategy.
@@ -301,6 +357,7 @@ def _handle_restart(
         force_kill_timeout,
         wait_workers=wait_workers,
         called_from_restart=True,
+        progress_callback=progress_callback,
     )
 
     if stop_results.get("failed"):
@@ -317,7 +374,9 @@ def _handle_restart(
             "failed": stop_results.get("failed", []),
         }
 
-    start_results = _handle_start(supervisor_api, service_name, process_names, wait, verbose=False)
+    start_results = _handle_start(
+        supervisor_api, service_name, process_names, wait, verbose=False, progress_callback=progress_callback
+    )
 
     # Combine stop and start results
     combined_results = {

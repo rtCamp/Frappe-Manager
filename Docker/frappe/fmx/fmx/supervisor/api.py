@@ -118,6 +118,7 @@ def restart_service(
     wait_workers: bool = False,
     force_kill_timeout: Optional[int] = None,
     verbose: bool = False,
+    progress_callback=None,
 ) -> Dict[str, List[str]]:
     """
     Performs complete service restart using stop-then-start strategy.
@@ -142,6 +143,7 @@ def restart_service(
             wait=wait,
             wait_workers=wait_workers,
             force_kill_timeout=force_kill_timeout,
+            progress_callback=progress_callback,
         )
         stopped_count = len(result.get("stopped", [])) if result else 0
         started_count = len(result.get("started", [])) if result else 0

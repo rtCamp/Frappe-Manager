@@ -287,9 +287,21 @@ def get_rq_worker_status(redis_url=None, include_dead: bool = False) -> Optional
             return None
 
         from rq import Queue
+        from rq.registry import FailedJobRegistry
 
         suspended = is_suspended(connection)
         all_workers = Worker.all(connection=connection)
+
+        all_queues = Queue.all(connection=connection)
+        queue_list = []
+        for q in sorted(all_queues, key=lambda q: q.name):
+            pending = len(q)
+            failed = 0
+            try:
+                failed = FailedJobRegistry(q.name, connection=connection).count
+            except Exception:
+                pass
+            queue_list.append((q.name, pending, failed))
 
         if include_dead:
             workers = all_workers
@@ -334,7 +346,7 @@ def get_rq_worker_status(redis_url=None, include_dead: bool = False) -> Optional
             else:
                 dead_worker_list.append(worker_entry)
 
-        result = {'suspended': bool(suspended), 'workers': worker_list}
+        result = {'suspended': bool(suspended), 'workers': worker_list, 'queues': queue_list}
         if include_dead and dead_worker_list:
             result['dead_workers'] = dead_worker_list
 

@@ -42,6 +42,7 @@ def execute_supervisor_command(
     verbose: bool = False,
     signal_name: Optional[str] = None,
     signal_num: Optional[int] = None,
+    progress_callback=None,
 ) -> Any:
     """
     Central dispatcher for all supervisor operations with unified error handling.
@@ -92,6 +93,7 @@ def execute_supervisor_command(
                 wait,
                 force_kill_timeout,
                 wait_workers,
+                progress_callback=progress_callback,
             )
         elif action == "info":
             return _handle_info(supervisor_api, service_name)

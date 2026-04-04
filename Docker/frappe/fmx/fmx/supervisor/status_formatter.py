@@ -124,16 +124,25 @@ def format_rq_status(rq_status: Optional[dict], verbose: bool = False) -> Option
 
     suspended = rq_status.get('suspended', False)
     workers = rq_status.get('workers', [])
-    dead_workers = rq_status.get('dead_workers', [])
+    queues = rq_status.get('queues', [])
 
     suspension_status = "🔴 SUSPENDED" if suspended else "🟢 ACTIVE"
     root = Tree(f"⚙️  [highlight]RQ Workers[/highlight] ({suspension_status})", highlight=True)
 
-    if not workers and not dead_workers:
+    if queues:
+        queue_section = root.add("[bold]📋 Queues[/bold]")
+        for q_name, pending, failed in queues:
+            pending_str = f"[green]{pending} pending[/green]" if pending == 0 else f"[yellow]{pending} pending[/yellow]"
+            failed_str = f"  [red]{failed} failed[/red]" if failed else ""
+            queue_section.add(f"[dim]{q_name}[/dim]  {pending_str}{failed_str}")
+
+    if not workers:
         root.add("[dimmed]No RQ workers registered[/dimmed]")
         return root
 
-    for worker_name, state, current_job, job_stats, last_heartbeat in workers:
+    for worker_name, state, current_job, job_stats, last_heartbeat in sorted(
+        workers, key=lambda w: w[4].timestamp() if w[4] else 0, reverse=True
+    ):
         state_color = 'green' if state in ['idle', 'busy'] else 'yellow' if state == 'suspended' else 'red'
 
         queue_count = job_stats.get('queue_count', 0)
@@ -157,12 +166,5 @@ def format_rq_status(rq_status: Optional[dict], verbose: bool = False) -> Option
             )
 
         root.add(worker_label)
-
-    if dead_workers:
-        dead_section = root.add("[red]💀 Dead Workers (stale Redis entries)[/red]")
-        for worker_name, state, current_job, job_stats, last_heartbeat in dead_workers:
-            heartbeat_age = format_heartbeat_age(last_heartbeat)
-            dead_label = f"[dim][red]{worker_name}[/red] (state: {state}, ❤️  {heartbeat_age})[/dim]"
-            dead_section.add(dead_label)
 
     return root
