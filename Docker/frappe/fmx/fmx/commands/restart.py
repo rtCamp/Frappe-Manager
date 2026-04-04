@@ -71,9 +71,9 @@ def disable_maintenance_mode(display: DisplayManager):
 
 def _suspend_rq_workers(
     display: DisplayManager,
-    wait_workers: bool,
-    wait_workers_timeout: int,
-    wait_workers_poll: int,
+    drain_workers: bool,
+    drain_workers_timeout: int,
+    drain_workers_poll: int,
     debug: bool = False,
     skip_stale: bool = True,
     stale_timeout: int = 15,
@@ -98,11 +98,11 @@ def _suspend_rq_workers(
             display.print("Aborting restart.")
             return False
 
-        if wait_workers:
+        if drain_workers:
             display.print("\nWaiting for RQ workers to complete their current jobs...")
             if not wait_for_rq_workers_suspended(
-                timeout=wait_workers_timeout,
-                poll_interval=wait_workers_poll,
+                timeout=drain_workers_timeout,
+                poll_interval=drain_workers_poll,
                 skip_stale=skip_stale,
                 stale_timeout=stale_timeout,
             ):
@@ -259,9 +259,9 @@ def _run_migrate_flow(
     display: DisplayManager,
     services_to_target: List[str],
     suspension_needed: bool,
-    wait_workers: bool,
-    wait_workers_timeout: int,
-    wait_workers_poll: int,
+    drain_workers: bool,
+    drain_workers_timeout: int,
+    drain_workers_poll: int,
     migrate_timeout: int,
     migrate_command: Optional[List[str]],
     wait: bool,
@@ -297,9 +297,9 @@ def _run_migrate_flow(
         if suspension_needed:
             if not _suspend_rq_workers(
                 display,
-                wait_workers,
-                wait_workers_timeout,
-                wait_workers_poll,
+                drain_workers,
+                drain_workers_timeout,
+                drain_workers_poll,
                 debug,
                 skip_stale=skip_stale,
                 stale_timeout=stale_timeout,
@@ -334,7 +334,7 @@ def _run_migrate_flow(
             wait,
             force_kill_timeout,
             maintenance_on_migrate,
-            wait_workers=suspension_needed,
+            drain_workers=suspension_needed,
         )
         if maintenance_disabled_by_handler:
             maintenance_enabled = False
@@ -350,7 +350,7 @@ def _handle_migrate_success(
     wait: bool,
     force_kill_timeout: Optional[int],
     maintenance_on_migrate: bool = False,
-    wait_workers: bool = False,
+    drain_workers: bool = False,
 ) -> bool:
     """Handle migration success - full service restart.
 
@@ -363,7 +363,7 @@ def _handle_migrate_success(
         wait: Wait for supervisor restart operations to complete
         force_kill_timeout: Seconds after which non-worker processes are force-killed
         maintenance_on_migrate: Whether maintenance mode was enabled for the migrate phase
-        wait_workers: Whether workers were drained before migration. When True, workers use
+        drain_workers: Whether workers were drained before migration. When True, workers use
             normal stopProcess instead of the USR1 (warm shutdown) path, avoiding the 10s
             wait-for-current-job overhead on already-idle workers.
 
@@ -378,7 +378,7 @@ def _handle_migrate_success(
         action_verb="restarting",
         show_progress=True,
         wait=wait,
-        wait_workers=wait_workers,
+        drain_workers=drain_workers,
         force_kill_timeout=force_kill_timeout,
     )
 
@@ -426,26 +426,16 @@ def command(
             show_default=False,
         ),
     ] = None,
-    suspend_rq: Annotated[
-        bool,
-        typer.Option(
-            "--suspend-rq",
-            help="Suspend RQ workers via Redis flag before restarting. "
-            "Without --migrate: workers suspended before all services stop. "
-            "With --migrate: workers suspended and drained instead of stopping services. "
-            "Combine with --wait-workers to ensure jobs complete before migration runs.",
-        ),
-    ] = False,
     migrate: Annotated[
         bool,
         typer.Option(
             "--migrate",
             help="Run migration without stopping all services first (default: 'bench migrate --skip-failing'). "
-            "RQ workers are suspended (if --suspend-rq) and drained (if --wait-workers), "
-            "then migration runs. Non-worker services (web, nginx, redis) stay up. "
+            "RQ workers are suspended and drained (if --drain-workers), then migration runs. "
+            "Non-worker services (web, nginx, redis) stay up. "
             "On success: all services restart. "
             "On failure: RQ resumes and all services are started (non-running ones only). "
-            "Recommended: --suspend-rq --wait-workers for safe zero-job-loss migration. "
+            "Recommended: --drain-workers for safe zero-job-loss migration. "
             "Use --migrate-command to customize the migration command.",
         ),
     ] = False,
@@ -463,33 +453,33 @@ def command(
             help="Wait for the final supervisor restart operations to complete before returning.",
         ),
     ] = True,
-    wait_workers: Annotated[
+    drain_workers: Annotated[
         bool,
         typer.Option(
-            "--wait-workers",
-            help="Suspend RQ workers and wait for them to finish their current jobs before restarting. Implies --suspend-rq.",
+            "--drain-workers",
+            help="Suspend RQ workers via Redis flag and wait for them to finish their current jobs before restarting.",
             is_flag=True,
         ),
     ] = False,
-    wait_workers_timeout: Annotated[
+    drain_workers_timeout: Annotated[
         int,
         typer.Option(
-            "--wait-workers-timeout",
-            help="Timeout (seconds) for --wait-workers (default: 300).",
+            "--drain-workers-timeout",
+            help="Timeout (seconds) for --drain-workers (default: 300).",
         ),
     ] = 300,
-    wait_workers_poll: Annotated[
+    drain_workers_poll: Annotated[
         int,
         typer.Option(
-            "--wait-workers-poll",
-            help="Polling interval (seconds) for --wait-workers (default: 5).",
+            "--drain-workers-poll",
+            help="Polling interval (seconds) for --drain-workers (default: 5).",
         ),
     ] = 5,
     skip_stale_workers: Annotated[
         bool,
         typer.Option(
             "--skip-stale-workers/--no-skip-stale-workers",
-            help="When used with --wait-workers, skip workers that remain idle after suspension is set. "
+            help="When used with --drain-workers, skip workers that remain idle after suspension is set. "
             "Workers idle longer than --skip-stale-timeout seconds are treated as dead and ignored.",
         ),
     ] = True,
@@ -556,11 +546,11 @@ def command(
     maintenance_on_drain = "drain" in maintenance_set
     maintenance_on_migrate = "migrate" in maintenance_set
 
-    suspension_needed = suspend_rq or wait_workers
+    suspension_needed = drain_workers
 
     if maintenance_on_drain and not suspension_needed:
         display.warning(
-            "--maintenance-mode drain has no effect without --suspend-rq or --wait-workers. "
+            "--maintenance-mode drain has no effect without --drain-workers. "
             "Maintenance mode will not be enabled for the drain phase."
         )
         maintenance_on_drain = False
@@ -591,7 +581,7 @@ def command(
             display.warning(
                 "Running migration without suspending RQ workers. "
                 "Active jobs may fail if migration changes the database schema. "
-                "Consider using --suspend-rq --wait-workers for safe migration."
+                "Consider using --drain-workers for safe migration."
             )
 
         try:
@@ -599,9 +589,9 @@ def command(
                 display,
                 services_to_target,
                 suspension_needed,
-                wait_workers,
-                wait_workers_timeout,
-                wait_workers_poll,
+                drain_workers,
+                drain_workers_timeout,
+                drain_workers_poll,
                 migrate_timeout,
                 migrate_command_list,
                 wait,
@@ -626,9 +616,9 @@ def command(
             if suspension_needed:
                 if not _suspend_rq_workers(
                     display,
-                    wait_workers,
-                    wait_workers_timeout,
-                    wait_workers_poll,
+                    drain_workers,
+                    drain_workers_timeout,
+                    drain_workers_poll,
                     debug,
                     skip_stale=skip_stale_workers,
                     stale_timeout=skip_stale_timeout,
@@ -645,7 +635,7 @@ def command(
                 action_verb="restarting",
                 show_progress=True,
                 wait=wait,
-                wait_workers=wait_workers,
+                drain_workers=drain_workers,
                 force_kill_timeout=force_kill_timeout,
             )
 

@@ -295,7 +295,7 @@ def _handle_start(
                         _elapsed = time.time() - _t0
                         display.error(
                             f"Worker {display.highlight(process_name_to_start)} failed to start after {retry_timeout}s "
-                            f"({attempt} attempts). Force-killed job did not exit in time. Try --wait-workers next time."
+                            f"({attempt} attempts). Force-killed job did not exit in time. Try --drain-workers next time."
                         )
                         start_results["failed"].append(process_name_to_start)
                         if progress_callback:
