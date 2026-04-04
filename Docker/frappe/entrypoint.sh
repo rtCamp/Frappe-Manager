@@ -1,5 +1,4 @@
 #!/bin/bash
-set -x
 
 export FNM_DIR=/workspace/.fnm
 export FNM_NODE_DIST_MIRROR=https://nodejs.org/dist

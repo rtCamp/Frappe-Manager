@@ -148,7 +148,7 @@ class FMConfigManager(BaseModel):
 
     _config_data: dict | None = None
 
-    def export_to_toml(self, path: Path = CLI_FM_CONFIG_PATH) -> bool:
+    def export_to_toml(self, path: Path = CLI_FM_CONFIG_PATH) -> None:
         exclude = {"root_path"}
 
         if not self.cloudflare.exists:
@@ -169,9 +169,8 @@ class FMConfigManager(BaseModel):
         try:
             with open(path, "w") as f:
                 f.write(tomlkit.dumps(toml_doc))
-            return True
         except Exception as e:
-            return False
+            raise RuntimeError(f"Failed to write FM config to {path}: {e}") from e
 
     @classmethod
     def import_from_toml(cls, path: Path = CLI_FM_CONFIG_PATH) -> "FMConfigManager":

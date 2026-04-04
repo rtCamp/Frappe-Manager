@@ -115,4 +115,5 @@ def renew(
                 output.warning(e.message)
 
             except Exception as e:
-                output.warning(str(e))
+                output.display_error(str(e))
+                raise typer.Exit(1)

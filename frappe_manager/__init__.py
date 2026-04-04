@@ -69,7 +69,8 @@ def print_fm_examples(*, obj, ctx, markup_mode):
 
 ut.rich_format_help = print_fm_examples
 
-CLI_DIR = Path(os.environ.get("FRAPPE_MANAGER_HOME", Path.home() / "frappe"))
+_home_env = os.environ.get("FRAPPE_MANAGER_HOME", "")
+CLI_DIR = Path(_home_env) if _home_env else Path.home() / "frappe"
 CLI_FM_CONFIG_PATH = CLI_DIR / "fm_config.toml"
 CLI_SITES_ARCHIVE = CLI_DIR / "archived"
 CLI_LOG_DIRECTORY = CLI_DIR / "logs"

@@ -1,6 +1,6 @@
 [project]
 name = "frappe-manager"
-version = "0.19.0.dev0"
+dynamic = ["version"]
 description = "A CLI tool based on Docker Compose to easily manage Frappe based projects. As of now, only suitable for development in local machines running on Mac and Linux based OS."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
@@ -105,6 +105,9 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["frappe_manager"]
+
+[tool.hatch.version]
+path = "frappe_manager/__about__.py"
 
 [tool.uv]
 package = true
