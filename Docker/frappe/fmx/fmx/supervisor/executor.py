@@ -42,7 +42,6 @@ def execute_supervisor_command(
     verbose: bool = False,
     signal_name: Optional[str] = None,
     signal_num: Optional[int] = None,
-    worker_term_timeout: int = 10,
 ) -> Any:
     """
     Central dispatcher for all supervisor operations with unified error handling.
@@ -82,7 +81,6 @@ def execute_supervisor_command(
                 force_kill_timeout,
                 wait_workers,
                 verbose=verbose,
-                worker_term_timeout=worker_term_timeout,
             )
         elif action == "start":
             return _handle_start(supervisor_api, service_name, process_names, wait, verbose=verbose)
@@ -94,7 +92,6 @@ def execute_supervisor_command(
                 wait,
                 force_kill_timeout,
                 wait_workers,
-                worker_term_timeout=worker_term_timeout,
             )
         elif action == "info":
             return _handle_info(supervisor_api, service_name)

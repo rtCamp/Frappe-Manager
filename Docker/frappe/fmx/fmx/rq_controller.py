@@ -280,7 +280,7 @@ def wait_for_rq_workers_suspended(
         return False
 
 
-def get_rq_worker_status(redis_url=None) -> Optional[dict]:
+def get_rq_worker_status(redis_url=None, include_dead: bool = False) -> Optional[dict]:
     try:
         connection = _get_redis_connection(redis_url=redis_url)
         if not connection:
@@ -290,10 +290,17 @@ def get_rq_worker_status(redis_url=None) -> Optional[dict]:
 
         suspended = is_suspended(connection)
         all_workers = Worker.all(connection=connection)
-        workers = [w for w in all_workers if _is_worker_alive(w, connection)]
+
+        if include_dead:
+            workers = all_workers
+        else:
+            workers = [w for w in all_workers if _is_worker_alive(w, connection)]
 
         worker_list = []
+        dead_worker_list = []
+
         for worker in workers:
+            is_alive = _is_worker_alive(worker, connection)
             state = worker.get_state()
             current_job = None
             if state == 'busy':
@@ -318,9 +325,20 @@ def get_rq_worker_status(redis_url=None) -> Optional[dict]:
             }
             job_stats['total'] = job_stats['successful'] + job_stats['failed']
 
-            worker_list.append((_label(worker), state, current_job, job_stats))
+            last_heartbeat = getattr(worker, 'last_heartbeat', None)
 
-        return {'suspended': bool(suspended), 'workers': worker_list}
+            worker_entry = (_label(worker), state, current_job, job_stats, last_heartbeat)
+
+            if is_alive:
+                worker_list.append(worker_entry)
+            else:
+                dead_worker_list.append(worker_entry)
+
+        result = {'suspended': bool(suspended), 'workers': worker_list}
+        if include_dead and dead_worker_list:
+            result['dead_workers'] = dead_worker_list
+
+        return result
 
     except Exception as e:
         print(

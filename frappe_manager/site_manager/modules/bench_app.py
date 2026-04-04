@@ -93,7 +93,7 @@ class BenchAppManager:
         self.output = output_handler or RichOutputHandler()
 
         self.frappe_bench_dir: Path = bench_path / "workspace" / "frappe-bench"
-        self.bench_cli_cmd = ["/usr/local/bin/bench"]
+        self.bench_cli_cmd = ["/opt/user/.bin/bench"]
 
     def get_current_runtime_versions(self, use_run: bool = False) -> dict[str, str | None]:
         """Get currently installed Python and Node versions from the container."""
@@ -414,11 +414,15 @@ fi
 
                     # Verify yarn is available (should be auto-enabled by FNM_COREPACK_ENABLED)
                     verify_yarn = f"yarn --version"
-                    yarn_result = self._container_run(verify_yarn, capture_output=True, raise_exception_obj=None, use_run=use_run)
+                    yarn_result = self._container_run(
+                        verify_yarn, capture_output=True, raise_exception_obj=None, use_run=use_run
+                    )
                     if yarn_result and yarn_result.exit_code == 0:
                         self.output.print(f"Yarn is available for Node {node_version}")
                     else:
-                        self.output.warning(f"Yarn not available after Node {node_version} installation - corepack may have failed")
+                        self.output.warning(
+                            f"Yarn not available after Node {node_version} installation - corepack may have failed"
+                        )
 
                 except Exception as e:
                     self.output.warning(f"Failed to setup Node {node_version}: {e}")
@@ -888,7 +892,7 @@ fi
                         service=service,
                         command=run_command,
                         rm=True,
-                            entrypoint="/exec-entrypoint.sh",
+                        entrypoint="/exec-entrypoint.sh",
                         stream=True,
                     ),
                 )

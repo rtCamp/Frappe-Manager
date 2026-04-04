@@ -1,7 +1,31 @@
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional
 from rich.tree import Tree
 from rich.table import Table
+
+
+def format_heartbeat_age(last_heartbeat) -> str:
+    """Format heartbeat time as relative age (e.g., '5s ago', '2m ago')."""
+    if not last_heartbeat:
+        return "never"
+
+    try:
+        if isinstance(last_heartbeat, datetime):
+            now = datetime.now(timezone.utc) if last_heartbeat.tzinfo else datetime.now()
+            age_seconds = (now - last_heartbeat).total_seconds()
+        else:
+            return "unknown"
+
+        if age_seconds < 60:
+            return f"{int(age_seconds)}s ago"
+        elif age_seconds < 3600:
+            return f"{int(age_seconds / 60)}m ago"
+        elif age_seconds < 86400:
+            return f"{int(age_seconds / 3600)}h ago"
+        else:
+            return f"{int(age_seconds / 86400)}d ago"
+    except Exception:
+        return "unknown"
 
 
 def format_timestamp(timestamp: int) -> str:
@@ -100,15 +124,16 @@ def format_rq_status(rq_status: Optional[dict], verbose: bool = False) -> Option
 
     suspended = rq_status.get('suspended', False)
     workers = rq_status.get('workers', [])
+    dead_workers = rq_status.get('dead_workers', [])
 
     suspension_status = "🔴 SUSPENDED" if suspended else "🟢 ACTIVE"
     root = Tree(f"⚙️  [highlight]RQ Workers[/highlight] ({suspension_status})", highlight=True)
 
-    if not workers:
+    if not workers and not dead_workers:
         root.add("[dimmed]No RQ workers registered[/dimmed]")
         return root
 
-    for worker_name, state, current_job, job_stats in workers:
+    for worker_name, state, current_job, job_stats, last_heartbeat in workers:
         state_color = 'green' if state in ['idle', 'busy'] else 'yellow' if state == 'suspended' else 'red'
 
         queue_count = job_stats.get('queue_count', 0)
@@ -116,10 +141,12 @@ def format_rq_status(rq_status: Optional[dict], verbose: bool = False) -> Option
         failed = job_stats.get('failed', 0)
         working_time = job_stats.get('working_time', 0.0)
 
+        heartbeat_age = format_heartbeat_age(last_heartbeat)
+
         worker_label = (
             f"([{state_color}]{state.upper()}[/{state_color}]) "
             f"[heading]Worker:[/heading] [b]{worker_name}[/b] "
-            f"[dimmed]│ Jobs: {queue_count}[/dimmed]"
+            f"[dimmed]│ Jobs: {queue_count} │ ❤️  {heartbeat_age}[/dimmed]"
         )
 
         if verbose:
@@ -130,5 +157,12 @@ def format_rq_status(rq_status: Optional[dict], verbose: bool = False) -> Option
             )
 
         root.add(worker_label)
+
+    if dead_workers:
+        dead_section = root.add("[red]💀 Dead Workers (stale Redis entries)[/red]")
+        for worker_name, state, current_job, job_stats, last_heartbeat in dead_workers:
+            heartbeat_age = format_heartbeat_age(last_heartbeat)
+            dead_label = f"[dim][red]{worker_name}[/red] (state: {state}, ❤️  {heartbeat_age})[/dim]"
+            dead_section.add(dead_label)
 
     return root

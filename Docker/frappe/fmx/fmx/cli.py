@@ -358,7 +358,9 @@ def register_commands():
                 if cmd_name is None:
                     continue
 
-                if callable(cmd_func) and isinstance(cmd_name, str):
+                if isinstance(cmd_func, typer.Typer):
+                    app.add_typer(cmd_func, name=cmd_name)
+                elif callable(cmd_func) and isinstance(cmd_name, str):
                     if not cmd_name.strip():
                         continue
                     app.command(name=cmd_name, no_args_is_help=False)(cmd_func)

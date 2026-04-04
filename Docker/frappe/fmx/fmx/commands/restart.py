@@ -18,7 +18,6 @@ from fmx.display import DisplayManager
 from fmx.command_utils import validate_services
 from fmx.cli import ServiceNameEnumFactory, execute_parallel_command, get_service_names_for_completion
 from fmx.supervisor.api import (
-    stop_service as util_stop_service,
     start_service as util_start_service,
     restart_service as util_restart_service,
 )
@@ -166,7 +165,8 @@ def _run_migration(display: DisplayManager, migrate_timeout: int, migrate_comman
     if migrate_command is None:
         migrate_command = ["bench", "migrate", "--skip-failing"]
 
-    display.print(f"🔄 Running {' '.join(migrate_command)}...")
+    full_command = ' '.join(migrate_command)
+    display.print(f"🔄 Running: cd /workspace/frappe-bench && {full_command}")
     display.dimmed(f"Migration timeout: {migrate_timeout}s")
 
     try:
@@ -193,7 +193,9 @@ def _run_migration(display: DisplayManager, migrate_timeout: int, migrate_comman
                     line = output.rstrip('\r\n')
                     if line:
                         display.print(f"  {line}")
-                        output_lines.append(line)
+                        is_progress_bar = '[' in line and ']' in line and '%' in line
+                        if not is_progress_bar:
+                            output_lines.append(line)
 
                 if time.time() - start_time > migrate_timeout:
                     process.terminate()
@@ -223,7 +225,7 @@ def _run_migration(display: DisplayManager, migrate_timeout: int, migrate_comman
             display.error(f"Migration failed with exit code {return_code}")
             if output_lines:
                 display.print("Recent migration output:")
-                for line in output_lines[-10:]:
+                for line in output_lines[-30:]:
                     display.print(f"  {line}")
             return False
 
@@ -250,36 +252,32 @@ def _run_migrate_flow(
     migrate_timeout: int,
     migrate_command: Optional[List[str]],
     wait: bool,
-    maintenance_phases: set,
-    force_kill_timeout: Optional[int],
+    maintenance_on_drain: bool = False,
+    maintenance_on_migrate: bool = False,
+    force_kill_timeout: Optional[int] = None,
     debug: bool = False,
-    worker_term_timeout: int = 10,
 ):
     """Execute zero-downtime migration flow with proper phase transitions.
 
-    Phases:
-    - stop: Maintenance during RQ suspension and drain
-    - migrate: Maintenance during bench migrate
-    - start: Maintenance during service restart (handled in success path)
+    Maintenance mode is opt-in per phase:
+    - drain:   Enable during RQ suspension and drain (disable after drain if migrate not requested)
+    - migrate: Enable during bench migrate + service restart (disable after restart)
 
     Flow:
-    1. [stop phase] Enable maintenance, suspend RQ workers, wait for drain
-    2. [stop→migrate transition] Keep/disable maintenance based on next phase
-    3. [migrate phase] Enable maintenance (if not already), run bench migrate
-    4. [migrate→start transition] Handled in success/failure handlers
-    5. On success: resume RQ + restart all services
-    6. On failure: resume RQ + restart workers only (site stays up)
+    1. [drain]   If maintenance_on_drain → enable; suspend RQ workers, wait for drain
+    2. [transition] If drain-only (not migrate) → disable before migration
+    3. [migrate] If maintenance_on_migrate and not already on → enable; run bench migrate
+    4. On success: restart all services; disable maintenance if maintenance_on_migrate
+    5. On failure: resume RQ + start all services (non-running); finally block cleans up
 
     Non-worker services (web, nginx, redis) never stop during migration.
     """
     maintenance_enabled = False
-    maintenance_phase_active = None
     try:
-        # PHASE 1: STOP (RQ suspension and drain)
-        if "stop" in maintenance_phases:
+        # PHASE 1: DRAIN (RQ suspension and drain)
+        if maintenance_on_drain:
             enable_maintenance_mode(display)
             maintenance_enabled = True
-            maintenance_phase_active = "stop"
 
         if suspension_needed:
             if not _suspend_rq_workers(
@@ -287,17 +285,16 @@ def _run_migrate_flow(
             ):
                 raise typer.Exit(code=1)
 
-        # TRANSITION: stop → migrate
-        if maintenance_phase_active == "stop" and "migrate" not in maintenance_phases:
+        # TRANSITION: drain → migrate
+        # Drain is done; if migrate phase doesn't need maintenance, turn it off now
+        if maintenance_enabled and not maintenance_on_migrate:
             disable_maintenance_mode(display)
             maintenance_enabled = False
-            maintenance_phase_active = None
 
         # PHASE 2: MIGRATE (bench migrate)
-        if "migrate" in maintenance_phases and not maintenance_enabled:
+        if maintenance_on_migrate and not maintenance_enabled:
             enable_maintenance_mode(display)
             maintenance_enabled = True
-            maintenance_phase_active = "migrate"
 
         if not _run_migration(display, migrate_timeout, migrate_command):
             _handle_migrate_failure(display, services_to_target, suspension_needed, wait)
@@ -309,15 +306,13 @@ def _run_migrate_flow(
         if suspension_needed:
             _resume_rq_workers(display)
 
-        # PHASE 3: START (service restart) - handled in success handler
+        # PHASE 3: SERVICE RESTART - handled in success handler
         maintenance_disabled_by_handler = _handle_migrate_success(
             display,
             services_to_target,
-            suspension_needed,
             wait,
             force_kill_timeout,
-            maintenance_phases,
-            worker_term_timeout=worker_term_timeout,
+            maintenance_on_migrate,
         )
         if maintenance_disabled_by_handler:
             maintenance_enabled = False
@@ -330,47 +325,19 @@ def _run_migrate_flow(
 def _handle_migrate_success(
     display: DisplayManager,
     services_to_target: List[str],
-    suspension_needed: bool,
     wait: bool,
     force_kill_timeout: Optional[int],
-    maintenance_phases: set,
-    worker_term_timeout: int = 300,
+    maintenance_on_migrate: bool = False,
 ) -> bool:
     """Handle migration success - full service restart.
 
-    Success steps:
-    1. Handle migrate→start phase transition for maintenance mode
-    2. Restart ALL supervisor services (full parallel restart)
-    3. Disable maintenance mode if enabled
-
-    Full restart ensures all services pick up schema changes.
-    Phase transition: If maintenance was ON from previous phases (stop/migrate)
-    and "start" phase not requested, turn OFF before restart. If "start" phase
-    requested, keep ON (or turn ON if not already).
-
-    Note: RQ resume is handled by caller's finally block.
+    Restarts all supervisor services in parallel, then disables maintenance
+    mode if it was enabled for the migrate phase.
 
     Returns:
         True if maintenance was disabled by this function, False otherwise
     """
     display.success("Migration succeeded. Restarting all services...")
-
-    # Check if maintenance currently ON from previous phases (stop or migrate)
-    maintenance_currently_on = "stop" in maintenance_phases or "migrate" in maintenance_phases
-
-    # TRANSITION: migrate → start
-    # If maintenance ON from previous phase but "start" not requested, turn OFF before restart
-    if maintenance_currently_on and "start" not in maintenance_phases:
-        disable_maintenance_mode(display)
-        return True
-
-    # PHASE 3: START
-    # Enable maintenance for restart phase if requested and not already ON
-    maintenance_enabled_for_restart = False
-    if "start" in maintenance_phases:
-        if not maintenance_currently_on:
-            enable_maintenance_mode(display)
-        maintenance_enabled_for_restart = True
 
     execute_parallel_command(
         services_to_target,
@@ -379,10 +346,9 @@ def _handle_migrate_success(
         show_progress=True,
         wait=wait,
         force_kill_timeout=force_kill_timeout,
-        worker_term_timeout=worker_term_timeout,
     )
 
-    if maintenance_enabled_for_restart:
+    if maintenance_on_migrate:
         disable_maintenance_mode(display)
         return True
 
@@ -499,15 +465,6 @@ def command(
             help="Timeout (seconds) after which stubborn non-worker processes will be forcefully killed during restart.",
         ),
     ] = None,
-    worker_term_timeout: Annotated[
-        int,
-        typer.Option(
-            "--worker-term-timeout",
-            help="Seconds to wait for a worker to stop after the initial SIGTERM before sending SIGKILL. "
-            "Default (10s): workers are killed quickly; the interrupted job will be retried or lost. "
-            "Increase (e.g. 300) to let workers finish their current job before being killed.",
-        ),
-    ] = 10,
     migrate_command: Annotated[
         Optional[str],
         typer.Option(
@@ -520,7 +477,11 @@ def command(
         Optional[List[str]],
         typer.Option(
             "--maintenance-mode",
-            help="Enable maintenance mode for selected phases. Accepts a space separated list: stop migrate start.",
+            help=(
+                "Enable maintenance mode for specific phases: "
+                "'drain' (during RQ worker drain) and/or 'migrate' (during bench migrate + service restart). "
+                "Example: --maintenance-mode drain --maintenance-mode migrate"
+            ),
             show_default=False,
         ),
     ] = None,
@@ -533,20 +494,40 @@ def command(
     Can optionally wait for workers to complete jobs before restarting.
     Always attempts to resume workers after restart completion.
 
-    Maintenance mode can be enabled for any combination of phases (stop, migrate, restart)
-    using --maintenance-mode. Example: --maintenance-mode stop,migrate
+    Maintenance mode can be enabled for 'drain' (RQ drain phase) and/or 'migrate'
+    (bench migrate + restart phase) using --maintenance-mode.
+    Example: --maintenance-mode drain --maintenance-mode migrate
     """
     display: DisplayManager = ctx.obj['display']
     debug: bool = ctx.obj.get('debug', False)
 
-    valid_phases = {"stop", "migrate", "start"}
-    maintenance_phases = set(maintenance_mode or [])
-    if not maintenance_phases.issubset(valid_phases):
+    valid_mm_values = {"drain", "migrate"}
+    maintenance_set = set(maintenance_mode or [])
+    if not maintenance_set.issubset(valid_mm_values):
         display.error(
-            f"Invalid value(s) for --maintenance-mode: {', '.join(maintenance_phases - valid_phases)}. "
-            f"Allowed values: stop, migrate, start."
+            f"Invalid value(s) for --maintenance-mode: {', '.join(maintenance_set - valid_mm_values)}. "
+            f"Allowed values: drain, migrate."
         )
         raise typer.Exit(code=1)
+
+    maintenance_on_drain = "drain" in maintenance_set
+    maintenance_on_migrate = "migrate" in maintenance_set
+
+    suspension_needed = suspend_rq or wait_workers
+
+    if maintenance_on_drain and not suspension_needed:
+        display.warning(
+            "--maintenance-mode drain has no effect without --suspend-rq or --wait-workers. "
+            "Maintenance mode will not be enabled for the drain phase."
+        )
+        maintenance_on_drain = False
+
+    if maintenance_on_migrate and not migrate:
+        display.warning(
+            "--maintenance-mode migrate has no effect without --migrate. "
+            "Maintenance mode will not be enabled for the migrate phase."
+        )
+        maintenance_on_migrate = False
 
     all_services = get_service_names_for_completion()
     services_to_target = all_services if not service_names else [s.value for s in service_names]
@@ -558,9 +539,6 @@ def command(
     wait_desc = "(with wait)" if wait else "(without wait)"
     display.dimmed(f"\nAttempting to restart {target_desc} {wait_desc}...")
 
-    suspension_needed = suspend_rq or wait_workers
-
-    # Parse migrate_command string into list if provided
     migrate_command_list: Optional[List[str]] = None
     if migrate_command:
         migrate_command_list = migrate_command.split()
@@ -585,10 +563,10 @@ def command(
                 migrate_timeout,
                 migrate_command_list,
                 wait,
-                maintenance_phases,
-                force_kill_timeout,
-                debug,
-                worker_term_timeout=worker_term_timeout,
+                maintenance_on_drain=maintenance_on_drain,
+                maintenance_on_migrate=maintenance_on_migrate,
+                force_kill_timeout=force_kill_timeout,
+                debug=debug,
             )
         finally:
             if suspension_needed:
@@ -597,8 +575,7 @@ def command(
     else:
         maintenance_enabled = False
         try:
-            # ---- STOP PHASE ----
-            if "stop" in maintenance_phases:
+            if maintenance_on_drain and suspension_needed:
                 enable_maintenance_mode(display)
                 maintenance_enabled = True
 
@@ -608,35 +585,18 @@ def command(
                 ):
                     raise typer.Exit(code=1)
 
-            execute_parallel_command(
-                services_to_target,
-                util_stop_service,
-                action_verb="stopping",
-                show_progress=True,
-                process_name_list=None,
-                wait=wait,
-                wait_workers=wait_workers,
-                force_kill_timeout=force_kill_timeout,
-                worker_term_timeout=worker_term_timeout,
-            )
-
-            # Disable maintenance mode if not needed for next phase
-            if "stop" in maintenance_phases and "migrate" not in maintenance_phases:
+            if maintenance_enabled:
                 disable_maintenance_mode(display)
                 maintenance_enabled = False
 
-            # ---- START PHASE ----
-            if "start" in maintenance_phases and not maintenance_enabled:
-                enable_maintenance_mode(display)
-                maintenance_enabled = True
-
             execute_parallel_command(
                 services_to_target,
-                util_start_service,
-                action_verb="starting",
+                util_restart_service,
+                action_verb="restarting",
                 show_progress=True,
-                process_name_list=None,
                 wait=wait,
+                wait_workers=wait_workers,
+                force_kill_timeout=force_kill_timeout,
             )
 
         finally:

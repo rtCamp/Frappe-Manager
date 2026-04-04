@@ -96,7 +96,7 @@ class BenchSiteManager:
         self.output = output_handler or RichOutputHandler()
 
         self.frappe_bench_dir: Path = bench_path / "workspace" / "frappe-bench"
-        self.bench_cli_cmd = ["/usr/local/bin/bench"]
+        self.bench_cli_cmd = ["/opt/user/.bin/bench"]
 
     def is_site_created(self, site_name: str | None = None) -> bool:
         """
@@ -329,7 +329,7 @@ class BenchSiteManager:
                         service=service,
                         command=run_command,
                         rm=True,
-                            entrypoint="/exec-entrypoint.sh",
+                        entrypoint="/exec-entrypoint.sh",
                         stream=True,
                     ),
                 )

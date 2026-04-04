@@ -42,7 +42,6 @@ def stop_service(
     force_kill_timeout: Optional[int] = None,
     wait_workers: bool = False,
     verbose: bool = False,
-    worker_term_timeout: int = 10,
 ) -> bool:
     """
     Stops processes in a service with optional force kill and worker handling.
@@ -70,7 +69,6 @@ def stop_service(
                 force_kill_timeout=force_kill_timeout,
                 wait_workers=wait_workers,
                 verbose=verbose,
-                worker_term_timeout=worker_term_timeout,
             )
             or False
         )
@@ -119,7 +117,6 @@ def restart_service(
     wait: bool = True,
     wait_workers: bool = False,
     force_kill_timeout: Optional[int] = None,
-    worker_term_timeout: int = 10,
     verbose: bool = False,
 ) -> Dict[str, List[str]]:
     """
@@ -145,7 +142,6 @@ def restart_service(
             wait=wait,
             wait_workers=wait_workers,
             force_kill_timeout=force_kill_timeout,
-            worker_term_timeout=worker_term_timeout,
         )
         stopped_count = len(result.get("stopped", [])) if result else 0
         started_count = len(result.get("started", [])) if result else 0

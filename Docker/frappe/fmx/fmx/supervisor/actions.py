@@ -22,7 +22,6 @@ def _handle_stop(
     wait_workers: bool = False,
     called_from_restart: bool = False,
     verbose: bool = False,
-    worker_term_timeout: int = 10,
 ) -> Dict[str, List[str]]:
     """
     Stops processes in a service with intelligent worker handling.
@@ -107,7 +106,6 @@ def _handle_stop(
                 wait_workers=wait_workers,
                 process_info=process_info,
                 verbose=verbose,
-                worker_term_timeout=worker_term_timeout,
             )
 
             if success:
@@ -216,21 +214,20 @@ def _handle_start(
                     start_results["failed"].append(process_name_to_start)
                     _raise_exception_from_fault(start_fault, service_name, action, process_name_to_start)
                 elif "ABNORMAL_TERMINATION" in fault_string and is_worker_process(process_name_to_start):
-                    retry_interval = 3
-                    retry_timeout = 120
+                    retry_interval = 2
+                    retry_timeout = 60
                     retry_start = time.monotonic()
                     attempt = 0
                     started = False
+                    display.dimmed(
+                        f"  Worker {display.highlight(process_name_to_start)} waiting for previous job to finish..."
+                    )
                     while time.monotonic() - retry_start < retry_timeout:
                         attempt += 1
                         elapsed = int(time.monotonic() - retry_start)
                         logger.warning(
                             f"Worker {process_name_to_start} got ABNORMAL_TERMINATION "
                             f"(attempt {attempt}, {elapsed}s elapsed), retrying in {retry_interval}s"
-                        )
-                        display.dimmed(
-                            f"  Worker {display.highlight(process_name_to_start)} not ready yet "
-                            f"(attempt {attempt}, {elapsed}s elapsed) — retrying in {retry_interval}s..."
                         )
                         time.sleep(retry_interval)
                         try:
@@ -247,8 +244,8 @@ def _handle_start(
                             break
                     if not started and process_name_to_start not in start_results["failed"]:
                         display.error(
-                            f"Worker {display.highlight(process_name_to_start)} did not start after {retry_timeout}s "
-                            f"({attempt} attempts). A previous job process may still be running."
+                            f"Worker {display.highlight(process_name_to_start)} failed to start after {retry_timeout}s "
+                            f"({attempt} attempts). Force-killed job did not exit in time. Try --wait-workers next time."
                         )
                         start_results["failed"].append(process_name_to_start)
                 else:
@@ -276,7 +273,6 @@ def _handle_restart(
     wait: bool,
     force_kill_timeout: Optional[int] = None,
     wait_workers: bool = False,
-    worker_term_timeout: int = 10,
 ) -> Dict[str, List[str]]:
     """
     Performs a complete service restart using stop-then-start strategy.
@@ -305,7 +301,6 @@ def _handle_restart(
         force_kill_timeout,
         wait_workers=wait_workers,
         called_from_restart=True,
-        worker_term_timeout=worker_term_timeout,
     )
 
     if stop_results.get("failed"):

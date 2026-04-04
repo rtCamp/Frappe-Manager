@@ -221,7 +221,7 @@ class BenchSupervisor:
             "gunicorn_max_requests_jitter": self._compute_max_requests_jitter(max_requests),
             "bench_name": "frappe-bench",
             "background_workers": config.get("background_workers") or 1,
-            "bench_cmd": "/usr/local/bin/bench",
+            "bench_cmd": "/opt/user/.bin/bench",
             "workers": config.get("workers", {}),
             "multi_queue_consumption": self._can_enable_multi_queue_consumption(bench_path),
             "supervisor_startretries": 10,

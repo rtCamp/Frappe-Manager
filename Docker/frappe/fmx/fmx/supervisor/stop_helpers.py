@@ -37,28 +37,31 @@ def _wait_for_process_stop(supervisor_api, process_name: str, timeout: int) -> b
 
 
 def _kill_process(supervisor_api, service_name: str, process_name: str) -> bool:
-    logger.info(f"Sending SIGKILL to process {process_name}")
     try:
-        supervisor_api.signalProcess(process_name, 'KILL')
-        time.sleep(1)
         info = supervisor_api.getProcessInfo(process_name)
         if info['state'] in STOPPED_STATES:
-            logger.info(f"Process {process_name} killed successfully")
+            logger.info(f"Process {process_name} already stopped")
             return True
-        else:
-            logger.error(f"Failed to kill process {process_name}. Final state: {info['statename']}")
-            return False
-    except Fault as kill_fault:
-        if "ALREADY_DEAD" in kill_fault.faultString or "NOT_RUNNING" in kill_fault.faultString:
-            logger.info(f"Process {process_name} was already stopped before SIGKILL")
+
+        supervisor_api.signalProcess(process_name, 'USR1')
+        logger.info(f"Sent SIGUSR1 to {process_name}")
+
+        stopped = _wait_for_process_stop(supervisor_api, process_name, timeout=10)
+        if stopped:
             return True
-        elif "BAD_NAME" in kill_fault.faultString:
-            logger.info(f"Process {process_name} not found, assuming stopped/killed")
+
+        logger.warning(f"{process_name} still running 10s after SIGUSR1, sending SIGKILL via stopProcess")
+        supervisor_api.stopProcess(process_name, True)
+        return True
+
+    except Fault as e:
+        fault_string = getattr(e, 'faultString', '')
+        if "NOT_RUNNING" in fault_string or "ALREADY_DEAD" in fault_string or "BAD_NAME" in fault_string:
+            logger.info(f"Process {process_name} already gone")
             return True
-        else:
-            logger.error(f"Error sending SIGKILL to {process_name}: {kill_fault.faultString}")
-            _raise_exception_from_fault(kill_fault, service_name, "signal/getInfo", process_name)
-            return False
+        logger.error(f"Error killing {process_name}: {fault_string}")
+        _raise_exception_from_fault(e, service_name, "kill", process_name)
+        return False
 
 
 def _wait_for_worker_processes_stop(supervisor_api, service_name: str, timeout: int) -> bool:
@@ -121,7 +124,6 @@ def _stop_single_process_with_logic(
     wait_workers: bool = False,
     process_info: Optional[Dict[str, Any]] = None,
     verbose: bool = False,
-    worker_term_timeout: int = 10,
 ) -> bool:
     action = "stop"
 
@@ -138,62 +140,16 @@ def _stop_single_process_with_logic(
         is_worker = is_worker_process(original_process_name)
 
         if is_worker and not wait_workers:
-            # Kill-fast path: send SIGTERM, wait briefly (worker_term_timeout, default 10s),
-            # then SIGKILL. We intentionally do NOT wait for the forked RQ job child to finish —
-            # the current job will be interrupted. The orphaned forked child (separate PGID,
-            # different PID namespace) cannot be killed directly from here; the start phase
-            # handles ABNORMAL_TERMINATION with a retry loop until the orphan exits naturally.
-            supervisor_api.stopProcess(name_to_stop, False)
-            logger.info(
-                f"Sent SIGTERM to worker {original_process_name}, waiting up to {worker_term_timeout}s before SIGKILL"
-            )
-            # Poll with the fully-qualified group:name — using just the process name returns
-            # BAD_NAME immediately even while the process is in STOPPING state with a live
-            # forked RQ job child.
-            stopped = _wait_for_process_stop(supervisor_api, name_to_stop, worker_term_timeout)
-            if stopped:
-                logger.info(f"Worker {original_process_name} stopped after SIGTERM (within {worker_term_timeout}s)")
-                return True
-
-            logger.info(
-                f"Worker {original_process_name} still running after {worker_term_timeout}s SIGTERM window, sending SIGKILL"
-            )
             return _kill_process(supervisor_api, service_name, name_to_stop)
 
         supervisor_api.stopProcess(name_to_stop, wait)
 
         if force_kill_timeout is not None and force_kill_timeout > 0:
             if is_worker:
-                logger.info(
-                    f"Checking graceful stop for worker {original_process_name} (timeout: {force_kill_timeout}s)"
-                )
                 stopped_gracefully = _wait_for_process_stop(supervisor_api, original_process_name, force_kill_timeout)
-
                 if not stopped_gracefully:
-                    logger.info(f"Worker {original_process_name} didn't stop gracefully, sending additional TERM")
-                    try:
-                        supervisor_api.signalProcess(name_to_stop, 'TERM')
-                    except Fault as e:
-                        if (
-                            "NOT_RUNNING" in e.faultString
-                            or "ALREADY_DEAD" in e.faultString
-                            or "BAD_NAME" in e.faultString
-                        ):
-                            logger.info(f"Worker {original_process_name} already gone before additional TERM")
-                            return True
-                        logger.warning(
-                            f"Failed to send additional TERM to worker {original_process_name}: {e.faultString}"
-                        )
-                        return False
-                    stopped_after_term = _wait_for_process_stop(supervisor_api, original_process_name, 5)
-                    if not stopped_after_term:
-                        logger.info(f"Worker {original_process_name} still running, sending SIGKILL")
-                        return _kill_process(supervisor_api, service_name, original_process_name)
-                    logger.info(f"Worker {original_process_name} stopped after additional TERM")
-                    return True
-                else:
-                    logger.info(f"Worker {original_process_name} stopped gracefully")
-                    return True
+                    return _kill_process(supervisor_api, service_name, original_process_name)
+                return True
             else:
                 logger.info(
                     f"Checking graceful stop for non-worker {original_process_name} (timeout: {force_kill_timeout}s)"
