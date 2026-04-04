@@ -179,6 +179,8 @@ def _run_migration(display: DisplayManager, migrate_timeout: int, migrate_comman
         )
 
         output_lines = []
+        last_was_progress = False
+        last_progress_label = None
         try:
             while True:
                 output = process.stdout.readline()
@@ -187,9 +189,24 @@ def _run_migration(display: DisplayManager, migrate_timeout: int, migrate_comman
                 if output:
                     line = output.rstrip('\r\n')
                     if line:
-                        display.print(f"  {line}")
                         is_progress_bar = '[' in line and ']' in line and '%' in line
-                        if not is_progress_bar:
+                        if is_progress_bar:
+                            stripped = line.strip()
+                            label = stripped.split(' : [', 1)[0].strip() if ' : [' in stripped else 'Progress'
+                            pct = (stripped.rsplit('%', 1)[0].rsplit(None, 1)[-1] + '%') if '%' in stripped else '?%'
+                            if label != last_progress_label:
+                                if last_was_progress:
+                                    print()
+                                print(f"  {label}  ", end='', flush=True)
+                                last_progress_label = label
+                            print(f"\r  {label}  {pct}   ", end='', flush=True)
+                            last_was_progress = True
+                        else:
+                            if last_was_progress:
+                                print()
+                                last_was_progress = False
+                                last_progress_label = None
+                            display.print(f"  {line}")
                             output_lines.append(line)
 
                 if time.time() - start_time > migrate_timeout:
@@ -201,6 +218,8 @@ def _run_migration(display: DisplayManager, migrate_timeout: int, migrate_comman
                     raise subprocess.TimeoutExpired(["bench", "migrate"], migrate_timeout)
 
         finally:
+            if last_was_progress:
+                print()
             if process.stdout:
                 process.stdout.close()
             if process.poll() is None:
@@ -315,6 +334,7 @@ def _run_migrate_flow(
             wait,
             force_kill_timeout,
             maintenance_on_migrate,
+            wait_workers=suspension_needed,
         )
         if maintenance_disabled_by_handler:
             maintenance_enabled = False
@@ -330,11 +350,22 @@ def _handle_migrate_success(
     wait: bool,
     force_kill_timeout: Optional[int],
     maintenance_on_migrate: bool = False,
+    wait_workers: bool = False,
 ) -> bool:
     """Handle migration success - full service restart.
 
     Restarts all supervisor services in parallel, then disables maintenance
     mode if it was enabled for the migrate phase.
+
+    Args:
+        display: DisplayManager for output
+        services_to_target: List of supervisor service names to restart
+        wait: Wait for supervisor restart operations to complete
+        force_kill_timeout: Seconds after which non-worker processes are force-killed
+        maintenance_on_migrate: Whether maintenance mode was enabled for the migrate phase
+        wait_workers: Whether workers were drained before migration. When True, workers use
+            normal stopProcess instead of the USR1 (warm shutdown) path, avoiding the 10s
+            wait-for-current-job overhead on already-idle workers.
 
     Returns:
         True if maintenance was disabled by this function, False otherwise
@@ -347,6 +378,7 @@ def _handle_migrate_success(
         action_verb="restarting",
         show_progress=True,
         wait=wait,
+        wait_workers=wait_workers,
         force_kill_timeout=force_kill_timeout,
     )
 
