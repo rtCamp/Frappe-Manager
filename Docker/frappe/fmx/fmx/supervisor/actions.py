@@ -1,11 +1,12 @@
 import logging
 import signal
+import time
 from typing import List, Optional, Dict, Any
 from xmlrpc.client import Fault
 
 logger = logging.getLogger(__name__)
 
-from fmx.supervisor.constants import STOPPED_STATES, is_worker_process, SIGNAL_NUM_WORKER_GRACEFUL_EXIT
+from fmx.supervisor.constants import STOPPED_STATES, is_worker_process
 from fmx.display import display
 from fmx.supervisor.fault_handler import _raise_exception_from_fault
 from fmx.supervisor.stop_helpers import make_supervisor_api_name
@@ -18,9 +19,10 @@ def _handle_stop(
     process_names: Optional[List[str]],
     wait: bool,
     force_kill_timeout: Optional[int],
-    wait_workers: Optional[bool],
+    wait_workers: bool = False,
     called_from_restart: bool = False,
     verbose: bool = False,
+    worker_term_timeout: int = 10,
 ) -> Dict[str, List[str]]:
     """
     Stops processes in a service with intelligent worker handling.
@@ -78,47 +80,35 @@ def _handle_stop(
             display.print(f"Preparing to stop all processes in {display.highlight(service_name)}...")
 
     if not called_from_restart and verbose:
-        if wait_workers is True:
+        if wait_workers:
             display.dimmed("Stop calls for worker processes WILL wait for graceful shutdown.")
-        elif wait_workers is False:
-            display.dimmed("Stop calls for worker processes will not stop it and not wait for graceful shutdown.")
     for process_name in target_process_names:
         try:
             is_worker = is_worker_process(process_name)
-            effective_wait_for_this_process: bool
-            skip_stop: bool = False
 
             if is_worker:
-                if wait_workers is True:
-                    effective_wait_for_this_process = True
-                elif wait_workers is False:
-                    effective_wait_for_this_process = False
-                    skip_stop = True
-                else:
-                    effective_wait_for_this_process = wait
+                effective_wait_for_this_process = True if wait_workers else wait
             else:
                 effective_wait_for_this_process = wait
 
-            if skip_stop:
+            process_info = process_info_map.get(process_name)
+            current_state = process_info.get('state') if process_info else None
+
+            if current_state in STOPPED_STATES:
                 stop_results["already_stopped"].append(process_name)
-            else:
-                process_info = process_info_map.get(process_name)
-                current_state = process_info.get('state') if process_info else None
+                continue
 
-                if current_state in STOPPED_STATES:
-                    stop_results["already_stopped"].append(process_name)
-                    continue
-
-                success = _stop_single_process_with_logic(
-                    supervisor_api,
-                    service_name,
-                    process_name,
-                    wait=effective_wait_for_this_process,
-                    force_kill_timeout=force_kill_timeout,
-                    wait_workers=wait_workers,
-                    process_info=process_info_map.get(process_name),
-                    verbose=verbose,
-                )
+            success = _stop_single_process_with_logic(
+                supervisor_api,
+                service_name,
+                process_name,
+                wait=effective_wait_for_this_process,
+                force_kill_timeout=force_kill_timeout,
+                wait_workers=wait_workers,
+                process_info=process_info,
+                verbose=verbose,
+                worker_term_timeout=worker_term_timeout,
+            )
 
             if success:
                 stop_results["stopped"].append(process_name)
@@ -225,6 +215,42 @@ def _handle_start(
                     )
                     start_results["failed"].append(process_name_to_start)
                     _raise_exception_from_fault(start_fault, service_name, action, process_name_to_start)
+                elif "ABNORMAL_TERMINATION" in fault_string and is_worker_process(process_name_to_start):
+                    retry_interval = 3
+                    retry_timeout = 120
+                    retry_start = time.monotonic()
+                    attempt = 0
+                    started = False
+                    while time.monotonic() - retry_start < retry_timeout:
+                        attempt += 1
+                        elapsed = int(time.monotonic() - retry_start)
+                        logger.warning(
+                            f"Worker {process_name_to_start} got ABNORMAL_TERMINATION "
+                            f"(attempt {attempt}, {elapsed}s elapsed), retrying in {retry_interval}s"
+                        )
+                        display.dimmed(
+                            f"  Worker {display.highlight(process_name_to_start)} not ready yet "
+                            f"(attempt {attempt}, {elapsed}s elapsed) — retrying in {retry_interval}s..."
+                        )
+                        time.sleep(retry_interval)
+                        try:
+                            supervisor_api.startProcess(name_for_api, wait)
+                            start_results["started"].append(process_name_to_start)
+                            started = True
+                            break
+                        except Fault as retry_fault:
+                            retry_fs = getattr(retry_fault, 'faultString', '')
+                            if "ABNORMAL_TERMINATION" in retry_fs:
+                                continue
+                            start_results["failed"].append(process_name_to_start)
+                            _raise_exception_from_fault(retry_fault, service_name, action, process_name_to_start)
+                            break
+                    if not started and process_name_to_start not in start_results["failed"]:
+                        display.error(
+                            f"Worker {display.highlight(process_name_to_start)} did not start after {retry_timeout}s "
+                            f"({attempt} attempts). A previous job process may still be running."
+                        )
+                        start_results["failed"].append(process_name_to_start)
                 else:
                     start_results["failed"].append(process_name_to_start)
                     _raise_exception_from_fault(start_fault, service_name, action, process_name_to_start)
@@ -249,7 +275,8 @@ def _handle_restart(
     process_names: Optional[List[str]],
     wait: bool,
     force_kill_timeout: Optional[int] = None,
-    wait_workers: Optional[bool] = None,
+    wait_workers: bool = False,
+    worker_term_timeout: int = 10,
 ) -> Dict[str, List[str]]:
     """
     Performs a complete service restart using stop-then-start strategy.
@@ -278,6 +305,7 @@ def _handle_restart(
         force_kill_timeout,
         wait_workers=wait_workers,
         called_from_restart=True,
+        worker_term_timeout=worker_term_timeout,
     )
 
     if stop_results.get("failed"):
@@ -397,61 +425,6 @@ def _handle_signal(supervisor_api, service_name: str, process_names: List[str], 
     success = all(results.values())
     logger.info(f"Signal operation completed: service={service_name}, signal={signal_name}, success={success}")
     return success
-
-
-def _handle_signal_workers(
-    supervisor_api,
-    service_name: str,
-    signal_num: int = SIGNAL_NUM_WORKER_GRACEFUL_EXIT,
-) -> List[str]:
-    """
-    Automatically identifies and signals all worker processes for graceful shutdown.
-
-    Logic:
-    1. Gets all running processes from supervisor
-    2. Filters for worker processes using naming patterns (worker-, -worker, etc.)
-    3. For each identified worker that's not already stopped:
-       - Sends graceful exit signal (default: signal 34)
-       - Constructs proper group:process API name
-    4. Returns list of successfully signaled worker process names
-    """
-    logger.info(f"Handle signal workers called: service={service_name}, signal_num={signal_num}")
-
-    signaled_processes = []
-    action = "signal_workers"
-    try:
-        all_info = supervisor_api.getAllProcessInfo()
-    except Fault as e:
-        _raise_exception_from_fault(e, service_name, "getAllProcessInfo (signal_workers)")
-        return []
-
-    for proc in all_info:
-        proc_name = proc.get('name', '')
-        if is_worker_process(proc_name):
-            if proc.get('state') not in STOPPED_STATES:
-                try:
-                    group_name = proc.get('group')
-                    if not group_name:
-                        display.warning(
-                            f"Worker process {display.highlight(proc_name)} in {display.highlight(service_name)} is missing group information. Skipping signal."
-                        )
-                        continue
-
-                    name_for_api = make_supervisor_api_name(group_name, proc_name)
-                    display.info(
-                        f"Signaling worker process {display.highlight(name_for_api)} in {display.highlight(service_name)} with signal {signal_num}..."
-                    )
-                    supervisor_api.signalProcess(name_for_api, signal_num)
-                    signaled_processes.append(proc_name)
-                except Fault as e:
-                    display.warning(
-                        f"Failed to send signal {signal_num} to process {display.highlight(proc_name)} in {display.highlight(service_name)}: {e.faultString}"
-                    )
-
-    logger.info(
-        f"Signal workers completed: service={service_name}, signaled_count={len(signaled_processes)}, workers={signaled_processes}"
-    )
-    return signaled_processes
 
 
 def _handle_info(supervisor_api, service_name: str):

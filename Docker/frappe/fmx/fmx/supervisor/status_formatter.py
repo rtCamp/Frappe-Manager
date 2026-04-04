@@ -111,7 +111,7 @@ def format_rq_status(rq_status: Optional[dict], verbose: bool = False) -> Option
     for worker_name, state, current_job, job_stats in workers:
         state_color = 'green' if state in ['idle', 'busy'] else 'yellow' if state == 'suspended' else 'red'
 
-        total_jobs = job_stats.get('total', 0)
+        queue_count = job_stats.get('queue_count', 0)
         successful = job_stats.get('successful', 0)
         failed = job_stats.get('failed', 0)
         working_time = job_stats.get('working_time', 0.0)
@@ -119,7 +119,7 @@ def format_rq_status(rq_status: Optional[dict], verbose: bool = False) -> Option
         worker_label = (
             f"([{state_color}]{state.upper()}[/{state_color}]) "
             f"[heading]Worker:[/heading] [b]{worker_name}[/b] "
-            f"[dimmed]│ Jobs: {total_jobs}[/dimmed]"
+            f"[dimmed]│ Jobs: {queue_count}[/dimmed]"
         )
 
         if verbose:

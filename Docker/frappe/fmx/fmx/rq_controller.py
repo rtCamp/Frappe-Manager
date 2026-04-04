@@ -5,18 +5,43 @@ from pathlib import Path
 import sys
 import time
 import traceback
-from typing import Any, Optional
+from typing import Any, List, Optional, Tuple
 
 import argparse
 from rich import print
-from rich.console import Group
-from rich.live import Live
-from rich.panel import Panel
-from rich.table import Table
+from rich.console import Console
 
 import redis
 from rq.suspension import is_suspended, resume, suspend
 from rq.worker import Worker
+
+stderr_console = Console(stderr=True)
+
+_STATE_COLOR = {
+    'suspended': 'green',
+    'idle': 'yellow',
+    'busy': 'cyan',
+}
+
+
+def _label(worker: Worker) -> str:
+    """Get human-readable worker label. Tries: hostname:pid > queue name > UUID prefix."""
+    try:
+        if worker.hostname and worker.pid:
+            return f"{worker.hostname}:{worker.pid}"
+    except (AttributeError, TypeError):
+        pass
+
+    try:
+        if hasattr(worker, 'queues') and worker.queues:
+            queue_name = worker.queues[0].name
+            if ':' in queue_name:
+                return queue_name.split(':')[-1]
+            return queue_name
+    except (AttributeError, IndexError):
+        pass
+
+    return worker.name[:8]
 
 
 def _get_common_site_config_key_value(
@@ -73,32 +98,54 @@ def _get_redis_connection(redis_url=None):
         return None
 
 
-def _get_worker_states(connection):
-    """Get all workers and their states from Redis"""
-    workers = Worker.all(connection=connection)
+def _is_worker_alive(worker: Worker, connection) -> bool:
+    worker_hash = connection.hgetall(f'rq:worker:{worker.name}')
+    if not worker_hash:
+        return False
+
+    state = worker.get_state()
+    if state == '?':
+        return False
+
+    return True
+
+
+def _get_worker_states(connection) -> Tuple[List[Worker], List[Tuple[Worker, str]]]:
+    all_workers = Worker.all(connection=connection)
+    workers = [w for w in all_workers if _is_worker_alive(w, connection)]
+
     if not workers:
         return [], []
 
-    non_suspended_workers = []
-    worker_states = []
+    non_suspended: List[Worker] = []
+    states: List[Tuple[Worker, str]] = []
 
     for worker in workers:
         state = worker.get_state()
-        worker_states.append((worker.name, state))
+        states.append((worker, state))
         if state != 'suspended':
-            non_suspended_workers.append(worker)
+            non_suspended.append(worker)
 
-    return non_suspended_workers, worker_states
+    return non_suspended, states
 
 
 def noop():
-    """Does absolutely nothing. Used to wake up idle RQ workers."""
     pass
 
 
 class ActionEnum(str, Enum):
     suspend = "suspend"
     resume = "resume"
+
+
+def is_rq_suspended(redis_url=None) -> bool:
+    try:
+        connection = _get_redis_connection(redis_url=redis_url)
+        if not connection:
+            return False
+        return is_suspended(connection)
+    except Exception:
+        return False
 
 
 def control_rq_workers(action: ActionEnum, redis_url=None) -> bool:
@@ -118,17 +165,22 @@ def control_rq_workers(action: ActionEnum, redis_url=None) -> bool:
             return False
 
         if action == ActionEnum.suspend:
-            print(f"[cyan]Suspending RQ workers via Redis flag...[/cyan]", file=sys.stderr)
             suspend(connection)
-            print(f"[green]Successfully set suspension flag in Redis.[/green]", file=sys.stderr)
+            if not is_suspended(connection):
+                print(
+                    f"\n[bold red]Error:[/bold red] Suspend command executed but Redis still shows not suspended",
+                    file=sys.stderr,
+                )
+                return False
             return True
         elif action == ActionEnum.resume:
-            print(f"[cyan]Resuming RQ workers via Redis flag...[/cyan]", file=sys.stderr)
-            result = resume(connection)
-            if result == 1:
-                print(f"[green]Successfully removed suspension flag in Redis.[/green]", file=sys.stderr)
-            else:
-                print(f"[dim]Suspension flag was not present in Redis.[/dim]", file=sys.stderr)
+            resume(connection)
+            if is_suspended(connection):
+                print(
+                    f"\n[bold red]Error:[/bold red] Resume command executed but Redis still shows suspended",
+                    file=sys.stderr,
+                )
+                return False
             return True
 
         return False
@@ -138,187 +190,107 @@ def control_rq_workers(action: ActionEnum, redis_url=None) -> bool:
         traceback.print_exc(file=sys.stderr)
         return False
 
-    finally:
-        pass
-
 
 def wait_for_rq_workers_suspended(
     timeout: int = 300, poll_interval: int = 5, verbose: bool = False, redis_url=None
 ) -> bool:
-    """
-    Wait for all RQ workers registered in Redis to reach the 'suspended' state.
-    Does not require site initialization, works directly with Redis.
-
-    Args:
-        timeout: Maximum time to wait in seconds.
-        poll_interval: Time between checks in seconds.
-        verbose: If True, print the state of each worker during checks.
-        redis_url: Optional Redis URL to use
-
-    Returns:
-        bool: True if all workers are suspended/gone, False on timeout or error.
-    """
     try:
         connection = _get_redis_connection(redis_url=redis_url)
         if not connection:
             return False
 
-        print(f"Waiting up to {timeout}s for RQ workers to reach 'suspended' state...")
         start_time = time.time()
         final_status = "unknown"
 
         from rq import Queue
 
-        with Live(vertical_overflow="visible") as live:
-            while True:
-                verbose_messages = []
+        while True:
+            elapsed = time.time() - start_time
 
-                if (time.time() - start_time) > timeout:
-                    final_status = "timeout"
+            if elapsed > timeout:
+                final_status = "timeout"
+                break
+
+            try:
+                non_suspended, worker_states = _get_worker_states(connection)
+
+                if not worker_states:
+                    final_status = "no_workers"
                     break
 
-                try:
-                    non_suspended_workers_list, worker_states = _get_worker_states(connection)
-                    if not worker_states:  # No workers at all
-                        final_status = "no_workers"
-                        break
+                for worker in non_suspended:
+                    state = worker.get_state()
+                    if state != 'busy':
+                        try:
+                            if hasattr(worker, 'queues') and worker.queues:
+                                queue = worker.queues[0]
+                                queue.enqueue('fmx.rq_controller.noop', at_front=True)
+                                if verbose:
+                                    stderr_console.print(f"[dim]  → noop enqueued to {_label(worker)}[/dim]")
+                        except Exception as enqueue_err:
+                            if verbose:
+                                stderr_console.print(
+                                    f"[yellow]warn:[/yellow] noop enqueue failed for {_label(worker)}: {enqueue_err}"
+                                )
 
-                    if non_suspended_workers_list:
-                        if verbose:
-                            verbose_messages.append(
-                                f"[dim]Found {len(non_suspended_workers_list)} non-suspended worker(s). Attempting to enqueue noop jobs...[/dim]"
-                            )
-                        for worker in non_suspended_workers_list:
-                            state = worker.get_state()
-                            if state != 'busy':
-                                try:
-                                    listened_queue_names = worker.queue_names()
-                                    if listened_queue_names:
-                                        target_queue_name = listened_queue_names[0]
-                                        queue = Queue(target_queue_name, connection=connection)
-                                        queue.enqueue('fm_helper.rq_controller.noop', at_front=True)
-                                        if verbose:
-                                            verbose_messages.append(
-                                                f"[dim]  - Enqueued noop to '{target_queue_name}' for worker '{worker.name}' (state: {state}).[/dim]"
-                                            )
-                                except Exception as enqueue_err:
-                                    if verbose:
-                                        verbose_messages.append(
-                                            f"[yellow]Warning:[/yellow] Failed to enqueue noop job for worker '{worker.name}': {enqueue_err}"
-                                        )
+                if not non_suspended:
+                    final_status = "success"
+                    break
 
-                    non_suspended_worker_names = [w.name for w in non_suspended_workers_list]
-                    if not non_suspended_worker_names:
-                        final_status = "success"
-                        break
+                parts = []
+                for worker, state in worker_states:
+                    color = _STATE_COLOR.get(state, 'red')
+                    parts.append(f"{_label(worker)}: [{color}]{state}[/]")
+                status_line = "⏳  " + "  ·  ".join(parts) + f"  [dim]({elapsed:.1f}s)[/dim]"
+                stderr_console.print(status_line)
 
-                    current_time = time.time()
-                    elapsed_time = current_time - start_time
-                    remaining_time = max(0, timeout - elapsed_time)
-                    summary_text = (
-                        f"Elapsed: [cyan]{elapsed_time:.1f}s[/] | Remaining: [cyan]{remaining_time:.1f}s[/]\n"
-                        f"Waiting for [yellow]{len(non_suspended_worker_names)}[/] worker(s) to suspend: {', '.join(non_suspended_worker_names)}"
-                    )
-                    summary_panel = Panel(
-                        summary_text, title="RQ Worker Wait Status", border_style="blue", expand=False
-                    )
+                time.sleep(poll_interval)
 
-                    renderables = [summary_panel]
-                    if verbose:
-                        if verbose_messages:
-                            verbose_output = "\n".join(verbose_messages)
-                            renderables.append(
-                                Panel(verbose_output, title="Verbose Log", border_style="dim", expand=False)
-                            )
+            except redis.RedisError as e:
+                stderr_console.print(f"[bold red]Error:[/bold red] Redis operation failed: {e}")
+                return False
+            except Exception as e:
+                stderr_console.print(f"[bold red]Error:[/bold red] RQ worker interaction failed: {e}")
+                return False
 
-                        worker_table = Table(title="Worker States", expand=False)
-                        worker_table.add_column("Worker Name", style="dim")
-                        worker_table.add_column("State")
-
-                        for name, state in worker_states:
-                            state_color = (
-                                "green" if state == 'suspended' else "yellow" if state in ('idle', 'busy') else "red"
-                            )
-                            worker_table.add_row(name, f"[{state_color}]{state}[/{state_color}]")
-
-                        renderables.append(worker_table)
-
-                    render_group = Group(*renderables)
-                    live.update(render_group)
-
-                    time.sleep(poll_interval)
-
-                except redis.RedisError as e:
-                    print(
-                        f"\n[bold red]Error:[/bold red] Redis operation failed while checking workers: {e}",
-                        file=sys.stderr,
-                    )
-                    return False
-                except Exception as e:
-                    print(
-                        f"\n[bold red]Error:[/bold red] Error interacting with RQ Worker objects: {e}", file=sys.stderr
-                    )
-                    return False
+        elapsed = time.time() - start_time
 
         if final_status == "success":
-            print("[green]All RQ workers are suspended.[/green]", file=sys.stderr)
+            stderr_console.print(f"[green]✔[/green] All workers suspended [dim]({elapsed:.1f}s)[/dim]")
             return True
         elif final_status == "no_workers":
-            print("[green]No active RQ workers found registered in Redis.[/green]", file=sys.stderr)
+            stderr_console.print("[green]✔[/green] No active RQ workers found in Redis.")
             return True
         elif final_status == "timeout":
-            final_non_suspended_workers = []
             try:
                 workers = Worker.all(connection=connection)
-                final_non_suspended_workers = [w.name for w in workers if w.state != 'suspended']
+                laggards = [_label(w) for w in workers if w.get_state() != 'suspended']
             except Exception:
-                pass
-            print(
-                f"[yellow]Timeout reached.[/yellow] Not all workers reached 'suspended' state within {timeout}s.",
-                file=sys.stderr,
-            )
-            if final_non_suspended_workers:
-                print(f"  Workers not suspended at timeout: {', '.join(final_non_suspended_workers)}", file=sys.stderr)
+                laggards = []
+            suffix = f" — {', '.join(laggards)}" if laggards else ""
+            stderr_console.print(f"[red]✘[/red] Timeout after {timeout}s{suffix}")
             return False
         else:
-            print("[red]Error:[/red] Worker wait loop exited unexpectedly.", file=sys.stderr)
+            stderr_console.print("[red]Error:[/red] Worker wait loop exited unexpectedly.")
             return False
 
     except Exception as e:
-        print(f"\n[bold red]Error:[/bold red] Unexpected error during worker wait: {e}", file=sys.stderr)
-        import traceback
-
+        stderr_console.print(f"[bold red]Error:[/bold red] Unexpected error during worker wait: {e}")
         traceback.print_exc(file=sys.stderr)
         return False
 
 
 def get_rq_worker_status(redis_url=None) -> Optional[dict]:
-    """
-    Get RQ worker status including suspension state and worker details.
-
-    Args:
-        redis_url: Optional Redis URL to use
-
-    Returns:
-        dict: {
-            'suspended': bool,
-            'workers': [(name, state, current_job, job_stats), ...]
-        }
-        where job_stats is a dict: {
-            'successful': int,
-            'failed': int,
-            'total': int,
-            'working_time': float
-        }
-        None on error.
-    """
     try:
         connection = _get_redis_connection(redis_url=redis_url)
         if not connection:
             return None
 
+        from rq import Queue
+
         suspended = is_suspended(connection)
-        workers = Worker.all(connection=connection)
+        all_workers = Worker.all(connection=connection)
+        workers = [w for w in all_workers if _is_worker_alive(w, connection)]
 
         worker_list = []
         for worker in workers:
@@ -328,14 +300,25 @@ def get_rq_worker_status(redis_url=None) -> Optional[dict]:
                 job = worker.get_current_job()
                 current_job = job.func_name if job else None
 
+            queue_names = worker.queue_names()
+            queue_count = 0
+            if queue_names:
+                for queue_name in queue_names:
+                    try:
+                        queue = Queue(queue_name, connection=connection)
+                        queue_count += len(queue)
+                    except Exception:
+                        pass
+
             job_stats = {
                 'successful': getattr(worker, 'successful_job_count', 0),
                 'failed': getattr(worker, 'failed_job_count', 0),
                 'working_time': getattr(worker, 'total_working_time', 0.0),
+                'queue_count': queue_count,
             }
             job_stats['total'] = job_stats['successful'] + job_stats['failed']
 
-            worker_list.append((worker.name, state, current_job, job_stats))
+            worker_list.append((_label(worker), state, current_job, job_stats))
 
         return {'suspended': bool(suspended), 'workers': worker_list}
 

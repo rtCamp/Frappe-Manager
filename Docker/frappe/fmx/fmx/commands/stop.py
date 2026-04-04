@@ -13,6 +13,7 @@ command_name = "stop"
 
 ServiceNamesEnum = ServiceNameEnumFactory()
 
+
 def command(
     ctx: typer.Context,
     service_names: Annotated[
@@ -21,31 +22,32 @@ def command(
             help="Name(s) of the service(s) to target. If omitted, targets ALL running services.",
             autocompletion=get_service_names_for_completion,
             show_default=False,
-        )
+        ),
     ] = None,
     process_name: Annotated[
         Optional[List[str]],
         typer.Option(
-            "--process", "-p",
+            "--process",
+            "-p",
             help="Target only specific process(es) within the selected service(s). Use multiple times for multiple processes (e.g., -p worker_short -p worker_long).",
             show_default=False,
-        )
+        ),
     ] = None,
     wait: Annotated[
         bool,
         typer.Option(
             "--wait/--no-wait",
             help="Wait for supervisor start/stop operations to complete before returning.",
-        )
+        ),
     ] = True,
     wait_workers: Annotated[
-        Optional[bool],
+        bool,
         typer.Option(
-            "--wait-workers/--no-wait-workers",
-            help="Wait for processes identified as workers to stop gracefully (use if default stop times out workers).",
-            show_default=False,
-        )
-    ] = None,
+            "--wait-workers",
+            help="Wait for worker processes to stop gracefully before returning.",
+            is_flag=True,
+        ),
+    ] = False,
 ):
     """Stop services or specific processes."""
     display: DisplayManager = ctx.obj['display']
@@ -69,7 +71,7 @@ def command(
         show_progress=True,
         process_name_list=process_name,
         wait=wait,
-        wait_workers=wait_workers
+        wait_workers=wait_workers,
     )
 
     display.print("\nStop sequence complete.")

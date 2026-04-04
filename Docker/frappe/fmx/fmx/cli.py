@@ -183,265 +183,132 @@ def _handle_simple_results(results: dict, action_verb: str):
 
 
 def _handle_start_results(results: dict):
-    """Handle results from start commands."""
-    totals = _calculate_start_totals(results)
-    services_failed_entirely = _display_start_results_by_service(results)
-    _display_start_summary(totals, services_failed_entirely, len(results))
+    _display_start_results_by_service(results)
 
 
 def _handle_stop_results(results: dict):
-    """Handle results from stop commands."""
-    totals = _calculate_stop_totals(results)
-    services_failed_entirely = _display_stop_results_by_service(results)
-    _display_stop_summary(totals, services_failed_entirely, len(results))
+    _display_stop_results_by_service(results)
 
 
-def _calculate_start_totals(results: dict) -> dict:
-    """Calculate totals for start command results."""
-    totals = {'started': 0, 'already_running': 0, 'failed': 0}
-
-    for result in results.values():
-        if isinstance(result, dict) and 'error' not in result:
-            totals['started'] += len(result.get("started", []))
-            totals['already_running'] += len(result.get("already_running", []))
-            totals['failed'] += len(result.get("failed", []))
-
-    return totals
-
-
-def _calculate_stop_totals(results: dict) -> dict:
-    """Calculate totals for stop command results."""
-    totals = {'stopped': 0, 'already_stopped': 0, 'failed': 0}
-
-    for result in results.values():
-        if isinstance(result, dict) and 'error' not in result:
-            totals['stopped'] += len(result.get("stopped", []))
-            totals['already_stopped'] += len(result.get("already_stopped", []))
-            totals['failed'] += len(result.get("failed", []))
-
-    return totals
-
-
-def _display_start_results_by_service(results: dict) -> List[str]:
-    """Display detailed start results for each service."""
-    display.heading("Start Results by Service")
-    services_failed_entirely = []
+def _display_start_results_by_service(results: dict):
+    display.heading("Start Results")
 
     for service_name in sorted(results.keys()):
         result = results[service_name]
         if isinstance(result, dict):
             if 'error' in result and result['error']:
-                display.print(f"- {display.highlight(service_name)}:")
-                display.error("  - Failed:", prefix=False)
-                display.print(f"    - {result['error']}")
-                services_failed_entirely.append(service_name)
+                display.print(f"  [red]✘[/red] {display.highlight(service_name)}: failed entirely ({result['error']})")
                 continue
 
             started = result.get("started", [])
             already_running = result.get("already_running", [])
             failed = result.get("failed", [])
 
-            if started or already_running or failed:
-                display.print(f"- {display.highlight(service_name)}:")
+            status_counts = []
+            if started:
+                status_counts.append(f"{len(started)} started")
+            if already_running:
+                status_counts.append(f"{len(already_running)} already running")
+            if failed:
+                status_counts.append(f"{len(failed)} failed")
+
+            if not status_counts:
+                continue
+
+            if failed or (started and already_running):
+                icon = "[yellow]⚠[/yellow]"
+            elif already_running:
+                icon = "[dim]○[/dim]"
+            else:
+                icon = "[green]✔[/green]"
+
+            display.print(f"  {icon} {display.highlight(service_name)}: {', '.join(status_counts)}")
+
+            if len(status_counts) > 1 or failed:
                 if started:
-                    display.print("  - Started:")
-                    for process in started:
-                        display.print(f"    - {display.highlight(process)}")
+                    display.print(f"    started: {', '.join(started)}")
                 if already_running:
-                    display.dimmed("  - Already Running (skipped):")
-                    for process in already_running:
-                        display.print(f"    - {display.highlight(process)}")
+                    display.dimmed(f"    already running: {', '.join(already_running)}")
                 if failed:
-                    display.error("  - Failed:", prefix=False)
-                    for process in failed:
-                        display.print(f"    - {display.highlight(process)}")
+                    display.print(f"    [red]failed: {', '.join(failed)}[/red]")
+            else:
+                processes = started or already_running
+                display.print(f"    → {', '.join(processes)}")
         else:
-            services_failed_entirely.append(service_name)
-            display.error(f"- {display.highlight(service_name)}: Failed entirely.", prefix=False)
-
-    return services_failed_entirely
+            display.print(f"  [red]✘[/red] {display.highlight(service_name)}: failed entirely")
 
 
-def _display_stop_results_by_service(results: dict) -> List[str]:
-    """Display detailed stop results for each service."""
-    display.heading("Stop Results by Service")
-    services_failed_entirely = []
+def _display_stop_results_by_service(results: dict):
+    display.heading("Stop Results")
 
     for service_name in sorted(results.keys()):
         result = results[service_name]
         if isinstance(result, dict):
             if 'error' in result and result['error']:
-                display.print(f"- {display.highlight(service_name)}:")
-                display.error("  - Failed:", prefix=False)
-                display.print(f"    - {result['error']}")
-                services_failed_entirely.append(service_name)
+                display.print(f"  [red]✘[/red] {display.highlight(service_name)}: failed entirely ({result['error']})")
                 continue
 
             stopped = result.get("stopped", [])
             already_stopped = result.get("already_stopped", [])
             failed = result.get("failed", [])
 
-            if stopped or already_stopped or failed:
-                display.print(f"- {display.highlight(service_name)}:")
+            status_counts = []
+            if stopped:
+                status_counts.append(f"{len(stopped)} stopped")
+            if already_stopped:
+                status_counts.append(f"{len(already_stopped)} already stopped")
+            if failed:
+                status_counts.append(f"{len(failed)} failed")
+
+            if not status_counts:
+                continue
+
+            if failed or (stopped and already_stopped):
+                icon = "[yellow]⚠[/yellow]"
+            elif already_stopped:
+                icon = "[dim]○[/dim]"
+            else:
+                icon = "[green]✔[/green]"
+
+            display.print(f"  {icon} {display.highlight(service_name)}: {', '.join(status_counts)}")
+
+            if len(status_counts) > 1 or failed:
                 if stopped:
-                    display.print("  - Stopped:")
-                    for process in stopped:
-                        display.print(f"    - {display.highlight(process)}")
+                    display.print(f"    stopped: {', '.join(stopped)}")
                 if already_stopped:
-                    display.dimmed("  - Already Stopped (skipped):")
-                    for process in already_stopped:
-                        display.print(f"    - {display.highlight(process)}")
+                    display.dimmed(f"    already stopped: {', '.join(already_stopped)}")
                 if failed:
-                    display.error("  - Failed:", prefix=False)
-                    for process in failed:
-                        display.print(f"    - {display.highlight(process)}")
+                    display.print(f"    [red]failed: {', '.join(failed)}[/red]")
+            else:
+                processes = stopped or already_stopped
+                display.print(f"    → {', '.join(processes)}")
         else:
-            services_failed_entirely.append(service_name)
-            display.error(f"- {display.highlight(service_name)}: Failed entirely.", prefix=False)
-
-    return services_failed_entirely
-
-
-def _display_start_summary(totals: dict, services_failed_entirely: List[str], total_services: int):
-    """Display summary for start command."""
-    display.heading("Overall Summary")
-    summary_parts = []
-
-    if totals['started']:
-        summary_parts.append(f"[green]{totals['started']} started[/green]")
-    if totals['already_running']:
-        summary_parts.append(f"[dim]{totals['already_running']} already running[/dim]")
-    if totals['failed']:
-        summary_parts.append(f"[red]{totals['failed']} failed[/red]")
-    if services_failed_entirely:
-        summary_parts.append(f"[bold red]{len(services_failed_entirely)} service(s) failed entirely[/bold red]")
-
-    if summary_parts:
-        display.print("  " + ", ".join(summary_parts) + ".")
-    elif total_services == 0:
-        pass
-    else:
-        display.warning("No processes were targeted for starting or required starting.")
-
-
-def _display_stop_summary(totals: dict, services_failed_entirely: List[str], total_services: int):
-    """Display summary for stop command."""
-    display.heading("Overall Summary")
-    summary_parts = []
-
-    if totals['stopped']:
-        summary_parts.append(f"[green]{totals['stopped']} stopped[/green]")
-    if totals['already_stopped']:
-        summary_parts.append(f"[dim]{totals['already_stopped']} already stopped[/dim]")
-    if totals['failed']:
-        summary_parts.append(f"[red]{totals['failed']} failed[/red]")
-    if services_failed_entirely:
-        summary_parts.append(f"[bold red]{len(services_failed_entirely)} service(s) failed entirely[/bold red]")
-
-    if summary_parts:
-        display.print("  " + ", ".join(summary_parts) + ".")
-    elif total_services == 0:
-        pass
-    else:
-        display.warning("No processes were targeted for stopping or required stopping.")
+            display.print(f"  [red]✘[/red] {display.highlight(service_name)}: failed entirely")
 
 
 def _handle_restart_results(results: dict):
-    """Handle results from restart commands."""
-    totals = _calculate_restart_totals(results)
-    services_failed_entirely = _display_restart_results_by_service(results)
-    _display_restart_summary(totals, services_failed_entirely, len(results))
+    stop_results = {}
+    start_results = {}
 
-
-def _calculate_restart_totals(results: dict) -> dict:
-    """Calculate totals for restart command results."""
-    totals = {'stopped': 0, 'already_stopped': 0, 'started': 0, 'already_running': 0, 'failed': 0}
-
-    for result in results.values():
+    for service_name, result in results.items():
         if isinstance(result, dict) and 'error' not in result:
-            totals['stopped'] += len(result.get("stopped", []))
-            totals['already_stopped'] += len(result.get("already_stopped", []))
-            totals['started'] += len(result.get("started", []))
-            totals['already_running'] += len(result.get("already_running", []))
-            totals['failed'] += len(result.get("failed", []))
-
-    return totals
-
-
-def _display_restart_results_by_service(results: dict) -> List[str]:
-    """Display detailed restart results for each service."""
-    display.heading("Restart Results by Service")
-    services_failed_entirely = []
-
-    for service_name in sorted(results.keys()):
-        result = results[service_name]
-        if isinstance(result, dict):
-            if 'error' in result and result['error']:
-                display.print(f"- {display.highlight(service_name)}:")
-                display.error("  - Failed:", prefix=False)
-                display.print(f"    - {result['error']}")
-                services_failed_entirely.append(service_name)
-                continue
-
-            stopped = result.get("stopped", [])
-            already_stopped = result.get("already_stopped", [])
-            started = result.get("started", [])
-            already_running = result.get("already_running", [])
-            failed = result.get("failed", [])
-
-            if stopped or already_stopped or started or already_running or failed:
-                display.print(f"- {display.highlight(service_name)}:")
-                if stopped:
-                    display.print("  - Stopped:")
-                    for process in stopped:
-                        display.print(f"    - {display.highlight(process)}")
-                if already_stopped:
-                    display.dimmed("  - Already Stopped:")
-                    for process in already_stopped:
-                        display.print(f"    - {display.highlight(process)}")
-                if started:
-                    display.print("  - Started:")
-                    for process in started:
-                        display.print(f"    - {display.highlight(process)}")
-                if already_running:
-                    display.dimmed("  - Already Running:")
-                    for process in already_running:
-                        display.print(f"    - {display.highlight(process)}")
-                if failed:
-                    display.error("  - Failed:", prefix=False)
-                    for process in failed:
-                        display.print(f"    - {display.highlight(process)}")
+            stop_results[service_name] = {
+                'stopped': result.get('stopped', []),
+                'already_stopped': result.get('already_stopped', []),
+                'failed': result.get('failed', []),
+            }
+            start_results[service_name] = {
+                'started': result.get('started', []),
+                'already_running': result.get('already_running', []),
+                'failed': result.get('failed', []),
+            }
         else:
-            services_failed_entirely.append(service_name)
-            display.error(f"- {display.highlight(service_name)}: Failed entirely.", prefix=False)
+            stop_results[service_name] = result
+            start_results[service_name] = result
 
-    return services_failed_entirely
-
-
-def _display_restart_summary(totals: dict, services_failed_entirely: List[str], total_services: int):
-    """Display summary for restart command."""
-    display.heading("Overall Summary")
-    summary_parts = []
-
-    if totals['stopped']:
-        summary_parts.append(f"[green]{totals['stopped']} stopped[/green]")
-    if totals['already_stopped']:
-        summary_parts.append(f"[dim]{totals['already_stopped']} already stopped[/dim]")
-    if totals['started']:
-        summary_parts.append(f"[green]{totals['started']} started[/green]")
-    if totals['already_running']:
-        summary_parts.append(f"[dim]{totals['already_running']} already running[/dim]")
-    if totals['failed']:
-        summary_parts.append(f"[red]{totals['failed']} failed[/red]")
-    if services_failed_entirely:
-        summary_parts.append(f"[bold red]{len(services_failed_entirely)} service(s) failed entirely[/bold red]")
-
-    if summary_parts:
-        display.print("  " + ", ".join(summary_parts) + ".")
-    elif total_services == 0:
-        pass
-    else:
-        display.warning("No processes were targeted for restarting or required restarting.")
+    _display_stop_results_by_service(stop_results)
+    display.print("")
+    _display_start_results_by_service(start_results)
 
 
 app = typer.Typer(
