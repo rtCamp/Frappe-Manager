@@ -224,7 +224,7 @@ class BenchDevTools:
             return
 
         self._sync_vscode_config_files(workdir)
-        self._install_ruff()
+        self._install_bench_dev_tools()
         self.output.print("Synced vscode debugger configuration")
 
     def _sync_vscode_config_files(self, workdir: str) -> None:
@@ -243,7 +243,9 @@ class BenchDevTools:
 
     def _backup_config_file(self, file_path: Path) -> None:
         """Backup existing config file."""
-        backup_path = file_path.parent / f"{file_path.stem}.{datetime.now().strftime('%d-%b-%y--%H-%M-%S')}.json"
+        timestamp = datetime.now().strftime("%d-%b-%y--%H-%M-%S")
+        extension = file_path.suffix or ".bak"
+        backup_path = file_path.parent / f"{file_path.stem}.{timestamp}{extension}"
         shutil.copy2(file_path, backup_path)
         self.output.print(f"Backup previous '{file_path.name}' : {backup_path}")
 
@@ -252,19 +254,19 @@ class BenchDevTools:
         with open(file_path, "w+") as f:
             f.write(json.dumps(content, indent=4, sort_keys=True))
 
-    def _install_ruff(self) -> None:
-        """Install ruff in the container environment."""
+    def _install_bench_dev_tools(self) -> None:
+        """Install development Python tools in the bench environment."""
         try:
             self.docker_client.compose.exec(
                 service="frappe",
-                command="/workspace/frappe-bench/env/bin/pip install ruff",
+                command="/workspace/frappe-bench/env/bin/pip install ruff debugpy",
                 user="frappe",
                 stream=True,
             )
         except DockerException as e:
             if self.logger:
-                self.logger.error(f"ruff installation exception: {capture_and_format_exception()}")
-            self.output.warning("Not able to install ruff in env")
+                self.logger.error(f"bench dev tools installation exception: {capture_and_format_exception()}")
+            self.output.warning("Not able to install bench dev tools (ruff/debugpy) in env")
 
     def _attach_to_container(self, vscode_cmd: str) -> None:
         """Attach to the container using VS Code."""
@@ -296,8 +298,8 @@ class BenchDevTools:
         ``vim.opt.exrc = true`` is set (Neovim ≥ 0.9 trusted files) and the
         directory is opened as a workspace.
 
-        Also installs ``ruff`` in the bench env (same as the VS Code path) so
-        the Python LSP formatter is available.
+        Also installs ``ruff`` and ``debugpy`` in the bench env so formatting
+        and debug adapter support are available.
 
         Args:
             workdir: Working directory path inside the container
@@ -310,7 +312,7 @@ class BenchDevTools:
             return
 
         self._sync_nvim_config_files(workdir)
-        self._install_ruff()
+        self._install_bench_dev_tools()
         self.output.print("Synced nvim-dap debugger configuration (.nvim.lua)")
 
     def _sync_nvim_config_files(self, workdir: str) -> None:

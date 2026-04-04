@@ -41,6 +41,7 @@
 <td style="border: none; vertical-align: top;">
 <h3>👨‍💻 Development Tools</h3>
 • VSCode integration with debugger support<br>
+• Neovim `nvim-dap` debugger config generation<br>
 • Automatic environment switching between dev/prod
 </td>
 <td style="border: none; vertical-align: top;">
@@ -62,6 +63,7 @@
 - Python 3.13.+
 - Docker
 - VSCode (optional, for development features)
+- Neovim + `nvim-dap` (optional, for `fm nvim` workflow)
 
 ## 🚀 Installation
 
@@ -124,6 +126,7 @@ That's it! Your bench is ready. Access it at `http://mybench.localhost`
 | Command | Description | Documentation |
 |---------|-------------|---------------|
 | `fm code` | Open bench in vscode. | [Wiki: Code](https://github.com/rtCamp/Frappe-Manager/wiki/Code) |
+| `fm nvim` | Generate Neovim `nvim-dap` debugger config for a bench. | `fm nvim --help` |
 | `fm create` | Create a new bench with apps | [Wiki: Create](https://github.com/rtCamp/Frappe-Manager/wiki/Create) |
 | `fm delete` | Delete a bench and optionally its database from global-db service. | [Wiki: Delete](https://github.com/rtCamp/Frappe-Manager/wiki/Delete) |
 | `fm info` | Show bench information and configuration | [Wiki: Info](https://github.com/rtCamp/Frappe-Manager/wiki/Info) |

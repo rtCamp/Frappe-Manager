@@ -95,6 +95,18 @@
       }
     ]
   },
+  "nvim": {
+    "examples": [
+      {
+        "desc": "Write nvim-dap debugger config",
+        "code": " --debugger"
+      },
+      {
+        "desc": "Write config for custom workspace dir",
+        "code": " --debugger --work-dir /workspace/custom-bench"
+      }
+    ]
+  },
   "logs": {
     "examples": [
       {
