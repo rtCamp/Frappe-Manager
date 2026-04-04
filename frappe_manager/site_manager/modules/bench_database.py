@@ -10,10 +10,9 @@ Handles database operations for the bench including:
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.utils.helpers import get_container_name_prefix
+from frappe_manager.utils.helpers import get_container_name_prefix, get_bench_connection_config
 from frappe_manager.utils.site import get_bench_db_connection_info
 
 if TYPE_CHECKING:
@@ -103,14 +102,6 @@ class BenchDatabase:
             services_db_port: Database port from services
         """
         container_prefix = get_container_name_prefix(self.bench_name)
-
-        # Set common site config with database and Redis connection info
-        common_site_config_data = {
-            "socketio_port": "80",
-            "db_host": services_db_host,
-            "db_port": services_db_port,
-            "redis_cache": f"redis://{container_prefix}{CLI_DEFAULT_DELIMETER}redis-cache:6379",
-            "redis_queue": f"redis://{container_prefix}{CLI_DEFAULT_DELIMETER}redis-queue:6379",
-            "redis_socketio": f"redis://{container_prefix}{CLI_DEFAULT_DELIMETER}redis-cache:6379",
-        }
+        common_site_config_data = get_bench_connection_config(container_prefix, services_db_host, services_db_port)
+        common_site_config_data["socketio_port"] = "80"
         self.set_common_bench_config(common_site_config_data)

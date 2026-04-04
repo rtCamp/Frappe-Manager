@@ -25,6 +25,7 @@ from frappe_manager.site_manager.exceptions import (
     BenchOperationException,
     BenchOperationWaitForRequiredServiceFailed,
 )
+from frappe_manager.utils.helpers import get_redis_cache_addr, get_redis_queue_addr
 
 
 class BenchSiteManager:
@@ -138,10 +139,12 @@ class BenchSiteManager:
         self.output.change_head("Checking if required services are available")
 
         # Build required services map
+        cache_host, cache_port = get_redis_cache_addr(self.bench_config.container_name_prefix)
+        queue_host, queue_port = get_redis_queue_addr(self.bench_config.container_name_prefix)
         required_services = {
             self.services.database_manager.database_server_info.host: self.services.database_manager.database_server_info.port,
-            f"{self.bench_config.container_name_prefix}{CLI_DEFAULT_DELIMETER}redis-cache": 6379,
-            f"{self.bench_config.container_name_prefix}{CLI_DEFAULT_DELIMETER}redis-queue": 6379,
+            cache_host: cache_port,
+            queue_host: queue_port,
         }
 
         # Check each service

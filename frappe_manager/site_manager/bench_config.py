@@ -18,7 +18,7 @@ from frappe_manager.services_manager.database_service_manager import DatabaseSer
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
-from frappe_manager.utils.helpers import get_container_name_prefix
+from frappe_manager.utils.helpers import get_container_name_prefix, get_bench_connection_config
 
 
 def extract_app_python_module_name(app_path: Path) -> str:
@@ -1194,18 +1194,18 @@ class BenchConfig(BaseModel):
         return bench_config_instance
 
     def get_commmon_site_config_data(self, db_server_info: DatabaseServerServiceInfo) -> dict[str, Any]:
-        common_site_config_data = {
-            "install_apps": [],
-            "db_host": db_server_info.host,
-            "db_port": db_server_info.port,
-            "redis_cache": f"redis://{self.container_name_prefix}{CLI_DEFAULT_DELIMETER}redis-cache:6379",
-            "redis_queue": f"redis://{self.container_name_prefix}{CLI_DEFAULT_DELIMETER}redis-queue:6379",
-            "redis_socketio": f"redis://{self.container_name_prefix}{CLI_DEFAULT_DELIMETER}redis-cache:6379",
-            "webserver_port": 80,
-            "socketio_port": 80,
-            "restart_supervisor_on_update": 0,
-            "developer_mode": self.developer_mode,
-        }
+        common_site_config_data = get_bench_connection_config(
+            self.container_name_prefix, db_server_info.host, db_server_info.port
+        )
+        common_site_config_data.update(
+            {
+                "install_apps": [],
+                "webserver_port": 80,
+                "socketio_port": 80,
+                "restart_supervisor_on_update": 0,
+                "developer_mode": self.developer_mode,
+            }
+        )
 
         return common_site_config_data
 
