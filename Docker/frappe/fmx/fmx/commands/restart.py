@@ -7,12 +7,6 @@ import traceback
 from pathlib import Path
 from typing import Annotated, Optional, List, Any
 import typer
-from fmx.rq_controller import (
-    control_rq_workers,
-    wait_for_rq_workers_suspended,
-    is_rq_suspended,
-    ActionEnum,
-)
 from fmx.display import DisplayManager
 from fmx.command_utils import validate_services
 from fmx.cli import ServiceNameEnumFactory, execute_parallel_command, get_service_names_for_completion
@@ -20,6 +14,7 @@ from fmx.supervisor.api import (
     start_service as util_start_service,
     restart_service as util_restart_service,
 )
+from fmx.commands._rq_helpers import suspend_rq_workers, resume_rq_workers
 
 
 def _set_common_site_config_key_value(
@@ -67,77 +62,6 @@ def disable_maintenance_mode(display: DisplayManager):
         display.success("Maintenance mode disabled.")
     else:
         display.error("Failed to disable maintenance mode in common_site_config.json.")
-
-
-def _suspend_rq_workers(
-    display: DisplayManager,
-    drain_workers: bool,
-    drain_workers_timeout: int,
-    drain_workers_poll: int,
-    debug: bool = False,
-    skip_stale: bool = True,
-    stale_timeout: int = 15,
-) -> bool:
-    """Set the rq:suspended flag in Redis and optionally wait for all workers to reach suspended state.
-
-    Returns False if suspension fails or workers don't drain within timeout.
-    """
-    display.print("⏸️  Suspending RQ workers...")
-    try:
-        success = control_rq_workers(action=ActionEnum.suspend)
-
-        if not success:
-            display.error("Failed to suspend RQ workers.", exit_code=1)
-            display.print("Aborting restart.")
-            return False
-
-        suspension_status = is_rq_suspended()
-
-        if suspension_status is not True:
-            display.error("Failed to verify RQ suspension flag in Redis.")
-            display.print("Aborting restart.")
-            return False
-
-        if drain_workers:
-            display.print("\nWaiting for RQ workers to complete their current jobs...")
-            if not wait_for_rq_workers_suspended(
-                timeout=drain_workers_timeout,
-                poll_interval=drain_workers_poll,
-                skip_stale=skip_stale,
-                stale_timeout=stale_timeout,
-            ):
-                display.error("Workers did not become idle within the timeout period.")
-                display.print("Aborting restart to avoid interrupting jobs.")
-                control_rq_workers(action=ActionEnum.resume)
-                return False
-
-    except Exception as e:
-        display.error(f"An unexpected error occurred during worker suspension or verification: {e}")
-        if debug:
-            traceback.print_exc()
-        return False
-
-    return True
-
-
-def _resume_rq_workers(display: DisplayManager) -> bool:
-    if not is_rq_suspended():
-        return True
-
-    display.print("▶️  Resuming RQ workers...")
-    try:
-        success = control_rq_workers(action=ActionEnum.resume)
-
-        if not success:
-            display.warning("Failed to resume RQ workers. Workers may remain suspended.")
-            return False
-
-    except Exception as e:
-        display.error(f"Error resuming workers: {e}")
-        traceback.print_exc(file=sys.stderr)
-        return False
-
-    return True
 
 
 def _run_migration(display: DisplayManager, migrate_timeout: int, migrate_command: Optional[List[str]] = None) -> bool:
@@ -295,7 +219,7 @@ def _run_migrate_flow(
             maintenance_enabled = True
 
         if suspension_needed:
-            if not _suspend_rq_workers(
+            if not suspend_rq_workers(
                 display,
                 drain_workers,
                 drain_workers_timeout,
@@ -320,12 +244,12 @@ def _run_migrate_flow(
         if not _run_migration(display, migrate_timeout, migrate_command):
             _handle_migrate_failure(display, services_to_target, suspension_needed, wait)
             if suspension_needed:
-                _resume_rq_workers(display)
+                resume_rq_workers(display)
             raise typer.Exit(code=1)
 
         # Resume workers BEFORE restarting services so they can start properly
         if suspension_needed:
-            _resume_rq_workers(display)
+            resume_rq_workers(display)
 
         # PHASE 3: SERVICE RESTART - handled in success handler
         maintenance_disabled_by_handler = _handle_migrate_success(
@@ -378,7 +302,7 @@ def _handle_migrate_success(
         action_verb="restarting",
         show_progress=True,
         wait=wait,
-        drain_workers=drain_workers,
+        wait_workers=drain_workers,
         force_kill_timeout=force_kill_timeout,
     )
 
@@ -604,7 +528,7 @@ def command(
             )
         finally:
             if suspension_needed:
-                _resume_rq_workers(display)
+                resume_rq_workers(display)
             display.print("\nRestart sequence complete.")
     else:
         maintenance_enabled = False
@@ -614,7 +538,7 @@ def command(
                 maintenance_enabled = True
 
             if suspension_needed:
-                if not _suspend_rq_workers(
+                if not suspend_rq_workers(
                     display,
                     drain_workers,
                     drain_workers_timeout,
@@ -635,13 +559,13 @@ def command(
                 action_verb="restarting",
                 show_progress=True,
                 wait=wait,
-                drain_workers=drain_workers,
+                wait_workers=drain_workers,
                 force_kill_timeout=force_kill_timeout,
             )
 
         finally:
             if suspension_needed:
-                _resume_rq_workers(display)
+                resume_rq_workers(display)
             if maintenance_enabled:
                 disable_maintenance_mode(display)
             display.print("\nRestart sequence complete.")
