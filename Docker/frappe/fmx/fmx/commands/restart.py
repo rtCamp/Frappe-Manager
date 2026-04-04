@@ -25,7 +25,7 @@ from fmx.supervisor.api import (
 def _set_common_site_config_key_value(
     key_name: str, value: Any, display: Optional[DisplayManager] = None, verbose: bool = False
 ):
-    """Set a specific key's value in common_site_config.json."""
+    """Write a single key-value pair into common_site_config.json, preserving existing keys."""
     common_config_path = Path("/workspace/frappe-bench/sites/common_site_config.json")
     config = {}
     try:
@@ -67,7 +67,6 @@ def disable_maintenance_mode(display: DisplayManager):
         display.success("Maintenance mode disabled.")
     else:
         display.error("Failed to disable maintenance mode in common_site_config.json.")
-        # Do not exit, just warn
 
 
 def _suspend_rq_workers(
@@ -76,18 +75,12 @@ def _suspend_rq_workers(
     wait_workers_timeout: int,
     wait_workers_poll: int,
     debug: bool = False,
-    active_only: bool = False,
+    skip_stale: bool = True,
+    stale_timeout: int = 15,
 ) -> bool:
-    """Suspend RQ workers via Redis flag and optionally wait for completion.
+    """Set the rq:suspended flag in Redis and optionally wait for all workers to reach suspended state.
 
-    Logic:
-    1. Sets 'rq:suspended' flag in Redis using control_rq_workers
-    2. Verifies the flag was set correctly using check_rq_suspension
-    3. If wait_workers=True: waits for workers to reach suspended state
-    4. Returns success/failure status for the entire suspension process
-
-    Returns:
-        True if suspension completed successfully, False to abort restart
+    Returns False if suspension fails or workers don't drain within timeout.
     """
     display.print("⏸️  Suspending RQ workers...")
     try:
@@ -110,7 +103,8 @@ def _suspend_rq_workers(
             if not wait_for_rq_workers_suspended(
                 timeout=wait_workers_timeout,
                 poll_interval=wait_workers_poll,
-                active_only=active_only,
+                skip_stale=skip_stale,
+                stale_timeout=stale_timeout,
             ):
                 display.error("Workers did not become idle within the timeout period.")
                 display.print("Aborting restart to avoid interrupting jobs.")
@@ -256,7 +250,8 @@ def _run_migrate_flow(
     maintenance_on_migrate: bool = False,
     force_kill_timeout: Optional[int] = None,
     debug: bool = False,
-    active_only: bool = False,
+    skip_stale: bool = True,
+    stale_timeout: int = 15,
 ):
     """Execute zero-downtime migration flow with proper phase transitions.
 
@@ -287,7 +282,8 @@ def _run_migrate_flow(
                 wait_workers_timeout,
                 wait_workers_poll,
                 debug,
-                active_only=active_only,
+                skip_stale=skip_stale,
+                stale_timeout=stale_timeout,
             ):
                 raise typer.Exit(code=1)
 
@@ -375,7 +371,7 @@ def _handle_migrate_failure(
     Uses start (not restart) to avoid disrupting already-running services.
     Site stays up - only ensures all services are running.
 
-    Note: RQ resume is handled by caller's finally block.
+    Note: RQ resume is handled by the caller after this function returns.
     """
     display.error("Migration failed. Recovering — starting all services...")
 
@@ -457,15 +453,22 @@ def command(
             help="Polling interval (seconds) for --wait-workers (default: 5).",
         ),
     ] = 5,
-    wait_active_workers: Annotated[
+    skip_stale_workers: Annotated[
         bool,
         typer.Option(
-            "--wait-active-workers",
-            help="Like --wait-workers but only waits for workers that supervisor currently has running (by PID). "
-            "Skips stale Redis entries. Implies --wait-workers and --suspend-rq.",
-            is_flag=True,
+            "--skip-stale-workers/--no-skip-stale-workers",
+            help="When used with --wait-workers, skip workers that remain idle after suspension is set. "
+            "Workers idle longer than --skip-stale-timeout seconds are treated as dead and ignored.",
         ),
-    ] = False,
+    ] = True,
+    skip_stale_timeout: Annotated[
+        int,
+        typer.Option(
+            "--skip-stale-timeout",
+            help="Seconds after which an idle post-suspension worker is considered stale and skipped (default: 15). "
+            "Used with --skip-stale-workers.",
+        ),
+    ] = 15,
     force_kill_timeout: Annotated[
         Optional[int],
         typer.Option(
@@ -521,9 +524,6 @@ def command(
     maintenance_on_drain = "drain" in maintenance_set
     maintenance_on_migrate = "migrate" in maintenance_set
 
-    if wait_active_workers:
-        wait_workers = True
-
     suspension_needed = suspend_rq or wait_workers
 
     if maintenance_on_drain and not suspension_needed:
@@ -577,7 +577,8 @@ def command(
                 maintenance_on_migrate=maintenance_on_migrate,
                 force_kill_timeout=force_kill_timeout,
                 debug=debug,
-                active_only=wait_active_workers,
+                skip_stale=skip_stale_workers,
+                stale_timeout=skip_stale_timeout,
             )
         finally:
             if suspension_needed:
@@ -597,7 +598,8 @@ def command(
                     wait_workers_timeout,
                     wait_workers_poll,
                     debug,
-                    active_only=wait_active_workers,
+                    skip_stale=skip_stale_workers,
+                    stale_timeout=skip_stale_timeout,
                 ):
                     raise typer.Exit(code=1)
 

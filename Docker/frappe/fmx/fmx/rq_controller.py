@@ -192,7 +192,8 @@ def wait_for_rq_workers_suspended(
     timeout: int = 300,
     poll_interval: int = 5,
     redis_url=None,
-    active_only: bool = False,
+    skip_stale: bool = True,
+    stale_timeout: int = _IDLE_STALE_SECONDS,
 ) -> bool:
     try:
         connection = _get_redis_connection(redis_url=redis_url)
@@ -214,10 +215,10 @@ def wait_for_rq_workers_suspended(
             try:
                 non_suspended, worker_states = _get_worker_states(connection)
 
-                if active_only:
+                if skip_stale:
                     filtered = []
                     for w, s in worker_states:
-                        stale_idle = s == 'idle' and elapsed > _IDLE_STALE_SECONDS
+                        stale_idle = s == 'idle' and elapsed > stale_timeout
                         if stale_idle:
                             stderr_console.print(
                                 f"[dim]  skip {_label(w)} state={s}  reason=idle too long after suspension[/dim]"
@@ -277,7 +278,7 @@ def wait_for_rq_workers_suspended(
                     _label(w)
                     for w in workers
                     if w.get_state() != 'suspended'
-                    and (not active_only or not (w.get_state() == 'idle' and elapsed > _IDLE_STALE_SECONDS))
+                    and (not skip_stale or not (w.get_state() == 'idle' and elapsed > stale_timeout))
                 ]
             except Exception:
                 laggards = []
