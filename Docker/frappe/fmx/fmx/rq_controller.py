@@ -1,11 +1,8 @@
-import contextlib
 from enum import Enum
-import json
-from pathlib import Path
 import sys
 import time
 import traceback
-from typing import Any, List, Optional, Tuple
+from typing import List, Optional, Tuple
 
 import argparse
 from rich import print
@@ -14,6 +11,8 @@ from rich.console import Console
 import redis
 from rq.suspension import is_suspended, resume, suspend
 from rq.worker import Worker
+
+from fmx.config import get_common_site_config_value
 
 stderr_console = Console(stderr=True)
 
@@ -38,48 +37,10 @@ def _label(worker: Worker) -> str:
     return worker.name[:8]
 
 
-def _get_common_site_config_key_value(
-    key_name: str, default: Optional[Any] = None, verbose: bool = False
-) -> Optional[Any]:
-    """Read a specific key's value from common_site_config.json.
-
-    Args:
-        key_name: The name of the key to read.
-        default: The default value to return if the key is not found or the file is invalid/missing.
-        verbose: If True, print status messages.
-
-    Returns:
-        The value of the key, or the default value.
-    """
-    common_config_path = Path("/workspace/frappe-bench/sites/common_site_config.json")
-    config = {}
-    try:
-        if common_config_path.exists():
-            with open(common_config_path, 'r') as f:
-                # Suppress error if file is empty or invalid JSON
-                with contextlib.suppress(json.JSONDecodeError):
-                    config = json.load(f)
-            if verbose:
-                print(f"[dim]Read config from {common_config_path}[/dim]", file=sys.stderr)
-        elif verbose:
-            print(f"[dim]Config file {common_config_path} does not exist.[/dim]", file=sys.stderr)
-
-        value = config.get(key_name, default)
-        if verbose:
-            print(f"[dim]Value for key '{key_name}': {json.dumps(value)}[/dim]", file=sys.stderr)
-        return value
-
-    except OSError as e:
-        if verbose:
-            print(f"[yellow]Warning:[/yellow] Could not read {common_config_path}: {e}", file=sys.stderr)
-        # In case of read error, return default, as we can't determine the value
-        return default
-
-
 def _get_redis_connection(redis_url=None):
-    """Get Redis connection from argument or common_site_config.json"""
+    """Get Redis connection from argument or common_site_config.json."""
     if not redis_url:
-        redis_url = _get_common_site_config_key_value("redis_queue", verbose=False)
+        redis_url = get_common_site_config_value("redis_queue", verbose=False)
     if not redis_url:
         print("[bold red]Error:[/bold red] 'redis_queue' URL not found in common_site_config.json.", file=sys.stderr)
         return None
@@ -90,6 +51,28 @@ def _get_redis_connection(redis_url=None):
     except (redis.exceptions.ConnectionError, ValueError) as e:
         print(f"[bold red]Error:[/bold red] Failed to connect to Redis: {e}", file=sys.stderr)
         return None
+
+
+def _require_redis_connection(redis_url=None):
+    """Get a Redis connection, raising RuntimeError if unavailable.
+
+    Unlike ``_get_redis_connection``, this never returns ``None`` — it raises
+    on failure so callers can rely on a single ``except Exception`` block instead
+    of repeating a ``if not connection: return False`` guard.
+
+    Args:
+        redis_url: Optional Redis URL (falls back to common_site_config.json).
+
+    Returns:
+        Active Redis connection.
+
+    Raises:
+        RuntimeError: If the connection could not be established (error already printed).
+    """
+    connection = _get_redis_connection(redis_url=redis_url)
+    if not connection:
+        raise RuntimeError("Redis connection unavailable (see above for details)")
+    return connection
 
 
 def _is_worker_alive(worker: Worker, connection) -> bool:
@@ -137,9 +120,7 @@ class ActionEnum(str, Enum):
 
 def is_rq_suspended(redis_url=None) -> bool:
     try:
-        connection = _get_redis_connection(redis_url=redis_url)
-        if not connection:
-            return False
+        connection = _require_redis_connection(redis_url=redis_url)
         return bool(is_suspended(connection))
     except Exception:
         return False
@@ -157,9 +138,7 @@ def control_rq_workers(action: ActionEnum, redis_url=None) -> bool:
         bool: True on success, False on failure
     """
     try:
-        connection = _get_redis_connection(redis_url=redis_url)
-        if not connection:
-            return False
+        connection = _require_redis_connection(redis_url=redis_url)
 
         if action == ActionEnum.suspend:
             suspend(connection)
@@ -196,9 +175,7 @@ def wait_for_rq_workers_suspended(
     stale_timeout: int = _IDLE_STALE_SECONDS,
 ) -> bool:
     try:
-        connection = _get_redis_connection(redis_url=redis_url)
-        if not connection:
-            return False
+        connection = _require_redis_connection(redis_url=redis_url)
 
         start_time = time.time()
         final_status = "unknown"
@@ -297,9 +274,7 @@ def wait_for_rq_workers_suspended(
 
 def get_rq_worker_status(redis_url=None, include_dead: bool = False) -> Optional[dict]:
     try:
-        connection = _get_redis_connection(redis_url=redis_url)
-        if not connection:
-            return None
+        connection = _require_redis_connection(redis_url=redis_url)
 
         from rq import Queue
         from rq.registry import FailedJobRegistry

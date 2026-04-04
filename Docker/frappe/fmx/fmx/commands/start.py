@@ -2,7 +2,7 @@ from typing import Annotated, Optional, List
 
 import typer
 from fmx.display import DisplayManager
-from fmx.command_utils import validate_services
+from fmx.command_utils import validate_services, get_process_description, resolve_service_targets, format_wait_desc
 from fmx.cli import (
     ServiceNameEnumFactory,
     execute_parallel_command,
@@ -55,18 +55,14 @@ def command(
     display: DisplayManager = ctx.obj['display']
 
     all_services = get_service_names_for_completion()
-    services_to_target = all_services if not service_names else [s.value for s in service_names]
+    services_to_target = resolve_service_targets(service_names, all_services)
 
     valid, target_desc = validate_services(display, services_to_target, all_services, "start")
     if not valid:
         return
 
-    if process_name:
-        process_desc = f"specific process(es): {display.highlight(', '.join(process_name))}"
-    else:
-        process_desc = "all defined processes"
-
-    wait_desc = "(with wait)" if wait else "(without wait)"
+    process_desc = get_process_description(display, process_name)
+    wait_desc = format_wait_desc(wait)
     display.print(f"\nStarting {process_desc} in {target_desc} {wait_desc}...")
 
     execute_parallel_command(

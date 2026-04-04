@@ -1,7 +1,7 @@
 import logging
 import signal
 import time
-from typing import List, Optional, Dict, Any
+from typing import List, Optional, Dict, Any, Tuple
 from xmlrpc.client import Fault
 
 logger = logging.getLogger(__name__)
@@ -11,6 +11,45 @@ from fmx.display import display
 from fmx.supervisor.fault_handler import _raise_exception_from_fault
 from fmx.supervisor.stop_helpers import make_supervisor_api_name
 from fmx.supervisor.stop_helpers import _stop_single_process_with_logic
+
+
+def _fetch_process_info_map(supervisor_api) -> Optional[Dict[str, Dict[str, Any]]]:
+    """Fetch all process info from supervisor and return as a name-keyed dict.
+
+    Returns None if supervisor reports no processes (empty list). Raises on
+    Fault — callers are responsible for per-context error handling.
+
+    Returns:
+        Dict mapping process name → process info dict, or None if no processes.
+
+    Raises:
+        xmlrpc.client.Fault: Propagated directly to caller for context-specific handling.
+    """
+    all_info = supervisor_api.getAllProcessInfo()
+    if not all_info:
+        return None
+    return {info['name']: info for info in all_info}
+
+
+def _resolve_target_processes(
+    process_info_map: Dict[str, Any],
+    requested_names: List[str],
+    service_name: str,
+) -> Tuple[List[str], List[str]]:
+    """Split requested process names into found and missing groups.
+
+    Args:
+        process_info_map: Current process info keyed by process name.
+        requested_names: Process names explicitly requested by the caller.
+        service_name: Service name used in warning messages.
+
+    Returns:
+        Tuple of (found_names, missing_names) where found_names are present in
+        process_info_map and missing_names are not.
+    """
+    found = [n for n in requested_names if n in process_info_map]
+    missing = [n for n in requested_names if n not in process_info_map]
+    return found, missing
 
 
 def _handle_stop(
@@ -47,23 +86,17 @@ def _handle_stop(
     stop_results = {"stopped": [], "already_stopped": [], "failed": []}
 
     try:
-        all_info = supervisor_api.getAllProcessInfo()
-        if not all_info:
+        process_info_map = _fetch_process_info_map(supervisor_api)
+        if process_info_map is None:
             display.print(f"No processes found running in {display.highlight(service_name)}.")
             return stop_results
-        process_info_map = {info['name']: info for info in all_info}
     except Fault as e:
         display.error(f"Error getting process list for {service_name}: {e.faultString}")
         _raise_exception_from_fault(e, service_name, "getAllProcessInfo (stop)")
         return {"stopped": [], "already_stopped": [], "failed": ["<unexpected error>"]}
+
     if process_names:
-        target_process_names = []
-        missing_names = []
-        for name in process_names:
-            if name in process_info_map:
-                target_process_names.append(name)
-            else:
-                missing_names.append(name)
+        target_process_names, missing_names = _resolve_target_processes(process_info_map, process_names, service_name)
 
         if missing_names:
             display.warning(f"Specified process(es) not found or not running: {', '.join(missing_names)}")
@@ -164,12 +197,12 @@ def _handle_start(
     start_results = {"started": [], "already_running": [], "failed": []}
 
     try:
-        all_defined_processes_info = supervisor_api.getAllProcessInfo()
-        if not all_defined_processes_info:
+        all_defined_processes_info = _fetch_process_info_map(supervisor_api)
+        if all_defined_processes_info is None:
             display.warning(f"No processes defined or found in {display.highlight(service_name)}. Nothing to start.")
             return {"started": [], "already_running": [], "failed": []}
 
-        defined_process_names = {info['name'] for info in all_defined_processes_info}
+        defined_process_names = set(all_defined_processes_info.keys())
 
         if process_names:
             if verbose:
@@ -196,7 +229,7 @@ def _handle_start(
         if verbose:
             display.print(f"Final list of processes to start: {', '.join(processes_to_start_explicitly)}")
 
-        process_info_map = {info['name']: info for info in all_defined_processes_info}
+        process_info_map = all_defined_processes_info
 
         for process_name_to_start in processes_to_start_explicitly:
             try:
@@ -222,14 +255,13 @@ def _handle_start(
                         pass
                     progress_callback(service_name, process_name_to_start, "start", _new_pid, "started", _elapsed)
             except Fault as start_fault:
+                _elapsed = time.time() - _t0
                 fault_string = getattr(start_fault, 'faultString', '')
                 if "ALREADY_STARTED" in fault_string:
-                    _elapsed = time.time() - _t0
                     start_results["already_running"].append(process_name_to_start)
                     if progress_callback:
                         progress_callback(service_name, process_name_to_start, "start", 0, "already running", _elapsed)
                 elif "FATAL" in fault_string:
-                    _elapsed = time.time() - _t0
                     display.error(
                         f"Process {display.highlight(process_name_to_start)} entered FATAL state during start."
                     )
@@ -240,7 +272,6 @@ def _handle_start(
                         progress_callback(service_name, process_name_to_start, "start", 0, "failed (FATAL)", _elapsed)
                     _raise_exception_from_fault(start_fault, service_name, action, process_name_to_start)
                 elif "BAD_NAME" in fault_string:
-                    _elapsed = time.time() - _t0
                     display.error(
                         f"Process {display.highlight(process_name_to_start)} not found by supervisor (BAD_NAME)."
                     )
@@ -301,7 +332,6 @@ def _handle_start(
                         if progress_callback:
                             progress_callback(service_name, process_name_to_start, "start", 0, "failed", _elapsed)
                 else:
-                    _elapsed = time.time() - _t0
                     start_results["failed"].append(process_name_to_start)
                     if progress_callback:
                         progress_callback(service_name, process_name_to_start, "start", 0, "failed", _elapsed)
@@ -420,11 +450,10 @@ def _handle_signal(supervisor_api, service_name: str, process_names: List[str], 
         return True
 
     try:
-        all_info = supervisor_api.getAllProcessInfo()
-        if not all_info:
+        process_info_map = _fetch_process_info_map(supervisor_api)
+        if process_info_map is None:
             display.warning(f"No processes found running in {display.highlight(service_name)}. Cannot send signal.")
             return True
-        process_info_map = {info['name']: info for info in all_info}
     except Fault as e:
         display.error(
             f"Error getting process list for {display.highlight(service_name)} before signaling: {e.faultString}"

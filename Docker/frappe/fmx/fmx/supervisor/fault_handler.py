@@ -3,6 +3,8 @@ from xmlrpc.client import Fault
 
 from fmx.supervisor.exceptions import (
     SupervisorConnectionError,
+    SupervisorSocketMissingError,
+    SupervisorShuttingDownError,
     ProcessNotFoundError,
     ProcessNotRunningError,
     ProcessAlreadyStartedError,
@@ -27,13 +29,13 @@ def _raise_exception_from_fault(e: Fault, service_name: str, action: str, proces
     elif "BAD_ARGUMENTS" in fault_string:
         raise SupervisorOperationFailedError(f"Invalid arguments: {fault_string}", service_name, process_name, e)
     elif "NO_FILE" in fault_string:
-        raise SupervisorConnectionError(
+        raise SupervisorSocketMissingError(
             f"Socket file error: {fault_string}", service_name, process_name, e
         )  # Treat as connection issue
     elif "FAILED" in fault_string:
         raise SupervisorOperationFailedError(f"Action failed: {fault_string}", service_name, process_name, e)
     elif "SHUTDOWN_STATE" in fault_string:
-        raise SupervisorConnectionError(
+        raise SupervisorShuttingDownError(
             f"Supervisor is shutting down", service_name, process_name, e
         )  # Treat as connection issue
     else:

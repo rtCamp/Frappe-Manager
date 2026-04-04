@@ -5,10 +5,10 @@ from fmx.cli import (
     execute_parallel_command,
     get_service_names_for_completion,
 )
-from fmx.command_utils import get_process_description, validate_services
+from fmx.command_utils import get_process_description, validate_services, resolve_service_targets, format_wait_desc
 from fmx.display import DisplayManager
 from fmx.supervisor import stop_service as util_stop_service
-from fmx.commands._rq_helpers import suspend_rq_workers, resume_rq_workers
+from fmx.commands._rq_helpers import suspend_rq_workers, resume_rq_workers, run_with_optional_rq_drain
 
 command_name = "stop"
 
@@ -92,29 +92,17 @@ def command(
     debug: bool = ctx.obj.get('debug', False)
 
     all_services = get_service_names_for_completion()
-    services_to_target = all_services if not service_names else [s.value for s in service_names]
+    services_to_target = resolve_service_targets(service_names, all_services)
 
     valid, target_desc = validate_services(display, services_to_target, all_services, "stop")
     if not valid:
         return
 
     process_desc = get_process_description(display, process_name)
-    wait_desc = "(with wait)" if wait else "(without wait)"
+    wait_desc = format_wait_desc(wait)
     display.print(f"\nAttempting to stop {process_desc} in {target_desc} {wait_desc}...")
 
-    try:
-        if drain_workers:
-            if not suspend_rq_workers(
-                display,
-                drain_workers,
-                drain_workers_timeout,
-                drain_workers_poll,
-                debug,
-                skip_stale=skip_stale_workers,
-                stale_timeout=skip_stale_timeout,
-            ):
-                raise typer.Exit(code=1)
-
+    def _do_stop():
         execute_parallel_command(
             services_to_target,
             util_stop_service,
@@ -126,7 +114,14 @@ def command(
             force_kill_timeout=force_kill_timeout,
         )
 
-    finally:
-        if drain_workers:
-            resume_rq_workers(display)
-        display.print("\nStop sequence complete.")
+    run_with_optional_rq_drain(
+        display=display,
+        drain_workers=drain_workers,
+        drain_workers_timeout=drain_workers_timeout,
+        drain_workers_poll=drain_workers_poll,
+        debug=debug,
+        skip_stale=skip_stale_workers,
+        stale_timeout=skip_stale_timeout,
+        action_fn=_do_stop,
+        completion_message="\nStop sequence complete.",
+    )

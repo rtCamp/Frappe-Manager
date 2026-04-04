@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Optional
 from xmlrpc.client import ServerProxy, Fault, ProtocolError
 import supervisor.xmlrpc as sxml
-from fmx.supervisor.exceptions import SupervisorConnectionError
+from fmx.supervisor.exceptions import SupervisorConnectionError, SupervisorSocketMissingError
 
 FM_SUPERVISOR_SOCKETS_DIR = Path(os.environ.get("SUPERVISOR_SOCKET_DIR", "/fm-sockets"))
 
@@ -69,7 +69,7 @@ def check_supervisord_connection(service_name: str) -> ServerProxy:
     """
     conn = get_xml_connection(service_name)
     if conn is None:
-        raise SupervisorConnectionError(
+        raise SupervisorSocketMissingError(
             f"Socket file not found or invalid for service '{service_name}'", service_name=service_name
         )
 

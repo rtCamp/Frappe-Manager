@@ -18,6 +18,18 @@ class SupervisorConnectionError(SupervisorError):
     pass
 
 
+class SupervisorSocketMissingError(SupervisorConnectionError):
+    """Raised when the supervisord Unix socket file does not exist."""
+
+    pass
+
+
+class SupervisorShuttingDownError(SupervisorConnectionError):
+    """Raised when supervisord rejects the request because it is shutting down."""
+
+    pass
+
+
 class ProcessNotFoundError(SupervisorError):
     """Raised when a process name is not found by supervisord."""
 

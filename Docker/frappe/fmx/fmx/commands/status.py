@@ -3,7 +3,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 
 import typer
 from fmx.display import DisplayManager
-from fmx.command_utils import validate_services
+from fmx.command_utils import validate_services, resolve_service_targets
 
 from fmx.cli import ServiceNameEnumFactory, execute_parallel_command, get_service_names_for_completion
 from fmx.supervisor.api import get_service_info as util_get_service_info
@@ -38,7 +38,7 @@ def command(
     display: DisplayManager = ctx.obj['display']
 
     all_services = get_service_names_for_completion()
-    services_to_target = all_services if not service_names else [s.value for s in service_names]
+    services_to_target = resolve_service_targets(service_names, all_services)
 
     valid, target_desc = validate_services(display, services_to_target, all_services, "check status")
     if not valid:

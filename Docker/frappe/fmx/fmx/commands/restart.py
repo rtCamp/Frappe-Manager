@@ -2,44 +2,18 @@ import os
 import subprocess
 import sys
 import time
-import json
 import traceback
-from pathlib import Path
-from typing import Annotated, Optional, List, Any
+from typing import Annotated, Optional, List
 import typer
 from fmx.display import DisplayManager
-from fmx.command_utils import validate_services
+from fmx.command_utils import validate_services, resolve_service_targets, format_wait_desc
+from fmx.config import set_common_site_config_value
 from fmx.cli import ServiceNameEnumFactory, execute_parallel_command, get_service_names_for_completion
 from fmx.supervisor.api import (
     start_service as util_start_service,
     restart_service as util_restart_service,
 )
-from fmx.commands._rq_helpers import suspend_rq_workers, resume_rq_workers
-
-
-def _set_common_site_config_key_value(
-    key_name: str, value: Any, display: Optional[DisplayManager] = None, verbose: bool = False
-):
-    """Write a single key-value pair into common_site_config.json, preserving existing keys."""
-    common_config_path = Path("/workspace/frappe-bench/sites/common_site_config.json")
-    config = {}
-    try:
-        if common_config_path.exists():
-            with open(common_config_path, 'r') as f:
-                try:
-                    config = json.load(f)
-                except json.JSONDecodeError:
-                    config = {}
-        config[key_name] = value
-        with open(common_config_path, 'w') as f:
-            json.dump(config, f, indent=4)
-        if verbose and display:
-            display.info(f"Set {key_name} to {value} in {common_config_path}")
-        return True
-    except Exception as e:
-        if verbose and display:
-            display.warning(f"Could not write {key_name} to {common_config_path}: {e}")
-        return False
+from fmx.commands._rq_helpers import suspend_rq_workers, resume_rq_workers, run_with_optional_rq_drain
 
 
 command_name = "restart"
@@ -47,21 +21,27 @@ command_name = "restart"
 ServiceNamesEnum = ServiceNameEnumFactory()
 
 
-def enable_maintenance_mode(display: DisplayManager):
-    display.warning("Enabling maintenance mode...")
-    if _set_common_site_config_key_value("maintenance_mode", 1, display=display):
-        display.success("Maintenance mode enabled.")
-    else:
-        display.error("Failed to enable maintenance mode in common_site_config.json.")
-        raise typer.Exit(code=1)
+def set_maintenance_mode(display: DisplayManager, enabled: bool) -> None:
+    """Enable or disable maintenance mode in common_site_config.json.
 
+    Args:
+        display: DisplayManager for output.
+        enabled: True to enable maintenance mode, False to disable it.
 
-def disable_maintenance_mode(display: DisplayManager):
-    display.warning("Disabling maintenance mode...")
-    if _set_common_site_config_key_value("maintenance_mode", 0, display=display):
-        display.success("Maintenance mode disabled.")
+    Raises:
+        typer.Exit: With code 1 if writing the config fails while enabling.
+            Failures while disabling are logged as errors but do not exit.
+    """
+    verb = "Enabling" if enabled else "Disabling"
+    state = "enabled" if enabled else "disabled"
+    value = 1 if enabled else 0
+    display.warning(f"{verb} maintenance mode...")
+    if set_common_site_config_value("maintenance_mode", value, display=display):
+        display.success(f"Maintenance mode {state}.")
     else:
-        display.error("Failed to disable maintenance mode in common_site_config.json.")
+        display.error(f"Failed to {verb.lower()} maintenance mode in common_site_config.json.")
+        if enabled:
+            raise typer.Exit(code=1)
 
 
 def _run_migration(display: DisplayManager, migrate_timeout: int, migrate_command: Optional[List[str]] = None) -> bool:
@@ -215,7 +195,7 @@ def _run_migrate_flow(
     try:
         # PHASE 1: DRAIN (RQ suspension and drain)
         if maintenance_on_drain:
-            enable_maintenance_mode(display)
+            set_maintenance_mode(display, True)
             maintenance_enabled = True
 
         if suspension_needed:
@@ -233,12 +213,12 @@ def _run_migrate_flow(
         # TRANSITION: drain → migrate
         # Drain is done; if migrate phase doesn't need maintenance, turn it off now
         if maintenance_enabled and not maintenance_on_migrate:
-            disable_maintenance_mode(display)
+            set_maintenance_mode(display, False)
             maintenance_enabled = False
 
         # PHASE 2: MIGRATE (bench migrate)
         if maintenance_on_migrate and not maintenance_enabled:
-            enable_maintenance_mode(display)
+            set_maintenance_mode(display, True)
             maintenance_enabled = True
 
         if not _run_migration(display, migrate_timeout, migrate_command):
@@ -265,7 +245,7 @@ def _run_migrate_flow(
 
     finally:
         if maintenance_enabled:
-            disable_maintenance_mode(display)
+            set_maintenance_mode(display, False)
 
 
 def _handle_migrate_success(
@@ -307,7 +287,7 @@ def _handle_migrate_success(
     )
 
     if maintenance_on_migrate:
-        disable_maintenance_mode(display)
+        set_maintenance_mode(display, False)
         return True
 
     return False
@@ -487,13 +467,13 @@ def command(
         maintenance_on_migrate = False
 
     all_services = get_service_names_for_completion()
-    services_to_target = all_services if not service_names else [s.value for s in service_names]
+    services_to_target = resolve_service_targets(service_names, all_services)
 
     valid, target_desc = validate_services(display, services_to_target, all_services, "restart")
     if not valid:
         return
 
-    wait_desc = "(with wait)" if wait else "(without wait)"
+    wait_desc = format_wait_desc(wait)
     display.dimmed(f"\nAttempting to restart {target_desc} {wait_desc}...")
 
     migrate_command_list: Optional[List[str]] = None
@@ -532,25 +512,11 @@ def command(
             display.print("\nRestart sequence complete.")
     else:
         maintenance_enabled = False
-        try:
-            if maintenance_on_drain and suspension_needed:
-                enable_maintenance_mode(display)
-                maintenance_enabled = True
 
-            if suspension_needed:
-                if not suspend_rq_workers(
-                    display,
-                    drain_workers,
-                    drain_workers_timeout,
-                    drain_workers_poll,
-                    debug,
-                    skip_stale=skip_stale_workers,
-                    stale_timeout=skip_stale_timeout,
-                ):
-                    raise typer.Exit(code=1)
-
+        def _do_restart():
+            nonlocal maintenance_enabled
             if maintenance_enabled:
-                disable_maintenance_mode(display)
+                set_maintenance_mode(display, False)
                 maintenance_enabled = False
 
             execute_parallel_command(
@@ -563,9 +529,22 @@ def command(
                 force_kill_timeout=force_kill_timeout,
             )
 
+        try:
+            if maintenance_on_drain and suspension_needed:
+                set_maintenance_mode(display, True)
+                maintenance_enabled = True
+
+            run_with_optional_rq_drain(
+                display=display,
+                drain_workers=suspension_needed,
+                drain_workers_timeout=drain_workers_timeout,
+                drain_workers_poll=drain_workers_poll,
+                debug=debug,
+                skip_stale=skip_stale_workers,
+                stale_timeout=skip_stale_timeout,
+                action_fn=_do_restart,
+                completion_message="\nRestart sequence complete.",
+            )
         finally:
-            if suspension_needed:
-                resume_rq_workers(display)
             if maintenance_enabled:
-                disable_maintenance_mode(display)
-            display.print("\nRestart sequence complete.")
+                set_maintenance_mode(display, False)

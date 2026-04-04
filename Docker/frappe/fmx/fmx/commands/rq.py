@@ -8,6 +8,7 @@ from fmx.rq_controller import (
     ActionEnum,
 )
 from fmx.supervisor.status_formatter import format_rq_status
+from fmx.commands._rq_helpers import MSG_SUSPENDING, MSG_RESUMING
 
 command_name = "rq"
 
@@ -25,7 +26,7 @@ def suspend_command(
         display.warning("⚠ RQ workers are already suspended")
         return
 
-    display.print("⏸️  Suspending RQ workers...")
+    display.print(MSG_SUSPENDING)
     success = control_rq_workers(action=ActionEnum.suspend)
 
     if success:
@@ -46,7 +47,7 @@ def resume_command(
         display.warning("⚠ RQ workers are already active (not suspended)")
         return
 
-    display.print("▶️  Resuming RQ workers...")
+    display.print(MSG_RESUMING)
     success = control_rq_workers(action=ActionEnum.resume)
 
     if success:
