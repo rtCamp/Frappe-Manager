@@ -117,7 +117,7 @@ def _handle_stop(
             if success:
                 stop_results["stopped"].append(process_name)
                 if progress_callback:
-                    _method = "killed (USR1)" if is_worker else "stopped"
+                    _method = "killed (USR1)" if (is_worker and not wait_workers) else "stopped"
                     progress_callback(service_name, process_name, "stop", _pid, _method, _elapsed)
             else:
                 stop_results["failed"].append(process_name)

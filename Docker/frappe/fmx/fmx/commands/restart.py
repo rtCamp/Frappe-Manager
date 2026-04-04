@@ -20,8 +20,6 @@ from fmx.supervisor.api import (
     start_service as util_start_service,
     restart_service as util_restart_service,
 )
-from fmx.supervisor.executor import execute_supervisor_command
-from fmx.supervisor.constants import is_worker_process
 
 
 def _set_common_site_config_key_value(
@@ -72,32 +70,13 @@ def disable_maintenance_mode(display: DisplayManager):
         # Do not exit, just warn
 
 
-def _get_active_worker_pids(services: List[str]) -> set:
-    pids = set()
-    for service in services:
-        try:
-            process_info_list = execute_supervisor_command(service, "INFO")
-            if process_info_list:
-                for proc in process_info_list:
-                    if (
-                        is_worker_process(proc.get('name', ''))
-                        and proc.get('statename') == 'RUNNING'
-                        and proc.get('pid', 0) > 0
-                    ):
-                        pids.add(proc['pid'])
-        except Exception:
-            pass
-    return pids
-
-
 def _suspend_rq_workers(
     display: DisplayManager,
     wait_workers: bool,
     wait_workers_timeout: int,
     wait_workers_poll: int,
-    wait_workers_verbose: bool,
     debug: bool = False,
-    active_pids: Optional[set] = None,
+    active_only: bool = False,
 ) -> bool:
     """Suspend RQ workers via Redis flag and optionally wait for completion.
 
@@ -131,8 +110,7 @@ def _suspend_rq_workers(
             if not wait_for_rq_workers_suspended(
                 timeout=wait_workers_timeout,
                 poll_interval=wait_workers_poll,
-                verbose=wait_workers_verbose,
-                active_pids=active_pids,
+                active_only=active_only,
             ):
                 display.error("Workers did not become idle within the timeout period.")
                 display.print("Aborting restart to avoid interrupting jobs.")
@@ -271,7 +249,6 @@ def _run_migrate_flow(
     wait_workers: bool,
     wait_workers_timeout: int,
     wait_workers_poll: int,
-    wait_workers_verbose: bool,
     migrate_timeout: int,
     migrate_command: Optional[List[str]],
     wait: bool,
@@ -279,7 +256,7 @@ def _run_migrate_flow(
     maintenance_on_migrate: bool = False,
     force_kill_timeout: Optional[int] = None,
     debug: bool = False,
-    active_pids: Optional[set] = None,
+    active_only: bool = False,
 ):
     """Execute zero-downtime migration flow with proper phase transitions.
 
@@ -309,9 +286,8 @@ def _run_migrate_flow(
                 wait_workers,
                 wait_workers_timeout,
                 wait_workers_poll,
-                wait_workers_verbose,
                 debug,
-                active_pids=active_pids,
+                active_only=active_only,
             ):
                 raise typer.Exit(code=1)
 
@@ -481,13 +457,6 @@ def command(
             help="Polling interval (seconds) for --wait-workers (default: 5).",
         ),
     ] = 5,
-    wait_workers_verbose: Annotated[
-        bool,
-        typer.Option(
-            "--wait-workers-verbose",
-            help="Show detailed worker states during --wait-workers checks.",
-        ),
-    ] = False,
     wait_active_workers: Annotated[
         bool,
         typer.Option(
@@ -578,8 +547,6 @@ def command(
     if not valid:
         return
 
-    active_pids: Optional[set] = _get_active_worker_pids(services_to_target) if wait_active_workers else None
-
     wait_desc = "(with wait)" if wait else "(without wait)"
     display.dimmed(f"\nAttempting to restart {target_desc} {wait_desc}...")
 
@@ -603,7 +570,6 @@ def command(
                 wait_workers,
                 wait_workers_timeout,
                 wait_workers_poll,
-                wait_workers_verbose,
                 migrate_timeout,
                 migrate_command_list,
                 wait,
@@ -611,7 +577,7 @@ def command(
                 maintenance_on_migrate=maintenance_on_migrate,
                 force_kill_timeout=force_kill_timeout,
                 debug=debug,
-                active_pids=active_pids,
+                active_only=wait_active_workers,
             )
         finally:
             if suspension_needed:
@@ -630,9 +596,8 @@ def command(
                     wait_workers,
                     wait_workers_timeout,
                     wait_workers_poll,
-                    wait_workers_verbose,
                     debug,
-                    active_pids=active_pids,
+                    active_only=wait_active_workers,
                 ):
                     raise typer.Exit(code=1)
 

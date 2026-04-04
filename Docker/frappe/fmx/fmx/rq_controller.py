@@ -17,12 +17,6 @@ from rq.worker import Worker
 
 stderr_console = Console(stderr=True)
 
-_STATE_COLOR = {
-    'suspended': 'green',
-    'idle': 'yellow',
-    'busy': 'cyan',
-}
-
 
 def _label(worker: Worker) -> str:
     """Get human-readable worker label. Tries: hostname:pid > queue name > UUID prefix."""
@@ -110,6 +104,9 @@ def _is_worker_alive(worker: Worker, connection) -> bool:
     return True
 
 
+_IDLE_STALE_SECONDS = 15
+
+
 def _get_worker_states(connection) -> Tuple[List[Worker], List[Tuple[Worker, str]]]:
     all_workers = Worker.all(connection=connection)
     workers = [w for w in all_workers if _is_worker_alive(w, connection)]
@@ -194,9 +191,8 @@ def control_rq_workers(action: ActionEnum, redis_url=None) -> bool:
 def wait_for_rq_workers_suspended(
     timeout: int = 300,
     poll_interval: int = 5,
-    verbose: bool = False,
     redis_url=None,
-    active_pids: Optional[set] = None,
+    active_only: bool = False,
 ) -> bool:
     try:
         connection = _get_redis_connection(redis_url=redis_url)
@@ -218,13 +214,27 @@ def wait_for_rq_workers_suspended(
             try:
                 non_suspended, worker_states = _get_worker_states(connection)
 
-                if active_pids is not None:
-                    non_suspended = [w for w in non_suspended if getattr(w, 'pid', None) in active_pids]
-                    worker_states = [(w, s) for w, s in worker_states if getattr(w, 'pid', None) in active_pids]
+                if active_only:
+                    filtered = []
+                    for w, s in worker_states:
+                        stale_idle = s == 'idle' and elapsed > _IDLE_STALE_SECONDS
+                        if stale_idle:
+                            stderr_console.print(
+                                f"[dim]  skip {_label(w)} state={s}  reason=idle too long after suspension[/dim]"
+                            )
+                        else:
+                            filtered.append((w, s))
+                    worker_states = filtered
+                    non_suspended = [w for w, s in worker_states if s != 'suspended']
 
                 if not worker_states:
                     final_status = "no_workers"
                     break
+
+                workers_left = len(non_suspended)
+                stderr_console.print(f"[dim]elapsed {elapsed:.0f}s  ·  {workers_left} worker(s) left[/dim]")
+                for w, s in worker_states:
+                    stderr_console.print(f"[dim]  worker {_label(w)}  state={s}[/dim]")
 
                 for worker in non_suspended:
                     state = worker.get_state()
@@ -232,25 +242,16 @@ def wait_for_rq_workers_suspended(
                         try:
                             if hasattr(worker, 'queues') and worker.queues:
                                 queue = worker.queues[0]
-                                queue.enqueue('fmx.rq_controller.noop', at_front=True)
-                                if verbose:
-                                    stderr_console.print(f"[dim]  → noop enqueued to {_label(worker)}[/dim]")
+                                queue.enqueue(time.sleep, args=[0], at_front=True)
+                                stderr_console.print(f"[dim]  → noop enqueued to {_label(worker)}[/dim]")
                         except Exception as enqueue_err:
-                            if verbose:
-                                stderr_console.print(
-                                    f"[yellow]warn:[/yellow] noop enqueue failed for {_label(worker)}: {enqueue_err}"
-                                )
+                            stderr_console.print(
+                                f"[yellow]warn:[/yellow] noop enqueue failed for {_label(worker)}: {enqueue_err}"
+                            )
 
                 if not non_suspended:
                     final_status = "success"
                     break
-
-                parts = []
-                for worker, state in worker_states:
-                    color = _STATE_COLOR.get(state, 'red')
-                    parts.append(f"{_label(worker)}: [{color}]{state}[/]")
-                status_line = "⏳  " + "  ·  ".join(parts) + f"  [dim]({elapsed:.1f}s)[/dim]"
-                stderr_console.print(status_line)
 
                 time.sleep(poll_interval)
 
@@ -275,7 +276,8 @@ def wait_for_rq_workers_suspended(
                 laggards = [
                     _label(w)
                     for w in workers
-                    if w.get_state() != 'suspended' and (active_pids is None or getattr(w, 'pid', None) in active_pids)
+                    if w.get_state() != 'suspended'
+                    and (not active_only or not (w.get_state() == 'idle' and elapsed > _IDLE_STALE_SECONDS))
                 ]
             except Exception:
                 laggards = []
@@ -392,7 +394,6 @@ def main():
     wait_parser = subparsers.add_parser("wait", help="Wait for all RQ workers to be suspended")
     wait_parser.add_argument("--timeout", type=int, default=300, help="Timeout in seconds (default: 300)")
     wait_parser.add_argument("--poll-interval", type=int, default=5, help="Polling interval in seconds (default: 5)")
-    wait_parser.add_argument("-v", "--verbose", action="store_true", help="Show verbose output")
 
     # check
     subparsers.add_parser("check", help="Check if RQ workers are suspended")
@@ -405,7 +406,7 @@ def main():
         sys.exit(0 if control_rq_workers(ActionEnum.resume, redis_url=args.redis_url) else 1)
     elif args.command == "wait":
         ok = wait_for_rq_workers_suspended(
-            timeout=args.timeout, poll_interval=args.poll_interval, verbose=args.verbose, redis_url=args.redis_url
+            timeout=args.timeout, poll_interval=args.poll_interval, redis_url=args.redis_url
         )
         sys.exit(0 if ok else 1)
     elif args.command == "check":
