@@ -77,13 +77,6 @@ def command(
             help="Seconds after which an idle post-suspension worker is treated as dead and skipped. Used with --skip-stale-workers.",
         ),
     ] = 15,
-    force_kill_timeout: Annotated[
-        Optional[int],
-        typer.Option(
-            "--force-kill-timeout",
-            help="Force-kill processes that haven't stopped within this timeout (seconds).",
-        ),
-    ] = None,
 ):
     """Stop services or specific processes."""
     display: DisplayManager = ctx.obj['display']
@@ -109,7 +102,6 @@ def command(
             process_name_list=process_name,
             wait=wait,
             wait_workers=drain_workers,
-            force_kill_timeout=force_kill_timeout,
         )
 
     run_with_optional_rq_drain(

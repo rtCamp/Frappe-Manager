@@ -115,7 +115,7 @@ def execute_parallel_command(
     kwargs['verbose'] = verbose
 
     _overall_start = None
-    if command_func == util_restart_service:
+    if command_func in (util_restart_service, util_stop_service, util_start_service):
         _lock = threading.Lock()
         kwargs['progress_callback'] = _make_restart_callback(_lock)
         show_progress = False
@@ -195,9 +195,9 @@ def _handle_command_results(results: dict, command_func, action_verb: str, elaps
     elif command_func == util_restart_service:
         return _handle_restart_results(results, elapsed=elapsed)
     elif command_func == util_start_service:
-        return _handle_start_results(results)
+        return _handle_start_results(results, elapsed=elapsed)
     elif command_func == util_stop_service:
-        return _handle_stop_results(results)
+        return _handle_stop_results(results, elapsed=elapsed)
 
 
 def _handle_info_results(results: dict, **kwargs):
@@ -217,91 +217,52 @@ def _handle_info_results(results: dict, **kwargs):
     return None
 
 
-def _handle_start_results(results: dict):
-    _display_action_results_by_service(
-        results,
-        action_key="started",
-        already_key="already_running",
-        heading_label="Start Results",
-        action_label="started",
-        already_label="already running",
-    )
-
-
-def _handle_stop_results(results: dict):
-    _display_action_results_by_service(
-        results,
-        action_key="stopped",
-        already_key="already_stopped",
-        heading_label="Stop Results",
-        action_label="stopped",
-        already_label="already stopped",
-    )
-
-
-def _display_action_results_by_service(
-    results: dict,
-    action_key: str,
-    already_key: str,
-    heading_label: str,
-    action_label: str,
-    already_label: str,
-):
-    """Render per-service start/stop results in a consistent format.
-
-    Args:
-        results: Mapping of service_name → result dict (from execute_parallel_command).
-        action_key: Key for the primary action list in each result (e.g. "started", "stopped").
-        already_key: Key for the already-done list (e.g. "already_running", "already_stopped").
-        heading_label: Section heading string (e.g. "Start Results").
-        action_label: Human-readable label for action_key items in count summary.
-        already_label: Human-readable label for already_key items in count summary.
-    """
-    display.heading(heading_label)
-
-    for service_name in sorted(results.keys()):
-        result = results[service_name]
-        if isinstance(result, dict):
-            if 'error' in result and result['error']:
-                display.print(f"  [red]✘[/red] {display.highlight(service_name)}: failed entirely ({result['error']})")
-                continue
-
-            actioned = result.get(action_key, [])
-            already = result.get(already_key, [])
-            failed = result.get("failed", [])
-
-            status_counts = []
-            if actioned:
-                status_counts.append(f"{len(actioned)} {action_label}")
-            if already:
-                status_counts.append(f"{len(already)} {already_label}")
-            if failed:
-                status_counts.append(f"{len(failed)} failed")
-
-            if not status_counts:
-                continue
-
-            if failed or (actioned and already):
-                icon = "[yellow]⚠[/yellow]"
-            elif already:
-                icon = "[dim]○[/dim]"
-            else:
-                icon = "[green]✔[/green]"
-
-            display.print(f"  {icon} {display.highlight(service_name)}: {', '.join(status_counts)}")
-
-            if len(status_counts) > 1 or failed:
-                if actioned:
-                    display.print(f"    {action_label}: {', '.join(actioned)}")
-                if already:
-                    display.dimmed(f"    {already_label}: {', '.join(already)}")
-                if failed:
-                    display.print(f"    [red]failed: {', '.join(failed)}[/red]")
-            else:
-                processes = actioned or already
-                display.print(f"    → {', '.join(processes)}")
+def _handle_start_results(results: dict, elapsed=None):
+    total_services = len(results)
+    failed_services = []
+    total_count = 0
+    for svc, result in results.items():
+        if isinstance(result, dict) and not result.get('error'):
+            total_count += len(result.get('started', [])) + len(result.get('already_running', []))
+            if result.get('failed'):
+                failed_services.append(svc)
         else:
-            display.print(f"  [red]✘[/red] {display.highlight(service_name)}: failed entirely")
+            failed_services.append(svc)
+    elapsed_str = f"  [dim]({elapsed:.1f}s)[/dim]" if elapsed is not None else ""
+    if not failed_services:
+        display.print(
+            f"\n[green]✔[/green]  Started [bold]{total_services}[/bold] service(s) · [bold]{total_count}[/bold] process(es){elapsed_str}"
+        )
+    else:
+        ok = total_services - len(failed_services)
+        display.print(
+            f"\n[yellow]⚠[/yellow]  Started [bold]{ok}/{total_services}[/bold] service(s){elapsed_str}"
+            f"  —  [red]{', '.join(failed_services)}[/red] failed"
+        )
+
+
+def _handle_stop_results(results: dict, elapsed=None):
+    total_services = len(results)
+    failed_services = []
+    total_count = 0
+    for svc, result in results.items():
+        if isinstance(result, dict) and not result.get('error'):
+            total_count += len(result.get('stopped', [])) + len(result.get('already_stopped', []))
+            if result.get('failed'):
+                failed_services.append(svc)
+        else:
+            failed_services.append(svc)
+    elapsed_str = f"  [dim]({elapsed:.1f}s)[/dim]" if elapsed is not None else ""
+    if not failed_services:
+        display.print(
+            f"\n[green]✔[/green]  Stopped [bold]{total_services}[/bold] service(s) · [bold]{total_count}[/bold] process(es){elapsed_str}"
+        )
+    else:
+        ok = total_services - len(failed_services)
+        display.print(
+            f"\n[yellow]⚠[/yellow]  Stopped [bold]{ok}/{total_services}[/bold] service(s){elapsed_str}"
+            f"  —  [red]{', '.join(failed_services)}[/red] failed"
+        )
 
 
 def _handle_restart_results(results: dict, elapsed=None):

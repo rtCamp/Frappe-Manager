@@ -57,7 +57,6 @@ def _handle_stop(
     service_name: str,
     process_names: Optional[List[str]],
     wait: bool,
-    force_kill_timeout: Optional[int],
     wait_workers: bool = False,
     called_from_restart: bool = False,
     verbose: bool = False,
@@ -72,11 +71,10 @@ def _handle_stop(
     3. For each process, applies worker-specific stop logic:
        - Workers: respects wait_workers parameter for graceful shutdown
        - Non-workers: uses standard wait parameter
-    4. Optionally applies force kill timeout for stubborn processes
-    5. Returns categorized results (stopped, already_stopped, failed)
+    4. Returns categorized results (stopped, already_stopped, failed)
     """
     logger.info(
-        f"Handle stop called: service={service_name}, processes={process_names}, wait={wait}, force_kill_timeout={force_kill_timeout}, wait_workers={wait_workers}"
+        f"Handle stop called: service={service_name}, processes={process_names}, wait={wait}, wait_workers={wait_workers}"
     )
 
     action = "stop"
@@ -140,7 +138,6 @@ def _handle_stop(
                 service_name,
                 process_name,
                 wait=effective_wait_for_this_process,
-                force_kill_timeout=force_kill_timeout,
                 wait_workers=wait_workers,
                 process_info=process_info,
                 verbose=verbose,
@@ -356,7 +353,6 @@ def _handle_restart(
     service_name: str,
     process_names: Optional[List[str]],
     wait: bool,
-    force_kill_timeout: Optional[int] = None,
     wait_workers: bool = False,
     progress_callback=None,
 ) -> Dict[str, List[str]]:
@@ -365,13 +361,12 @@ def _handle_restart(
 
     Logic:
     1. Stops processes in the service (all or specified by process_names)
-    2. Waits for complete shutdown with optional force kill
-    3. If stop fails, aborts the restart to prevent inconsistent state
-    4. Starts processes (all defined or specified) from configuration
-    5. Returns detailed results for both stop and start phases
+    2. If stop fails, aborts the restart to prevent inconsistent state
+    3. Starts processes (all defined or specified) from configuration
+    4. Returns detailed results for both stop and start phases
     """
     logger.info(
-        f"Handle restart called: service={service_name}, processes={process_names}, wait={wait}, force_kill_timeout={force_kill_timeout}, wait_workers={wait_workers}"
+        f"Handle restart called: service={service_name}, processes={process_names}, wait={wait}, wait_workers={wait_workers}"
     )
 
     action = "restart"
@@ -381,7 +376,6 @@ def _handle_restart(
         service_name,
         process_names,
         wait,
-        force_kill_timeout,
         wait_workers=wait_workers,
         called_from_restart=True,
         progress_callback=progress_callback,

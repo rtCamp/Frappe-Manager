@@ -171,7 +171,6 @@ def _run_migrate_flow(
     wait: bool,
     maintenance_on_drain: bool = False,
     maintenance_on_migrate: bool = False,
-    force_kill_timeout: Optional[int] = None,
     debug: bool = False,
     skip_stale: bool = True,
     stale_timeout: int = 15,
@@ -236,7 +235,6 @@ def _run_migrate_flow(
             display,
             services_to_target,
             wait,
-            force_kill_timeout,
             maintenance_on_migrate,
             drain_workers=suspension_needed,
         )
@@ -252,7 +250,6 @@ def _handle_migrate_success(
     display: DisplayManager,
     services_to_target: List[str],
     wait: bool,
-    force_kill_timeout: Optional[int],
     maintenance_on_migrate: bool = False,
     drain_workers: bool = False,
 ) -> bool:
@@ -265,7 +262,6 @@ def _handle_migrate_success(
         display: DisplayManager for output
         services_to_target: List of supervisor service names to restart
         wait: Wait for supervisor restart operations to complete
-        force_kill_timeout: Seconds after which non-worker processes are force-killed
         maintenance_on_migrate: Whether maintenance mode was enabled for the migrate phase
         drain_workers: Whether workers were drained before migration. When True, workers use
             normal stopProcess instead of the USR1 (warm shutdown) path, avoiding the 10s
@@ -283,7 +279,6 @@ def _handle_migrate_success(
         show_progress=True,
         wait=wait,
         wait_workers=drain_workers,
-        force_kill_timeout=force_kill_timeout,
     )
 
     if maintenance_on_migrate:
@@ -389,13 +384,6 @@ def command(
             help="Seconds after which an idle post-suspension worker is treated as dead and skipped. Used with --skip-stale-workers.",
         ),
     ] = 15,
-    force_kill_timeout: Annotated[
-        Optional[int],
-        typer.Option(
-            "--force-kill-timeout",
-            help="Force-kill processes that haven't stopped within this timeout (seconds).",
-        ),
-    ] = None,
     migrate_command: Annotated[
         Optional[str],
         typer.Option(
@@ -484,7 +472,6 @@ def command(
                 wait,
                 maintenance_on_drain=maintenance_on_drain,
                 maintenance_on_migrate=maintenance_on_migrate,
-                force_kill_timeout=force_kill_timeout,
                 debug=debug,
                 skip_stale=skip_stale_workers,
                 stale_timeout=skip_stale_timeout,
@@ -509,7 +496,6 @@ def command(
                 show_progress=True,
                 wait=wait,
                 wait_workers=drain_workers,
-                force_kill_timeout=force_kill_timeout,
             )
 
         try:

@@ -39,25 +39,24 @@ def stop_service(
     service_name: str,
     process_name_list: Optional[List[str]] = None,
     wait: bool = True,
-    force_kill_timeout: Optional[int] = None,
     wait_workers: bool = False,
     verbose: bool = False,
+    progress_callback=None,
 ) -> bool:
     """
-    Stops processes in a service with optional force kill and worker handling.
+    Stops processes in a service with optional worker handling.
 
     Logic:
     1. Delegates to execute_supervisor_command with "stop" action
-    2. If force_kill_timeout provided: stops gracefully first, waits, then force kills
-    3. If wait_workers=True: waits specifically for worker processes to stop
-    4. If process_name_list provided: stops only specified processes
-    5. If process_name_list=None: stops all processes in the service
+    2. If wait_workers=True: waits specifically for worker processes to stop
+    3. If process_name_list provided: stops only specified processes
+    4. If process_name_list=None: stops all processes in the service
 
     Returns:
         True if all targeted processes stopped successfully, False otherwise
     """
     logger.info(
-        f"Stop service called: service={service_name}, processes={process_name_list}, wait={wait}, force_kill_timeout={force_kill_timeout}, wait_workers={wait_workers}"
+        f"Stop service called: service={service_name}, processes={process_name_list}, wait={wait}, wait_workers={wait_workers}"
     )
     try:
         result = (
@@ -66,9 +65,9 @@ def stop_service(
                 "stop",
                 process_names=process_name_list,
                 wait=wait,
-                force_kill_timeout=force_kill_timeout,
                 wait_workers=wait_workers,
                 verbose=verbose,
+                progress_callback=progress_callback,
             )
             or False
         )
@@ -80,7 +79,11 @@ def stop_service(
 
 
 def start_service(
-    service_name: str, process_name_list: Optional[List[str]] = None, wait: bool = True, verbose: bool = False
+    service_name: str,
+    process_name_list: Optional[List[str]] = None,
+    wait: bool = True,
+    verbose: bool = False,
+    progress_callback=None,
 ) -> Optional[Dict[str, List[str]]]:
     """
     Starts processes in a service with validation and state reporting.
@@ -98,7 +101,12 @@ def start_service(
     logger.info(f"Start service called: service={service_name}, processes={process_name_list}, wait={wait}")
     try:
         result = execute_supervisor_command(
-            service_name, "start", process_names=process_name_list, wait=wait, verbose=verbose
+            service_name,
+            "start",
+            process_names=process_name_list,
+            wait=wait,
+            verbose=verbose,
+            progress_callback=progress_callback,
         )
         started_count = len(result.get("started", [])) if result else 0
         already_running_count = len(result.get("already_running", [])) if result else 0
@@ -116,7 +124,6 @@ def restart_service(
     service_name: str,
     wait: bool = True,
     wait_workers: bool = False,
-    force_kill_timeout: Optional[int] = None,
     verbose: bool = False,
     progress_callback=None,
 ) -> Dict[str, List[str]]:
@@ -125,24 +132,20 @@ def restart_service(
 
     Logic:
     1. Stops ALL processes in the service (ignores any specific process selection)
-    2. Waits for complete shutdown with optional force kill timeout
-    3. If stop phase fails: aborts restart to prevent inconsistent state
-    4. Starts ALL defined processes (fresh start from supervisor configuration)
-    5. Returns detailed results combining both stop and start phases
+    2. If stop phase fails: aborts restart to prevent inconsistent state
+    3. Starts ALL defined processes (fresh start from supervisor configuration)
+    4. Returns detailed results combining both stop and start phases
 
     Returns:
         Dict with keys: 'stopped', 'already_stopped', 'started', 'already_running', 'failed'
     """
-    logger.info(
-        f"Restart service called: service={service_name}, wait={wait}, wait_workers={wait_workers}, force_kill_timeout={force_kill_timeout}"
-    )
+    logger.info(f"Restart service called: service={service_name}, wait={wait}, wait_workers={wait_workers}")
     try:
         result = execute_supervisor_command(
             service_name,
             "restart",
             wait=wait,
             wait_workers=wait_workers,
-            force_kill_timeout=force_kill_timeout,
             progress_callback=progress_callback,
         )
         stopped_count = len(result.get("stopped", [])) if result else 0
@@ -188,7 +191,7 @@ def signal_service(service_name: str, signal_name: str, process_name_list: Optio
                 "signal",
                 process_names=process_name_list,
                 signal_name=signal_name,
-                # Other parameters like wait, force_kill etc. are not relevant for signal
+                # Other parameters like wait etc. are not relevant for signal
             )
             or False
         )

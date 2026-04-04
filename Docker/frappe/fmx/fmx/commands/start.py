@@ -74,5 +74,3 @@ def command(
         wait=wait,
         verbose=verbose,
     )
-
-    display.print("\nStart sequence complete.")

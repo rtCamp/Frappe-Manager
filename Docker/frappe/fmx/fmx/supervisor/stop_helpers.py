@@ -69,7 +69,6 @@ def _stop_single_process_with_logic(
     service_name: str,
     process_name: str,
     wait: bool,
-    force_kill_timeout: Optional[int],
     wait_workers: bool = False,
     process_info: Optional[Dict[str, Any]] = None,
     verbose: bool = False,
@@ -93,38 +92,18 @@ def _stop_single_process_with_logic(
 
         supervisor_api.stopProcess(name_to_stop, wait)
 
-        if force_kill_timeout is not None and force_kill_timeout > 0:
-            if is_worker:
-                stopped_gracefully = _wait_for_process_stop(supervisor_api, original_process_name, force_kill_timeout)
-                if not stopped_gracefully:
-                    return _kill_process(supervisor_api, service_name, original_process_name)
-                return True
-            else:
-                logger.info(
-                    f"Checking graceful stop for non-worker {original_process_name} (timeout: {force_kill_timeout}s)"
+        if wait:
+            if verbose:
+                display.success(
+                    f"Stopped process {display.highlight(process_name)} in {display.highlight(service_name)} (waited)."
                 )
-                stopped_gracefully = _wait_for_process_stop(supervisor_api, original_process_name, force_kill_timeout)
-
-                if not stopped_gracefully:
-                    logger.info(f"Non-worker {original_process_name} didn't stop gracefully, force killing")
-                    return _kill_process(supervisor_api, service_name, original_process_name)
-                else:
-                    logger.info(f"Non-worker {original_process_name} stopped gracefully")
-                    return True
-
+            return True
         else:
-            if wait:
-                if verbose:
-                    display.success(
-                        f"Stopped process {display.highlight(process_name)} in {display.highlight(service_name)} (waited)."
-                    )
-                return True
-            else:
-                if verbose:
-                    display.print(
-                        f"Stop signal sent to process {display.highlight(process_name)} in {display.highlight(service_name)} (no wait)."
-                    )
-                return True
+            if verbose:
+                display.print(
+                    f"Stop signal sent to process {display.highlight(process_name)} in {display.highlight(service_name)} (no wait)."
+                )
+            return True
 
     except Fault as e:
         fault_string = getattr(e, 'faultString', '')

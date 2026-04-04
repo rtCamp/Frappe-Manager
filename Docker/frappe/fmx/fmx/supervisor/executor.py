@@ -37,7 +37,6 @@ def execute_supervisor_command(
     action: str,
     process_names: Optional[List[str]] = None,
     wait: bool = True,
-    force_kill_timeout: Optional[int] = None,
     wait_workers: bool = False,
     verbose: bool = False,
     signal_name: Optional[str] = None,
@@ -49,7 +48,7 @@ def execute_supervisor_command(
     Logic:
     1. Validates supervisor connection first (fails fast if service unreachable)
     2. Dispatches to appropriate action handler based on action parameter:
-       - "stop": Delegates to _handle_stop with force kill and worker options
+       - "stop": Delegates to _handle_stop with worker options
        - "start": Delegates to _handle_start with validation and state tracking
        - "restart": Delegates to _handle_restart with complete stop-then-start
        - "info"/"INFO": Delegates to _handle_info for raw process data
@@ -79,19 +78,20 @@ def execute_supervisor_command(
                 service_name,
                 process_names,
                 wait,
-                force_kill_timeout,
                 wait_workers,
                 verbose=verbose,
+                progress_callback=progress_callback,
             )
         elif action == "start":
-            return _handle_start(supervisor_api, service_name, process_names, wait, verbose=verbose)
+            return _handle_start(
+                supervisor_api, service_name, process_names, wait, verbose=verbose, progress_callback=progress_callback
+            )
         elif action == "restart":
             return _handle_restart(
                 supervisor_api,
                 service_name,
                 process_names,
                 wait,
-                force_kill_timeout,
                 wait_workers,
                 progress_callback=progress_callback,
             )
