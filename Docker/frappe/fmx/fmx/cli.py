@@ -268,11 +268,11 @@ def _handle_stop_results(results: dict, elapsed=None):
 def _handle_restart_results(results: dict, elapsed=None):
     total_services = len(results)
     failed_services = []
-    total_started = 0
+    total_count = 0
 
     for svc, result in results.items():
         if isinstance(result, dict) and not result.get('error'):
-            total_started += len(result.get('started', [])) + len(result.get('already_running', []))
+            total_count += len(result.get('started', [])) + len(result.get('already_running', []))
             if result.get('failed'):
                 failed_services.append(svc)
         else:
@@ -282,7 +282,7 @@ def _handle_restart_results(results: dict, elapsed=None):
 
     if not failed_services:
         display.print(
-            f"\n[green]✔[/green]  Restarted [bold]{total_services}[/bold] service(s) · [bold]{total_started}[/bold] process(es){elapsed_str}"
+            f"\n[green]✔[/green]  Restarted [bold]{total_services}[/bold] service(s) · [bold]{total_count}[/bold] process(es){elapsed_str}"
         )
     else:
         ok = total_services - len(failed_services)

@@ -91,7 +91,7 @@ def command(
 
     process_desc = get_process_description(display, process_name)
     wait_desc = format_wait_desc(wait)
-    display.print(f"\nAttempting to stop {process_desc} in {target_desc} {wait_desc}...")
+    display.print(f"\nStopping {process_desc} in {target_desc} {wait_desc}...")
 
     def _do_stop():
         execute_parallel_command(
@@ -113,5 +113,4 @@ def command(
         skip_stale=skip_stale_workers,
         stale_timeout=skip_stale_timeout,
         action_fn=_do_stop,
-        completion_message="\nStop sequence complete.",
     )

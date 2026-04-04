@@ -1,7 +1,6 @@
 from typing import Optional, Any
 import typer
 from rich.console import Console
-from rich.rule import Rule
 from rich.theme import Theme
 from rich.tree import Tree
 
@@ -67,10 +66,6 @@ class DisplayManager:
     def display_tree(self, tree: Tree, **kwargs):
         """Prints a rich Tree object."""
         self._stdout_console.print(tree, **kwargs)
-
-    def rule(self, title: str = "", **kwargs):
-        """Print a horizontal rule with optional title."""
-        self._stdout_console.print(Rule(title, **kwargs))
 
 
 display = DisplayManager()

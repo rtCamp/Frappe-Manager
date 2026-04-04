@@ -1,8 +1,6 @@
 import os
 import subprocess
-import sys
 import time
-import traceback
 from typing import Annotated, Optional, List
 import typer
 from fmx.display import DisplayManager
@@ -445,7 +443,7 @@ def command(
         return
 
     wait_desc = format_wait_desc(wait)
-    display.dimmed(f"\nAttempting to restart {target_desc} {wait_desc}...")
+    display.print(f"\nRestarting {target_desc} {wait_desc}...")
 
     migrate_command_list: Optional[List[str]] = None
     if migrate_command:
@@ -479,7 +477,6 @@ def command(
         finally:
             if suspension_needed:
                 resume_rq_workers(display)
-            display.print("\nRestart sequence complete.")
     else:
         maintenance_enabled = False
 
@@ -512,7 +509,6 @@ def command(
                 skip_stale=skip_stale_workers,
                 stale_timeout=skip_stale_timeout,
                 action_fn=_do_restart,
-                completion_message="\nRestart sequence complete.",
             )
         finally:
             if maintenance_enabled:

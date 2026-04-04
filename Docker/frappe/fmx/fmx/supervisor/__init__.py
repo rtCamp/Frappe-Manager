@@ -12,9 +12,12 @@ from .api import (
 from .exceptions import (
     SupervisorError,
     SupervisorConnectionError,
+    SupervisorSocketMissingError,
+    SupervisorShuttingDownError,
     ProcessNotFoundError,
     ProcessNotRunningError,
     ProcessAlreadyStartedError,
+    ProcessSpawnError,
     SupervisorOperationFailedError,
 )
 
@@ -34,9 +37,12 @@ __all__ = [
     # Exceptions
     "SupervisorError",
     "SupervisorConnectionError",
+    "SupervisorSocketMissingError",
+    "SupervisorShuttingDownError",
     "ProcessNotFoundError",
     "ProcessNotRunningError",
     "ProcessAlreadyStartedError",
+    "ProcessSpawnError",
     "SupervisorOperationFailedError",
     # Constants
     "FM_SUPERVISOR_SOCKETS_DIR",

@@ -42,7 +42,7 @@ def stop_service(
     wait_workers: bool = False,
     verbose: bool = False,
     progress_callback=None,
-) -> bool:
+) -> Dict[str, List[str]]:
     """
     Stops processes in a service with optional worker handling.
 
@@ -59,19 +59,16 @@ def stop_service(
         f"Stop service called: service={service_name}, processes={process_name_list}, wait={wait}, wait_workers={wait_workers}"
     )
     try:
-        result = (
-            execute_supervisor_command(
-                service_name,
-                "stop",
-                process_names=process_name_list,
-                wait=wait,
-                wait_workers=wait_workers,
-                verbose=verbose,
-                progress_callback=progress_callback,
-            )
-            or False
+        result = execute_supervisor_command(
+            service_name,
+            "stop",
+            process_names=process_name_list,
+            wait=wait,
+            wait_workers=wait_workers,
+            verbose=verbose,
+            progress_callback=progress_callback,
         )
-        logger.info(f"Stop service completed: service={service_name}, success={bool(result)}")
+        logger.info(f"Stop service completed: service={service_name}, result={result}")
         return result
     except SupervisorError as e:
         logger.error(f"Stop service failed: service={service_name}, error={str(e)}")

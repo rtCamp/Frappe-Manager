@@ -109,10 +109,6 @@ def _get_worker_states(connection) -> Tuple[List[Worker], List[Tuple[Worker, str
     return non_suspended, states
 
 
-def noop():
-    pass
-
-
 class ActionEnum(str, Enum):
     suspend = "suspend"
     resume = "resume"
