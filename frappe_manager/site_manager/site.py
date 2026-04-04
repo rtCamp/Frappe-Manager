@@ -825,6 +825,20 @@ class Bench:
         """
         return self.devtools.attach_to_bench(user, extensions, workdir, debugger)
 
+    def setup_neovim_debugger(self, workdir: str) -> None:
+        """
+        Write nvim-dap Lua configuration for Frappe debugging.
+
+        Creates a ``.nvim.lua`` project-local file at the root of the bench
+        workspace so Neovim loads the nvim-dap debug configurations
+        automatically when the workspace directory is opened.
+
+        Args:
+            workdir: Working directory path inside the container
+                     (e.g. ``/workspace/frappe-bench``).
+        """
+        return self.devtools.setup_neovim_debugger(workdir)
+
     def remove_database_and_user(self):
         """
         This function is used to remove db and user of the site at self.name and path at self.path.

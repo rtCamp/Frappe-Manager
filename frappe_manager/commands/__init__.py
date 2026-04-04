@@ -478,6 +478,7 @@ def app_callback(
 # Import extracted read-only commands (Step 3)
 # Import extracted remaining commands (Step 6)
 from frappe_manager.commands.code import code
+from frappe_manager.commands.nvim import nvim
 
 # Import extracted complex commands (Step 5)
 from frappe_manager.commands.create import create
@@ -503,6 +504,7 @@ app.command(name="list")(list_benches)
 app.command(name="start")(start)
 app.command(name="stop")(stop)
 app.command(name="code")(code)
+app.command(name="nvim")(nvim)
 app.command(name="logs")(logs)
 app.command(name="shell", context_settings={"allow_extra_args": True, "ignore_unknown_options": True})(shell)
 app.command(name="info")(info)
