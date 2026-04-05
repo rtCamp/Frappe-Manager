@@ -309,6 +309,13 @@ app = typer.Typer(
     """,
 )
 
+try:
+    from typer_examples import install as _install_examples
+
+    _install_examples(app)
+except ImportError:
+    pass
+
 
 @app.callback()
 def main_callback(

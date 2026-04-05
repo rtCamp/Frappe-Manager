@@ -3,6 +3,18 @@ import subprocess
 import time
 from typing import Annotated, Optional, List
 import typer
+
+try:
+    from typer_examples import example as _example
+except ImportError:
+
+    def _example(*a, **kw):  # type: ignore[misc]
+        def _noop(fn):
+            return fn
+
+        return _noop
+
+
 from fmx.display import DisplayManager
 from fmx.command_utils import validate_services, resolve_service_targets, format_wait_desc
 from fmx.config import set_common_site_config_value
@@ -321,6 +333,79 @@ def _handle_migrate_failure(
     )
 
 
+@_example(
+    "Restart everything — fast, jobs are interrupted",
+    "",
+    detail=(
+        "Workers are killed via SIGUSR1 (RQ's warm-shutdown signal). "
+        "Any job currently executing is interrupted and will be marked failed or retried. "
+        "Use after a code push that does not touch the DB schema and where losing an "
+        "in-flight background job is acceptable."
+    ),
+)
+@_example(
+    "Wait for running jobs to finish before restarting",
+    "--drain-workers",
+    detail=(
+        "Frappe workers stop picking up new jobs (a Redis suspend flag is set), then fmx "
+        "polls until every worker is idle (up to 5 min). Only then are the services restarted. "
+        "Use whenever workers may be executing jobs you cannot afford to lose — e.g. email sends, "
+        "report generation, or file imports."
+    ),
+)
+@_example(
+    "Run DB migration first, then restart",
+    "--migrate",
+    detail=(
+        "Runs 'bench migrate --skip-failing' before restarting. Non-worker services (web, "
+        "socketio) stay up during migration so the site remains accessible. Workers keep "
+        "running — only use this if the migration does not change tables that running jobs "
+        "touch; otherwise use --drain-workers too."
+    ),
+)
+@_example(
+    "Safest deploy: drain jobs, migrate DB, restart",
+    "--drain-workers --migrate",
+    detail=(
+        "The recommended production deploy sequence: "
+        "(1) suspend workers + wait for in-flight jobs to finish, "
+        "(2) run bench migrate — non-workers (web, socketio) stay up throughout, "
+        "(3) restart all services. "
+        "Aborts cleanly if migration fails. "
+        "Zero job loss, zero schema-vs-code mismatch window."
+    ),
+)
+@_example(
+    "Production deploy with a maintenance page",
+    "--drain-workers --migrate --maintenance-mode drain --maintenance-mode migrate",
+    detail=(
+        "Same as the safest deploy above but also sets maintenance_mode=1 in "
+        "common_site_config.json for each phase, so Frappe serves its built-in maintenance "
+        "page to users. The mode is always cleared on completion or failure — even if "
+        "something crashes mid-way."
+    ),
+)
+@_example(
+    "Restart only specific services",
+    "{svc1} {svc2}",
+    svc1="short-worker",
+    svc2="long-worker",
+    detail=(
+        "Pass one or more service names to target a subset. Useful when only worker code "
+        "changed and you want to leave web / socketio untouched. Service names: "
+        "frappe, short-worker, long-worker, schedule, socketio."
+    ),
+)
+@_example(
+    "Increase kill wait for slow workers",
+    "--worker-kill-timeout 30 --worker-kill-poll 2",
+    detail=(
+        "After SIGUSR1 fmx polls every --worker-kill-poll seconds and gives up after "
+        "--worker-kill-timeout seconds, then force-kills via supervisord stopProcess. "
+        "Increase the timeout when workers need extra time to finish their current loop "
+        "before they can honour the shutdown signal. Only applies to the non-drain path."
+    ),
+)
 def command(
     ctx: typer.Context,
     service_names: Annotated[
@@ -410,8 +495,7 @@ def command(
             "--maintenance-mode",
             help=(
                 "Enable maintenance mode for specific phases: "
-                "'drain' (during RQ worker drain) and/or 'migrate' (during bench migrate + service restart). "
-                "Example: --maintenance-mode drain --maintenance-mode migrate"
+                "'drain' (during RQ worker drain) and/or 'migrate' (during bench migrate + service restart)."
             ),
             show_default=False,
         ),
@@ -434,18 +518,8 @@ def command(
     """Restart services or specific processes.
 
     \b
-    Modes:
-      fmx restart                            Force-kill workers via SIGUSR1; running jobs are interrupted.
-      fmx restart --drain-workers            Wait for in-progress jobs to finish, then restart.
-      fmx restart --migrate                  Run bench migrate first; workers keep running (jobs may fail).
-      fmx restart --migrate --drain-workers  Safest: drain → migrate → restart. Non-worker services
-                                             (web, nginx, redis) stay up during migrate; aborts on failure.
-
-    \b
     Maintenance mode (sets maintenance_mode=1 in common_site_config.json):
-      --maintenance-mode drain    During RQ suspension + drain. Requires --drain-workers.
-      --maintenance-mode migrate  During bench migrate + restart. Requires --migrate.
-      Both values can be combined. Maintenance mode is always cleared on completion or failure.
+      Requires --drain-workers for 'drain', --migrate for 'migrate'. Always cleared on completion or failure.
 
     \b
     --worker-kill-timeout / --worker-kill-poll only apply to the force-kill path (no --drain-workers).
