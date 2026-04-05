@@ -1,4 +1,15 @@
-# Frappe Manager Installation Script
+# Frappe Manager Scripts
+
+This directory contains helper scripts for installing and maintaining Frappe Manager.
+
+| Script | Purpose |
+|--------|---------|
+| [`install.sh`](#installation-script-installsh) | Install Frappe Manager and all its dependencies |
+| [`update_cli_docs.py`](#cli-documentation-generator-update_cli_docspy) | Generate Markdown CLI docs from the live Typer app |
+
+---
+
+## Installation Script (`install.sh`)
 
 Tested on:
 - Ubuntu 24.04
@@ -138,4 +149,62 @@ bash <(curl -s .../install.sh) --force
 
 # Force reinstall development version as root with custom username
 bash <(curl -s .../install.sh) --username myuser --dev --force
+```
+
+---
+
+## CLI Documentation Generator (`update_cli_docs.py`)
+
+`update_cli_docs.py` introspects the live Frappe Manager Typer CLI app and generates up-to-date Markdown documentation for every command and command group.
+
+### What it does
+
+- Generates one `.md` file per command/group under `<output_dir>/commands/`
+- Loads usage examples from `frappe_manager/utils/examples.json` and embeds them in each doc
+- If `Home.md` and `_Sidebar.md` exist in the output directory, updates their commands sections in-place
+- With `--update-readme`, also updates the `## 📋 Command Reference` table in the project root `README.md`
+
+### Requirements
+
+`frappe-manager` (or a development install of it) must be importable in the current Python environment, along with `typer` and `rich`.
+
+### Usage
+
+```bash
+# Auto-detect output directory (see resolution order below)
+python scripts/update_cli_docs.py
+
+# Also update the command reference table in the project README.md
+python scripts/update_cli_docs.py --update-readme
+
+# Write docs to an explicit directory
+python scripts/update_cli_docs.py --output-dir /path/to/wiki
+```
+
+### Output directory resolution
+
+The script picks an output directory in this order:
+
+1. `--output-dir <path>` CLI flag
+2. `WIKI_DIR` environment variable
+3. `/tmp/frappe-manager-wiki` — if that path exists (convenient for a local wiki clone)
+4. `docs/cli/` inside the project root — created automatically if nothing else matches
+
+### Typical wiki update workflow
+
+```bash
+# 1. Clone the GitHub wiki locally
+git clone https://github.com/rtCamp/Frappe-Manager.wiki.git /tmp/frappe-manager-wiki
+
+# 2. Run the generator (auto-detects /tmp/frappe-manager-wiki)
+python scripts/update_cli_docs.py
+
+# 3. Optionally also refresh the project README command table
+python scripts/update_cli_docs.py --update-readme
+
+# 4. Review, commit, and push the wiki
+cd /tmp/frappe-manager-wiki
+git add -A
+git commit -m "Update CLI docs"
+git push
 ```
