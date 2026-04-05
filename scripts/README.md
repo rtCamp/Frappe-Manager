@@ -1,98 +1,142 @@
-# Frappe Manager Installation Script 
+# Frappe Manager Installation Script
 
-Tested On:
+Tested on:
 - Ubuntu 24.04
 
-The install script automatically sets up all dependencies needed for Frappe Manager (fm), including:
-- Docker & Docker Compose 
-- Python 3.10 or higher
-- Pip
-- Frappe Manager CLI tool
+The install script sets up all dependencies needed for Frappe Manager (fm), including:
+- Docker Engine & Docker Compose
+- Python 3.10+
+- [uv](https://docs.astral.sh/uv/) (Python package manager)
+- Frappe Manager CLI tool (`fm`)
 
-#### Installation as root user
+---
+
+## Installation as root
+
 When run as root, the script will:
-1. Create a new user (default: 'frappe')
-2. Set up all dependencies
-3. Install Frappe Manager for the new user
-4. Re-run itself as the new user to complete the setup
+1. Create a new user (default: `frappe`), or configure an existing one
+2. Ensure the user is in the `sudo` and `docker` groups
+3. Install all system dependencies
+4. Re-run itself as that user to complete the setup
 
 ```bash
-# As root on Ubuntu:
-bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) [username]
-
-# As root on macOS:
-zsh <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) [username]
-```
-Note: If username is not provided, it defaults to 'frappe'
-
-#### Installation as non-root user
-When run as a normal user, the script will:
-1. Use sudo to install system dependencies
-2. Set up Docker permissions for the current user
-3. Install Frappe Manager for the current user
-
-```bash
-# As non-root user on Ubuntu:
+# Ubuntu
 bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh)
 
-# As non-root user on macOS:
+# macOS
 zsh <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh)
 ```
 
-#### Development Version Installation
-To install the latest development version from the 'develop' branch, add the `--dev` flag:
+Customize username and password:
 
-As root:
 ```bash
-# Ubuntu
-bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) [username] --dev
-
-# macOS
-zsh <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) [username] --dev
+bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) \
+  --username myuser --password mypass
 ```
 
-As non-root user:
+---
+
+## Installation as non-root user
+
+When run as a normal user, the script will:
+1. Use `sudo` to install system dependencies
+2. Add the current user to the `docker` group if needed
+3. Install Frappe Manager for the current user
+
 ```bash
 # Ubuntu
+bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh)
+
+# macOS
+zsh <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh)
+```
+
+---
+
+## Development / branch install
+
+Install from the `develop` branch:
+
+```bash
 bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) --dev
-
-# macOS
-zsh <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) --dev
 ```
 
-#### Notes:
-- For Ubuntu: After installation, you'll need to log out and log back in for Docker group changes to take effect
-- For macOS: You'll need to complete Docker Desktop setup before using fm
-- Creates log file in ~/.cache/fm/logs/install-<timestamp>.log
+Install from any specific branch (implies `--dev`):
 
-#### Command Line Arguments:
-- `[username]`: Optional. Sets custom username when running as root (default: 'frappe')
-- `--dev`: Optional. Installs development version from 'develop' branch
-- `--force`: Optional. Force all installations and updates, ignoring existing versions
-- `--help`: Optional. Show help message and usage information
-- Arguments can be provided in any order
-
-Examples:
 ```bash
-# Show help message
-bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) --help
-
-# Force install stable version
-bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) --force
-
-# Force install development version
-bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) --dev --force
-
-# Install stable version as root with custom username
-bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) myuser
-
-# Force install as root with custom username 
-bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) myuser --force
-
-# Install development version as root with custom username
-bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) myuser --dev
-
-# Force install development version as root with custom username
-bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) myuser --dev --force
+bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) \
+  --branch my-feature-branch
 ```
 
+Re-running with `--dev` or `--branch` always replaces an existing stable install.
+
+---
+
+## Non-interactive mode
+
+Skip all prompts and use defaults (or provided values):
+
+```bash
+bash <(curl -s https://raw.githubusercontent.com/rtCamp/Frappe-Manager/develop/scripts/install.sh) \
+  --username frappe --password mypass --non-interactive
+```
+
+Non-interactive mode is also implied automatically when stdin is not a terminal (e.g. piped execution).
+
+---
+
+## Options
+
+Every flag has an equivalent environment variable. CLI flags take precedence over env vars.
+
+| Flag | Env var | Default | Description |
+|------|---------|---------|-------------|
+| `--username <name>` | `FM_USERNAME` | `frappe` | User to create or configure (root only) |
+| `--password <pass>` | `FM_PASSWORD` | `frappemanager` | Password for the user (root only). Alias: `--pass` |
+| `--dev` | `FM_DEV` | — | Install from the `develop` branch instead of PyPI |
+| `--branch <name>` | `FM_BRANCH` | `develop` | Install from a specific git branch (implies `--dev`). Also controls which branch the install script is downloaded from on pipe execution |
+| `--force` | `FM_FORCE` | — | Force reinstall/update of all components |
+| `--non-interactive` | `FM_NON_INTERACTIVE` | — | Skip all prompts, use provided or default values |
+| `--help` | — | — | Show help message |
+
+---
+
+## Notes
+
+- **Ubuntu**: Log out and back in after installation for Docker group changes to take effect.
+- **macOS**: Complete Docker Desktop setup before using `fm`.
+- Installation log is written to the directory where the script was invoked (e.g. `/root/fm-install-<timestamp>.log` for root, or the current working directory for non-root). The child re-run (as the created user) writes its log to that user's home directory (e.g. `/home/frappe/fm-install-<timestamp>.log`).
+- The script is idempotent — safe to re-run. Steps already up-to-date are skipped.
+
+---
+
+## Examples
+
+```bash
+# Show help
+bash <(curl -s .../install.sh) --help
+
+# Interactive install as root (prompts for username and password)
+bash <(curl -s .../install.sh)
+
+# Non-interactive install as root with defaults
+bash <(curl -s .../install.sh) --non-interactive
+
+# Install as root with custom username and password
+bash <(curl -s .../install.sh) --username myuser --password mypass
+
+# Install stable version (PyPI latest)
+bash <(curl -s .../install.sh)
+
+# Install development version (develop branch)
+bash <(curl -s .../install.sh) --dev
+
+# Install from a specific branch
+bash <(curl -s .../install.sh) --branch my-feature-branch
+
+# Force reinstall everything
+bash <(curl -s .../install.sh) --force
+
+# Force reinstall development version as root with custom username
+bash <(curl -s .../install.sh) --username myuser --dev --force
+```
