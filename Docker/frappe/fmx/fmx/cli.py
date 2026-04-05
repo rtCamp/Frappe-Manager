@@ -3,6 +3,7 @@ from contextlib import nullcontext
 from enum import Enum
 import functools
 import importlib
+from importlib.metadata import version as get_version, PackageNotFoundError
 import logging
 import os
 from pathlib import Path
@@ -292,6 +293,19 @@ def _handle_restart_results(results: dict, elapsed=None):
         )
 
 
+def _get_fmx_version() -> str:
+    try:
+        return get_version("fmx")
+    except PackageNotFoundError:
+        return "unknown"
+
+
+def _version_callback(value: bool):
+    if value:
+        typer.echo(f"fmx version {_get_fmx_version()}")
+        raise typer.Exit()
+
+
 app = typer.Typer(
     invoke_without_command=True,
     no_args_is_help=True,
@@ -322,6 +336,13 @@ def main_callback(
     ctx: typer.Context,
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Enable verbose output"),
     debug: bool = typer.Option(False, "--debug", help="Enable debug mode (shows stack traces)"),
+    version: Optional[bool] = typer.Option(
+        None,
+        "--version",
+        callback=_version_callback,
+        is_eager=True,
+        help="Show version and exit.",
+    ),
 ):
     if ctx.obj is None:
         ctx.obj = {}
