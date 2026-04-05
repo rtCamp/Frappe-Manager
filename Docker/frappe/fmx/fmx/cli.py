@@ -81,7 +81,7 @@ def _make_restart_callback(lock: threading.Lock):
         elif "already" in method:
             icon = "○ "
             method_col = f"[dim]{meth}[/dim]"
-        elif "USR1" in method:
+        elif "killed" in method:
             method_col = f"[yellow]{meth}[/yellow]"
         else:
             method_col = f"[dim]{meth}[/dim]"
