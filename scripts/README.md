@@ -5,8 +5,7 @@ Tested on:
 
 The install script sets up all dependencies needed for Frappe Manager (fm), including:
 - Docker Engine & Docker Compose
-- Python 3.10+
-- [uv](https://docs.astral.sh/uv/) (Python package manager)
+- [uv](https://docs.astral.sh/uv/) (Python package manager — also manages Python 3.13)
 - Frappe Manager CLI tool (`fm`)
 
 ---
