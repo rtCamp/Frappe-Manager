@@ -2,6 +2,18 @@ from typing import Annotated, Optional, List
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 
 import typer
+
+try:
+    from typer_examples import example as _example
+except ImportError:
+
+    def _example(*a, **kw):  # type: ignore[misc]
+        def _noop(fn):
+            return fn
+
+        return _noop
+
+
 from fmx.display import DisplayManager
 from fmx.command_utils import validate_services, resolve_service_targets
 
@@ -15,6 +27,34 @@ command_name = "status"
 ServiceNamesEnum = ServiceNameEnumFactory()
 
 
+@_example(
+    "Show full bench status",
+    "",
+    detail=(
+        "Fetches supervisor process state for all services and the live RQ worker status "
+        "(suspend flag, queue depths, active jobs) in parallel. Use as a quick health check "
+        "before or after any start/stop/restart operation."
+    ),
+)
+@_example(
+    "Check status of a specific service",
+    "{svc}",
+    svc="short-worker",
+    detail=(
+        "Narrows the supervisor output to a single service so you can quickly confirm "
+        "whether its processes are running, stopped, or in an error state — without "
+        "scrolling through every service. RQ worker data is always shown in full."
+    ),
+)
+@_example(
+    "Verbose status with full process detail",
+    "--verbose",
+    detail=(
+        "Adds per-process detail rows under each service (PID, uptime, state) and expands "
+        "the RQ worker table to show each worker's current queue assignments and the job "
+        "it is currently executing. Use when a process is stuck or a queue has unexpected depth."
+    ),
+)
 def command(
     ctx: typer.Context,
     service_names: Annotated[

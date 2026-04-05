@@ -1,5 +1,17 @@
 from typing import Annotated, List, Optional
 import typer
+
+try:
+    from typer_examples import example as _example
+except ImportError:
+
+    def _example(*a, **kw):  # type: ignore[misc]
+        def _noop(fn):
+            return fn
+
+        return _noop
+
+
 from fmx.cli import (
     ServiceNameEnumFactory,
     execute_parallel_command,
@@ -15,6 +27,64 @@ command_name = "stop"
 ServiceNamesEnum = ServiceNameEnumFactory()
 
 
+@_example(
+    "Stop all services immediately",
+    "",
+    detail=(
+        "Stops every supervisor service. Workers are killed via SIGUSR1 — any job currently "
+        "executing is interrupted and may be marked failed or retried. Use when you need a "
+        "fast, clean shutdown and losing an in-flight background job is acceptable."
+    ),
+)
+@_example(
+    "Stop a specific service only",
+    "{svc}",
+    svc="short-worker",
+    detail=(
+        "Target a single service by name instead of stopping everything. Useful for "
+        "replacing a worker binary or pausing a queue without affecting web, socketio, or "
+        "the scheduler. Service names: frappe, short-worker, long-worker, schedule, socketio."
+    ),
+)
+@_example(
+    "Stop a specific process inside a service",
+    "{svc} -p {proc}",
+    svc="long-worker",
+    proc="long-worker_1",
+    detail=(
+        "Use -p when a service runs multiple process instances and only one needs to be "
+        "stopped — e.g. to reduce concurrency without a full service shutdown."
+    ),
+)
+@_example(
+    "Drain workers before stopping",
+    "--drain-workers",
+    detail=(
+        "Sets a Redis suspend flag so workers stop picking up new jobs, then waits up to "
+        "5 minutes for every worker to become idle before stopping the services. Use when "
+        "workers are executing jobs you cannot afford to lose — e.g. email sends, file "
+        "imports, or report generation."
+    ),
+)
+@_example(
+    "Drain with custom timeout and poll interval",
+    "--drain-workers --drain-workers-timeout 600 --drain-workers-poll 10",
+    detail=(
+        "Increase the timeout for benches where long-running jobs are expected to take more "
+        "than the default 5 minutes. Increasing --drain-workers-poll reduces supervisor "
+        "polling noise on busy systems."
+    ),
+)
+@_example(
+    "Tune the force-kill window for slow workers",
+    "--worker-kill-timeout 30 --worker-kill-poll 2",
+    detail=(
+        "After SIGUSR1, fmx polls every --worker-kill-poll seconds and waits up to "
+        "--worker-kill-timeout seconds for the process to exit before escalating to "
+        "supervisord stopProcess. Increase when workers need extra time to finish their "
+        "current loop before honouring the shutdown signal. Only applies to the non-drain path."
+    ),
+)
 def command(
     ctx: typer.Context,
     service_names: Annotated[

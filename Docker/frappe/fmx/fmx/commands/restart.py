@@ -515,15 +515,7 @@ def command(
         ),
     ] = 3.0,
 ):
-    """Restart services or specific processes.
-
-    \b
-    Maintenance mode (sets maintenance_mode=1 in common_site_config.json):
-      Requires --drain-workers for 'drain', --migrate for 'migrate'. Always cleared on completion or failure.
-
-    \b
-    --worker-kill-timeout / --worker-kill-poll only apply to the force-kill path (no --drain-workers).
-    """
+    """Restart services or specific processes."""
     display: DisplayManager = ctx.obj['display']
     debug: bool = ctx.obj.get('debug', False)
 
