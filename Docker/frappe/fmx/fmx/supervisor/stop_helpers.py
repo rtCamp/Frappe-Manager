@@ -17,8 +17,8 @@ def make_supervisor_api_name(group_name: Optional[str], process_name: str) -> st
     return process_name
 
 
-def _wait_for_process_stop(supervisor_api, process_name: str, timeout: int) -> bool:
-    logger.info(f"Waiting up to {timeout}s for graceful stop of {process_name}")
+def _wait_for_process_stop(supervisor_api, process_name: str, timeout: int, poll_interval: float = 3.0) -> bool:
+    logger.info(f"Waiting up to {timeout}s for graceful stop of {process_name} (poll every {poll_interval}s)")
     start_time = time.monotonic()
     while time.monotonic() - start_time < timeout:
         try:
@@ -31,12 +31,18 @@ def _wait_for_process_stop(supervisor_api, process_name: str, timeout: int) -> b
                 logger.info(f"Process {process_name} disappeared, assuming stopped")
                 return True
             raise
-        time.sleep(0.5)
-    logger.warning(f"Timeout reached. Process {process_name} did not stop gracefully")
+        time.sleep(poll_interval)
+    logger.warning(f"Timeout reached ({timeout}s). Process {process_name} did not stop gracefully")
     return False
 
 
-def _kill_process(supervisor_api, service_name: str, process_name: str) -> bool:
+def _kill_process(
+    supervisor_api,
+    service_name: str,
+    process_name: str,
+    timeout: int = 15,
+    poll_interval: float = 3.0,
+) -> bool:
     try:
         info = supervisor_api.getProcessInfo(process_name)
         if info['state'] in STOPPED_STATES:
@@ -46,11 +52,11 @@ def _kill_process(supervisor_api, service_name: str, process_name: str) -> bool:
         supervisor_api.signalProcess(process_name, 'USR1')
         logger.info(f"Sent SIGUSR1 to {process_name}")
 
-        stopped = _wait_for_process_stop(supervisor_api, process_name, timeout=10)
+        stopped = _wait_for_process_stop(supervisor_api, process_name, timeout=timeout, poll_interval=poll_interval)
         if stopped:
             return True
 
-        logger.warning(f"{process_name} still running 10s after SIGUSR1, sending SIGKILL via stopProcess")
+        logger.warning(f"{process_name} still running {timeout}s after SIGUSR1, sending SIGKILL via stopProcess")
         supervisor_api.stopProcess(process_name, True)
         return True
 
@@ -72,6 +78,8 @@ def _stop_single_process_with_logic(
     wait_workers: bool = False,
     process_info: Optional[Dict[str, Any]] = None,
     verbose: bool = False,
+    worker_kill_timeout: int = 15,
+    worker_kill_poll: float = 3.0,
 ) -> bool:
     action = "stop"
 
@@ -88,7 +96,13 @@ def _stop_single_process_with_logic(
         is_worker = is_worker_process(original_process_name)
 
         if is_worker and not wait_workers:
-            return _kill_process(supervisor_api, service_name, name_to_stop)
+            return _kill_process(
+                supervisor_api,
+                service_name,
+                name_to_stop,
+                timeout=worker_kill_timeout,
+                poll_interval=worker_kill_poll,
+            )
 
         supervisor_api.stopProcess(name_to_stop, wait)
 

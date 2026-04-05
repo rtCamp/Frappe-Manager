@@ -42,6 +42,8 @@ def stop_service(
     wait_workers: bool = False,
     verbose: bool = False,
     progress_callback=None,
+    worker_kill_timeout: int = 15,
+    worker_kill_poll: float = 3.0,
 ) -> Dict[str, List[str]]:
     """
     Stops processes in a service with optional worker handling.
@@ -67,6 +69,8 @@ def stop_service(
             wait_workers=wait_workers,
             verbose=verbose,
             progress_callback=progress_callback,
+            worker_kill_timeout=worker_kill_timeout,
+            worker_kill_poll=worker_kill_poll,
         )
         logger.info(f"Stop service completed: service={service_name}, result={result}")
         return result
@@ -123,6 +127,8 @@ def restart_service(
     wait_workers: bool = False,
     verbose: bool = False,
     progress_callback=None,
+    worker_kill_timeout: int = 15,
+    worker_kill_poll: float = 3.0,
 ) -> Dict[str, List[str]]:
     """
     Performs complete service restart using stop-then-start strategy.
@@ -144,6 +150,8 @@ def restart_service(
             wait=wait,
             wait_workers=wait_workers,
             progress_callback=progress_callback,
+            worker_kill_timeout=worker_kill_timeout,
+            worker_kill_poll=worker_kill_poll,
         )
         stopped_count = len(result.get("stopped", [])) if result else 0
         started_count = len(result.get("started", [])) if result else 0

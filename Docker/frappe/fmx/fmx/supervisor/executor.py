@@ -41,6 +41,8 @@ def execute_supervisor_command(
     verbose: bool = False,
     signal_name: Optional[str] = None,
     progress_callback=None,
+    worker_kill_timeout: int = 15,
+    worker_kill_poll: float = 3.0,
 ) -> Any:
     """
     Central dispatcher for all supervisor operations with unified error handling.
@@ -81,6 +83,8 @@ def execute_supervisor_command(
                 wait_workers,
                 verbose=verbose,
                 progress_callback=progress_callback,
+                worker_kill_timeout=worker_kill_timeout,
+                worker_kill_poll=worker_kill_poll,
             )
         elif action == "start":
             return _handle_start(
@@ -94,6 +98,8 @@ def execute_supervisor_command(
                 wait,
                 wait_workers,
                 progress_callback=progress_callback,
+                worker_kill_timeout=worker_kill_timeout,
+                worker_kill_poll=worker_kill_poll,
             )
         elif action == "signal":
             if not signal_name:

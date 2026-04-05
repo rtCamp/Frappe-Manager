@@ -77,6 +77,20 @@ def command(
             help="Seconds after which an idle post-suspension worker is treated as dead and skipped. Used with --skip-stale-workers.",
         ),
     ] = 15,
+    worker_kill_timeout: Annotated[
+        int,
+        typer.Option(
+            "--worker-kill-timeout",
+            help="Timeout in seconds to wait for a worker process to exit after SIGUSR1 before falling back to stopProcess.",
+        ),
+    ] = 15,
+    worker_kill_poll: Annotated[
+        float,
+        typer.Option(
+            "--worker-kill-poll",
+            help="Polling interval in seconds when waiting for a worker to exit after SIGUSR1.",
+        ),
+    ] = 3.0,
 ):
     """Stop services or specific processes."""
     display: DisplayManager = ctx.obj['display']
@@ -102,6 +116,8 @@ def command(
             process_name_list=process_name,
             wait=wait,
             wait_workers=drain_workers,
+            worker_kill_timeout=worker_kill_timeout,
+            worker_kill_poll=worker_kill_poll,
         )
 
     run_with_optional_rq_drain(

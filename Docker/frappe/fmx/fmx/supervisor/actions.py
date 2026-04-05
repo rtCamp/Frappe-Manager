@@ -61,6 +61,8 @@ def _handle_stop(
     called_from_restart: bool = False,
     verbose: bool = False,
     progress_callback=None,
+    worker_kill_timeout: int = 15,
+    worker_kill_poll: float = 3.0,
 ) -> Dict[str, List[str]]:
     """
     Stops processes in a service with intelligent worker handling.
@@ -141,6 +143,8 @@ def _handle_stop(
                 wait_workers=wait_workers,
                 process_info=process_info,
                 verbose=verbose,
+                worker_kill_timeout=worker_kill_timeout,
+                worker_kill_poll=worker_kill_poll,
             )
             _elapsed = time.time() - _t0
 
@@ -355,6 +359,8 @@ def _handle_restart(
     wait: bool,
     wait_workers: bool = False,
     progress_callback=None,
+    worker_kill_timeout: int = 15,
+    worker_kill_poll: float = 3.0,
 ) -> Dict[str, List[str]]:
     """
     Performs a complete service restart using stop-then-start strategy.
@@ -379,6 +385,8 @@ def _handle_restart(
         wait_workers=wait_workers,
         called_from_restart=True,
         progress_callback=progress_callback,
+        worker_kill_timeout=worker_kill_timeout,
+        worker_kill_poll=worker_kill_poll,
     )
 
     if stop_results.get("failed"):

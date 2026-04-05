@@ -172,6 +172,8 @@ def _run_migrate_flow(
     debug: bool = False,
     skip_stale: bool = True,
     stale_timeout: int = 15,
+    worker_kill_timeout: int = 15,
+    worker_kill_poll: float = 3.0,
 ):
     """Execute zero-downtime migration flow with proper phase transitions.
 
@@ -235,6 +237,8 @@ def _run_migrate_flow(
             wait,
             maintenance_on_migrate,
             drain_workers=suspension_needed,
+            worker_kill_timeout=worker_kill_timeout,
+            worker_kill_poll=worker_kill_poll,
         )
         if maintenance_disabled_by_handler:
             maintenance_enabled = False
@@ -250,6 +254,8 @@ def _handle_migrate_success(
     wait: bool,
     maintenance_on_migrate: bool = False,
     drain_workers: bool = False,
+    worker_kill_timeout: int = 15,
+    worker_kill_poll: float = 3.0,
 ) -> bool:
     """Handle migration success - full service restart.
 
@@ -277,6 +283,8 @@ def _handle_migrate_success(
         show_progress=True,
         wait=wait,
         wait_workers=drain_workers,
+        worker_kill_timeout=worker_kill_timeout,
+        worker_kill_poll=worker_kill_poll,
     )
 
     if maintenance_on_migrate:
@@ -350,7 +358,10 @@ def command(
         bool,
         typer.Option(
             "--drain-workers",
-            help="Suspend RQ workers via Redis flag and wait for them to finish their current jobs before restarting.",
+            help="Before restarting, suspend RQ workers via a Redis flag so they stop picking up new jobs, "
+            "then wait for any in-progress job to finish. Workers with no active job are skipped "
+            "(see --skip-stale-workers). Without this flag, workers are force-killed via SIGUSR1 "
+            "and any running job is interrupted.",
             is_flag=True,
         ),
     ] = False,
@@ -358,28 +369,31 @@ def command(
         int,
         typer.Option(
             "--drain-workers-timeout",
-            help="Timeout in seconds to wait for workers to drain.",
+            help="Timeout in seconds to wait for in-progress RQ jobs to finish after workers are suspended. "
+            "If the timeout expires, the restart is aborted. Increase for long-running jobs.",
         ),
     ] = 300,
     drain_workers_poll: Annotated[
         int,
         typer.Option(
             "--drain-workers-poll",
-            help="Polling interval in seconds when waiting for workers to drain.",
+            help="Polling interval in seconds when checking whether all RQ workers have become idle.",
         ),
     ] = 5,
     skip_stale_workers: Annotated[
         bool,
         typer.Option(
             "--skip-stale-workers/--no-skip-stale-workers",
-            help="With --drain-workers, treat workers idle for more than --skip-stale-timeout seconds as dead and skip them.",
+            help="With --drain-workers, treat workers that have been idle for longer than --skip-stale-timeout "
+            "as stale and skip waiting for them. Prevents a hung or crashed worker from blocking the restart.",
         ),
     ] = True,
     skip_stale_timeout: Annotated[
         int,
         typer.Option(
             "--skip-stale-timeout",
-            help="Seconds after which an idle post-suspension worker is treated as dead and skipped. Used with --skip-stale-workers.",
+            help="Seconds of idleness after which a post-suspension worker is considered stale and skipped. "
+            "Only used with --skip-stale-workers.",
         ),
     ] = 15,
     migrate_command: Annotated[
@@ -402,8 +416,40 @@ def command(
             show_default=False,
         ),
     ] = None,
+    worker_kill_timeout: Annotated[
+        int,
+        typer.Option(
+            "--worker-kill-timeout",
+            help="Timeout in seconds to wait for a worker process to exit after SIGUSR1 before falling back to stopProcess.",
+        ),
+    ] = 15,
+    worker_kill_poll: Annotated[
+        float,
+        typer.Option(
+            "--worker-kill-poll",
+            help="Polling interval in seconds when waiting for a worker to exit after SIGUSR1.",
+        ),
+    ] = 3.0,
 ):
-    """Restart services with optional RQ drain, migration, and maintenance mode."""
+    """Restart services or specific processes.
+
+    \b
+    Modes:
+      fmx restart                            Force-kill workers via SIGUSR1; running jobs are interrupted.
+      fmx restart --drain-workers            Wait for in-progress jobs to finish, then restart.
+      fmx restart --migrate                  Run bench migrate first; workers keep running (jobs may fail).
+      fmx restart --migrate --drain-workers  Safest: drain → migrate → restart. Non-worker services
+                                             (web, nginx, redis) stay up during migrate; aborts on failure.
+
+    \b
+    Maintenance mode (sets maintenance_mode=1 in common_site_config.json):
+      --maintenance-mode drain    During RQ suspension + drain. Requires --drain-workers.
+      --maintenance-mode migrate  During bench migrate + restart. Requires --migrate.
+      Both values can be combined. Maintenance mode is always cleared on completion or failure.
+
+    \b
+    --worker-kill-timeout / --worker-kill-poll only apply to the force-kill path (no --drain-workers).
+    """
     display: DisplayManager = ctx.obj['display']
     debug: bool = ctx.obj.get('debug', False)
 
@@ -473,6 +519,8 @@ def command(
                 debug=debug,
                 skip_stale=skip_stale_workers,
                 stale_timeout=skip_stale_timeout,
+                worker_kill_timeout=worker_kill_timeout,
+                worker_kill_poll=worker_kill_poll,
             )
         finally:
             if suspension_needed:
@@ -493,6 +541,8 @@ def command(
                 show_progress=True,
                 wait=wait,
                 wait_workers=drain_workers,
+                worker_kill_timeout=worker_kill_timeout,
+                worker_kill_poll=worker_kill_poll,
             )
 
         try:
