@@ -161,6 +161,7 @@ class DockerClient:
         detach: bool = False,
         entrypoint: str | None = None,
         workdir: str | None = None,
+        platform: str | None = None,
         pull: Literal["missing", "never", "always"] = "missing",
         use_shlex_split: bool = True,
         stream: bool = False,
