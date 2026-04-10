@@ -1,13 +1,13 @@
 #!/bin/bash
 
-export FNM_DIR=/workspace/.fnm
+export FNM_DIR=/workspace/frappe-bench/.fnm
 export FNM_NODE_DIST_MIRROR=https://nodejs.org/dist
-export FNM_MULTISHELL_PATH=/workspace/.fnm
+export FNM_MULTISHELL_PATH=/workspace/frappe-bench/.fnm
 
-if [ -d "/workspace/.uv/python-default/bin" ]; then
-	export PATH="/workspace/.uv/python-default/bin:/workspace/.fnm/aliases/default/bin:/usr/local/bin:/opt/user/.bin:${PATH}"
+if [ -d "/workspace/frappe-bench/.uv/python-default/bin" ]; then
+	export PATH="/workspace/frappe-bench/.uv/python-default/bin:/workspace/frappe-bench/.fnm/aliases/default/bin:/usr/local/bin:/opt/user/.bin:${PATH}"
 else
-	export PATH="/workspace/.fnm/aliases/default/bin:/usr/local/bin:/opt/user/.bin:${PATH}"
+	export PATH="/workspace/frappe-bench/.fnm/aliases/default/bin:/usr/local/bin:/opt/user/.bin:${PATH}"
 fi
 
 source /scripts/helper-function.sh

@@ -214,7 +214,7 @@ class BenchSupervisor:
             "user": user,
             "use_rq": True,
             "http_timeout": config.get("http_timeout", 120),
-            "node": "/workspace/.fnm/aliases/default/bin/node",
+            "node": "/workspace/frappe-bench/.fnm/aliases/default/bin/node",
             "webserver_port": config.get("webserver_port", 80),
             "gunicorn_workers": web_worker_count,
             "gunicorn_max_requests": max_requests,
@@ -317,7 +317,9 @@ class BenchSupervisor:
 
                     if "node-socketio" in section_name:
                         if key == "command":
-                            value = re.sub(r"\S+/node\s+", "/workspace/.fnm/aliases/default/bin/node ", value)
+                            value = re.sub(
+                                r"\S+/node\s+", "/workspace/frappe-bench/.fnm/aliases/default/bin/node ", value
+                            )
 
                     section_config.set(section_name, key, value)
 

@@ -219,8 +219,8 @@ class BenchAppManager:
                 self.output.change_head(f"Setting up Python environment for requirement: {python_version_requirement}")
                 try:
                     scan_pythons_cmd = """
-if [ -d /workspace/.uv/python ]; then
-    for dir in /workspace/.uv/python/cpython-*; do
+if [ -d /workspace/frappe-bench/.uv/python ]; then
+    for dir in /workspace/frappe-bench/.uv/python/cpython-*; do
         if [ -d "$dir" ]; then
             basename "$dir"
         fi
@@ -269,7 +269,7 @@ fi
                         self._container_run(install_cmd, raise_exception_obj=None, use_run=use_run)
 
                         detect_installed_cmd = (
-                            f"ls -1 /workspace/.uv/python/ | grep '^{quoted_pkg}' | sort -V | tail -1"
+                            f"ls -1 /workspace/frappe-bench/.uv/python/ | grep '^{quoted_pkg}' | sort -V | tail -1"
                         )
                         result = self._container_run(
                             detect_installed_cmd,
@@ -286,7 +286,7 @@ fi
 
                     if selected_python_full:
                         update_symlink_cmd = f"""
-                        cd /workspace/.uv
+                        cd /workspace/frappe-bench/.uv
                         rm -f python-default
                         ln -sf python/{selected_python_full} python-default
                         """

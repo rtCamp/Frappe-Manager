@@ -181,23 +181,23 @@ class BenchDockerOps:
         frappe_image = self.compose_file_manager.yml["services"]["frappe"]["image"]
 
         # Copy prebaked UV Python installations
-        uv_dir = workspace_path / ".uv"
+        uv_dir = workspace_path / "frappe-bench" / ".uv"
         if not uv_dir.exists():
             uv_dir_abs = str(uv_dir.absolute())
             host_run_cp(
                 frappe_image,
-                source="/workspace/.uv",
+                source="/workspace/frappe-bench/.uv",
                 destination=uv_dir_abs,
                 docker=self.docker_client,
             )
 
         # Copy prebaked FNM Node installations
-        fnm_dir = workspace_path / ".fnm"
+        fnm_dir = workspace_path / "frappe-bench" / ".fnm"
         if not fnm_dir.exists():
             fnm_dir_abs = str(fnm_dir.absolute())
             host_run_cp(
                 frappe_image,
-                source="/workspace/.fnm",
+                source="/workspace/frappe-bench/.fnm",
                 destination=fnm_dir_abs,
                 docker=self.docker_client,
             )
@@ -290,7 +290,12 @@ class BenchDockerOps:
             shell_path = "/bin/bash" if compose_service not in NON_BASH_SUPPORTED_SERVICES else "sh"
 
         if use_run:
-            run_cmd = self.docker_client.compose.docker_compose_cmd + ["run", "--rm", "--entrypoint", "/exec-entrypoint.sh"]
+            run_cmd = self.docker_client.compose.docker_compose_cmd + [
+                "run",
+                "--rm",
+                "--entrypoint",
+                "/exec-entrypoint.sh",
+            ]
             # Use lightweight exec-entrypoint.sh that only handles UID/GID mismatch
             run_cmd += [compose_service, shell_path]
 
