@@ -27,3 +27,11 @@ Notes:
 
 !!! tip
     Use `fm list` to see all benches and their status.
+
+---
+
+**Where to go next:**
+
+- [Guides](../guides/index.md) — environments, SSL, app management, VSCode, and more
+- [App Management](../guides/app-management.md) — install ERPNext or other apps
+- [Commands](../commands/index.md) — full reference for every `fm` command

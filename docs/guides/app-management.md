@@ -43,3 +43,30 @@ fm shell mybench -c "bench --site mybench.localhost remove-app erpnext"
 
 !!! tip
     `fm info mybench` shows the list of installed apps and their versions.
+
+## Updating an app
+
+Apps are updated through the standard Frappe `bench update` workflow inside the bench container:
+
+```bash
+# Update all apps
+fm shell mybench -c "bench update"
+
+# Update a specific app only
+fm shell mybench -c "bench update --app erpnext"
+```
+
+`bench update` pulls the latest code, runs migrations, and rebuilds assets. This can take a few minutes.
+
+!!! tip
+    For a safer update in production, drain workers before running `bench update` so no jobs are interrupted. See the [fmx guide](fmx.md) for how to do this.
+
+## Opening an interactive shell
+
+For anything not covered by a single command, drop into an interactive shell:
+
+```bash
+fm shell mybench
+```
+
+From here you have full access to the `bench` CLI and all standard Frappe tools (`bench migrate`, `bench build`, `bench console`, etc.).

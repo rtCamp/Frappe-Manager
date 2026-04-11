@@ -176,3 +176,13 @@ Log out and back in to the GitHub Container Registry:
 docker logout ghcr.io
 docker login ghcr.io
 ```
+
+### How do I enable HTTPS for my bench?
+
+SSL requires that your domain points at the server and that ports 80 and 443 are reachable from the internet.
+
+```bash
+fm ssl add mybench example.com
+```
+
+If you cannot open port 80 (for example on a corporate network), use DNS-01 challenge with Cloudflare instead. See the [SSL guide](guides/ssl.md) for step-by-step instructions.

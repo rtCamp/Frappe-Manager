@@ -29,6 +29,8 @@ nav = [
     { "Upload Limits"          = "guides/upload-limits.md" },
     { "Google API Development" = "guides/google-api.md" },
     { "fmx — In-Container Services" = "guides/fmx.md" },
+    { "Python & Node Versions"      = "guides/python-node-versions.md" },
+    { "Backup & Restore"            = "guides/backup-restore.md" },
   ]},
   { "Commands" = [
     "commands/index.md",

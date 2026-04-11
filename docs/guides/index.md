@@ -84,4 +84,20 @@ In-depth walkthroughs for everything Frappe Manager can do.
 
     [:octicons-arrow-right-24: fmx](fmx.md)
 
+-   :lucide-package:{ .lg .middle } &nbsp; **Python & Node Versions**
+
+    ---
+
+    Pin specific Python or Node versions for a bench, or let FM auto-detect them from Frappe's requirements. Covers uv, fnm, and version constraint syntax.
+
+    [:octicons-arrow-right-24: Python & Node Versions](python-node-versions.md)
+
+-   :lucide-archive:{ .lg .middle } &nbsp; **Backup & Restore**
+
+    ---
+
+    Back up your site data from the CLI or Frappe UI, understand where backups live, and restore a bench from a previous backup.
+
+    [:octicons-arrow-right-24: Backup & Restore](backup-restore.md)
+
 </div>

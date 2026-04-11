@@ -50,3 +50,27 @@ fm shell mybench -c "fmx rq suspend"
 # ... do your work ...
 fm shell mybench -c "fmx rq resume"
 ```
+
+## Gunicorn web worker count
+
+The Gunicorn web server runs multiple worker processes to handle concurrent requests. FM sizes this automatically using the formula:
+
+```
+workers = (CPU count × 2) + 1
+```
+
+For example, on a 4-core machine you get 9 Gunicorn workers.
+
+To override this, set `gunicorn_workers` in `common_site_config.json` inside the bench:
+
+```bash
+fm shell mybench -c "bench set-config -g gunicorn_workers 4"
+```
+
+Then restart the bench:
+
+```bash
+fm restart mybench
+```
+
+The `background_workers` setting (defaults to 1) controls how many RQ worker processes handle queued jobs. Custom app queues defined in an app's `hooks.py` are added on top of the standard short/long/default queues.

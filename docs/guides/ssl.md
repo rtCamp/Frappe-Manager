@@ -54,3 +54,14 @@ fm ssl add --standalone example.com
 
 !!! tip
     To automate renewals run `fm ssl renew --all` from a cronjob or system scheduler.
+
+    Example crontab entry to renew every day at 3 am:
+
+    ```
+    0 3 * * * fm ssl renew --all
+    ```
+
+---
+
+!!! info "See also"
+    For a detailed walkthrough of DNS-01 setup and Cloudflare API token scopes, see [Cloudflare DNS Config](../commands/ssl-dns-config-cloudflare.md).

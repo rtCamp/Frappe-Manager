@@ -32,3 +32,9 @@ fm update mybench --developer-mode enable
 
 !!! info
     Switching environment recreates the frappe container and restarts all bench services automatically. You do not need to run `fm restart` afterwards.
+
+---
+
+!!! info "See also"
+    - [VSCode Integration](vscode.md) — set up the debugger for a dev bench
+    - [Admin Tools](admin-tools.md) — Mailpit and Adminer, enabled by default in dev
