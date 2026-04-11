@@ -4,100 +4,76 @@ In-depth walkthroughs for everything Frappe Manager can do.
 
 <div class="grid cards" markdown>
 
--   :lucide-toggle-left:{ .lg .middle } &nbsp; **Environments**
+-   :lucide-toggle-left:{ .lg .middle } &nbsp; **[Environments](environments.md)**
 
     ---
 
     Switch between development and production modes. Understand what changes between the two and when to use each.
 
-    [:octicons-arrow-right-24: Environments](environments.md)
-
--   :lucide-shield-check:{ .lg .middle } &nbsp; **SSL / HTTPS**
+-   :lucide-shield-check:{ .lg .middle } &nbsp; **[SSL / HTTPS](ssl.md)**
 
     ---
 
     Enable HTTPS for any bench with a free Let's Encrypt certificate that renews automatically.
 
-    [:octicons-arrow-right-24: SSL / HTTPS](ssl.md)
-
--   :lucide-puzzle:{ .lg .middle } &nbsp; **App Management**
+-   :lucide-puzzle:{ .lg .middle } &nbsp; **[App Management](app-management.md)**
 
     ---
 
     Install, update, and remove Frappe apps from a running bench. Pin apps to specific versions or branches.
 
-    [:octicons-arrow-right-24: App Management](app-management.md)
-
--   :lucide-wrench:{ .lg .middle } &nbsp; **Admin Tools**
+-   :lucide-wrench:{ .lg .middle } &nbsp; **[Admin Tools](admin-tools.md)**
 
     ---
 
     Access Mailpit for email testing and Adminer for database inspection — available on every bench by default.
 
-    [:octicons-arrow-right-24: Admin Tools](admin-tools.md)
-
--   :lucide-code-2:{ .lg .middle } &nbsp; **VSCode Integration**
+-   :lucide-code-2:{ .lg .middle } &nbsp; **[VSCode Integration](vscode.md)**
 
     ---
 
     Open a bench in VS Code with a pre-configured debugger. Set breakpoints and inspect live requests.
 
-    [:octicons-arrow-right-24: VSCode Integration](vscode.md)
-
--   :lucide-monitor:{ .lg .middle } &nbsp; **Windows / WSL**
+-   :lucide-monitor:{ .lg .middle } &nbsp; **[Windows / WSL](wsl.md)**
 
     ---
 
     Run Frappe Manager on Windows using WSL 2. Notes on filesystem performance and browser access.
 
-    [:octicons-arrow-right-24: Windows / WSL](wsl.md)
-
--   :lucide-database:{ .lg .middle } &nbsp; **External Database**
+-   :lucide-database:{ .lg .middle } &nbsp; **[External Database](external-database.md)**
 
     ---
 
     Connect a bench to an external MariaDB server instead of the built-in one.
 
-    [:octicons-arrow-right-24: External Database](external-database.md)
-
--   :lucide-upload:{ .lg .middle } &nbsp; **Upload Limits**
+-   :lucide-upload:{ .lg .middle } &nbsp; **[Upload Limits](upload-limits.md)**
 
     ---
 
     Raise the maximum file upload size for a bench.
 
-    [:octicons-arrow-right-24: Upload Limits](upload-limits.md)
-
--   :lucide-globe:{ .lg .middle } &nbsp; **Google API Development**
+-   :lucide-globe:{ .lg .middle } &nbsp; **[Google API Development](google-api.md)**
 
     ---
 
     Configure OAuth credentials so your bench can use Google APIs during local development.
 
-    [:octicons-arrow-right-24: Google API Development](google-api.md)
-
--   :lucide-cpu:{ .lg .middle } &nbsp; **fmx — In-Container Services**
+-   :lucide-cpu:{ .lg .middle } &nbsp; **[fmx — In-Container Services](fmx.md)**
 
     ---
 
     Control the supervisor-managed processes inside a bench container — restart workers safely, drain jobs before migrations, and debug stuck services.
 
-    [:octicons-arrow-right-24: fmx](fmx.md)
-
--   :lucide-package:{ .lg .middle } &nbsp; **Python & Node Versions**
+-   :lucide-package:{ .lg .middle } &nbsp; **[Python & Node Versions](python-node-versions.md)**
 
     ---
 
     Pin specific Python or Node versions for a bench, or let FM auto-detect them from Frappe's requirements. Covers uv, fnm, and version constraint syntax.
 
-    [:octicons-arrow-right-24: Python & Node Versions](python-node-versions.md)
-
--   :lucide-archive:{ .lg .middle } &nbsp; **Backup & Restore**
+-   :lucide-archive:{ .lg .middle } &nbsp; **[Backup & Restore](backup-restore.md)**
 
     ---
 
     Back up your site data from the CLI or Frappe UI, understand where backups live, and restore a bench from a previous backup.
-
-    [:octicons-arrow-right-24: Backup & Restore](backup-restore.md)
 
 </div>

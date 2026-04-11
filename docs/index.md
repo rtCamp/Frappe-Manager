@@ -8,53 +8,41 @@ hide:
 
 <div class="grid cards" markdown>
 
--   :lucide-rocket:{ .lg .middle } &nbsp; **Up and running in minutes**
+-   :lucide-rocket:{ .lg .middle } &nbsp; **[Up and running in minutes](getting-started/quick-start.md)**
 
     ---
 
     Create a fully configured Frappe bench — with Docker, database, and web server — using a single command. No manual setup required.
 
-    [:octicons-arrow-right-24: Quick Start](getting-started/quick-start.md)
-
--   :lucide-layers:{ .lg .middle } &nbsp; **Manage multiple benches**
+-   :lucide-layers:{ .lg .middle } &nbsp; **[Manage multiple benches](guides/environments.md)**
 
     ---
 
     Run as many independent benches as you need on one machine. Switch between development and production, or run them side by side.
 
-    [:octicons-arrow-right-24: Environments](guides/environments.md)
-
--   :lucide-shield-check:{ .lg .middle } &nbsp; **SSL made automatic**
+-   :lucide-shield-check:{ .lg .middle } &nbsp; **[SSL made automatic](guides/ssl.md)**
 
     ---
 
     Add HTTPS to any bench with Let's Encrypt. Certificates are provisioned and renewed without any manual work.
 
-    [:octicons-arrow-right-24: SSL / HTTPS](guides/ssl.md)
-
--   :lucide-code-2:{ .lg .middle } &nbsp; **Built for developers**
+-   :lucide-code-2:{ .lg .middle } &nbsp; **[Built for developers](guides/vscode.md)**
 
     ---
 
     Open any bench directly in VS Code with a debugger ready to go. Switch to development mode and see live changes instantly.
 
-    [:octicons-arrow-right-24: VSCode Integration](guides/vscode.md)
-
--   :lucide-puzzle:{ .lg .middle } &nbsp; **Install any Frappe app**
+-   :lucide-puzzle:{ .lg .middle } &nbsp; **[Install any Frappe app](guides/app-management.md)**
 
     ---
 
     Add ERPNext, HRMS, or any custom app at creation time or any time afterwards. Apps are pinned to specific branches or versions.
 
-    [:octicons-arrow-right-24: App Management](guides/app-management.md)
-
--   :lucide-wrench:{ .lg .middle } &nbsp; **Admin tools included**
+-   :lucide-wrench:{ .lg .middle } &nbsp; **[Admin tools included](guides/admin-tools.md)**
 
     ---
 
     Inspect emails in Mailpit, browse the database in Adminer, and monitor background jobs — all built in, no configuration needed.
-
-    [:octicons-arrow-right-24: Admin Tools](guides/admin-tools.md)
 
 </div>
 

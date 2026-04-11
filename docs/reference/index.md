@@ -1,47 +1,74 @@
 # Reference
 
-Technical details about how Frappe Manager works under the hood.
+Technical reference documentation for Frappe Manager internals. These pages serve lookup — not learning. For how-to guides, see [Guides](../guides/index.md).
+
+---
+
+## Core Reference
 
 <div class="grid cards" markdown>
 
--   :lucide-boxes:{ .lg .middle } &nbsp; **Architecture**
+-   :material-sitemap:{ .lg .middle } **[Architecture](architecture.md)**
 
     ---
 
-    How Frappe Manager is structured — the services it runs, how benches are isolated, and what the directory layout looks like.
+    Service topology, container layout, volume/network architecture, Docker Compose structure.
 
-    [:octicons-arrow-right-24: Architecture](architecture.md)
+    **For:** Engineers deploying to production, contributors understanding FM internals
 
--   :lucide-file-sliders:{ .lg .middle } &nbsp; **Configuration Files**
-
-    ---
-
-    Every configuration file Frappe Manager reads and writes, what each setting does, and where the files live.
-
-    [:octicons-arrow-right-24: Configuration Files](configuration.md)
-
--   :lucide-cpu:{ .lg .middle } &nbsp; **Workers & Background Jobs**
+-   :material-cog:{ .lg .middle } **[Configuration Files](configuration.md)**
 
     ---
 
-    How Frappe's background job system works, which worker queues exist, and how to tune them.
+    Every config key in `fm_config.toml` and `bench_config.toml` — defaults, types, env vars, file locations.
 
-    [:octicons-arrow-right-24: Workers & Background Jobs](workers.md)
+    **For:** Operators tuning benches, automation engineers writing scripts
 
--   :lucide-arrow-up-circle:{ .lg .middle } &nbsp; **Migrations**
-
-    ---
-
-    What happens when you run `fm migrate`, and how Frappe Manager upgrades existing benches to new versions.
-
-    [:octicons-arrow-right-24: Migrations](migrations.md)
-
--   :lucide-file-text:{ .lg .middle } &nbsp; **Logs & Debugging**
+-   :material-run-fast:{ .lg .middle } **[Workers & Background Jobs](workers.md)**
 
     ---
 
-    Where logs are stored, how to read them with `fm logs`, and tips for diagnosing common problems.
+    RQ worker architecture, queue types, concurrency tuning, Gunicorn worker configuration.
 
-    [:octicons-arrow-right-24: Logs & Debugging](logs.md)
+    **For:** Operators scaling benches for production load
 
 </div>
+
+---
+
+## Operations Reference
+
+<div class="grid cards" markdown>
+
+-   :material-text-box-search:{ .lg .middle } **[Logs & Debugging](logs.md)**
+
+    ---
+
+    Log file locations, log levels, CLI verbosity flags, service-specific logging, rotation config.
+
+    **For:** Operators debugging production issues, developers troubleshooting failed jobs
+
+-   :material-database-arrow-up:{ .lg .middle } **[Migrations](migrations.md)**
+
+    ---
+
+    What `fm migrate` does, backup strategy, failure handling, version upgrade paths, rollback procedures.
+
+    **For:** Operators upgrading FM after `fm self update`, engineers planning maintenance windows
+
+</div>
+
+---
+
+## Navigation Tips
+
+!!! tip "Deep Linking"
+    All reference pages use named anchors for every configuration key, service name, and log location.
+
+    **Example deep links:**
+
+    - [`configuration.md#restart_policy`](configuration.md#restart_policy) — restart policy options
+    - [`workers.md#short-worker`](workers.md#short-worker) — short worker details
+    - [`architecture.md#global-services`](architecture.md#global-services) — shared MariaDB and nginx-proxy
+
+    **Fast lookup:** Use browser **Ctrl+F** / **Cmd+F** within each page to jump to specific terms.

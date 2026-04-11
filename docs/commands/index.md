@@ -10,7 +10,7 @@ The most common commands to get you started:
 
 <div class="grid cards" markdown>
 
--   :material-plus-circle:{ .lg .middle } **Create a bench**
+-   :material-plus-circle:{ .lg .middle } **[Create a bench](create.md)**
 
     ---
 
@@ -19,9 +19,7 @@ The most common commands to get you started:
     fm create mybench --apps erpnext
     ```
 
-    [:octicons-arrow-right-24: Full details](create.md)
-
--   :material-play-circle:{ .lg .middle } **Start & Stop**
+-   :material-play-circle:{ .lg .middle } **[Start & Stop](start.md)**
 
     ---
 
@@ -29,10 +27,10 @@ The most common commands to get you started:
     fm start mybench
     fm stop mybench
     ```
+    
+    [:octicons-arrow-right-24: Stop](stop.md)
 
-    [:octicons-arrow-right-24: Start](start.md) · [:octicons-arrow-right-24: Stop](stop.md)
-
--   :material-console:{ .lg .middle } **Run commands**
+-   :material-console:{ .lg .middle } **[Run commands](shell.md)**
 
     ---
 
@@ -41,9 +39,7 @@ The most common commands to get you started:
     fm shell mybench -c "bench --version"
     ```
 
-    [:octicons-arrow-right-24: Full details](shell.md)
-
--   :material-certificate:{ .lg .middle } **Add SSL**
+-   :material-certificate:{ .lg .middle } **[Add SSL](ssl.md)**
 
     ---
 
@@ -51,8 +47,6 @@ The most common commands to get you started:
     fm ssl add mybench example.com
     fm ssl add mybench example.com --challenge dns01
     ```
-
-    [:octicons-arrow-right-24: Full details](ssl.md)
 
 </div>
 
