@@ -1,6 +1,7 @@
 from typing import Annotated
 
 import typer
+from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.output_manager import get_global_output_handler, spinner
@@ -8,6 +9,54 @@ from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
 
 
+@example(
+    "Restart web and workers (default)",
+    "{benchname}",
+    detail="Restarts both web and worker services for the bench. Safe for applying configuration changes.",
+    benchname="mybench",
+)
+@example(
+    "Restart via container restart",
+    "{benchname} --container",
+    detail="Restarts by restarting the entire Docker containers (slower but thorough).",
+    benchname="mybench",
+)
+@example(
+    "Restart via supervisor (faster)",
+    "{benchname} --supervisor",
+    detail="Uses supervisor to restart processes inside containers for a faster restart without recreating containers.",
+    benchname="mybench",
+)
+@example(
+    "Restart web services only",
+    "{benchname} --web --no-workers",
+    detail="Restarts only web-related services (frappe, socketio) without touching workers.",
+    benchname="mybench",
+)
+@example(
+    "Restart workers only",
+    "{benchname} --workers --no-web",
+    detail="Restarts worker processes (schedule, long/short workers) while leaving web services running.",
+    benchname="mybench",
+)
+@example(
+    "Force restart (immediate kill)",
+    "{benchname} --force",
+    detail="Performs an immediate kill and restart; use when processes are unresponsive.",
+    benchname="mybench",
+)
+@example(
+    "Restart redis services",
+    "{benchname} --redis",
+    detail="Restarts Redis instances used by the bench (cache and queue backends).",
+    benchname="mybench",
+)
+@example(
+    "Restart nginx service",
+    "{benchname} --nginx",
+    detail="Restarts the nginx service for the bench, useful after configuration changes to proxy or TLS.",
+    benchname="mybench",
+)
 def restart(
     ctx: typer.Context,
     benchname: Annotated[
@@ -56,7 +105,11 @@ def restart(
         ),
     ] = False,
 ):
-    """Restart bench services (web, workers, redis, nginx)"""
+    """
+    Restart bench services (web, workers, redis, nginx).
+
+    Choose between container-level restarts or supervisor-level restarts for faster in-container restarts.
+    """
 
     check_bench_migration_required(benchname)
 

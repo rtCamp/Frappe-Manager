@@ -1,12 +1,23 @@
 from typing import Annotated
 
 import typer
+from typer_examples import example
 
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.services_manager import ServicesEnum
 from frappe_manager.services_manager.services import ServicesManager
 
 
+@example(
+    "Stop global-db",
+    "global-db",
+    detail="Stops the global-db service. Use when maintaining or backing up the global database.",
+)
+@example(
+    "Stop all services",
+    "all",
+    detail="Stops all global services managed by FM.",
+)
 def stop_services(
     ctx: typer.Context,
     service_name: Annotated[ServicesEnum, typer.Argument(help="Name of the service.")],

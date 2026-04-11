@@ -3,6 +3,7 @@
 from typing import Annotated
 
 import typer
+from typer_examples import example
 
 from frappe_manager.logger.context import LoggerContext
 from frappe_manager.output_manager import temporary_stop
@@ -13,6 +14,23 @@ from .external_helpers import _remove_external_certificate
 from .helpers import get_output_handler
 
 
+@example(
+    "Remove SSL certificate from a bench",
+    "{benchname} example.com",
+    detail="Removes the certificate from the bench and its nginx configuration. Use --yes to skip confirmation.",
+    benchname="mybench",
+)
+@example(
+    "Remove without confirmation",
+    "{benchname} example.com --yes",
+    detail="Removes the certificate immediately without prompting for confirmation.",
+    benchname="mybench",
+)
+@example(
+    "Remove external (standalone) certificate",
+    "example.com --standalone",
+    detail="Removes a certificate managed in standalone mode for external Docker projects.",
+)
 def remove_certificate(
     ctx: typer.Context,
     benchname: Annotated[
@@ -33,9 +51,9 @@ def remove_certificate(
     ] = False,
 ):
     """
-    Remove SSL certificate for a domain.
+    Remove an SSL certificate for a domain.
 
-    Supports both bench mode (default) and standalone mode for external domains.
+    Works in bench mode (removes from a bench) or standalone mode for external Docker projects.
     """
 
     if standalone:

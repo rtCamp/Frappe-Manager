@@ -1,6 +1,7 @@
 from typing import Annotated
 
 import typer
+from typer_examples import example
 
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.ngrok import create_tunnel
@@ -11,6 +12,18 @@ from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
 
 
+@example(
+    "Create ngrok tunnel for bench",
+    "{benchname} --auth-token YOUR_TOKEN",
+    detail="Creates a public ngrok tunnel for the bench using a specified auth token.",
+    benchname="mybench",
+)
+@example(
+    "Use saved auth token from config",
+    "{benchname}",
+    detail="Uses an auth token stored in FM configuration to create the tunnel without passing it on the command line.",
+    benchname="mybench",
+)
 def ngrok(
     ctx: typer.Context,
     benchname: Annotated[
@@ -33,7 +46,11 @@ def ngrok(
         ),
     ] = None,
 ):
-    """Create ngrok tunnel for bench"""
+    """
+    Create ngrok tunnel for bench.
+
+    Provisions a public URL for local benches using ngrok; requires an auth token either via flag or config.
+    """
     services_manager = ctx.obj["services"]
     verbose = ctx.obj["verbose"]
 

@@ -1,6 +1,7 @@
 from typing import Annotated
 
 import typer
+from typer_examples import example
 
 from frappe_manager import DEFAULT_EXTENSIONS
 from frappe_manager.commands import check_bench_migration_required
@@ -13,6 +14,36 @@ from frappe_manager.utils.callbacks import (
 )
 
 
+@example(
+    "Open bench in VSCode",
+    "{benchname}",
+    detail="Opens the bench workspace in VSCode and attaches the recommended extensions and settings.",
+    benchname="mybench",
+)
+@example(
+    "Open bench with debugger config",
+    "{benchname} --debugger",
+    detail="Launches VSCode with debugger configuration prepared for the Frappe app.",
+    benchname="mybench",
+)
+@example(
+    "Force start bench before opening",
+    "{benchname} --force-start",
+    detail="Starts the bench containers before opening VSCode if they are not running.",
+    benchname="mybench",
+)
+@example(
+    "Add custom VSCode extension",
+    "{benchname} --extension vscodevim.vim",
+    detail="Installs or enables additional VSCode extensions inside the development container.",
+    benchname="mybench",
+)
+@example(
+    "Open with custom working directory",
+    "{benchname} --work-dir /workspace",
+    detail="Overrides the default working directory used within the VSCode container.",
+    benchname="mybench",
+)
 def code(
     ctx: typer.Context,
     benchname: Annotated[
@@ -41,7 +72,11 @@ def code(
         typer.Option("--work-dir", "-w", help="Working directory in VSCode"),
     ] = "/workspace/frappe-bench",
 ):
-    """Open bench in vscode."""
+    """
+    Open bench in VSCode.
+
+    Attaches VSCode to the bench container with recommended extensions and optional debugger support.
+    """
 
     check_bench_migration_required(benchname)
 

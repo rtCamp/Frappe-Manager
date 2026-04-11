@@ -3,6 +3,7 @@
 from typing import Annotated
 
 import typer
+from typer_examples import example
 
 from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.logger.context import LoggerContext
@@ -18,8 +19,46 @@ from .helpers import get_output_handler
 
 ssl_renew_command = typer.Typer(no_args_is_help=True)
 
+# Ensure examples panel is installed for this sub-typer
+from typer_examples import install
+
+install(ssl_renew_command)
+
 
 @ssl_renew_command.command()
+@example(
+    "Renew all certificates for a bench",
+    "{benchname}",
+    detail="Renews all TLS certificates associated with the specified bench.",
+    benchname="mybench",
+)
+@example(
+    "Renew certificate for specific domain",
+    "{benchname} example.com",
+    detail="Renews a single domain certificate for the given bench.",
+    benchname="mybench",
+)
+@example(
+    "Renew all certificates for all benches",
+    "--all",
+    detail="Renews certificates across all benches managed by FM when run by an administrator.",
+)
+@example(
+    "Test renewal with Let's Encrypt staging (dry-run)",
+    "{benchname} --dry-run",
+    detail="Simulates the renewal using Let's Encrypt staging environment to validate configuration.",
+    benchname="mybench",
+)
+@example(
+    "Renew specific external (standalone) domain",
+    "--standalone example.com",
+    detail="Renews a standalone external domain certificate managed outside benches.",
+)
+@example(
+    "Renew all external (standalone) domains",
+    "--standalone --all",
+    detail="Renews all external standalone certificates managed by FM.",
+)
 def renew(
     ctx: typer.Context,
     benchname: Annotated[
@@ -47,9 +86,7 @@ def renew(
     """
     Renew SSL certificates.
 
-    Supports both bench mode (default) and standalone mode for external domains.
-    Use --dry-run to test with Let's Encrypt staging server.
-    Use --force to renew certificates regardless of expiry date.
+    Supports bench and standalone modes. Use --dry-run to validate against Let's Encrypt staging; --force forces renewal.
     """
 
     if standalone:

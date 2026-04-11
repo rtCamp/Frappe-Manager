@@ -3,6 +3,7 @@
 from typing import Annotated
 
 import typer
+from typer_examples import example
 
 from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.logger.context import LoggerContext
@@ -15,6 +16,22 @@ from .external_helpers import _list_external_certificates
 from .helpers import get_output_handler
 
 
+@example(
+    "List SSL certificates for a bench",
+    "{benchname}",
+    detail="Shows certificates installed for a specific bench.",
+    benchname="mybench",
+)
+@example(
+    "List all external (standalone) certificates",
+    "--standalone",
+    detail="Lists certificates managed in standalone (external project) mode.",
+)
+@example(
+    "List all certificates (bench + external)",
+    "--all",
+    detail="Lists both bench-installed and external certificates together.",
+)
 def list_certificates(
     ctx: typer.Context,
     benchname: Annotated[
@@ -36,7 +53,7 @@ def list_certificates(
     """
     List SSL certificates.
 
-    List certificates for a specific bench, external domains, or all certificates.
+    Use without flags to list certificates for a bench, or pass --standalone or --all to change scope.
     """
 
     if all:

@@ -38,11 +38,13 @@ $ fm services start SERVICE_NAME
 **Examples**:
 
 _Start global-db only_
+Starts only the global-db service used to store bench databases.
 ```bash
 fm services start global-db
 ```
 
 _Start all global services_
+Starts all global services managed by FM (nginx-proxy, global-db, etc.).
 ```bash
 fm services start all
 ```
@@ -66,11 +68,13 @@ $ fm services stop SERVICE_NAME
 **Examples**:
 
 _Stop global-db_
+Stops the global-db service. Use when maintaining or backing up the global database.
 ```bash
 fm services stop global-db
 ```
 
 _Stop all services_
+Stops all global services managed by FM.
 ```bash
 fm services stop all
 ```
@@ -94,11 +98,13 @@ $ fm services restart SERVICE_NAME
 **Examples**:
 
 _Restart global-db only_
+Restarts the global-db service only.
 ```bash
 fm services restart global-db
 ```
 
 _Restart all global services_
+Restarts all managed global services.
 ```bash
 fm services restart all
 ```
@@ -126,11 +132,13 @@ $ fm services shell SERVICE_NAME [OPTIONS]
 **Examples**:
 
 _Shell global-db_
+Opens a shell into the global-db service for maintenance tasks.
 ```bash
 fm services shell global-db
 ```
 
 _Shell global-nginx-proxy_
+Opens a shell into the nginx proxy container used for routing bench domains.
 ```bash
 fm services shell global-nginx-proxy
 ```

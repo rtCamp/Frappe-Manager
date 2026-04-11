@@ -7,7 +7,6 @@ on:
       - develop
     paths:
       - 'frappe_manager/commands/**/*.py'
-      - 'frappe_manager/utils/examples.json'
       - 'scripts/update_cli_docs.py'
   workflow_dispatch:
 

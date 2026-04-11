@@ -1,12 +1,23 @@
 from typing import Annotated
 
 import typer
+from typer_examples import example
 
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.services_manager import ServicesEnum
 from frappe_manager.services_manager.services import ServicesManager
 
 
+@example(
+    "Restart global-db only",
+    "global-db",
+    detail="Restarts the global-db service only.",
+)
+@example(
+    "Restart all global services",
+    "all",
+    detail="Restarts all managed global services.",
+)
 def restart_services(
     ctx: typer.Context,
     service_name: Annotated[ServicesEnum, typer.Argument(help="Name of the service.")],

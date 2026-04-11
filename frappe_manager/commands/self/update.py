@@ -3,16 +3,30 @@ from typing import Annotated
 
 import requests
 import typer
+from typer_examples import example
 
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.utils.helpers import get_current_fm_version, install_package
 
 
+@example(
+    "Update fm to the latest version available on pypi",
+    "",
+    detail="Checks PyPI for the latest frappe-manager release and installs it if available.",
+)
+@example(
+    "Update without confirmation prompt",
+    "--yes",
+    detail="Skips the interactive confirmation and updates immediately if a new version is found.",
+)
 def update(
     ctx: typer.Context,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation prompt and proceed with update")] = False,
 ):
-    """Check for and install frappe-manager updates."""
+    """Check for and install frappe-manager updates.
+
+    Updates the installed fm package using the package installer. Use --yes to skip prompts.
+    """
     output = get_global_output_handler()
     output.change_head("Checking for udpates")
     url = "https://pypi.org/pypi/frappe-manager/json"

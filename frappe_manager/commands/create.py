@@ -2,6 +2,7 @@ import secrets
 from typing import Annotated, cast
 
 import typer
+from typer_examples import example
 
 from frappe_manager import (
     CLI_BENCH_CONFIG_FILE_NAME,
@@ -22,6 +23,48 @@ from frappe_manager.utils.callbacks import (
 from frappe_manager.utils.site import validate_sitename
 
 
+@example(
+    "Create bench with Frappe only",
+    "{benchname}",
+    detail="Creates a new bench with Frappe installed using the default stable branch. Useful for starting a minimal development environment.",
+    benchname="mybench",
+)
+@example(
+    "Create bench with ERPNext and HRMS",
+    "{benchname} --apps erpnext --apps hrms",
+    detail="Creates a new bench and installs ERPNext and HRMS on top of Frappe. Useful when you need these apps together.",
+    benchname="mybench",
+)
+@example(
+    "Create production bench",
+    "{benchname} -e prod",
+    detail="Creates a production-ready bench with production defaults (no developer tools). Use this for deployment environments.",
+    benchname="mybench",
+)
+@example(
+    "Create bench with specific branch",
+    "{benchname} --apps erpnext:version-14",
+    detail="Creates a bench installing ERPNext from a specific branch or tag. Use when you need a particular release.",
+    benchname="mybench",
+)
+@example(
+    "Create bench with a private app",
+    "{benchname} --apps myorg/private-app --github-token ghp_xxx",
+    detail="Installs a private GitHub repository by supplying a token. Keep tokens secret and prefer environment variables.",
+    benchname="mybench",
+)
+@example(
+    "Create bench with custom Python/Node versions",
+    "{benchname} --python 3.11 --node 20",
+    detail="Selects custom Python and Node.js versions for the bench rather than auto-detected defaults.",
+    benchname="mybench",
+)
+@example(
+    "Create bench with alias domains",
+    "{benchname} --alias-domains www.example.com,api.example.com",
+    detail="Adds alias domains to the bench configuration. Use 'fm ssl add' to provision certificates for these domains.",
+    benchname="mybench",
+)
 def create(
     ctx: typer.Context,
     benchname: Annotated[str, typer.Argument(help="Bench name")],
@@ -100,7 +143,9 @@ def create(
     ] = False,
 ):
     """
-    Create a new bench with apps
+    Create a new bench with apps.
+
+    Creates a bench directory, config, and installs requested apps. If not specified, Frappe is included by default.
     """
 
     services_manager: ServicesManager = ctx.obj["services"]

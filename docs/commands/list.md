@@ -15,6 +15,7 @@ $ fm list
 **Examples**:
 
 _List all available benches_
+Shows a table of all benches managed by FM with status and environment information.
 ```bash
 fm list
 ```
