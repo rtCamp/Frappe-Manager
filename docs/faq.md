@@ -1,108 +1,132 @@
 # FAQ
 
-Q: How do I update FM itself?
+## Getting Started
 
-A: Run these two commands. The first updates the CLI; the second updates benches and infrastructure.
+### How do I install Frappe Manager?
+
+See the [Installation guide](getting-started/installation.md). The recommended method:
+
+```bash
+uv tool install --python 3.13 frappe-manager
+```
+
+### How do I update FM itself?
+
+Run these two commands. The first updates the CLI; the second updates your benches and infrastructure to match.
 
 ```bash
 fm self update
 fm migrate --all-benches
 ```
 
-Q: How do I reset a bench to a clean state?
+### Can I run multiple benches on the same machine?
 
-A: `fm reset mybench` drops the bench database and reinstalls apps. This is destructive. Backup first.
-
-Q: How do I change the Administrator password?
-
-A: Option A (reinstall):
+Yes. Each bench is fully isolated. Create as many as you need and list them any time:
 
 ```bash
-fm reset mybench --admin-pass newpass
+fm list
 ```
 
-Option B (without reinstall):
+### What happened to pyenv and nvm?
+
+In v0.19.0 FM switched to `uv` for Python and `fnm` for Node. After upgrading, run:
 
 ```bash
-fm shell mybench -c "bench set-admin-password newpass"
+fm migrate mybench
 ```
 
-Q: My site won't load at mybench.localhost — what should I check?
+---
 
-A: Check these items:
+## Working with Benches
 
-- Docker is running: `docker ps`
-- The bench is listed: `fm list`
-- Ports 80 and 443 are free on the host
-- On Windows 10, add `127.0.0.1 mybench.localhost` to your hosts file if needed
+### How do I install ERPNext?
 
-Q: How do I install ERPNext?
-
-A: During create:
+At create time:
 
 ```bash
 fm create mybench --apps erpnext
 ```
 
-After create (on an existing bench):
+On an existing bench:
 
 ```bash
 fm shell mybench -c "bench get-app erpnext && bench --site mybench.localhost install-app erpnext"
 ```
 
-Q: How do I use a private GitHub repo for an app?
-
-A: Provide the repo and token when creating the bench:
-
-```bash
-fm create mybench --apps org/private-app:main --github-token YOUR_TOKEN
-```
-
-Or set `GITHUB_TOKEN` in your environment before running fm create.
-
-Q: How do I share my bench for testing?
-
-A: Create a temporary public URL with ngrok. An auth token is required — sign up at [ngrok.com](https://ngrok.com) if you don't have one.
-
-```bash
-fm ngrok mybench --auth-token YOUR_TOKEN
-```
-
-Once a token is saved (`--save-token`), future runs don't need it:
-
-```bash
-fm ngrok mybench
-```
-
-Q: How do I check installed apps and versions?
-
-A: Run:
+### How do I check installed apps and versions?
 
 ```bash
 fm info mybench
 ```
 
-Q: Docker images fail to pull from GHCR. What can I try?
+### How do I use a private GitHub repo for an app?
 
-A: Try logging out and logging in again:
+Provide the repo and token at create time:
 
 ```bash
-docker logout ghcr.io
-docker login ghcr.io
+fm create mybench --apps org/private-app:main --github-token YOUR_TOKEN
 ```
 
-Q: How do I run bench commands like migrate or build?
+Or export `GITHUB_TOKEN` in your shell before running `fm create` and FM will pick it up automatically.
 
-A: Use fm shell to run a single command or open an interactive shell:
+### How do I change the Administrator password?
+
+**Option A** — reset and reinstall (destructive):
+
+```bash
+fm reset mybench --admin-pass newpass
+```
+
+**Option B** — change password only, no data loss:
+
+```bash
+fm shell mybench -c "bench set-admin-password newpass"
+```
+
+### How do I reset a bench to a clean state?
+
+`fm reset mybench` drops the bench database and reinstalls all apps from scratch. This is destructive — back up first.
+
+### How do I back up my bench?
+
+From the Frappe web UI: **Setup → Download Backup**.
+
+From the command line:
+
+```bash
+fm shell mybench -c "bench backup --with-files"
+```
+
+### How do I run bench commands like migrate or build?
+
+Use `fm shell` to open an interactive shell or run a single command:
 
 ```bash
 fm shell mybench -c "bench migrate"
-fm shell mybench
+fm shell mybench          # interactive
 ```
 
-Q: How do I restart just the web server or just the workers without touching the whole bench?
+### How do I share my bench for testing?
 
-A: Use `fmx` inside the container. It controls individual supervisor-managed services:
+Create a temporary public URL with ngrok. An auth token is required — sign up at [ngrok.com](https://ngrok.com) if you don't have one.
+
+```bash
+fm ngrok mybench --auth-token YOUR_TOKEN
+```
+
+Once a token is saved, future runs don't need it:
+
+```bash
+fm ngrok mybench
+```
+
+---
+
+## Workers & Restarts
+
+### How do I restart just the web server or just the workers?
+
+Use [`fmx`](guides/fmx.md) inside the container. It controls individual services without touching the rest of the bench:
 
 ```bash
 # Restart only the web server (Gunicorn)
@@ -115,11 +139,9 @@ fm shell mybench -c "fmx restart short-worker long-worker"
 fm shell mybench -c "fmx status"
 ```
 
-See the [fmx guide](guides/fmx.md) for the full reference.
+### How do I safely restart during a deployment without losing jobs?
 
-Q: How do I safely restart during a deployment without losing background jobs?
-
-A: Drain the queues first so workers finish their current jobs before restarting:
+Drain the queues first — workers finish their current jobs before anything restarts:
 
 ```bash
 fm shell mybench -c "fmx restart --drain-workers"
@@ -131,22 +153,26 @@ To also run `bench migrate` as part of the same step:
 fm shell mybench -c "fmx restart --drain-workers --migrate"
 ```
 
-Q: Can I run multiple benches on the same machine?
+See the [fmx guide](guides/fmx.md) for the full reference including maintenance mode.
 
-A: Yes. Each bench is isolated. Create multiple benches and list them with `fm list`.
+---
 
-Q: What happened to pyenv and nvm?
+## Troubleshooting
 
-A: In v0.19.0 FM switched to uv for Python and fnm for Node. After upgrading run:
+### My site won't load at mybench.localhost — what should I check?
+
+Work through these in order:
+
+- Docker is running: `docker ps`
+- The bench is listed and running: `fm list`
+- Ports 80 and 443 are free on the host (nothing else bound to them)
+- On Windows 10, add `127.0.0.1 mybench.localhost` to your `hosts` file if the `.localhost` domain doesn't resolve
+
+### Docker images fail to pull from GHCR. What can I try?
+
+Log out and back in to the GitHub Container Registry:
 
 ```bash
-fm migrate mybench
-```
-
-Q: How do I back up my bench?
-
-A: From the Frappe web UI: Setup → Download Backup. From the command line:
-
-```bash
-fm shell mybench -c "bench backup --with-files"
+docker logout ghcr.io
+docker login ghcr.io
 ```
