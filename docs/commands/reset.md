@@ -19,16 +19,20 @@ $ fm reset BENCHNAME [OPTIONS]
 * `--admin-pass`: Password for the 'Administrator' User.
 
 
-**Examples**:
+## Examples
 
-_Drop database and reinstall all apps_
+### Drop database and reinstall all apps
+
 Drops the site's database and reinstalls all apps; destructive and intended for development or recovery.
+
 ```bash
 fm reset mybench
 ```
 
-_Reset with custom admin password_
+### Reset with custom admin password
+
 Resets the bench and sets the new administrator password after reinstalling apps.
+
 ```bash
 fm reset mybench --admin-pass newpassword
 ```

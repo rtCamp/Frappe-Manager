@@ -12,10 +12,12 @@ $ fm list
 ```
 
 
-**Examples**:
+## Examples
 
-_List all available benches_
+### List all available benches
+
 Shows a table of all benches managed by FM with status and environment information.
+
 ```bash
 fm list
 ```

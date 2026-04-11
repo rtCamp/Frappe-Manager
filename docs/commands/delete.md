@@ -20,22 +20,28 @@ $ fm delete BENCHNAME [OPTIONS]
 * `--delete-db-from-global-db/--no-delete-db-from-global-db`: Delete database from global-db service
 
 
-**Examples**:
+## Examples
 
-_Delete a bench_
+### Delete a bench
+
 Deletes the bench directory and associated containers. This is destructive and will remove local bench data.
+
 ```bash
 fm delete mybench
 ```
 
-_Delete without confirmation_
+### Delete without confirmation
+
 Performs deletion without interactive confirmation. Use with caution in scripts or automation.
+
 ```bash
 fm delete mybench --yes
 ```
 
-_Delete bench and its database from global-db_
+### Delete bench and its database from global-db
+
 Also deletes the bench's database from the global-db service. This permanently removes stored site data.
+
 ```bash
 fm delete mybench --delete-db-from-global-db
 ```

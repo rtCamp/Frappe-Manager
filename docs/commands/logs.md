@@ -20,28 +20,36 @@ $ fm logs BENCHNAME [OPTIONS]
 * `-f, --follow`: Follow logs in real-time
 
 
-**Examples**:
+## Examples
 
-_Show frappe server logs_
+### Show frappe server logs
+
 Displays the frappe service logs for the bench; useful to inspect server output and errors.
+
 ```bash
 fm logs mybench
 ```
 
-_Follow logs in real-time_
+### Follow logs in real-time
+
 Streams logs continuously; press Ctrl+C to stop following.
+
 ```bash
 fm logs mybench -f
 ```
 
-_Show nginx container logs_
+### Show nginx container logs
+
 Shows the nginx container logs for the bench and follows them in real-time when -f is provided.
+
 ```bash
 fm logs mybench --service nginx -f
 ```
 
-_Show redis logs_
+### Show redis logs
+
 Displays logs from redis-cache service; helpful when debugging caching or queuing issues.
+
 ```bash
 fm logs mybench --service redis-cache
 ```

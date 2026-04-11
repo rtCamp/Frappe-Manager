@@ -36,16 +36,20 @@ $ fm self update [OPTIONS]
 * `-y, --yes`: Skip confirmation prompt and proceed with update
 
 
-**Examples**:
+## Examples
 
-_Update fm to the latest version available on pypi_
+### Update fm to the latest version available on pypi
+
 Checks PyPI for the latest frappe-manager release and installs it if available.
+
 ```bash
 fm self update
 ```
 
-_Update without confirmation prompt_
+### Update without confirmation prompt
+
 Skips the interactive confirmation and updates immediately if a new version is found.
+
 ```bash
 fm self update --yes
 ```
@@ -62,16 +66,20 @@ $ fm self update-images
 ```
 
 
-**Examples**:
+## Examples
 
-_Update all Frappe docker images to latest versions_
+### Update all Frappe docker images to latest versions
+
 Pulls the latest Docker images used by FM to keep runtime images up to date.
+
 ```bash
 fm self update-images
 ```
 
-_Update images in verbose mode_
+### Update images in verbose mode
+
 Shows detailed pull progress for each Docker image layer.
+
 ```bash
 fm self update-images --verbose
 ```
@@ -90,40 +98,52 @@ $ fm self compose
 ```
 
 
-**Examples**:
+## Examples
 
-_Show running containers for a bench_
+### Show running containers for a bench
+
 Runs 'docker compose ps' for the bench using all discovered compose files.
+
 ```bash
 fm self compose mybench ps
 ```
 
-_Start containers in detached mode_
+### Start containers in detached mode
+
 Starts containers in detached mode using the bench's compose files.
+
 ```bash
 fm self compose mybench up -d
 ```
 
-_Follow logs for frappe service_
+### Follow logs for frappe service
+
 Runs 'docker compose logs -f frappe' to stream logs for the frappe service.
+
 ```bash
 fm self compose mybench logs -f frappe
 ```
 
-_Execute bash in frappe container_
+### Execute bash in frappe container
+
 Executes an interactive bash shell in the frappe container.
+
 ```bash
 fm self compose mybench exec frappe bash
 ```
 
-_Restart specific service_
+### Restart specific service
+
 Restarts a single service using docker compose for targeted debugging.
+
 ```bash
 fm self compose mybench restart frappe
 ```
 
-_View container resource usage_
+### View container resource usage
+
 Runs 'docker compose stats' to view resource usage for bench containers.
+
 ```bash
 fm self compose mybench stats
 ```

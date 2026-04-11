@@ -23,34 +23,44 @@ $ fm code BENCHNAME [OPTIONS]
 * `-w, --work-dir`: Working directory in VSCode
 
 
-**Examples**:
+## Examples
 
-_Open bench in VSCode_
+### Open bench in VSCode
+
 Opens the bench workspace in VSCode and attaches the recommended extensions and settings.
+
 ```bash
 fm code mybench
 ```
 
-_Open bench with debugger config_
+### Open bench with debugger config
+
 Launches VSCode with debugger configuration prepared for the Frappe app.
+
 ```bash
 fm code mybench --debugger
 ```
 
-_Force start bench before opening_
+### Force start bench before opening
+
 Starts the bench containers before opening VSCode if they are not running.
+
 ```bash
 fm code mybench --force-start
 ```
 
-_Add custom VSCode extension_
+### Add custom VSCode extension
+
 Installs or enables additional VSCode extensions inside the development container.
+
 ```bash
 fm code mybench --extension vscodevim.vim
 ```
 
-_Open with custom working directory_
+### Open with custom working directory
+
 Overrides the default working directory used within the VSCode container.
+
 ```bash
 fm code mybench --work-dir /workspace
 ```

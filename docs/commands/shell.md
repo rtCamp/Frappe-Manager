@@ -26,28 +26,36 @@ $ fm shell BENCHNAME [OPTIONS]
 * `--site`: Site name for bench console (defaults to benchname if not specified)
 
 
-**Examples**:
+## Examples
 
-_Open interactive shell as frappe user_
+### Open interactive shell as frappe user
+
 Opens an interactive shell into the frappe service as the frappe user. Useful for ad-hoc debugging.
+
 ```bash
 fm shell mybench
 ```
 
-_Open shell as root user_
+### Open shell as root user
+
 Starts a shell session in the container as the root user. Use with caution for administrative tasks.
+
 ```bash
 fm shell mybench --user root
 ```
 
-_Execute single command_
+### Execute single command
+
 Runs a single command inside the service and exits with the command's exit code.
+
 ```bash
 fm shell mybench -c "bench --version"
 ```
 
-_Execute commands from heredoc_
+### Execute commands from heredoc
+
 Sends a heredoc to the container and executes the provided commands non-interactively.
+
 ```bash
 fm shell mybench <<'EOF'
 ls -la
@@ -55,38 +63,50 @@ bench --version
 EOF
 ```
 
-_Open shell in nginx container_
+### Open shell in nginx container
+
 Opens a shell session inside the nginx container for debugging webserver configuration.
+
 ```bash
 fm shell mybench --service nginx --user nginx
 ```
 
-_Run command with passthrough syntax_
+### Run command with passthrough syntax
+
 Passes through arguments after '--' directly to the container's shell or compose command.
+
 ```bash
 fm shell mybench -- bench migrate
 ```
 
-_Open interactive bench console with IPython_
+### Open interactive bench console with IPython
+
 Opens an IPython console with Frappe initialized so you can interact with frappe APIs.
+
 ```bash
 fm shell mybench --bench-console
 ```
 
-_Open bench console for specific site_
+### Open bench console for specific site
+
 Opens the bench console for a specific site; useful when the bench hosts multiple sites.
+
 ```bash
 fm shell mybench --bench-console --site mysite.localhost
 ```
 
-_Execute Python code in Frappe context_
+### Execute Python code in Frappe context
+
 Executes a single Python statement inside the Frappe context and prints the result.
+
 ```bash
 fm shell mybench --bench-console -c "import frappe; print(frappe.__version__)"
 ```
 
-_Execute Python script from heredoc in Frappe context_
+### Execute Python script from heredoc in Frappe context
+
 Executes a multi-line Python script inside the Frappe context provided via heredoc.
+
 ```bash
 fm shell mybench --bench-console <<'EOF'
 import frappe
@@ -94,8 +114,10 @@ print(frappe.__version__)
 EOF
 ```
 
-_Execute Python script file in Frappe context_
+### Execute Python script file in Frappe context
+
 Reads a Python script from a file and executes it inside the bench's Frappe context.
+
 ```bash
 fm shell mybench --bench-console < script.py
 ```

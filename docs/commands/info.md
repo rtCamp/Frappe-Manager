@@ -15,16 +15,20 @@ $ fm info BENCHNAME
 * `BENCHNAME`: Name of the bench.
 
 
-**Examples**:
+## Examples
 
-_Show bench details and configuration_
+### Show bench details and configuration
+
 Displays bench status, environment type, apps installed, and other configuration details useful for debugging and documentation.
+
 ```bash
 fm info mybench
 ```
 
-_View info in verbose mode_
+### View info in verbose mode
+
 Shows additional diagnostic information including container states and compose file paths.
+
 ```bash
 fm info mybench --verbose
 ```

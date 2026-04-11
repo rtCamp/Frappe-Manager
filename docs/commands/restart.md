@@ -25,52 +25,68 @@ $ fm restart BENCHNAME [OPTIONS]
 * `--force`: Force restart: --supervisor uses stop+start (kills processes), --container uses timeout=0 (immediate kill).
 
 
-**Examples**:
+## Examples
 
-_Restart web and workers (default)_
+### Restart web and workers (default)
+
 Restarts both web and worker services for the bench. Safe for applying configuration changes.
+
 ```bash
 fm restart mybench
 ```
 
-_Restart via container restart_
+### Restart via container restart
+
 Restarts by restarting the entire Docker containers (slower but thorough).
+
 ```bash
 fm restart mybench --container
 ```
 
-_Restart via supervisor (faster)_
+### Restart via supervisor (faster)
+
 Uses supervisor to restart processes inside containers for a faster restart without recreating containers.
+
 ```bash
 fm restart mybench --supervisor
 ```
 
-_Restart web services only_
+### Restart web services only
+
 Restarts only web-related services (frappe, socketio) without touching workers.
+
 ```bash
 fm restart mybench --web --no-workers
 ```
 
-_Restart workers only_
+### Restart workers only
+
 Restarts worker processes (schedule, long/short workers) while leaving web services running.
+
 ```bash
 fm restart mybench --workers --no-web
 ```
 
-_Force restart (immediate kill)_
+### Force restart (immediate kill)
+
 Performs an immediate kill and restart; use when processes are unresponsive.
+
 ```bash
 fm restart mybench --force
 ```
 
-_Restart redis services_
+### Restart redis services
+
 Restarts Redis instances used by the bench (cache and queue backends).
+
 ```bash
 fm restart mybench --redis
 ```
 
-_Restart nginx service_
+### Restart nginx service
+
 Restarts the nginx service for the bench, useful after configuration changes to proxy or TLS.
+
 ```bash
 fm restart mybench --nginx
 ```

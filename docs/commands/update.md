@@ -30,64 +30,84 @@ $ fm update BENCHNAME [OPTIONS]
 * `--allow-domain-conflicts`: Skip domain uniqueness validation when adding aliases (not recommended).
 
 
-**Examples**:
+## Examples
 
-_Enable admin tools (Mailpit, Adminer)_
+### Enable admin tools (Mailpit, Adminer)
+
 Enables admin tools like Mailpit and Adminer for debugging and database access in development benches.
+
 ```bash
 fm update mybench --admin-tools enable
 ```
 
-_Disable admin tools_
+### Disable admin tools
+
 Disables admin tools for security or production setups.
+
 ```bash
 fm update mybench --admin-tools disable
 ```
 
-_Switch to production environment_
+### Switch to production environment
+
 Switches the bench to production environment settings and recreates necessary containers.
+
 ```bash
 fm update mybench -e prod
 ```
 
-_Switch to development environment_
+### Switch to development environment
+
 Switches the bench to development environment settings and enables developer conveniences.
+
 ```bash
 fm update mybench -e dev
 ```
 
-_Enable developer mode_
+### Enable developer mode
+
 Turns on Frappe developer mode which enables features useful for app development.
+
 ```bash
 fm update mybench --developer-mode enable
 ```
 
-_Add alias domains_
+### Add alias domains
+
 Adds alias domains to the bench; remember to add SSL certificates separately with 'fm ssl add'.
+
 ```bash
 fm update mybench --add-alias www.example.com,api.example.com
 ```
 
-_Remove alias domains_
+### Remove alias domains
+
 Removes alias domains from bench configuration.
+
 ```bash
 fm update mybench --remove-alias shop.example.com
 ```
 
-_Update Python version_
+### Update Python version
+
 Updates the bench Python runtime and recreates virtual environments. May reinstall apps into the new environment.
+
 ```bash
 fm update mybench --python 3.11
 ```
 
-_Update Node version_
+### Update Node version
+
 Updates Node.js runtime used by the bench and rebuilds related assets.
+
 ```bash
 fm update mybench --node 20
 ```
 
-_Set upload size limit_
+### Set upload size limit
+
 Sets the maximum file upload size for the bench (useful for large attachments).
+
 ```bash
 fm update mybench --upload-limit 100M
 ```

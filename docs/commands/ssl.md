@@ -46,40 +46,52 @@ $ fm ssl renew BENCHNAME DOMAIN [OPTIONS]
 * `-f, --force`: Force renewal even if certificate is not due for renewal.
 
 
-**Examples**:
+## Examples
 
-_Renew all certificates for a bench_
+### Renew all certificates for a bench
+
 Renews all TLS certificates associated with the specified bench.
+
 ```bash
 fm ssl renew mybench
 ```
 
-_Renew certificate for specific domain_
+### Renew certificate for specific domain
+
 Renews a single domain certificate for the given bench.
+
 ```bash
 fm ssl renew mybench example.com
 ```
 
-_Renew all certificates for all benches_
+### Renew all certificates for all benches
+
 Renews certificates across all benches managed by FM when run by an administrator.
+
 ```bash
 fm ssl renew --all
 ```
 
-_Test renewal with Let's Encrypt staging (dry-run)_
+### Test renewal with Let's Encrypt staging (dry-run)
+
 Simulates the renewal using Let's Encrypt staging environment to validate configuration.
+
 ```bash
 fm ssl renew mybench --dry-run
 ```
 
-_Renew specific external (standalone) domain_
+### Renew specific external (standalone) domain
+
 Renews a standalone external domain certificate managed outside benches.
+
 ```bash
 fm ssl renew --standalone example.com
 ```
 
-_Renew all external (standalone) domains_
+### Renew all external (standalone) domains
+
 Renews all external standalone certificates managed by FM.
+
 ```bash
 fm ssl renew --standalone --all
 ```
@@ -107,22 +119,28 @@ $ fm ssl list BENCHNAME [OPTIONS]
 * `--all`: List all certificates (bench + external)
 
 
-**Examples**:
+## Examples
 
-_List SSL certificates for a bench_
+### List SSL certificates for a bench
+
 Shows certificates installed for a specific bench.
+
 ```bash
 fm ssl list mybench
 ```
 
-_List all external (standalone) certificates_
+### List all external (standalone) certificates
+
 Lists certificates managed in standalone (external project) mode.
+
 ```bash
 fm ssl list --standalone
 ```
 
-_List all certificates (bench + external)_
+### List all certificates (bench + external)
+
 Lists both bench-installed and external certificates together.
+
 ```bash
 fm ssl list --all
 ```
@@ -156,34 +174,44 @@ $ fm ssl add BENCHNAME DOMAIN [OPTIONS]
 * `--wait-for-dns`: Wait for DNS propagation (polls every 30s for up to 5 minutes).
 
 
-**Examples**:
+## Examples
 
-_Add SSL certificate with HTTP-01 challenge_
+### Add SSL certificate with HTTP-01 challenge
+
 Requests a certificate using an HTTP-01 challenge and installs it into the bench's nginx configuration.
+
 ```bash
 fm ssl add mybench example.com --challenge http01
 ```
 
-_Add SSL certificate with DNS-01 challenge (Cloudflare)_
+### Add SSL certificate with DNS-01 challenge (Cloudflare)
+
 Requests a certificate using DNS-01 validation; configure DNS provider credentials first when required.
+
 ```bash
 fm ssl add mybench example.com --challenge dns01
 ```
 
-_Add for external Docker project (standalone mode)_
+### Add for external Docker project (standalone mode)
+
 Manage SSL for an external Docker project by using standalone mode and FM's nginx-proxy.
+
 ```bash
 fm ssl add example.com --standalone
 ```
 
-_Test with Let's Encrypt staging (dry-run)_
+### Test with Let's Encrypt staging (dry-run)
+
 Performs a dry-run against Let's Encrypt staging environment to validate configuration without issuing production certs.
+
 ```bash
 fm ssl add mybench example.com --dry-run
 ```
 
-_Add with CNAME delegation for DNS validation_
+### Add with CNAME delegation for DNS validation
+
 Uses a CNAME delegation target for DNS-01 validation when the DNS zone is delegated to another provider.
+
 ```bash
 fm ssl add mybench example.com --challenge dns01 --cname delegated.example.com
 ```
@@ -212,22 +240,28 @@ $ fm ssl remove BENCHNAME DOMAIN [OPTIONS]
 * `--standalone`: Remove certificate for external (non-bench) domain
 
 
-**Examples**:
+## Examples
 
-_Remove SSL certificate from a bench_
+### Remove SSL certificate from a bench
+
 Removes the certificate from the bench and its nginx configuration. Use --yes to skip confirmation.
+
 ```bash
 fm ssl remove mybench example.com
 ```
 
-_Remove without confirmation_
+### Remove without confirmation
+
 Removes the certificate immediately without prompting for confirmation.
+
 ```bash
 fm ssl remove mybench example.com --yes
 ```
 
-_Remove external (standalone) certificate_
+### Remove external (standalone) certificate
+
 Removes a certificate managed in standalone mode for external Docker projects.
+
 ```bash
 fm ssl remove example.com --standalone
 ```
@@ -246,40 +280,52 @@ $ fm ssl acme-sh
 ```
 
 
-**Examples**:
+## Examples
 
-_Show acme.sh help and available commands_
+### Show acme.sh help and available commands
+
 Displays acme.sh help. Use for learning available subcommands and flags.
+
 ```bash
 fm ssl acme-sh
 ```
 
-_List all certificates managed by acme.sh_
+### List all certificates managed by acme.sh
+
 Lists certificates that acme.sh currently manages in its home directory.
+
 ```bash
 fm ssl acme-sh --list
 ```
 
-_Show certificate information for a domain_
+### Show certificate information for a domain
+
 Shows detailed information for a managed certificate for the domain.
+
 ```bash
 fm ssl acme-sh --info -d example.com
 ```
 
-_Check acme.sh version_
+### Check acme.sh version
+
 Prints the installed acme.sh version used by FM.
+
 ```bash
 fm ssl acme-sh --version
 ```
 
-_Upgrade acme.sh to latest version_
+### Upgrade acme.sh to latest version
+
 Upgrades the bundled acme.sh installation to the latest release.
+
 ```bash
 fm ssl acme-sh --upgrade
 ```
 
-_Force renew certificate for a domain_
+### Force renew certificate for a domain
+
 Forces a renewal for a certificate using acme.sh; advanced option for recovery and testing.
+
 ```bash
 fm ssl acme-sh --renew -d example.com --force
 ```
@@ -344,46 +390,60 @@ $ fm ssl dns-config cloudflare BENCHNAME [OPTIONS]
 * `-r, --remove`: Remove Cloudflare DNS credentials
 
 
-**Examples**:
+## Examples
 
-_Configure global Cloudflare credentials using API Token (recommended)_
+### Configure global Cloudflare credentials using API Token (recommended)
+
 Stores a global Cloudflare API token for DNS-01 challenges. Recommended for scoped permissions.
+
 ```bash
 fm ssl dns-config cloudflare --api-token YOUR_CLOUDFLARE_API_TOKEN
 ```
 
-_Configure global Cloudflare credentials using API Key (legacy)_
+### Configure global Cloudflare credentials using API Key (legacy)
+
 Stores legacy Global API Key credentials; less secure and requires account email.
+
 ```bash
 fm ssl dns-config cloudflare --api-key YOUR_API_KEY --email admin@example.com
 ```
 
-_Configure bench-specific Cloudflare credentials (overrides global)_
+### Configure bench-specific Cloudflare credentials (overrides global)
+
 Sets Cloudflare credentials for a specific bench, overriding global configuration.
+
 ```bash
 fm ssl dns-config cloudflare --api-token BENCH_SPECIFIC_TOKEN
 ```
 
-_Show global Cloudflare DNS credentials configuration_
+### Show global Cloudflare DNS credentials configuration
+
 Displays stored global Cloudflare credentials (if any).
+
 ```bash
 fm ssl dns-config cloudflare --show
 ```
 
-_Show bench-specific Cloudflare DNS credentials_
+### Show bench-specific Cloudflare DNS credentials
+
 Displays stored Cloudflare credentials for the specified bench.
+
 ```bash
 fm ssl dns-config cloudflare --show
 ```
 
-_Remove global Cloudflare DNS credentials_
+### Remove global Cloudflare DNS credentials
+
 Removes global Cloudflare credential configuration.
+
 ```bash
 fm ssl dns-config cloudflare --remove
 ```
 
-_Remove bench-specific Cloudflare DNS credentials_
+### Remove bench-specific Cloudflare DNS credentials
+
 Removes Cloudflare credential configuration for the specified bench.
+
 ```bash
 fm ssl dns-config cloudflare --remove
 ```
