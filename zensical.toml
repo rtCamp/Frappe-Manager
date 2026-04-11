@@ -5,6 +5,7 @@ site_url         = "https://rtcamp.github.io/frappe-manager/"
 repo_name        = "rtcamp/frappe-manager"
 repo_url         = "https://github.com/rtcamp/frappe-manager"
 edit_uri         = "edit/main/docs/"
+extra_css        = ["stylesheets/extra.css"]
 
 # ---------------------------------------------------------------------------
 # Navigation
@@ -68,11 +69,12 @@ nav = [
 ]
 
 # ---------------------------------------------------------------------------
-# Theme
+# Theme — rtCamp Brand Inspired
 # ---------------------------------------------------------------------------
 [project.theme]
 variant  = "modern"
 language = "en"
+font = { text = "Reddit Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif", code = "JetBrains Mono, Consolas, Monaco, monospace" }
 features = [
   # Navigation
   "navigation.tabs",
@@ -106,19 +108,21 @@ edit     = "lucide/pencil"
 previous = "lucide/chevron-left"
 next     = "lucide/chevron-right"
 
+# Light mode — rtCamp orange + purple accents
 [[project.theme.palette]]
 scheme      = "default"
 primary     = "deep-orange"
-accent      = "orange"
+accent      = "pink"
 
   [project.theme.palette.toggle]
   icon = "lucide/moon"
   name = "Switch to dark mode"
 
+# Dark mode — rtCamp orange + purple accents  
 [[project.theme.palette]]
 scheme      = "slate"
 primary     = "deep-orange"
-accent      = "orange"
+accent      = "pink"
 
   [project.theme.palette.toggle]
   icon = "lucide/sun"
