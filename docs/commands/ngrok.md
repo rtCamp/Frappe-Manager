@@ -1,22 +1,32 @@
-# fm ngrok
+## `fm ngrok`
 
-Create an ngrok tunnel so you can share your local bench with an external URL.
+Create ngrok tunnel for bench
 
-Usage:
+**Usage**:
 
 ```console
 $ fm ngrok BENCHNAME [OPTIONS]
 ```
 
-Options:
+**Arguments**:
 
-| Flag | Description |
-|---|---|
-| `-t, --auth-token` | ngrok authentication token |
-| `--save-token` / `--no-save-token` | Persist the token in config |
+* `BENCHNAME`: Name of the bench.
 
-Example:
+**Options**:
 
+* `-t, --auth-token`: Ngrok authentication token
+* `--save-token/--no-save-token`: Save or don't save the ngrok auth token to config for future use
+
+
+**Examples**:
+
+_Create ngrok tunnel for bench_
 ```bash
-fm ngrok mybench -t YOUR_NGROK_TOKEN --save-token
+fm ngrok mybench --auth-token YOUR_TOKEN
 ```
+
+_Use saved auth token from config_
+```bash
+fm ngrok mybench
+```
+

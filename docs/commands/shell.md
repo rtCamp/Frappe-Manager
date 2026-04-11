@@ -1,32 +1,102 @@
-# fm shell
+## `fm shell`
 
-Open a shell inside a bench container or run a single command. This is the most flexible command for interacting with the bench workspace.
+Spawn shell for the bench or execute a command.
 
-This page explains the main modes:
+Supports multiple input modes:
+- Interactive shell (no input)
+- Command execution (-c flag)
+- Heredoc/piped commands (stdin)
+- Passthrough args (-- syntax)
 
-- Interactive shell: `fm shell mybench` opens a persistent shell in the container.
-- Run a single command: `fm shell mybench -c "bench migrate"` runs the command and exits.
-- Heredoc: pass multi-line scripts via heredoc to run complex sequences.
-- Bench console: `--bench-console` opens the Frappe bench console for Python-level tasks.
+The --bench-console flag provides three modes:
+- Interactive: Opens IPython console with Frappe context (no -c or piped input)
+- Script: Executes piped Python code (stdin)
+- Inline: Executes -c command directly
 
-Usage examples:
+In interactive mode, provides full terminal support.
+Exit code from executed commands is preserved.
 
+**Usage**:
+
+```console
+$ fm shell BENCHNAME [OPTIONS]
+```
+
+**Arguments**:
+
+* `BENCHNAME`: Name of the bench.
+
+**Options**:
+
+* `--command`: Execute command and exit  [default: -c]
+* `--user`: User to connect as
+* `--service`: Service to connect to
+* `--shell-path`: Shell path (e.g., /bin/bash, /bin/sh)
+* `--run`: Use 'docker compose run --rm'
+* `--bench-console`: Open bench console with Frappe context (interactive IPython or execute code via -c/stdin)
+* `--site`: Site name for bench console (defaults to benchname if not specified)
+
+
+**Examples**:
+
+_Open interactive shell as frappe user_
 ```bash
-# Interactive
 fm shell mybench
+```
 
-# Run a single command
-fm shell mybench -c "bench migrate"
+_Open shell as root user_
+```bash
+fm shell mybench --user root
+```
 
-# Use heredoc (bash)
-fm shell mybench -- bash <<'EOF'
-bench --site mybench.localhost backup
-bench --site mybench.localhost restore /tmp/site1.sql
+_Execute single command_
+```bash
+fm shell mybench -c "bench --version"
+```
+
+_Execute commands from heredoc_
+```bash
+fm shell mybench <<'EOF'
+ls -la
+bench --version
 EOF
+```
 
-# Open bench console
+_Open shell in nginx container_
+```bash
+fm shell mybench --service nginx --user nginx
+```
+
+_Run command with passthrough syntax_
+```bash
+fm shell mybench -- bench migrate
+```
+
+_Open interactive bench console with IPython_
+```bash
 fm shell mybench --bench-console
 ```
 
-!!! tip
-    Use `fm shell mybench --user root` when you need elevated permissions inside the container for admin tasks.
+_Open bench console for specific site_
+```bash
+fm shell mybench --bench-console --site mysite.localhost
+```
+
+_Execute Python code in Frappe context_
+```bash
+fm shell mybench --bench-console -c "import frappe; print(frappe.__version__)"
+```
+
+_Execute Python script from heredoc in Frappe context_
+```bash
+fm shell mybench --bench-console <<'EOF'
+import frappe
+print(frappe.__version__)
+EOF
+```
+
+_Execute Python script file in Frappe context_
+```bash
+fm shell mybench --bench-console < script.py
+```
+

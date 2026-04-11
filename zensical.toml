@@ -45,7 +45,10 @@ nav = [
     { "fm reset"    = "commands/reset.md" },
     { "fm migrate"  = "commands/migrate.md" },
     { "fm ngrok"    = "commands/ngrok.md" },
-    { "fm ssl"      = "commands/ssl.md" },
+    { "fm ssl" = [
+      "commands/ssl.md",
+      { "Cloudflare DNS Config" = "commands/ssl-dns-config-cloudflare.md" },
+    ]},
     { "fm services" = "commands/services.md" },
     { "fm self"     = "commands/self.md" },
   ]},

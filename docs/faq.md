@@ -62,7 +62,13 @@ Or set `GITHUB_TOKEN` in your environment before running fm create.
 
 Q: How do I share my bench for testing?
 
-A: Create a temporary public URL with ngrok:
+A: Create a temporary public URL with ngrok. An auth token is required — sign up at [ngrok.com](https://ngrok.com) if you don't have one.
+
+```bash
+fm ngrok mybench --auth-token YOUR_TOKEN
+```
+
+Once a token is saved (`--save-token`), future runs don't need it:
 
 ```bash
 fm ngrok mybench

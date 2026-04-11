@@ -30,5 +30,5 @@ Enable developer mode separately if you want dev features in a prod environment:
 fm update mybench --developer-mode enable
 ```
 
-!!! warning
-    Switching environment recreates the frappe container. Run `fm restart mybench` after changing the environment.
+!!! info
+    Switching environment recreates the frappe container and restarts all bench services automatically. You do not need to run `fm restart` afterwards.

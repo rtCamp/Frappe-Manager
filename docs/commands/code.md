@@ -1,23 +1,50 @@
-# fm code
+## `fm code`
 
-Open a bench in Visual Studio Code. This attaches the editor to the container so you can edit files and run commands in the integrated terminal.
+Open bench in vscode.
 
-Usage:
+**Usage**:
 
 ```console
 $ fm code BENCHNAME [OPTIONS]
 ```
 
-Options:
+**Arguments**:
 
-| Flag | Description |
-|---|---|
-| `-e, --extension` | Add VSCode extension by identifier |
-| `-f, --force-start` | Force the bench to start before attaching |
-| `-d, --debugger` | Start with debugger support enabled |
+* `BENCHNAME`: Name of the bench.
 
-Example:
+**Options**:
 
+* `--user`: User to connect as
+* `-e, --extension`: VSCode extensions to install (e.g., ms-python.python)
+* `-f, --force-start`: Start bench before opening VSCode
+* `-d, --debugger`: Setup debugger config
+* `-w, --work-dir`: Working directory in VSCode
+
+
+**Examples**:
+
+_Open bench in VSCode_
 ```bash
-fm code mybench -e ms-python.python --debugger
+fm code mybench
 ```
+
+_Open bench with debugger config_
+```bash
+fm code mybench --debugger
+```
+
+_Force start bench before opening_
+```bash
+fm code mybench --force-start
+```
+
+_Add custom VSCode extension_
+```bash
+fm code mybench --extension vscodevim.vim
+```
+
+_Open with custom working directory_
+```bash
+fm code mybench --work-dir /workspace
+```
+

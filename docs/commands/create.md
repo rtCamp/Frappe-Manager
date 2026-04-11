@@ -1,63 +1,66 @@
-# fm create
+## `fm create`
 
-Create a new bench. This command sets up a workspace, downloads requested apps, and starts the services for a fresh Frappe site.
+Create a new bench with apps
 
-Usage:
+**Usage**:
 
 ```console
 $ fm create BENCHNAME [OPTIONS]
 ```
 
-Options:
+**Arguments**:
 
-| Flag | Description | Default |
-|---|---|---|
-| `-a, --apps` | Install apps, format `appname:branch` or `appname` | — |
-| `-e, --environment` | `dev` or `prod` | `dev` |
-| `--developer-mode` | Enable developer mode | off |
-| `--template` | Use a custom bench template | — |
-| `--admin-pass` | Set initial Administrator password | `admin` |
-| `--alias-domains` | Comma separated alias domains | — |
-| `-t, --github-token` | Token for private GitHub apps | — |
-| `--python` | Python version to use | system default |
-| `--node` | Node version to use | system default |
-| `--restart` | Restart after create | true |
-| `--allow-domain-conflicts` | Allow overlapping domains | false |
+* `BENCHNAME`: Bench name  [required]
 
-Common examples:
+**Options**:
 
-_Create a simple development bench named `mybench`_
+* `-a, --apps`: Apps to install. Format: appname:branch or appname (e.g., erpnext:version-15)
+* `-e, --environment`: Environment type (dev or prod)
+* `--developer-mode`: Enable/disable developer mode
+* `--template`: Create as template bench
+* `--admin-pass`: Administrator password
+* `--alias-domains`: Alias domains (comma-separated). Use 'fm ssl add' for SSL.
+* `-t, --github-token`: GitHub token for private repos (or use GITHUB_TOKEN env var)
+* `--python`: Python version (e.g., '3.11'). Auto-detected by default.
+* `--node`: Node version (e.g., '18', '20'). Auto-detected by default.
+* `--restart`: Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).
+* `--allow-domain-conflicts`: Skip domain uniqueness validation (not recommended). Allows creating benches with duplicate domains.
+
+
+**Examples**:
+
+_Create bench with frappe only_
 ```bash
 fm create mybench
 ```
 
-_Create and install ERPNext and HRMS_
+_Create bench with erpnext and hrms_
 ```bash
 fm create mybench --apps erpnext --apps hrms
 ```
 
-_Create a production bench_
+_Create production bench_
 ```bash
-fm create mybench --environment prod --restart
+fm create mybench -e prod
 ```
 
-_Create with specific app branches_
+_Create bench with specific branch_
 ```bash
-fm create mybench --apps frappe:version-16 --apps erpnext:version-16
+fm create mybench --apps erpnext:version-14
 ```
 
-_Private app using GitHub token_
+_Create bench with private app_
 ```bash
-fm create mybench --apps private-repo:main --github-token $GITHUB_TOKEN
+fm create mybench --apps myorg/private-app --github-token ghp_xxx
 ```
 
-_Set a custom Python and Node version_
+_Create bench with custom Python/Node versions_
 ```bash
-fm create mybench --python 3.13 --node 20
+fm create mybench --python 3.11 --node 20
 ```
 
-!!! note
-`fm create` starts the bench automatically. Use `fm start` only if you stopped the bench later.
+_Create bench with alias domains_
+```bash
+fm create mybench --alias-domains www.example.com,api.example.com
+```
 
-!!! tip
-    After create finishes, run `fm info mybench` to see URLs, installed apps, and admin tool credentials.

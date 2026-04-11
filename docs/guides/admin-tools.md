@@ -27,7 +27,12 @@ Set Mailpit as the default mail server for Frappe:
 fm update mybench --mailpit-as-default-mail-server
 ```
 
-Mailpit SMTP (inside the Docker network): host mybench-mailpit port 1025
+Mailpit SMTP (inside the Docker network): host `fm__mybench__mailpit` port 1025.
+
+Replace `mybench` with your bench name (dots become `__`). For example, bench `my.site` → host `fm__my__site__mailpit`.
+
+!!! note
+    Mailpit keeps up to 5,000 messages. Older messages are automatically deleted when the limit is reached.
 
 !!! warning
     Admin tools are not enabled by default in production.

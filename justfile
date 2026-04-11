@@ -34,8 +34,12 @@ test-file FILE:
 test-debug FILE:
     pytest {{FILE}} -vv --show-app-logs -s
 
-# Serve the documentation site locally (live reload)
-docs port="8001":
+# Generate command reference docs from the live CLI
+docs-gen:
+    uv run python scripts/update_cli_docs.py
+
+# Serve the documentation site locally (live reload), regenerating command docs first
+docs port="8001": docs-gen
     uv run --with zensical zensical serve -f zensical.toml -a 127.0.0.1:{{port}}
 
 # Run fm in interactive mode (for AI agents - enables interactive prompts/selection)

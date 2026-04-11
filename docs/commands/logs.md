@@ -1,29 +1,42 @@
-# fm logs
+## `fm logs`
 
-Tail or view logs for a bench or a specific service.
+Show bench logs (server or container)
 
-Usage:
+**Usage**:
 
 ```console
 $ fm logs BENCHNAME [OPTIONS]
 ```
 
-Options:
+**Arguments**:
 
-| Flag | Description |
-|---|---|
-| `--service` | Choose service: frappe, nginx, socketio, schedule, redis-cache, redis-queue, short-worker, long-worker |
-| `-f, --follow` | Follow the log stream |
+* `BENCHNAME`: Name of the bench.
 
-Examples:
+**Options**:
 
+* `--service`: Service name (frappe, nginx, redis-cache, etc.)
+* `-f, --follow`: Follow logs in real-time
+
+
+**Examples**:
+
+_Show frappe server logs_
 ```bash
-# Follow the main web log
-fm logs mybench --service frappe -f
-
-# Show nginx logs
-fm logs mybench --service nginx
+fm logs mybench
 ```
 
-!!! tip
-    Use `fm logs mybench --service short-worker -f` to follow worker logs in real time.
+_Follow logs in real-time_
+```bash
+fm logs mybench -f
+```
+
+_Show nginx container logs_
+```bash
+fm logs mybench --service nginx -f
+```
+
+_Show redis logs_
+```bash
+fm logs mybench --service redis-cache
+```
+

@@ -1,45 +1,67 @@
-# fm restart
+## `fm restart`
 
-Restart bench services. Use this when you change configuration or deploy code updates.
+Restart bench services (web, workers, redis, nginx)
 
-Usage:
+**Usage**:
 
 ```console
 $ fm restart BENCHNAME [OPTIONS]
 ```
 
-Options:
+**Arguments**:
 
-| Flag | Description |
-|---|---|
-| `--web` | Restart only the web service |
-| `--workers` | Restart worker containers |
-| `--redis` | Restart redis services |
-| `--nginx` | Restart nginx for the bench |
-| `--container` | Restart a specific container |
-| `--supervisor` | Use supervisor for a faster restart |
-| `--force` | Force restart even if tasks are running |
+* `BENCHNAME`: Name of the bench.
 
-!!! note
-    Using `--supervisor` is often quicker because it restarts fewer containers and coordinates processes more efficiently.
+**Options**:
 
-Example:
+* `--web`: Restart web service i.e socketio and frappe server.
+* `--workers`: Restart worker services i.e schedule and all workers.
+* `--redis`: Restart redis services.
+* `--nginx`: Restart nginx service.
+* `--container`: Restart entire Docker container(s). Stops and starts the container.
+* `--supervisor`: Restart supervisor processes inside container. Faster than container restart.
+* `--force`: Force restart: --supervisor uses stop+start (kills processes), --container uses timeout=0 (immediate kill).
 
+
+**Examples**:
+
+_Restart web and workers (default)_
 ```bash
-fm restart mybench --workers
+fm restart mybench
 ```
 
-Examples:
-
+_Restart via container restart_
 ```bash
-fm restart mybench                       # default: supervisor restart (web + workers)
-fm restart mybench --container           # stop + start Docker containers
-fm restart mybench --supervisor          # restart supervisor processes (faster)
-fm restart mybench --redis               # include Redis services
-fm restart mybench --nginx               # also include nginx
-fm restart mybench --web --no-workers    # only restart web (frappe + socketio)
-fm restart mybench --force               # force-kill before restart
+fm restart mybench --container
 ```
 
-!!! tip
-    Use `fm restart mybench --supervisor` for a quick restart that does not recreate containers.
+_Restart via supervisor (faster)_
+```bash
+fm restart mybench --supervisor
+```
+
+_Restart web services only_
+```bash
+fm restart mybench --web --no-workers
+```
+
+_Restart workers only_
+```bash
+fm restart mybench --workers --no-web
+```
+
+_Force restart (immediate kill)_
+```bash
+fm restart mybench --force
+```
+
+_Restart redis services_
+```bash
+fm restart mybench --redis
+```
+
+_Restart nginx service_
+```bash
+fm restart mybench --nginx
+```
+

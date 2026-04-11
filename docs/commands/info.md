@@ -1,15 +1,22 @@
-# fm info
+## `fm info`
 
-Show configuration and runtime details for a bench, such as ports, environment, and enabled admin tools.
+Show bench information and configuration
 
-Usage:
+**Usage**:
 
 ```console
 $ fm info BENCHNAME
 ```
 
-Example:
+**Arguments**:
 
+* `BENCHNAME`: Name of the bench.
+
+
+**Examples**:
+
+_Show bench details and configuration_
 ```bash
 fm info mybench
 ```
+

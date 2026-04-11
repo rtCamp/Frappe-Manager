@@ -1,24 +1,31 @@
-# fm reset
+## `fm reset`
 
-Reset a bench. This is destructive: it drops the bench database and reinstalls apps from scratch.
+Drop database and reinstall all apps
 
-Usage:
+**Usage**:
 
 ```console
 $ fm reset BENCHNAME [OPTIONS]
 ```
 
-Options:
+**Arguments**:
 
-| Flag | Description |
-|---|---|
-| `--admin-pass` | Set admin password after reset |
+* `BENCHNAME`: Name of the bench.
 
-!!! warning
-    `fm reset` deletes data. Take a backup (`bench backup`) before you run this command.
+**Options**:
 
-Example:
+* `--admin-pass`: Password for the 'Administrator' User.
 
+
+**Examples**:
+
+_Drop database and reinstall all apps_
 ```bash
-fm reset mybench --admin-pass newsecret
+fm reset mybench
 ```
+
+_Reset with custom admin password_
+```bash
+fm reset mybench --admin-pass newpassword
+```
+

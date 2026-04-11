@@ -1,27 +1,57 @@
-# fm start
+## `fm start`
 
-Start a bench. This ensures the bench services (web, workers, redis, nginx) are running.
+Start a bench.
 
-Usage:
+Starts all containers for the specified bench. Use --force to recreate containers.
+Various --reconfigure options allow syncing configuration changes without full restart.
+Use --reconfigure-supervisor for process management,
+and --reconfigure-workers to update worker configurations.
+
+**Usage**:
 
 ```console
 $ fm start BENCHNAME [OPTIONS]
 ```
 
-Options:
+**Arguments**:
 
-| Flag | Description |
-|---|---|
-| `-f, --force` | Recreate containers if needed |
-| `--sync-config` | Sync configuration files |
-| `--reconfigure-supervisor` | Rebuild supervisor config |
-| `--reconfigure-workers` | Reconfigure and start workers |
-| `--include-default-workers` | Include default worker set |
+* `BENCHNAME`: Name of the bench.
 
-Example:
+**Options**:
 
+* `-f, --force`: Recreate containers
+* `--reconfigure-supervisor`: Reconfigure supervisor
+* `--reconfigure-common-site-config`: Reconfigure site config
+* `--reconfigure-workers`: Reconfigure workers
+* `--include-default-workers`: Include default workers
+* `--include-custom-workers`: Include custom workers
+* `--sync-dev-packages`: Sync dev packages
+
+
+**Examples**:
+
+_Start bench containers_
 ```bash
 fm start mybench
 ```
 
-If you want to start global services (global-db and nginx-proxy) use `fm services start all`.
+_Force recreate containers_
+```bash
+fm start mybench --force
+```
+
+_Start and reconfigure workers_
+```bash
+fm start mybench --reconfigure-workers
+```
+
+_Start with supervisor reconfiguration_
+```bash
+fm start mybench --reconfigure-supervisor
+```
+
+_Start and sync dev packages_
+```bash
+fm start mybench --sync-dev-packages
+```
+
