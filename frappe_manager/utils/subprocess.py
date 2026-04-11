@@ -28,11 +28,30 @@ def reader(pipe, pipe_name: str, queue: Queue):
     """
     logger = log.get_logger()
     try:
+        buf = b""
         with pipe:
-            for line in iter(pipe.readline, b""):
-                queue_line = line.decode().strip("\n")
-                logger.debug(queue_line)
-                queue.put((pipe_name, str(queue_line).encode()))
+            while True:
+                chunk = pipe.read(4096)
+                if not chunk:
+                    if buf:
+                        line = buf.decode(errors="replace").strip("\r\n")
+                        if line:
+                            logger.debug(line)
+                            queue.put((pipe_name, line.encode()))
+                    break
+                buf += chunk
+                while True:
+                    for sep in (b"\n", b"\r"):
+                        idx = buf.find(sep)
+                        if idx != -1:
+                            line = buf[:idx].decode(errors="replace").strip("\r\n")
+                            buf = buf[idx + 1 :]
+                            if line:
+                                logger.debug(line)
+                                queue.put((pipe_name, line.encode()))
+                            break
+                    else:
+                        break
     finally:
         queue.put(None)
 
