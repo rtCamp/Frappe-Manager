@@ -67,7 +67,7 @@ Example: bench `mybench` → containers `fm__mybench__frappe`, `fm__mybench__ngi
 
 ## Volumes
 
-- **`fm-sockets`** — shared Unix socket volume used for communication between supervisor-managed processes inside the frappe container.
+- **`fm-sockets`** — shared Unix socket volume used by [`fmx`](../guides/fmx.md) to communicate with supervisord processes inside the frappe container. Each service (frappe, short-worker, long-worker, schedule, socketio) exposes a socket at `/fm-sockets/{service}.sock`.
 - **`mailpit-data`** — per-bench volume storing Mailpit's email database (named `fm__{bench}__mailpit-data`).
 - Per-bench workspace bind-mount at `~/frappe/sites/{bench}/workspace/`.
 

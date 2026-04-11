@@ -28,6 +28,7 @@ nav = [
     { "External Database"      = "guides/external-database.md" },
     { "Upload Limits"          = "guides/upload-limits.md" },
     { "Google API Development" = "guides/google-api.md" },
+    { "fmx — In-Container Services" = "guides/fmx.md" },
   ]},
   { "Commands" = [
     "commands/index.md",

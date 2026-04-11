@@ -100,6 +100,37 @@ fm shell mybench -c "bench migrate"
 fm shell mybench
 ```
 
+Q: How do I restart just the web server or just the workers without touching the whole bench?
+
+A: Use `fmx` inside the container. It controls individual supervisor-managed services:
+
+```bash
+# Restart only the web server (Gunicorn)
+fm shell mybench -c "fmx restart frappe"
+
+# Restart only the workers
+fm shell mybench -c "fmx restart short-worker long-worker"
+
+# Check what is currently running
+fm shell mybench -c "fmx status"
+```
+
+See the [fmx guide](guides/fmx.md) for the full reference.
+
+Q: How do I safely restart during a deployment without losing background jobs?
+
+A: Drain the queues first so workers finish their current jobs before restarting:
+
+```bash
+fm shell mybench -c "fmx restart --drain-workers"
+```
+
+To also run `bench migrate` as part of the same step:
+
+```bash
+fm shell mybench -c "fmx restart --drain-workers --migrate"
+```
+
 Q: Can I run multiple benches on the same machine?
 
 A: Yes. Each bench is isolated. Create multiple benches and list them with `fm list`.

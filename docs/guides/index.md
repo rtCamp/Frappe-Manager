@@ -76,4 +76,12 @@ In-depth walkthroughs for everything Frappe Manager can do.
 
     [:octicons-arrow-right-24: Google API Development](google-api.md)
 
+-   :lucide-cpu:{ .lg .middle } &nbsp; **fmx — In-Container Services**
+
+    ---
+
+    Control the supervisor-managed processes inside a bench container — restart workers safely, drain jobs before migrations, and debug stuck services.
+
+    [:octicons-arrow-right-24: fmx](fmx.md)
+
 </div>
