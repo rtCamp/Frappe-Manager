@@ -94,7 +94,7 @@ api_token = "bench-specific-token"
 |---|---|
 | `name` | Bench hostname (e.g., `mybench.localhost`) |
 | `developer_mode` | Whether Frappe developer mode is on (`true`/`false`) |
-| `admin_tools` | Whether admin tools (Adminer, Mailpit, Redis Dashboard) are enabled |
+| `admin_tools` | Whether admin tools (Mailpit, Adminer) are enabled |
 | `environment_type` | `dev` or `prod` |
 | `upload_limit` | Maximum file upload size (e.g., `50M`, `500M`, `1G`) |
 | `restart_policy` | Docker restart policy: `no`, `always`, `on-failure`, `unless-stopped` |

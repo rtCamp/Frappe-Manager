@@ -30,7 +30,7 @@ $ fm update BENCHNAME [OPTIONS]
 
 **Examples**:
 
-_Enable admin tools (Mailpit, Adminer, Redis Dashboard)_
+_Enable admin tools (Mailpit, Adminer)_
 ```bash
 fm update mybench --admin-tools enable
 ```

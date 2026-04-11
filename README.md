@@ -51,8 +51,7 @@
 <td style="border: none; vertical-align: top;">
 <h3>🛠️ Admin Tools</h3>
 • Mailpit for email testing<br>
-• Redis Queue Dashboard<br>
-• Adminer for db management 
+• Adminer for db management
 </td>
 </tr>
 </table>

@@ -190,7 +190,7 @@
   "update": {
     "examples": [
       {
-        "desc": "Enable admin tools (Mailpit, Adminer, Redis Dashboard)",
+        "desc": "Enable admin tools (Mailpit, Adminer)",
         "code": " --admin-tools enable"
       },
       {
