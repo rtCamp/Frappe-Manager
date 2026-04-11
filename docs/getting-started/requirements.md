@@ -1,11 +1,18 @@
 # Requirements
 
-This page lists the things your computer needs for Frappe Manager to work. Each item includes why it is needed.
+This page lists what you need before installing fm.
 
-- Python 3.13+ — Frappe Manager is written in Python and uses Python features only available in recent versions.
-- Docker Desktop (Mac/Windows) or Docker Engine (Linux) — containers run the database, web server, and other services that make your bench work.
-- Non-root user with Docker access — running containers as a regular user is safer and matches how the tools expect file permissions.
-- Ports 80 and 443 free — these are the standard HTTP and HTTPS ports used by the built-in proxy and TLS certificates. If they are busy, Frappe Manager cannot bind them.
+- Python 3.13+ — required only to install the fm tool itself.
+- Docker Desktop (Mac/Windows) or Docker Engine (Linux) — benches run inside Docker containers.
+- A non-root user with permission to use Docker.
+- Ports 80 and 443 must be free on the machine — the global nginx proxy uses them.
 
-!!! tip "Need help checking versions?"
-    Run `python --version` and `docker --version` to confirm the installed versions.
+!!! tip "Quick checks"
+    Run these to confirm your environment:
+
+    ```bash
+    python3 --version
+    docker --version
+    ```
+
+See the WSL guide if you are on Windows: guides/wsl.md

@@ -28,3 +28,18 @@ Example:
 ```bash
 fm restart mybench --workers
 ```
+
+Examples:
+
+```bash
+fm restart mybench                       # default: supervisor restart (web + workers)
+fm restart mybench --container           # stop + start Docker containers
+fm restart mybench --supervisor          # restart supervisor processes (faster)
+fm restart mybench --redis               # include Redis services
+fm restart mybench --nginx               # also include nginx
+fm restart mybench --web --no-workers    # only restart web (frappe + socketio)
+fm restart mybench --force               # force-kill before restart
+```
+
+!!! tip
+    Use `fm restart mybench --supervisor` for a quick restart that does not recreate containers.

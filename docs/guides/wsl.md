@@ -1,18 +1,16 @@
 # Windows / WSL
 
-Frappe Manager works on WSL2. If you use Windows with WSL, the benches run inside the WSL environment and you can access sites from Windows using `*.localhost` names.
+Use WSL2 with Docker Desktop's WSL2 backend for the best experience on Windows.
 
-To add a site to the Windows hosts file (so `mybench.localhost` resolves):
+Tips:
 
-1. Open Notepad as Administrator.
-2. Edit `C:\Windows\System32\drivers\etc\hosts`.
-3. Add the line:
+- Keep the ~/frappe/ directory on the Linux filesystem (for example, /home/youruser/frappe), not on /mnt/c/.
+- Windows 11: *.localhost usually resolves automatically — no hosts file edit needed.
+- Windows 10: you may need to add an entry to the hosts file at C:\Windows\System32\drivers\etc\hosts:
 
-```
+```text
 127.0.0.1 mybench.localhost
 ```
 
-Tested versions: WSL2 on Windows 11 and 10 (recent updates). You need Administrator access to edit the hosts file.
-
-!!! note
-    If you cannot edit the hosts file, ask an administrator or use the built-in Windows network settings.
+!!! tip
+    Install fm from inside WSL exactly as you would on Linux. Run `uv tool install --python 3.13 frappe-manager` or use pipx inside WSL.

@@ -32,8 +32,14 @@ To migrate a site from internal to external:
 
 1. Backup the site: `fm shell mybench -- bench backup`
 2. Stop the bench: `fm stop mybench`
-3. Update the bench config to point to the external DB or edit `site_config.json`.
-4. Start the bench and restore the backup into the external DB.
+3. Edit the site's `site_config.json` (workspace/frappe-bench/sites/<site>/site_config.json) with the external DB settings.
+4. Restart containers so the new config is picked up:
+
+```bash
+fm restart mybench --container
+```
+
+5. Restore your backup into the external DB as needed.
 
 !!! warning
     Always test restores on a non-production bench first. Mistakes can overwrite data.

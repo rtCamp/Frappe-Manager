@@ -55,3 +55,9 @@ _Set a custom Python and Node version_
 ```bash
 fm create mybench --python 3.13 --node 20
 ```
+
+!!! note
+`fm create` starts the bench automatically. Use `fm start` only if you stopped the bench later.
+
+!!! tip
+    After create finishes, run `fm info mybench` to see URLs, installed apps, and admin tool credentials.

@@ -4,7 +4,7 @@ site_description = "Documentation for Frappe Manager — simple local Frappe dev
 site_url         = "https://rtcamp.github.io/frappe-manager/"
 repo_name        = "rtcamp/frappe-manager"
 repo_url         = "https://github.com/rtcamp/frappe-manager"
-edit_uri         = "edit/main/"
+edit_uri         = "edit/main/docs/"
 
 # ---------------------------------------------------------------------------
 # Navigation
@@ -13,21 +13,21 @@ nav = [
   { "Home" = "index.md" },
   { "Getting Started" = [
     "getting-started/index.md",
-    { "Installation"  = "getting-started/installation.md" },
     { "Requirements"  = "getting-started/requirements.md" },
+    { "Installation"  = "getting-started/installation.md" },
     { "Quick Start"   = "getting-started/quick-start.md" },
   ]},
   { "Guides" = [
     "guides/index.md",
-    { "Environments"          = "guides/environments.md" },
-    { "SSL / HTTPS"           = "guides/ssl.md" },
-    { "App Management"        = "guides/app-management.md" },
-    { "Admin Tools"           = "guides/admin-tools.md" },
-    { "VSCode Integration"    = "guides/vscode.md" },
-    { "Windows / WSL"         = "guides/wsl.md" },
-    { "External Database"     = "guides/external-database.md" },
-    { "Upload Limits"         = "guides/upload-limits.md" },
-    { "Google API Development"= "guides/google-api.md" },
+    { "Environments"           = "guides/environments.md" },
+    { "SSL / HTTPS"            = "guides/ssl.md" },
+    { "App Management"         = "guides/app-management.md" },
+    { "Admin Tools"            = "guides/admin-tools.md" },
+    { "VSCode Integration"     = "guides/vscode.md" },
+    { "Windows / WSL"          = "guides/wsl.md" },
+    { "External Database"      = "guides/external-database.md" },
+    { "Upload Limits"          = "guides/upload-limits.md" },
+    { "Google API Development" = "guides/google-api.md" },
   ]},
   { "Commands" = [
     "commands/index.md",
@@ -51,11 +51,11 @@ nav = [
   ]},
   { "Reference" = [
     "reference/index.md",
-    { "Architecture"          = "reference/architecture.md" },
-    { "Configuration Files"   = "reference/configuration.md" },
+    { "Architecture"              = "reference/architecture.md" },
+    { "Configuration Files"       = "reference/configuration.md" },
     { "Workers & Background Jobs" = "reference/workers.md" },
-    { "Migrations"            = "reference/migrations.md" },
-    { "Logs & Debugging"      = "reference/logs.md" },
+    { "Migrations"                = "reference/migrations.md" },
+    { "Logs & Debugging"          = "reference/logs.md" },
   ]},
   { "FAQ"       = "faq.md" },
   { "Changelog" = "changelog.md" },
@@ -65,75 +65,68 @@ nav = [
 # Theme
 # ---------------------------------------------------------------------------
 [project.theme]
+variant  = "modern"
 language = "en"
 features = [
+  # Navigation
   "navigation.tabs",
+  "navigation.tabs.sticky",
   "navigation.sections",
-  "navigation.top",
   "navigation.indexes",
   "navigation.instant",
   "navigation.instant.prefetch",
+  "navigation.instant.progress",
   "navigation.path",
+  "navigation.top",
   "navigation.footer",
   "navigation.tracking",
+  # Search
   "search.highlight",
+  "search.suggest",
+  "search.share",
+  # Content
   "content.code.copy",
   "content.code.annotate",
   "content.tabs.link",
   "content.tooltips",
+  "content.action.edit",
+  # TOC
   "toc.follow",
 ]
 
 [project.theme.icon]
-repo = "fontawesome/brands/github"
+repo     = "fontawesome/brands/github"
+edit     = "lucide/pencil"
+previous = "lucide/chevron-left"
+next     = "lucide/chevron-right"
 
 [[project.theme.palette]]
-scheme  = "default"
-primary = "deep-orange"
-accent  = "orange"
+scheme      = "default"
+primary     = "deep-orange"
+accent      = "orange"
 
   [project.theme.palette.toggle]
   icon = "lucide/moon"
   name = "Switch to dark mode"
 
 [[project.theme.palette]]
-scheme  = "slate"
-primary = "deep-orange"
-accent  = "orange"
+scheme      = "slate"
+primary     = "deep-orange"
+accent      = "orange"
 
   [project.theme.palette.toggle]
   icon = "lucide/sun"
   name = "Switch to light mode"
 
 # ---------------------------------------------------------------------------
-# Extra
+# Social links
 # ---------------------------------------------------------------------------
 [[project.extra.social]]
 icon = "fontawesome/brands/github"
 link = "https://github.com/rtcamp/frappe-manager"
+name = "GitHub"
 
-# ---------------------------------------------------------------------------
-# Markdown extensions
-# (Zensical's defaults already include most of these; we only need to list
-#  extensions that need non-default config or that aren't in the default set.)
-# ---------------------------------------------------------------------------
-[project.markdown_extensions]
-admonition       = {}
-attr_list        = {}
-md_in_html       = {}
-tables           = {}
-
-[project.markdown_extensions."pymdownx.details"]
-
-[project.markdown_extensions."pymdownx.highlight"]
-
-[project.markdown_extensions."pymdownx.inlinehilite"]
-
-[project.markdown_extensions."pymdownx.superfences"]
-
-[project.markdown_extensions."pymdownx.tabbed"]
-alternate_style = true
-
-[project.markdown_extensions."pymdownx.emoji"]
-emoji_index     = "zensical.extensions.emoji.twemoji"
-emoji_generator = "zensical.extensions.emoji.to_svg"
+[[project.extra.social]]
+icon = "fontawesome/brands/python"
+link = "https://pypi.org/project/frappe-manager/"
+name = "PyPI"

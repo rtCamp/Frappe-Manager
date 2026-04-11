@@ -1,19 +1,20 @@
 # Google API Development
 
-Google OAuth does not allow redirect URIs that are wildcards like `*.localhost`. If you need to develop an app that uses Google APIs with a local site like `mybench.localhost`, create a symlink so the redirect matches exactly.
+Google OAuth requires public HTTPS redirect URIs. A local http://mybench.localhost URL will not work for OAuth redirect URIs. Use ngrok to get a temporary public HTTPS URL for development.
 
-Steps:
-
-1. Inside your bench sites directory, create a symlink from `localhost` to your site name:
+Start an ngrok tunnel for your bench:
 
 ```bash
-cd ~/frappe/sites
-ln -sfn mybench.localhost localhost
+fm ngrok mybench
 ```
 
-2. In Google Cloud Console, add `http://mybench.localhost/oauth2callback` (or your callback) as an authorized redirect URI.
+If you have an ngrok auth token and want to save it for future use:
 
-3. Restart the bench and test the OAuth flow.
+```bash
+fm ngrok mybench --auth-token YOUR_TOKEN --save-token
+```
 
-!!! note
-    This is a local development workaround — use proper domains and HTTPS in production.
+Copy the public HTTPS URL that ngrok gives you and add it as an Authorized Redirect URI in the Google Cloud Console.
+
+!!! tip
+    ngrok URLs are ephemeral unless you have a paid ngrok account. Update the redirect URIs in Google Cloud each time the URL changes.

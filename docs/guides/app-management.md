@@ -1,35 +1,40 @@
 # App Management
 
-This guide shows how to install official apps like ERPNext and private apps from GitHub, or create a new app.
+Install apps when you create a bench or later from a bench shell.
 
-Install apps during create:
+Install during create:
 
 ```bash
-fm create mybench --apps frappe:version-16 --apps erpnext:version-16
+fm create mybench --apps erpnext
 ```
 
-Install an app from inside the bench shell:
+Install after creation (example for ERPNext):
 
 ```bash
-fm shell mybench
-# inside the shell
-bench get-app git+https://github.com/frappe/erpnext
-bench --site site1.local install-app erpnext
+fm shell mybench -c "bench get-app erpnext && bench --site mybench.localhost install-app erpnext"
 ```
 
-Install a private GitHub app using a token:
+Install a private app (pass a GitHub URL or org/repo and a token):
 
 ```bash
-fm create mybench --apps private-app:main --github-token YOUR_TOKEN
+fm create mybench --apps org/private-app:main --github-token YOUR_TOKEN
 ```
 
-Create a new app scaffold:
+App string formats you can use:
+
+```
+erpnext                          -> frappe/erpnext, default branch
+erpnext:version-15               -> frappe/erpnext, version-15 branch
+frappe/erpnext:version-15        -> organization repo and branch
+https://github.com/org/repo:main -> full GitHub URL
+git@github.com:org/repo:main     -> SSH URL for private repos
+```
+
+Remove an app from a bench using the bench CLI inside a shell:
 
 ```bash
-fm shell mybench
-# inside
-bench new-app my_custom_app
+fm shell mybench -c "bench --site mybench.localhost remove-app erpnext"
 ```
 
 !!! tip
-    When installing multiple apps, give the CLI a little time to finish downloads — network speed is the usual bottleneck.
+    `fm info mybench` shows the list of installed apps and their versions.

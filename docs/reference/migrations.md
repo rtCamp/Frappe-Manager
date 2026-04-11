@@ -1,13 +1,31 @@
 # Migrations
 
-Migrations change the database schema and site files when you upgrade Frappe or apps.
+When you update the fm CLI itself, run `fm migrate` to bring your benches and configuration up to date.
 
-Automatic migrations
+What migrate does:
 
-When you run `fm` after upgrading the tool, some migrations run automatically to bring your benches to the expected state.
+- Backs up bench config files and a MariaDB dump before changing a bench.
+- Applies required configuration and compose file changes.
 
-Manual migrations
+Common usage:
 
-For older upgrade paths (for example v0.10.0 or v0.11.0→v0.13.4), follow the documented steps in the original wiki: create a template bench, replace workspace directories, verify environment variables, and run `fm start` then `fm migrate`.
+```bash
+# Migrate a single bench
+fm migrate mybench
 
-If you are not sure, take a backup first and test the migration on a copy of the bench.
+# Migrate all benches
+fm migrate --all-benches
+
+# Skip confirmation prompts
+fm migrate --all-benches --auto-proceed
+
+# On failure behaviour: archive or rollback
+fm migrate --on-failure archive
+fm migrate --on-failure rollback
+```
+
+Notes:
+
+- Always run `fm self update` first, then `fm migrate`.
+- Migration creates backups under `~/frappe/backups/`.
+- v0.19.0 notable changes: switched from pyenv+nvm to uv+fnm for toolchains and updated SSL configuration format.

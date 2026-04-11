@@ -1,64 +1,56 @@
 # SSL / HTTPS
 
-This guide explains how to get TLS certificates for your bench. It covers the common HTTP01 method and the Cloudflare-only DNS01 method.
+Use fm to obtain Let's Encrypt certificates via acme.sh. Use HTTP-01 when your domain points to the machine. Use DNS-01 with Cloudflare if you cannot use HTTP-01 or need wildcards.
 
-HTTP01 (recommended when DNS points to your machine)
+Prerequisites
 
-1. Make sure your domain points to your server and ports 80/443 are open.
+- Your domain must point at the server for HTTP-01.
+- Ports 80 and 443 must be reachable for HTTP-01.
 
-2. Run:
-
-```bash
-fm ssl add mybench example.com --challenge http01 --letsencrypt-email you@example.com
-```
-
-3. Test renewal (dry-run):
+HTTP-01 (default)
 
 ```bash
-fm ssl renew mybench example.com --dry-run
+fm ssl add mybench example.com
 ```
 
-DNS01 (Cloudflare only)
-
-1. Add Cloudflare API token to global config (`fm_config.toml`) or bench config:
-
-```toml
-[letsencrypt]
-cloudflare_api_token = "your-token-here"
-```
-
-2. Run with DNS challenge:
+Dry run (test without contacting Let's Encrypt):
 
 ```bash
-fm ssl add mybench example.com --challenge dns01 --dns-provider cloudflare
+fm ssl add mybench example.com --dry-run
 ```
 
-Configure Cloudflare credentials per-bench by adding them to `bench_config.toml` under `[ssl]`.
+DNS-01 (Cloudflare)
 
-SSL during create
+First save Cloudflare credentials to the global config:
 
 ```bash
-fm create mybench --alias-domains example.com --ssl letsencrypt --letsencrypt-email you@example.com
+fm ssl dns-config cloudflare --api-token YOUR_TOKEN
 ```
 
-Add SSL to existing bench
+Then issue the cert using DNS challenge:
 
 ```bash
-fm update mybench --ssl letsencrypt --letsencrypt-email you@example.com
+fm ssl add mybench example.com --challenge dns01
 ```
 
-Renewal and removal
+Other useful commands:
 
 ```bash
-# Renew one
-fm ssl renew mybench example.com
-
-# Renew all
-fm ssl renew mybench --all
-
-# Remove certificate
-fm ssl remove mybench example.com --yes
+fm ssl list mybench
+fm ssl renew mybench
+fm ssl renew --all
+fm ssl remove mybench example.com
+fm ssl acme-sh -- --list
 ```
+
+Standalone mode (for non-FM Docker projects on the shared network):
+
+```bash
+fm ssl add --standalone example.com
+```
+
+!!! warning
+    Do not use flags that mention an email address like `--letsencrypt-email`. The CLI does not accept that flag.
 
 !!! tip
-    A typical renewal cron is `0 0 1 * * fm ssl renew mybench --all` so certificates are checked monthly.
+    To automate renewals run `fm ssl renew --all` from a cronjob or system scheduler.

@@ -13,3 +13,12 @@ fm logs mybench --service frappe -f
 ```
 
 CLI logs rotate automatically. If you need to inspect older logs, look for `fm.log.1`, `fm.log.2`, etc.
+
+You can make fm more talkative:
+
+```bash
+fm --verbose info mybench
+fm --log-level debug info mybench
+```
+
+Common service names for `--service`: `frappe`, `nginx`, `socketio`, `schedule`, `redis-cache`, `redis-queue`, `short-worker`, `long-worker`.

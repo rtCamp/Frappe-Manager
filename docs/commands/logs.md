@@ -12,7 +12,7 @@ Options:
 
 | Flag | Description |
 |---|---|
-| `--service` | Choose service: frappe, nginx, redis-cache, etc. |
+| `--service` | Choose service: frappe, nginx, socketio, schedule, redis-cache, redis-queue, short-worker, long-worker |
 | `-f, --follow` | Follow the log stream |
 
 Examples:
@@ -24,3 +24,6 @@ fm logs mybench --service frappe -f
 # Show nginx logs
 fm logs mybench --service nginx
 ```
+
+!!! tip
+    Use `fm logs mybench --service short-worker -f` to follow worker logs in real time.

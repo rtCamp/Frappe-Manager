@@ -1,23 +1,34 @@
 # Environments
 
-This guide explains the difference between development and production benches, and how to change the environment for a bench.
+Frappe Manager supports two environments: dev and prod. They differ in defaults so you can develop quickly or run a stable site.
 
-Development benches use the Frappe dev server and include development packages and live reload so you can iterate quickly. Production benches use Gunicorn (a production web server), fewer developer packages, and more conservative defaults for stability.
+Summary:
 
-How to choose:
+| Feature | dev | prod |
+|---|---:|---:|
+| Frappe developer mode | auto-enabled | off by default |
+| Admin tools (Mailpit, Adminer) | enabled | disabled |
+| Container restart policy | no | unless-stopped |
+| Access URL | http://mybench.localhost | your custom domain + SSL |
 
-- Use development when you are writing code, testing features, or debugging.
-- Use production when you want a stable site that mimics a live server.
+Create a prod bench:
 
-Switching environments:
+```bash
+fm create mybench --environment prod
+```
+
+Switch an existing bench between environments:
 
 ```bash
 fm update mybench --environment prod
-# or back to dev
 fm update mybench --environment dev
 ```
 
-You can also change the bench config file (`bench_config.toml`) and set `environment_type = "dev"` or `"prod"`, then restart the bench.
+Enable developer mode separately if you want dev features in a prod environment:
+
+```bash
+fm update mybench --developer-mode enable
+```
 
 !!! warning
-    Changing environment usually requires a full restart so services pick up the new server (Gunicorn vs dev server). Run `fm restart mybench` after updating.
+    Switching environment recreates the frappe container. Run `fm restart mybench` after changing the environment.

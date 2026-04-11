@@ -1,16 +1,12 @@
 # fm list
 
-Show all benches on this machine and their status (running, stopped).
-
-Usage:
-
-```console
-$ fm list
-```
-
-Example:
+Show all benches on this machine.
 
 ```bash
 fm list
-# shows a table: name | status | urls
 ```
+
+The output shows bench name, status (running/stopped), environment, and URL.
+
+!!! tip
+    Use `fm --verbose list` for more detailed output.

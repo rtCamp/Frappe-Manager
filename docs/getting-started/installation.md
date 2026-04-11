@@ -53,7 +53,8 @@ Frappe Manager uses `~/frappe/` as its workspace. After you create your first be
 | `~/frappe/sites/` | Your bench folders |
 | `~/frappe/services/` | Shared database and proxy |
 | `~/frappe/logs/` | CLI logs |
-| `~/frappe/migration/` | Migration backups |
+| `~/frappe/backups/` | Migration backups |
+| `~/frappe/archived/` | Archived/failed benches moved by fm migrate |
 
 !!! note "Next step"
     Head to [Quick Start](quick-start.md) to create your first bench.

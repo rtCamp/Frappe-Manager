@@ -20,8 +20,8 @@ fm shell mybench -c "bench migrate"
 
 # Use heredoc (bash)
 fm shell mybench -- bash <<'EOF'
-bench --site site1.local backup
-bench --site site1.local restore /tmp/site1.sql
+bench --site mybench.localhost backup
+bench --site mybench.localhost restore /tmp/site1.sql
 EOF
 
 # Open bench console

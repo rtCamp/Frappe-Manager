@@ -21,3 +21,5 @@ This section is the reference for the `fm` CLI commands. Each page explains what
 | `ssl` | Manage SSL certificates | [ssl](ssl.md) |
 | `services` | Manage global services | [services](services.md) |
 | `self` | Manage the tool itself | [self](self.md) |
+
+For command details use `fm <command> --help` or read the individual pages listed here.

@@ -1,13 +1,26 @@
 # Workers & Background Jobs
 
-Workers run background tasks like email sending, long-running jobs, and scheduled tasks.
+Frappe background jobs run in dedicated worker containers. The common worker types are:
 
-Decision flow:
+- `short-worker` — for quick tasks (under a few minutes).
+- `long-worker` — for long-running tasks.
+- `schedule` — runs the Frappe scheduler.
 
-1. If you are deploying to production, enable the full worker set and use `--wait-workers` when performing migrations.
-2. For development, smaller worker sets and `--no-wait-workers` make iteration faster.
+Apps can define custom worker queues in their `hooks.py`. FM will create worker containers as needed.
 
-Always use `--wait-workers` or `--wait-workers-timeout` for risky migrations. This waits for running jobs to finish before stopping workers.
+Common operations:
+
+- Restart workers:
+
+```bash
+fm restart mybench --workers
+```
+
+- View a worker's logs:
+
+```bash
+fm logs mybench --service short-worker
+```
 
 !!! warning
-    Restarting workers while jobs are running can cause partial work or failures. Prefer graceful waits for production changes.
+    Restarting workers while jobs are running may interrupt work. For production migrations prefer to wait for running jobs to finish.

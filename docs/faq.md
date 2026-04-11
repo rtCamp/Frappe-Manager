@@ -1,31 +1,115 @@
 # FAQ
 
-??? question "How do I use an external database?"
-    Backup your site, stop the bench, configure the external DB (create database and user with remote access), update `site_config.json`, and restore the backup. Always test on a copy first.
+Q: How do I update FM itself?
 
-??? question "How do I increase upload limits?"
-    There are three places: global nginx proxy, bench nginx, and Frappe system settings. The easiest is `fm update mybench --upload-limit 100M` which updates the right file and restarts services.
+A: Run these two commands. The first updates the CLI; the second updates benches and infrastructure.
 
-??? question "How do I restart the server?"
-    Inside a bench use `bench restart` or from outside use `fm restart mybench`.
+```bash
+fm self update
+fm migrate --all-benches
+```
 
-??? question "Where are logs?"
-    CLI logs: `~/frappe/logs/fm.log`. Bench web logs: `~/frappe/sites/<bench>/workspace/frappe-bench/logs/web.log`. Use `fm logs mybench --service <service>` to tail logs.
+Q: How do I reset a bench to a clean state?
 
-??? question "How do I install apps?"
-    Use `fm create mybench --apps erpnext` during create or `fm shell mybench` then `bench get-app` and `bench install-app` for existing benches.
+A: `fm reset mybench` drops the bench database and reinstalls apps. This is destructive. Backup first.
 
-??? question "How do I run bench commands?"
-    Use `fm shell mybench -c "bench <command>"` for single commands or `fm shell mybench` for an interactive shell.
+Q: How do I change the Administrator password?
 
-??? question "Does VSCode work?"
-    Yes. `fm code mybench` opens VSCode attached to the bench. Use `-e` to add extensions and `--debugger` to enable debug support.
+A: Option A (reinstall):
 
-??? question "What about Google OAuth and localhost?"
-    Google disallows wildcard `*.localhost` redirects. As a workaround, create a symlink from `mybench.localhost` to `localhost` in `~/frappe/sites` and use the full domain as the redirect URI in Google Console.
+```bash
+fm reset mybench --admin-pass newpass
+```
 
-??? question "Why does create fail with GH registry errors?"
-    Your GitHub registry token may be expired. Run `docker logout ghcr.io` and retry with a fresh token.
+Option B (without reinstall):
 
-??? question "Does this work on WSL?"
-    Yes on WSL2. Add a hosts entry in Windows (127.0.0.1 mybench.localhost) to access sites from Windows.
+```bash
+fm shell mybench -c "bench set-admin-password newpass"
+```
+
+Q: My site won't load at mybench.localhost — what should I check?
+
+A: Check these items:
+
+- Docker is running: `docker ps`
+- The bench is listed: `fm list`
+- Ports 80 and 443 are free on the host
+- On Windows 10, add `127.0.0.1 mybench.localhost` to your hosts file if needed
+
+Q: How do I install ERPNext?
+
+A: During create:
+
+```bash
+fm create mybench --apps erpnext
+```
+
+After create (on an existing bench):
+
+```bash
+fm shell mybench -c "bench get-app erpnext && bench --site mybench.localhost install-app erpnext"
+```
+
+Q: How do I use a private GitHub repo for an app?
+
+A: Provide the repo and token when creating the bench:
+
+```bash
+fm create mybench --apps org/private-app:main --github-token YOUR_TOKEN
+```
+
+Or set `GITHUB_TOKEN` in your environment before running fm create.
+
+Q: How do I share my bench for testing?
+
+A: Create a temporary public URL with ngrok:
+
+```bash
+fm ngrok mybench
+```
+
+Q: How do I check installed apps and versions?
+
+A: Run:
+
+```bash
+fm info mybench
+```
+
+Q: Docker images fail to pull from GHCR. What can I try?
+
+A: Try logging out and logging in again:
+
+```bash
+docker logout ghcr.io
+docker login ghcr.io
+```
+
+Q: How do I run bench commands like migrate or build?
+
+A: Use fm shell to run a single command or open an interactive shell:
+
+```bash
+fm shell mybench -c "bench migrate"
+fm shell mybench
+```
+
+Q: Can I run multiple benches on the same machine?
+
+A: Yes. Each bench is isolated. Create multiple benches and list them with `fm list`.
+
+Q: What happened to pyenv and nvm?
+
+A: In v0.19.0 FM switched to uv for Python and fnm for Node. After upgrading run:
+
+```bash
+fm migrate mybench
+```
+
+Q: How do I back up my bench?
+
+A: From the Frappe web UI: Setup → Download Backup. From the command line:
+
+```bash
+fm shell mybench -c "bench backup --with-files"
+```

@@ -1,24 +1,33 @@
-# Admin Tools
+# Admin tools (Mailpit & Adminer)
 
-Admin tools are small helper services that make development easier: Mailpit (capture outgoing email), Adminer (browse the database), and small dashboards for Redis.
+Admin tools are useful in development. They are path-routed under your bench URL.
 
-Enable admin tools for a bench:
+Enable admin tools:
 
 ```bash
 fm update mybench --admin-tools enable
 ```
 
-Access patterns (replace `mybench` and `service`):
-
-- Mailpit: http://mybench.localhost:8025
-- Adminer: http://mybench.localhost:8080
-- Redis dashboard: http://mybench.localhost:9000
-
-Disable admin tools:
+Disable:
 
 ```bash
 fm update mybench --admin-tools disable
 ```
 
-!!! info
-    Admin tools are safe for development. Avoid exposing them on the public internet without proper access control.
+Access:
+
+- Mailpit: http://mybench.localhost/mailpit/
+- Adminer: http://mybench.localhost/adminer/
+
+Both are protected with HTTP basic auth. Run `fm info mybench` to see the credentials.
+
+Set Mailpit as the default mail server for Frappe:
+
+```bash
+fm update mybench --mailpit-as-default-mail-server
+```
+
+Mailpit SMTP (inside the Docker network): host mybench-mailpit port 1025
+
+!!! warning
+    Admin tools are not enabled by default in production.

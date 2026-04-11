@@ -13,3 +13,8 @@ Example:
 ```bash
 fm stop mybench
 ```
+
+To stop global services use `fm services stop all`.
+
+!!! tip
+    If a bench does not stop cleanly, try `fm restart mybench --container` to force a container restart.

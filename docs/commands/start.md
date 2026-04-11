@@ -23,3 +23,5 @@ Example:
 ```bash
 fm start mybench
 ```
+
+If you want to start global services (global-db and nginx-proxy) use `fm services start all`.
