@@ -27,7 +27,7 @@ dependencies = [
 
 [project.urls]
 Repository = "https://github.com/rtcamp/frappe-manager"
-Documentation = "https://github.com/rtcamp/frappe-manager/wiki"
+Documentation = "https://rtcamp.github.io/frappe-manager/"
 "Bug Tracker" = "https://github.com/rtcamp/frappe-manager/issues"
 
 [project.scripts]
@@ -121,6 +121,7 @@ dev = [
     "pytest-cov>=7.0.0",
     "pytest-env>=1.2.0",
     "debugpy>=1.8.20",
+    "zensical",
 ]
 
 [tool.pytest.ini_options]
@@ -143,4 +144,3 @@ markers = [
 env = [
     "FM_LETSENCRYPT_STAGING=0",
 ]
-

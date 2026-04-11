@@ -11,7 +11,7 @@
 
 *A powerful CLI tool that streamlines the entire lifecycle of Frappe applications using Docker - from development to deployment.*
 
-[Quick Start](#-quick-start) • [Documentation](https://github.com/rtCamp/Frappe-Manager/wiki) • [Examples](#-examples) • [Support](#-support)
+[Quick Start](#-quick-start) • [Documentation](https://rtcamp.github.io/frappe-manager/) • [Examples](#-examples) • [Support](#-support)
 
 </div>
 
@@ -123,33 +123,31 @@ That's it! Your bench is ready. Access it at `http://mybench.localhost`
 
 | Command | Description | Documentation |
 |---------|-------------|---------------|
-| `fm code` | Open bench in vscode. | [Wiki: Code](https://github.com/rtCamp/Frappe-Manager/wiki/Code) |
-| `fm create` | Create a new bench with apps | [Wiki: Create](https://github.com/rtCamp/Frappe-Manager/wiki/Create) |
-| `fm delete` | Delete a bench and optionally its database from global-db service. | [Wiki: Delete](https://github.com/rtCamp/Frappe-Manager/wiki/Delete) |
-| `fm info` | Show bench information and configuration | [Wiki: Info](https://github.com/rtCamp/Frappe-Manager/wiki/Info) |
-| `fm list` | List all benches. | [Wiki: List](https://github.com/rtCamp/Frappe-Manager/wiki/List) |
-| `fm logs` | Show bench logs (server or container) | [Wiki: Logs](https://github.com/rtCamp/Frappe-Manager/wiki/Logs) |
-| `fm migrate` | Migrate Frappe Manager to current version. | [Wiki: Migrate](https://github.com/rtCamp/Frappe-Manager/wiki/Migrate) |
-| `fm ngrok` | Create ngrok tunnel for bench | [Wiki: Ngrok](https://github.com/rtCamp/Frappe-Manager/wiki/Ngrok) |
-| `fm reset` | Drop database and reinstall all apps | [Wiki: Reset](https://github.com/rtCamp/Frappe-Manager/wiki/Reset) |
-| `fm restart` | Restart bench services (web, workers, redis, nginx) | [Wiki: Restart](https://github.com/rtCamp/Frappe-Manager/wiki/Restart) |
-| `fm self` | Manage self | [Wiki: Self](https://github.com/rtCamp/Frappe-Manager/wiki/Self) |
-| `fm services` | Manage services | [Wiki: Services](https://github.com/rtCamp/Frappe-Manager/wiki/Services) |
-| `fm shell` | Spawn shell for the bench or execute a command. | [Wiki: Shell](https://github.com/rtCamp/Frappe-Manager/wiki/Shell) |
-| `fm ssl` | Manage ssl | [Wiki: Ssl](https://github.com/rtCamp/Frappe-Manager/wiki/Ssl) |
-| `fm start` | Start a bench. | [Wiki: Start](https://github.com/rtCamp/Frappe-Manager/wiki/Start) |
-| `fm stop` | Stop a bench. | [Wiki: Stop](https://github.com/rtCamp/Frappe-Manager/wiki/Stop) |
-| `fm update` | Update bench configuration and settings | [Wiki: Update](https://github.com/rtCamp/Frappe-Manager/wiki/Update) |
+| `fm code` | Open bench in vscode. | [Docs: Code](https://rtcamp.github.io/frappe-manager/commands/code/) |
+| `fm create` | Create a new bench with apps | [Docs: Create](https://rtcamp.github.io/frappe-manager/commands/create/) |
+| `fm delete` | Delete a bench and optionally its database from global-db service. | [Docs: Delete](https://rtcamp.github.io/frappe-manager/commands/delete/) |
+| `fm info` | Show bench information and configuration | [Docs: Info](https://rtcamp.github.io/frappe-manager/commands/info/) |
+| `fm list` | List all benches. | [Docs: List](https://rtcamp.github.io/frappe-manager/commands/list/) |
+| `fm logs` | Show bench logs (server or container) | [Docs: Logs](https://rtcamp.github.io/frappe-manager/commands/logs/) |
+| `fm migrate` | Migrate Frappe Manager to current version. | [Docs: Migrate](https://rtcamp.github.io/frappe-manager/commands/migrate/) |
+| `fm ngrok` | Create ngrok tunnel for bench | [Docs: Ngrok](https://rtcamp.github.io/frappe-manager/commands/ngrok/) |
+| `fm reset` | Drop database and reinstall all apps | [Docs: Reset](https://rtcamp.github.io/frappe-manager/commands/reset/) |
+| `fm restart` | Restart bench services (web, workers, redis, nginx) | [Docs: Restart](https://rtcamp.github.io/frappe-manager/commands/restart/) |
+| `fm self` | Manage self | [Docs: Self](https://rtcamp.github.io/frappe-manager/commands/self/) |
+| `fm services` | Manage services | [Docs: Services](https://rtcamp.github.io/frappe-manager/commands/services/) |
+| `fm shell` | Spawn shell for the bench or execute a command. | [Docs: Shell](https://rtcamp.github.io/frappe-manager/commands/shell/) |
+| `fm ssl` | Manage ssl | [Docs: Ssl](https://rtcamp.github.io/frappe-manager/commands/ssl/) |
+| `fm start` | Start a bench. | [Docs: Start](https://rtcamp.github.io/frappe-manager/commands/start/) |
+| `fm stop` | Stop a bench. | [Docs: Stop](https://rtcamp.github.io/frappe-manager/commands/stop/) |
+| `fm update` | Update bench configuration and settings | [Docs: Update](https://rtcamp.github.io/frappe-manager/commands/update/) |
 
 > 💡 **Tip**: Use `fm <command> --help` to see detailed options and examples for any command.
 
 ## 📖 Documentation
 
-Visit our [Wiki](https://github.com/rtCamp/Frappe-Manager/wiki) for:
-- 📋 Detailed guides
-- ⚙️ Configuration options
-- 💡 Best practices
-- ❓ Troubleshooting
+Visit our documentation site on GitHub Pages:
+
+- https://rtcamp.github.io/frappe-manager/ for detailed guides, configuration, and troubleshooting.
 
 ## 🤝 Support
 

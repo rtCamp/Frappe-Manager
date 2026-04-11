@@ -34,6 +34,10 @@ test-file FILE:
 test-debug FILE:
     pytest {{FILE}} -vv --show-app-logs -s
 
+# Serve the documentation site locally (live reload)
+docs port="8001":
+    uv run --with zensical zensical serve -f zensical.toml -a 127.0.0.1:{{port}}
+
 # Run fm in interactive mode (for AI agents - enables interactive prompts/selection)
 fm *ARGS:
     bash /tmp/fm_interactive {{ARGS}}

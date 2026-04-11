@@ -128,7 +128,8 @@ def extract_typer_structure(app: typer.Typer, path: list[str] | None = None) -> 
     if path is None:
         path = []
 
-    structure = {
+    # Explicit typing helps static analyzers understand the shape
+    structure: dict[str, Any] = {
         "path": path,
         "commands": [],
         "groups": [],
@@ -447,7 +448,11 @@ def generate_all_docs(output_dir: Path, update_readme: bool = False) -> dict:
     )
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    commands_dir = output_dir / "commands"
+    # If the provided output_dir already points to a `commands` folder, use it directly.
+    if output_dir.name == "commands":
+        commands_dir = output_dir
+    else:
+        commands_dir = output_dir / "commands"
     commands_dir.mkdir(exist_ok=True)
 
     generated_files = []
@@ -518,18 +523,20 @@ def main():
         output_dir = Path(args.output_dir)
         console.print(f"[blue]Using --output-dir argument: {output_dir}[/blue]")
     else:
-        wiki_dir_env = os.getenv("WIKI_DIR")
-        if wiki_dir_env:
-            output_dir = Path(wiki_dir_env)
-            console.print(f"[blue]Using WIKI_DIR environment variable: {output_dir}[/blue]")
+        # Prefer DOCS_COMMANDS_DIR for new behaviour, fall back to WIKI_DIR for backward compatibility
+        docs_commands_env = os.getenv("DOCS_COMMANDS_DIR")
+        if docs_commands_env:
+            output_dir = Path(docs_commands_env)
+            console.print(f"[blue]Using DOCS_COMMANDS_DIR environment variable: {output_dir}[/blue]")
         else:
-            wiki_dir = Path("/tmp/frappe-manager-wiki")
-            if wiki_dir.exists():
-                output_dir = wiki_dir
-                console.print(f"[blue]Using wiki directory: {output_dir}[/blue]")
+            wiki_dir_env = os.getenv("WIKI_DIR")
+            if wiki_dir_env:
+                output_dir = Path(wiki_dir_env)
+                console.print(f"[blue]Using WIKI_DIR environment variable: {output_dir}[/blue]")
             else:
-                output_dir = project_root / "docs" / "cli"
-                console.print(f"[yellow]Wiki not found, using: {output_dir}[/yellow]")
+                # Default to repository docs/commands path
+                output_dir = project_root / "docs" / "commands"
+                console.print(f"[yellow]No WIKI_DIR/DOCS_COMMANDS_DIR found, using: {output_dir}[/yellow]")
 
     try:
         generate_all_docs(output_dir, update_readme=args.update_readme)
