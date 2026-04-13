@@ -7,9 +7,7 @@ Extracted from the monolithic Bench class for better separation of concerns.
 
 import time
 import json
-import os
 import multiprocessing
-import random
 from jinja2 import Template
 from frappe_manager.utils.helpers import get_template_path
 from frappe_manager.docker import DockerClient, DockerException
@@ -187,16 +185,11 @@ class BenchSupervisor:
     def _can_enable_multi_queue_consumption(self, bench_path) -> bool:
         return True
 
-    def generate_supervisor_config(self, bench_path, user="frappe", skip_redis=True):
-        """Generate supervisor config for respective bench path using FM template."""
+    def generate_supervisor_config(self, bench_path, user="frappe", skip_redis=True) -> str:
         from pathlib import Path
 
-        # Host paths for file operations
         host_bench_dir = Path(bench_path).resolve() / "workspace" / "frappe-bench"
         common_site_config_path = host_bench_dir / "sites" / COMMON_SITE_CONFIG_FILE
-
-        # Container paths for config content
-        container_bench_dir = CONTAINER_BENCH_DIR
 
         config = {}
         if common_site_config_path.exists():
@@ -209,8 +202,8 @@ class BenchSupervisor:
         max_requests = config.get("gunicorn_max_requests", self._get_default_max_requests(web_worker_count))
 
         context = {
-            "bench_dir": container_bench_dir,
-            "sites_dir": f"{container_bench_dir}/sites",
+            "bench_dir": CONTAINER_BENCH_DIR,
+            "sites_dir": f"{CONTAINER_BENCH_DIR}/sites",
             "user": user,
             "use_rq": True,
             "http_timeout": config.get("http_timeout", 120),
@@ -228,113 +221,57 @@ class BenchSupervisor:
         }
 
         template_path = get_template_path("supervisor.conf.tmpl")
-        template = Template(template_path.read_text())
-        rendered_config = template.render(**context)
-
-        # Write config to host path
-        config_dir = host_bench_dir / "config"
-        config_dir.mkdir(parents=True, exist_ok=True)
-        conf_path = config_dir / "supervisor.conf"
-        conf_path.write_text(rendered_config)
-
-        return conf_path
+        return Template(template_path.read_text()).render(**context)
 
     def setup_supervisor(self, bench_path, force: bool = False, use_run: bool = False) -> None:
-        """
-        Set up supervisor configuration for the bench using native FM implementation.
-
-        Args:
-            bench_path: Path to the bench directory
-            force: Force regeneration even if config exists
-            use_run: Unused but kept for compatibility
-        """
+        import configparser
+        import io
         from pathlib import Path
 
         bench_dir = Path(bench_path).resolve() / "workspace" / "frappe-bench"
-        config_dir_path = bench_dir / "config"
-        supervisor_conf_path = config_dir_path / "supervisor.conf"
+        config_dir = bench_dir / "config"
 
         self.output.change_head("Checking supervisor configuration")
-        if not supervisor_conf_path.exists() or force:
-            self.output.change_head("Configuring supervisor configs")
 
-            try:
-                self.generate_supervisor_config(bench_path, skip_redis=True)
-            except Exception as e:
-                raise BenchOperationException(self.bench_name, f"Failed to configure supervisor: {e}")
+        fm_confs_exist = any(config_dir.glob("*.fm.supervisor.conf")) if config_dir.exists() else False
+        if fm_confs_exist and not force:
+            return
 
-            self.split_supervisor_config(bench_path)
-            self.output.print("Configured supervisor configs")
+        self.output.change_head("Configuring supervisor configs")
+        try:
+            rendered = self.generate_supervisor_config(bench_path)
+        except Exception as e:
+            raise BenchOperationException(self.bench_name, f"Failed to configure supervisor: {e}")
 
-    def split_supervisor_config(self, bench_path) -> None:
-        """
-        Split supervisor.conf into individual service configuration files.
+        config_dir.mkdir(parents=True, exist_ok=True)
+        parsed = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
+        parsed.read_string(rendered)
+        self._write_split_configs(parsed, config_dir)
+        self.output.print("Configured supervisor configs")
 
-        This method reads the monolithic supervisor.conf and splits it into
-        separate files for each service (web, workers, etc.). It also handles
-        symlinks and adjusts worker counts based on CPU.
-
-        Args:
-            bench_path: Path to the bench directory
-
-        Example:
-            >>> supervisor.split_supervisor_config(Path("/path/to/bench"))
-        """
+    def _write_split_configs(self, config, config_dir) -> None:
         import configparser
-        import os
-        import re
+        import io
         from pathlib import Path
 
-        frappe_bench_dir = bench_path / "workspace" / "frappe-bench"
-        supervisor_conf_path: Path = frappe_bench_dir / "config" / "supervisor.conf"
-        config = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
-        config.read_string(supervisor_conf_path.read_text())
-
-        handle_symlink_frappe_dir = False
-
-        if frappe_bench_dir.is_symlink():
-            handle_symlink_frappe_dir = True
-            symlink_target = str(frappe_bench_dir.readlink())
-            symlink_name = frappe_bench_dir.name
-
         for section_name in config.sections():
-            if "group:" not in section_name:
-                section_config = configparser.ConfigParser(interpolation=None)
-                section_config.add_section(section_name)
-                for key, value in config.items(section_name):
-                    if handle_symlink_frappe_dir:
-                        to_replace = str(frappe_bench_dir.readlink())
+            if section_name.startswith("group:"):
+                continue
 
-                        if to_replace in value:
-                            value = value.replace(to_replace, frappe_bench_dir.name)
+            section_config = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
+            section_config.add_section(section_name)
+            for key, value in config.items(section_name):
+                section_config.set(section_name, key, value)
 
-                    if "frappe-web" in section_name:
-                        if key == "command":
-                            value = value.replace("127.0.0.1:80", "0.0.0.0:80")
-                            cpu_count = os.cpu_count() or 2
-                            workers = (cpu_count * 2) + 1
-                            value = re.sub(r"-w\s+\d+", f"-w {workers}", value)
+            delimiter = "-node-" if "-node-" in section_name else "-frappe-"
+            file_name_prefix = section_name.split(delimiter)[-1]
+            file_name = (
+                file_name_prefix + ".workers.fm.supervisor.conf"
+                if "worker" in section_name
+                else file_name_prefix + ".fm.supervisor.conf"
+            )
 
-                    if "node-socketio" in section_name:
-                        if key == "command":
-                            value = re.sub(
-                                r"\S+/node\s+", "/workspace/frappe-bench/.fnm/aliases/default/bin/node ", value
-                            )
-
-                    section_config.set(section_name, key, value)
-
-                section_name_delimeter = "-frappe-"
-
-                if "-node-" in section_name:
-                    section_name_delimeter = "-node-"
-
-                file_name_prefix = section_name.split(section_name_delimeter)[-1]
-                file_name = file_name_prefix + ".fm.supervisor.conf"
-                if "worker" in section_name:
-                    file_name = file_name_prefix + ".workers.fm.supervisor.conf"
-
-                new_file: Path = supervisor_conf_path.parent / file_name
-                with open(new_file, "w") as section_file:
-                    section_config.write(section_file)
-
-                self.logger.info(f"Split supervisor conf {section_name} => {file_name}")
+            buf = io.StringIO()
+            section_config.write(buf)
+            Path(config_dir / file_name).write_text(buf.getvalue())
+            self.logger.info(f"Split supervisor conf {section_name} => {file_name}")
