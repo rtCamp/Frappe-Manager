@@ -3,6 +3,8 @@
 // Source: extra.scss  →  compiled to extra.css via `just css`
 // =============================================================================
 
+@use 'sass:color';
+
 // -----------------------------------------------------------------------------
 // 1. DESIGN TOKENS
 // All raw color values live here. Nothing else in this file uses bare hex/rgb.
@@ -37,9 +39,9 @@ $light-border-soft:  rgba($light-border-gold, 0.08);  // tabs bottom
 $light-border-foot:  rgba($light-border-gold, 0.15);  // footer top
 $light-footer-text:  #333333;
 // Derived light surfaces — warm orange tints over cream base
-$light-pre-bg:       mix($orange, $light-cream, 14%);  // ≈ #fce8df  — warm orange-tinted code bg
-$light-tab-bg:       mix($orange, $light-cream, 8%);   // ≈ #fdf0eb  — slightly lighter for tab content
-$light-labels-bg:    mix($orange, $light-cream, 20%);  // ≈ #fcddd1  — labels bar, visibly distinct from content
+$light-pre-bg:       color.mix($orange, $light-cream, 14%);  // ≈ #fce8df  — warm orange-tinted code bg
+$light-tab-bg:       color.mix($orange, $light-cream, 8%);   // ≈ #fdf0eb  — slightly lighter for tab content
+$light-labels-bg:    color.mix($orange, $light-cream, 20%);  // ≈ #fcddd1  — labels bar, visibly distinct from content
 
 // ── Dark mode surfaces ────────────────────────────────────────────────────────
 // Rule: every surface is a purple-tinted dark, layered above body rgb(11,12,15)
@@ -324,7 +326,7 @@ $svg-footer-dark:  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/
   border: 1.5px solid !important;
   border-radius: 12px !important;
   box-shadow: 0 2px 8px shadow(0.06) !important;
-  background-color: mix($orange, $light-cream, 4%) !important;  // warm cream base for all
+  background-color: color.mix($orange, $light-cream, 4%) !important;  // warm cream base for all
 
   .admonition-title { background-color: transparent !important; }
 
