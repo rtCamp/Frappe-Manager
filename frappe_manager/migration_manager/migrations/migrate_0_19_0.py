@@ -207,33 +207,26 @@ class MigrationV0190(MigrationBase):
     def _update_service_images(self, services: dict[str, Any]):
         """Replace any existing version tag with current version."""
         import re
-        
+
         # Pattern matches: ghcr.io/rtcamp/frappe-manager-{image}:v{X.Y.Z} or v{X.Y.Z.devN}
-        version_pattern = re.compile(
-            r"(ghcr\.io/rtcamp/frappe-manager-[^:]+):v[0-9]+\.[0-9]+\.[0-9]+(?:\.dev[0-9]+)?"
-        )
-        
+        version_pattern = re.compile(r"(ghcr\.io/rtcamp/frappe-manager-[^:]+):v[0-9]+\.[0-9]+\.[0-9]+(?:\.dev[0-9]+)?")
+
         for service_name, service_config in services.items():
             if "image" not in service_config:
                 continue
 
             old_image = service_config["image"]
-            
+
             # Try to extract old version for logging
             old_version_match = re.search(r":v([0-9]+\.[0-9]+\.[0-9]+(?:\.dev[0-9]+)?)", old_image)
             old_version = old_version_match.group(1) if old_version_match else "unknown"
-            
+
             # Replace version tag with current version
-            new_image = version_pattern.sub(
-                rf"\1:{self.version.version_string()}",
-                old_image
-            )
-            
+            new_image = version_pattern.sub(rf"\1:{self.version.version_string()}", old_image)
+
             if new_image != old_image:
                 service_config["image"] = new_image
-                self.output.print(
-                    f"Updated {service_name} image: v{old_version} → {self.version.version_string()}"
-                )
+                self.output.print(f"Updated {service_name} image: v{old_version} → {self.version.version_string()}")
 
     def _transform_nginx_environment(self, services: dict[str, Any]):
         """Transform nginx SITENAME → SITE_MAPPINGS environment variable."""
@@ -368,6 +361,8 @@ class MigrationV0190(MigrationBase):
                 self.output.print("Updated bench_config.toml with detected versions")
 
         with spinner(self.output, "Rebuilding runtime environment (pyenv/nvm → uv/fnm)"):  # type: ignore[arg-type]
+            self._ensure_runtime_dirs(bench)
+
             self.output.print("Cleaning up old runtime directories...")
             self._cleanup_old_runtime_dirs(bench)
 
@@ -410,7 +405,7 @@ echo "Installing Python {python_version} via uv..."
 uv python install {quoted_pkg}
 
 echo "Detecting installed Python..."
-PYTHON_DIR=$(ls -1d /workspace/.uv/python/{quoted_pkg}* 2>/dev/null | sort -V | tail -1 || echo "")
+PYTHON_DIR=$(ls -1d /workspace/frappe-bench/.uv/python/{quoted_pkg}* 2>/dev/null | sort -V | tail -1 || echo "")
 if [ -z "$PYTHON_DIR" ]; then
     echo "Error: Could not find installed Python"
     exit 1
@@ -418,7 +413,7 @@ fi
 PYTHON_BASENAME=$(basename "$PYTHON_DIR")
 
 echo "Updating python-default symlink..."
-cd /workspace/.uv
+cd /workspace/frappe-bench/.uv
 rm -f python-default
 ln -sf "python/$PYTHON_BASENAME" python-default
 
@@ -493,7 +488,7 @@ echo "Node environment setup complete"
 
         result = bench.compose.run(
             service="frappe",
-                command=f"bash -c {shlex.quote(setup_script)}",
+            command=f"bash -c {shlex.quote(setup_script)}",
             rm=True,
             entrypoint="/exec-entrypoint.sh",
         )
@@ -512,6 +507,11 @@ echo "Node environment setup complete"
 
         self.logger.debug("[_setup_node_with_fnm] Node setup completed successfully")
 
+    def _ensure_runtime_dirs(self, bench: MigrationBench):
+        frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
+        (frappe_bench_dir / ".uv").mkdir(parents=True, exist_ok=True)
+        (frappe_bench_dir / ".fnm").mkdir(parents=True, exist_ok=True)
+
     def _cleanup_old_runtime_dirs(self, bench: MigrationBench):
         """Remove old pyenv and nvm directories to prevent path conflicts."""
         self.logger.debug(f"[_cleanup_old_runtime_dirs] Cleaning up old runtime directories for {bench.name}")
@@ -527,7 +527,7 @@ echo "Old runtime directories cleaned up"
 
         result = bench.compose.run(
             service="frappe",
-                command=f"bash -c {shlex.quote(cleanup_script)}",
+            command=f"bash -c {shlex.quote(cleanup_script)}",
             rm=True,
             entrypoint="/exec-entrypoint.sh",
         )
@@ -588,7 +588,7 @@ echo "Apps reinstalled and assets built successfully"
 
         result = bench.compose.run(
             service="frappe",
-                command=f"bash -c {shlex.quote(reinstall_script)}",
+            command=f"bash -c {shlex.quote(reinstall_script)}",
             rm=True,
             entrypoint="/exec-entrypoint.sh",
         )
@@ -609,42 +609,60 @@ echo "Apps reinstalled and assets built successfully"
         self.logger.debug("[_reinstall_apps_and_rebuild] Completed successfully")
 
     def _regenerate_supervisor_config(self, bench: MigrationBench):
-        """Regenerate supervisor configuration with updated paths."""
-        setup_script = """
-export PATH="/workspace/.fnm/aliases/default/bin:$PATH"
-cd /workspace/frappe-bench
-bench setup supervisor --skip-redis --skip-supervisord --yes --user frappe
-echo "Supervisor configuration regenerated"
-"""
-        result = bench.compose.run(
-            service="frappe",
-                command=f"bash -c {shlex.quote(setup_script)}",
-            rm=True,
-            entrypoint="/exec-entrypoint.sh",
-        )
-
-        if not isinstance(result, SubprocessOutput):
-            raise Exception("Unexpected streaming output received")
-
-        if result.exit_code != 0:
-            raise Exception(f"Supervisor setup failed with exit code {result.exit_code}")
-
-        self._split_supervisor_config(bench)
-
-    def _split_supervisor_config(self, bench: MigrationBench):
-        """Split supervisor.conf into individual .fm.supervisor.conf files with correct paths."""
+        """Regenerate supervisor configuration using FM's own template (no bench CLI)."""
         import configparser
-        import os
-        import re
+        import io
+        import json
+        import multiprocessing
 
+        from jinja2 import Template
+
+        from frappe_manager.utils.helpers import get_template_path
+
+        # Render the supervisor config in memory using FM's own template.
+        # This avoids `bench setup supervisor` entirely — the FM template already
+        # has correct paths (0.0.0.0, .fnm node binary) so no post-processing needed.
         frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
-        supervisor_conf_path = frappe_bench_dir / "config" / "supervisor.conf"
+        common_site_config_path = frappe_bench_dir / "sites" / "common_site_config.json"
 
-        if not supervisor_conf_path.exists():
-            return
+        site_config: dict = {}
+        if common_site_config_path.exists():
+            try:
+                site_config = json.loads(common_site_config_path.read_text())
+            except Exception:
+                pass
+
+        cpu_count = multiprocessing.cpu_count()
+        gunicorn_workers = site_config.get("gunicorn_workers", (cpu_count * 2) + 1)
+        max_requests = site_config.get("gunicorn_max_requests", 1000)
+
+        context = {
+            "bench_dir": "/workspace/frappe-bench",
+            "sites_dir": "/workspace/frappe-bench/sites",
+            "user": "frappe",
+            "use_rq": True,
+            "http_timeout": site_config.get("http_timeout", 120),
+            "node": "/workspace/frappe-bench/.fnm/aliases/default/bin/node",
+            "webserver_port": site_config.get("webserver_port", 80),
+            "gunicorn_workers": gunicorn_workers,
+            "gunicorn_max_requests": max_requests,
+            "gunicorn_max_requests_jitter": int(max_requests * 0.1),
+            "bench_name": "frappe-bench",
+            "background_workers": site_config.get("background_workers") or 1,
+            "bench_cmd": "/opt/user/.bin/bench",
+            "workers": site_config.get("workers", {}),
+            "multi_queue_consumption": True,
+            "supervisor_startretries": 10,
+        }
+
+        template_path = get_template_path("supervisor.conf.tmpl")
+        rendered = Template(template_path.read_text()).render(**context)
 
         config = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
-        config.read_string(supervisor_conf_path.read_text())
+        config.read_string(rendered)
+
+        config_dir = frappe_bench_dir / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
 
         for section in config.sections():
             if section.startswith("group:"):
@@ -652,35 +670,22 @@ echo "Supervisor configuration regenerated"
 
             section_config = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
             section_config.add_section(section)
-
             for key, value in config.items(section):
-                if "frappe-web" in section:
-                    if key == "command":
-                        value = value.replace("127.0.0.1:80", "0.0.0.0:80")
-                        cpu_count = os.cpu_count() or 2
-                        workers = (cpu_count * 2) + 1
-                        value = re.sub(r"-w\s+\d+", f"-w {workers}", value)
-
-                if "node-socketio" in section:
-                    if key == "command":
-                        value = re.sub(r"\S+/node\s+", "/workspace/.fnm/aliases/default/bin/node ", value)
-
                 section_config.set(section, key, value)
 
-            section_name_delimeter = "-frappe-"
-            if "-node-" in section:
-                section_name_delimeter = "-node-"
+            delimiter = "-node-" if "-node-" in section else "-frappe-"
+            file_name_prefix = section.split(delimiter)[-1]
+            file_name = (
+                file_name_prefix + ".workers.fm.supervisor.conf"
+                if "worker" in section
+                else file_name_prefix + ".fm.supervisor.conf"
+            )
 
-            file_name_prefix = section.split(section_name_delimeter)[-1]
-            file_name = file_name_prefix + ".fm.supervisor.conf"
-            if "worker" in section:
-                file_name = file_name_prefix + ".workers.fm.supervisor.conf"
+            buf = io.StringIO()
+            section_config.write(buf)
+            (config_dir / file_name).write_text(buf.getvalue())
 
-            new_file = supervisor_conf_path.parent / file_name
-            with open(new_file, "w") as section_file:
-                section_config.write(section_file)
-
-        self.logger.debug(f"[_split_supervisor_config] Split supervisor configs for {bench.name}")
+        self.logger.debug(f"[_regenerate_supervisor_config] Done for {bench.name}")
 
     def _restart_services(self, bench: MigrationBench):
         try:
