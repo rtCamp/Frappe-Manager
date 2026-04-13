@@ -140,3 +140,10 @@ name = "GitHub"
 icon = "fontawesome/brands/python"
 link = "https://pypi.org/project/frappe-manager/"
 name = "PyPI"
+
+# ---------------------------------------------------------------------------
+# Versioning — powered by squidfunk/mike fork
+# ---------------------------------------------------------------------------
+[project.extra.version]
+provider = "mike"
+alias    = true   # shows "0.20 (latest)" in the selector

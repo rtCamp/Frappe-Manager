@@ -5,6 +5,8 @@ on:
     branches:
       - main
       - develop
+    tags:
+      - 'v*'
     paths:
       - 'docs/**'
       - 'zensical.toml'
@@ -13,7 +15,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -22,7 +24,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  deploy:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -39,22 +41,30 @@ jobs:
         run: uv sync --no-dev
       - name: Generate command reference docs
         run: uv run python scripts/update_cli_docs.py
-      - name: Install Zensical
-        run: uv pip install --system zensical
-      - name: Build documentation
-        run: zensical build -f zensical.toml
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
-        with:
-          path: site/
-
-  deploy:
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    needs: build
-    steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Install Zensical and mike
+        run: uv pip install --system zensical "git+https://github.com/squidfunk/mike.git"
+      - name: Configure git for mike
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Resolve version slug from __about__.py
+        id: ver
+        run: |
+          full=$(python -c "from frappe_manager.__about__ import __version__; print(__version__)")
+          slug=$(python -c "
+          import re, sys
+          v = '$full'
+          m = re.match(r'^(\d+\.\d+)', v)
+          print('v' + m.group(1) if m else v)
+          ")
+          echo "full=$full" >> $GITHUB_OUTPUT
+          echo "slug=$slug" >> $GITHUB_OUTPUT
+      - name: Deploy versioned docs (release tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: mike deploy --push --update-aliases ${{ steps.ver.outputs.slug }} latest -F zensical.toml
+      - name: Deploy dev docs (develop branch)
+        if: github.ref == 'refs/heads/develop'
+        run: mike deploy --push dev -F zensical.toml
+      - name: Deploy next docs (main branch)
+        if: github.ref == 'refs/heads/main'
+        run: mike deploy --push next -F zensical.toml

@@ -115,6 +115,7 @@ package = true
 
 [tool.uv.sources]
 typer-examples = { git = "https://github.com/Xieyt/typer-examples", tag = "v1.1.0" }
+mike = { git = "https://github.com/squidfunk/mike.git" }
 
 [dependency-groups]
 dev = [
@@ -124,6 +125,7 @@ dev = [
     "pytest-env>=1.2.0",
     "debugpy>=1.8.20",
     "zensical",
+    "mike",
 ]
 
 [tool.pytest.ini_options]
