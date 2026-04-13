@@ -8,6 +8,7 @@ Extracted from the monolithic Bench class and BenchOperations for better
 separation of concerns.
 """
 
+import shlex
 from collections.abc import Iterator
 from pathlib import Path
 from typing import cast
@@ -309,7 +310,7 @@ class BenchSiteManager:
         """
         try:
             if use_run:
-                wrapped_command = f"cd {workdir} && {command}"
+                wrapped_command = f"cd {shlex.quote(workdir)} && {command}"
                 run_command = f"/bin/bash -c '{wrapped_command}'"
                 if capture_output:
                     output = cast(
