@@ -14,23 +14,17 @@ Technical reference documentation for Frappe Manager internals. These pages serv
 
     Service topology, container layout, volume/network architecture, Docker Compose structure.
 
-    **For:** Engineers deploying to production, contributors understanding FM internals
-
 -   :material-cog:{ .lg .middle } **[Configuration Files](configuration.md)**
 
     ---
 
     Every config key in `fm_config.toml` and `bench_config.toml` — defaults, types, env vars, file locations.
 
-    **For:** Operators tuning benches, automation engineers writing scripts
-
 -   :material-run-fast:{ .lg .middle } **[Workers & Background Jobs](workers.md)**
 
     ---
 
     RQ worker architecture, queue types, concurrency tuning, Gunicorn worker configuration.
-
-    **For:** Operators scaling benches for production load
 
 </div>
 
@@ -46,15 +40,11 @@ Technical reference documentation for Frappe Manager internals. These pages serv
 
     Log file locations, log levels, CLI verbosity flags, service-specific logging, rotation config.
 
-    **For:** Operators debugging production issues, developers troubleshooting failed jobs
-
 -   :material-database-arrow-up:{ .lg .middle } **[Migrations](migrations.md)**
 
     ---
 
     What `fm migrate` does, backup strategy, failure handling, version upgrade paths, rollback procedures.
-
-    **For:** Operators upgrading FM after `fm self update`, engineers planning maintenance windows
 
 </div>
 

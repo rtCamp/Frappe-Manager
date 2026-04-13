@@ -45,3 +45,20 @@ docs port="8001": docs-gen
 # Run fm in interactive mode (for AI agents - enables interactive prompts/selection)
 fm *ARGS:
     bash /tmp/fm_interactive {{ARGS}}
+
+# ── Docs styles ───────────────────────────────────────────────────────────────
+
+_scss := "docs/stylesheets/extra.scss"
+_css  := "docs/stylesheets/extra.css"
+
+# Compile SCSS → CSS (one-shot)
+css:
+    bunx sass {{_scss}} {{_css}} --style=compressed --no-source-map
+
+# Watch SCSS and recompile on change
+css-watch:
+    bunx sass {{_scss}} {{_css}} --style=compressed --no-source-map --watch
+
+# Full docs build: compile CSS then run zensical
+docs-build: css docs-gen
+    uv run --with zensical zensical build -f zensical.toml
