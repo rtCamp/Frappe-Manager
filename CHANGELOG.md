@@ -5,7 +5,7 @@ All notable changes to Frappe Manager are documented here.
 > Versions prior to v0.19.0 were released without structured changelogs.
 > See the [GitHub Releases page](https://github.com/rtCamp/Frappe-Manager/releases) for historical notes.
 
-## [Unreleased]
+## [0.19.0.dev0] - 2026-04-14
 
 ### Bug Fixes
 
@@ -83,6 +83,7 @@ All notable changes to Frappe Manager are documented here.
 
 ### CI
 
+- Integrate git-cliff for automated changelog generation ([`3dc3430`](https://github.com/rtCamp/Frappe-Manager/commit/3dc343024412b3b6e81146ab5162334713e8979a))
 - Use CNAME file and alias-type redirect for pages deployment ([`435712e`](https://github.com/rtCamp/Frappe-Manager/commit/435712e99ed6a39c1282b68b726d6be504216dae))
 - Streamline custom domain setup for Pages ([`a7da3ce`](https://github.com/rtCamp/Frappe-Manager/commit/a7da3cecdd0732f8712f2e7c007b80ff6848289b))
 - Disable main branch documentation deployment ([`54fab97`](https://github.com/rtCamp/Frappe-Manager/commit/54fab97bf825b24168db2892f2f7d0aec510b317))
