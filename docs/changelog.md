@@ -5,7 +5,7 @@ All notable changes to Frappe Manager are documented here.
 > Versions prior to v0.19.0 were released without structured changelogs.
 > See the [GitHub Releases page](https://github.com/rtCamp/Frappe-Manager/releases) for historical notes.
 
-## [0.19.0.dev0] - 2026-04-14
+## v0.19.0.dev0 - 2026-04-14
 
 ### Bug Fixes
 
@@ -123,6 +123,7 @@ All notable changes to Frappe Manager are documented here.
 
 ### Documentation
 
+- Migrate changelog to docs/changelog.md as single source of truth ([`c36825a`](https://github.com/rtCamp/Frappe-Manager/commit/c36825a865c395bf27f439bc52a1992f70141821))
 - Show dev version in CHANGELOG.md instead of Unreleased ([`d29f71d`](https://github.com/rtCamp/Frappe-Manager/commit/d29f71dd9ebc80379892fe2b6fed7a1f67ed9127))
 - Document Python update --no-recreate-python-env ([`b20dd57`](https://github.com/rtCamp/Frappe-Manager/commit/b20dd57e1f11be7673985f53daedcb0a6862165c))
 - Add examples for `update` command ([`46665ec`](https://github.com/rtCamp/Frappe-Manager/commit/46665ec3035f0cb3f11994d3e71375e3961c2437))
