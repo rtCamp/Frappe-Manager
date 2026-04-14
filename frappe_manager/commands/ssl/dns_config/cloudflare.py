@@ -3,6 +3,7 @@
 from typing import Annotated
 
 import typer
+from typer_examples import example
 
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.ssl_manager import DNS_PROVIDER
@@ -11,6 +12,41 @@ from frappe_manager.utils.callbacks import sites_autocompletion_callback
 from ..dns_helpers import _configure_dns_credentials, _remove_dns_credentials, _show_dns_credentials
 
 
+@example(
+    "Configure global Cloudflare credentials using API Token (recommended)",
+    "--api-token YOUR_CLOUDFLARE_API_TOKEN",
+    detail="Stores a global Cloudflare API token for DNS-01 challenges. Recommended for scoped permissions.",
+)
+@example(
+    "Configure global Cloudflare credentials using API Key (legacy)",
+    "--api-key YOUR_API_KEY --email admin@example.com",
+    detail="Stores legacy Global API Key credentials; less secure and requires account email.",
+)
+@example(
+    "Configure bench-specific Cloudflare credentials (overrides global)",
+    "--api-token BENCH_SPECIFIC_TOKEN",
+    detail="Sets Cloudflare credentials for a specific bench, overriding global configuration.",
+)
+@example(
+    "Show global Cloudflare DNS credentials configuration",
+    "--show",
+    detail="Displays stored global Cloudflare credentials (if any).",
+)
+@example(
+    "Show bench-specific Cloudflare DNS credentials",
+    "--show",
+    detail="Displays stored Cloudflare credentials for the specified bench.",
+)
+@example(
+    "Remove global Cloudflare DNS credentials",
+    "--remove",
+    detail="Removes global Cloudflare credential configuration.",
+)
+@example(
+    "Remove bench-specific Cloudflare DNS credentials",
+    "--remove",
+    detail="Removes Cloudflare credential configuration for the specified bench.",
+)
 def dns_config_cloudflare(
     ctx: typer.Context,
     benchname: Annotated[

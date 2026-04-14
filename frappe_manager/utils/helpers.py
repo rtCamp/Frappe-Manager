@@ -113,33 +113,34 @@ def get_current_fm_version():
     """
     return importlib.metadata.version("frappe-manager")
 
+
 def get_docker_image_tag():
     """
     Get the Docker image tag to use based on FM version.
-    
+
     Returns version with 'v' prefix for Docker image tags.
     Examples:
         - '0.19.0' -> 'v0.19.0'
         - '0.19.1.dev0' -> 'v0.19.1.dev0'
         - '0.20.0.dev1' -> 'v0.20.0.dev1'
-    
+
     Environment variable FM_DOCKER_IMAGE_TAG can override for testing.
-    
+
     Returns:
         str: The Docker image tag (e.g., 'v0.19.0' or 'v0.19.1.dev0').
     """
     import os
-    
+
     # Allow environment variable override for testing
     if override_tag := os.getenv('FM_DOCKER_IMAGE_TAG'):
         return override_tag
-    
+
     version = get_current_fm_version()
-    
+
     # Always prepend 'v' if not already present
     if not version.startswith('v'):
         return f'v{version}'
-    
+
     return version
 
 
@@ -237,6 +238,27 @@ def get_container_name_prefix(site_name):
         str: The container name prefix.
     """
     return "fm" + CLI_DEFAULT_DELIMETER + site_name.replace(".", CLI_SITE_NAME_DELIMETER)
+
+
+def get_redis_cache_addr(container_prefix: str) -> tuple[str, int]:
+    return f"{container_prefix}{CLI_DEFAULT_DELIMETER}redis-cache", 6379
+
+
+def get_redis_queue_addr(container_prefix: str) -> tuple[str, int]:
+    return f"{container_prefix}{CLI_DEFAULT_DELIMETER}redis-queue", 6379
+
+
+def get_bench_connection_config(container_prefix: str, db_host: str, db_port: int) -> dict:
+    cache_host, cache_port = get_redis_cache_addr(container_prefix)
+    queue_host, queue_port = get_redis_queue_addr(container_prefix)
+    return {
+        "bench_id": "workspace-frappe-bench",
+        "db_host": db_host,
+        "db_port": db_port,
+        "redis_cache": f"redis://{cache_host}:{cache_port}",
+        "redis_queue": f"redis://{queue_host}:{queue_port}",
+        "redis_socketio": f"redis://{cache_host}:{cache_port}",
+    }
 
 
 def random_password_generate(password_length=13, symbols=False):

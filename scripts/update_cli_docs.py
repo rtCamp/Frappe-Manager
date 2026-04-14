@@ -14,10 +14,30 @@ sys.path.insert(0, str(project_root))
 console = Console()
 
 
-def load_examples() -> dict:
-    examples_path = project_root / "frappe_manager" / "utils" / "examples.json"
-    with open(examples_path) as f:
-        return json.load(f)
+def load_examples(app: typer.Typer) -> dict:
+    try:
+        from typer_examples import get_all_examples
+
+        flat_examples_by_path = get_all_examples(app)
+        nested_examples = {}
+
+        for path_tuple, example_objects in flat_examples_by_path.items():
+            current_level = nested_examples
+            for segment in path_tuple[:-1]:
+                if segment not in current_level:
+                    current_level[segment] = {}
+                current_level = current_level[segment]
+
+            final_command = path_tuple[-1]
+            current_level[final_command] = {
+                "examples": [
+                    {"desc": ex.desc, "code": ex.code, "detail": ex.detail, **ex.vars} for ex in example_objects
+                ]
+            }
+
+        return nested_examples
+    except ImportError:
+        return {}
 
 
 def extract_param_info(param_name: str, param: inspect.Parameter) -> dict[str, Any]:
@@ -128,7 +148,8 @@ def extract_typer_structure(app: typer.Typer, path: list[str] | None = None) -> 
     if path is None:
         path = []
 
-    structure = {
+    # Explicit typing helps static analyzers understand the shape
+    structure: dict[str, Any] = {
         "path": path,
         "commands": [],
         "groups": [],
@@ -180,32 +201,31 @@ def format_examples(examples: list[dict], command_path: list[str], benchname: st
     if not examples:
         return ""
 
-    md = "\n**Examples**:\n\n"
-
-    COMMANDS_WITHOUT_BENCHNAME = ["list", "services", "migrate"]
+    md = "\n## Examples\n\n"
 
     for example in examples:
         desc = example.get("desc", "")
         code = example.get("code", "")
+        detail = example.get("detail", "")
         custom_benchname = example.get("benchname", benchname)
 
-        desc_formatted = desc.format(benchname=custom_benchname, domain="example.com", default_version="version-15")
-        md += f"_{desc_formatted}_\n"
+        template_vars = {
+            "benchname": custom_benchname,
+            "domain": "example.com",
+            "default_version": "version-15",
+        }
+
+        desc_formatted = desc.format(**template_vars)
+        md += f"### {desc_formatted}\n\n"
+
+        if detail:
+            detail_formatted = detail.format(**template_vars)
+            md += f"{detail_formatted}\n\n"
 
         cmd = f"fm {' '.join(command_path)}"
-
-        command_requires_benchname = command_path[0] not in COMMANDS_WITHOUT_BENCHNAME
-        element_has_benchname_key = "benchname" in example
-
-        if command_requires_benchname:
-            if element_has_benchname_key:
-                if custom_benchname:
-                    cmd += f" {custom_benchname}"
-            else:
-                cmd += f" {benchname}"
-
         if code and code.strip():
-            cmd += code.format(benchname=custom_benchname, domain="example.com", default_version="version-15")
+            code_formatted = code.format(**template_vars)
+            cmd += f" {code_formatted}"
 
         md += f"```bash\n{cmd}\n```\n\n"
 
@@ -259,7 +279,19 @@ def generate_command_markdown(cmd_info: dict, examples_data: dict, level: int = 
             md += f"{opt_text}\n"
         md += "\n"
 
-    examples = get_examples_for_command(examples_data, command_path)
+    examples = None
+    callback = cmd_info.get("callback")
+    if callback is not None:
+        examples_list = getattr(callback, "_typer_examples", None)
+        if examples_list:
+            examples = [
+                {"desc": ex.desc, "code": ex.code, "detail": getattr(ex, "detail", ""), **getattr(ex, "vars", {})}
+                for ex in examples_list
+            ]
+
+    if not examples:
+        examples = get_examples_for_command(examples_data, command_path)
+
     if examples:
         md += format_examples(examples, command_path)
 
@@ -436,10 +468,10 @@ def update_readme_command_reference(readme_path: Path, structure: dict) -> bool:
 def generate_all_docs(output_dir: Path, update_readme: bool = False) -> dict:
     console.print("[bold blue]Generating CLI documentation...[/bold blue]")
 
-    examples_data = load_examples()
-    console.print("[green]✓[/green] Loaded examples from examples.json")
-
     from frappe_manager.commands import app
+
+    examples_data = load_examples(app)
+    console.print("[green]✓[/green] Loaded examples from command decorators (if any)")
 
     structure = extract_typer_structure(app)
     console.print(
@@ -447,7 +479,11 @@ def generate_all_docs(output_dir: Path, update_readme: bool = False) -> dict:
     )
 
     output_dir.mkdir(parents=True, exist_ok=True)
-    commands_dir = output_dir / "commands"
+    # If the provided output_dir already points to a `commands` folder, use it directly.
+    if output_dir.name == "commands":
+        commands_dir = output_dir
+    else:
+        commands_dir = output_dir / "commands"
     commands_dir.mkdir(exist_ok=True)
 
     generated_files = []
@@ -518,18 +554,20 @@ def main():
         output_dir = Path(args.output_dir)
         console.print(f"[blue]Using --output-dir argument: {output_dir}[/blue]")
     else:
-        wiki_dir_env = os.getenv("WIKI_DIR")
-        if wiki_dir_env:
-            output_dir = Path(wiki_dir_env)
-            console.print(f"[blue]Using WIKI_DIR environment variable: {output_dir}[/blue]")
+        # Prefer DOCS_COMMANDS_DIR for new behaviour, fall back to WIKI_DIR for backward compatibility
+        docs_commands_env = os.getenv("DOCS_COMMANDS_DIR")
+        if docs_commands_env:
+            output_dir = Path(docs_commands_env)
+            console.print(f"[blue]Using DOCS_COMMANDS_DIR environment variable: {output_dir}[/blue]")
         else:
-            wiki_dir = Path("/tmp/frappe-manager-wiki")
-            if wiki_dir.exists():
-                output_dir = wiki_dir
-                console.print(f"[blue]Using wiki directory: {output_dir}[/blue]")
+            wiki_dir_env = os.getenv("WIKI_DIR")
+            if wiki_dir_env:
+                output_dir = Path(wiki_dir_env)
+                console.print(f"[blue]Using WIKI_DIR environment variable: {output_dir}[/blue]")
             else:
-                output_dir = project_root / "docs" / "cli"
-                console.print(f"[yellow]Wiki not found, using: {output_dir}[/yellow]")
+                # Default to repository docs/commands path
+                output_dir = project_root / "docs" / "commands"
+                console.print(f"[yellow]No WIKI_DIR/DOCS_COMMANDS_DIR found, using: {output_dir}[/yellow]")
 
     try:
         generate_all_docs(output_dir, update_readme=args.update_readme)

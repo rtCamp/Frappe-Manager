@@ -1,6 +1,7 @@
 from typing import Annotated
 
 import typer
+from typer_examples import example
 
 from frappe_manager import CLI_BENCHES_DIRECTORY, EnableDisableOptionsEnum
 from frappe_manager.metadata_manager import FMConfigManager
@@ -26,6 +27,72 @@ from frappe_manager.utils.callbacks import (
 )
 
 
+@example(
+    "Enable admin tools (Mailpit, Adminer)",
+    "{benchname} --admin-tools enable",
+    detail="Enables admin tools like Mailpit and Adminer for debugging and database access in development benches.",
+    benchname="mybench",
+)
+@example(
+    "Disable admin tools",
+    "{benchname} --admin-tools disable",
+    detail="Disables admin tools for security or production setups.",
+    benchname="mybench",
+)
+@example(
+    "Switch to production environment",
+    "{benchname} -e prod",
+    detail="Switches the bench to production environment settings and recreates necessary containers.",
+    benchname="mybench",
+)
+@example(
+    "Switch to development environment",
+    "{benchname} -e dev",
+    detail="Switches the bench to development environment settings and enables developer conveniences.",
+    benchname="mybench",
+)
+@example(
+    "Enable developer mode",
+    "{benchname} --developer-mode enable",
+    detail="Turns on Frappe developer mode which enables features useful for app development.",
+    benchname="mybench",
+)
+@example(
+    "Add alias domains",
+    "{benchname} --add-alias www.example.com,api.example.com",
+    detail="Adds alias domains to the bench; remember to add SSL certificates separately with 'fm ssl add'.",
+    benchname="mybench",
+)
+@example(
+    "Remove alias domains",
+    "{benchname} --remove-alias shop.example.com",
+    detail="Removes alias domains from bench configuration.",
+    benchname="mybench",
+)
+@example(
+    "Update Python version",
+    "{benchname} --python 3.11",
+    detail="Updates the bench Python runtime, recreates the virtual environment, and reinstalls all apps into the new environment.",
+    benchname="mybench",
+)
+@example(
+    "Install Python without recreating venv",
+    "{benchname} --python 3.14 --no-recreate-python-env",
+    detail="Installs Python 3.14 via uv and sets it as default without touching the existing virtual environment.",
+    benchname="mybench",
+)
+@example(
+    "Update Node version",
+    "{benchname} --node 20",
+    detail="Updates Node.js runtime used by the bench and rebuilds related assets.",
+    benchname="mybench",
+)
+@example(
+    "Set upload size limit",
+    "{benchname} --upload-limit 100M",
+    detail="Sets the maximum file upload size for the bench (useful for large attachments).",
+    benchname="mybench",
+)
 def update(
     ctx: typer.Context,
     benchname: Annotated[
@@ -106,6 +173,14 @@ def update(
             show_default=False,
         ),
     ] = False,
+    recreate_python_env: Annotated[
+        bool,
+        typer.Option(
+            "--recreate-python-env/--no-recreate-python-env",
+            help="Recreate the Python virtual environment. Use --no-recreate-python-env to skip if current version already satisfies the requirement.",
+            show_default=True,
+        ),
+    ] = True,
     restart: Annotated[
         RestartPolicyEnum | None,
         typer.Option(
@@ -123,7 +198,11 @@ def update(
         ),
     ] = False,
 ):
-    """Update bench configuration and settings"""
+    """
+    Update bench configuration and settings.
+
+    Adjusts environment type, developer mode, runtime versions, alias domains, and other bench settings.
+    """
 
     services_manager = ctx.obj["services"]
     fm_config: FMConfigManager = ctx.obj["fm_config_manager"]
@@ -328,7 +407,9 @@ def update(
             bench_config_save = False
 
             output.change_head("Setting up new runtime environment")
-            venv_recreated = bench.app_manager.setup_python_and_node_environments(use_run=True)
+            venv_recreated = bench.app_manager.setup_python_and_node_environments(
+                use_run=True, recreate_python_env=recreate_python_env
+            )
             output.print("Runtime versions updated successfully")
 
             if venv_recreated:

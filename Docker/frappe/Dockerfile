@@ -148,15 +148,15 @@ COPY --chown=frappe:frappe --chmod=0755 ./bench-wrapper.sh /opt/user/.bin/bench
 
 FROM tooling AS frappe
 
-ENV UV_PYTHON_INSTALL_DIR=/workspace/.uv/python
-ENV UV_CACHE_DIR=/workspace/.uv/cache
+ENV UV_PYTHON_INSTALL_DIR=/workspace/frappe-bench/.uv/python
+ENV UV_CACHE_DIR=/workspace/frappe-bench/.uv/cache
 
 # fnm configuration - CRITICAL: FNM_COREPACK_ENABLED ensures corepack is enabled for ALL Node versions
-ENV FNM_DIR=/workspace/.fnm
+ENV FNM_DIR=/workspace/frappe-bench/.fnm
 ENV FNM_NODE_DIST_MIRROR=https://nodejs.org/dist
-ENV FNM_MULTISHELL_PATH=/workspace/.fnm
+ENV FNM_MULTISHELL_PATH=/workspace/frappe-bench/.fnm
 ENV FNM_COREPACK_ENABLED=true
-ENV PATH="/workspace/.fnm/aliases/default/bin:/usr/local/bin:/opt/user/.bin:${PATH}"
+ENV PATH="/workspace/frappe-bench/.fnm/aliases/default/bin:/usr/local/bin:/opt/user/.bin:${PATH}"
 
 ENV BASH_ENV=/etc/profile.d/fnm.sh
 ENV ENV=/etc/profile.d/fnm.sh
@@ -164,17 +164,19 @@ ENV ENV=/etc/profile.d/fnm.sh
 # Prebake Python 3.12 and Node 22 into /workspace for faster first site creation
 USER frappe
 
-RUN mkdir -p /workspace/.uv/python /workspace/.fnm /workspace/.cache && \
+RUN mkdir -p /workspace/frappe-bench/.uv/python /workspace/frappe-bench/.fnm /workspace/frappe-bench/.uv/cache && \
     echo "Prebaking Python ${DEFAULT_PYTHON_VERSION}..." && \
     uv python install ${DEFAULT_PYTHON_VERSION} && \
     PYTHON_PATH=$(uv python find ${DEFAULT_PYTHON_VERSION}) && \
     PYTHON_DIR=$(dirname $(dirname $PYTHON_PATH)) && \
-    ln -sf python/$(basename $PYTHON_DIR) /workspace/.uv/python-default && \
+    ln -sf python/$(basename $PYTHON_DIR) /workspace/frappe-bench/.uv/python-default && \
     echo "Prebaking Node ${DEFAULT_NODE_VERSION} (corepack auto-enabled via FNM_COREPACK_ENABLED)..." && \
     fnm install ${DEFAULT_NODE_VERSION} && \
     fnm default ${DEFAULT_NODE_VERSION} && \
     echo "Making cache directories writable for any runtime UID..." && \
-    chmod -R 777 /workspace/.cache
+    chmod -R 777 /workspace/frappe-bench/.uv/cache
+
+ENV COREPACK_HOME=/workspace/frappe-bench/.fnm/corepack
 
 USER root
 
@@ -191,12 +193,12 @@ COPY --from=tooling /etc/bash.bashrc /etc/bash.bashrc
 
 # Setup fnm and python for ALL shell types (login, non-login, interactive, non-interactive)
 RUN mkdir -p /etc/profile.d && \
-    echo 'export FNM_DIR="/workspace/.fnm"' > /etc/profile.d/fnm.sh && \
-    echo 'export FNM_MULTISHELL_PATH="/workspace/.fnm"' >> /etc/profile.d/fnm.sh && \
+    echo 'export FNM_DIR="/workspace/frappe-bench/.fnm"' > /etc/profile.d/fnm.sh && \
+    echo 'export FNM_MULTISHELL_PATH="/workspace/frappe-bench/.fnm"' >> /etc/profile.d/fnm.sh && \
     echo 'export FNM_COREPACK_ENABLED=true' >> /etc/profile.d/fnm.sh && \
     echo 'eval "$(fnm env --shell bash 2>/dev/null || true)"' >> /etc/profile.d/fnm.sh && \
-    echo 'if [ -d "/workspace/.uv/python-default/bin" ]; then' >> /etc/profile.d/fnm.sh && \
-    echo '    export PATH="/workspace/.uv/python-default/bin:$PATH"' >> /etc/profile.d/fnm.sh && \
+    echo 'if [ -d "/workspace/frappe-bench/.uv/python-default/bin" ]; then' >> /etc/profile.d/fnm.sh && \
+    echo '    export PATH="/workspace/frappe-bench/.uv/python-default/bin:$PATH"' >> /etc/profile.d/fnm.sh && \
     echo 'fi' >> /etc/profile.d/fnm.sh && \
     echo 'export PATH="/opt/user/.bin:$PATH"' >> /etc/profile.d/fnm.sh && \
     chmod +x /etc/profile.d/fnm.sh && \

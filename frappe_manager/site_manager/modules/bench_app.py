@@ -93,7 +93,7 @@ class BenchAppManager:
         self.output = output_handler or RichOutputHandler()
 
         self.frappe_bench_dir: Path = bench_path / "workspace" / "frappe-bench"
-        self.bench_cli_cmd = ["/usr/local/bin/bench"]
+        self.bench_cli_cmd = ["/opt/user/.bin/bench"]
 
     def get_current_runtime_versions(self, use_run: bool = False) -> dict[str, str | None]:
         """Get currently installed Python and Node versions from the container."""
@@ -135,7 +135,7 @@ class BenchAppManager:
 
         return versions
 
-    def setup_python_and_node_environments(self, use_run: bool = False) -> bool:
+    def setup_python_and_node_environments(self, use_run: bool = False, recreate_python_env: bool = False) -> bool:
         """
         Setup Python and Node.js environments for the bench.
 
@@ -219,8 +219,8 @@ class BenchAppManager:
                 self.output.change_head(f"Setting up Python environment for requirement: {python_version_requirement}")
                 try:
                     scan_pythons_cmd = """
-if [ -d /workspace/.uv/python ]; then
-    for dir in /workspace/.uv/python/cpython-*; do
+if [ -d /workspace/frappe-bench/.uv/python ]; then
+    for dir in /workspace/frappe-bench/.uv/python/cpython-*; do
         if [ -d "$dir" ]; then
             basename "$dir"
         fi
@@ -269,7 +269,7 @@ fi
                         self._container_run(install_cmd, raise_exception_obj=None, use_run=use_run)
 
                         detect_installed_cmd = (
-                            f"ls -1 /workspace/.uv/python/ | grep '^{quoted_pkg}' | sort -V | tail -1"
+                            f"ls -1 /workspace/frappe-bench/.uv/python/ | grep '^{quoted_pkg}' | sort -V | tail -1"
                         )
                         result = self._container_run(
                             detect_installed_cmd,
@@ -277,7 +277,7 @@ fi
                             raise_exception_obj=None,
                             use_run=use_run,
                         )
-                        if result and result.exit_code == 0 and result.combined:
+                        if result and result.exit_code == 0 and result.stdout:
                             selected_python_full = result.stdout[0].strip()
                         else:
                             selected_python_full = f"cpython-{python_version}"
@@ -286,30 +286,33 @@ fi
 
                     if selected_python_full:
                         update_symlink_cmd = f"""
-                        cd /workspace/.uv
+                        cd /workspace/frappe-bench/.uv
                         rm -f python-default
                         ln -sf python/{selected_python_full} python-default
                         """
                         self._container_run(update_symlink_cmd, raise_exception_obj=None, use_run=use_run)
 
-                    self.output.change_head(f"Creating virtual environment with {selected_python_full}")
-                    quoted_python = shlex.quote(selected_python_full)
-                    recreate_venv_cmd = f"""
-                    cd /workspace/frappe-bench
-                    if [ -d env ]; then
-                        timestamp=$(date +%Y%m%d_%H%M%S)
-                        mv env env.bak-$timestamp
-                    fi
-                    uv venv env --python {quoted_python} --seed --link-mode=copy
-                    """
-                    self._container_run(recreate_venv_cmd, raise_exception_obj=None, use_run=use_run)
-                    selected_version_str = (
-                        f"{selected_version[0]}.{selected_version[1]}.{selected_version[2]}"
-                        if selected_version
-                        else selected_python_full
-                    )
-                    self.output.print(f"Created virtual environment with Python {selected_version_str}")
-                    venv_recreated = True
+                    if recreate_python_env:
+                        self.output.change_head(f"Creating virtual environment with {selected_python_full}")
+                        quoted_python = shlex.quote(selected_python_full)
+                        recreate_venv_cmd = f"""
+                        cd /workspace/frappe-bench
+                        if [ -d env ]; then
+                            timestamp=$(date +%Y%m%d_%H%M%S)
+                            mv env env.bak-$timestamp
+                        fi
+                        uv venv env --python {quoted_python} --seed --link-mode=copy
+                        """
+                        self._container_run(recreate_venv_cmd, raise_exception_obj=None, use_run=use_run)
+                        selected_version_str = (
+                            f"{selected_version[0]}.{selected_version[1]}.{selected_version[2]}"
+                            if selected_version
+                            else selected_python_full
+                        )
+                        self.output.print(f"Created virtual environment with Python {selected_version_str}")
+                        venv_recreated = True
+                    else:
+                        self.output.print(f"Skipping venv recreation - Python {selected_python_full} set as default")
 
                 except Exception as e:
                     self.output.warning(f"Failed to setup Python {python_version}: {e}")
@@ -414,11 +417,15 @@ fi
 
                     # Verify yarn is available (should be auto-enabled by FNM_COREPACK_ENABLED)
                     verify_yarn = f"yarn --version"
-                    yarn_result = self._container_run(verify_yarn, capture_output=True, raise_exception_obj=None, use_run=use_run)
+                    yarn_result = self._container_run(
+                        verify_yarn, capture_output=True, raise_exception_obj=None, use_run=use_run
+                    )
                     if yarn_result and yarn_result.exit_code == 0:
                         self.output.print(f"Yarn is available for Node {node_version}")
                     else:
-                        self.output.warning(f"Yarn not available after Node {node_version} installation - corepack may have failed")
+                        self.output.warning(
+                            f"Yarn not available after Node {node_version} installation - corepack may have failed"
+                        )
 
                 except Exception as e:
                     self.output.warning(f"Failed to setup Node {node_version}: {e}")
@@ -888,7 +895,7 @@ fi
                         service=service,
                         command=run_command,
                         rm=True,
-                            entrypoint="/exec-entrypoint.sh",
+                        entrypoint="/exec-entrypoint.sh",
                         stream=True,
                     ),
                 )

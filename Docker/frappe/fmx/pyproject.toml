@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "fmx"
-version = "0.3.0"
+version = "1.0.0"
 authors = [
   { name="fmx - fm container helper cli", email="sys@rtcamp.com" },
 ]
@@ -35,6 +35,7 @@ dependencies = [
     "supervisor>=4.2.0,<5.0.0",
     "redis>=6.1.1",
     "rq>=2.3.3",
+    "typer-examples @ git+https://github.com/Xieyt/typer-examples.git@v1.0.0",
 ]
 
 [project.urls]

@@ -329,7 +329,7 @@ function setup_fnm_and_yarn() {
 
 	# Set FNM_COREPACK_ENABLED to auto-enable corepack for all Node versions
 	export FNM_COREPACK_ENABLED=true
-	
+
 	echo "Verifying yarn is available (auto-enabled by FNM_COREPACK_ENABLED)..."
 	if yarn --version >/dev/null 2>&1; then
 		echo "Yarn is available"
@@ -352,10 +352,10 @@ get_pyvenv_version() {
 function configure_workspace() {
 	start_time=$(date +%s.%N)
 
-	if [[ ! -d "/workspace/.fnm/node-versions" ]]; then
-		echo "Creating /workspace/.fnm for runtime Node installations..."
-		mkdir -p /workspace/.fnm/node-versions
-		chown -R frappe:frappe /workspace/.fnm
+	if [[ ! -d "/workspace/frappe-bench/.fnm/node-versions" ]]; then
+		echo "Creating /workspace/frappe-bench/.fnm for runtime Node installations..."
+		mkdir -p /workspace/frappe-bench/.fnm/node-versions
+		chown -R frappe:frappe /workspace/frappe-bench/.fnm
 	fi
 
 	# Create .hushlogin to suppress sudo message

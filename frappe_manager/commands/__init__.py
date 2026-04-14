@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Annotated, List, Optional, cast
 
 import typer
+from typer_examples import install
 from rich.panel import Panel
 
 from frappe_manager import (
@@ -106,6 +107,8 @@ def check_bench_migration_required(bench_name: str | None) -> None:
 
 # Create main Typer app
 app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
+# Activate typer-examples for the main Typer app
+install(app)
 
 # Register subcommands
 app.add_typer(services_app, name="services", help="Handle global services.")

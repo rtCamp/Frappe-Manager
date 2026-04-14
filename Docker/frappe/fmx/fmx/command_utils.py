@@ -10,6 +10,7 @@ MESSAGES: Dict[str, str] = {
     "AVAILABLE_SERVICES": "Available services: {services_list}",
 }
 
+
 def validate_services(
     display: DisplayManager,
     services_to_target: List[str],
@@ -43,10 +44,46 @@ def validate_services(
         display.print(MESSAGES["AVAILABLE_SERVICES"].format(services_list=', '.join(all_services) or 'None'))
         return False, None
 
-    target_desc = "all services" if len(services_to_target) == len(all_services) else \
-                 f"service(s): {display.highlight(', '.join(services_to_target))}"
-    
+    target_desc = (
+        "all services"
+        if len(services_to_target) == len(all_services)
+        else f"service(s): {display.highlight(', '.join(services_to_target))}"
+    )
+
     return True, target_desc
+
+
+def format_wait_desc(wait: bool) -> str:
+    """Return a human-readable wait mode label for display messages.
+
+    Args:
+        wait: True if the command will wait for operations to complete.
+
+    Returns:
+        str: "(with wait)" or "(without wait)"
+    """
+    return "(with wait)" if wait else "(without wait)"
+
+
+def resolve_service_targets(service_names_enum_list, all_services: List[str]) -> List[str]:
+    """Resolve CLI service name arguments to a concrete list of service name strings.
+
+    If no service names are specified (i.e. the list is falsy / None), all
+    available services are targeted.
+
+    Args:
+        service_names_enum_list: A list of Enum members whose ``.value`` is the
+            service name string, or any falsy value (``None``, ``[]``) to
+            indicate "all services".
+        all_services: The full list of available service name strings.
+
+    Returns:
+        List[str]: Service names to act on.
+    """
+    if not service_names_enum_list:
+        return all_services
+    return [s.value for s in service_names_enum_list]
+
 
 def get_process_description(display: DisplayManager, process_names: Optional[List[str]] = None) -> str:
     """

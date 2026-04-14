@@ -23,11 +23,12 @@ dependencies = [
     "gitpython>=3.1.40,<4.0.0",
     "cryptography>=46.0.0,<47.0.0",
     "packaging>=26.0.0,<27.0.0",
+    "typer-examples",
 ]
 
 [project.urls]
 Repository = "https://github.com/rtcamp/frappe-manager"
-Documentation = "https://github.com/rtcamp/frappe-manager/wiki"
+Documentation = "https://rtcamp.github.io/frappe-manager/"
 "Bug Tracker" = "https://github.com/rtcamp/frappe-manager/issues"
 
 [project.scripts]
@@ -113,6 +114,8 @@ path = "frappe_manager/__about__.py"
 package = true
 
 [tool.uv.sources]
+typer-examples = { git = "https://github.com/Xieyt/typer-examples", tag = "v1.1.0" }
+mike = { git = "https://github.com/squidfunk/mike.git" }
 
 [dependency-groups]
 dev = [
@@ -121,6 +124,8 @@ dev = [
     "pytest-cov>=7.0.0",
     "pytest-env>=1.2.0",
     "debugpy>=1.8.20",
+    "zensical",
+    "mike",
 ]
 
 [tool.pytest.ini_options]
@@ -143,4 +148,3 @@ markers = [
 env = [
     "FM_LETSENCRYPT_STAGING=0",
 ]
-

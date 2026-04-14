@@ -1,9 +1,13 @@
 """SSL management commands module."""
 
 import typer
+from typer_examples import install
 
 # Create main SSL app
 ssl_app = typer.Typer(no_args_is_help=True, rich_markup_mode="rich")
+
+# Activate typer-examples for this Typer app
+install(ssl_app)
 
 # Import commands to register them
 from .acme_sh import acmesh_passthrough

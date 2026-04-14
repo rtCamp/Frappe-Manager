@@ -3,6 +3,7 @@
 from typing import Annotated
 
 import typer
+from typer_examples import example
 
 from frappe_manager.logger.context import LoggerContext
 from frappe_manager.output_manager import temporary_stop
@@ -14,6 +15,35 @@ from .external_helpers import _add_external_certificate
 from .helpers import get_output_handler
 
 
+@example(
+    "Add SSL certificate with HTTP-01 challenge",
+    "{benchname} example.com --challenge http01",
+    detail="Requests a certificate using an HTTP-01 challenge and installs it into the bench's nginx configuration.",
+    benchname="mybench",
+)
+@example(
+    "Add SSL certificate with DNS-01 challenge (Cloudflare)",
+    "{benchname} example.com --challenge dns01",
+    detail="Requests a certificate using DNS-01 validation; configure DNS provider credentials first when required.",
+    benchname="mybench",
+)
+@example(
+    "Add for external Docker project (standalone mode)",
+    "example.com --standalone",
+    detail="Manage SSL for an external Docker project by using standalone mode and FM's nginx-proxy.",
+)
+@example(
+    "Test with Let's Encrypt staging (dry-run)",
+    "{benchname} example.com --dry-run",
+    detail="Performs a dry-run against Let's Encrypt staging environment to validate configuration without issuing production certs.",
+    benchname="mybench",
+)
+@example(
+    "Add with CNAME delegation for DNS validation",
+    "{benchname} example.com --challenge dns01 --cname delegated.example.com",
+    detail="Uses a CNAME delegation target for DNS-01 validation when the DNS zone is delegated to another provider.",
+    benchname="mybench",
+)
 def add_certificate(
     ctx: typer.Context,
     benchname: Annotated[
@@ -62,14 +92,10 @@ def add_certificate(
     ] = False,
 ):
     """
-    Add SSL certificate for a domain.
+    Add an SSL certificate for a domain.
 
-    Supports both bench mode (default) and standalone mode for external Docker projects.
-    Standalone mode allows managing SSL for any Docker project using FM's nginx-proxy.
-
-    Use --dry-run to test certificate generation with Let's Encrypt staging server
-    before committing to production. This validates DNS/HTTP configuration without
-    rate limits or system modifications.
+    Supports bench mode (adds certificate to a bench) and standalone mode for external Docker projects using FM nginx-proxy.
+    Use --dry-run to validate issuance against Let's Encrypt staging first.
     """
 
     if standalone:

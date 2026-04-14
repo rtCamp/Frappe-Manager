@@ -14,38 +14,43 @@
 set -e
 
 # Set up environment paths (same as entrypoint.sh)
-export FNM_DIR=/workspace/.fnm
+export FNM_DIR=/workspace/frappe-bench/.fnm
 export FNM_NODE_DIST_MIRROR=https://nodejs.org/dist
-export FNM_MULTISHELL_PATH=/workspace/.fnm
+export FNM_MULTISHELL_PATH=/workspace/frappe-bench/.fnm
 
-if [ -d "/workspace/.uv/python-default/bin" ]; then
-	export PATH="/workspace/.uv/python-default/bin:/workspace/.fnm/aliases/default/bin:/usr/local/bin:/opt/user/.bin:${PATH}"
+if [ -d "/workspace/frappe-bench/.uv/python-default/bin" ]; then
+	export PATH="/workspace/frappe-bench/.uv/python-default/bin:/workspace/frappe-bench/.fnm/aliases/default/bin:/usr/local/bin:/opt/user/.bin:${PATH}"
 else
-	export PATH="/workspace/.fnm/aliases/default/bin:/usr/local/bin:/opt/user/.bin:${PATH}"
+	export PATH="/workspace/frappe-bench/.fnm/aliases/default/bin:/usr/local/bin:/opt/user/.bin:${PATH}"
 fi
 
 # Validate required environment variables
-[[ "${USERID:-}" ]] || { echo "[ERROR] Please provide USERID environment variable."; exit 1; }
-[[ "${USERGROUP:-}" ]] || { echo "[ERROR] Please provide USERGROUP environment variable."; exit 1; }
-
+[[ "${USERID:-}" ]] || {
+	echo "[ERROR] Please provide USERID environment variable."
+	exit 1
+}
+[[ "${USERGROUP:-}" ]] || {
+	echo "[ERROR] Please provide USERGROUP environment variable."
+	exit 1
+}
 
 # Execute command using numeric UID:GID via gosu (NO usermod needed!)
 # gosu supports numeric UIDs without requiring /etc/passwd entries
 # Pass all critical environment variables explicitly since gosu may reset them
 exec gosu "${USERID}":"${USERGROUP}" env \
-    HOME=/workspace \
-    USER=frappe \
-    GROUP=frappe \
-    PATH="${PATH}" \
-    FNM_DIR="${FNM_DIR}" \
-    FNM_NODE_DIST_MIRROR="${FNM_NODE_DIST_MIRROR}" \
-    FNM_MULTISHELL_PATH="${FNM_MULTISHELL_PATH}" \
-    FNM_COREPACK_ENABLED=true \
-    UV_PYTHON_INSTALL_DIR=/workspace/.uv/python \
-    UV_CACHE_DIR=/workspace/.uv/cache \
-    BENCH_USE_UV=true \
-    PYTHONUNBUFFERED=1 \
-    LC_ALL=en_US.UTF-8 \
-    LANG=en_US.UTF-8 \
-    LANGUAGE=en_US.UTF-8 \
-    "$@"
+	HOME=/workspace \
+	USER=frappe \
+	GROUP=frappe \
+	PATH="${PATH}" \
+	FNM_DIR="${FNM_DIR}" \
+	FNM_NODE_DIST_MIRROR="${FNM_NODE_DIST_MIRROR}" \
+	FNM_MULTISHELL_PATH="${FNM_MULTISHELL_PATH}" \
+	FNM_COREPACK_ENABLED=true \
+	UV_PYTHON_INSTALL_DIR=/workspace/frappe-bench/.uv/python \
+	UV_CACHE_DIR=/workspace/frappe-bench/.uv/cache \
+	BENCH_USE_UV=true \
+	PYTHONUNBUFFERED=1 \
+	LC_ALL=en_US.UTF-8 \
+	LANG=en_US.UTF-8 \
+	LANGUAGE=en_US.UTF-8 \
+	"$@"

@@ -1,12 +1,23 @@
 from typing import Annotated
 
 import typer
+from typer_examples import example
 
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.services_manager import ServicesEnum
 from frappe_manager.services_manager.services import ServicesManager
 
 
+@example(
+    "Start global-db only",
+    "global-db",
+    detail="Starts only the global-db service used to store bench databases.",
+)
+@example(
+    "Start all global services",
+    "all",
+    detail="Starts all global services managed by FM (nginx-proxy, global-db, etc.).",
+)
 def start_services(
     ctx: typer.Context,
     service_name: Annotated[ServicesEnum, typer.Argument(help="Name of the service.")],

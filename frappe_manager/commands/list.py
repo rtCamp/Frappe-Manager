@@ -1,4 +1,5 @@
 import typer
+from typer_examples import example
 
 from frappe_manager import (
     CLI_BENCHES_DIRECTORY,
@@ -7,6 +8,11 @@ from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_service import BenchService
 
 
+@example(
+    "List all available benches",
+    "",
+    detail="Shows a table of all benches managed by FM with status and environment information.",
+)
 def list(ctx: typer.Context):
     """
     List all benches.

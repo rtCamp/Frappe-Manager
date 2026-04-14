@@ -1,6 +1,7 @@
 from typing import Annotated
 
 import typer
+from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.output_manager import get_global_output_handler, spinner
@@ -11,6 +12,36 @@ from frappe_manager.utils.callbacks import (
 )
 
 
+@example(
+    "Start bench containers",
+    "{benchname}",
+    detail="Starts all containers for the specified bench. Useful to bring a bench up after stopping or system reboot.",
+    benchname="mybench",
+)
+@example(
+    "Force recreate containers",
+    "{benchname} --force",
+    detail="Recreates containers even if they already exist; use when container images or configuration changed.",
+    benchname="mybench",
+)
+@example(
+    "Start and reconfigure workers",
+    "{benchname} --reconfigure-workers",
+    detail="Starts the bench and reconfigures worker processes to pick up configuration changes.",
+    benchname="mybench",
+)
+@example(
+    "Start with supervisor reconfiguration",
+    "{benchname} --reconfigure-supervisor",
+    detail="Reconfigures the supervisor process manager during start to update process definitions.",
+    benchname="mybench",
+)
+@example(
+    "Start and sync dev packages",
+    "{benchname} --sync-dev-packages",
+    detail="Synchronizes development packages after starting; useful in development workflows.",
+    benchname="mybench",
+)
 def start(
     ctx: typer.Context,
     benchname: Annotated[
@@ -38,10 +69,7 @@ def start(
     """
     Start a bench.
 
-    Starts all containers for the specified bench. Use --force to recreate containers.
-    Various --reconfigure options allow syncing configuration changes without full restart.
-    Use --reconfigure-supervisor for process management,
-    and --reconfigure-workers to update worker configurations.
+    Starts all containers for the specified bench. Reconfigure flags allow updating process and worker settings.
     """
 
     check_bench_migration_required(benchname)

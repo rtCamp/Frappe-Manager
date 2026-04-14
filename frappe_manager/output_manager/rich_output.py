@@ -297,7 +297,8 @@ class RichOutputHandler(OutputHandler):
             while True:
                 try:
                     source, line = next(data)
-                    line = line.decode()
+                    if isinstance(line, bytes):
+                        line = line.decode(errors="replace")
 
                     if "[==".lower() in line.lower() or "Updating files:".lower() in line.lower():
                         continue
@@ -322,7 +323,8 @@ class RichOutputHandler(OutputHandler):
         while True:
             try:
                 source, line = next(data)
-                line = line.decode()
+                if isinstance(line, bytes):
+                    line = line.decode(errors="replace")
 
                 if "[==".lower() in line.lower() or "Updating files:".lower() in line.lower():
                     continue

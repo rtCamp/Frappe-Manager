@@ -2,6 +2,7 @@ from enum import Enum
 from typing import Annotated
 
 import typer
+from typer_examples import example
 from rich.table import Table
 
 from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY
@@ -24,6 +25,47 @@ class MigrationFailureAction(str, Enum):
     rollback = "rollback"
 
 
+@example(
+    "Migrate FM infrastructure only (safe)",
+    "",
+    detail="Applies only FM infrastructure migrations without touching benches. Safe to run for CLI updates.",
+)
+@example(
+    "Migrate specific bench",
+    "{benchname}",
+    detail="Runs migration steps for a specific bench to bring it in line with the FM version.",
+    benchname="mybench",
+)
+@example(
+    "Migrate all benches",
+    "--all-benches",
+    detail="Applies migrations to all benches managed by FM. Use with caution and consider backups.",
+)
+@example(
+    "Skip confirmation prompt",
+    "--all-benches --auto-proceed",
+    detail="Runs migrations across all benches without interactive prompts. Useful for automation.",
+)
+@example(
+    "Auto-proceed with auto-rollback on failure",
+    "--all-benches --auto-proceed --on-failure=rollback",
+    detail="Automatically proceeds with migrations and rolls back if a failure occurs.",
+)
+@example(
+    "Auto-proceed, archive failed benches (partial success OK)",
+    "--all-benches --auto-proceed --on-failure=archive",
+    detail="Archives benches that fail migration while continuing others; useful for large fleets.",
+)
+@example(
+    "Skip all backups (dangerous)",
+    "--all-benches --skip-all-backup",
+    detail="Disables taking backups before migration. This is risky and should only be used in controlled scenarios.",
+)
+@example(
+    "Exclude specific benches",
+    "--all-benches --exclude-bench mybench1,mybench2",
+    detail="Excludes specific benches from a full migration run.",
+)
 def migrate(
     ctx: typer.Context,
     benchname: Annotated[

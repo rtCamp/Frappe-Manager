@@ -132,6 +132,36 @@ class BenchInfo:
             apps_data = json.load(f)
         return apps_data
 
+    def get_python_version(self) -> str:
+        """
+        Read the active Python version from the uv python-default symlink.
+
+        Returns:
+            Version string (e.g. "3.12.9") or "N/A" if not resolvable.
+        """
+        symlink = self.bench_path / "workspace/frappe-bench/.uv/python-default"
+        try:
+            target = Path(symlink.readlink()).name  # e.g. cpython-3.12.9-linux-x86_64-gnu
+            parts = target.split("-")
+            return parts[1] if len(parts) > 1 else "N/A"
+        except (OSError, IndexError):
+            return "N/A"
+
+    def get_node_version(self) -> str:
+        """
+        Read the active Node version from the fnm default alias symlink.
+
+        Returns:
+            Version string (e.g. "v22.11.0") or "N/A" if not resolvable.
+        """
+        symlink = self.bench_path / "workspace/frappe-bench/.fnm/aliases/default"
+        try:
+            target = symlink.readlink()  # e.g. ../node-versions/v22.11.0/installation
+            version = next((p for p in target.parts if p.startswith("v")), None)
+            return version or "N/A"
+        except OSError:
+            return "N/A"
+
     def get_log_file_paths(self) -> list[Path]:
         """
         Get log file paths based on environment type.
@@ -188,6 +218,8 @@ class BenchInfo:
             "Bench Url": f"{protocol}://{self.bench_name}",
             "Bench Root": f"[link=file://{self.bench_path.absolute()}]{self.bench_path.absolute()}[/link]",
             "Status": status_display,
+            "Python Version": self.get_python_version(),
+            "Node Version": self.get_node_version(),
             "Frappe Username": "administrator",
             "Frappe Password": admin_pass,
             "Root DB User": services_db_info.user,

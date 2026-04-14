@@ -3,26 +3,50 @@
 import os
 
 import typer
+from typer_examples import example
 
 from frappe_manager.utils.subprocess import stream_command_output
 
 from .helpers import get_output_handler
 
 
+@example(
+    "Show acme.sh help and available commands",
+    "",
+    detail="Displays acme.sh help. Use for learning available subcommands and flags.",
+)
+@example(
+    "List all certificates managed by acme.sh",
+    "--list",
+    detail="Lists certificates that acme.sh currently manages in its home directory.",
+)
+@example(
+    "Show certificate information for a domain",
+    "--info -d example.com",
+    detail="Shows detailed information for a managed certificate for the domain.",
+)
+@example(
+    "Check acme.sh version",
+    "--version",
+    detail="Prints the installed acme.sh version used by FM.",
+)
+@example(
+    "Upgrade acme.sh to latest version",
+    "--upgrade",
+    detail="Upgrades the bundled acme.sh installation to the latest release.",
+)
+@example(
+    "Force renew certificate for a domain",
+    "--renew -d example.com --force",
+    detail="Forces a renewal for a certificate using acme.sh; advanced option for recovery and testing.",
+)
 def acmesh_passthrough(
     ctx: typer.Context,
 ):
     """
     Run acme.sh commands directly with FM's environment (advanced users).
 
-    [bold yellow]⚠️  Advanced users only![/bold yellow]
-    This bypasses FM's certificate management. Use 'fm ssl add/remove/renew' for normal operations.
-
-    This command provides direct access to acme.sh for advanced operations like certificate
-    listing, info checking, manual renewals, revocations, and debugging.
-
-    All acme.sh commands run with FM's SSL directory configuration and full access to
-    certificate storage.
+    Advanced users only: this bypasses FM's certificate management. Prefer 'fm ssl add/remove/renew' for normal workflows.
     """
     args = ctx.args
 

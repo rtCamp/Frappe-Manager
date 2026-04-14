@@ -1,6 +1,7 @@
 from typing import Annotated
 
 import typer
+from typer_examples import example
 
 from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.output_manager import get_global_output_handler
@@ -8,6 +9,24 @@ from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
 
 
+@example(
+    "Delete a bench",
+    "{benchname}",
+    detail="Deletes the bench directory and associated containers. This is destructive and will remove local bench data.",
+    benchname="mybench",
+)
+@example(
+    "Delete without confirmation",
+    "{benchname} --yes",
+    detail="Performs deletion without interactive confirmation. Use with caution in scripts or automation.",
+    benchname="mybench",
+)
+@example(
+    "Delete bench and its database from global-db",
+    "{benchname} --delete-db-from-global-db",
+    detail="Also deletes the bench's database from the global-db service. This permanently removes stored site data.",
+    benchname="mybench",
+)
 def delete(
     ctx: typer.Context,
     benchname: Annotated[
@@ -30,9 +49,7 @@ def delete(
     """
     Delete a bench and optionally its database from global-db service.
 
-    This command removes the bench directory, containers, and all associated data.
-    By default, asks for confirmation before deletion. Use --yes to skip confirmation.
-    Optionally delete the bench's database from the global-db service with --delete-db-from-global-db.
+    Removes the bench directory, containers, and associated data. Use --yes to avoid confirmation prompts.
     """
 
     if benchname:
