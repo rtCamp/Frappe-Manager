@@ -28,8 +28,6 @@ The most common commands to get you started:
     fm stop mybench
     ```
     
-    [:octicons-arrow-right-24: Stop](stop.md)
-
 -   :material-console:{ .lg .middle } **[Run commands](shell.md)**
 
     ---

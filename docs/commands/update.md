@@ -26,6 +26,7 @@ $ fm update BENCHNAME [OPTIONS]
 * `--python`: Update Python version (e.g., '3.11', '3.12', '>=3.11,<3.14'). Will recreate virtual environment.
 * `--node`: Update Node version (e.g., '18', '20', '>=18'). Will install and set as default.
 * `--skip-version-check`: Skip validation of Python/Node versions against Frappe requirements. Use with caution.
+* `--recreate-python-env/--no-recreate-python-env`: Recreate the Python virtual environment. Use --no-recreate-python-env to skip if current version already satisfies the requirement.
 * `--restart`: Update Docker restart policy for all bench services.
 * `--allow-domain-conflicts`: Skip domain uniqueness validation when adding aliases (not recommended).
 
