@@ -1,0 +1,14 @@
+{
+    "python.defaultInterpreterPath": "/workspace/frappe-bench/env/bin/python",
+    "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {"source.fixAll": true, "source.organizeImports": true},
+        "editor.detectIndentation": true,
+        "editor.tabSize": 4,
+        "editor.insertSpaces": true
+    },
+    "ruff.organizeImports": true,
+    "ruff.fixAll": true,
+    "ruff.lint.run": "onSave"
+}
