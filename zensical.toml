@@ -74,6 +74,8 @@ nav = [
 [project.theme]
 variant  = "modern"
 language = "en"
+logo     = "assets/logo.png"
+favicon  = "assets/logo.png"
 font = { text = "Reddit Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif", code = "JetBrains Mono, Consolas, Monaco, monospace" }
 features = [
   # Navigation
