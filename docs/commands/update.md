@@ -91,10 +91,18 @@ fm update mybench --remove-alias shop.example.com
 
 ### Update Python version
 
-Updates the bench Python runtime and recreates virtual environments. May reinstall apps into the new environment.
+Updates the bench Python runtime, recreates the virtual environment, and reinstalls all apps into the new environment.
 
 ```bash
 fm update mybench --python 3.11
+```
+
+### Install Python without recreating venv
+
+Installs Python 3.14 via uv and sets it as default without touching the existing virtual environment.
+
+```bash
+fm update mybench --python 3.14 --no-recreate-python-env
 ```
 
 ### Update Node version
