@@ -65,7 +65,7 @@ jobs:
           echo "slug=$slug" >> $GITHUB_OUTPUT
       - name: Deploy versioned docs (release tag)
         if: startsWith(github.ref, 'refs/tags/v')
-        run: mike deploy --push --update-aliases --title "${{ steps.ver.outputs.slug }}" ${{ steps.ver.outputs.slug }} latest -F zensical.toml
+        run: mike deploy --push --update-aliases --alias-type redirect --title "${{ steps.ver.outputs.slug }}" ${{ steps.ver.outputs.slug }} latest -F zensical.toml
       - name: Deploy dev docs (develop branch)
         if: github.ref == 'refs/heads/develop'
         run: |
@@ -78,7 +78,7 @@ jobs:
                   print(v['version'])
           ")
           [ -n "$stale" ] && mike delete --push "$stale" -F zensical.toml || true
-          mike deploy --push --update-aliases --title "${{ steps.ver.outputs.full }}" ${{ steps.ver.outputs.full }} dev -F zensical.toml
+          mike deploy --push --update-aliases --alias-type redirect --title "${{ steps.ver.outputs.full }}" ${{ steps.ver.outputs.full }} dev -F zensical.toml
       - name: Set default version to latest (release tag)
         if: startsWith(github.ref, 'refs/tags/v')
         run: mike set-default --push latest -F zensical.toml
