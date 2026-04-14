@@ -72,7 +72,13 @@ from frappe_manager.utils.callbacks import (
 @example(
     "Update Python version",
     "{benchname} --python 3.11",
-    detail="Updates the bench Python runtime and recreates virtual environments. May reinstall apps into the new environment.",
+    detail="Updates the bench Python runtime, recreates the virtual environment, and reinstalls all apps into the new environment.",
+    benchname="mybench",
+)
+@example(
+    "Install Python without recreating venv",
+    "{benchname} --python 3.14 --no-recreate-python-env",
+    detail="Installs Python 3.14 via uv and sets it as default without touching the existing virtual environment.",
     benchname="mybench",
 )
 @example(
