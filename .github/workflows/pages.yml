@@ -41,6 +41,10 @@ jobs:
         run: uv sync --no-dev
       - name: Generate command reference docs
         run: uv run python scripts/update_cli_docs.py
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Compile SCSS
+        run: bunx sass docs/stylesheets/extra.scss docs/stylesheets/extra.css --style=compressed --no-source-map
       - name: Install Zensical and mike
         run: uv pip install --system zensical "git+https://github.com/squidfunk/mike.git"
       - name: Configure git for mike

@@ -213,6 +213,10 @@ $svg-footer-dark:  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/
   @include bg-pattern($light-cream, $svg-header-light, center top);
   border-bottom: 1px solid $light-border-faint;
   position: relative;
+
+  // Always visible — prevent Material from hiding header on scroll
+  transform: none !important;
+  transition: color 0.25s, background-color 0.25s !important;
 }
 
 .md-tabs {
