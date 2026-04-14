@@ -93,14 +93,13 @@ VSCODE_SETTINGS_JSON = {
     "[python]": {
         "editor.defaultFormatter": "charliermarsh.ruff",
         "editor.formatOnSave": True,
-        "editor.codeActionsOnSave": {"source.fixAll": True, "source.organizeImports": True},
+        "editor.codeActionsOnSave": {"source.fixAll": "always", "source.organizeImports": "always"},
         "editor.detectIndentation": True,
         "editor.tabSize": 4,
         "editor.insertSpaces": True,
     },
     "ruff.organizeImports": True,
     "ruff.fixAll": True,
-    "ruff.lint.run": "onSave",
 }
 
 PREBAKED_SITE_APPS = {
