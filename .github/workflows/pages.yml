@@ -3,7 +3,6 @@ name: Deploy Documentation
 on:
   push:
     branches:
-      - main
       - develop
     tags:
       - 'v*'
@@ -79,19 +78,6 @@ jobs:
           ")
           [ -n "$stale" ] && mike delete --push "$stale" -F zensical.toml || true
           mike deploy --push --update-aliases --title "${{ steps.ver.outputs.full }}" ${{ steps.ver.outputs.full }} dev -F zensical.toml
-      - name: Deploy next docs (main branch)
-        if: github.ref == 'refs/heads/main'
-        run: |
-          stale=$(mike list --json -F zensical.toml | python3 -c "
-          import json, sys
-          versions = json.load(sys.stdin)
-          new = '${{ steps.ver.outputs.full }}'
-          for v in versions:
-              if 'next' in v.get('aliases', []) and v['version'] != new:
-                  print(v['version'])
-          ")
-          [ -n "$stale" ] && mike delete --push "$stale" -F zensical.toml || true
-          mike deploy --push --update-aliases --title "${{ steps.ver.outputs.full }}" ${{ steps.ver.outputs.full }} next -F zensical.toml
       - name: Set default version to latest (release tag)
         if: startsWith(github.ref, 'refs/tags/v')
         run: mike set-default --push latest -F zensical.toml
