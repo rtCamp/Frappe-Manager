@@ -100,7 +100,7 @@ def command(
         rq_status = None
 
         try:
-            supervisor_future.result(timeout=10)
+            supervisor_future.result()
         except Exception as e:
             supervisor_error = e
             display.warning(f"Failed to fetch supervisor status: {e}")

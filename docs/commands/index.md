@@ -265,8 +265,3 @@ fm self compose mybench ps
 
 !!! tip "Quick Help"
     Use `fm <command> --help` to see detailed options and examples for any command.
-
----
-
-!!! tip "Quick Help"
-    Use `fm <command> --help` to see detailed options and examples for any command.

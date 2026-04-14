@@ -53,7 +53,7 @@ def execute_supervisor_command(
        - "stop": Delegates to _handle_stop with worker options
        - "start": Delegates to _handle_start with validation and state tracking
        - "restart": Delegates to _handle_restart with complete stop-then-start
-       - "info"/"INFO": Delegates to _handle_info for raw process data
+       - "info" or "INFO": Delegates to _handle_info for raw process data (case-insensitive)
        - "signal": Delegates to _handle_signal for targeted process signaling
     3. Wraps all operations in connection error handling
     4. Converts network/socket errors to SupervisorConnectionError for consistency
@@ -107,7 +107,7 @@ def execute_supervisor_command(
             if process_names is None:
                 raise ValueError("Process names must be provided for the 'signal' action.")
             return _handle_signal(supervisor_api, service_name, process_names, signal_name)
-        elif action == "INFO":
+        elif action in ("info", "INFO"):
             return _handle_info(supervisor_api, service_name)
         else:
             raise ValueError(f"Unknown supervisor action requested: {action}")

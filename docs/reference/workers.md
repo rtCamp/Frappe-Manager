@@ -126,10 +126,6 @@ See the [fmx guide](../guides/fmx.md) for the full list of restart options inclu
 
 `fm restart mybench --workers` kills worker processes immediately, interrupting any in-flight job mid-execution.
 
-### The Problem
-
-`fm restart mybench --workers` kills worker processes immediately, interrupting any in-flight job mid-execution.
-
 **Consequences:**
 
 - Half-sent email batches

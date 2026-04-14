@@ -23,12 +23,12 @@ def read_common_site_config(verbose: bool = False) -> dict:
                 with contextlib.suppress(json.JSONDecodeError):
                     config = json.load(f)
             if verbose:
-                print(f"[dim]Read config from {COMMON_SITE_CONFIG_PATH}[/dim]", file=sys.stderr)
+                print(f"Read config from {COMMON_SITE_CONFIG_PATH}", file=sys.stderr)
         elif verbose:
-            print(f"[dim]Config file {COMMON_SITE_CONFIG_PATH} does not exist.[/dim]", file=sys.stderr)
+            print(f"Config file {COMMON_SITE_CONFIG_PATH} does not exist.", file=sys.stderr)
     except OSError as e:
         if verbose:
-            print(f"[yellow]Warning:[/yellow] Could not read {COMMON_SITE_CONFIG_PATH}: {e}", file=sys.stderr)
+            print(f"Warning: Could not read {COMMON_SITE_CONFIG_PATH}: {e}", file=sys.stderr)
     return config
 
 
@@ -46,7 +46,7 @@ def get_common_site_config_value(key: str, default: Optional[Any] = None, verbos
     config = read_common_site_config(verbose=verbose)
     value = config.get(key, default)
     if verbose:
-        print(f"[dim]Value for key '{key}': {json.dumps(value)}[/dim]", file=sys.stderr)
+        print(f"Value for key '{key}': {json.dumps(value)}", file=sys.stderr)
     return value
 
 
