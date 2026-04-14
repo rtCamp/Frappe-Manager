@@ -15,8 +15,6 @@ on:
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
   group: pages
@@ -50,6 +48,9 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Set custom domain
+        if: vars.PAGES_CNAME != ''
+        run: echo "${{ vars.PAGES_CNAME }}" > docs/CNAME
       - name: Resolve version slug from __about__.py
         id: ver
         run: |
@@ -84,10 +85,3 @@ jobs:
       - name: Set default version to dev (develop branch)
         if: github.ref == 'refs/heads/develop'
         run: mike set-default --push dev -F zensical.toml
-      - name: Ensure custom domain is set
-        if: vars.PAGES_CNAME != ''
-        run: |
-          gh api repos/${{ github.repository }}/pages --jq '.cname' | grep -qF "${{ vars.PAGES_CNAME }}" || \
-          gh api --method PATCH repos/${{ github.repository }}/pages -f cname="${{ vars.PAGES_CNAME }}"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
