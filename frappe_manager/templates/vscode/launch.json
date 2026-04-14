@@ -1,0 +1,64 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "fm-frappe-debug",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/workspace/frappe-bench/apps/frappe/frappe/utils/bench_helper.py",
+            "preLaunchTask": "fm-kill-port",
+            "args": ["frappe", "serve", "--port", "80", "--noreload", "--nothreading"],
+            "cwd": "/workspace/frappe-bench/sites",
+            "consoleName": "Frappe Debug",
+            "env": {"DEV_SERVER": "1"},
+            "justMyCode": false
+        },
+        {
+            "name": "Debug Specific Queue",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/workspace/frappe-bench/apps/frappe/frappe/utils/bench_helper.py",
+            "args": [
+                "frappe",
+                "worker",
+                "--queue",
+                "${input:queue}"
+            ],
+            "consoleName": "${input:queue} worker",
+            "cwd": "/workspace/frappe-bench/sites"
+        },
+        {
+            "name": "Debug specific fuction",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/workspace/frappe-bench/apps/frappe/frappe/utils/bench_helper.py",
+            "cwd": "/workspace/frappe-bench/sites",
+            "args": [
+                "frappe",
+                "execute",
+                "${input:executable_path}"
+            ],
+            "consoleName": "Frappe Function"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "queue",
+            "type": "command",
+            "command": "extension.commandvariable.promptStringRemember",
+            "args": {
+                "key": "frappe_queue_name",
+                "description": "Enter the queue name to debug."
+            }
+        },
+        {
+            "id": "executable_path",
+            "type": "command",
+            "command": "extension.commandvariable.promptStringRemember",
+            "args": {
+                "key": "frappe_executable_path",
+                "description": "Enter the path to frappe executable function"
+            }
+        }
+    ]
+}
