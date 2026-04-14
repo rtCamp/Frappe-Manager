@@ -167,6 +167,14 @@ def update(
             show_default=False,
         ),
     ] = False,
+    recreate_python_env: Annotated[
+        bool,
+        typer.Option(
+            "--recreate-python-env/--no-recreate-python-env",
+            help="Recreate the Python virtual environment. Use --no-recreate-python-env to skip if current version already satisfies the requirement.",
+            show_default=True,
+        ),
+    ] = True,
     restart: Annotated[
         RestartPolicyEnum | None,
         typer.Option(
@@ -393,7 +401,9 @@ def update(
             bench_config_save = False
 
             output.change_head("Setting up new runtime environment")
-            venv_recreated = bench.app_manager.setup_python_and_node_environments(use_run=True)
+            venv_recreated = bench.app_manager.setup_python_and_node_environments(
+                use_run=True, recreate_python_env=recreate_python_env
+            )
             output.print("Runtime versions updated successfully")
 
             if venv_recreated:

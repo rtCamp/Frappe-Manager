@@ -135,7 +135,7 @@ class BenchAppManager:
 
         return versions
 
-    def setup_python_and_node_environments(self, use_run: bool = False) -> bool:
+    def setup_python_and_node_environments(self, use_run: bool = False, recreate_python_env: bool = False) -> bool:
         """
         Setup Python and Node.js environments for the bench.
 
@@ -277,7 +277,7 @@ fi
                             raise_exception_obj=None,
                             use_run=use_run,
                         )
-                        if result and result.exit_code == 0 and result.combined:
+                        if result and result.exit_code == 0 and result.stdout:
                             selected_python_full = result.stdout[0].strip()
                         else:
                             selected_python_full = f"cpython-{python_version}"
@@ -292,24 +292,27 @@ fi
                         """
                         self._container_run(update_symlink_cmd, raise_exception_obj=None, use_run=use_run)
 
-                    self.output.change_head(f"Creating virtual environment with {selected_python_full}")
-                    quoted_python = shlex.quote(selected_python_full)
-                    recreate_venv_cmd = f"""
-                    cd /workspace/frappe-bench
-                    if [ -d env ]; then
-                        timestamp=$(date +%Y%m%d_%H%M%S)
-                        mv env env.bak-$timestamp
-                    fi
-                    uv venv env --python {quoted_python} --seed --link-mode=copy
-                    """
-                    self._container_run(recreate_venv_cmd, raise_exception_obj=None, use_run=use_run)
-                    selected_version_str = (
-                        f"{selected_version[0]}.{selected_version[1]}.{selected_version[2]}"
-                        if selected_version
-                        else selected_python_full
-                    )
-                    self.output.print(f"Created virtual environment with Python {selected_version_str}")
-                    venv_recreated = True
+                    if recreate_python_env:
+                        self.output.change_head(f"Creating virtual environment with {selected_python_full}")
+                        quoted_python = shlex.quote(selected_python_full)
+                        recreate_venv_cmd = f"""
+                        cd /workspace/frappe-bench
+                        if [ -d env ]; then
+                            timestamp=$(date +%Y%m%d_%H%M%S)
+                            mv env env.bak-$timestamp
+                        fi
+                        uv venv env --python {quoted_python} --seed --link-mode=copy
+                        """
+                        self._container_run(recreate_venv_cmd, raise_exception_obj=None, use_run=use_run)
+                        selected_version_str = (
+                            f"{selected_version[0]}.{selected_version[1]}.{selected_version[2]}"
+                            if selected_version
+                            else selected_python_full
+                        )
+                        self.output.print(f"Created virtual environment with Python {selected_version_str}")
+                        venv_recreated = True
+                    else:
+                        self.output.print(f"Skipping venv recreation - Python {selected_python_full} set as default")
 
                 except Exception as e:
                     self.output.warning(f"Failed to setup Python {python_version}: {e}")
