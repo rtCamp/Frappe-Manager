@@ -1,7 +1,7 @@
 [project]
 site_name        = "Frappe Manager"
 site_description = "Documentation for Frappe Manager — simple local Frappe development and deployment"
-site_url         = "https://rtcamp.github.io/frappe-manager/"
+site_url         = "https://opensource.rtcamp.com/Frappe-Manager/"
 repo_name        = "rtcamp/frappe-manager"
 repo_url         = "https://github.com/rtcamp/frappe-manager"
 edit_uri         = "edit/main/docs/"
@@ -74,6 +74,8 @@ nav = [
 [project.theme]
 variant  = "modern"
 language = "en"
+logo     = "assets/logo.png"
+favicon  = "assets/logo.png"
 font = { text = "Reddit Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif", code = "JetBrains Mono, Consolas, Monaco, monospace" }
 features = [
   # Navigation
