@@ -968,6 +968,10 @@ class BenchConfig(BaseModel):
         description="Migration state tracking (managed by migration system)",
     )
 
+    # NewRelic APM
+    newrelic_enabled: bool = Field(False, description="Enable NewRelic APM monitoring for the web process")
+    newrelic_license_key: str | None = Field(None, description="NewRelic license key (ingest key)")
+
     @field_validator("restart_policy", mode="before")
     @classmethod
     def set_default_restart_policy(cls, v, info):
@@ -1188,6 +1192,8 @@ class BenchConfig(BaseModel):
             "db_name": data.get("db_name"),
             "restart_policy": data.get("restart_policy", None),
             "migration_state": migration_state_obj,
+            "newrelic_enabled": data.get("newrelic_enabled", False),
+            "newrelic_license_key": data.get("newrelic_license_key", None),
         }
 
         bench_config_instance = cls(**input_data)
@@ -1228,6 +1234,11 @@ class BenchConfig(BaseModel):
                 "USERID": self.userid,
                 "USERGROUP": self.usergroup,
                 "SERVICE_NAME": "frappe",
+                **(
+                    {"NEWRELIC_ENABLED": "true", "NEWRELIC_LICENSE_KEY": self.newrelic_license_key}
+                    if self.newrelic_enabled and self.newrelic_license_key
+                    else {}
+                ),
             },
             "nginx": {
                 "SITE_MAPPINGS": json.dumps(self.get_site_mappings()),

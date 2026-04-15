@@ -185,7 +185,7 @@ class BenchSupervisor:
     def _can_enable_multi_queue_consumption(self, bench_path) -> bool:
         return True
 
-    def generate_supervisor_config(self, bench_path, user="frappe", skip_redis=True) -> str:
+    def generate_supervisor_config(self, bench_path, user="frappe", skip_redis=True) -> tuple[str, dict]:
         from pathlib import Path
 
         host_bench_dir = Path(bench_path).resolve() / "workspace" / "frappe-bench"
@@ -221,7 +221,7 @@ class BenchSupervisor:
         }
 
         template_path = get_template_path("supervisor.conf.tmpl")
-        return Template(template_path.read_text()).render(**context)
+        return Template(template_path.read_text()).render(**context), context
 
     def setup_supervisor(self, bench_path, force: bool = False, use_run: bool = False) -> None:
         import configparser
@@ -239,7 +239,7 @@ class BenchSupervisor:
 
         self.output.change_head("Configuring supervisor configs")
         try:
-            rendered = self.generate_supervisor_config(bench_path)
+            rendered, context = self.generate_supervisor_config(bench_path)
         except Exception as e:
             raise BenchOperationException(self.bench_name, f"Failed to configure supervisor: {e}")
 
@@ -247,6 +247,7 @@ class BenchSupervisor:
         parsed = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
         parsed.read_string(rendered)
         self._write_split_configs(parsed, config_dir)
+        self._write_gunicorn_wrapper(config_dir, context)
         self.output.print("Configured supervisor configs")
 
     def _write_split_configs(self, config, config_dir) -> None:
@@ -275,3 +276,27 @@ class BenchSupervisor:
             section_config.write(buf)
             Path(config_dir / file_name).write_text(buf.getvalue())
             self.logger.info(f"Split supervisor conf {section_name} => {file_name}")
+
+    def _write_gunicorn_wrapper(self, config_dir, context: dict) -> None:
+        from pathlib import Path
+
+        gunicorn_args = (
+            f"-b 0.0.0.0:{context['webserver_port']}"
+            f" -w {context['gunicorn_workers']}"
+            f" --max-requests {context['gunicorn_max_requests']}"
+            f" --max-requests-jitter {context['gunicorn_max_requests_jitter']}"
+            f" -t {context['http_timeout']}"
+            f" --graceful-timeout 30"
+            f" frappe.app:application --preload"
+        )
+
+        template_path = get_template_path("fm-web-server.sh.tmpl")
+        script = Template(template_path.read_text()).render(
+            bench_dir=context["bench_dir"],
+            gunicorn_args=gunicorn_args,
+        )
+
+        wrapper_path = Path(config_dir) / "fm-web-server.sh"
+        wrapper_path.write_text(script)
+        wrapper_path.chmod(0o755)
+        self.logger.info("Generated gunicorn.sh wrapper")
