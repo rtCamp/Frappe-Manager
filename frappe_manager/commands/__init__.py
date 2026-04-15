@@ -220,26 +220,10 @@ def app_callback(
             logger.info(f"LOG LEVEL: {level_name}")
             logger.info("-" * 20)
 
-            if not DockerClient().server_running():
-                output.exit("Docker daemon not running. Please start docker service")
-
-            if not CLI_FM_CONFIG_PATH.exists():
-                output.print("First installation detected. Pulling docker images...️", "🔍")
-
-                completed_status = pull_docker_images()
-
-                if not completed_status:
-                    if CLI_DIR.exists():
-                        shutil.rmtree(CLI_DIR)
-                    output.exit("Aborting. Not able to pull all required Docker images")
-
-                current_version = Version(get_current_fm_version())
-                fm_config_manager.version = current_version
-                fm_config_manager.export_to_toml()
-
             invoked_command = ctx.invoked_subcommand or "no-command"
 
             from frappe_manager.migration_manager.migration_constants import (
+                DOCKER_FREE_COMMANDS,
                 MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS,
                 MIGRATION_CHECK_WHITELIST_COMMANDS,
             )
@@ -282,6 +266,26 @@ def app_callback(
                 return " ".join(command_parts) if command_parts else invoked_command
 
             full_command = get_full_command_path()
+
+            is_docker_free = full_command in DOCKER_FREE_COMMANDS
+
+            if not is_docker_free:
+                if not DockerClient().server_running():
+                    output.exit("Docker daemon not running. Please start docker service")
+
+                if not CLI_FM_CONFIG_PATH.exists():
+                    output.print("First installation detected. Pulling docker images...️", "🔍")
+
+                    completed_status = pull_docker_images()
+
+                    if not completed_status:
+                        if CLI_DIR.exists():
+                            shutil.rmtree(CLI_DIR)
+                        output.exit("Aborting. Not able to pull all required Docker images")
+
+                    current_version = Version(get_current_fm_version())
+                    fm_config_manager.version = current_version
+                    fm_config_manager.export_to_toml()
 
             commands_skip_migration_check = MIGRATION_CHECK_WHITELIST_COMMANDS
 
