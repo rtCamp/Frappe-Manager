@@ -197,6 +197,22 @@ def update(
             show_default=False,
         ),
     ] = False,
+    newrelic: Annotated[
+        bool | None,
+        typer.Option(
+            "--newrelic/--no-newrelic",
+            help="Enable or disable NewRelic APM monitoring for the web process.",
+            show_default=False,
+        ),
+    ] = None,
+    newrelic_license_key: Annotated[
+        str | None,
+        typer.Option(
+            "--newrelic-license-key",
+            help="NewRelic ingest license key.",
+            show_default=False,
+        ),
+    ] = None,
 ):
     """
     Update bench configuration and settings.
@@ -325,6 +341,24 @@ def update(
         if upload_limit:
             output.change_head(f"Updating upload size limit to {upload_limit}")
             bench.update_upload_limit(upload_limit)
+
+        if newrelic is not None or newrelic_license_key is not None:
+            if newrelic is True and not (newrelic_license_key or bench.bench_config.newrelic_license_key):
+                raise typer.BadParameter("--newrelic-license-key is required when enabling NewRelic.")
+
+            if newrelic is not None:
+                bench.bench_config.newrelic_enabled = newrelic
+
+            if newrelic_license_key is not None:
+                bench.bench_config.newrelic_license_key = newrelic_license_key
+
+            bench.generate_compose(bench.bench_config.export_to_compose_inputs())
+            bench.save_bench_config()
+            bench_config_save = False
+
+            output.change_head("Restarting frappe container to apply NewRelic changes")
+            bench.docker_client.compose.up(services=["frappe"], detach=True, force_recreate=True)
+            output.print("NewRelic configuration updated")
 
         if python_version or node_version:
             frappe_app_path = bench.path / "workspace" / "frappe-bench" / "apps" / "frappe"

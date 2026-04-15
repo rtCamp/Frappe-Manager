@@ -1,0 +1,16 @@
+#!/bin/bash
+BENCH_DIR="{{ bench_dir }}"
+GUNICORN_ARGS="{{ gunicorn_args }}"
+
+if [[ "${NEWRELIC_ENABLED:-}" == "true" && -n "${NEWRELIC_LICENSE_KEY:-}" ]]; then
+    "$BENCH_DIR/env/bin/python" -c "import newrelic" 2>/dev/null || \
+        /usr/local/bin/uv pip install --quiet newrelic --python "$BENCH_DIR/env/bin/python"
+    "$BENCH_DIR/env/bin/newrelic-admin" generate-config \
+        "$NEWRELIC_LICENSE_KEY" \
+        "$BENCH_DIR/config/newrelic.ini"
+    export NEW_RELIC_CONFIG_FILE="$BENCH_DIR/config/newrelic.ini"
+    exec "$BENCH_DIR/env/bin/newrelic-admin" run-program \
+        "$BENCH_DIR/env/bin/gunicorn" $GUNICORN_ARGS
+else
+    exec "$BENCH_DIR/env/bin/gunicorn" $GUNICORN_ARGS
+fi

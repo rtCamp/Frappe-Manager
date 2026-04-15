@@ -183,7 +183,7 @@ class BenchOrchestrator:
         self._detect_python_node_versions()
 
         if bench.bench_config.python_version or bench.bench_config.node_version:
-            bench.app_manager.setup_python_and_node_environments(use_run=True)
+            bench.app_manager.setup_python_and_node_environments(use_run=True, recreate_python_env=True)
 
         self.output.change_head("Installing dependencies for all apps")
         bench.app_manager.install_apps(

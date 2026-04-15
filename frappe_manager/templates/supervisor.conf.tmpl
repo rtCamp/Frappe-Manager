@@ -4,7 +4,7 @@
 
 ; graceful timeout should always be lower than stopwaitsecs to avoid orphan gunicorn workers.
 [program:{{ bench_name }}-frappe-web]
-command={{ bench_dir }}/env/bin/gunicorn -b 0.0.0.0:{{ webserver_port }} -w {{ gunicorn_workers }} --max-requests {{ gunicorn_max_requests }} --max-requests-jitter {{ gunicorn_max_requests_jitter }} -t {{ http_timeout }} --graceful-timeout 30 frappe.app:application --preload
+command=/bin/bash {{ bench_dir }}/config/fm-web-server.sh
 priority=4
 autostart=true
 autorestart=true

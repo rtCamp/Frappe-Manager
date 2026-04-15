@@ -141,6 +141,22 @@ def create(
             show_default=False,
         ),
     ] = False,
+    newrelic: Annotated[
+        bool,
+        typer.Option(
+            "--newrelic/--no-newrelic",
+            help="Enable NewRelic APM monitoring for the web process.",
+            show_default=False,
+        ),
+    ] = False,
+    newrelic_license_key: Annotated[
+        str | None,
+        typer.Option(
+            "--newrelic-license-key",
+            help="NewRelic ingest license key. Required when --newrelic is set.",
+            show_default=False,
+        ),
+    ] = None,
 ):
     """
     Create a new bench with apps.
@@ -153,6 +169,9 @@ def create(
     fm_config: FMConfigManager = ctx.obj["fm_config_manager"]
 
     benchname = validate_sitename(benchname)
+
+    if newrelic and not newrelic_license_key:
+        raise typer.BadParameter("--newrelic-license-key is required when --newrelic is set.")
 
     all_domains = {benchname}
     if alias_domains:
@@ -221,6 +240,8 @@ def create(
         admin_tools_username=None,
         admin_tools_password=None,
         restart_policy=restart,
+        newrelic_enabled=newrelic,
+        newrelic_license_key=newrelic_license_key,
     )
 
     if apps:
