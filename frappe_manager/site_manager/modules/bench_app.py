@@ -543,17 +543,6 @@ fi
 
         return apps_config
 
-    def _create_venv(self) -> None:
-        venv_path = "/workspace/frappe-bench/env"
-        create_venv_cmd = f"uv venv {venv_path} --python 3.12"
-
-        try:
-            self._container_run(create_venv_cmd, raise_exception_obj=None)
-        except Exception as e:
-            self.logger.warning(f"Failed to create venv with UV: {e}, trying python -m venv")
-            create_venv_cmd = f"python3.12 -m venv {venv_path}"
-            self._container_run(create_venv_cmd, raise_exception_obj=None)
-
     def _install_python_deps_with_uv(self, apps: list[AppConfig], use_uv: bool = True, use_run: bool = False) -> None:
         """
         Install Python dependencies using UV (much faster than pip).
@@ -585,19 +574,43 @@ fi
 
                 return
             except Exception as uv_error:
-                self.logger.debug(f"UV installation failed, attempting pip fallback: {uv_error}")
+                self.logger.debug(f"UV installation failed, attempting uv pip fallback: {uv_error}")
 
                 try:
-                    install_cmd = " ".join(self.bench_cli_cmd + ["setup", "requirements", "--python"])
-                    self._container_run(install_cmd, use_run=use_run)
-                    self.output.warning("UV installation failed, successfully fell back to pip")
+                    for app in apps:
+                        fallback_cmd = " ".join(
+                            [
+                                "uv",
+                                "pip",
+                                "install",
+                                "--python",
+                                "/workspace/frappe-bench/env/bin/python",
+                                "--no-cache-dir",
+                                "-e",
+                                f"apps/{app.name}",
+                            ]
+                        )
+                        self._container_run(fallback_cmd, use_run=use_run)
+                    self.output.warning("UV installation failed on first attempt, succeeded on retry")
                 except Exception:
                     raise
 
                 return
 
-        install_cmd = " ".join(self.bench_cli_cmd + ["setup", "requirements", "--python"])
-        self._container_run(install_cmd, use_run=use_run)
+        for app in apps:
+            install_cmd = " ".join(
+                [
+                    "uv",
+                    "pip",
+                    "install",
+                    "--python",
+                    "/workspace/frappe-bench/env/bin/python",
+                    "--no-cache-dir",
+                    "-e",
+                    f"apps/{app.name}",
+                ]
+            )
+            self._container_run(install_cmd, use_run=use_run)
 
     def _install_node_deps(self, use_run: bool = False) -> None:
         """Install Node.js dependencies for all apps."""
