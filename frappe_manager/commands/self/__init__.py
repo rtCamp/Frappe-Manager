@@ -4,6 +4,7 @@ import typer
 from typer_examples import install
 
 from frappe_manager.commands.self.compose import compose
+from frappe_manager.commands.self.logrotate import logrotate
 from frappe_manager.commands.self.update import update
 from frappe_manager.commands.self.update_images import update_images
 
@@ -18,4 +19,5 @@ install(self_app)
 
 self_app.command()(update)
 self_app.command(name="update-images")(update_images)
+self_app.command()(logrotate)
 self_app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})(compose)
