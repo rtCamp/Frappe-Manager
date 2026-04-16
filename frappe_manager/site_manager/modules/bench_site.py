@@ -141,24 +141,18 @@ class BenchSiteManager:
         """
         self.output.change_head("Checking if required services are available")
 
+        db_info = self.services.database_manager.database_server_info
         cache_host, cache_port = get_redis_cache_addr(self.bench_config.container_name_prefix)
         queue_host, queue_port = get_redis_queue_addr(self.bench_config.container_name_prefix)
+
         candidates = [
-            (
-                None,
-                self.services.database_manager.database_server_info.host,
-                self.services.database_manager.database_server_info.port,
-            ),
-            ("redis-cache", cache_host, cache_port),
-            ("redis-queue", queue_host, queue_port),
+            (self.services.compose_file_manager, db_info.host, db_info.host, db_info.port),
+            (self.compose_file_manager, "redis-cache", cache_host, cache_port),
+            (self.compose_file_manager, "redis-queue", queue_host, queue_port),
         ]
 
-        for compose_service, host, port in candidates:
-            if (
-                compose_service
-                and self.compose_file_manager
-                and self.compose_file_manager.is_service_profile_disabled(compose_service)
-            ):
+        for cfm, compose_service, host, port in candidates:
+            if cfm and cfm.is_service_profile_disabled(compose_service):
                 continue
             output: SubprocessOutput = self._wait_for_service(host=host, port=port, timeout=timeout)
             if output.combined:
