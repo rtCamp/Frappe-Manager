@@ -14,6 +14,7 @@ from typing import cast
 
 from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.docker import DockerClient, DockerException
+from frappe_manager.docker.compose_file import ComposeFile
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager import OutputHandler
@@ -74,6 +75,7 @@ class BenchSiteManager:
         docker_client: DockerClient,
         bench_config: BenchConfig,
         services: ServicesManager,
+        compose_file_manager: ComposeFile | None = None,
         output_handler: OutputHandler | None = None,
     ):
         """
@@ -94,6 +96,7 @@ class BenchSiteManager:
         self.docker_client = docker_client
         self.bench_config = bench_config
         self.services = services
+        self.compose_file_manager = compose_file_manager
         self.output = output_handler or RichOutputHandler()
 
         self.frappe_bench_dir: Path = bench_path / "workspace" / "frappe-bench"
@@ -138,18 +141,26 @@ class BenchSiteManager:
         """
         self.output.change_head("Checking if required services are available")
 
-        # Build required services map
         cache_host, cache_port = get_redis_cache_addr(self.bench_config.container_name_prefix)
         queue_host, queue_port = get_redis_queue_addr(self.bench_config.container_name_prefix)
-        required_services = {
-            self.services.database_manager.database_server_info.host: self.services.database_manager.database_server_info.port,
-            cache_host: cache_port,
-            queue_host: queue_port,
-        }
+        candidates = [
+            (
+                None,
+                self.services.database_manager.database_server_info.host,
+                self.services.database_manager.database_server_info.port,
+            ),
+            ("redis-cache", cache_host, cache_port),
+            ("redis-queue", queue_host, queue_port),
+        ]
 
-        # Check each service
-        for service, port in required_services.items():
-            output: SubprocessOutput = self._wait_for_service(host=service, port=port, timeout=timeout)
+        for compose_service, host, port in candidates:
+            if (
+                compose_service
+                and self.compose_file_manager
+                and self.compose_file_manager.is_service_profile_disabled(compose_service)
+            ):
+                continue
+            output: SubprocessOutput = self._wait_for_service(host=host, port=port, timeout=timeout)
             if output.combined:
                 command_output = output.combined[-1].replace("wait-for-it: ", "")
                 service_name = command_output.split(" ")[0]
