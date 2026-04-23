@@ -80,7 +80,7 @@ class ServicesManager:
 
         if start:
             if not self.invoked_subcommand == "service":
-                services = self.compose_file_manager.get_services_list()
+                services = self.compose_file_manager.get_services_list(exclude_disabled=True)
                 containers = self.compose_file_manager.get_container_names().values()
                 all_statuses = self.docker_client.compose.get_all_services_status()
                 running_statuses = {
@@ -90,7 +90,7 @@ class ServicesManager:
 
                 if not all_running:
                     self.output.print(
-                        f"Started non running global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
+                        f"Started non running global services [blue]{', '.join(services)}[/blue].",
                     )
                     self.docker_client.compose.up(services=[], detach=True, pull="missing")
 

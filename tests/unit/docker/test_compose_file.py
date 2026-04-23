@@ -769,3 +769,59 @@ services:
         assert callable(ComposeFile.load_template_yml)
         assert callable(ComposeFile.get_template_images)
         assert callable(ComposeFile.get_template_services)
+
+
+class TestServiceProfileDisabled:
+    """Tests for is_service_profile_disabled and get_services_list(exclude_disabled=True)."""
+
+    def _make_cf(self, temp_compose_yml, yml_content):
+        with patch("builtins.open", mock_open()):
+            with patch("frappe_manager.docker.compose_file.yaml.load", return_value=yml_content):
+                return ComposeFile(temp_compose_yml, auto_save=False)
+
+    def test_disabled_profile_as_list(self, temp_compose_yml, sample_yml_content):
+        sample_yml_content["services"]["frappe"]["profiles"] = ["disabled"]
+        cf = self._make_cf(temp_compose_yml, sample_yml_content)
+        assert cf.is_service_profile_disabled("frappe") is True
+
+    def test_disabled_profile_as_string(self, temp_compose_yml, sample_yml_content):
+        sample_yml_content["services"]["frappe"]["profiles"] = "disabled"
+        cf = self._make_cf(temp_compose_yml, sample_yml_content)
+        assert cf.is_service_profile_disabled("frappe") is True
+
+    def test_non_disabled_profile_string_no_false_positive(self, temp_compose_yml, sample_yml_content):
+        sample_yml_content["services"]["frappe"]["profiles"] = "notdisabled"
+        cf = self._make_cf(temp_compose_yml, sample_yml_content)
+        assert cf.is_service_profile_disabled("frappe") is False
+
+    def test_disabled_in_list_with_other_profiles(self, temp_compose_yml, sample_yml_content):
+        sample_yml_content["services"]["frappe"]["profiles"] = ["web", "disabled"]
+        cf = self._make_cf(temp_compose_yml, sample_yml_content)
+        assert cf.is_service_profile_disabled("frappe") is True
+
+    def test_no_profiles_key(self, temp_compose_yml, sample_yml_content):
+        cf = self._make_cf(temp_compose_yml, sample_yml_content)
+        assert cf.is_service_profile_disabled("frappe") is False
+
+    def test_nonexistent_service(self, temp_compose_yml, sample_yml_content):
+        cf = self._make_cf(temp_compose_yml, sample_yml_content)
+        assert cf.is_service_profile_disabled("nonexistent") is False
+
+    def test_get_services_list_exclude_disabled_filters_service(self, temp_compose_yml, sample_yml_content):
+        sample_yml_content["services"]["frappe"]["profiles"] = ["disabled"]
+        cf = self._make_cf(temp_compose_yml, sample_yml_content)
+        services = cf.get_services_list(exclude_disabled=True)
+        assert "frappe" not in services
+        assert "nginx" in services
+
+    def test_get_services_list_exclude_disabled_false_returns_all(self, temp_compose_yml, sample_yml_content):
+        sample_yml_content["services"]["frappe"]["profiles"] = ["disabled"]
+        cf = self._make_cf(temp_compose_yml, sample_yml_content)
+        services = cf.get_services_list(exclude_disabled=False)
+        assert "frappe" in services
+        assert "nginx" in services
+
+    def test_get_services_list_no_disabled_services(self, temp_compose_yml, sample_yml_content):
+        cf = self._make_cf(temp_compose_yml, sample_yml_content)
+        services = cf.get_services_list(exclude_disabled=True)
+        assert services == list(sample_yml_content["services"].keys())

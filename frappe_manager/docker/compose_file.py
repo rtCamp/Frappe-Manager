@@ -79,15 +79,12 @@ class ComposeFile:
             dict: The contents of the template file as a YAML object.
         """
         template_path: Path = get_template_path(self.template_name, self.template_dir)
-        
+
         # Render Jinja2 template with dynamic image tags
         template = Template(template_path.read_text())
         image_tag = get_docker_image_tag()
-        rendered_template = template.render(
-            frappe_image_tag=image_tag,
-            nginx_image_tag=image_tag
-        )
-        
+        rendered_template = template.render(frappe_image_tag=image_tag, nginx_image_tag=image_tag)
+
         # Parse rendered YAML
         yml = yaml.load(rendered_template)
         return yml
@@ -116,14 +113,22 @@ class ComposeFile:
                 container_names[service] = self.yml["services"][service]["container_name"]
         return container_names
 
-    def get_services_list(self) -> list:
+    def get_services_list(self, exclude_disabled: bool = False) -> list:
         """
         Returns a list of services defined in the Compose file.
 
+        Args:
+            exclude_disabled: When True, services marked as disabled via the
+                ``disabled`` profile are excluded from the returned list.
+
         Returns:
-            list: A list of service names.
+            list: A list of service names. May be filtered if ``exclude_disabled``
+                is True.
         """
-        return list(self.yml["services"].keys())
+        services = list(self.yml["services"].keys())
+        if exclude_disabled:
+            services = [s for s in services if not self.is_service_profile_disabled(s)]
+        return services
 
     def is_services_name_same_as_template(self):
         """
@@ -1137,15 +1142,12 @@ class ComposeFile:
             Parsed YAML dictionary
         """
         template_path: Path = get_template_path(template_name, template_dir)
-        
+
         # Render Jinja2 template with dynamic image tags
         template = Template(template_path.read_text())
         image_tag = get_docker_image_tag()
-        rendered_template = template.render(
-            frappe_image_tag=image_tag,
-            nginx_image_tag=image_tag
-        )
-        
+        rendered_template = template.render(frappe_image_tag=image_tag, nginx_image_tag=image_tag)
+
         # Parse rendered YAML
         yml = yaml.load(rendered_template)
         return yml
@@ -1176,6 +1178,18 @@ class ComposeFile:
                 images[service] = {"name": name, "tag": tag, "image": image}
 
         return images
+
+    def is_service_profile_disabled(self, service: str) -> bool:
+        try:
+            service_definition = self.yml["services"][service]
+            if not hasattr(service_definition, "get"):
+                return False
+            profiles = service_definition.get("profiles", [])
+            if isinstance(profiles, str):
+                return profiles == "disabled"
+            return "disabled" in profiles
+        except (KeyError, TypeError, AttributeError):
+            return False
 
     @classmethod
     def get_template_services(

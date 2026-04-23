@@ -168,6 +168,7 @@ class Bench:
             docker_client=docker_client,
             bench_config=bench_config,
             services=services,
+            compose_file_manager=compose_file_manager,
             output_handler=self.output,
         )
 
