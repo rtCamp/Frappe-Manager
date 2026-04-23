@@ -70,7 +70,7 @@ jobs:
       run: zip frappe_manager-${{ env.PYAPP_PROJECT_VERSION }}-linux-amd64.zip "frappe_manager" "LICENSE" "README.md"
 
     - name: Attach files to release
-      uses: softprops/action-gh-release@v2
+      uses: softprops/action-gh-release@v3
       if: ${{ github.event.release && github.event.action == 'published' }}
       with:
         files: frappe_manager-${{ env.PYAPP_PROJECT_VERSION }}-linux-amd64.zip
