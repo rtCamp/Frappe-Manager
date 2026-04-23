@@ -88,6 +88,11 @@ class BenchSiteManager:
             docker_client: Docker client for container operations
             bench_config: Bench configuration object
             services: Services manager providing database/Redis access
+            compose_file_manager: Optional ComposeFile instance for the bench's
+                docker-compose file. When provided, ``wait_for_required_services``
+                will skip health checks for any required services that are
+                marked as disabled in that compose file. Pass ``None`` (default)
+                to always perform all health checks regardless of service profiles.
             output_handler: Optional output handler for displaying information
         """
         self.logger = logger.child(component="site_manager")

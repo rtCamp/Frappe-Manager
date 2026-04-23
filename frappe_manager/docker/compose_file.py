@@ -117,8 +117,13 @@ class ComposeFile:
         """
         Returns a list of services defined in the Compose file.
 
+        Args:
+            exclude_disabled: When True, services marked as disabled via the
+                ``disabled`` profile are excluded from the returned list.
+
         Returns:
-            list: A list of service names.
+            list: A list of service names. May be filtered if ``exclude_disabled``
+                is True.
         """
         services = list(self.yml["services"].keys())
         if exclude_disabled:
@@ -1176,9 +1181,14 @@ class ComposeFile:
 
     def is_service_profile_disabled(self, service: str) -> bool:
         try:
-            profiles = self.yml["services"][service].get("profiles", [])
+            service_definition = self.yml["services"][service]
+            if not hasattr(service_definition, "get"):
+                return False
+            profiles = service_definition.get("profiles", [])
+            if isinstance(profiles, str):
+                return profiles == "disabled"
             return "disabled" in profiles
-        except (KeyError, TypeError):
+        except (KeyError, TypeError, AttributeError):
             return False
 
     @classmethod
