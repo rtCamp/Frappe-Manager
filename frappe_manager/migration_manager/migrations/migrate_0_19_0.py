@@ -402,6 +402,7 @@ if [ -d env ]; then
 fi
 
 echo "Installing Python {python_version} via uv..."
+export UV_PYTHON_INSTALL_DIR=/workspace/frappe-bench/.uv/python
 uv python install {quoted_pkg}
 
 echo "Detecting installed Python..."
