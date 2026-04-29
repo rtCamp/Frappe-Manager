@@ -149,3 +149,4 @@ name = "PyPI"
 [project.extra.version]
 provider = "mike"
 alias    = true   # shows "0.20 (latest)" in the selector
+default  = "latest"  # "latest" is the stable version, suppresses warning banner

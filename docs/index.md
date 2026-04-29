@@ -48,16 +48,45 @@ hide:
 
 ## Install
 
-=== "uv (recommended)"
+<div class="admonition tip" markdown>
+<p class="admonition-title">📌 Version-Specific Installation</p>
+<div markdown>
+
+- View [stable docs](latest/) for production PyPI install
+- View [dev docs](dev/) for development Git install
+
+</div>
+</div>
+
+=== "Stable (Recommended)"
+
+    📦 **Production ready** • Install from PyPI
 
     ```bash
     uv tool install --python 3.13 frappe-manager
     ```
 
-=== "pipx"
+    Using pipx:
 
     ```bash
     pipx install frappe-manager
+    ```
+
+=== "Development"
+
+    🚧 **For testing** • Install from GitHub
+
+    !!! warning
+        Development builds may be unstable. Use for testing only.
+
+    ```bash
+    uv tool install git+https://github.com/rtcamp/frappe-manager@develop
+    ```
+
+    Using pipx:
+
+    ```bash
+    pipx install git+https://github.com/rtcamp/frappe-manager@develop
     ```
 
 === "Try without installing"

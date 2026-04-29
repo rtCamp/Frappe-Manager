@@ -64,38 +64,54 @@
 
 ## 🚀 Installation
 
-### Using uv (Recommended)
+### Stable Release (Recommended)
 
-[uv](https://docs.astral.sh/uv/) is a fast Python package installer and resolver.
+📦 **For production use** • Matches [stable documentation](https://opensource.rtcamp.com/Frappe-Manager/latest/)
+
+Using uv (recommended):
 
 ```bash
-# Run directly without installation (requires uv)
-uvx --from frappe-manager fm create mysite
-
-# Run latest development version without installation
-uvx --from git+https://github.com/rtcamp/frappe-manager@develop fm --help
-
-# Install with uv tool (persistent installation)
+# Install with uv tool
 uv tool install --python 3.13 frappe-manager
 
-# Install latest development version
-uv tool install git+https://github.com/rtcamp/frappe-manager@develop
+# Try without installing
+uvx --from frappe-manager fm --help
 
 # Upgrade to latest version
 uv tool upgrade frappe-manager
 ```
 
-### Using pipx (Alternative)
+Using pipx:
 
 ```bash
 # Install stable version
 pipx install frappe-manager 
 
-# Install latest development version
-pipx install git+https://github.com/rtcamp/frappe-manager@develop
-
 # Upgrade to latest version
 pipx upgrade frappe-manager
+```
+
+### Development Version
+
+🚧 **For testing and contributors** • Matches [dev documentation](https://opensource.rtcamp.com/Frappe-Manager/dev/)
+
+> **⚠️ Warning**: Development builds may be unstable. Use for testing only.
+
+Using uv:
+
+```bash
+# Install latest development version
+uv tool install git+https://github.com/rtcamp/frappe-manager@develop
+
+# Run without installing
+uvx --from git+https://github.com/rtcamp/frappe-manager@develop fm --help
+```
+
+Using pipx:
+
+```bash
+# Install latest development version
+pipx install git+https://github.com/rtcamp/frappe-manager@develop
 ```
 
 ## ⚡ Quick Start
