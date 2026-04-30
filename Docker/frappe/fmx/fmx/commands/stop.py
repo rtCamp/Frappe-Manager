@@ -123,9 +123,9 @@ def command(
         int,
         typer.Option(
             "--drain-workers-timeout",
-            help="Timeout in seconds to wait for workers to drain.",
+            help="Timeout in seconds to wait for workers to drain. Set to 0 (default) to wait indefinitely.",
         ),
-    ] = 300,
+    ] = 0,
     drain_workers_poll: Annotated[
         int,
         typer.Option(

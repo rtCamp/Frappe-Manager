@@ -55,17 +55,17 @@ def set_maintenance_mode(display: DisplayManager, enabled: bool) -> None:
 
 
 def _run_migration(display: DisplayManager, migrate_timeout: int, migrate_command: Optional[List[str]] = None) -> bool:
-    """Run bench migrate with timeout and real-time output.
+    """Run bench migrate with optional timeout and real-time output.
 
     Logic:
     1. Executes 'bench migrate' (or custom command) from /workspace/frappe-bench directory
     2. Shows real-time output during migration
-    3. Applies specified timeout to prevent hanging
+    3. Applies specified timeout to prevent hanging (0 = infinite)
     4. Returns success/failure status
 
     Args:
         display: DisplayManager for output
-        migrate_timeout: Timeout in seconds
+        migrate_timeout: Timeout in seconds (0 = wait indefinitely)
         migrate_command: Custom migrate command (default: ["bench", "migrate", "--skip-failing"])
 
     Returns:
@@ -76,7 +76,10 @@ def _run_migration(display: DisplayManager, migrate_timeout: int, migrate_comman
 
     full_command = ' '.join(migrate_command)
     display.print(f"🔄 Running: cd /workspace/frappe-bench && {full_command}")
-    display.dimmed(f"Migration timeout: {migrate_timeout}s")
+    if migrate_timeout > 0:
+        display.dimmed(f"Migration timeout: {migrate_timeout}s")
+    else:
+        display.dimmed("Migration timeout: none (waiting indefinitely)")
 
     try:
         start_time = time.time()
@@ -123,7 +126,7 @@ def _run_migration(display: DisplayManager, migrate_timeout: int, migrate_comman
                             display.print(f"  {line}")
                             output_lines.append(line)
 
-                if time.time() - start_time > migrate_timeout:
+                if migrate_timeout > 0 and time.time() - start_time > migrate_timeout:
                     process.terminate()
                     try:
                         process.wait(timeout=5)
@@ -338,9 +341,9 @@ def _handle_migrate_failure(
     "",
     detail=(
         "Workers stop picking up new jobs (a Redis suspend flag is set), then fmx polls until "
-        "every worker is idle (up to 5 min). Only then are the services restarted. "
-        "This is the default — use whenever workers may be executing jobs you cannot afford to "
-        "lose, e.g. email sends, report generation, or file imports."
+        "every worker is idle. No timeout by default — waits indefinitely for jobs to finish. "
+        "This is the safest default for production use. Use whenever workers may be executing jobs "
+        "you cannot afford to lose, e.g. email sends, report generation, or file imports."
     ),
 )
 @_example(
@@ -351,6 +354,15 @@ def _handle_migrate_failure(
         "Any job currently executing is interrupted and will be marked failed or retried. "
         "Use after a code push that does not touch the DB schema and where losing an "
         "in-flight background job is acceptable."
+    ),
+)
+@_example(
+    "Set a drain timeout to abort stuck workers",
+    "--drain-workers-timeout 600",
+    detail=(
+        "Wait up to 10 minutes for workers to finish, then abort the restart if any are still busy. "
+        "Useful in automated deployments where you want a bounded wait time rather than the default "
+        "infinite wait. The restart is aborted (not forced) if the timeout expires — no jobs are killed."
     ),
 )
 @_example(
@@ -429,9 +441,9 @@ def command(
         int,
         typer.Option(
             "--migrate-timeout",
-            help="Timeout in seconds for bench migrate.",
+            help="Timeout in seconds for bench migrate. Set to 0 (default) to wait indefinitely.",
         ),
-    ] = 300,
+    ] = 0,
     wait: Annotated[
         bool,
         typer.Option(
@@ -455,9 +467,10 @@ def command(
         typer.Option(
             "--drain-workers-timeout",
             help="Timeout in seconds to wait for in-progress RQ jobs to finish after workers are suspended. "
-            "If the timeout expires, the restart is aborted. Increase for long-running jobs.",
+            "Set to 0 (default) to wait indefinitely. Set a specific value (e.g., 300, 600) if you want "
+            "the restart to abort after that many seconds.",
         ),
-    ] = 300,
+    ] = 0,
     drain_workers_poll: Annotated[
         int,
         typer.Option(

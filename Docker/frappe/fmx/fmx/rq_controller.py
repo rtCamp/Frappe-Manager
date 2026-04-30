@@ -164,7 +164,7 @@ def control_rq_workers(action: ActionEnum, redis_url=None) -> bool:
 
 
 def wait_for_rq_workers_suspended(
-    timeout: int = 300,
+    timeout: int = 0,
     poll_interval: int = 5,
     redis_url=None,
     skip_stale: bool = True,
@@ -181,7 +181,7 @@ def wait_for_rq_workers_suspended(
         while True:
             elapsed = time.time() - start_time
 
-            if elapsed > timeout:
+            if timeout > 0 and elapsed > timeout:
                 final_status = "timeout"
                 break
 
@@ -364,7 +364,7 @@ def main():
 
     # wait
     wait_parser = subparsers.add_parser("wait", help="Wait for all RQ workers to be suspended")
-    wait_parser.add_argument("--timeout", type=int, default=300, help="Timeout in seconds (default: 300)")
+    wait_parser.add_argument("--timeout", type=int, default=0, help="Timeout in seconds. 0 (default) = wait indefinitely.")
     wait_parser.add_argument("--poll-interval", type=int, default=5, help="Polling interval in seconds (default: 5)")
 
     # check
