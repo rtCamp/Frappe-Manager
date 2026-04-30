@@ -267,6 +267,27 @@ class BenchSupervisor:
             self._write_newrelic_config(config_dir)
         self.output.print("Configured supervisor configs")
 
+    def setup_newrelic(self, bench_path) -> None:
+        from pathlib import Path
+
+        bench_dir = Path(bench_path).resolve() / "workspace" / "frappe-bench"
+        config_dir = bench_dir / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+
+        self.output.change_head("Configuring supervisor configs")
+
+        try:
+            _, context = self.generate_supervisor_config(bench_path)
+        except Exception as e:
+            raise BenchOperationException(self.bench_name, f"Failed to read bench config for NewRelic setup: {e}")
+
+        self._write_gunicorn_wrapper(config_dir, context)
+
+        if self.config.newrelic_enabled and self.config.newrelic_license_key:
+            self._write_newrelic_config(config_dir)
+
+        self.output.print("Configured supervisor configs")
+
     def _write_split_configs(self, config, config_dir) -> None:
         import configparser
         import io
