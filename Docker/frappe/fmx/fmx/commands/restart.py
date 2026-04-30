@@ -334,23 +334,23 @@ def _handle_migrate_failure(
 
 
 @_example(
-    "Restart everything — fast, jobs are interrupted",
+    "Restart with job draining (default)",
     "",
     detail=(
-        "Workers are killed via SIGUSR1 (RQ's warm-shutdown signal). "
-        "Any job currently executing is interrupted and will be marked failed or retried. "
-        "Use after a code push that does not touch the DB schema and where losing an "
-        "in-flight background job is acceptable."
+        "Workers stop picking up new jobs (a Redis suspend flag is set), then fmx polls until "
+        "every worker is idle (up to 5 min). Only then are the services restarted. "
+        "This is the default — use whenever workers may be executing jobs you cannot afford to "
+        "lose, e.g. email sends, report generation, or file imports."
     ),
 )
 @_example(
-    "Wait for running jobs to finish before restarting",
-    "--drain-workers",
+    "Restart immediately — jobs are interrupted",
+    "--no-drain-workers",
     detail=(
-        "Frappe workers stop picking up new jobs (a Redis suspend flag is set), then fmx "
-        "polls until every worker is idle (up to 5 min). Only then are the services restarted. "
-        "Use whenever workers may be executing jobs you cannot afford to lose — e.g. email sends, "
-        "report generation, or file imports."
+        "Skips worker draining. Workers are killed via SIGUSR1 (RQ's warm-shutdown signal). "
+        "Any job currently executing is interrupted and will be marked failed or retried. "
+        "Use after a code push that does not touch the DB schema and where losing an "
+        "in-flight background job is acceptable."
     ),
 )
 @_example(
@@ -358,9 +358,9 @@ def _handle_migrate_failure(
     "--migrate",
     detail=(
         "Runs 'bench migrate --skip-failing' before restarting. Non-worker services (web, "
-        "socketio) stay up during migration so the site remains accessible. Workers keep "
-        "running — only use this if the migration does not change tables that running jobs "
-        "touch; otherwise use --drain-workers too."
+        "socketio) stay up during migration so the site remains accessible. Workers are drained "
+        "by default — add --no-drain-workers only if the migration does not change tables that "
+        "running jobs touch."
     ),
 )
 @_example(
@@ -443,13 +443,13 @@ def command(
         bool,
         typer.Option(
             "--drain-workers",
-            help="Before restarting, suspend RQ workers via a Redis flag so they stop picking up new jobs, "
-            "then wait for any in-progress job to finish. Workers with no active job are skipped "
-            "(see --skip-stale-workers). Without this flag, workers are force-killed via SIGUSR1 "
-            "and any running job is interrupted.",
+            help="Suspend RQ workers via a Redis flag so they stop picking up new jobs, "
+            "then wait for any in-progress job to finish before restarting. Workers with no active "
+            "job are skipped (see --skip-stale-workers). Enabled by default. "
+            "Use --no-drain-workers to skip draining and force-kill workers via SIGUSR1 immediately.",
             is_flag=True,
         ),
-    ] = False,
+    ] = True,
     drain_workers_timeout: Annotated[
         int,
         typer.Option(
