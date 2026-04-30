@@ -356,6 +356,8 @@ def update(
             bench.save_bench_config()
             bench_config_save = False
 
+            bench.supervisor.setup_supervisor(bench.path, force=True)
+
             output.change_head("Restarting frappe container to apply NewRelic changes")
             bench.docker_client.compose.up(services=["frappe"], detach=True, force_recreate=True)
             output.print("NewRelic configuration updated")

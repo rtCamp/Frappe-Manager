@@ -263,6 +263,8 @@ class BenchSupervisor:
         parsed.read_string(rendered)
         self._write_split_configs(parsed, config_dir)
         self._write_gunicorn_wrapper(config_dir, context)
+        if self.config.newrelic_enabled and self.config.newrelic_license_key:
+            self._write_newrelic_config(config_dir)
         self.output.print("Configured supervisor configs")
 
     def _write_split_configs(self, config, config_dir) -> None:
@@ -291,6 +293,66 @@ class BenchSupervisor:
             section_config.write(buf)
             Path(config_dir / file_name).write_text(buf.getvalue())
             self.logger.info(f"Split supervisor conf {section_name} => {file_name}")
+
+    def _write_newrelic_config(self, config_dir) -> None:
+        import configparser
+        import io
+        from pathlib import Path
+
+        cfg = configparser.RawConfigParser()
+
+        cfg.add_section("newrelic")
+        cfg.set("newrelic", "license_key", self.config.newrelic_license_key or "")
+        cfg.set("newrelic", "app_name", f"Frappe - {self.bench_name}")
+        cfg.set("newrelic", "monitor_mode", "true")
+        cfg.set("newrelic", "high_security", "false")
+        cfg.set("newrelic", "log_file", f"{CONTAINER_BENCH_DIR}/logs/newrelic-agent.log")
+        cfg.set("newrelic", "log_level", "info")
+        cfg.set("newrelic", "startup_timeout", "0.0")
+        cfg.set("newrelic", "shutdown_timeout", "2.5")
+        cfg.set("newrelic", "distributed_tracing.enabled", "true")
+        cfg.set("newrelic", "span_events.max_samples_stored", "2000")
+        cfg.set("newrelic", "datastore_tracer.instance_reporting.enabled", "true")
+        cfg.set("newrelic", "datastore_tracer.database_name_reporting.enabled", "true")
+
+        cfg.add_section("transaction_tracer")
+        cfg.set("transaction_tracer", "enabled", "true")
+        cfg.set("transaction_tracer", "transaction_threshold", "apdex_f")
+        cfg.set("transaction_tracer", "record_sql", "obfuscated")
+        cfg.set("transaction_tracer", "stack_trace_threshold", "0.5")
+        cfg.set("transaction_tracer", "explain_enabled", "true")
+        cfg.set("transaction_tracer", "explain_threshold", "0.5")
+        cfg.set("transaction_tracer", "attributes.enabled", "true")
+        cfg.set(
+            "transaction_tracer",
+            "attributes.include",
+            "request.headers.x-frappe-request-id request.uri request.method",
+        )
+        cfg.set(
+            "transaction_tracer",
+            "attributes.exclude",
+            "request.headers.authorization request.headers.cookie",
+        )
+
+        cfg.add_section("error_collector")
+        cfg.set("error_collector", "enabled", "true")
+        cfg.set("error_collector", "ignore_status_codes", "100-102 200-208 226 300-308 404")
+        cfg.set(
+            "error_collector",
+            "expected_classes",
+            (
+                "frappe.exceptions.ValidationError "
+                "frappe.exceptions.PermissionError "
+                "frappe.exceptions.DoesNotExistError"
+            ),
+        )
+        cfg.set("error_collector", "attributes.enabled", "true")
+        cfg.set("error_collector", "max_event_samples_stored", "100")
+
+        buf = io.StringIO()
+        cfg.write(buf)
+        Path(config_dir / "newrelic.ini").write_text(buf.getvalue())
+        self.logger.info("Generated newrelic.ini")
 
     def _write_gunicorn_wrapper(self, config_dir, context: dict) -> None:
         from pathlib import Path

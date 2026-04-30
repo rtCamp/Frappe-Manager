@@ -6,76 +6,12 @@ if [[ "${NEWRELIC_ENABLED:-}" == "true" && -n "${NEWRELIC_LICENSE_KEY:-}" ]]; th
     "$BENCH_DIR/env/bin/python" -c "import newrelic" 2>/dev/null || \
         /usr/local/bin/uv pip install --quiet newrelic --python "$BENCH_DIR/env/bin/python"
 
-    export NR_INI="$BENCH_DIR/config/newrelic.ini"
-    export NEW_RELIC_APP_NAME_RAW="{{ bench_name }}"
-    export BENCH_DIR
-
-    # Generate base config
-    "$BENCH_DIR/env/bin/newrelic-admin" generate-config \
-        "$NEWRELIC_LICENSE_KEY" \
-        "$NR_INI"
-
-    # Patch config with production-tuned settings.
-    # Uses exported env vars (NR_INI, BENCH_DIR, NEW_RELIC_APP_NAME_RAW)
-    # so the Python heredoc can read them.
-    "$BENCH_DIR/env/bin/python" - <<'PYEOF'
-import configparser, os
-
-ini = os.environ["NR_INI"]
-bench_dir = os.environ["BENCH_DIR"]
-bench_name = os.environ["NEW_RELIC_APP_NAME_RAW"]
-
-cfg = configparser.ConfigParser()
-cfg.read(ini)
-
-# [newrelic]
-cfg["newrelic"]["app_name"] = f"Frappe - {bench_name};Frappe All"
-cfg["newrelic"]["log_file"] = os.path.join(bench_dir, "logs", "newrelic-agent.log")
-cfg["newrelic"]["log_level"] = "info"
-cfg["newrelic"]["startup_timeout"] = "0.0"
-cfg["newrelic"]["shutdown_timeout"] = "2.5"
-cfg["newrelic"]["distributed_tracing.enabled"] = "true"
-cfg["newrelic"]["span_events.max_samples_stored"] = "2000"
-cfg["newrelic"]["datastore_tracer.instance_reporting.enabled"] = "true"
-cfg["newrelic"]["datastore_tracer.database_name_reporting.enabled"] = "true"
-
-# [transaction_tracer]
-if "transaction_tracer" not in cfg:
-    cfg.add_section("transaction_tracer")
-cfg["transaction_tracer"]["enabled"] = "true"
-cfg["transaction_tracer"]["transaction_threshold"] = "apdex_f"
-cfg["transaction_tracer"]["record_sql"] = "obfuscated"
-cfg["transaction_tracer"]["stack_trace_threshold"] = "0.5"
-cfg["transaction_tracer"]["explain_enabled"] = "true"
-cfg["transaction_tracer"]["explain_threshold"] = "0.5"
-cfg["transaction_tracer"]["attributes.enabled"] = "true"
-cfg["transaction_tracer"]["attributes.include"] = "request.headers.x-frappe-request-id request.uri request.method"
-cfg["transaction_tracer"]["attributes.exclude"] = "request.headers.authorization request.headers.cookie"
-
-# [error_collector]
-if "error_collector" not in cfg:
-    cfg.add_section("error_collector")
-cfg["error_collector"]["enabled"] = "true"
-cfg["error_collector"]["ignore_status_codes"] = "100-102 200-208 226 300-308 404"
-cfg["error_collector"]["expected_classes"] = (
-    "frappe.exceptions.ValidationError "
-    "frappe.exceptions.PermissionError "
-    "frappe.exceptions.DoesNotExistError"
-)
-cfg["error_collector"]["attributes.enabled"] = "true"
-cfg["error_collector"]["max_event_samples_stored"] = "100"
-
-with open(ini, "w") as f:
-    cfg.write(f)
-PYEOF
-
-    # post_fork is required because gunicorn --preload loads the WSGI app in
-    # the master process before forking workers. The NR agent's background
-    # harvest thread does not survive fork() — workers inherit a dead agent.
-    # register_application() restarts the agent fresh in each worker.
-    # newrelic-admin run-program only wraps Application.wsgi; it does NOT
-    # handle this fork problem.
+    NR_INI="$BENCH_DIR/config/newrelic.ini"
     NR_GUNICORN_CONF="$BENCH_DIR/config/newrelic-gunicorn.conf.py"
+
+    # post_fork is required: gunicorn --preload loads the WSGI app in the master
+    # process before forking. The NR agent harvest thread does not survive fork()
+    # so each worker must re-register the agent after fork.
     cat > "$NR_GUNICORN_CONF" <<'GUNICONF'
 def post_fork(server, worker):
     import newrelic.agent
@@ -83,7 +19,6 @@ def post_fork(server, worker):
 GUNICONF
 
     export NEW_RELIC_CONFIG_FILE="$NR_INI"
-    export NEW_RELIC_APP_NAME="Frappe - {{ bench_name }}"
 
     exec "$BENCH_DIR/env/bin/newrelic-admin" run-program \
         "$BENCH_DIR/env/bin/gunicorn" $GUNICORN_ARGS \
