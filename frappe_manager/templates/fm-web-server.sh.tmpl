@@ -18,6 +18,11 @@ def post_fork(server, worker):
     newrelic.agent.register_application(timeout=10.0)
 GUNICONF
 
+    if [[ ! -f "$NR_INI" ]]; then
+        echo "ERROR: New Relic is enabled but $NR_INI is missing. Run 'fm update' to regenerate it." >&2
+        exit 1
+    fi
+
     export NEW_RELIC_CONFIG_FILE="$NR_INI"
 
     exec "$BENCH_DIR/env/bin/newrelic-admin" run-program \

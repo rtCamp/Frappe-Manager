@@ -454,12 +454,11 @@ def command(
     drain_workers: Annotated[
         bool,
         typer.Option(
-            "--drain-workers",
+            "--drain-workers/--no-drain-workers",
             help="Suspend RQ workers via a Redis flag so they stop picking up new jobs, "
             "then wait for any in-progress job to finish before restarting. Workers with no active "
             "job are skipped (see --skip-stale-workers). Enabled by default. "
             "Use --no-drain-workers to skip draining and force-kill workers via SIGUSR1 immediately.",
-            is_flag=True,
         ),
     ] = True,
     drain_workers_timeout: Annotated[
