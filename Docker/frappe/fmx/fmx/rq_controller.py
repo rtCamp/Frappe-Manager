@@ -9,6 +9,7 @@ from rich import print
 from rich.console import Console
 
 import redis
+from rq.exceptions import DeserializationError
 from rq.suspension import is_suspended, resume, suspend
 from rq.worker import Worker
 
@@ -306,7 +307,28 @@ def get_rq_worker_status(redis_url=None, include_dead: bool = False) -> Optional
             current_job = None
             if state == 'busy':
                 job = worker.get_current_job()
-                current_job = job.func_name if job else None
+                if job:
+                    try:
+                        current_job = job.func_name
+                    except DeserializationError:
+                        # Module no longer exists; extract func name from raw data without importing it
+                        try:
+                            import pickle  # noqa: PLC0415
+                            raw = job.data
+                            # pickle data starts with a sequence of opcodes; the func name is
+                            # stored as a dotted string early in the stream — use find_class trick
+                            class _NameCapture(pickle.Unpickler):
+                                def find_class(self, module, name):
+                                    raise _CapturedName(f"{module}.{name}")
+                            class _CapturedName(Exception):
+                                pass
+                            import io
+                            try:
+                                _NameCapture(io.BytesIO(raw)).load()
+                            except _CapturedName as e:
+                                current_job = f"{e} [unresolvable]"
+                        except Exception:
+                            current_job = "<unresolvable job>"
 
             queue_names = worker.queue_names()
             queue_count = 0
