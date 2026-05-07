@@ -1251,11 +1251,21 @@ class BenchConfig(BaseModel):
             "worker": {
                 "USERID": self.userid,
                 "USERGROUP": self.usergroup,
+                **(
+                    {"NEWRELIC_ENABLED": "true", "NEWRELIC_LICENSE_KEY": self.newrelic_license_key}
+                    if self.newrelic_enabled and self.newrelic_license_key
+                    else {}
+                ),
             },
             "schedule": {
                 "USERID": self.userid,
                 "USERGROUP": self.usergroup,
                 "SERVICE_NAME": "schedule",
+                **(
+                    {"NEWRELIC_ENABLED": "true", "NEWRELIC_LICENSE_KEY": self.newrelic_license_key}
+                    if self.newrelic_enabled and self.newrelic_license_key
+                    else {}
+                ),
             },
             "socketio": {
                 "USERID": self.userid,

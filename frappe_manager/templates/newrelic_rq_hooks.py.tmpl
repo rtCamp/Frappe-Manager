@@ -1,0 +1,78 @@
+"""
+New Relic RQ Worker Instrumentation Hooks
+
+This module provides import hooks for instrumenting RQ workers with New Relic.
+RQ uses fork-per-job, which requires special handling:
+
+1. Worker.perform_job: Register NR in forked child + wrap in BackgroundTask
+2. Cleanup: Shutdown agent before child exits (RQ uses os._exit())
+
+Based on: https://gist.github.com/tirkarthi/f045fe73d4be03c26a5c51f6e0d3e4c1
+New Relic import hook system: https://docs.newrelic.com/docs/apm/agents/python-agent/custom-instrumentation/python-custom-instrumentation-config-file/
+"""
+
+import functools
+import os
+import sys
+
+def instrument_rq_worker(module):
+    """
+    Import hook called when rq.worker is imported.
+    Wraps Worker.perform_job to handle fork lifecycle + transaction wrapping.
+    """
+    try:
+        import newrelic.agent
+        from newrelic.api.application import application_instance
+        
+        Worker = module.Worker
+        _original_perform_job = Worker.perform_job
+        
+        @functools.wraps(_original_perform_job)
+        def _nr_perform_job(self, job, queue):
+            """
+            Called in FORKED child after os.fork().
+            1. Register NR application (starts harvest thread)
+            2. Wrap job in BackgroundTask transaction
+            3. Shutdown agent before child exits
+            """
+            pid = os.getpid()
+            
+            try:
+                sys.stderr.write(f"[NR RQ Hook] Registering app in child PID={pid}\n")
+                newrelic.agent.register_application(timeout=10.0)
+                sys.stderr.write(f"[NR RQ Hook] Registered successfully in PID={pid}\n")
+            except Exception as e:
+                sys.stderr.write(f"[NR RQ Hook] Registration failed in PID={pid}: {e}\n")
+            
+            try:
+                app = application_instance()
+                
+                if app is not None:
+                    txn_name = job.func_name
+                    
+                    if txn_name == 'frappe.utils.background_jobs.execute_job':
+                        job_name = job.kwargs.get('job_name') or job.kwargs.get('method')
+                        if job_name:
+                            txn_name = job_name
+                    
+                    with newrelic.agent.BackgroundTask(app, name=txn_name, group='RQ'):
+                        try:
+                            return _original_perform_job(self, job, queue)
+                        except Exception:
+                            newrelic.agent.notice_error()
+                            raise
+                else:
+                    sys.stderr.write(f"[NR RQ Hook] App not registered, running job without instrumentation\n")
+                    return _original_perform_job(self, job, queue)
+            finally:
+                try:
+                    sys.stderr.write(f"[NR RQ Hook] Shutting down agent in PID={pid}\n")
+                    newrelic.agent.shutdown_agent(timeout=10.0)
+                except Exception as e:
+                    sys.stderr.write(f"[NR RQ Hook] Shutdown failed in PID={pid}: {e}\n")
+        
+        Worker.perform_job = _nr_perform_job
+        sys.stderr.write("[NR RQ Hook] Worker.perform_job instrumented successfully\n")
+        
+    except Exception as e:
+        sys.stderr.write(f"[NR RQ Hook] Instrumentation failed: {e}\n")

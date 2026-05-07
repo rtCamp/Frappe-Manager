@@ -359,8 +359,18 @@ def update(
             bench.supervisor.setup_newrelic(bench.path)
 
             output.change_head("Restarting frappe container to apply NewRelic changes")
-            bench.docker_client.compose.up(services=["frappe"], detach=True, force_recreate=True)
-            output.print("NewRelic configuration updated")
+            bench.docker_client.compose.up(services=["frappe", "schedule"], detach=True, force_recreate=True)
+
+            output.change_head("Restarting worker and schedule containers to apply NewRelic changes")
+            workers_configured = bench.sync_workers_compose(force_recreate=False, setup_supervisor=False)
+            if workers_configured and bench.workers.compose_file_manager.exists():
+                bench.workers.docker_client.compose.up(
+                    services=[],
+                    detach=True,
+                    force_recreate=True,
+                )
+
+            output.print("NewRelic configuration updated (NR will be auto-installed on first supervisor start)")
 
         if python_version or node_version:
             frappe_app_path = bench.path / "workspace" / "frappe-bench" / "apps" / "frappe"

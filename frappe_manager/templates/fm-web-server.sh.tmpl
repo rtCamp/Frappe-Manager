@@ -19,6 +19,7 @@ def post_fork(server, worker):
 GUNICONF
 
     export NEW_RELIC_CONFIG_FILE="$NR_INI"
+    export NEW_RELIC_DEBUG_DISABLE_HARVEST_UNTIL_SHUTDOWN=false
 
     exec "$BENCH_DIR/env/bin/newrelic-admin" run-program \
         "$BENCH_DIR/env/bin/gunicorn" $GUNICORN_ARGS \

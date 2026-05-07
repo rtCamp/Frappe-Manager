@@ -17,7 +17,7 @@ directory={{ sites_dir }}
 startretries={{ supervisor_startretries }}
 
 [program:{{ bench_name }}-frappe-schedule]
-command={{ bench_cmd }} schedule
+command=/bin/bash {{ bench_dir }}/config/fm-scheduler.sh
 priority=3
 autostart=true
 stdout_logfile={{ bench_dir }}/logs/schedule.log
@@ -28,7 +28,7 @@ startretries={{ supervisor_startretries }}
 
 {% if not multi_queue_consumption %}
 [program:{{ bench_name }}-frappe-default-worker]
-command={{ bench_cmd }} worker --queue default
+command=/bin/bash {{ bench_dir }}/config/fm-worker.sh default
 priority=4
 autostart=true
 autorestart=true
@@ -45,7 +45,7 @@ startretries={{ supervisor_startretries }}
 {% endif %}
 
 [program:{{ bench_name }}-frappe-short-worker]
-command={{ bench_cmd }} worker --queue short{{',default' if multi_queue_consumption else ''}}
+command=/bin/bash {{ bench_dir }}/config/fm-worker.sh short{{',default' if multi_queue_consumption else ''}}
 priority=4
 autostart=true
 autorestart=true
@@ -61,7 +61,7 @@ process_name=%(program_name)s-%(process_num)d
 startretries={{ supervisor_startretries }}
 
 [program:{{ bench_name }}-frappe-long-worker]
-command={{ bench_cmd }} worker --queue long{{',default,short' if multi_queue_consumption else ''}}
+command=/bin/bash {{ bench_dir }}/config/fm-worker.sh long{{',default,short' if multi_queue_consumption else ''}}
 priority=4
 autostart=true
 autorestart=true
@@ -78,7 +78,7 @@ startretries={{ supervisor_startretries }}
 
 {% for worker_name, worker_details in workers.items() %}
 [program:{{ bench_name }}-frappe-{{ worker_name }}-worker]
-command={{ bench_cmd }} worker --queue {{ worker_name }}
+command=/bin/bash {{ bench_dir }}/config/fm-worker.sh {{ worker_name }}
 priority=4
 autostart=true
 autorestart=true

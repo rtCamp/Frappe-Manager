@@ -167,6 +167,10 @@ class BenchWorkers:
                 worker_config["environment"]["USERID"] = os.getuid()
                 worker_config["environment"]["USERGROUP"] = os.getgid()
                 worker_config["environment"]["WORKER_NAME"] = worker
+                bench_config = self.bench.bench_config
+                if bench_config.newrelic_enabled and bench_config.newrelic_license_key:
+                    worker_config["environment"]["NEWRELIC_ENABLED"] = "true"
+                    worker_config["environment"]["NEWRELIC_LICENSE_KEY"] = bench_config.newrelic_license_key
                 self.compose_file_manager.yml["services"][worker] = worker_config
 
             self.compose_file_manager.with_prefix(

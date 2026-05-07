@@ -263,11 +263,15 @@ class BenchSupervisor:
         parsed.read_string(rendered)
         self._write_split_configs(parsed, config_dir)
         self._write_gunicorn_wrapper(config_dir, context)
+        self._write_worker_wrapper(config_dir, context)
+        self._write_scheduler_wrapper(config_dir, context)
         if self.config.newrelic_enabled and self.config.newrelic_license_key:
             self._write_newrelic_config(config_dir)
         self.output.print("Configured supervisor configs")
 
     def setup_newrelic(self, bench_path) -> None:
+        import configparser
+        import io
         from pathlib import Path
 
         bench_dir = Path(bench_path).resolve() / "workspace" / "frappe-bench"
@@ -277,23 +281,33 @@ class BenchSupervisor:
         self.output.change_head("Configuring supervisor configs")
 
         try:
-            _, context = self.generate_supervisor_config(bench_path)
+            rendered, context = self.generate_supervisor_config(bench_path)
         except Exception as e:
             raise BenchOperationException(self.bench_name, f"Failed to read bench config for NewRelic setup: {e}")
 
         self._write_gunicorn_wrapper(config_dir, context)
+        self._write_worker_wrapper(config_dir, context)
+        self._write_scheduler_wrapper(config_dir, context)
+
+        parsed = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
+        parsed.read_string(rendered)
+        self._write_split_configs(parsed, config_dir, only_sections=lambda s: "worker" in s or "schedule" in s)
 
         if self.config.newrelic_enabled and self.config.newrelic_license_key:
             self._write_newrelic_config(config_dir)
 
         self.output.print("Configured supervisor configs")
 
-    def _write_split_configs(self, config, config_dir) -> None:
+    def _write_split_configs(self, config, config_dir, only_sections=None) -> None:
         import configparser
         import io
         from pathlib import Path
 
         for section_name in config.sections():
+            if section_name.startswith("group:"):
+                continue
+            if only_sections is not None and not only_sections(section_name):
+                continue
             if section_name.startswith("group:"):
                 continue
 
@@ -330,15 +344,19 @@ class BenchSupervisor:
         cfg.set("newrelic", "log_file", f"{CONTAINER_BENCH_DIR}/logs/newrelic-agent.log")
         cfg.set("newrelic", "log_level", "info")
         cfg.set("newrelic", "startup_timeout", "0.0")
-        cfg.set("newrelic", "shutdown_timeout", "2.5")
+        cfg.set("newrelic", "shutdown_timeout", "10.0")
         cfg.set("newrelic", "distributed_tracing.enabled", "true")
+        
+        # Fork-per-job optimization: prevent harvest thread from running until shutdown
+        # Avoids wasted cycles during short-lived jobs, ensures clean final harvest
+        cfg.set("newrelic", "debug.disable_harvest_until_shutdown", "true")
         cfg.set("newrelic", "span_events.max_samples_stored", "2000")
         cfg.set("newrelic", "datastore_tracer.instance_reporting.enabled", "true")
         cfg.set("newrelic", "datastore_tracer.database_name_reporting.enabled", "true")
 
         cfg.add_section("transaction_tracer")
         cfg.set("transaction_tracer", "enabled", "true")
-        cfg.set("transaction_tracer", "transaction_threshold", "apdex_f")
+        cfg.set("transaction_tracer", "transaction_threshold", "0")
         cfg.set("transaction_tracer", "record_sql", "obfuscated")
         cfg.set("transaction_tracer", "stack_trace_threshold", "0.5")
         cfg.set("transaction_tracer", "explain_enabled", "true")
@@ -370,10 +388,28 @@ class BenchSupervisor:
         cfg.set("error_collector", "attributes.enabled", "true")
         cfg.set("error_collector", "max_event_samples_stored", "100")
 
+        # Import hooks for RQ worker instrumentation (fork-per-job framework)
+        # Based on: https://gist.github.com/tirkarthi/f045fe73d4be03c26a5c51f6e0d3e4c1
+        # Official NR import hook system handles module imports and fork lifecycle
+        cfg.add_section("import-hook:rq.worker")
+        cfg.set("import-hook:rq.worker", "enabled", "true")
+        cfg.set("import-hook:rq.worker", "execute", "newrelic_rq_hooks:instrument_rq_worker")
+
         buf = io.StringIO()
         cfg.write(buf)
         Path(config_dir / "newrelic.ini").write_text(buf.getvalue())
         self.logger.info("Generated newrelic.ini")
+        
+        self._write_newrelic_rq_hooks(config_dir)
+
+    def _write_newrelic_rq_hooks(self, config_dir) -> None:
+        from pathlib import Path
+        
+        template_path = get_template_path("newrelic_rq_hooks.py.tmpl")
+        hooks_content = template_path.read_text()
+        
+        Path(config_dir / "newrelic_rq_hooks.py").write_text(hooks_content)
+        self.logger.info("Generated newrelic_rq_hooks.py")
 
     def _write_gunicorn_wrapper(self, config_dir, context: dict) -> None:
         from pathlib import Path
@@ -401,3 +437,31 @@ class BenchSupervisor:
         wrapper_path.write_text(script)
         wrapper_path.chmod(0o755)
         self.logger.info("Generated gunicorn.sh wrapper")
+
+    def _write_worker_wrapper(self, config_dir, context: dict) -> None:
+        from pathlib import Path
+
+        template_path = get_template_path("fm-worker.sh.tmpl")
+        script = Template(template_path.read_text()).render(
+            bench_dir=context["bench_dir"],
+            bench_cmd=context["bench_cmd"],
+        )
+        wrapper_path = Path(config_dir) / "fm-worker.sh"
+        wrapper_path.write_text(script)
+        wrapper_path.chmod(0o755)
+        self.logger.info("Generated fm-worker.sh wrapper")
+
+    def _write_scheduler_wrapper(self, config_dir, context: dict) -> None:
+        from pathlib import Path
+
+        template_path = get_template_path("fm-scheduler.sh.tmpl")
+        script = Template(template_path.read_text()).render(
+            bench_dir=context["bench_dir"],
+            bench_cmd=context["bench_cmd"],
+        )
+        wrapper_path = Path(config_dir) / "fm-scheduler.sh"
+        wrapper_path.write_text(script)
+        wrapper_path.chmod(0o755)
+        self.logger.info("Generated fm-scheduler.sh wrapper")
+
+

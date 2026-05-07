@@ -1,0 +1,22 @@
+#!/bin/bash
+BENCH_DIR="{{ bench_dir }}"
+QUEUES="$1"
+BENCH_CMD="{{ bench_cmd }}"
+
+if [[ "${NEWRELIC_ENABLED:-}" == "true" && -n "${NEWRELIC_LICENSE_KEY:-}" ]]; then
+    REAL_BENCH_DIR=$(readlink -f "$BENCH_DIR")
+    APP_PYTHON="$REAL_BENCH_DIR/env/bin/python"
+    
+    if ! "$APP_PYTHON" -c "import newrelic" 2>/dev/null; then
+        /usr/local/bin/uv pip install --quiet newrelic --python "$APP_PYTHON" 2>/dev/null || true
+    fi
+
+    if "$APP_PYTHON" -c "import newrelic" 2>/dev/null; then
+        export NEW_RELIC_CONFIG_FILE="$BENCH_DIR/config/newrelic.ini"
+        export PYTHONPATH="$BENCH_DIR/config:${PYTHONPATH:-}"
+        
+        exec "$REAL_BENCH_DIR/env/bin/newrelic-admin" run-program "$BENCH_CMD" worker --queue "$QUEUES"
+    fi
+fi
+
+exec "$BENCH_CMD" worker --queue "$QUEUES"
