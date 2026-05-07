@@ -235,7 +235,80 @@ class DockerClient:
 
         return images
 
-    # ==================== NEW: Convenience Methods ====================
+    def tag(
+        self,
+        source_image: str,
+        target_image: str,
+        stream: bool = False,
+    ):
+        """
+        Tag a source image with a new target name/tag.
+
+        Args:
+            source_image: Source image (e.g., "alpine:3.18" or image ID)
+            target_image: Target image tag (e.g., "myrepo/alpine:latest")
+            stream: Whether to stream output (default: False)
+
+        Returns:
+            SubprocessOutput or iterator if streaming
+
+        Example:
+            docker.tag("alpine:3.18", "myrepo/alpine:prod")
+        """
+        parameters: dict = locals()
+
+        tag_cmd: list[str] = ["tag"]
+        remove_parameters = ["stream", "source_image", "target_image"]
+
+        tag_cmd += parameters_to_options(parameters, exclude=remove_parameters)
+        tag_cmd += [source_image, target_image]
+
+        iterator = run_command_with_exit_code(
+            self.docker_cmd + tag_cmd,
+            stream=stream,
+        )
+        return iterator
+
+    def rmi(
+        self,
+        image: str | list[str],
+        force: bool = False,
+        no_prune: bool = False,
+        stream: bool = False,
+    ):
+        """
+        Remove one or more images.
+
+        Args:
+            image: Image name/ID or list of images to remove
+            force: Force removal of the image (default: False)
+            no_prune: Do not delete untagged parents (default: False)
+            stream: Whether to stream output (default: False)
+
+        Returns:
+            SubprocessOutput or iterator if streaming
+
+        Example:
+            docker.rmi("myrepo/alpine:old")
+            docker.rmi(["img1", "img2"], force=True)
+        """
+        parameters: dict = locals()
+
+        rmi_cmd: list[str] = ["rmi"]
+        remove_parameters = ["stream", "image"]
+
+        rmi_cmd += parameters_to_options(parameters, exclude=remove_parameters)
+
+        if isinstance(image, str):
+            rmi_cmd += [image]
+        else:
+            rmi_cmd += image
+
+        iterator = run_command_with_exit_code(
+            self.docker_cmd + rmi_cmd,
+            stream=stream,
+        )
+        return iterator
 
     def create_temp_container(self, image: str, name: str | None = None, **run_kwargs) -> "TempContainer":
         """
@@ -264,8 +337,6 @@ class DockerClient:
     def is_running(self) -> bool:
         """Alias for server_running() for better readability"""
         return self.server_running()
-
-    # ==================== Context Manager Support ====================
 
     def __enter__(self) -> "DockerClient":
         """

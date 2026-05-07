@@ -5,12 +5,29 @@ GUNICORN_ARGS="{{ gunicorn_args }}"
 if [[ "${NEWRELIC_ENABLED:-}" == "true" && -n "${NEWRELIC_LICENSE_KEY:-}" ]]; then
     "$BENCH_DIR/env/bin/python" -c "import newrelic" 2>/dev/null || \
         /usr/local/bin/uv pip install --quiet newrelic --python "$BENCH_DIR/env/bin/python"
-    "$BENCH_DIR/env/bin/newrelic-admin" generate-config \
-        "$NEWRELIC_LICENSE_KEY" \
-        "$BENCH_DIR/config/newrelic.ini"
-    export NEW_RELIC_CONFIG_FILE="$BENCH_DIR/config/newrelic.ini"
+
+    NR_INI="$BENCH_DIR/config/newrelic.ini"
+    NR_GUNICORN_CONF="$BENCH_DIR/config/newrelic-gunicorn.conf.py"
+
+    # post_fork is required: gunicorn --preload loads the WSGI app in the master
+    # process before forking. The NR agent harvest thread does not survive fork()
+    # so each worker must re-register the agent after fork.
+    cat > "$NR_GUNICORN_CONF" <<'GUNICONF'
+def post_fork(server, worker):
+    import newrelic.agent
+    newrelic.agent.register_application(timeout=10.0)
+GUNICONF
+
+    if [[ ! -f "$NR_INI" ]]; then
+        echo "ERROR: New Relic is enabled but $NR_INI is missing. Run 'fm update' to regenerate it." >&2
+        exit 1
+    fi
+
+    export NEW_RELIC_CONFIG_FILE="$NR_INI"
+
     exec "$BENCH_DIR/env/bin/newrelic-admin" run-program \
-        "$BENCH_DIR/env/bin/gunicorn" $GUNICORN_ARGS
+        "$BENCH_DIR/env/bin/gunicorn" $GUNICORN_ARGS \
+        -c "$NR_GUNICORN_CONF"
 else
     exec "$BENCH_DIR/env/bin/gunicorn" $GUNICORN_ARGS
 fi

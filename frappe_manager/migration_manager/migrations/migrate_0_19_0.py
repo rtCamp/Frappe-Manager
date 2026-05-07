@@ -26,7 +26,7 @@ from frappe_manager.output_manager.context_managers import spinner
 
 
 class MigrationV0190(MigrationBase):
-    version = Version("0.19.0")
+    version = Version("0.19.0.dev0")
 
     def bench_basic_backup(self, bench: MigrationBench):
         """
@@ -402,6 +402,7 @@ if [ -d env ]; then
 fi
 
 echo "Installing Python {python_version} via uv..."
+export UV_PYTHON_INSTALL_DIR=/workspace/frappe-bench/.uv/python
 uv python install {quoted_pkg}
 
 echo "Detecting installed Python..."

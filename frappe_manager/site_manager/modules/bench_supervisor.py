@@ -174,7 +174,16 @@ class BenchSupervisor:
             raise BenchException("frappe", f"Failed to run {command} in frappe service.")
 
     def _get_gunicorn_workers(self) -> int:
-        return (multiprocessing.cpu_count() * 2) + 1
+        import psutil
+
+        cpus = multiprocessing.cpu_count()
+        ram_gb = psutil.virtual_memory().total / (1024**3)
+        ram_based = max(1, int(ram_gb * 1024 / 256))
+        return min(cpus, ram_based)
+
+    def _get_gunicorn_threads(self) -> int:
+        cpus = multiprocessing.cpu_count()
+        return max(2, min(cpus, 4))
 
     def _get_default_max_requests(self, workers: int) -> int:
         return 1000
@@ -200,6 +209,11 @@ class BenchSupervisor:
 
         web_worker_count = config.get("gunicorn_workers", self._get_gunicorn_workers())
         max_requests = config.get("gunicorn_max_requests", self._get_default_max_requests(web_worker_count))
+        # gthread worker class: each worker handles multiple concurrent requests via threads.
+        # Frappe is IO-bound (DB/Redis heavy) and its concurrency_limiter explicitly reads
+        # --threads from the gunicorn master cmdline, so gthread is the intended worker type.
+        # Default 2 threads per worker; overridable via common_site_config.json.
+        gunicorn_threads = config.get("gunicorn_threads", self._get_gunicorn_threads())
 
         context = {
             "bench_dir": CONTAINER_BENCH_DIR,
@@ -212,6 +226,7 @@ class BenchSupervisor:
             "gunicorn_workers": web_worker_count,
             "gunicorn_max_requests": max_requests,
             "gunicorn_max_requests_jitter": self._compute_max_requests_jitter(max_requests),
+            "gunicorn_threads": gunicorn_threads,
             "bench_name": "frappe-bench",
             "background_workers": config.get("background_workers") or 1,
             "bench_cmd": "/opt/user/.bin/bench",
@@ -248,6 +263,29 @@ class BenchSupervisor:
         parsed.read_string(rendered)
         self._write_split_configs(parsed, config_dir)
         self._write_gunicorn_wrapper(config_dir, context)
+        if self.config.newrelic_enabled and self.config.newrelic_license_key:
+            self._write_newrelic_config(config_dir)
+        self.output.print("Configured supervisor configs")
+
+    def setup_newrelic(self, bench_path) -> None:
+        from pathlib import Path
+
+        bench_dir = Path(bench_path).resolve() / "workspace" / "frappe-bench"
+        config_dir = bench_dir / "config"
+        config_dir.mkdir(parents=True, exist_ok=True)
+
+        self.output.change_head("Configuring supervisor configs")
+
+        try:
+            _, context = self.generate_supervisor_config(bench_path)
+        except Exception as e:
+            raise BenchOperationException(self.bench_name, f"Failed to read bench config for NewRelic setup: {e}")
+
+        self._write_gunicorn_wrapper(config_dir, context)
+
+        if self.config.newrelic_enabled and self.config.newrelic_license_key:
+            self._write_newrelic_config(config_dir)
+
         self.output.print("Configured supervisor configs")
 
     def _write_split_configs(self, config, config_dir) -> None:
@@ -277,12 +315,74 @@ class BenchSupervisor:
             Path(config_dir / file_name).write_text(buf.getvalue())
             self.logger.info(f"Split supervisor conf {section_name} => {file_name}")
 
+    def _write_newrelic_config(self, config_dir) -> None:
+        import configparser
+        import io
+        from pathlib import Path
+
+        cfg = configparser.RawConfigParser()
+
+        cfg.add_section("newrelic")
+        cfg.set("newrelic", "license_key", self.config.newrelic_license_key or "")
+        cfg.set("newrelic", "app_name", f"Frappe - {self.bench_name}")
+        cfg.set("newrelic", "monitor_mode", "true")
+        cfg.set("newrelic", "high_security", "false")
+        cfg.set("newrelic", "log_file", f"{CONTAINER_BENCH_DIR}/logs/newrelic-agent.log")
+        cfg.set("newrelic", "log_level", "info")
+        cfg.set("newrelic", "startup_timeout", "0.0")
+        cfg.set("newrelic", "shutdown_timeout", "2.5")
+        cfg.set("newrelic", "distributed_tracing.enabled", "true")
+        cfg.set("newrelic", "span_events.max_samples_stored", "2000")
+        cfg.set("newrelic", "datastore_tracer.instance_reporting.enabled", "true")
+        cfg.set("newrelic", "datastore_tracer.database_name_reporting.enabled", "true")
+
+        cfg.add_section("transaction_tracer")
+        cfg.set("transaction_tracer", "enabled", "true")
+        cfg.set("transaction_tracer", "transaction_threshold", "apdex_f")
+        cfg.set("transaction_tracer", "record_sql", "obfuscated")
+        cfg.set("transaction_tracer", "stack_trace_threshold", "0.5")
+        cfg.set("transaction_tracer", "explain_enabled", "true")
+        cfg.set("transaction_tracer", "explain_threshold", "0.5")
+        cfg.set("transaction_tracer", "attributes.enabled", "true")
+        cfg.set(
+            "transaction_tracer",
+            "attributes.include",
+            "request.headers.x-frappe-request-id request.uri request.method",
+        )
+        cfg.set(
+            "transaction_tracer",
+            "attributes.exclude",
+            "request.headers.authorization request.headers.cookie",
+        )
+
+        cfg.add_section("error_collector")
+        cfg.set("error_collector", "enabled", "true")
+        cfg.set("error_collector", "ignore_status_codes", "100-102 200-208 226 300-308 404")
+        cfg.set(
+            "error_collector",
+            "expected_classes",
+            (
+                "frappe.exceptions.ValidationError "
+                "frappe.exceptions.PermissionError "
+                "frappe.exceptions.DoesNotExistError"
+            ),
+        )
+        cfg.set("error_collector", "attributes.enabled", "true")
+        cfg.set("error_collector", "max_event_samples_stored", "100")
+
+        buf = io.StringIO()
+        cfg.write(buf)
+        Path(config_dir / "newrelic.ini").write_text(buf.getvalue())
+        self.logger.info("Generated newrelic.ini")
+
     def _write_gunicorn_wrapper(self, config_dir, context: dict) -> None:
         from pathlib import Path
 
         gunicorn_args = (
             f"-b 0.0.0.0:{context['webserver_port']}"
             f" -w {context['gunicorn_workers']}"
+            f" --worker-class=gthread"
+            f" --threads {context['gunicorn_threads']}"
             f" --max-requests {context['gunicorn_max_requests']}"
             f" --max-requests-jitter {context['gunicorn_max_requests_jitter']}"
             f" -t {context['http_timeout']}"
@@ -294,6 +394,7 @@ class BenchSupervisor:
         script = Template(template_path.read_text()).render(
             bench_dir=context["bench_dir"],
             gunicorn_args=gunicorn_args,
+            bench_name=self.bench_name,
         )
 
         wrapper_path = Path(config_dir) / "fm-web-server.sh"

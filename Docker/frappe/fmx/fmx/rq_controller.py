@@ -9,6 +9,7 @@ from rich import print
 from rich.console import Console
 
 import redis
+from rq.exceptions import DeserializationError
 from rq.suspension import is_suspended, resume, suspend
 from rq.worker import Worker
 
@@ -164,7 +165,7 @@ def control_rq_workers(action: ActionEnum, redis_url=None) -> bool:
 
 
 def wait_for_rq_workers_suspended(
-    timeout: int = 300,
+    timeout: int = 0,
     poll_interval: int = 5,
     redis_url=None,
     skip_stale: bool = True,
@@ -181,7 +182,7 @@ def wait_for_rq_workers_suspended(
         while True:
             elapsed = time.time() - start_time
 
-            if elapsed > timeout:
+            if timeout > 0 and elapsed > timeout:
                 final_status = "timeout"
                 break
 
@@ -306,7 +307,12 @@ def get_rq_worker_status(redis_url=None, include_dead: bool = False) -> Optional
             current_job = None
             if state == 'busy':
                 job = worker.get_current_job()
-                current_job = job.func_name if job else None
+                if job:
+                    try:
+                        current_job = job.func_name
+                    except DeserializationError:
+                        # Module no longer exists; use safe job identifier instead
+                        current_job = job.description or job.id or "<unresolvable job>"
 
             queue_names = worker.queue_names()
             queue_count = 0
@@ -364,7 +370,7 @@ def main():
 
     # wait
     wait_parser = subparsers.add_parser("wait", help="Wait for all RQ workers to be suspended")
-    wait_parser.add_argument("--timeout", type=int, default=300, help="Timeout in seconds (default: 300)")
+    wait_parser.add_argument("--timeout", type=int, default=0, help="Timeout in seconds. 0 (default) = wait indefinitely.")
     wait_parser.add_argument("--poll-interval", type=int, default=5, help="Polling interval in seconds (default: 5)")
 
     # check
