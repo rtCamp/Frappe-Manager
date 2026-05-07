@@ -29,6 +29,7 @@ $ fm update BENCHNAME [OPTIONS]
 * `--recreate-python-env/--no-recreate-python-env`: Recreate the Python virtual environment. Use --no-recreate-python-env to skip if current version already satisfies the requirement.
 * `--restart`: Update Docker restart policy for all bench services.
 * `--allow-domain-conflicts`: Skip domain uniqueness validation when adding aliases (not recommended).
+* `--newrelic`: Enable or disable New Relic APM monitoring (requires license key). See [New Relic Monitoring guide](../guides/newrelic-monitoring.md).
 
 
 ## Examples
@@ -119,5 +120,23 @@ Sets the maximum file upload size for the bench (useful for large attachments).
 
 ```bash
 fm update mybench --upload-limit 100M
+```
+
+### Enable New Relic monitoring
+
+Enables New Relic APM monitoring for production observability. You'll be prompted for your license key.
+
+```bash
+fm update mybench --newrelic enable
+```
+
+See the [New Relic Monitoring guide](../guides/newrelic-monitoring.md) for full setup and configuration details.
+
+### Disable New Relic monitoring
+
+Stops sending monitoring data to New Relic.
+
+```bash
+fm update mybench --newrelic disable
 ```
 

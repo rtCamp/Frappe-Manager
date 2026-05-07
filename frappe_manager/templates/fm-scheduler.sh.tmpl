@@ -13,8 +13,15 @@ if [[ "${NEWRELIC_ENABLED:-}" == "true" && -n "${NEWRELIC_LICENSE_KEY:-}" ]]; th
     if "$APP_PYTHON" -c "import newrelic" 2>/dev/null; then
         export NEW_RELIC_CONFIG_FILE="$BENCH_DIR/config/newrelic.ini"
         export NEW_RELIC_DEBUG_DISABLE_HARVEST_UNTIL_SHUTDOWN=false
+        export PYTHONPATH="$BENCH_DIR/config:${PYTHONPATH:-}"
         
-        exec "$REAL_BENCH_DIR/env/bin/newrelic-admin" run-program "$BENCH_CMD" schedule
+        # newrelic-admin needs the actual bench command, not the FM wrapper
+        ACTUAL_BENCH=$(readlink -f "$BENCH_CMD" 2>/dev/null || echo "$BENCH_CMD")
+        if [[ ! -x "$ACTUAL_BENCH" ]]; then
+            ACTUAL_BENCH=$(command -v bench)
+        fi
+        
+        exec "$REAL_BENCH_DIR/env/bin/newrelic-admin" run-program "$ACTUAL_BENCH" schedule
     fi
 fi
 

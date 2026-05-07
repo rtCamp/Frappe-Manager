@@ -20,6 +20,7 @@ GUNICONF
 
     export NEW_RELIC_CONFIG_FILE="$NR_INI"
     export NEW_RELIC_DEBUG_DISABLE_HARVEST_UNTIL_SHUTDOWN=false
+    export PYTHONPATH="$BENCH_DIR/config:${PYTHONPATH:-}"
 
     exec "$BENCH_DIR/env/bin/newrelic-admin" run-program \
         "$BENCH_DIR/env/bin/gunicorn" $GUNICORN_ARGS \

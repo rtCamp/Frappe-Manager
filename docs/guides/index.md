@@ -76,4 +76,10 @@ In-depth walkthroughs for everything Frappe Manager can do.
 
     Back up your site data from the CLI or Frappe UI, understand where backups live, and restore a bench from a previous backup.
 
+-   :lucide-activity:{ .lg .middle } &nbsp; **[New Relic APM Monitoring](newrelic-monitoring.md)**
+
+    ---
+
+    Monitor production benches with New Relic. Track web requests, background jobs, database queries, and errors — with full transaction traces and zero code changes.
+
 </div>
