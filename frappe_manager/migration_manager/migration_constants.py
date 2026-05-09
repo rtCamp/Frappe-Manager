@@ -20,7 +20,15 @@ MIGRATION_CHECK_WHITELIST_COMMANDS: list[str] = [
     "list",
     "self compose",
     "self update-images",
+    "self logrotate",
     "migrate",
 ]
 
 MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS: list[str] = []
+
+# Commands that do not interact with Docker at all.
+# For these commands the Docker daemon check and the first-install image
+# pull are skipped so they can run without a running Docker daemon.
+DOCKER_FREE_COMMANDS: list[str] = [
+    "self logrotate",
+]
