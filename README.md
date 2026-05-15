@@ -66,7 +66,7 @@
 
 ### Stable Release (Recommended)
 
-📦 **For production use** • Matches [stable documentation](https://opensource.rtcamp.com/Frappe-Manager/latest/)
+📦 **For production use** • Matches [stable documentation](https://opensource.rtcamp.com/Frappe-Manager/)
 
 Using uv (recommended):
 
