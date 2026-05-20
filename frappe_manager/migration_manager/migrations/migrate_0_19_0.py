@@ -26,7 +26,7 @@ from frappe_manager.output_manager.context_managers import spinner
 
 
 class MigrationV0190(MigrationBase):
-    version = Version("0.19.0.dev0")
+    version = Version("0.19.0")
 
     def bench_basic_backup(self, bench: MigrationBench):
         """
@@ -92,6 +92,7 @@ class MigrationV0190(MigrationBase):
             docker_compose_path = bench.path / "docker-compose.yml"
             if docker_compose_path.exists():
                 self._migrate_docker_compose_yml(bench, docker_compose_path)
+                self._pull_bench_images(bench)
 
             workers_compose_path = bench.path / "docker-compose.workers.yml"
             if workers_compose_path.exists():
@@ -205,10 +206,11 @@ class MigrationV0190(MigrationBase):
             yaml.dump(compose_data, f)
 
     def _update_service_images(self, services: dict[str, Any]):
-        """Replace any existing version tag with current version."""
+        """Replace any existing version tag with runtime-determined version."""
         import re
 
-        # Pattern matches: ghcr.io/rtcamp/frappe-manager-{image}:v{X.Y.Z} or v{X.Y.Z.devN}
+        effective_tag = self._get_image_tag_for_migration()
+        
         version_pattern = re.compile(r"(ghcr\.io/rtcamp/frappe-manager-[^:]+):v[0-9]+\.[0-9]+\.[0-9]+(?:\.dev[0-9]+)?")
 
         for service_name, service_config in services.items():
@@ -217,16 +219,14 @@ class MigrationV0190(MigrationBase):
 
             old_image = service_config["image"]
 
-            # Try to extract old version for logging
             old_version_match = re.search(r":v([0-9]+\.[0-9]+\.[0-9]+(?:\.dev[0-9]+)?)", old_image)
             old_version = old_version_match.group(1) if old_version_match else "unknown"
 
-            # Replace version tag with current version
-            new_image = version_pattern.sub(rf"\1:{self.version.version_string()}", old_image)
+            new_image = version_pattern.sub(rf"\1:{effective_tag}", old_image)
 
             if new_image != old_image:
                 service_config["image"] = new_image
-                self.output.print(f"Updated {service_name} image: v{old_version} → {self.version.version_string()}")
+                self.output.print(f"Updated {service_name} image: v{old_version} → {effective_tag}")
 
     def _transform_nginx_environment(self, services: dict[str, Any]):
         """Transform nginx SITENAME → SITE_MAPPINGS environment variable."""
@@ -287,6 +287,20 @@ class MigrationV0190(MigrationBase):
 
         if htpasswd_file.exists():
             htpasswd_file.unlink()
+
+    def _pull_bench_images(self, bench: MigrationBench):
+        from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
+        
+        self.output.print(f"Pulling updated images ({self.effective_image_tag})...", emoji_code="📦")
+        
+        result = bench.compose.pull(stream=False)
+        
+        if result.exit_code != 0:
+            raise MigrationExceptionInBench(
+                f"Failed to pull images for {bench.name}. Docker pull failed."
+            )
+        
+        self.output.print("✓ Images ready", emoji_code="✅")
 
     def migrate_services(self):
         """
