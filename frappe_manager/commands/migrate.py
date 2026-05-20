@@ -196,7 +196,15 @@ def migrate(
         for bench_name in target_benches:
             if bench_name in migrations.migrate_benches:
                 bench_data = migrations.migrate_benches[bench_name]
-                if bench_data["last_migration_version"] == current_version and not bench_data["exception"]:
+                last_migrated = bench_data["last_migration_version"]
+                
+                # Compare base versions to handle dev releases (0.19.0.dev0 matches 0.19.0)
+                versions_match = (
+                    last_migrated is not None
+                    and last_migrated._parsed.base_version == current_version._parsed.base_version
+                )
+                
+                if versions_match and not bench_data["exception"]:
                     bench_path = CLI_BENCHES_DIRECTORY / bench_name
                     if bench_path.exists() and (bench_path / CLI_BENCH_CONFIG_FILE_NAME).exists():
                         set_bench_migration_version(bench_path, current_version)
