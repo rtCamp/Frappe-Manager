@@ -831,6 +831,7 @@ echo "Apps reinstalled and assets built successfully"
 
         cpu_count = multiprocessing.cpu_count()
         gunicorn_workers = site_config.get("gunicorn_workers", (cpu_count * 2) + 1)
+        gunicorn_threads = site_config.get("gunicorn_threads", max(2, min(cpu_count, 4)))
         max_requests = site_config.get("gunicorn_max_requests", 1000)
 
         context = {
@@ -842,6 +843,7 @@ echo "Apps reinstalled and assets built successfully"
             "node": "/workspace/frappe-bench/.fnm/aliases/default/bin/node",
             "webserver_port": site_config.get("webserver_port", 80),
             "gunicorn_workers": gunicorn_workers,
+            "gunicorn_threads": gunicorn_threads,
             "gunicorn_max_requests": max_requests,
             "gunicorn_max_requests_jitter": int(max_requests * 0.1),
             "bench_name": "frappe-bench",
@@ -882,7 +884,39 @@ echo "Apps reinstalled and assets built successfully"
             section_config.write(buf)
             (config_dir / file_name).write_text(buf.getvalue())
 
+        # Generate fm-web-server.sh script (required by new supervisor config)
+        self._generate_fm_web_server_script(config_dir, context)
+
         self.logger.debug(f"[_regenerate_supervisor_config] Done for {bench.name}")
+
+    def _generate_fm_web_server_script(self, config_dir: Path, context: dict):
+        """Generate fm-web-server.sh script required by the new supervisor config."""
+        from jinja2 import Template
+
+        from frappe_manager.utils.helpers import get_template_path
+
+        gunicorn_args = (
+            f"--bind 0.0.0.0:{context['webserver_port']}"
+            f" --workers {context['gunicorn_workers']}"
+            f" --threads {context.get('gunicorn_threads', 1)}"
+            f" --max-requests {context['gunicorn_max_requests']}"
+            f" --max-requests-jitter {context['gunicorn_max_requests_jitter']}"
+            f" -t {context['http_timeout']}"
+            f" --graceful-timeout 30"
+            f" frappe.app:application --preload"
+        )
+
+        template_path = get_template_path("fm-web-server.sh.tmpl")
+        script = Template(template_path.read_text()).render(
+            bench_dir=context["bench_dir"],
+            gunicorn_args=gunicorn_args,
+            bench_name=context["bench_name"],
+        )
+
+        wrapper_path = config_dir / "fm-web-server.sh"
+        wrapper_path.write_text(script)
+        wrapper_path.chmod(0o755)
+        self.output.print("Generated fm-web-server.sh")
 
     def _restart_services(self, bench: MigrationBench):
         try:
