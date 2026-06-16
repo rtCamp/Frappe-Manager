@@ -705,9 +705,23 @@ echo "Node environment setup complete"
         self.logger.debug("[_setup_node_with_fnm] Node setup completed successfully")
 
     def _ensure_runtime_dirs(self, bench: MigrationBench):
+        """Ensure runtime directories exist on host with correct ownership.
+
+        Docker may create these as root when setting up volume mounts if they
+        don't exist. We create/chown them here before any container runs.
+        """
+        import os
+
         frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
-        (frappe_bench_dir / ".uv").mkdir(parents=True, exist_ok=True)
-        (frappe_bench_dir / ".fnm").mkdir(parents=True, exist_ok=True)
+        userid = os.getuid()
+        groupid = os.getgid()
+
+        for dirname in [".uv", ".fnm"]:
+            dirpath = frappe_bench_dir / dirname
+            dirpath.mkdir(parents=True, exist_ok=True)
+            # Fix ownership if Docker created it as root
+            if dirpath.stat().st_uid != userid or dirpath.stat().st_gid != groupid:
+                os.chown(dirpath, userid, groupid)
 
     def _cleanup_old_runtime_dirs(self, bench: MigrationBench):
         """Remove old pyenv and nvm directories to prevent path conflicts."""
