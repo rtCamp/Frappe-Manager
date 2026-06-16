@@ -764,6 +764,9 @@ echo "Old runtime directories cleaned up"
 set -x
 cd /workspace/frappe-bench
 
+# Source bashrc to load fnm environment (node/yarn in PATH)
+source /etc/bash.bashrc
+
 echo "Reinstalling apps into new venv..."
 for app in $(ls -1 apps); do
     if [ -d "apps/$app" ]; then
