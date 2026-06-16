@@ -34,6 +34,14 @@ fi
 	exit 1
 }
 
+# Fix ownership of runtime directories if Docker created them as root
+# (happens when volume mount point doesn't exist on host)
+for dir in /workspace/frappe-bench/.fnm /workspace/frappe-bench/.uv; do
+	if [ -d "$dir" ] && [ "$(stat -c '%u' "$dir")" = "0" ]; then
+		chown -R "${USERID}:${USERGROUP}" "$dir" 2>/dev/null || true
+	fi
+done
+
 # Execute command using numeric UID:GID via gosu (NO usermod needed!)
 # gosu supports numeric UIDs without requiring /etc/passwd entries
 # Pass all critical environment variables explicitly since gosu may reset them
