@@ -11,6 +11,7 @@ BREAKING CHANGES:
 - Runtime: pyenv/nvm → uv/fnm, certbot → acme.sh
 """
 
+import json
 import shlex
 from pathlib import Path
 from typing import Any, cast
@@ -241,19 +242,24 @@ class MigrationV0190(MigrationBase):
             services["nginx"]["environment"] = self._transform_nginx_env_list(nginx_env)
 
     def _transform_nginx_env_dict(self, nginx_env: dict[str, Any]):
-        """Transform dict format: {SITENAME: value} → {SITE_MAPPINGS: value}."""
+        """Transform dict format: {SITENAME: value} → {SITE_MAPPINGS: '{"value": "value}'}."""
         if "SITENAME" in nginx_env:
-            nginx_env["SITE_MAPPINGS"] = nginx_env.pop("SITENAME")
-            self.output.print("Migrated SITENAME → SITE_MAPPINGS")
+            sitename_value = nginx_env.pop("SITENAME")
+            # Convert plain site name to JSON mapping expected by nginx entrypoint
+            site_mapping = json.dumps({sitename_value: sitename_value})
+            nginx_env["SITE_MAPPINGS"] = site_mapping
+            self.output.print(f"Migrated SITENAME → SITE_MAPPINGS ({site_mapping})")
 
     def _transform_nginx_env_list(self, nginx_env: list) -> list:
-        """Transform list format: [SITENAME=value] → [SITE_MAPPINGS=value]."""
+        """Transform list format: [SITENAME=value] → [SITE_MAPPINGS='{"value": "value}']."""
         new_env = []
         for env_var in nginx_env:
             if isinstance(env_var, str) and env_var.startswith("SITENAME="):
                 sitename_value = env_var.split("=", 1)[1]
-                new_env.append(f"SITE_MAPPINGS={sitename_value}")
-                self.output.print("Migrated SITENAME → SITE_MAPPINGS")
+                # Convert plain site name to JSON mapping expected by nginx entrypoint
+                site_mapping = json.dumps({sitename_value: sitename_value})
+                new_env.append(f"SITE_MAPPINGS={site_mapping}")
+                self.output.print(f"Migrated SITENAME → SITE_MAPPINGS ({site_mapping})")
             else:
                 new_env.append(env_var)
         return new_env
