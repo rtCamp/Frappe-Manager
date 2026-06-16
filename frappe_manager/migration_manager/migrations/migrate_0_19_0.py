@@ -708,9 +708,10 @@ echo "Node environment setup complete"
         """Ensure runtime directories exist on host with correct ownership.
 
         Docker may create these as root when setting up volume mounts if they
-        don't exist. We create/chown them here before any container runs.
+        don't exist. We delete and recreate them if owned by wrong user.
         """
         import os
+        import shutil
 
         frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
         userid = os.getuid()
@@ -718,10 +719,14 @@ echo "Node environment setup complete"
 
         for dirname in [".uv", ".fnm"]:
             dirpath = frappe_bench_dir / dirname
-            dirpath.mkdir(parents=True, exist_ok=True)
-            # Fix ownership if Docker created it as root
-            if dirpath.stat().st_uid != userid or dirpath.stat().st_gid != groupid:
-                os.chown(dirpath, userid, groupid)
+            if dirpath.exists():
+                # If owned by wrong user (e.g. root from Docker volume mount),
+                # delete and recreate. Parent dir is owned by frappe so deletion works.
+                if dirpath.stat().st_uid != userid or dirpath.stat().st_gid != groupid:
+                    shutil.rmtree(dirpath)
+                    dirpath.mkdir(parents=True, exist_ok=True)
+            else:
+                dirpath.mkdir(parents=True, exist_ok=True)
 
     def _cleanup_old_runtime_dirs(self, bench: MigrationBench):
         """Remove old pyenv and nvm directories to prevent path conflicts."""
