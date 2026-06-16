@@ -239,6 +239,9 @@ class MigrationV0190(MigrationBase):
         self._transform_nginx_environment(services, upload_limit)
         self._add_restart_policy_to_services(services, restart_policy)
 
+        # Update x-version to current version
+        compose_data["x-version"] = self.version.version_string()
+
         with open(compose_path, "w") as f:
             yaml.dump(compose_data, f)
 
@@ -449,6 +452,9 @@ class MigrationV0190(MigrationBase):
             config = tomlkit.parse(bench_config_path.read_text())
             restart_policy = config.get("restart_policy", "unless-stopped")
         self._add_restart_policy_to_services(services, restart_policy)
+
+        # Update x-version to current version
+        compose_data["x-version"] = self.version.version_string()
 
         with open(compose_path, "w") as f:
             yaml.dump(compose_data, f)
