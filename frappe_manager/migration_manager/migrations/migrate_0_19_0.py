@@ -120,13 +120,11 @@ class MigrationV0190(MigrationBase):
             self._cleanup_admin_tools_nginx_config(bench)
 
             # Apply upload limit configuration across all locations
-            bench_config_path = bench.path / "bench_config.toml"
-            if bench_config_path.exists():
-                config = tomlkit.parse(bench_config_path.read_text())
-                upload_limit = config.get("upload_limit", "50M")
-                self._write_upload_limit_vhostd(bench, upload_limit)
-                self._write_upload_limit_site_config(bench, upload_limit)
-                self._write_upload_limit_nginx_conf(bench, upload_limit)
+            # Resolve upload limit: prefer existing site_config.json max_file_size, then bench_config, then default
+            upload_limit = self._resolve_upload_limit(bench)
+            self._write_upload_limit_vhostd(bench, upload_limit)
+            self._write_upload_limit_site_config(bench, upload_limit)
+            self._write_upload_limit_nginx_conf(bench, upload_limit)
 
         self._rebuild_runtime_environment(bench)
 
@@ -320,6 +318,47 @@ class MigrationV0190(MigrationBase):
         for service_name, service_config in services.items():
             if "restart" not in service_config:
                 service_config["restart"] = restart_policy
+
+    def _resolve_upload_limit(self, bench: MigrationBench) -> str:
+        """Resolve upload limit, respecting existing site_config.json max_file_size.
+
+        Priority:
+        1. Existing max_file_size in site_config.json (converted back to string like "50M")
+        2. upload_limit from bench_config.toml
+        3. Default "50M"
+        """
+        # 1. Check site_config.json for existing max_file_size
+        site_config_path = bench.path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
+        if site_config_path.exists():
+            try:
+                site_config = json.loads(site_config_path.read_text())
+                max_file_size = site_config.get("max_file_size")
+                if max_file_size:
+                    # Convert bytes back to human-readable string
+                    if max_file_size >= 1024 * 1024 * 1024 and max_file_size % (1024 * 1024 * 1024) == 0:
+                        resolved = f"{max_file_size // (1024 * 1024 * 1024)}G"
+                    elif max_file_size >= 1024 * 1024 and max_file_size % (1024 * 1024) == 0:
+                        resolved = f"{max_file_size // (1024 * 1024)}M"
+                    else:
+                        # Round to nearest MB
+                        resolved = f"{round(max_file_size / (1024 * 1024))}M"
+                    self.output.print(f"Using existing site_config.json max_file_size: {resolved} ({max_file_size} bytes)")
+                    return resolved
+            except Exception:
+                pass
+
+        # 2. Fall back to bench_config.toml
+        bench_config_path = bench.path / "bench_config.toml"
+        if bench_config_path.exists():
+            config = tomlkit.parse(bench_config_path.read_text())
+            upload_limit = config.get("upload_limit")
+            if upload_limit:
+                self.output.print(f"Using bench_config.toml upload_limit: {upload_limit}")
+                return upload_limit
+
+        # 3. Default
+        self.output.print("Using default upload_limit: 50M")
+        return "50M"
 
     def _write_upload_limit_vhostd(self, bench: MigrationBench, upload_limit: str):
         """Write nginx-proxy vhost.d files for upload limit."""
