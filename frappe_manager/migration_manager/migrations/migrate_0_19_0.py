@@ -83,6 +83,24 @@ class MigrationV0190(MigrationBase):
             self.output.print("Restoring env/ from env.backup.migration")
             shutil.move(str(env_backup_path), str(env_dir))
 
+        # Restore .bashrc if it was backed up
+        bashrc_backup = bench.path / "workspace" / "frappe-bench" / ".bashrc.migration.bak"
+        bashrc_path = bench.path / "workspace" / "frappe-bench" / ".bashrc"
+        if bashrc_backup.exists():
+            if bashrc_path.exists():
+                bashrc_path.unlink()
+            shutil.move(str(bashrc_backup), str(bashrc_path))
+            self.output.print("Restored .bashrc from backup")
+
+        # Restore nginx default.conf if it was backed up
+        nginx_default_conf = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
+        nginx_default_backup = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf.migration.bak"
+        if nginx_default_backup.exists():
+            if nginx_default_conf.exists():
+                nginx_default_conf.unlink()
+            shutil.move(str(nginx_default_backup), str(nginx_default_conf))
+            self.output.print("Restored nginx default.conf from backup")
+
     def migrate_bench(self, bench: MigrationBench):
         """Migrate bench from v0.18.0 to current version."""
         with spinner(self.output, f"Migrating bench configuration for {bench.name}"):  # type: ignore[arg-type]
@@ -100,6 +118,15 @@ class MigrationV0190(MigrationBase):
                 self._migrate_workers_compose_yml(bench, workers_compose_path)
 
             self._cleanup_admin_tools_nginx_config(bench)
+
+            # Apply upload limit configuration across all locations
+            bench_config_path = bench.path / "bench_config.toml"
+            if bench_config_path.exists():
+                config = tomlkit.parse(bench_config_path.read_text())
+                upload_limit = config.get("upload_limit", "50M")
+                self._write_upload_limit_vhostd(bench, upload_limit)
+                self._write_upload_limit_site_config(bench, upload_limit)
+                self._write_upload_limit_nginx_conf(bench, upload_limit)
 
         self._rebuild_runtime_environment(bench)
 
@@ -201,7 +228,18 @@ class MigrationV0190(MigrationBase):
         services = compose_data["services"]
 
         self._update_service_images(services)
-        self._transform_nginx_environment(services)
+
+        # Read config values from bench_config.toml
+        bench_config_path = bench.path / "bench_config.toml"
+        upload_limit = "50M"
+        restart_policy = "unless-stopped"
+        if bench_config_path.exists():
+            config = tomlkit.parse(bench_config_path.read_text())
+            upload_limit = config.get("upload_limit", "50M")
+            restart_policy = config.get("restart_policy", "unless-stopped")
+
+        self._transform_nginx_environment(services, upload_limit)
+        self._add_restart_policy_to_services(services, restart_policy)
 
         with open(compose_path, "w") as f:
             yaml.dump(compose_data, f)
@@ -229,7 +267,7 @@ class MigrationV0190(MigrationBase):
                 service_config["image"] = new_image
                 self.output.print(f"Updated {service_name} image: v{old_version} → {effective_tag}")
 
-    def _transform_nginx_environment(self, services: dict[str, Any]):
+    def _transform_nginx_environment(self, services: dict[str, Any], upload_limit: str):
         """Transform nginx SITENAME → SITE_MAPPINGS environment variable."""
         if "nginx" not in services or "environment" not in services["nginx"]:
             return
@@ -237,11 +275,11 @@ class MigrationV0190(MigrationBase):
         nginx_env = services["nginx"]["environment"]
 
         if isinstance(nginx_env, dict):
-            self._transform_nginx_env_dict(nginx_env)
+            self._transform_nginx_env_dict(nginx_env, upload_limit)
         elif isinstance(nginx_env, list):
-            services["nginx"]["environment"] = self._transform_nginx_env_list(nginx_env)
+            services["nginx"]["environment"] = self._transform_nginx_env_list(nginx_env, upload_limit)
 
-    def _transform_nginx_env_dict(self, nginx_env: dict[str, Any]):
+    def _transform_nginx_env_dict(self, nginx_env: dict[str, Any], upload_limit: str):
         """Transform dict format: {SITENAME: value} → {SITE_MAPPINGS: '{"value": "value}'}."""
         if "SITENAME" in nginx_env:
             sitename_value = nginx_env.pop("SITENAME")
@@ -250,7 +288,12 @@ class MigrationV0190(MigrationBase):
             nginx_env["SITE_MAPPINGS"] = site_mapping
             self.output.print(f"Migrated SITENAME → SITE_MAPPINGS ({site_mapping})")
 
-    def _transform_nginx_env_list(self, nginx_env: list) -> list:
+        if "HTTPS_METHOD" not in nginx_env:
+            nginx_env["HTTPS_METHOD"] = "noredirect"
+        if "CLIENT_MAX_BODY_SIZE" not in nginx_env:
+            nginx_env["CLIENT_MAX_BODY_SIZE"] = upload_limit.lower()
+
+    def _transform_nginx_env_list(self, nginx_env: list, upload_limit: str) -> list:
         """Transform list format: [SITENAME=value] → [SITE_MAPPINGS='{"value": "value}']."""
         new_env = []
         for env_var in nginx_env:
@@ -262,7 +305,85 @@ class MigrationV0190(MigrationBase):
                 self.output.print(f"Migrated SITENAME → SITE_MAPPINGS ({site_mapping})")
             else:
                 new_env.append(env_var)
+
+        # Add HTTPS_METHOD and CLIENT_MAX_BODY_SIZE if not already present
+        existing_keys = {env.split("=", 1)[0] for env in new_env if isinstance(env, str) and "=" in env}
+        if "HTTPS_METHOD" not in existing_keys:
+            new_env.append("HTTPS_METHOD=noredirect")
+        if "CLIENT_MAX_BODY_SIZE" not in existing_keys:
+            new_env.append(f"CLIENT_MAX_BODY_SIZE={upload_limit.lower()}")
+
         return new_env
+
+    def _add_restart_policy_to_services(self, services: dict[str, Any], restart_policy: str):
+        """Add restart policy to all services in compose file."""
+        for service_name, service_config in services.items():
+            if "restart" not in service_config:
+                service_config["restart"] = restart_policy
+
+    def _write_upload_limit_vhostd(self, bench: MigrationBench, upload_limit: str):
+        """Write nginx-proxy vhost.d files for upload limit."""
+        from frappe_manager.site_manager.modules.upload_limit_manager import UploadLimitManager
+
+        # Global nginx-proxy vhostd directory
+        vhostd_dir = bench.path.parent.parent / "services" / "nginx-proxy" / "vhostd"
+
+        if not vhostd_dir.exists():
+            self.output.print("Warning: nginx-proxy vhostd directory not found, skipping upload limit config")
+            return
+
+        upload_mgr = UploadLimitManager(vhostd_dir)
+        domains = [bench.name]
+
+        # Also include alias_domains if available
+        bench_config_path = bench.path / "bench_config.toml"
+        if bench_config_path.exists():
+            config = tomlkit.parse(bench_config_path.read_text())
+            alias_domains = config.get("alias_domains", [])
+            if alias_domains:
+                domains.extend(alias_domains)
+
+        upload_mgr.set_upload_limit_for_domains(domains, upload_limit.lower())
+        self.output.print(f"Set upload limit ({upload_limit}) for {len(domains)} domain(s)")
+
+    def _write_upload_limit_site_config(self, bench: MigrationBench, upload_limit: str):
+        """Update site_config.json max_file_size to match upload_limit (only if not already set)."""
+        import re
+
+        site_config_path = bench.path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
+        if not site_config_path.exists():
+            return
+
+        try:
+            site_config = json.loads(site_config_path.read_text())
+            # Respect previously configured max_file_size — only set if missing
+            if "max_file_size" in site_config:
+                self.output.print(f"site_config.json max_file_size already set ({site_config['max_file_size']}), skipping")
+                return
+
+            # Parse size to bytes (same logic as site.py _parse_size_to_bytes)
+            match = re.match(r"^(\d+)([MG])$", upload_limit, re.IGNORECASE)
+            if not match:
+                return
+
+            value = int(match.group(1))
+            unit = match.group(2).upper()
+            size_bytes = value * (1024 * 1024) if unit == "M" else value * (1024 * 1024 * 1024)
+
+            site_config["max_file_size"] = size_bytes
+            site_config_path.write_text(json.dumps(site_config, indent=4))
+            self.output.print(f"Updated site_config.json (max_file_size: {size_bytes} bytes)")
+        except Exception:
+            self.output.print("Warning: Could not update site_config.json max_file_size")
+
+    def _write_upload_limit_nginx_conf(self, bench: MigrationBench, upload_limit: str):
+        """Create custom nginx config file for bench-level upload limit."""
+        custom_conf_dir = bench.path / "configs" / "nginx" / "conf" / "custom"
+        custom_conf_dir.mkdir(parents=True, exist_ok=True)
+
+        upload_limit_conf = custom_conf_dir / "upload-limit.conf"
+        upload_limit_conf.write_text(f"client_max_body_size {upload_limit.lower()};\n")
+        self.output.print("Created custom nginx upload-limit.conf")
 
     def _migrate_workers_compose_yml(self, bench: MigrationBench, compose_path: Path):
         """Update worker compose: v0.18.0 → current version images."""
@@ -278,7 +399,17 @@ class MigrationV0190(MigrationBase):
         if not compose_data or "services" not in compose_data:
             return
 
-        self._update_service_images(compose_data["services"])
+        services = compose_data["services"]
+
+        self._update_service_images(services)
+
+        # Add restart policy from bench_config
+        bench_config_path = bench.path / "bench_config.toml"
+        restart_policy = "unless-stopped"
+        if bench_config_path.exists():
+            config = tomlkit.parse(bench_config_path.read_text())
+            restart_policy = config.get("restart_policy", "unless-stopped")
+        self._add_restart_policy_to_services(services, restart_policy)
 
         with open(compose_path, "w") as f:
             yaml.dump(compose_data, f)
@@ -710,7 +841,17 @@ echo "Apps reinstalled and assets built successfully"
 
     def _restart_services(self, bench: MigrationBench):
         try:
-            bench.compose.up(services=["frappe", "socketio", "schedule"], force_recreate=True, detach=True)
+            # Delete stale nginx default.conf so entrypoint regenerates with new SITE_MAPPINGS
+            nginx_default_conf = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
+            if nginx_default_conf.exists():
+                # Backup before deletion
+                backup_path = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf.migration.bak"
+                import shutil
+                shutil.copy2(str(nginx_default_conf), str(backup_path))
+                nginx_default_conf.unlink()
+                self.output.print("Backed up and removed stale nginx default.conf for regeneration")
+
+            bench.compose.up(services=["frappe", "socketio", "schedule", "nginx"], force_recreate=True, detach=True)
 
             if bench.workers_running:
                 bench.workers_docker.compose.up(force_recreate=True, detach=True)
