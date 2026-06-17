@@ -2,6 +2,8 @@ from collections.abc import Iterable
 from logging import Logger
 from pathlib import Path
 from subprocess import run
+import os
+import shlex
 
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
@@ -249,3 +251,73 @@ def host_run_cp(image: str, source: str, destination: str, docker):
 
             shutil.rmtree(dest_path)
         raise Exception(f"Failed to copy files from {source} to {destination}.") from e
+
+
+def fix_host_path_ownership(
+    paths: list[Path],
+    uid: int | None = None,
+    gid: int | None = None,
+    image: str = "ubuntu:22.04",
+    output=None,
+) -> bool:
+    """Fix ownership of host paths that Docker created as root.
+
+    When Docker mounts a volume and the host path doesn't exist, it creates
+    the directory as root. This function runs a one-off container as root
+    to chown the paths to the correct user.
+
+    Idempotent — skips paths already owned by the target uid/gid.
+
+    Args:
+        paths: List of host paths to fix ownership for.
+        uid: Target user ID. Defaults to current user's UID.
+        gid: Target group ID. Defaults to current user's GID.
+        image: Docker image to use for the chown container.
+        output: Optional output handler for logging.
+
+    Returns:
+        True if any paths were fixed, False if all were already correct.
+    """
+    if uid is None:
+        uid = os.getuid()
+    if gid is None:
+        gid = os.getgid()
+
+    # Filter to only paths that need fixing (owned by root)
+    needs_fix = []
+    for path in paths:
+        if path.exists() and (path.stat().st_uid == 0 or path.stat().st_gid == 0):
+            needs_fix.append(path)
+
+    if not needs_fix:
+        return False
+
+    if output:
+        dirs_str = ", ".join(str(p.name) for p in needs_fix)
+        output.print(f"Fixing ownership of {dirs_str} (Docker created as root)...")
+
+    # Build docker run command with volume mounts
+    # Each path gets its own -v mount at the same absolute path inside the container
+    cmd = ["docker", "run", "--rm"]
+    for path in needs_fix:
+        abs_path = str(path.resolve())
+        cmd.extend(["-v", f"{abs_path}:{abs_path}"])
+
+    # Use a lightweight image and chown as root
+    chown_cmd = f"chown -R {uid}:{gid} {' '.join(str(p.resolve()) for p in needs_fix)}"
+    cmd.extend([image, "bash", "-c", chown_cmd])
+
+    try:
+        result = run_command_with_exit_code(cmd, stream=False)
+        if isinstance(result, SubprocessOutput) and result.exit_code == 0:
+            if output:
+                output.print("Ownership fixed")
+            return True
+        else:
+            if output:
+                output.warning("Could not fix ownership (non-critical)")
+            return False
+    except Exception as e:
+        if output:
+            output.warning(f"Could not fix ownership: {e}")
+        return False
