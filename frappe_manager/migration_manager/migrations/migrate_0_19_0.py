@@ -705,14 +705,59 @@ echo "Node environment setup complete"
         self.logger.debug("[_setup_node_with_fnm] Node setup completed successfully")
 
     def _ensure_runtime_dirs(self, bench: MigrationBench):
-        """Ensure runtime directories exist on host.
-
-        Ownership is fixed inside the container by exec-entrypoint.sh which
-        runs as root before gosu switches to the frappe user.
-        """
+        """Ensure runtime directories exist on host with correct ownership."""
         frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
         (frappe_bench_dir / ".uv").mkdir(parents=True, exist_ok=True)
         (frappe_bench_dir / ".fnm").mkdir(parents=True, exist_ok=True)
+
+        # Fix ownership if Docker created them as root (volume mount point creation)
+        self._fix_runtime_dir_ownership(bench)
+
+    def _fix_runtime_dir_ownership(self, bench: MigrationBench):
+        """Fix ownership of .fnm and .uv directories if owned by root.
+
+        Docker daemon creates volume mount points as root when they don't exist
+        on the host. This runs a one-off container as root to chown them.
+        Idempotent — skips if ownership is already correct.
+        """
+        import os
+
+        frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
+        userid = os.getuid()
+        groupid = os.getgid()
+
+        needs_fix = []
+        for dirname in [".fnm", ".uv"]:
+            dirpath = frappe_bench_dir / dirname
+            if dirpath.exists() and (dirpath.stat().st_uid == 0 or dirpath.stat().st_gid == 0):
+                needs_fix.append(f"/workspace/frappe-bench/{dirname}")
+
+        if not needs_fix:
+            return
+
+        dirs_str = " ".join(needs_fix)
+        self.output.print(f"Fixing ownership of {dirs_str} (Docker created as root)...")
+
+        fix_script = f"""
+for dir in {dirs_str}; do
+    if [ -d "$dir" ] && [ "$(stat -c '%u' "$dir")" = "0" ]; then
+        chown -R {userid}:{groupid} "$dir"
+        echo "Fixed ownership of $dir"
+    fi
+done
+"""
+        result = bench.compose.run(
+            service="frappe",
+            command=f"bash -c {shlex.quote(fix_script)}",
+            rm=True,
+            entrypoint="/bin/bash",
+            user="root",
+        )
+
+        if isinstance(result, SubprocessOutput) and result.exit_code == 0:
+            self.output.print("Runtime directory ownership fixed")
+        else:
+            self.output.warning("Could not fix runtime directory ownership (non-critical)")
 
     def _cleanup_old_runtime_dirs(self, bench: MigrationBench):
         """Remove old pyenv and nvm directories to prevent path conflicts."""
