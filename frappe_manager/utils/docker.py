@@ -257,7 +257,7 @@ def fix_host_path_ownership(
     paths: list[Path],
     uid: int | None = None,
     gid: int | None = None,
-    image: str = "ubuntu:22.04",
+    image: str | None = None,
     output=None,
 ) -> bool:
     """Fix ownership of host paths that Docker created as root.
@@ -273,11 +273,21 @@ def fix_host_path_ownership(
         uid: Target user ID. Defaults to current user's UID.
         gid: Target group ID. Defaults to current user's GID.
         image: Docker image to use for the chown container.
+            Defaults to the current frappe-manager frappe image.
         output: Optional output handler for logging.
 
     Returns:
         True if any paths were fixed, False if all were already correct.
     """
+    if uid is None:
+        uid = os.getuid()
+    if gid is None:
+        gid = os.getgid()
+    if image is None:
+        from frappe_manager.utils.helpers import get_current_fm_version
+
+        version = get_current_fm_version()
+        image = f"ghcr.io/rtcamp/frappe-manager-frappe:v{version}"
     if uid is None:
         uid = os.getuid()
     if gid is None:
