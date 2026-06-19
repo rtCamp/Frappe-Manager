@@ -75,6 +75,7 @@ class BackupManager:
         self.backup_dir: Path = self.root_backup_dir / self.name
         self.bench_backup_dir: Path = Path("backups") / backup_group_name / self.migration_timestamp
         self.backups = []
+        self.new_files = []  # Track newly created files for cleanup on rollback
         self.logger = log.get_logger()
 
         self.backup_dir.mkdir(parents=True, exist_ok=True)
@@ -175,3 +176,28 @@ class BackupManager:
 
         self.backups.clear()
         # print("Deleted all backups")
+
+    def track_new_file(self, filepath: Path):
+        """
+        Track a newly created file so it can be cleaned up during rollback.
+
+        Args:
+            filepath: Path to the newly created file.
+        """
+        if filepath.exists():
+            self.new_files.append(filepath)
+            self.logger.debug(f"Tracked new file for rollback cleanup: {filepath}")
+
+    def cleanup_new_files(self):
+        """
+        Delete all tracked newly created files (used during rollback).
+        """
+        for filepath in self.new_files:
+            if filepath.exists():
+                if filepath.is_dir():
+                    shutil.rmtree(filepath)
+                else:
+                    filepath.unlink()
+                self.logger.debug(f"Cleaned up new file: {filepath}")
+
+        self.new_files.clear()

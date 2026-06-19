@@ -308,7 +308,7 @@ def fix_host_path_ownership(
 
     # Build docker run command with volume mounts
     # Each path gets its own -v mount at the same absolute path inside the container
-    cmd = ["docker", "run", "--rm"]
+    cmd = ["docker", "run", "--rm", "--entrypoint", ""]
     for path in needs_fix:
         abs_path = str(path.resolve())
         cmd.extend(["-v", f"{abs_path}:{abs_path}"])

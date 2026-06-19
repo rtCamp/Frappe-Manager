@@ -96,6 +96,9 @@ class MigrationBase(ABC):
             self.backup_manager.restore(backup, force=True)
             # self.output.print(f'Restored {backup.bench}'s {backup.src.name}.')
 
+        # Clean up newly created files that didn't exist before migration
+        self.backup_manager.cleanup_new_files()
+
         self.undo_services_migrate()
 
         self.output.print(f"[bold]v{self.version!s}[/bold] rollback successfull")

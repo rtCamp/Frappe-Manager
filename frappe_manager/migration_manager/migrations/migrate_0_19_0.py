@@ -374,7 +374,6 @@ class MigrationV0190(MigrationBase):
             self.output.print("Warning: nginx-proxy vhostd directory not found, skipping upload limit config")
             return
 
-        upload_mgr = UploadLimitManager(vhostd_dir)
         domains = [bench.name]
 
         # Also include alias_domains if available
@@ -385,6 +384,13 @@ class MigrationV0190(MigrationBase):
             if alias_domains:
                 domains.extend(alias_domains)
 
+        # Backup existing vhost.d files before modifying (for rollback support)
+        for domain in domains:
+            vhost_file = vhostd_dir / domain
+            if vhost_file.exists():
+                self.backup_manager.backup(vhost_file, bench_name=bench.name)
+
+        upload_mgr = UploadLimitManager(vhostd_dir)
         upload_mgr.set_upload_limit_for_domains(domains, upload_limit.lower())
         self.output.print(f"Set upload limit ({upload_limit}) for {len(domains)} domain(s)")
 
@@ -425,6 +431,10 @@ class MigrationV0190(MigrationBase):
 
         upload_limit_conf = custom_conf_dir / "upload-limit.conf"
         upload_limit_conf.write_text(f"client_max_body_size {upload_limit.lower()};\n")
+
+        # Track for rollback cleanup (this file didn't exist before migration)
+        self.backup_manager.track_new_file(upload_limit_conf)
+
         self.output.print("Created custom nginx upload-limit.conf")
 
     def _migrate_workers_compose_yml(self, bench: MigrationBench, compose_path: Path):
@@ -576,6 +586,9 @@ class MigrationV0190(MigrationBase):
             self.output.print("Regenerating supervisor configuration...")
             self._regenerate_supervisor_config(bench)
 
+            # Restart services only if they were running before migration.
+            # If the bench was stopped, leave it stopped — the user can start
+            # it manually with `fm start`.
             if bench.running or bench.workers_running:
                 self.output.print("Recreating & restarting services (force-recreate)...")
                 self._restart_services(bench)
@@ -721,6 +734,13 @@ echo "Node environment setup complete"
     def _cleanup_old_runtime_dirs(self, bench: MigrationBench):
         """Remove old pyenv and nvm directories to prevent path conflicts."""
         self.logger.debug(f"[_cleanup_old_runtime_dirs] Cleaning up old runtime directories for {bench.name}")
+
+        # Backup .pyenv and .nvm on the host before removing (rollback support)
+        frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
+        for dirname in [".pyenv", ".nvm"]:
+            dirpath = frappe_bench_dir / dirname
+            if dirpath.exists():
+                self.backup_manager.backup(dirpath, bench_name=bench.name)
 
         cleanup_script = """
 echo "Removing old runtime directories..."
@@ -928,6 +948,10 @@ echo "Apps reinstalled and assets built successfully"
         wrapper_path = config_dir / "fm-web-server.sh"
         wrapper_path.write_text(script)
         wrapper_path.chmod(0o755)
+
+        # Track for rollback cleanup (this file didn't exist before migration)
+        self.backup_manager.track_new_file(wrapper_path)
+
         self.output.print("Generated fm-web-server.sh")
 
     def _restart_services(self, bench: MigrationBench):

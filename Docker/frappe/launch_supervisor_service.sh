@@ -48,7 +48,7 @@ check_iteration="$CHECK_ITERATION"
 
 total_iteration=1
 iteration=1
-IFS=',' read -A files <<<"$file_to_check"
+IFS=',' read -a files <<<"$file_to_check"
 while true; do
 	all_files_exist=true
 
