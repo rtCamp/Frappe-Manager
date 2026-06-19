@@ -84,3 +84,48 @@ docs-build: css docs-gen
     #!/usr/bin/env bash
     version=$(python -c "from frappe_manager.__about__ import __version__; print(__version__)")
     mike deploy dev --title "$version" -F zensical.toml
+
+# ── Migration Testing ──────────────────────────────────────────────────────────
+# All defaults are in scripts/migrate-test.sh. Override via env vars:
+#   FM_BENCH=mybench just migrate-init
+#   FM_REPO=git+https://...@my-branch just migrate-test
+
+_check-server:
+    #!/usr/bin/env bash
+    if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$FM_SERVER" "echo ok" 2>/dev/null; then
+        echo "  ✗ Server unreachable: $FM_SERVER"
+        exit 1
+    fi
+
+migrate-init: _check-server
+    bash scripts/migrate-test.sh init
+
+migrate-setup VERSION: _check-server
+    bash scripts/migrate-test.sh setup {{VERSION}}
+
+migrate-test: _check-server
+    bash scripts/migrate-test.sh test
+
+migrate-full: _check-server
+    bash scripts/migrate-test.sh full
+
+migrate-status: _check-server
+    bash scripts/migrate-test.sh status
+
+migrate-diff: _check-server
+    bash scripts/migrate-test.sh diff
+
+migrate-perms: _check-server
+    bash scripts/migrate-test.sh perms
+
+migrate-logs: _check-server
+    bash scripts/migrate-test.sh logs
+
+migrate-versions: _check-server
+    bash scripts/migrate-test.sh versions
+
+migrate-switch VERSION: _check-server
+    bash scripts/migrate-test.sh switch {{VERSION}}
+
+migrate-cleanup: _check-server
+    bash scripts/migrate-test.sh cleanup
