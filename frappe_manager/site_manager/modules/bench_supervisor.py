@@ -78,6 +78,7 @@ class BenchSupervisor:
         timeout: int = 30,
         interval: int = 1,
         force: bool = False,
+        graceful: bool = False,
     ) -> bool:
         """
         Restart a supervisor service.
@@ -88,6 +89,10 @@ class BenchSupervisor:
             timeout: Timeout in seconds (used for socket availability check after restart)
             interval: Check interval in seconds
             force: If True, stop then start processes (hard restart). If False, use restart command (graceful).
+            graceful: If True, deliver SIGHUP via ``supervisorctl signal HUP all`` instead of
+                stop/start. The gunicorn master keeps its listening socket open while it
+                forks fresh workers, eliminating the brief connection-refused window an
+                upstream proxy would otherwise observe. Mutually exclusive with ``force``.
 
         Returns:
             True if restarted successfully, False otherwise
@@ -110,7 +115,27 @@ class BenchSupervisor:
             self.output.display_error(text=f"Service [blue]{service}[/blue] not running.")
             return False
 
-        if force:
+        if graceful and force:
+            raise BenchOperationException(
+                self.bench_name,
+                message="--graceful and --force are mutually exclusive.",
+            )
+
+        if graceful:
+            signal_command = "supervisorctl -c /opt/user/supervisord.conf signal HUP all"
+            try:
+                docker_client_obj.compose.exec(
+                    service=service,
+                    user="frappe",
+                    command=signal_command,
+                    stream=False,
+                )
+            except DockerException as e:
+                raise BenchOperationException(
+                    self.bench_name,
+                    message=f"Failed to signal HUP for {service} service: {e!s}",
+                ) from e
+        elif force:
             stop_command = "supervisorctl -c /opt/user/supervisord.conf stop all"
             start_command = "supervisorctl -c /opt/user/supervisord.conf start all"
             try:

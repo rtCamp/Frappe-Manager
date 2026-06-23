@@ -23,6 +23,7 @@ $ fm restart BENCHNAME [OPTIONS]
 * `--container`: Restart entire Docker container(s). Stops and starts the container.
 * `--supervisor`: Restart supervisor processes inside container. Faster than container restart.
 * `--force`: Force restart: --supervisor uses stop+start (kills processes), --container uses timeout=0 (immediate kill).
+* `--graceful`: Reload the frappe (gunicorn) web container in place by sending SIGHUP via supervisorctl instead of stop/start. The gunicorn master keeps its listening socket open across the reload, so upstream proxies see no connection-refused window. Applies only to supervisor mode; ignored with --container. The socketio container is restarted normally (node has no graceful-reload signal). Mutually exclusive with --force.
 
 
 ## Examples
@@ -89,5 +90,15 @@ Restarts the nginx service for the bench, useful after configuration changes to 
 
 ```bash
 fm restart mybench --nginx
+```
+
+### Graceful web reload (no upstream connection-refused window)
+
+Delivers SIGHUP to the frappe (gunicorn) web container via supervisorctl instead of stop/start. The gunicorn master keeps its listening socket open while it spawns fresh workers and then retires the old ones, so an upstream proxy never observes a closed listener. The socketio container is restarted normally because node has no graceful-reload signal. Only affects supervisor mode; ignored when combined with --container.
+
+Caveat: the web container runs gunicorn with `--preload`, so SIGHUP recycles workers but does not re-import application code in the master. Use this flag when you want to restart workers without dropping the upstream listener (for example to release leaked memory or apply runtime config); use a full restart when you need new application code to take effect.
+
+```bash
+fm restart mybench --graceful
 ```
 
