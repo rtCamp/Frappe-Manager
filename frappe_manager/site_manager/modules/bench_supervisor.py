@@ -215,18 +215,26 @@ class BenchSupervisor:
         # Default 2 threads per worker; overridable via common_site_config.json.
         gunicorn_threads = config.get("gunicorn_threads", self._get_gunicorn_threads())
 
+        http_timeout = config.get("http_timeout", 120)
+        # --graceful-timeout caps how long an in-flight request has to drain when a
+        # worker is recycled (e.g. on --max-requests). Defaulting it to http_timeout
+        # keeps it consistent with --timeout (-t); operators can override either
+        # independently via common_site_config.json.
+        gunicorn_graceful_timeout = config.get("gunicorn_graceful_timeout", http_timeout)
+
         context = {
             "bench_dir": CONTAINER_BENCH_DIR,
             "sites_dir": f"{CONTAINER_BENCH_DIR}/sites",
             "user": user,
             "use_rq": True,
-            "http_timeout": config.get("http_timeout", 120),
+            "http_timeout": http_timeout,
             "node": "/workspace/frappe-bench/.fnm/aliases/default/bin/node",
             "webserver_port": config.get("webserver_port", 80),
             "gunicorn_workers": web_worker_count,
             "gunicorn_max_requests": max_requests,
             "gunicorn_max_requests_jitter": self._compute_max_requests_jitter(max_requests),
             "gunicorn_threads": gunicorn_threads,
+            "gunicorn_graceful_timeout": gunicorn_graceful_timeout,
             "bench_name": "frappe-bench",
             "background_workers": config.get("background_workers") or 1,
             "bench_cmd": "/opt/user/.bin/bench",
@@ -386,7 +394,7 @@ class BenchSupervisor:
             f" --max-requests {context['gunicorn_max_requests']}"
             f" --max-requests-jitter {context['gunicorn_max_requests_jitter']}"
             f" -t {context['http_timeout']}"
-            f" --graceful-timeout 30"
+            f" --graceful-timeout {context['gunicorn_graceful_timeout']}"
             f" frappe.app:application --preload"
         )
 
