@@ -215,12 +215,31 @@ class BenchSupervisor:
         # Default 2 threads per worker; overridable via common_site_config.json.
         gunicorn_threads = config.get("gunicorn_threads", self._get_gunicorn_threads())
 
-        http_timeout = config.get("http_timeout", 120)
+        def _coerce_positive_int(value, fallback: int) -> int:
+            """Coerce a JSON-sourced knob to a positive int, falling back on bad input.
+
+            common_site_config.json is user-editable, so a stringified or negative value
+            shouldn't be allowed to land in the generated wrapper / supervisor config.
+            """
+            try:
+                coerced = int(value)
+            except (TypeError, ValueError):
+                return fallback
+            return coerced if coerced > 0 else fallback
+
+        http_timeout = _coerce_positive_int(config.get("http_timeout"), 120)
         # --graceful-timeout caps how long an in-flight request has to drain when a
         # worker is recycled (e.g. on --max-requests). Defaulting it to http_timeout
         # keeps it consistent with --timeout (-t); operators can override either
         # independently via common_site_config.json.
-        gunicorn_graceful_timeout = config.get("gunicorn_graceful_timeout", http_timeout)
+        gunicorn_graceful_timeout = _coerce_positive_int(
+            config.get("gunicorn_graceful_timeout"), http_timeout
+        )
+        # Supervisor must wait longer than gunicorn's graceful drain window before
+        # SIGKILL'ing the master, otherwise an increased --graceful-timeout has no
+        # effect (the template comment on supervisor.conf.tmpl explicitly calls this
+        # out). +10s of headroom covers the master's own post-drain reaping.
+        supervisor_web_stopwaitsecs = gunicorn_graceful_timeout + 10
 
         context = {
             "bench_dir": CONTAINER_BENCH_DIR,
@@ -235,6 +254,7 @@ class BenchSupervisor:
             "gunicorn_max_requests_jitter": self._compute_max_requests_jitter(max_requests),
             "gunicorn_threads": gunicorn_threads,
             "gunicorn_graceful_timeout": gunicorn_graceful_timeout,
+            "supervisor_web_stopwaitsecs": supervisor_web_stopwaitsecs,
             "bench_name": "frappe-bench",
             "background_workers": config.get("background_workers") or 1,
             "bench_cmd": "/opt/user/.bin/bench",
