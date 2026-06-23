@@ -62,6 +62,13 @@ class TestRestartSupervisorServiceGraceful:
         assert "signal HUP all" in first_kwargs["command"]
         assert "supervisorctl" in first_kwargs["command"]
 
+        # Regression guard: SIGHUP must be issued exactly once. Any subsequent exec
+        # calls are the socket-existence probe (``test -e ...``), never another HUP.
+        sighup_calls = [
+            call for call in exec_calls if "signal HUP all" in call.kwargs.get("command", "")
+        ]
+        assert len(sighup_calls) == 1
+
     def test_graceful_does_not_stop_then_start(self):
         """Graceful must never issue a stop or start - only signal HUP."""
         docker_client = MagicMock()

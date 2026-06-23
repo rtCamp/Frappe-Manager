@@ -88,11 +88,14 @@ class BenchSupervisor:
             docker_client_obj: Optional Docker client (uses self.docker_client if None)
             timeout: Timeout in seconds (used for socket availability check after restart)
             interval: Check interval in seconds
-            force: If True, stop then start processes (hard restart). If False, use restart command (graceful).
+            force: If True, stop then start processes (hard restart via
+                ``supervisorctl stop all`` followed by ``start all``).
             graceful: If True, deliver SIGHUP via ``supervisorctl signal HUP all`` instead of
                 stop/start. The gunicorn master keeps its listening socket open while it
                 forks fresh workers, eliminating the brief connection-refused window an
                 upstream proxy would otherwise observe. Mutually exclusive with ``force``.
+            (default, neither flag set): ``supervisorctl restart all`` -- supervisor
+                stops then re-spawns every process; the listening socket is briefly closed.
 
         Returns:
             True if restarted successfully, False otherwise

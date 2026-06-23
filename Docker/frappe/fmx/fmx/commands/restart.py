@@ -88,6 +88,40 @@ def _graceful_reload_service(
     return {"signalled": [], "failed": process_names}
 
 
+def _print_graceful_reload_summary(display: DisplayManager, results: dict, elapsed: float) -> None:
+    """Print a success/failure summary for the ``--graceful`` reload path.
+
+    ``execute_parallel_command`` only formats summaries for the built-in
+    restart/start/stop handlers, so the graceful path has to surface its own
+    outcome. Mirrors the shape of ``_handle_restart_results`` in ``fmx.cli``.
+    """
+    total_services = len(results)
+    failed_services: list[str] = []
+    total_count = 0
+
+    for svc, result in results.items():
+        if isinstance(result, dict) and not result.get("error"):
+            total_count += len(result.get("signalled", []))
+            if result.get("failed"):
+                failed_services.append(svc)
+        else:
+            failed_services.append(svc)
+
+    elapsed_str = f"  [dim]({elapsed:.1f}s)[/dim]"
+
+    if not failed_services:
+        display.print(
+            f"\n[green]✔[/green]  Reloaded [bold]{total_services}[/bold] service(s) · "
+            f"[bold]{total_count}[/bold] process(es){elapsed_str}"
+        )
+    else:
+        ok = total_services - len(failed_services)
+        display.print(
+            f"\n[yellow]⚠[/yellow]  Reloaded [bold]{ok}/{total_services}[/bold] service(s){elapsed_str}"
+            f"  —  [red]{', '.join(failed_services)}[/red] failed"
+        )
+
+
 def set_maintenance_mode(display: DisplayManager, enabled: bool) -> None:
     """Enable or disable maintenance mode in common_site_config.json.
 
@@ -699,12 +733,17 @@ def command(
                 maintenance_enabled = False
 
             if graceful:
-                execute_parallel_command(
+                _reload_start = time.time()
+                reload_results = execute_parallel_command(
                     services_to_target,
                     _graceful_reload_service,
                     action_verb="reloading",
                     show_progress=True,
                     wait=wait,
+                    return_raw_results=True,
+                )
+                _print_graceful_reload_summary(
+                    display, reload_results or {}, elapsed=time.time() - _reload_start,
                 )
                 return
 

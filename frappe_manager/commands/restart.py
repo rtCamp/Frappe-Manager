@@ -160,10 +160,10 @@ def restart(
         output.error("Cannot use both --graceful and --force flags simultaneously", exception=typer.Exit(code=1))
 
     if graceful and use_container_restart:
-        output.error(
-            "--graceful applies only to supervisor mode; cannot be combined with --container.",
-            exception=typer.Exit(code=1),
+        output.warning(
+            "--graceful applies only to supervisor mode; ignoring it for --container restart."
         )
+        graceful = False
 
     with spinner(output, f"Restarting {benchname}"):
         if web:
