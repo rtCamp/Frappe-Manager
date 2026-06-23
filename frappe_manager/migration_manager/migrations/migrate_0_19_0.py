@@ -435,14 +435,17 @@ class MigrationV0190(MigrationBase):
 
         upload_limit_conf = custom_conf_dir / "upload-limit.conf"
 
-        # If file already existed before migration, back it up first
-        if upload_limit_conf.exists():
+        # Track whether this is a new file vs pre-existing before we write
+        was_pre_existing = upload_limit_conf.exists()
+
+        if was_pre_existing:
             self.backup_manager.backup(upload_limit_conf, bench_name=bench.name)
-        else:
-            # Track for rollback cleanup (this file didn't exist before migration)
-            self.backup_manager.track_new_file(upload_limit_conf)
 
         upload_limit_conf.write_text(f"client_max_body_size {upload_limit.lower()};\n")
+
+        if not was_pre_existing:
+            # Track for rollback cleanup (file didn't exist before migration)
+            self.backup_manager.track_new_file(upload_limit_conf)
 
         self.output.print("Created custom nginx upload-limit.conf")
 
@@ -954,16 +957,19 @@ echo "Apps reinstalled and assets built successfully"
 
         wrapper_path = config_dir / "fm-web-server.sh"
 
-        # If file already existed before migration, back it up first
+        # Track whether this is a new file vs pre-existing before we write
         bench_name = context.get("bench_name")
-        if wrapper_path.exists():
+        was_pre_existing = wrapper_path.exists()
+
+        if was_pre_existing:
             self.backup_manager.backup(wrapper_path, bench_name=bench_name)
-        else:
-            # Track for rollback cleanup (this file didn't exist before migration)
-            self.backup_manager.track_new_file(wrapper_path)
 
         wrapper_path.write_text(script)
         wrapper_path.chmod(0o755)
+
+        if not was_pre_existing:
+            # Track for rollback cleanup (file didn't exist before migration)
+            self.backup_manager.track_new_file(wrapper_path)
 
         self.output.print("Generated fm-web-server.sh")
 
