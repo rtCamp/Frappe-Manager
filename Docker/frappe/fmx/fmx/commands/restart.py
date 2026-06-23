@@ -22,13 +22,70 @@ from fmx.cli import ServiceNameEnumFactory, execute_parallel_command, get_servic
 from fmx.supervisor.api import (
     start_service as util_start_service,
     restart_service as util_restart_service,
+    signal_service as util_signal_service,
 )
 from fmx.commands._rq_helpers import suspend_rq_workers, resume_rq_workers, run_with_optional_rq_drain
 
 
 command_name = "restart"
 
+# Signal used by the --graceful path. SIGHUP triggers an in-place worker reload in
+# gunicorn (the master never closes its listening socket, so upstream proxies do not
+# observe a connection-refused window across the reload).
+GRACEFUL_RELOAD_SIGNAL = "HUP"
+
 ServiceNamesEnum = ServiceNameEnumFactory()
+
+
+def _graceful_reload_service(
+    service_name: str,
+    progress_callback=None,
+    **_extra_kwargs,
+):
+    """Signal-based in-place reload of every process in a service.
+
+    Designed to plug into ``execute_parallel_command`` in the same slot as
+    ``util_restart_service``. Accepts (and ignores) the restart-specific kwargs
+    (``wait``, ``wait_workers``, ``worker_kill_timeout``, ``worker_kill_poll``,
+    ``verbose``) so the caller signature is interchangeable. Discovers the current
+    process list for the service and dispatches ``GRACEFUL_RELOAD_SIGNAL`` to each
+    one via the supervisor XML-RPC API.
+
+    For the frappe web service this hands SIGHUP to the gunicorn master, which forks
+    fresh workers using the still-open listening socket and only then retires the old
+    workers — eliminating the brief connect-refused window of a stop/start cycle.
+    """
+    # Imported here to avoid a circular import at module load time.
+    from fmx.supervisor.connection import check_supervisord_connection
+
+    try:
+        conn = check_supervisord_connection(service_name)
+        all_info = conn.supervisor.getAllProcessInfo() or []
+    except Exception as e:
+        return {"signalled": [], "failed": [service_name], "error": str(e)}
+
+    process_names = [info["name"] for info in all_info]
+    if not process_names:
+        return {"signalled": [], "failed": []}
+
+    ok = util_signal_service(service_name, GRACEFUL_RELOAD_SIGNAL, process_name_list=process_names)
+
+    if progress_callback:
+        for name in process_names:
+            info = next((i for i in all_info if i.get("name") == name), {})
+            pid = info.get("pid") or 0
+            progress_callback(
+                service_name,
+                name,
+                "reload",
+                pid,
+                f"signal {GRACEFUL_RELOAD_SIGNAL}" if ok else "failed",
+                0.0,
+            )
+
+    if ok:
+        return {"signalled": process_names, "failed": []}
+    return {"signalled": [], "failed": process_names}
 
 
 def set_maintenance_mode(display: DisplayManager, enabled: bool) -> None:
@@ -418,6 +475,17 @@ def _handle_migrate_failure(
         "before they can honour the shutdown signal. Only applies to the non-drain path."
     ),
 )
+@_example(
+    "Graceful in-place reload (no upstream connection-refused window)",
+    "frappe --graceful",
+    detail=(
+        "Signals the gunicorn master with SIGHUP so it forks fresh workers using the "
+        "still-open listening socket and then retires the old workers. The master never "
+        "closes the listener, so an upstream proxy observes no connect-refused window. "
+        "Recommended for production deploys of the web service. Pair with --no-drain-workers "
+        "(or just target only `frappe`) if you do not need to drain RQ workers."
+    ),
+)
 def command(
     ctx: typer.Context,
     service_names: Annotated[
@@ -526,10 +594,28 @@ def command(
             help="Polling interval in seconds when waiting for a worker to exit after SIGUSR1.",
         ),
     ] = 3.0,
+    graceful: Annotated[
+        bool,
+        typer.Option(
+            "--graceful",
+            help=(
+                "In-place reload: signal each targeted process with SIGHUP via supervisord "
+                "instead of stop/start. Gunicorn handles SIGHUP by forking new workers using "
+                "the still-open listening socket and then retiring the old workers — the "
+                "master never closes the listener, so upstream proxies observe no "
+                "connection-refused window. Recommended for production deploys of the web "
+                "service. Mutually exclusive with --migrate (which performs a real restart)."
+            ),
+        ),
+    ] = False,
 ):
     """Restart services or specific processes."""
     display: DisplayManager = ctx.obj['display']
     debug: bool = ctx.obj.get('debug', False)
+
+    if graceful and migrate:
+        display.error("--graceful and --migrate are mutually exclusive.")
+        raise typer.Exit(code=1)
 
     valid_mm_values = {"drain", "migrate"}
     maintenance_set = set(maintenance_mode or [])
@@ -611,6 +697,16 @@ def command(
             if maintenance_enabled:
                 set_maintenance_mode(display, False)
                 maintenance_enabled = False
+
+            if graceful:
+                execute_parallel_command(
+                    services_to_target,
+                    _graceful_reload_service,
+                    action_verb="reloading",
+                    show_progress=True,
+                    wait=wait,
+                )
+                return
 
             execute_parallel_command(
                 services_to_target,
