@@ -101,7 +101,7 @@ class MigrationBase(ABC):
 
         self.undo_services_migrate()
 
-        self.output.print(f"[bold]v{self.version!s}[/bold] rollback successfull")
+        self.output.print(f"[bold]v{self.version!s}[/bold] rollback successful")
         self.logger.info("-" * 40)
 
     def services_basic_backup(self):
