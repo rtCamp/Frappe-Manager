@@ -288,10 +288,6 @@ def fix_host_path_ownership(
 
         version = get_current_fm_version()
         image = f"ghcr.io/rtcamp/frappe-manager-frappe:v{version}"
-    if uid is None:
-        uid = os.getuid()
-    if gid is None:
-        gid = os.getgid()
 
     # Filter to only paths that need fixing (owned by root)
     needs_fix = []
@@ -314,7 +310,7 @@ def fix_host_path_ownership(
         cmd.extend(["-v", f"{abs_path}:{abs_path}"])
 
     # Use a lightweight image and chown as root
-    chown_cmd = f"chown -R {uid}:{gid} {' '.join(str(p.resolve()) for p in needs_fix)}"
+    chown_cmd = f"chown -R {uid}:{gid} {' '.join(shlex.quote(str(p.resolve())) for p in needs_fix)}"
     cmd.extend([image, "bash", "-c", chown_cmd])
 
     try:

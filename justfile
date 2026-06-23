@@ -92,6 +92,10 @@ docs-build: css docs-gen
 
 _check-server:
     #!/usr/bin/env bash
+    if [[ -z "${FM_SERVER:-}" ]]; then
+        echo "  ✗ FM_SERVER is not set"
+        exit 1
+    fi
     if ! ssh -o ConnectTimeout=5 -o BatchMode=yes "$FM_SERVER" "echo ok" 2>/dev/null; then
         echo "  ✗ Server unreachable: $FM_SERVER"
         exit 1

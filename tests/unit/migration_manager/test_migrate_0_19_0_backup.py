@@ -69,14 +69,14 @@ port = 8000
             benches_dir=migration.benches_dir,
         )
 
-        with patch("frappe_manager.services_manager.database_service_manager.DatabaseServerServiceInfo.import_from_bench", return_value=None):
+        with patch(
+            "frappe_manager.services_manager.database_service_manager.DatabaseServerServiceInfo.import_from_bench",
+            return_value=None,
+        ):
             with patch.object(migration, "bench_db_backup", return_value=None):
                 migration.bench_basic_backup(mock_bench)
 
-        backup_found = any(
-            backup.src.name == "bench_config.toml"
-            for backup in migration.backup_manager.backups
-        )
+        backup_found = any(backup.src.name == "bench_config.toml" for backup in migration.backup_manager.backups)
         assert backup_found, "bench_config.toml should be in backup list"
 
     def test_bench_config_backup_creates_file(self, migration, mock_bench, tmp_path):
@@ -149,11 +149,15 @@ port = 8000
         bench_config_path = mock_bench.path / "bench_config.toml"
         original_content = bench_config_path.read_text()
 
-        with patch("frappe_manager.services_manager.database_service_manager.DatabaseServerServiceInfo.import_from_bench", return_value=None):
+        with patch(
+            "frappe_manager.services_manager.database_service_manager.DatabaseServerServiceInfo.import_from_bench",
+            return_value=None,
+        ):
             with patch.object(migration, "bench_db_backup", return_value=None):
                 migration.bench_basic_backup(mock_bench)
 
         import tomlkit
+
         doc = tomlkit.parse(bench_config_path.read_text())
         doc["python_version"] = "3.11"
         doc["node_version"] = "18"
@@ -241,3 +245,110 @@ port = 8000
         assert (env_dir / "old_marker.txt").exists(), "Old env should be restored"
         assert not (env_dir / "new_marker.txt").exists(), "New env should be removed"
         assert not env_backup_path.exists(), "Backup should be moved back (not exist)"
+
+
+class TestBackupManagerNewFileTracking:
+    """Tests for BackupManager.track_new_file and cleanup_new_files."""
+
+    @pytest.fixture
+    def backup_manager(self, tmp_path):
+        return BackupManager(
+            name="test-migration",
+            benches_dir=tmp_path / "sites",
+        )
+
+    def test_track_new_file_tracks_existing_file(self, backup_manager, tmp_path):
+        """Track a file that exists — should be added to new_files list."""
+        test_file = tmp_path / "new-file.txt"
+        test_file.write_text("test content")
+
+        backup_manager.track_new_file(test_file)
+
+        assert test_file in backup_manager.new_files
+        assert len(backup_manager.new_files) == 1
+
+    def test_track_new_file_ignores_nonexistent_file(self, backup_manager, tmp_path):
+        """Track a file that doesn't exist — should not be added."""
+        test_file = tmp_path / "does-not-exist.txt"
+
+        backup_manager.track_new_file(test_file)
+
+        assert len(backup_manager.new_files) == 0
+
+    def test_cleanup_new_files_deletes_tracked_files(self, backup_manager, tmp_path):
+        """cleanup_new_files should delete files that were tracked."""
+        test_file = tmp_path / "to-delete.txt"
+        test_file.write_text("test content")
+        backup_manager.track_new_file(test_file)
+
+        assert test_file.exists()
+
+        backup_manager.cleanup_new_files()
+
+        assert not test_file.exists()
+        assert len(backup_manager.new_files) == 0
+
+    def test_cleanup_new_files_deletes_tracked_dirs(self, backup_manager, tmp_path):
+        """cleanup_new_files should delete directories that were tracked."""
+        test_dir = tmp_path / "to-delete-dir"
+        test_dir.mkdir()
+        (test_dir / "nested-file.txt").write_text("nested")
+        backup_manager.track_new_file(test_dir)
+
+        assert test_dir.exists()
+
+        backup_manager.cleanup_new_files()
+
+        assert not test_dir.exists()
+
+    def test_cleanup_new_files_preserves_pre_existing_files(self, backup_manager, tmp_path):
+        """Files that existed pre-migration (never tracked) must NOT be deleted.
+
+        This is the key safety guarantee: cleanup_new_files must only affect
+        files that were explicitly tracked with track_new_file().
+        """
+        pre_existing = tmp_path / "pre-existing.txt"
+        pre_existing.write_text("original data")
+
+        new_file = tmp_path / "new-file.txt"
+        new_file.write_text("new data")
+        backup_manager.track_new_file(new_file)
+
+        backup_manager.cleanup_new_files()
+
+        # Pre-existing file must survive
+        assert pre_existing.exists(), "Pre-existing file should not be deleted"
+        assert pre_existing.read_text() == "original data"
+
+        # Only the tracked new file should be gone
+        assert not new_file.exists(), "Tracked new file should be deleted"
+
+    def test_cleanup_new_files_idempotent(self, backup_manager, tmp_path):
+        """Calling cleanup_new_files twice should be safe (no errors, no leftover files)."""
+        test_file = tmp_path / "to-delete.txt"
+        test_file.write_text("test content")
+        backup_manager.track_new_file(test_file)
+
+        # First cleanup
+        backup_manager.cleanup_new_files()
+        assert not test_file.exists()
+        assert len(backup_manager.new_files) == 0
+
+        # Second cleanup — must not raise
+        backup_manager.cleanup_new_files()
+
+    def test_track_new_file_handles_multiple_files(self, backup_manager, tmp_path):
+        """Multiple files can be tracked and cleaned up together."""
+        files = []
+        for i in range(3):
+            f = tmp_path / f"new-file-{i}.txt"
+            f.write_text(f"content-{i}")
+            backup_manager.track_new_file(f)
+            files.append(f)
+
+        assert len(backup_manager.new_files) == 3
+
+        backup_manager.cleanup_new_files()
+
+        for f in files:
+            assert not f.exists(), f"Tracked file {f.name} should be deleted"

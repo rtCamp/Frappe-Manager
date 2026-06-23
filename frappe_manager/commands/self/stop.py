@@ -37,7 +37,10 @@ def stop(
     services_manager: ServicesManager = ctx.obj["services"]
     verbose = ctx.obj["verbose"]
     output = get_global_output_handler()
-    logger = ctx.obj.get("logger")
+
+    if global_only and benches_only:
+        output.print("[red]Error:[/red] --global-only and --benches-only are mutually exclusive. Choose one.")
+        raise typer.Exit(code=1)
 
     stop_global = not benches_only
     stop_benches = not global_only

@@ -422,7 +422,7 @@ cmd_status() {
     # ── Custom nginx configs ─────────────────────────────────────────────
     echo ""
     echo "  ── Custom nginx configs ─────────────────────────────────────"
-    ssh_cmd "ls -la \"$SITE_DIR/workspace/frappe-bench/config/custom/upload-limit.conf\" 2>/dev/null | sed 's/^/    /' || echo '    upload-limit.conf: not found'"
+    ssh_cmd "ls -la \"$SITE_DIR/configs/nginx/conf/custom/upload-limit.conf\" 2>/dev/null | sed 's/^/    /' || echo '    upload-limit.conf: not found'"
 
     # ── FM directory structure ───────────────────────────────────────────
     echo ""
@@ -578,12 +578,12 @@ cmd_cleanup() {
     fi
 
     # Also clean any stale .fm-tmp-* dirs from aborted runs
-    ssh_cmd "for d in \"$FM_HOME/.fm-tmp-\"*; do
-        [ -d \"\$d\" ] && rm -rf \"\$d\" && echo \"    Removed: \$d\"
-    done 2>/dev/null" | while read line; do
+    while read line; do
         ok "$line"
         cleaned=true
-    done
+    done < <(ssh_cmd "for d in \"$FM_HOME/.fm-tmp-\"*; do
+        [ -d \"\$d\" ] && rm -rf \"\$d\" && echo \"    Removed: \$d\"
+    done 2>/dev/null")
 
     if ! $cleaned; then
         info "Nothing to clean"

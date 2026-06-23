@@ -250,7 +250,7 @@ class MigrationV0190(MigrationBase):
         import re
 
         effective_tag = self._get_image_tag_for_migration()
-        
+
         version_pattern = re.compile(r"(ghcr\.io/rtcamp/frappe-manager-[^:]+):v[0-9]+\.[0-9]+\.[0-9]+(?:\.dev[0-9]+)?")
 
         for service_name, service_config in services.items():
@@ -281,7 +281,7 @@ class MigrationV0190(MigrationBase):
             services["nginx"]["environment"] = self._transform_nginx_env_list(nginx_env, upload_limit)
 
     def _transform_nginx_env_dict(self, nginx_env: dict[str, Any], upload_limit: str):
-        """Transform dict format: {SITENAME: value} → {SITE_MAPPINGS: '{"value": "value}'}."""
+        """Transform dict format: {SITENAME: value} → {SITE_MAPPINGS: '{"value": "value"}'}."""
         if "SITENAME" in nginx_env:
             sitename_value = nginx_env.pop("SITENAME")
             # Convert plain site name to JSON mapping expected by nginx entrypoint
@@ -295,7 +295,7 @@ class MigrationV0190(MigrationBase):
             nginx_env["CLIENT_MAX_BODY_SIZE"] = upload_limit.lower()
 
     def _transform_nginx_env_list(self, nginx_env: list, upload_limit: str) -> list:
-        """Transform list format: [SITENAME=value] → [SITE_MAPPINGS='{"value": "value}']."""
+        """Transform list format: [SITENAME=value] → [SITE_MAPPINGS='{"value": "value"}']."""
         new_env = []
         for env_var in nginx_env:
             if isinstance(env_var, str) and env_var.startswith("SITENAME="):
@@ -345,7 +345,9 @@ class MigrationV0190(MigrationBase):
                     else:
                         # Round to nearest MB
                         resolved = f"{round(max_file_size / (1024 * 1024))}M"
-                    self.output.print(f"Using existing site_config.json max_file_size: {resolved} ({max_file_size} bytes)")
+                    self.output.print(
+                        f"Using existing site_config.json max_file_size: {resolved} ({max_file_size} bytes)"
+                    )
                     return resolved
             except Exception:
                 pass
@@ -406,7 +408,9 @@ class MigrationV0190(MigrationBase):
             site_config = json.loads(site_config_path.read_text())
             # Respect previously configured max_file_size — only set if missing
             if "max_file_size" in site_config:
-                self.output.print(f"site_config.json max_file_size already set ({site_config['max_file_size']}), skipping")
+                self.output.print(
+                    f"site_config.json max_file_size already set ({site_config['max_file_size']}), skipping"
+                )
                 return
 
             # Parse size to bytes (same logic as site.py _parse_size_to_bytes)
@@ -430,10 +434,15 @@ class MigrationV0190(MigrationBase):
         custom_conf_dir.mkdir(parents=True, exist_ok=True)
 
         upload_limit_conf = custom_conf_dir / "upload-limit.conf"
-        upload_limit_conf.write_text(f"client_max_body_size {upload_limit.lower()};\n")
 
-        # Track for rollback cleanup (this file didn't exist before migration)
-        self.backup_manager.track_new_file(upload_limit_conf)
+        # If file already existed before migration, back it up first
+        if upload_limit_conf.exists():
+            self.backup_manager.backup(upload_limit_conf, bench_name=bench.name)
+        else:
+            # Track for rollback cleanup (this file didn't exist before migration)
+            self.backup_manager.track_new_file(upload_limit_conf)
+
+        upload_limit_conf.write_text(f"client_max_body_size {upload_limit.lower()};\n")
 
         self.output.print("Created custom nginx upload-limit.conf")
 
@@ -482,16 +491,14 @@ class MigrationV0190(MigrationBase):
 
     def _pull_bench_images(self, bench: MigrationBench):
         from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
-        
+
         self.output.print(f"Pulling updated images ({self.effective_image_tag})...", emoji_code="📦")
-        
+
         result = bench.compose.pull(stream=False)
-        
+
         if result.exit_code != 0:
-            raise MigrationExceptionInBench(
-                f"Failed to pull images for {bench.name}. Docker pull failed."
-            )
-        
+            raise MigrationExceptionInBench(f"Failed to pull images for {bench.name}. Docker pull failed.")
+
         self.output.print("✓ Images ready", emoji_code="✅")
 
     def migrate_services(self):
@@ -946,11 +953,17 @@ echo "Apps reinstalled and assets built successfully"
         )
 
         wrapper_path = config_dir / "fm-web-server.sh"
+
+        # If file already existed before migration, back it up first
+        bench_name = context.get("bench_name")
+        if wrapper_path.exists():
+            self.backup_manager.backup(wrapper_path, bench_name=bench_name)
+        else:
+            # Track for rollback cleanup (this file didn't exist before migration)
+            self.backup_manager.track_new_file(wrapper_path)
+
         wrapper_path.write_text(script)
         wrapper_path.chmod(0o755)
-
-        # Track for rollback cleanup (this file didn't exist before migration)
-        self.backup_manager.track_new_file(wrapper_path)
 
         self.output.print("Generated fm-web-server.sh")
 
@@ -962,6 +975,7 @@ echo "Apps reinstalled and assets built successfully"
                 # Backup before deletion
                 backup_path = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf.migration.bak"
                 import shutil
+
                 shutil.copy2(str(nginx_default_conf), str(backup_path))
                 nginx_default_conf.unlink()
                 self.output.print("Backed up and removed stale nginx default.conf for regeneration")
