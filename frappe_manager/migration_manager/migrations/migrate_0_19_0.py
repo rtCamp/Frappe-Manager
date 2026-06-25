@@ -304,8 +304,11 @@ class MigrationV0190(MigrationBase):
 
         if "HTTPS_METHOD" not in nginx_env:
             nginx_env["HTTPS_METHOD"] = "noredirect"
-        if "CLIENT_MAX_BODY_SIZE" not in nginx_env:
-            nginx_env["CLIENT_MAX_BODY_SIZE"] = upload_limit.lower()
+        # NOTE: CLIENT_MAX_BODY_SIZE is intentionally NOT added here —
+        # the upload limit is handled exclusively via ``upload-limit.conf``
+        # written by ``_write_upload_limit_nginx_conf``.  Adding it as an
+        # env var would duplicate the ``client_max_body_size`` directive
+        # in nginx and cause a startup failure.
 
     def _transform_nginx_env_list(self, nginx_env: list, upload_limit: str) -> list:
         """Transform list format: [SITENAME=value] → [SITE_MAPPINGS='{"value": "value"}']."""
@@ -320,12 +323,13 @@ class MigrationV0190(MigrationBase):
             else:
                 new_env.append(env_var)
 
-        # Add HTTPS_METHOD and CLIENT_MAX_BODY_SIZE if not already present
+        # Add HTTPS_METHOD if not already present.
+        # NOTE: CLIENT_MAX_BODY_SIZE is intentionally NOT added here —
+        # the upload limit is handled exclusively via ``upload-limit.conf``
+        # written by ``_write_upload_limit_nginx_conf``.
         existing_keys = {env.split("=", 1)[0] for env in new_env if isinstance(env, str) and "=" in env}
         if "HTTPS_METHOD" not in existing_keys:
             new_env.append("HTTPS_METHOD=noredirect")
-        if "CLIENT_MAX_BODY_SIZE" not in existing_keys:
-            new_env.append(f"CLIENT_MAX_BODY_SIZE={upload_limit.lower()}")
 
         return new_env
 
