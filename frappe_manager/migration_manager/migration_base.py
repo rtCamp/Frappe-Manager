@@ -143,8 +143,8 @@ class MigrationBase(ABC):
             bench_version = get_bench_migration_version(bench.path)
 
             # Check if bench is already at or above this migration version.
-            # --force overrides this so the migration runs regardless.
-            if not self.migration_executor.force and bench_version >= self.version:
+            # --rerun overrides this so the migration runs regardless.
+            if not self.migration_executor.rerun and bench_version >= self.version:
                 self.output.print(
                     f"Bench {bench_name} already at v{bench_version}, skipping migration to v{self.version}",
                 )

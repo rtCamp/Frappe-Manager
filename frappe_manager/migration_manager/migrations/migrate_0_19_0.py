@@ -722,8 +722,7 @@ fi
         env_current, node_current = self._check_runtime_current(bench, target_python, target_node)
 
         # ── Early return when everything is already current ─────────────────
-        # --force overrides this so the rebuild runs even when already current.
-        if not self.migration_executor.force and env_current and node_current:
+        if env_current and node_current:
             self.output.print("Runtime environment already up to date")
 
             # Still restart if images were updated (e.g. dev → stable tag)
@@ -740,12 +739,13 @@ fi
 
             # Decide what needs rebuilding based on BOTH the config comparison
             # and the actual runtime check.  First run (prev is None) always
-            # triggers a rebuild.  --force overrides and rebuilds everything.
-            forced = self.migration_executor.force
-            needs_python = forced or (prev_python is None) or self._python_version_changed or not env_current
-            needs_node = forced or (prev_node is None) or self._node_version_changed or not node_current
+            # triggers a rebuild.  --rerun does NOT force a rebuild — the
+            # runtime is only rebuilt when versions actually changed or the
+            # existing environment is corrupted.
+            self._env_was_rebuilt = (prev_python is None) or self._python_version_changed or not env_current
+            self._node_was_setup = (prev_node is None) or self._node_version_changed or not node_current
 
-            if needs_python and target_python:
+            if self._env_was_rebuilt and target_python:
                 # Backup existing env/ before recreating (for rollback support).
                 # Uses the same decision path as the rebuild guard, so the backup
                 # always matches whether the env will actually be rebuilt.
@@ -753,7 +753,7 @@ fi
                 self.output.print(f"Setting up Python {target_python} with uv...")
                 self._setup_python_with_uv(bench, target_python)
 
-            if needs_node and target_node:
+            if self._node_was_setup and target_node:
                 self.output.print(f"Setting up Node {target_node} with fnm...")
                 self._setup_node_with_fnm(bench, target_node)
 
