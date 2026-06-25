@@ -121,6 +121,5 @@ class MigrationDiscovery:
         """
         # Normalize to_version to base version (strips .devN, .a, .b, .rc suffixes)
         # This allows migrations for release X.Y.Z to run during X.Y.Z.devN development
-        # Access base_version through internal _parsed PackagingVersion object
-        normalized_to = Version(to_version._parsed.base_version)
+        normalized_to = Version(to_version.base_version)
         return from_version < migration.version <= normalized_to

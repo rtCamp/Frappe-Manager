@@ -211,8 +211,7 @@ def migrate(
 
                 # Compare base versions to handle dev releases (0.19.0.dev0 matches 0.19.0)
                 versions_match = (
-                    last_migrated is not None
-                    and last_migrated._parsed.base_version == current_version._parsed.base_version
+                    last_migrated is not None and last_migrated.base_version == current_version.base_version
                 )
 
                 if versions_match and not bench_data["exception"]:

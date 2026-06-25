@@ -1,9 +1,9 @@
+import os
+import shlex
 from collections.abc import Iterable
 from logging import Logger
 from pathlib import Path
 from subprocess import run
-import os
-import shlex
 
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
