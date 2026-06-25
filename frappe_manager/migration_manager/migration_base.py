@@ -31,17 +31,19 @@ class MigrationBase(ABC):
 
     def __init__(self, output_handler: OutputHandler | None = None):
         self.output = output_handler or RichOutputHandler()
-        
+
         from frappe_manager.utils.helpers import get_current_fm_version, get_docker_image_tag
+
         self._current_fm_version = get_current_fm_version()
         self.is_dev_environment = self._detect_dev_environment()
         self.effective_image_tag = get_docker_image_tag()
-    
+
     def _detect_dev_environment(self) -> bool:
         from packaging.version import Version as PV
+
         parsed = PV(self._current_fm_version)
         return parsed.is_devrelease or parsed.is_prerelease
-    
+
     def _get_image_tag_for_migration(self) -> str:
         if self.is_dev_environment:
             tag = self.effective_image_tag
@@ -140,8 +142,9 @@ class MigrationBase(ABC):
 
             bench_version = get_bench_migration_version(bench.path)
 
-            # Check if bench is already at or above this migration version
-            if bench_version >= self.version:
+            # Check if bench is already at or above this migration version.
+            # --force overrides this so the migration runs regardless.
+            if not self.migration_executor.force and bench_version >= self.version:
                 self.output.print(
                     f"Bench {bench_name} already at v{bench_version}, skipping migration to v{self.version}",
                 )

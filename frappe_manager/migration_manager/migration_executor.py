@@ -64,12 +64,14 @@ class MigrationExecutor:
         skip_backup_for: list[str] | None = None,
         exclude_benches: list[str] | None = None,
         auto_proceed: bool = False,
+        force: bool = False,
         on_failure: str = "prompt",
         target_benches: list[str] | None = None,
         migrate_fm_infrastructure: bool = False,
         output_handler: OutputHandler | None = None,
     ):
         self.fm_config_manager: FMConfigManager = fm_config_manager
+        self.force = force
         self.prev_version = self.fm_config_manager.version
         self.rollback_version = self.fm_config_manager.version
         self.current_version = Version(get_current_fm_version())
@@ -124,10 +126,10 @@ class MigrationExecutor:
         executed statements.
         """
 
-        fm_infrastructure_version_outdated = self.prev_version < self.current_version
+        fm_infrastructure_version_outdated = self.force or (self.prev_version < self.current_version)
         fm_infrastructure_needs_migration = self.migrate_fm_infrastructure and fm_infrastructure_version_outdated
         self.fm_infrastructure_needs_migration = fm_infrastructure_needs_migration
-        benches_need_migration = self._check_benches_need_migration()
+        benches_need_migration = self.force or self._check_benches_need_migration()
 
         if not fm_infrastructure_needs_migration and not benches_need_migration:
             return True
