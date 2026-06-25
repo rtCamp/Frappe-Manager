@@ -625,27 +625,28 @@ class MigrationV0190(MigrationBase):
         if target_python:
             fragments.append(
                 f"""
-# Check 1: UV Python install cache — python downloaded by uv
-UV_CACHE_OK=false
+# Check 1 — UV Python install cache
+UV_OK=false
 UV_PY_DIR=/workspace/frappe-bench/.uv/python
 if [ -d "$UV_PY_DIR" ]; then
     PYTHON_DIRS=$(ls -1d "$UV_PY_DIR"/cpython-{target_python}* 2>/dev/null)
     if [ -n "$PYTHON_DIRS" ]; then
-        UV_CACHE_OK=true
+        UV_OK=true
     fi
 fi
 
-# Check 2: Virtual environment built from that python
-ENV_OK=false
+# Check 2 — Virtual environment built from that python
+VENV_OK=false
 if [ -d /workspace/frappe-bench/env ] && [ -f /workspace/frappe-bench/env/bin/python ]; then
     PY_VER=$(/workspace/frappe-bench/env/bin/python --version 2>&1)
     if echo "$PY_VER" | grep -q "Python {target_python}"; then
-        ENV_OK=true
+        VENV_OK=true
     fi
 fi
 
-# Both must be true — uv must have the interpreter cached AND the venv must exist
-if [ "$UV_CACHE_OK" = "true" ] && [ "$ENV_OK" = "true" ]; then
+# Both must be true — only the FINAL line uses "ENV_OK=" so the
+# Python side can reliably parse the combined result.
+if [ "$UV_OK" = "true" ] && [ "$VENV_OK" = "true" ]; then
     echo "ENV_OK=true"
 else
     echo "ENV_OK=false"
@@ -702,13 +703,10 @@ fi
         """
         self.logger.info(f"[_rebuild_runtime_environment] Starting for {bench.name}")
 
-        target_python, target_node, _config_doc = self._resolve_runtime_versions(bench)
-
-        # Determine whether versions changed since last successful migration.
-        # On the first run the config won't have python_version/node_version yet
-        # (they are only written by _resolve_runtime_versions when missing), so
-        # prev_python/prev_node will be None → implies change → full rebuild.
-        # On re-run the config already has them → versions match → short-circuit.
+        # IMPORTANT: read prev versions BEFORE _resolve_runtime_versions.
+        # That method auto-detects and *writes* versions to config when they
+        # are missing.  If we read after it we would always see a value and
+        # the ``prev_python is None`` guard below would never fire.
         bench_config_path = bench.path / "bench_config.toml"
         prev_python = None
         prev_node = None
@@ -716,6 +714,8 @@ fi
             cfg = tomlkit.parse(bench_config_path.read_text())
             prev_python = cfg.get("python_version")
             prev_node = cfg.get("node_version")
+
+        target_python, target_node, _config_doc = self._resolve_runtime_versions(bench)
 
         # Compute "version changed" flags.  When both prev and target come from
         # the same config field this will always be False on re-run (they match).
@@ -953,19 +953,19 @@ echo "Old runtime directories cleaned up"
         """Reinstall apps into new venv and rebuild static assets.
 
         Idempotent: only executes the sub-steps whose inputs actually changed:
-        - ``uv pip install -e apps/*`` only when the Python env was rebuilt
-          (``self._python_version_changed``).
-        - ``bench setup requirements --node`` + ``bench build`` only when the
-          Node version changed (``self._node_version_changed``).
+        - ``uv pip install -e apps/*`` only when the Python env was actually
+          rebuilt (``self._env_was_rebuilt``).
+        - ``bench setup requirements --node`` + ``bench build`` only when
+          Node was set up (``self._node_was_setup``).
         """
         self.logger.debug(f"[_reinstall_apps_and_rebuild] Starting for {bench.name}")
 
-        if not self._python_version_changed and not self._node_version_changed:
+        if not self._env_was_rebuilt and not self._node_was_setup:
             self.output.print("No env or Node changes — skipping app reinstall and build")
             return
 
         # Only check apps.txt when we actually need to reinstall apps
-        if self._python_version_changed:
+        if self._env_was_rebuilt:
             apps_txt_path = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
 
             if not apps_txt_path.exists():
@@ -979,8 +979,7 @@ echo "Old runtime directories cleaned up"
                     self.output.warning("No apps found in apps.txt")
 
         self.logger.debug(
-            f"[_reinstall_apps_and_rebuild] python_changed={self._python_version_changed}, "
-            f"node_changed={self._node_version_changed}",
+            f"[_reinstall_apps_and_rebuild] env_rebuilt={self._env_was_rebuilt}, node_setup={self._node_was_setup}",
         )
 
         # Build the script conditionally based on which inputs changed
@@ -991,7 +990,7 @@ echo "Old runtime directories cleaned up"
             "source /etc/bash.bashrc",
         ]
 
-        if self._python_version_changed:
+        if self._env_was_rebuilt:
             script_parts.append(
                 """
 echo "Reinstalling apps into new venv..."
@@ -1004,7 +1003,7 @@ for app in $(ls -1 apps); do
 done""",
             )
 
-        if self._node_version_changed:
+        if self._node_was_setup:
             script_parts.append(
                 """
 echo "Installing Node dependencies..."
