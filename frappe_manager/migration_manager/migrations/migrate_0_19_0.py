@@ -18,6 +18,7 @@ from typing import Any, cast
 
 import tomlkit
 from ruamel.yaml import YAML
+from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.migration_manager.migration_base import MigrationBase
@@ -329,10 +330,15 @@ class MigrationV0190(MigrationBase):
         return new_env
 
     def _add_restart_policy_to_services(self, services: dict[str, Any], restart_policy: str):
-        """Add restart policy to all services in compose file."""
+        """Add restart policy to all services in compose file.
+
+        Uses ``DoubleQuotedScalarString`` so that values like ``"no"`` (a valid
+        Docker restart policy) are quoted in the YAML output instead of being
+        interpreted as YAML 1.1 booleans (``no`` → ``false``).
+        """
         for service_name, service_config in services.items():
             if "restart" not in service_config:
-                service_config["restart"] = restart_policy
+                service_config["restart"] = DoubleQuotedScalarString(restart_policy)
 
     def _resolve_upload_limit(self, bench: MigrationBench) -> str:
         """Resolve upload limit, respecting existing site_config.json max_file_size.
