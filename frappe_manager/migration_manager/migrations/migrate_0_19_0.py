@@ -35,7 +35,9 @@ class MigrationV0190(MigrationBase):
 
         Backs up:
         - supervisor.conf and *.fm.supervisor.conf (regenerated during rebuild)
-        - env/ directory (Python venv, will be recreated)
+
+        Note: env/ backup is handled inside _rebuild_runtime_environment right
+        before the Python venv is recreated (so the guard is the same code path).
         """
         super().bench_basic_backup(bench)
 
@@ -53,15 +55,23 @@ class MigrationV0190(MigrationBase):
                 self.backup_manager.backup(conf_file, bench_name=bench.name)
                 self.output.print(f"Backed up {conf_file.name}")
 
-        env_dir = bench.path / "workspace" / "frappe-bench" / "env"
-        if env_dir.exists() and env_dir.is_dir():
-            import shutil
+    def _backup_env_for_rollback(self, bench: MigrationBench):
+        """Move existing env/ to env.backup.migration for rollback support.
 
-            env_backup_path = bench.path / "workspace" / "frappe-bench" / "env.backup.migration"
-            if env_backup_path.exists():
-                shutil.rmtree(env_backup_path)
-            shutil.move(str(env_dir), str(env_backup_path))
-            self.output.print("Moved env/ to env.backup.migration")
+        Only moves if env/ exists. If env.backup.migration already exists
+        (from a prior incomplete migration), it is replaced.
+        """
+        env_dir = bench.path / "workspace" / "frappe-bench" / "env"
+        if not env_dir.exists() or not env_dir.is_dir():
+            return
+
+        env_backup_path = bench.path / "workspace" / "frappe-bench" / "env.backup.migration"
+        import shutil
+
+        if env_backup_path.exists():
+            shutil.rmtree(env_backup_path)
+        shutil.move(str(env_dir), str(env_backup_path))
+        self.output.print("Moved env/ to env.backup.migration")
 
     def undo_bench_migrate(self, bench: MigrationBench):
         """
@@ -103,6 +113,7 @@ class MigrationV0190(MigrationBase):
 
     def migrate_bench(self, bench: MigrationBench):
         """Migrate bench from v0.18.0 to current version."""
+        self._images_updated = False
         with spinner(self.output, f"Migrating bench configuration for {bench.name}"):  # type: ignore[arg-type]
             bench_config_path = bench.path / "bench_config.toml"
             if bench_config_path.exists():
@@ -266,6 +277,7 @@ class MigrationV0190(MigrationBase):
 
             if new_image != old_image:
                 service_config["image"] = new_image
+                self._images_updated = True
                 self.output.print(f"Updated {service_name} image: v{old_version} → {effective_tag}")
 
     def _transform_nginx_environment(self, services: dict[str, Any], upload_limit: str):
@@ -531,64 +543,217 @@ class MigrationV0190(MigrationBase):
         """No global services rollback needed."""
         self.output.print(f"No services rollback needed for {self.version.version_string()}")
 
-    def _rebuild_runtime_environment(self, bench: MigrationBench):
-        """Rebuild Python/Node environment using uv/fnm (current version runtime system)."""
-        self.logger.info(f"[_rebuild_runtime_environment] Starting runtime rebuild for {bench.name}")
+    def _resolve_runtime_versions(
+        self,
+        bench: MigrationBench,
+    ) -> tuple[str | None, str | None, Any | None]:
+        """Resolve target Python and Node versions for this bench.
+
+        Reads from bench_config.toml if already set, or auto-detects from the
+        running container. Persists auto-detected versions back to the config.
+
+        Returns:
+            (target_python, target_node, config_doc)
+                - target_python: Python version to use (e.g. "3.11")
+                - target_node: Node version to use (e.g. "18")
+                - config_doc: The parsed TOML document (None if no config file)
+        """
+        from frappe_manager.site_manager.bench_config import (
+            parse_node_version_for_runtime,
+            parse_python_version_for_runtime,
+        )
 
         bench_config_path = bench.path / "bench_config.toml"
-
-        python_version = None
-        node_version = None
-
         config_doc = None
+        target_python = None
+        target_node = None
+
         if bench_config_path.exists():
-            from frappe_manager.site_manager.bench_config import (
-                parse_node_version_for_runtime,
-                parse_python_version_for_runtime,
-            )
-
             config_doc = tomlkit.parse(bench_config_path.read_text())
-            raw_python_version = config_doc.get("python_version")
-            raw_node_version = config_doc.get("node_version")
-
-            python_version = parse_python_version_for_runtime(raw_python_version) if raw_python_version else None
-            node_version = parse_node_version_for_runtime(raw_node_version) if raw_node_version else None
-
+            raw_python = config_doc.get("python_version")
+            raw_node = config_doc.get("node_version")
+            target_python = parse_python_version_for_runtime(raw_python) if raw_python else None
+            target_node = parse_node_version_for_runtime(raw_node) if raw_node else None
             self.logger.debug(
-                f"[_rebuild_runtime_environment] From config (parsed): Python={python_version}, Node={node_version}",
+                f"[_resolve_runtime_versions] From config: Python={target_python}, Node={target_node}",
             )
 
-        if not python_version or not node_version:
+        if not target_python or not target_node:
             self.output.print(
                 "No Python/Node versions in config, auto-detecting from container and Frappe requirements...",
             )
-            self.logger.info("[_rebuild_runtime_environment] Auto-detecting versions...")
-            python_version, node_version = self._auto_detect_runtime_versions(bench)
+            self.logger.info("[_resolve_runtime_versions] Auto-detecting versions...")
+            target_python, target_node = self._auto_detect_runtime_versions(bench)
             self.logger.info(
-                f"[_rebuild_runtime_environment] Auto-detected: Python={python_version}, Node={node_version}",
+                f"[_resolve_runtime_versions] Auto-detected: Python={target_python}, Node={target_node}",
             )
 
-            if config_doc and (python_version or node_version):
-                if python_version:
-                    config_doc["python_version"] = python_version
-                if node_version:
-                    config_doc["node_version"] = node_version
+            if config_doc and (target_python or target_node):
+                if target_python:
+                    config_doc["python_version"] = target_python
+                if target_node:
+                    config_doc["node_version"] = target_node
                 bench_config_path.write_text(tomlkit.dumps(config_doc))
                 self.output.print("Updated bench_config.toml with detected versions")
 
+        return target_python, target_node, config_doc
+
+    def _check_runtime_current(
+        self,
+        bench: MigrationBench,
+        target_python: str | None,
+        target_node: str | None,
+    ) -> tuple[bool, bool]:
+        """Check if existing runtime environment already matches target versions.
+
+        Runs a single docker compose run to check both Python env and fnm Node
+        installation. This avoids expensive checks when versions haven't changed.
+
+        Returns:
+            (env_current, node_current) — True if already correct, False if rebuild needed.
+        """
+        if not target_python and not target_node:
+            return False, False
+
+        fragments = []
+        if target_python:
+            fragments.append(
+                f"""
+# Check 1: UV Python install cache — python downloaded by uv
+UV_CACHE_OK=false
+UV_PY_DIR=/workspace/frappe-bench/.uv/python
+if [ -d "$UV_PY_DIR" ]; then
+    PYTHON_DIRS=$(ls -1d "$UV_PY_DIR"/cpython-{target_python}* 2>/dev/null)
+    if [ -n "$PYTHON_DIRS" ]; then
+        UV_CACHE_OK=true
+    fi
+fi
+
+# Check 2: Virtual environment built from that python
+ENV_OK=false
+if [ -d /workspace/frappe-bench/env ] && [ -f /workspace/frappe-bench/env/bin/python ]; then
+    PY_VER=$(/workspace/frappe-bench/env/bin/python --version 2>&1)
+    if echo "$PY_VER" | grep -q "Python {target_python}"; then
+        ENV_OK=true
+    fi
+fi
+
+# Both must be true — uv must have the interpreter cached AND the venv must exist
+if [ "$UV_CACHE_OK" = "true" ] && [ "$ENV_OK" = "true" ]; then
+    echo "ENV_OK=true"
+else
+    echo "ENV_OK=false"
+fi
+"""
+            )
+        else:
+            fragments.append('echo "ENV_OK=false"\n')
+
+        if target_node:
+            fragments.append(
+                f"""
+if fnm list 2>/dev/null | grep -q "v{target_node}"; then
+    echo "NODE_OK=true"
+else
+    echo "NODE_OK=false"
+fi
+"""
+            )
+        else:
+            fragments.append('echo "NODE_OK=false"\n')
+
+        check_script = "set -x\n" + "".join(fragments)
+
+        self.logger.debug("[_check_runtime_current] Checking current runtime state...")
+        try:
+            result = bench.compose.run(
+                service="frappe",
+                command=f"bash -c {shlex.quote(check_script)}",
+                rm=True,
+                entrypoint="/exec-entrypoint.sh",
+            )
+        except Exception:
+            self.logger.debug("[_check_runtime_current] Docker check failed, assuming rebuild needed")
+            return False, False
+
+        if not isinstance(result, SubprocessOutput) or result.exit_code != 0:
+            return False, False
+
+        output = " ".join(result.combined)
+        env_current = "ENV_OK=true" in output
+        node_current = "NODE_OK=true" in output
+        self.logger.debug(
+            f"[_check_runtime_current] env_current={env_current}, node_current={node_current}",
+        )
+        return env_current, node_current
+
+    def _rebuild_runtime_environment(self, bench: MigrationBench):
+        """Rebuild Python/Node environment using uv/fnm (current version runtime system).
+
+        Idempotent: skips the entire rebuild if Python/Node versions haven't
+        changed and the existing environment is healthy. Only the supervisor
+        config regeneration and service restart still run when needed.
+        """
+        self.logger.info(f"[_rebuild_runtime_environment] Starting for {bench.name}")
+
+        target_python, target_node, _config_doc = self._resolve_runtime_versions(bench)
+
+        # Determine whether versions changed since last successful migration.
+        # On the first run the config won't have python_version/node_version yet
+        # (they are only written by _resolve_runtime_versions when missing), so
+        # prev_python/prev_node will be None → implies change → full rebuild.
+        # On re-run the config already has them → versions match → short-circuit.
+        bench_config_path = bench.path / "bench_config.toml"
+        prev_python = None
+        prev_node = None
+        if bench_config_path.exists():
+            cfg = tomlkit.parse(bench_config_path.read_text())
+            prev_python = cfg.get("python_version")
+            prev_node = cfg.get("node_version")
+
+        # Compute "version changed" flags.  When both prev and target come from
+        # the same config field this will always be False on re-run (they match).
+        # The authoritative check is _check_runtime_current below.
+        self._python_version_changed = prev_python is not None and str(prev_python) != str(target_python)
+        self._node_version_changed = prev_node is not None and str(prev_node) != str(target_node)
+
+        # Authoritative check: verify actual runtime state matches config.
+        # Catches cases like user manually editing config, env corruption, etc.
+        env_current, node_current = self._check_runtime_current(bench, target_python, target_node)
+
+        # ── Early return when everything is already current ─────────────────
+        if env_current and node_current:
+            self.output.print("Runtime environment already up to date")
+
+            # Still restart if images were updated (e.g. dev → stable tag)
+            if self._images_updated and (bench.running or bench.workers_running):
+                self._restart_services(bench)
+            return
+
+        # ── Full rebuild path ───────────────────────────────────────────────
         with spinner(self.output, "Rebuilding runtime environment (pyenv/nvm → uv/fnm)"):  # type: ignore[arg-type]
             self._ensure_runtime_dirs(bench)
 
             self.output.print("Cleaning up old runtime directories...")
             self._cleanup_old_runtime_dirs(bench)
 
-            if python_version:
-                self.output.print(f"Setting up Python {python_version} with uv...")
-                self._setup_python_with_uv(bench, python_version)
+            # Decide what needs rebuilding based on BOTH the config comparison
+            # and the actual runtime check.  First run (prev is None) always
+            # triggers a rebuild.
+            needs_python = (prev_python is None) or self._python_version_changed or not env_current
+            needs_node = (prev_node is None) or self._node_version_changed or not node_current
 
-            if node_version:
-                self.output.print(f"Setting up Node {node_version} with fnm...")
-                self._setup_node_with_fnm(bench, node_version)
+            if needs_python and target_python:
+                # Backup existing env/ before recreating (for rollback support).
+                # Uses the same decision path as the rebuild guard, so the backup
+                # always matches whether the env will actually be rebuilt.
+                self._backup_env_for_rollback(bench)
+                self.output.print(f"Setting up Python {target_python} with uv...")
+                self._setup_python_with_uv(bench, target_python)
+
+            if needs_node and target_node:
+                self.output.print(f"Setting up Node {target_node} with fnm...")
+                self._setup_node_with_fnm(bench, target_node)
 
             self.output.print("Reinstalling apps and rebuilding assets...")
             self._reinstall_apps_and_rebuild(bench)
@@ -596,9 +761,6 @@ class MigrationV0190(MigrationBase):
             self.output.print("Regenerating supervisor configuration...")
             self._regenerate_supervisor_config(bench)
 
-            # Restart services only if they were running before migration.
-            # If the bench was stopped, leave it stopped — the user can start
-            # it manually with `fm start`.
             if bench.running or bench.workers_running:
                 self.output.print("Recreating & restarting services (force-recreate)...")
                 self._restart_services(bench)
@@ -639,7 +801,7 @@ ln -sf "python/$PYTHON_BASENAME" python-default
 
 echo "Creating new venv with $PYTHON_BASENAME..."
 cd /workspace/frappe-bench
-uv venv env --python "$PYTHON_BASENAME" --seed --link-mode=copy
+uv venv env --clear --python "$PYTHON_BASENAME" --seed --link-mode=copy
 
 echo "Python environment setup complete"
 echo "Verifying env directory..."
@@ -754,7 +916,7 @@ echo "Node environment setup complete"
 
         cleanup_script = """
 echo "Removing old runtime directories..."
-mv /workspace/.bashrc /workspace/.bashrc.migration.bak
+mv /workspace/.bashrc /workspace/.bashrc.migration.bak 2>/dev/null || true
 rm -rf /workspace/.pyenv 2>/dev/null || true
 rm -rf /workspace/.nvm 2>/dev/null || true
 echo "Old runtime directories cleaned up"
@@ -780,32 +942,50 @@ echo "Old runtime directories cleaned up"
             self.logger.debug("[_cleanup_old_runtime_dirs] Cleanup completed successfully")
 
     def _reinstall_apps_and_rebuild(self, bench: MigrationBench):
-        """Reinstall apps into new venv and rebuild static assets."""
+        """Reinstall apps into new venv and rebuild static assets.
+
+        Idempotent: only executes the sub-steps whose inputs actually changed:
+        - ``uv pip install -e apps/*`` only when the Python env was rebuilt
+          (``self._python_version_changed``).
+        - ``bench setup requirements --node`` + ``bench build`` only when the
+          Node version changed (``self._node_version_changed``).
+        """
         self.logger.debug(f"[_reinstall_apps_and_rebuild] Starting for {bench.name}")
 
-        apps_txt_path = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
-
-        if not apps_txt_path.exists():
-            self.logger.warning(f"[_reinstall_apps_and_rebuild] No apps.txt found at {apps_txt_path}")
-            self.output.warning("No apps.txt found, skipping app reinstallation")
+        if not self._python_version_changed and not self._node_version_changed:
+            self.output.print("No env or Node changes — skipping app reinstall and build")
             return
 
-        installed_apps = [line.strip() for line in apps_txt_path.read_text().splitlines() if line.strip()]
+        # Only check apps.txt when we actually need to reinstall apps
+        if self._python_version_changed:
+            apps_txt_path = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
 
-        if not installed_apps:
-            self.logger.warning("[_reinstall_apps_and_rebuild] No apps in apps.txt")
-            self.output.warning("No apps found in apps.txt")
-            return
+            if not apps_txt_path.exists():
+                self.logger.warning(f"[_reinstall_apps_and_rebuild] No apps.txt found at {apps_txt_path}")
+                self.output.warning("No apps.txt found, skipping app reinstallation")
+            else:
+                installed_apps = [line.strip() for line in apps_txt_path.read_text().splitlines() if line.strip()]
 
-        self.logger.debug(f"[_reinstall_apps_and_rebuild] Found apps: {installed_apps}")
+                if not installed_apps:
+                    self.logger.warning("[_reinstall_apps_and_rebuild] No apps in apps.txt")
+                    self.output.warning("No apps found in apps.txt")
 
-        reinstall_script = """
-set -x
-cd /workspace/frappe-bench
+        self.logger.debug(
+            f"[_reinstall_apps_and_rebuild] python_changed={self._python_version_changed}, "
+            f"node_changed={self._node_version_changed}",
+        )
 
-# Source bashrc to load fnm environment (node/yarn in PATH)
-source /etc/bash.bashrc
+        # Build the script conditionally based on which inputs changed
+        script_parts = [
+            "set -x",
+            "cd /workspace/frappe-bench",
+            "# Source bashrc to load fnm environment (node/yarn in PATH)",
+            "source /etc/bash.bashrc",
+        ]
 
+        if self._python_version_changed:
+            script_parts.append(
+                """
 echo "Reinstalling apps into new venv..."
 for app in $(ls -1 apps); do
     if [ -d "apps/$app" ]; then
@@ -813,16 +993,22 @@ for app in $(ls -1 apps); do
         uv pip install --python env/bin/python --no-cache-dir -e "apps/$app" || \
         ./env/bin/pip install --no-cache-dir -e "apps/$app"
     fi
-done
+done""",
+            )
 
+        if self._node_version_changed:
+            script_parts.append(
+                """
 echo "Installing Node dependencies..."
 bench setup requirements --node
 
 echo "Building static assets..."
-bench build
+bench build""",
+            )
 
-echo "Apps reinstalled and assets built successfully"
-"""
+        script_parts.append('\necho "Apps reinstalled and assets built successfully"')
+        reinstall_script = "\n".join(script_parts)
+
         self.logger.debug("[_reinstall_apps_and_rebuild] Executing docker compose run...")
 
         result = bench.compose.run(

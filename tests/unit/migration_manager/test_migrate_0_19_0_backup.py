@@ -199,19 +199,13 @@ port = 8000
         assert "socketio.fm.supervisor.conf" in backed_up_files
 
     def test_env_directory_backed_up(self, migration, mock_bench, tmp_path):
-        """Verify env/ directory is moved to env.backup.migration."""
-        migration.backup_manager = BackupManager(
-            name=str(migration.version),
-            benches_dir=migration.benches_dir,
-        )
-
+        """Verify _backup_env_for_rollback moves env/ to env.backup.migration."""
         env_dir = mock_bench.path / "workspace" / "frappe-bench" / "env"
         env_dir.mkdir(parents=True, exist_ok=True)
         (env_dir / "bin").mkdir(parents=True, exist_ok=True)
         (env_dir / "bin" / "python3.10").write_text("#!/usr/bin/env python3.10")
 
-        with patch.object(MigrationV0190.__bases__[0], "bench_basic_backup", return_value=None):
-            migration.bench_basic_backup(mock_bench)
+        migration._backup_env_for_rollback(mock_bench)  # noqa: SLF001
 
         env_backup_path = mock_bench.path / "workspace" / "frappe-bench" / "env.backup.migration"
         assert env_backup_path.exists(), "env.backup.migration should exist"
@@ -220,17 +214,11 @@ port = 8000
 
     def test_env_rollback_removes_new_env_first(self, migration, mock_bench, tmp_path):
         """Verify undo_bench_migrate moves env.backup.migration back to env/."""
-        migration.backup_manager = BackupManager(
-            name=str(migration.version),
-            benches_dir=migration.benches_dir,
-        )
-
         env_dir = mock_bench.path / "workspace" / "frappe-bench" / "env"
         env_dir.mkdir(parents=True, exist_ok=True)
         (env_dir / "old_marker.txt").write_text("old environment")
 
-        with patch.object(MigrationV0190.__bases__[0], "bench_basic_backup", return_value=None):
-            migration.bench_basic_backup(mock_bench)
+        migration._backup_env_for_rollback(mock_bench)  # noqa: SLF001
 
         env_backup_path = mock_bench.path / "workspace" / "frappe-bench" / "env.backup.migration"
         assert env_backup_path.exists()
