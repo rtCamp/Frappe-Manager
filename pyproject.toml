@@ -94,8 +94,6 @@ quote-style = "preserve"
 force-single-line = false
 known-first-party = ["frappe_manager"]
 
-[tool.poetry.urls]
-Repository = "https://github.com/rtcamp/frappe-manager"
 
 [tool.pyright]
 reportOptionalMemberAccess = false
