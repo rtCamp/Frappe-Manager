@@ -241,12 +241,17 @@ class MigrationV0190(MigrationBase):
 
         # Read config values from bench_config.toml
         bench_config_path = bench.path / "bench_config.toml"
-        upload_limit = "50M"
         restart_policy = "unless-stopped"
         if bench_config_path.exists():
             config = tomlkit.parse(bench_config_path.read_text())
-            upload_limit = config.get("upload_limit", "50M")
             restart_policy = config.get("restart_policy", "unless-stopped")
+
+        # Resolve upload limit using the same source-of-truth logic that
+        # _resolve_upload_limit uses (prefers site_config.json max_file_size
+        # over bench_config.toml, then defaults to "50M").  This keeps
+        # CLIENT_MAX_BODY_SIZE in the compose env consistent with what
+        # upload-limit.conf and vhost.d will eventually contain.
+        upload_limit = self._resolve_upload_limit(bench)
 
         self._transform_nginx_environment(services, upload_limit)
         self._add_restart_policy_to_services(services, restart_policy)
