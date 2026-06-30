@@ -583,6 +583,15 @@ class MigrationV0190(MigrationBase):
         self.output.print(f"All {self.version.version_string()} images pulled successfully")
         self.logger.info("[migrate_services] Docker image pull completed successfully")
 
+        # Recreate global-nginx-proxy to pick up the updated image tag.
+        self.output.print("Restarting global-nginx-proxy with new image...")
+        self.services_manager.docker_client.compose.up(
+            services=["global-nginx-proxy"],
+            force_recreate=True,
+            detach=True,
+        )
+        self.logger.info("[migrate_services] global-nginx-proxy recreated with new image")
+
     def undo_services_migrate(self):
         """No global services rollback needed."""
         self.output.print(f"No services rollback needed for {self.version.version_string()}")

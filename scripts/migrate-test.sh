@@ -391,6 +391,18 @@ cmd_status() {
     echo "  ── docker-compose.workers.yml ───────────────────────────────"
     ssh_cmd "test -f \"$DCW\" && (echo '  File: $DCW (exists)'; grep -n 'image:' \"$DCW\" 2>/dev/null | sed 's/^/    /') || echo '  File: $DCW (NOT FOUND)'"
 
+    # ── Services docker-compose ───────────────────────────────────────────
+    local SDIR="$FM_DIR/services"
+    local SDCFG="$SDIR/docker-compose.yml"
+    echo ""
+    echo "  ── services/docker-compose.yml ──────────────────────────────"
+    if ssh_cmd "test -f \"$SDCFG\"" 2>/dev/null; then
+        echo "  File: $SDCFG (exists)"
+        ssh_cmd "grep -n 'image:' \"$SDCFG\" 2>/dev/null | sed 's/^/    /'"
+    else
+        echo "  File: $SDCFG (NOT FOUND)"
+    fi
+
     # ── bench_config.toml ────────────────────────────────────────────────
     echo ""
     echo "  ── bench_config.toml ────────────────────────────────────────"
