@@ -585,7 +585,7 @@ class MigrationV0190(MigrationBase):
 
         # Recreate global-nginx-proxy to pick up the updated image tag.
         self.output.print("Restarting global-nginx-proxy with new image...")
-        self.services_manager.docker_client.compose.up(
+        self.services_manager.compose.up(
             services=["global-nginx-proxy"],
             force_recreate=True,
             detach=True,
