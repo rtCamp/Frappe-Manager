@@ -175,3 +175,14 @@ migrate-switch VERSION: _check-server
 
 migrate-cleanup: _check-server
     bash scripts/migrate-test.sh cleanup
+
+# ── Dependabot PR Management (delegates to Justfile_depends) ──────────────────
+depends REPO="auto":
+    just -f scripts/justfile.depends depends {{REPO}}
+
+depends-merge PR REPO="auto":
+    just -f scripts/justfile.depends depends-merge {{PR}} {{REPO}}
+
+depends-recreate PR REPO="auto":
+    just -f scripts/justfile.depends depends-recreate {{PR}} {{REPO}}
+

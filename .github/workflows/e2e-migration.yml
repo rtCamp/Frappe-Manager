@@ -26,11 +26,11 @@ jobs:
         # os: [self-hosted-arm64, ubuntu-latest]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Cache Docker images
         id: cache-docker-images
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: /tmp/docker-images
           key: docker-images-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
@@ -89,11 +89,11 @@ jobs:
         # os: [self-hosted-arm64, ubuntu-latest]
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Cache Docker images
         id: cache-docker-images
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: /tmp/docker-images
           key: docker-images-${{ runner.os }}-${{ hashFiles('pyproject.toml') }}
