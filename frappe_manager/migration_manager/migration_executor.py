@@ -139,6 +139,13 @@ class MigrationExecutor:
             min_bench_version = self._get_minimum_bench_version()
             effective_prev_version = min(self.prev_version, min_bench_version)
 
+        # When --rerun is active, ensure migrations are discovered even when
+        # prev_version == current_version.  The strict ``<`` in discovery
+        # (``from_version < migration.version``) would otherwise exclude the
+        # current version's migration class.
+        if self.rerun and effective_prev_version >= self.current_version:
+            effective_prev_version = Version("0.0.0")
+
         if effective_prev_version != Version("0.0.0") and effective_prev_version < MINIMUM_SUPPORTED_VERSION:
             self.validator.validate_version_support(effective_prev_version)
             return False

@@ -929,7 +929,7 @@ echo "Node environment setup complete"
 
         cleanup_script = """
 echo "Removing old runtime directories..."
-mv /workspace/.bashrc /workspace/.bashrc.migration.bak 2>/dev/null || true
+mv /workspace/.bashrc /workspace/frappe-bench/.bashrc.migration.bak 2>/dev/null || true
 rm -rf /workspace/.pyenv 2>/dev/null || true
 rm -rf /workspace/.nvm 2>/dev/null || true
 echo "Old runtime directories cleaned up"
