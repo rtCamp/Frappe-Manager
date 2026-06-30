@@ -108,7 +108,7 @@ RUN mkdir -p /opt/user/conf.d && chown -R frappe:frappe /opt/user
 USER frappe
 
 WORKDIR /opt
-COPY --chown=frappe:frappe ./fmx /opt/user/fmx
+COPY --chown=frappe:frappe ./fmx/pyproject.toml ./fmx/uv.lock ./fmx/fmx/ /opt/user/fmx/
 RUN mkdir -p /workspace && touch /opt/user/.hushlogin
 
 USER root
