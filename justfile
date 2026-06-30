@@ -34,6 +34,48 @@ test-file FILE:
 test-debug FILE:
     pytest {{FILE}} -vv --show-app-logs -s
 
+# ── Linting ──────────────────────────────────────────────────────────────────
+
+_py_changed := "git diff --name-only HEAD -- '*.py' && git ls-files --others --exclude-standard -- '*.py'"
+
+# Run Ruff linter on changed files only
+lint:
+    #!/usr/bin/env bash
+    files=$(
+        (git diff --name-only HEAD -- '*.py'
+         git ls-files --others --exclude-standard -- '*.py') \
+        | sort -u | xargs
+    )
+    if [ -n "$files" ]; then
+        uv run ruff check $files
+    else
+        echo "No changed Python files to lint"
+    fi
+
+# Run Ruff linter on tests only
+lint-tests:
+    uv run ruff check tests/
+
+# Run Ruff linter + format check (CI-style, full repo)
+lint-all:
+    uv run ruff check frappe_manager/ tests/ && uv run ruff format --check .
+
+# Auto-fix fixable lint issues on changed files only
+lint-fix:
+    #!/usr/bin/env bash
+    files=$(
+        (git diff --name-only HEAD -- '*.py'
+         git ls-files --others --exclude-standard -- '*.py') \
+        | sort -u | xargs
+    )
+    if [ -n "$files" ]; then
+        uv run ruff check --fix $files
+    else
+        echo "No changed Python files to fix"
+    fi
+
+# ── Docs generation ──────────────────────────────────────────────────────────
+
 # Generate command reference docs from the live CLI
 docs-gen:
     uv run python scripts/update_cli_docs.py
