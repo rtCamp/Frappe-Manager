@@ -94,14 +94,14 @@ class MigrationV0190(MigrationBase):
             self.output.print("Restoring env/ from env.backup.migration")
             shutil.move(str(env_backup_path), str(env_dir))
 
-        # Restore .bashrc if it was backed up
-        bashrc_backup = bench.path / "workspace" / "frappe-bench" / ".bashrc.migration.bak"
-        bashrc_path = bench.path / "workspace" / "frappe-bench" / ".bashrc"
-        if bashrc_backup.exists():
-            if bashrc_path.exists():
-                bashrc_path.unlink()
-            shutil.move(str(bashrc_backup), str(bashrc_path))
-            self.output.print("Restored .bashrc from backup")
+        # Restore .bashrc if it was backed up via BackupManager
+        bm = getattr(self, "backup_manager", None)
+        if bm is not None:
+            for backup in bm.backups:
+                if backup.src.name == ".bashrc":
+                    bm.restore(backup, force=True)
+                    self.output.print("Restored .bashrc from backup")
+                    break
 
         # Restore nginx default.conf if it was backed up
         nginx_default_conf = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
@@ -920,16 +920,23 @@ echo "Node environment setup complete"
         """Remove old pyenv and nvm directories to prevent path conflicts."""
         self.logger.debug(f"[_cleanup_old_runtime_dirs] Cleaning up old runtime directories for {bench.name}")
 
-        # Backup .pyenv and .nvm on the host before removing (rollback support)
+        # Backup .pyenv, .nvm, and .bashrc on the host before removing
+        # (rollback support via BackupManager).
         frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
         for dirname in [".pyenv", ".nvm"]:
             dirpath = frappe_bench_dir / dirname
             if dirpath.exists():
                 self.backup_manager.backup(dirpath, bench_name=bench.name)
 
+        # .bashrc lives at /workspace/.bashrc inside the container
+        # (mounted from bench.path/workspace on the host).
+        bashrc_host = bench.path / "workspace" / ".bashrc"
+        if bashrc_host.exists():
+            self.backup_manager.backup(bashrc_host, bench_name=bench.name)
+
         cleanup_script = """
 echo "Removing old runtime directories..."
-mv /workspace/.bashrc /workspace/frappe-bench/.bashrc.migration.bak 2>/dev/null || true
+rm -f /workspace/.bashrc 2>/dev/null || true
 rm -rf /workspace/.pyenv 2>/dev/null || true
 rm -rf /workspace/.nvm 2>/dev/null || true
 echo "Old runtime directories cleaned up"
