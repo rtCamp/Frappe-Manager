@@ -92,6 +92,15 @@ def migrate(
         bool,
         typer.Option("--auto-proceed", help="Skip migration confirmation prompt (proceed automatically)"),
     ] = False,
+    rerun: Annotated[
+        bool,
+        typer.Option(
+            "--rerun",
+            help="Re-run migration even if already migrated (for testing idempotency). "
+            "Config transforms and supervisor regeneration are re-applied, but the "
+            "runtime environment is only rebuilt when Python/Node versions change.",
+        ),
+    ] = False,
     on_failure: Annotated[
         MigrationFailureAction | None,
         typer.Option(
@@ -110,6 +119,7 @@ def migrate(
     Without arguments, migrates only FM infrastructure. Specify a benchname to migrate that bench,
     or use --all-benches to migrate all benches. Use --auto-proceed to skip confirmation prompts.
     Control failure handling with --on-failure: prompt (ask), archive (save failed), or rollback (revert all).
+    Use --rerun to test idempotency — re-applies all migration steps even when already up to date.
     """
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
     output = get_global_output_handler()
@@ -154,7 +164,7 @@ def migrate(
                         target_benches.append(bench_path.name)
 
     fm_infrastructure_version = fm_config_manager.get_system_migration_version()
-    fm_infrastructure_needs_migration = fm_infrastructure_version < current_version
+    fm_infrastructure_needs_migration = rerun or (fm_infrastructure_version < current_version)
 
     benches_checked = []
     benches_migrated = []
@@ -180,6 +190,7 @@ def migrate(
         skip_backup_for=skip_backup_list,
         exclude_benches=exclude_bench_list,
         auto_proceed=auto_proceed,
+        rerun=rerun,
         on_failure=failure_action,
         target_benches=target_benches,
         migrate_fm_infrastructure=fm_infrastructure_needs_migration,
@@ -196,7 +207,14 @@ def migrate(
         for bench_name in target_benches:
             if bench_name in migrations.migrate_benches:
                 bench_data = migrations.migrate_benches[bench_name]
-                if bench_data["last_migration_version"] == current_version and not bench_data["exception"]:
+                last_migrated = bench_data["last_migration_version"]
+
+                # Compare base versions to handle dev releases (0.19.0.dev0 matches 0.19.0)
+                versions_match = (
+                    last_migrated is not None and last_migrated.base_version == current_version.base_version
+                )
+
+                if versions_match and not bench_data["exception"]:
                     bench_path = CLI_BENCHES_DIRECTORY / bench_name
                     if bench_path.exists() and (bench_path / CLI_BENCH_CONFIG_FILE_NAME).exists():
                         set_bench_migration_version(bench_path, current_version)

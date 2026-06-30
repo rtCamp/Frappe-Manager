@@ -1,5 +1,6 @@
 from unittest.mock import Mock, patch
 
+
 from frappe_manager.migration_manager.migration_executor import MINIMUM_SUPPORTED_VERSION, MigrationExecutor
 from frappe_manager.migration_manager.version import Version
 
@@ -30,6 +31,66 @@ class TestMigrationExecutorVersionEnforcement:
 
             assert result is True
             assert len(executor.migrations) == 0
+
+    def test_rerun_triggers_migration_when_versions_equal(self, mock_fm_config):
+        """--rerun forces migration discovery even when prev_version == current_version."""
+        mock_fm_config.version = Version("0.19.0")
+        mock_fm_config.export_to_toml = Mock(return_value=True)
+
+        mock_migration = Mock()
+        mock_migration.version = Version("0.19.0")
+        mock_migration.up = Mock()
+        mock_migration.down = Mock()
+        mock_migration.set_migration_executor = Mock()
+        mock_migration.get_rollback_version = Mock(return_value=Version("0.19.0"))
+
+        with (
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+        ):
+            mock_output = Mock()
+            executor = MigrationExecutor(
+                mock_fm_config,
+                rerun=True,
+                auto_proceed=True,
+                on_failure="rollback",
+                migrate_fm_infrastructure=True,
+                output_handler=mock_output,
+            )
+
+            with (
+                patch.object(executor, "_check_benches_need_migration", return_value=False),
+                patch.object(executor.discovery, "discover_migrations", return_value=[mock_migration]),
+                patch.object(executor.orchestrator, "execute_migrations") as mock_execute,
+                patch.object(executor.error_handler, "finalize_success"),
+            ):
+                result = executor.execute()
+
+            assert result is True
+            mock_execute.assert_called_once()
+
+    def test_no_migration_without_rerun_when_versions_equal(self, mock_fm_config):
+        """Without --rerun, no migration runs when versions are equal (regardless of migrate_fm_infrastructure)."""
+        mock_fm_config.version = Version("0.19.0")
+
+        with (
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+        ):
+            executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True)
+            result = executor.execute()
+
+            assert result is True
+            assert len(executor.migrations) == 0
+
+    def test_rerun_defaults_to_false(self, mock_fm_config):
+        """Constructor default for rerun must be False to preserve existing behaviour."""
+        with (
+            patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
+            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+        ):
+            executor = MigrationExecutor(mock_fm_config)
+            assert executor.rerun is False
 
     def test_blocks_migration_below_minimum_version(self, mock_fm_config):
         mock_fm_config.version = Version("0.17.0")
@@ -120,7 +181,8 @@ class TestMigrationExecutorMigrationDiscovery:
                 return_value=[(None, "migrate_0_20_0", None)],
             ),
             patch(
-                "frappe_manager.migration_manager.migration_discovery.importlib.import_module", return_value=mock_module,
+                "frappe_manager.migration_manager.migration_discovery.importlib.import_module",
+                return_value=mock_module,
             ),
         ):
             mock_output = Mock()
@@ -149,7 +211,8 @@ class TestMigrationExecutorMigrationDiscovery:
                 return_value=[(None, "migrate_0_0_0", None)],
             ),
             patch(
-                "frappe_manager.migration_manager.migration_discovery.importlib.import_module", return_value=mock_module,
+                "frappe_manager.migration_manager.migration_discovery.importlib.import_module",
+                return_value=mock_module,
             ),
         ):
             mock_output = Mock()

@@ -7,3 +7,4 @@ tmp/*
 **/__pycache__/**
 readme.org
 docs/stylesheets/extra.css
+.env

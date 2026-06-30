@@ -64,12 +64,14 @@ class MigrationExecutor:
         skip_backup_for: list[str] | None = None,
         exclude_benches: list[str] | None = None,
         auto_proceed: bool = False,
+        rerun: bool = False,
         on_failure: str = "prompt",
         target_benches: list[str] | None = None,
         migrate_fm_infrastructure: bool = False,
         output_handler: OutputHandler | None = None,
     ):
         self.fm_config_manager: FMConfigManager = fm_config_manager
+        self.rerun = rerun
         self.prev_version = self.fm_config_manager.version
         self.rollback_version = self.fm_config_manager.version
         self.current_version = Version(get_current_fm_version())
@@ -124,10 +126,10 @@ class MigrationExecutor:
         executed statements.
         """
 
-        fm_infrastructure_version_outdated = self.prev_version < self.current_version
+        fm_infrastructure_version_outdated = self.rerun or (self.prev_version < self.current_version)
         fm_infrastructure_needs_migration = self.migrate_fm_infrastructure and fm_infrastructure_version_outdated
         self.fm_infrastructure_needs_migration = fm_infrastructure_needs_migration
-        benches_need_migration = self._check_benches_need_migration()
+        benches_need_migration = self.rerun or self._check_benches_need_migration()
 
         if not fm_infrastructure_needs_migration and not benches_need_migration:
             return True
@@ -136,6 +138,24 @@ class MigrationExecutor:
         if benches_need_migration:
             min_bench_version = self._get_minimum_bench_version()
             effective_prev_version = min(self.prev_version, min_bench_version)
+
+        # When --rerun is active, ensure migrations are discovered even when
+        # prev_version == current_version.  The strict ``<`` in discovery
+        # (``from_version < migration.version``) would otherwise exclude the
+        # current version's migration class.
+        #
+        # We narrow the range to the current base version's minor floor
+        # (e.g. 0.18.9999 for 0.19.x) rather than ``0.0.0``, so that only
+        # migrations belonging to the current release are included and old,
+        # potentially non-idempotent migrations are not re-applied.
+        if self.rerun and effective_prev_version >= self.current_version:
+            from packaging.version import Version as PV
+
+            parsed = PV(self.current_version.version)
+            base = parsed.base_version  # e.g. "0.19.0"
+            parts = base.split(".")
+            floor = Version(f"{parts[0]}.{int(parts[1]) - 1}.9999")
+            effective_prev_version = min(effective_prev_version, floor)
 
         if effective_prev_version != Version("0.0.0") and effective_prev_version < MINIMUM_SUPPORTED_VERSION:
             self.validator.validate_version_support(effective_prev_version)

@@ -192,17 +192,9 @@ COPY --from=tooling /opt/uv-tools /opt/uv-tools
 COPY --from=tooling /etc/bash.bashrc /etc/bash.bashrc
 
 # Setup fnm and python for ALL shell types (login, non-login, interactive, non-interactive)
-RUN mkdir -p /etc/profile.d && \
-    echo 'export FNM_DIR="/workspace/frappe-bench/.fnm"' > /etc/profile.d/fnm.sh && \
-    echo 'export FNM_MULTISHELL_PATH="/workspace/frappe-bench/.fnm"' >> /etc/profile.d/fnm.sh && \
-    echo 'export FNM_COREPACK_ENABLED=true' >> /etc/profile.d/fnm.sh && \
-    echo 'eval "$(fnm env --shell bash 2>/dev/null || true)"' >> /etc/profile.d/fnm.sh && \
-    echo 'if [ -d "/workspace/frappe-bench/.uv/python-default/bin" ]; then' >> /etc/profile.d/fnm.sh && \
-    echo '    export PATH="/workspace/frappe-bench/.uv/python-default/bin:$PATH"' >> /etc/profile.d/fnm.sh && \
-    echo 'fi' >> /etc/profile.d/fnm.sh && \
-    echo 'export PATH="/opt/user/.bin:$PATH"' >> /etc/profile.d/fnm.sh && \
-    chmod +x /etc/profile.d/fnm.sh && \
-    echo '' >> /etc/bash.bashrc && \
+# Respect existing env vars — only use defaults if not already set
+COPY --chmod=755 ./fnm.sh /etc/profile.d/fnm.sh
+RUN echo '' >> /etc/bash.bashrc && \
     echo '. /etc/profile.d/fnm.sh' >> /etc/bash.bashrc
 
 ENTRYPOINT ["/bin/bash","/entrypoint.sh"]

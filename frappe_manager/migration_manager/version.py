@@ -30,5 +30,10 @@ class Version:
     def __str__(self):
         return self.version
 
+    @property
+    def base_version(self) -> str:
+        """Return the base version without any dev/pre/post suffixes (e.g. ``0.19.0``)."""
+        return str(self._parsed.base_version)
+
     def version_string(self):
         return f"v{self.version}"

@@ -32,6 +32,28 @@ class MigrationBase(ABC):
     def __init__(self, output_handler: OutputHandler | None = None):
         self.output = output_handler or RichOutputHandler()
 
+        from frappe_manager.utils.helpers import get_current_fm_version, get_docker_image_tag
+
+        self._current_fm_version = get_current_fm_version()
+        self.is_dev_environment = self._detect_dev_environment()
+        self.effective_image_tag = get_docker_image_tag()
+
+    def _detect_dev_environment(self) -> bool:
+        from packaging.version import Version as PV
+
+        parsed = PV(self._current_fm_version)
+        return parsed.is_devrelease or parsed.is_prerelease
+
+    def _get_image_tag_for_migration(self) -> str:
+        if self.is_dev_environment:
+            tag = self.effective_image_tag
+            self.logger.info(f"Dev environment detected: using image tag {tag}")
+            return tag
+        else:
+            tag = self.version.version_string()
+            self.logger.info(f"Stable environment: using image tag {tag}")
+            return tag
+
     def init(self):
         self.backup_manager = BackupManager(name=str(self.version), benches_dir=self.benches_dir)
         self.benches_manager = MigrationBenches(self.benches_dir)
@@ -76,9 +98,12 @@ class MigrationBase(ABC):
             self.backup_manager.restore(backup, force=True)
             # self.output.print(f'Restored {backup.bench}'s {backup.src.name}.')
 
+        # Clean up newly created files that didn't exist before migration
+        self.backup_manager.cleanup_new_files()
+
         self.undo_services_migrate()
 
-        self.output.print(f"[bold]v{self.version!s}[/bold] rollback successfull")
+        self.output.print(f"[bold]v{self.version!s}[/bold] rollback successful")
         self.logger.info("-" * 40)
 
     def services_basic_backup(self):
@@ -117,8 +142,9 @@ class MigrationBase(ABC):
 
             bench_version = get_bench_migration_version(bench.path)
 
-            # Check if bench is already at or above this migration version
-            if bench_version >= self.version:
+            # Check if bench is already at or above this migration version.
+            # --rerun overrides this so the migration runs regardless.
+            if not self.migration_executor.rerun and bench_version >= self.version:
                 self.output.print(
                     f"Bench {bench_name} already at v{bench_version}, skipping migration to v{self.version}",
                 )
