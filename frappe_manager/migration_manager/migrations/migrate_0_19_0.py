@@ -533,14 +533,41 @@ class MigrationV0190(MigrationBase):
 
         self.output.print("✓ Images ready", emoji_code="✅")
 
+    def _update_global_nginx_proxy_image(self):
+        """Update global-nginx-proxy image from jwilder/nginx-proxy:1.6 to 1.11."""
+        cf = self.services_manager.compose_file_manager
+
+        if not cf.exists():
+            self.logger.debug("[_update_global_nginx_proxy_image] Services compose not found, skipping")
+            return
+
+        services = cf.yml.get("services")
+        if not services:
+            return
+
+        nginx_service = services.get("global-nginx-proxy")
+        if not nginx_service or "image" not in nginx_service:
+            return
+
+        old_image = nginx_service["image"]
+        new_image = "jwilder/nginx-proxy:1.11"
+
+        if old_image != new_image:
+            nginx_service["image"] = new_image
+            cf.write_to_file()
+            self.output.print(f"Updated global-nginx-proxy image: {old_image} → {new_image}")
+            self.logger.info(f"[_update_global_nginx_proxy_image] Updated: {old_image} → {new_image}")
+
     def migrate_services(self):
         """
-        Pull current version Docker images (system-level infrastructure).
+        Pull current version Docker images and update global-nginx-proxy image tag.
 
         Images are shared resources across all benches - must be pulled
         at system level before any bench can use them.
         """
         from frappe_manager.utils.site import pull_docker_images
+
+        self._update_global_nginx_proxy_image()
 
         self.logger.info(f"[migrate_services] Starting Docker image pull for {self.version.version_string()}")
 
@@ -555,6 +582,15 @@ class MigrationV0190(MigrationBase):
 
         self.output.print(f"All {self.version.version_string()} images pulled successfully")
         self.logger.info("[migrate_services] Docker image pull completed successfully")
+
+        # Recreate global-nginx-proxy to pick up the updated image tag.
+        self.output.print("Restarting global-nginx-proxy with new image...")
+        self.services_manager.compose.up(
+            services=["global-nginx-proxy"],
+            force_recreate=True,
+            detach=True,
+        )
+        self.logger.info("[migrate_services] global-nginx-proxy recreated with new image")
 
     def undo_services_migrate(self):
         """No global services rollback needed."""
