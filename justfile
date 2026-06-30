@@ -180,12 +180,6 @@ migrate-cleanup: _check-server
 depends REPO="auto":
     just -f scripts/justfile.depends depends {{REPO}}
 
-depends-status PR REPO="auto":
-    just -f scripts/justfile.depends depends-status {{PR}} {{REPO}}
-
-depends-approve PR REPO="auto":
-    just -f scripts/justfile.depends depends-approve {{PR}} {{REPO}}
-
 depends-merge PR REPO="auto":
     just -f scripts/justfile.depends depends-merge {{PR}} {{REPO}}
 
