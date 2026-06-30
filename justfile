@@ -178,19 +178,17 @@ migrate-cleanup: _check-server
 
 # ── Dependabot PR Management (delegates to Justfile_depends) ──────────────────
 depends REPO="auto":
-    just -f Justfile_depends depends {{REPO}}
+    just -f scripts/justfile.depends depends {{REPO}}
 
 depends-status PR REPO="auto":
-    just -f Justfile_depends depends-status {{PR}} {{REPO}}
+    just -f scripts/justfile.depends depends-status {{PR}} {{REPO}}
 
 depends-approve PR REPO="auto":
-    just -f Justfile_depends depends-approve {{PR}} {{REPO}}
+    just -f scripts/justfile.depends depends-approve {{PR}} {{REPO}}
 
 depends-merge PR REPO="auto":
-    just -f Justfile_depends depends-merge {{PR}} {{REPO}}
+    just -f scripts/justfile.depends depends-merge {{PR}} {{REPO}}
 
 depends-recreate PR REPO="auto":
-    just -f Justfile_depends depends-recreate {{PR}} {{REPO}}
+    just -f scripts/justfile.depends depends-recreate {{PR}} {{REPO}}
 
-depends-cleanup REPO="auto":
-    just -f Justfile_depends depends-cleanup {{REPO}}

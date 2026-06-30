@@ -6,7 +6,7 @@
 #   just depends rtcamp/Frappe-Manager  # specific repo
 
 # Path to shared helper script (used via {{_common}} interpolation)
-_common := "scripts/depends-common.sh"
+_common := "depends-common.sh"
 
 # ── List all open Dependabot PRs ──────────────────────────────────────────────
 depends repo="auto":
@@ -78,11 +78,3 @@ depends-recreate pr repo="auto":
     gh pr comment "{{pr}}" --repo "$repo" --body "@dependabot recreate"
     echo "Done"
 
-# ── List stale Dependabot PRs (>30 days old) ──────────────────────────────────
-depends-cleanup repo="auto":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    source "{{_common}}"
-    repo=$(resolve_repo "{{repo}}")
-    echo "Stale Dependabot PRs (>30 days):"
-    gh pr list --author app/dependabot --state open --repo "$repo" --json number,title,createdAt --jq '.[] | select(((now - (.createdAt | fromdateiso8601)) / 86400) > 30) | "  #\(.number) \(.title) (\(.createdAt[0:10]))"'
