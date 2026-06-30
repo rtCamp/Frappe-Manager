@@ -1,6 +1,5 @@
 from unittest.mock import Mock, patch
 
-import pytest
 
 from frappe_manager.migration_manager.migration_executor import MINIMUM_SUPPORTED_VERSION, MigrationExecutor
 from frappe_manager.migration_manager.version import Version

@@ -143,8 +143,19 @@ class MigrationExecutor:
         # prev_version == current_version.  The strict ``<`` in discovery
         # (``from_version < migration.version``) would otherwise exclude the
         # current version's migration class.
+        #
+        # We narrow the range to the current base version's minor floor
+        # (e.g. 0.18.9999 for 0.19.x) rather than ``0.0.0``, so that only
+        # migrations belonging to the current release are included and old,
+        # potentially non-idempotent migrations are not re-applied.
         if self.rerun and effective_prev_version >= self.current_version:
-            effective_prev_version = Version("0.0.0")
+            from packaging.version import Version as PV
+
+            parsed = PV(self.current_version.version)
+            base = parsed.base_version  # e.g. "0.19.0"
+            parts = base.split(".")
+            floor = Version(f"{parts[0]}.{int(parts[1]) - 1}.9999")
+            effective_prev_version = min(effective_prev_version, floor)
 
         if effective_prev_version != Version("0.0.0") and effective_prev_version < MINIMUM_SUPPORTED_VERSION:
             self.validator.validate_version_support(effective_prev_version)

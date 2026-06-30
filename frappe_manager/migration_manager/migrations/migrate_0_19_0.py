@@ -123,11 +123,17 @@ class MigrationV0190(MigrationBase):
             docker_compose_path = bench.path / "docker-compose.yml"
             if docker_compose_path.exists():
                 self._migrate_docker_compose_yml(bench, docker_compose_path)
-                self._pull_bench_images(bench)
 
             workers_compose_path = bench.path / "docker-compose.workers.yml"
             if workers_compose_path.exists():
                 self._migrate_workers_compose_yml(bench, workers_compose_path)
+
+            # Pull images only when at least one image tag was actually changed
+            # (tracked by _update_service_images via _images_updated flag).
+            # This avoids failures on transient registry/network issues when
+            # images are already correct.
+            if self._images_updated:
+                self._pull_bench_images(bench)
 
             self._cleanup_admin_tools_nginx_config(bench)
 
