@@ -36,6 +36,7 @@ class MigrationV0190(MigrationBase):
 
         Backs up:
         - supervisor.conf and *.fm.supervisor.conf (regenerated during rebuild)
+        - nginx default.conf (may be modified during migration)
 
         Note: env/ backup is handled inside _rebuild_runtime_environment right
         before the Python venv is recreated (so the guard is the same code path).
@@ -55,6 +56,12 @@ class MigrationV0190(MigrationBase):
             for conf_file in supervisor_config_dir.glob("*.fm.supervisor.conf"):
                 self.backup_manager.backup(conf_file, bench_name=bench.name)
                 self.output.print(f"Backed up {conf_file.name}")
+
+        # Backup nginx default.conf — gets modified during migration
+        nginx_default_conf = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
+        if nginx_default_conf.exists():
+            self.backup_manager.backup(nginx_default_conf, bench_name=bench.name)
+            self.output.print("Backed up nginx default.conf")
 
     def _backup_env_for_rollback(self, bench: MigrationBench):
         """Move existing env/ to env.backup.migration for rollback support.
