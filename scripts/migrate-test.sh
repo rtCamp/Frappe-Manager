@@ -27,6 +27,7 @@
 #   FM_PREVIOUS_REPO   Previous version spec (e.g., git+https://...@fix/install-deps)
 #   FM_REPO            Target version spec (e.g., git+https://...@fix-migrations)
 #   FM_MIGRATE_FLAGS   Migration flags (e.g., --all-benches --auto-proceed)
+#   FM_STOP_CONTAINERS Stop FM containers before migration (default: true)
 #
 
 set -euo pipefail
@@ -42,6 +43,7 @@ set -euo pipefail
 : "${FM_PREVIOUS_REPO:?FM_PREVIOUS_REPO is not set. Create .env or export it.}"
 : "${FM_REPO:?FM_REPO is not set. Create .env or export it.}"
 : "${FM_MIGRATE_FLAGS:?FM_MIGRATE_FLAGS is not set. Create .env or export it.}"
+: "${FM_STOP_CONTAINERS:=true}"   # Set to false to skip stopping containers before migration
 
 SSH_OPTS="-o ConnectTimeout=5 -o BatchMode=yes"
 SSH="ssh $SSH_OPTS $FM_SERVER"
@@ -201,11 +203,15 @@ cmd_init() {
     }
     ok "Bench created: $FM_BENCH"
 
-    # ── Step 6: Stop all FM containers ────────────────────────────────────
+    # ── Step 6: Stop all FM containers (optional) ─────────────────────────
     echo ""
-    info "Stopping all FM containers …"
-    ssh_cmd "docker ps --filter name=fm_ -q | xargs -r docker stop" || true
-    ok "FM containers stopped"
+    if [[ "$FM_STOP_CONTAINERS" == "true" ]]; then
+        info "Stopping all FM containers …"
+        ssh_cmd "docker ps --filter name=fm_ -q | xargs -r docker stop" || true
+        ok "FM containers stopped"
+    else
+        info "Skipping container stop (FM_STOP_CONTAINERS=false)"
+    fi
 
     # ── Step 7: Move ~/frappe → fm.<version>/frappe (migration source) ────
     echo ""
@@ -311,11 +317,15 @@ cmd_test() {
     version=$(install_fm "$FM_REPO" "$FM_PYTHON")
     ok "New version: $version"
 
-    # ── Step 2: Stop all FM containers ──────────────────────────────────
-    echo ""
-    info "Stopping all FM containers …"
-    ssh_cmd "docker ps --filter name=fm_ -q | xargs -r docker stop" || true
-    ok "FM containers stopped"
+    # ── Step 2: Stop all FM containers (optional) ────────────────────────
+    if [[ "$FM_STOP_CONTAINERS" == "true" ]]; then
+        echo ""
+        info "Stopping all FM containers …"
+        ssh_cmd "docker ps --filter name=fm_ -q | xargs -r docker stop" || true
+        ok "FM containers stopped"
+    else
+        info "Skipping container stop (FM_STOP_CONTAINERS=false)"
+    fi
 
     # ── Step 3: Finalize install (temp → fm.<version>) ──────────────────
     echo ""
