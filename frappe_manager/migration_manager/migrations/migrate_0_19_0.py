@@ -459,6 +459,8 @@ class MigrationV0190(MigrationBase):
 
     def _write_upload_limit_nginx_conf(self, bench: MigrationBench, upload_limit: str):
         """Create custom nginx config file for bench-level upload limit."""
+        import re
+
         custom_conf_dir = bench.path / "configs" / "nginx" / "conf" / "custom"
         custom_conf_dir.mkdir(parents=True, exist_ok=True)
 
@@ -477,6 +479,19 @@ class MigrationV0190(MigrationBase):
             self.backup_manager.track_new_file(upload_limit_conf)
 
         self.output.print("Created custom nginx upload-limit.conf")
+
+        # Strip any old client_max_body_size from the generated default.conf
+        # to avoid duplicate-directive errors. Older FM versions baked the
+        # value directly into the nginx template; the migration now uses
+        # upload-limit.conf instead, so the old line must be removed.
+        default_conf = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
+        if default_conf.exists():
+            old = default_conf.read_text()
+            cleaned = re.sub(r"\s*client_max_body_size\s+[^;]+;\n?", "", old)
+            if old != cleaned:
+                self.backup_manager.backup(default_conf, bench_name=bench.name)
+                default_conf.write_text(cleaned)
+                self.output.print("Removed duplicate client_max_body_size from default.conf")
 
     def _migrate_workers_compose_yml(self, bench: MigrationBench, compose_path: Path):
         """Update worker compose: v0.18.0 → current version images."""
