@@ -1,14 +1,13 @@
-from rich.table import Table
-from pathlib import Path
-import re
 import json
-from frappe_manager.utils.helpers import get_frappe_manager_own_files
+import re
+from pathlib import Path
 
-from typing import Optional
+from rich.table import Table
+
 from frappe_manager import CLI_BENCHES_DIRECTORY
-from frappe_manager.compose_manager import DockerVolumeMount, DockerVolumeType
-from frappe_manager.display_manager.DisplayManager import richprint
-from frappe_manager.site_manager.site_exceptions import BenchException
+from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
+from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.site_manager.exceptions import BenchException
 
 
 def generate_services_table(services_status: dict):
@@ -65,7 +64,7 @@ def create_service_element(service, running_status):
 
 
 def parse_docker_volume(volume_string: str, root_volumes: dict, compose_path: Path):
-    string_parts = volume_string.split(':')
+    string_parts = volume_string.split(":")
 
     if len(string_parts) > 1:
         src = string_parts[0]
@@ -73,7 +72,7 @@ def parse_docker_volume(volume_string: str, root_volumes: dict, compose_path: Pa
 
         is_bind_mount = True
 
-        if string_parts[0] in root_volumes.keys():
+        if string_parts[0] in root_volumes:
             is_bind_mount = False
 
         if len(string_parts) > 1:
@@ -97,17 +96,17 @@ def is_fqdn(hostname: str) -> bool:
         return False
 
     # Remove trailing dot
-    if hostname[-1] == '.':
+    if hostname[-1] == ".":
         hostname = hostname[0:-1]
 
     #  Split hostname into list of DNS labels
-    labels = hostname.split('.')
+    labels = hostname.split(".")
 
     #  Define pattern of DNS label
     #  Can begin and end with a number or letter only
     #  Can contain hyphens, a-z, A-Z, 0-9
     #  1 - 63 chars allowed
-    fqdn = re.compile(r'^[a-z0-9]([a-z-0-9-]{0,61}[a-z0-9])?$', re.IGNORECASE)
+    fqdn = re.compile(r"^[a-z0-9]([a-z-0-9-]{0,61}[a-z0-9])?$", re.IGNORECASE)
 
     # Check that all labels match that pattern.
     return all(fqdn.match(label) for label in labels)
@@ -124,17 +123,17 @@ def is_wildcard_fqdn(hostname: str) -> bool:
         return False
 
     # Remove trailing dot
-    if hostname[-1] == '.':
+    if hostname[-1] == ".":
         hostname = hostname[:-1]
 
     # Split hostname into list of DNS labels
-    labels = hostname.split('.')
+    labels = hostname.split(".")
 
     # Define pattern for a standard DNS label
-    fqdn_pattern = re.compile(r'^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$', re.IGNORECASE)
+    fqdn_pattern = re.compile(r"^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$", re.IGNORECASE)
 
     # Define pattern for a wildcard DNS label (only valid in the first label)
-    wildcard_pattern = re.compile(r'^\*\.?$', re.IGNORECASE)
+    wildcard_pattern = re.compile(r"^\*\.?$", re.IGNORECASE)
 
     status = (wildcard_pattern.match(labels[0])) and all(fqdn_pattern.match(label) for label in labels[1:])
 
@@ -147,22 +146,26 @@ def is_wildcard_fqdn(hostname: str) -> bool:
 
 def domain_level(domain):
     # Split the domain name into individual parts
-    parts = domain.split('.')
+    parts = domain.split(".")
 
     # Return the number of parts minus 1 (excluding the TLD)
     return len(parts) - 1
 
 
 def validate_sitename(sitename: str | None) -> str:
+    if sitename is None:
+        raise ValueError("Sitename cannot be None")
+
     match = is_fqdn(sitename)
 
     if domain_level(sitename) == 0:
         sitename = sitename + ".localhost"
 
     if not match:
-        richprint.error(
+        output = get_global_output_handler()
+        output.error(
             f"The {sitename} must follow Fully Qualified Domain Name (FQDN) format.",
-            exception=BenchException(sitename, f"Valid FQDN site name not provided."),
+            exception=BenchException(sitename, "Valid FQDN site name not provided."),
         )
 
     return sitename
@@ -171,52 +174,47 @@ def validate_sitename(sitename: str | None) -> str:
 def get_bench_db_connection_info(bench_name: str, bench_path: Path):
     db_info = {}
     site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / bench_name / "site_config.json"
-    common_site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / 'common_site_config.json'
+    common_site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
 
-    db_info["name"] = str(bench_name).replace(".", "-")
-    db_info["user"] = str(bench_name).replace(".", "-")
     db_info["password"] = None
 
     if common_site_config_file.exists():
-        with open(common_site_config_file, "r") as f:
+        with open(common_site_config_file) as f:
             common_site_config = json.load(f)
             if common_site_config:
                 db_info["host"] = common_site_config.get("db_host")
                 db_info["port"] = common_site_config.get("db_port")
 
     if site_config_file.exists():
-        with open(site_config_file, "r") as f:
+        with open(site_config_file) as f:
             site_config = json.load(f)
             if site_config:
                 db_info["name"] = site_config["db_name"]
                 db_info["user"] = site_config["db_name"]
                 db_info["password"] = site_config["db_password"]
+                if "db_host" in site_config:
+                    db_info["host"] = site_config["db_host"]
+                if "db_port" in site_config:
+                    db_info["port"] = site_config["db_port"]
 
     return db_info
 
 
 def get_all_docker_images():
-    from frappe_manager.compose_manager.ComposeFile import ComposeFile
+    from frappe_manager.docker import ComposeFile
 
-    temp_bench_compose_file_manager = ComposeFile(loadfile=Path('/dev/null/docker-compose.yml'))
+    temp_bench_compose_file_manager = ComposeFile(loadfile=Path("/dev/null/docker-compose.yml"))
     services_manager_compose_file_manager = ComposeFile(
-        loadfile=Path('/dev/null/docker-compose.yml'), template_name='docker-compose.services.tmpl'
+        loadfile=Path("/dev/null/docker-compose.yml"),
+        template_name="docker-compose.services.tmpl",
     )
     admin_tools_manager_compose_file_manager = ComposeFile(
-        loadfile=Path('/dev/null/docker-compose.yml'), template_name='docker-compose.admin-tools.tmpl'
+        loadfile=Path("/dev/null/docker-compose.yml"),
+        template_name="docker-compose.admin-tools.tmpl",
     )
 
     images = temp_bench_compose_file_manager.get_all_images()
 
-    with open(get_frappe_manager_own_files('images-tag.json')) as f:
-        image_tags = json.load(f)
-        prebake_tag = image_tags.get('prebake')
-        images.update({
-            'prebake': {
-                'name': 'ghcr.io/rtcamp/frappe-manager-prebake',
-                'tag': prebake_tag
-            }
-        })
     images.update(services_manager_compose_file_manager.get_all_images())
     images.update(admin_tools_manager_compose_file_manager.get_all_images())
 
@@ -224,8 +222,7 @@ def get_all_docker_images():
 
 
 def pull_docker_images() -> bool:
-    from frappe_manager.docker_wrapper.DockerException import DockerException
-    from frappe_manager.docker_wrapper.DockerClient import DockerClient
+    from frappe_manager.docker import DockerClient, DockerException
 
     docker = DockerClient()
     images = get_all_docker_images()
@@ -235,26 +232,26 @@ def pull_docker_images() -> bool:
         image = f"{image_info['name']}:{image_info['tag']}"
         images_list.append(image)
 
-
     # remove duplicates
     images_list = list(dict.fromkeys(images_list))
 
     no_error = True
     for image in images_list:
+        output = get_global_output_handler()
         status = f"[blue]Pulling image[/blue] [bold][yellow]{image}[/yellow][/bold]"
-        richprint.change_head(status, style=None)
+        output.change_head(status, style=None)
         try:
-            output = docker.pull(container_name=image, stream=True)
-            richprint.live_lines(output, padding=(0, 0, 0, 2))
+            pull_output = docker.pull(container_name=image, stream=True)
+            output.live_lines(pull_output, padding=(0, 0, 0, 2))
         except DockerException as e:
             no_error = False
-            richprint.error(f"[bold][red]Error [/bold][/red]: Failed to pull {image}.")
-        richprint.print(f"[green]Pulled[/green] [blue]{image}[/blue].")
+            output.error(f"[bold][red]Error [/bold][/red]: Failed to pull {image}", e)
+        output.print(f"[green]Pulled[/green] [blue]{image}[/blue]")
 
     return no_error
 
 
-def get_sitename_from_current_path() -> Optional[str]:
+def get_sitename_from_current_path() -> str | None:
     current_path = Path().absolute()
     sites_path = CLI_BENCHES_DIRECTORY.absolute()
 
@@ -271,8 +268,8 @@ def get_sitename_from_current_path() -> Optional[str]:
         return sitename
 
 
-def is_default_worker(worker_name:str) -> bool:
-    default_workers = ['long-worker', 'short-worker']
+def is_default_worker(worker_name: str) -> bool:
+    default_workers = ["long-worker", "short-worker"]
 
     for dw in default_workers:
         if dw == worker_name:

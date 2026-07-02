@@ -1,5 +1,8 @@
 name: Publish image
 
+permissions:
+  contents: read
+
 on:
   schedule:
     - cron: '0 2 * * *'
@@ -31,7 +34,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -65,74 +68,40 @@ jobs:
           git checkout "$latest_tag"
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
         with:
           platforms: ${{ matrix.platform }}
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ secrets.GHCR_USER }}
           password: ${{ secrets.GHCR_TOKEN }}
 
-      - name: Set image names (non-frappe)
-        if: matrix.service_name != 'frappe'
+      - name: Set image names
         run: |
           owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
-          tag=$( cat "$GITHUB_WORKSPACE/frappe_manager/images-tag.json" | jq -rc .${{ matrix.service_name }})
+          # Read version from __about__.py
+          version=$(grep '^__version__' frappe_manager/__about__.py | sed 's/__version__ = "\(.*\)"/\1/')
+          tag="v${version}"
           echo "Image tag $tag"
           echo "image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
-
-      - name: Set image names
-        if: matrix.service_name == 'frappe'
-        run: |
-          owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
-          tag=$( cat "$GITHUB_WORKSPACE/frappe_manager/images-tag.json" | jq -rc .${{ matrix.service_name }})
-          echo "prebake_image_name=ghcr.io/${owner}/frappe-manager-prebake:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
-          echo "fm_image_name=ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}:$(basename ${{ matrix.platform }})-${tag}" >> $GITHUB_ENV
 
       - name: Set owner
         run: |
           echo "owned=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )" >> $GITHUB_ENV
 
-      - name: Build and push Docker image (non-frappe)
-        if: matrix.service_name != 'frappe'
-        uses: docker/build-push-action@v4
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v7
         with:
           context: Docker/${{ matrix.service_name }}/.
           push: true
           platforms: ${{ matrix.platform }}
           tags: ${{ env.image_name }}
           provenance: false
-          cache-from: ${{ env.USE_CACHE == 'true' && format('type=registry,ref=ghcr.io/{0}/frappe-manager-{1}:buildcache', env.owned, matrix.service_name) || '' }}
-          cache-to: ${{ format('type=registry,ref=ghcr.io/{0}/frappe-manager-{1}:buildcache,mode=max', env.owned, matrix.service_name) || '' }}
-
-      - name: Build and push prebake image
-        if: matrix.service_name == 'frappe'
-        uses: docker/build-push-action@v4
-        with:
-          context: Docker/${{ matrix.service_name }}/.
-          push: true
-          platforms: ${{ matrix.platform }}
-          tags: ${{ env.prebake_image_name }}
-          target: prebake_image
-          provenance: false
-          cache-from: ${{ env.USE_CACHE == 'true' && format('type=registry,ref=ghcr.io/{0}/frappe-manager-prebake:buildcache', env.owned) || '' }}
-          cache-to: ${{ format('type=registry,ref=ghcr.io/{0}/frappe-manager-prebake:buildcache,mode=max', env.owned) || '' }}
-
-      - name: Build and push fm image
-        if: matrix.service_name == 'frappe'
-        uses: docker/build-push-action@v4
-        with:
-          context: Docker/${{ matrix.service_name }}/.
-          push: true
-          platforms: ${{ matrix.platform }}
-          tags: ${{ env.fm_image_name }}
-          target: fm_image
-          provenance: false
-          cache-from: ${{ env.USE_CACHE == 'true' && format('type=registry,ref=ghcr.io/{0}/frappe-manager-frappe:buildcache', env.owned) || '' }}
-          cache-to: ${{ format('type=registry,ref=ghcr.io/{0}/frappe-manager-frappe:buildcache,mode=max', env.owned) || '' }}
+          cache-from: ${{ env.USE_CACHE == 'true' && format('type=registry,ref=ghcr.io/{0}/frappe-manager-{1}:buildcache-{2}', env.owned, matrix.service_name, matrix.platform == 'linux/amd64' && 'amd64' || 'arm64') || '' }}
+          cache-to: ${{ format('type=registry,ref=ghcr.io/{0}/frappe-manager-{1}:buildcache-{2},mode=max', env.owned, matrix.service_name, matrix.platform == 'linux/amd64' && 'amd64' || 'arm64') || '' }}
 
       - name: Prune buildx cache (self-hosted only)
         if: startsWith(matrix.os, 'self-hosted')
@@ -150,7 +119,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -172,7 +141,7 @@ jobs:
           git checkout "$latest_tag"
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ secrets.GHCR_USER }}
@@ -180,40 +149,19 @@ jobs:
 
       - name: Combine manifest and push
         run: |
-          tag=$( cat "$GITHUB_WORKSPACE/frappe_manager/images-tag.json" | jq -rc .${{ matrix.service_name }})
+          # Read version from __about__.py
+          version=$(grep '^__version__' frappe_manager/__about__.py | sed 's/__version__ = "\(.*\)"/\1/')
+          tag="v${version}"
           owner=$( echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]' )
           
-          if [[ "${{ matrix.service_name }}" == "frappe" ]]; then
-            # Handle prebake image
-            prebake_img="ghcr.io/${owner}/frappe-manager-prebake"
-            rm -rf ~/.docker/manifests
-            docker pull "$prebake_img:amd64-${tag}"
-            docker pull "$prebake_img:arm64-${tag}"
-            docker manifest create "$prebake_img":"${tag}" \
-              --amend "$prebake_img":amd64-${tag} \
-              --amend "$prebake_img":arm64-${tag}
-            docker manifest push "$prebake_img:${tag}"
-            
-            # Handle fm image
-            fm_img="ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}"
-            rm -rf ~/.docker/manifests
-            docker pull "$fm_img:amd64-${tag}"
-            docker pull "$fm_img:arm64-${tag}"
-            docker manifest create "$fm_img":"${tag}" \
-              --amend "$fm_img":amd64-${tag} \
-              --amend "$fm_img":arm64-${tag}
-            docker manifest push "$fm_img:${tag}"
-          else
-            # Handle other services normally
-            img="ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}"
-            rm -rf ~/.docker/manifests
-            docker pull "$img:amd64-${tag}"
-            docker pull "$img:arm64-${tag}"
-            docker manifest create "$img":"${tag}" \
-              --amend "$img":amd64-${tag} \
-              --amend "$img":arm64-${tag}
-            docker manifest push "$img:${tag}"
-          fi
+          img="ghcr.io/${owner}/frappe-manager-${{ matrix.service_name }}"
+          rm -rf ~/.docker/manifests
+          docker pull "$img:amd64-${tag}"
+          docker pull "$img:arm64-${tag}"
+          docker manifest create "$img":"${tag}" \
+            --amend "$img":amd64-${tag} \
+            --amend "$img":arm64-${tag}
+          docker manifest push "$img:${tag}"
 
       - name: Cleanup
         run: |

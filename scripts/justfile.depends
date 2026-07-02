@@ -1,0 +1,96 @@
+# Dependabot PR Management
+# Usage: just depends [subcommand] [args]
+#
+# All commands accept an optional `repo` parameter (git remote name or owner/repo):
+#   just depends                        # auto-detect from git remote or gh
+#   just depends rtcamp/Frappe-Manager  # specific repo
+
+# Path to shared helper script (used via {{_common}} interpolation)
+_common := "depends-common.sh"
+
+# ── List all open Dependabot PRs ──────────────────────────────────────────────
+depends repo="auto":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "{{_common}}"
+    repo=$(resolve_repo "{{repo}}")
+
+    # Determine git remote name for the repo (case-insensitive match)
+    remote=$(git remote -v | grep -i "github.com" | grep -iF "$(echo "$repo" | sed 's/.*\///')" | head -1 | awk '{print $1}')
+    [ -z "$remote" ] && remote="origin"
+
+    # Fetch all Dependabot PR branches (bulk) so we can check which are merged
+    branches=$(gh pr list --author app/dependabot --state open --repo "$repo" --json headRefName --jq '.[].headRefName' 2>/dev/null | tr '\n' ' ')
+    if [ -n "$branches" ]; then
+        refspecs=""
+        for b in $branches; do
+            refspecs="$refspecs $b:refs/remotes/$remote/$b"
+        done
+        git fetch "$remote" $refspecs 2>/dev/null || true
+    fi
+
+    printf "\n  %-6s %-36s %-6s %-6s %-6s %-6s %-6s %-5s\n" "PR" "Dependency" "CI" "Merge" "Behind" "Review" "Here?" "Age"
+    printf "  %-6s %-36s %-6s %-6s %-6s %-6s %-6s %-5s\n" "───" "──────────" "──" "─────" "──────" "──────" "─────" "───"
+    FMT='.[] | {number: .number, title: .title, branch: .headRefName, ci: (.statusCheckRollup // [] | map(select(.name | startswith("pytest") or startswith("Unit Tests") or startswith("CodeQL"))) | first | .conclusion // "?"), mergeable: .mergeable, mergeStateStatus: .mergeStateStatus, reviews: (.reviews // [] | map(select(.state == "APPROVED")) | length), created: .createdAt} | "\(.number)\t\(.title)\t\(.branch)\t\(.ci)\t\(.mergeable)\t\(.mergeStateStatus)\t\(.reviews)\t\(.created)"'
+    ready=0; failing=0; behind=0; merged=0
+    while IFS=$'\t' read -r num title branch ci mergeable mergeStateStatus reviews created; do
+        [ -z "$num" ] && continue
+        dep=$(echo "$title" | sed -n 's/^.*bump \(.*\) from [^ ]* to [^ ]*.*/\1/p' | head -1)
+        [ -z "$dep" ] && dep="$title"
+        [ ${#dep} -gt 34 ] && dep="${dep:0:31}..."
+        # CI status
+        case "$ci" in
+            SUCCESS|success) ci_icon="✅" ;;
+            PENDING|pending) ci_icon="⏳" ;;
+            *)               ci_icon="❌" ;;
+        esac
+        # Mergeable
+        [[ "$mergeable" == "MERGEABLE" ]] && mg_icon="✅" || mg_icon="⚠️"
+        # Behind base branch
+        [[ "$mergeStateStatus" == "BEHIND" ]] && behind_icon="⚠️" || behind_icon="✅"
+        # Has approval
+        [[ "$reviews" -gt 0 ]] 2>/dev/null && review_icon="✅" || review_icon="❌"
+        # Already merged into current branch?
+        if git merge-base --is-ancestor "refs/remotes/$remote/$branch" HEAD 2>/dev/null; then
+            here_icon="✅"
+            merged=$((merged + 1))
+        else
+            here_icon="⬜"
+        fi
+        # Age
+        created_ts=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${created:0:19}" +%s 2>/dev/null || date -d "${created:0:19}" +%s 2>/dev/null || echo 0)
+        if [ "$created_ts" -gt 0 ] 2>/dev/null; then age=$(( ($(date +%s) - created_ts) / 86400 )); else age="?"; fi
+        printf "  #%-5s %-36s %-6s %-6s %-6s %-6s %-6s %-4sd\n" "$num" "$dep" "$ci_icon" "$mg_icon" "$behind_icon" "$review_icon" "$here_icon" "$age"
+        # Track counts
+        [[ "$ci_icon" == "✅" && "$mg_icon" == "✅" && "$behind_icon" == "✅" && "$review_icon" == "✅" ]] && ready=$((ready + 1))
+        [[ "$ci_icon" == "❌" ]] && failing=$((failing + 1))
+        [[ "$behind_icon" == "⚠️" ]] && behind=$((behind + 1))
+    done < <(gh pr list --author app/dependabot --state open --repo "$repo" --json number,title,headRefName,statusCheckRollup,mergeable,mergeStateStatus,reviews,createdAt --jq "$FMT")
+    echo ""
+    echo "  Summary: $ready ready to merge · $failing failing CI · $behind behind base · $merged already in branch"
+
+# ── Approve and merge a PR (requires CI green + mergeable) ─────────────────────
+depends-merge pr repo="auto":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "{{_common}}"
+    repo=$(resolve_repo "{{repo}}")
+    mg=$(gh pr view "{{pr}}" --repo "$repo" --json mergeable --jq '.mergeable')
+    if [ "$mg" != "MERGEABLE" ]; then echo "❌ Not mergeable: $mg"; exit 1; fi
+    ci=$(gh pr view "{{pr}}" --repo "$repo" --json statusCheckRollup --jq '[.statusCheckRollup[]?.conclusion] | unique | join(",")')
+    if echo "$ci" | grep -q -i "failure"; then echo "❌ Failing checks: $ci"; exit 1; fi
+    echo "Approving PR #{{pr}} on $repo..."
+    gh pr review "{{pr}}" --approve --repo "$repo" --body "LGTM"
+    echo "Merging PR #{{pr}} on $repo..."
+    gh pr merge "{{pr}}" --repo "$repo" --squash --delete-branch
+    echo "Done"
+
+# ── Tell @dependabot to recreate/rebase a PR ──────────────────────────────────
+depends-recreate pr repo="auto":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    source "{{_common}}"
+    repo=$(resolve_repo "{{repo}}")
+    gh pr comment "{{pr}}" --repo "$repo" --body "@dependabot recreate"
+    echo "Done"
+

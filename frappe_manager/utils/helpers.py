@@ -1,26 +1,25 @@
-import importlib
-import json
-from cryptography.hazmat.backends import default_backend
-from datetime import datetime
-from cryptography import x509
-from io import StringIO
-import sys
-from typing import Optional
-from frappe_manager.utils.docker import run_command_with_exit_code
-import requests
-import subprocess
-import platform
-import time
-import secrets
 import grp
-from pathlib import Path
+import importlib
 import importlib.resources as pkg_resources
+import json
+import secrets
+import sys
+import time
+from datetime import datetime
+from io import StringIO
+from pathlib import Path
+
+import requests
+from cryptography import x509
+from cryptography.hazmat.backends import default_backend
 from rich.console import Console
 from rich.traceback import Traceback
+
+from frappe_manager import CLI_DEFAULT_DELIMETER, CLI_SITE_NAME_DELIMETER
 from frappe_manager.logger import log
-from frappe_manager.display_manager.DisplayManager import richprint
+from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager import PREBAKED_SITE_APPS
-from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_DEFAULT_DELIMETER, CLI_SITE_NAME_DELIMETER
+from frappe_manager.utils.docker import run_command_with_exit_code
 
 
 def remove_zombie_subprocess_process(process):
@@ -52,76 +51,6 @@ def remove_zombie_subprocess_process(process):
         logger.cleanup("-" * 20)
 
 
-def is_port_in_use(port):
-    """
-    Check if a port is in use or not.
-
-    Args:
-        port (int): The port number to check.
-
-    Returns:
-        bool: True if the port is in use, False otherwise.
-    """
-    import psutil
-
-    for conn in psutil.net_connections():
-        if conn.laddr.port == port and conn.status == "LISTEN":
-            return True
-    return False
-
-
-def check_ports(ports):
-    """
-    Checks if the ports are in use.
-
-    Args:
-        ports (list): List of ports to be checked.
-
-    Returns:
-        list: List of binded ports (can be empty).
-    """
-    # TODO handle if ports are open using docker
-    current_system = platform.system()
-    already_binded = []
-    for port in ports:
-        if current_system == "Darwin":
-            # Mac Os
-            # check port using lsof command
-            cmd = f"lsof -iTCP:{port} -sTCP:LISTEN -P -n"
-            try:
-                output = subprocess.run(cmd, check=True, shell=True, capture_output=True)
-                if output.returncode == 0:
-                    already_binded.append(port)
-            except subprocess.CalledProcessError as e:
-                pass
-        else:
-            # Linux or any other machines
-            if is_port_in_use(port):
-                already_binded.append(port)
-
-    return already_binded
-
-
-def check_and_display_port_status(ports_to_check: list, exclude=[]):
-    """
-    Check if the specified ports are already binded and display a message if they are.
-
-    Args:
-        ports_to_check (list): List of ports to check.
-        exclude (list, optional): List of ports to exclude from checking. Defaults to [].
-    """
-    if exclude:
-        # Removing elements present in remove_array from original_array
-        ports_to_check = [x for x in exclude if x not in ports_to_check]
-
-    if ports_to_check:
-        already_binded = check_ports(ports_to_check)
-        if already_binded:
-            richprint.exit(
-                f"Ports {', '.join(map(str, already_binded))} {'are' if len(already_binded) > 1 else 'is'} currently in use. Please free up these ports."
-            )
-
-
 def generate_random_text(length=50):
     """
     Generate a random text of specified length.
@@ -132,7 +61,8 @@ def generate_random_text(length=50):
     Returns:
     str: The randomly generated text.
     """
-    import random, string
+    import random
+    import string
 
     alphanumeric_chars = string.ascii_letters + string.digits
     return "".join(random.choice(alphanumeric_chars) for _ in range(length))
@@ -149,33 +79,27 @@ def is_cli_help_called(ctx):
         bool: True if the help command is called, False otherwise.
     """
     help_called = False
-    # --help check
 
-    if '--help' in " ".join(sys.argv[1:]):
-        # is called command is sub command group
+    if "--help" in " ".join(sys.argv[1:]):
         return True
 
     try:
-        for subtyper_command in ctx.command.commands[ctx.invoked_subcommand].commands.keys():
+        subcommand = ctx.command.commands.get(ctx.invoked_subcommand)
+        if not subcommand:
+            return False
+
+        if hasattr(subcommand, "commands"):
             check_command = " ".join(sys.argv[2:])
-            if check_command == subtyper_command:
-                if ctx.command.commands[ctx.invoked_subcommand].commands[subtyper_command].params:
+            if check_command in subcommand.commands:
+                sub_sub_command = subcommand.commands[check_command]
+                if sub_sub_command.params and sub_sub_command.no_args_is_help:
                     help_called = True
-
-    except AttributeError:
-        help_called = False
-
-    if not help_called:
-        # is called command is sub command
-        check_command = " ".join(sys.argv[1:])
-
-        if check_command == ctx.invoked_subcommand:
-            # is called command supports arguments then help called
-            if ctx.command.commands[ctx.invoked_subcommand].params:
+        elif subcommand.params and ctx.invoked_subcommand == " ".join(sys.argv[1:]):
+            if subcommand.no_args_is_help:
                 help_called = True
 
-            if not ctx.command.commands[ctx.invoked_subcommand].no_args_is_help:
-                help_called = False
+    except (AttributeError, KeyError):
+        help_called = False
 
     return help_called
 
@@ -187,7 +111,39 @@ def get_current_fm_version():
     Returns:
         str: The current version of the frappe-manager package.
     """
-    return importlib.metadata.version("frappe-manager")
+    from frappe_manager.__about__ import __version__
+
+    return __version__
+
+
+def get_docker_image_tag():
+    """
+    Get the Docker image tag to use based on FM version.
+
+    Returns version with 'v' prefix for Docker image tags.
+    Examples:
+        - '0.19.0' -> 'v0.19.0'
+        - '0.19.1.dev0' -> 'v0.19.1.dev0'
+        - '0.20.0.dev1' -> 'v0.20.0.dev1'
+
+    Environment variable FM_DOCKER_IMAGE_TAG can override for testing.
+
+    Returns:
+        str: The Docker image tag (e.g., 'v0.19.0' or 'v0.19.1.dev0').
+    """
+    import os
+
+    # Allow environment variable override for testing
+    if override_tag := os.getenv('FM_DOCKER_IMAGE_TAG'):
+        return override_tag
+
+    version = get_current_fm_version()
+
+    # Always prepend 'v' if not already present
+    if not version.startswith('v'):
+        return f'v{version}'
+
+    return version
 
 
 def check_repo_exists(app_url: str, branch_name: str | None = None, exclude_dict: dict[str, str] = PREBAKED_SITE_APPS):
@@ -221,10 +177,11 @@ def check_repo_exists(app_url: str, branch_name: str | None = None, exclude_dict
         return {"app": True if app == 200 else False}
 
     except Exception as e:
-        richprint.error(f"Not able to validate app {app_url} for branch [blue]{branch_name}[/blue]", e)
+        output = get_global_output_handler()
+        output.error(f"Not able to validate app {app_url} for branch [blue]{branch_name}[/blue]", e)
 
 
-def check_frappe_app_exists(app: str, branch_name: Optional[str] = None):
+def check_frappe_app_exists(app: str, branch_name: str | None = None):
     if "github.com" not in app:
         app = f"https://github.com/frappe/{app}"
 
@@ -282,7 +239,28 @@ def get_container_name_prefix(site_name):
     Returns:
         str: The container name prefix.
     """
-    return 'fm' + CLI_DEFAULT_DELIMETER + site_name.replace(".", CLI_SITE_NAME_DELIMETER)
+    return "fm" + CLI_DEFAULT_DELIMETER + site_name.replace(".", CLI_SITE_NAME_DELIMETER)
+
+
+def get_redis_cache_addr(container_prefix: str) -> tuple[str, int]:
+    return f"{container_prefix}{CLI_DEFAULT_DELIMETER}redis-cache", 6379
+
+
+def get_redis_queue_addr(container_prefix: str) -> tuple[str, int]:
+    return f"{container_prefix}{CLI_DEFAULT_DELIMETER}redis-queue", 6379
+
+
+def get_bench_connection_config(container_prefix: str, db_host: str, db_port: int) -> dict:
+    cache_host, cache_port = get_redis_cache_addr(container_prefix)
+    queue_host, queue_port = get_redis_queue_addr(container_prefix)
+    return {
+        "bench_id": "workspace-frappe-bench",
+        "db_host": db_host,
+        "db_port": db_port,
+        "redis_cache": f"redis://{cache_host}:{cache_port}",
+        "redis_queue": f"redis://{queue_host}:{queue_port}",
+        "redis_socketio": f"redis://{cache_host}:{cache_port}",
+    }
 
 
 def random_password_generate(password_length=13, symbols=False):
@@ -312,10 +290,12 @@ def get_unix_groups():
 
 
 def install_package(package_name, version):
-    output = run_command_with_exit_code(
-        [sys.executable, "-m", "pip", "install", f"{package_name}=={version}"], stream=True
+    output_lines = run_command_with_exit_code(
+        [sys.executable, "-m", "pip", "install", f"{package_name}=={version}"],
+        stream=True,
     )
-    richprint.live_lines(output)
+    output = get_global_output_handler()
+    output.live_lines(output_lines)
 
 
 def create_class_from_dict(class_name, attributes_dict):
@@ -345,15 +325,13 @@ def create_symlink(source: Path, dest: Path):
 
     # Convert the source and destination to Path objects
 
-    # Remove the destination symlink/file/directory if it already exists
     if dest.exists() or dest.is_symlink():
         dest.unlink()
 
-    # Create a symlink at the destination pointing to the source
     dest.symlink_to(source)
 
 
-def get_template_path(file_name: str, template_dir: str = 'templates') -> Path:
+def get_template_path(file_name: str, template_dir: str = "templates") -> Path:
     """
     Get the file path of a template.
 
@@ -375,11 +353,10 @@ def get_frappe_manager_own_files(file_path: str):
 def rich_object_to_string(obj) -> str:
     """Convert a rich Traceback object to a string."""
 
-    # Initialize a 'fake' console with StringIO to capture output
     capture_buffer = StringIO()
 
     fake_console = Console(force_terminal=False, file=capture_buffer)
-    fake_console.print(obj, crop=False, overflow='ignore')
+    fake_console.print(obj, crop=False, overflow="ignore")
 
     captured_str = capture_buffer.getvalue()  # Retrieve the captured output as a string
     capture_buffer.close()
@@ -389,11 +366,14 @@ def rich_object_to_string(obj) -> str:
 def capture_and_format_exception(traceback_max_frames: int = 100) -> str:
     """Capture the current exception and return a formatted traceback string."""
 
-    exc_type, exc_value, exc_traceback = sys.exc_info()  # Capture current exception info
-    # Create a Traceback object with rich formatting
-    #
+    exc_type, exc_value, exc_traceback = sys.exc_info()
+
     traceback = Traceback.from_exception(
-        exc_type, exc_value, exc_traceback, show_locals=True, max_frames=traceback_max_frames
+        exc_type,
+        exc_value,
+        exc_traceback,
+        show_locals=True,
+        max_frames=traceback_max_frames,
     )
 
     # Convert the Traceback object to a formatted string
@@ -403,7 +383,7 @@ def capture_and_format_exception(traceback_max_frames: int = 100) -> str:
 
 
 def pluralise(singular, count):
-    return '{} {}{}'.format(count, singular, '' if count == 1 else 's')
+    return "{} {}{}".format(count, singular, "" if count == 1 else "s")
 
 
 def format_ssl_certificate_time_remaining(expiry_date: datetime):
@@ -419,13 +399,13 @@ def format_ssl_certificate_time_remaining(expiry_date: datetime):
 
     minutes = int(seconds_unaccounted_for / seconds_per_minute)
 
-    return '{} {} {}'.format(pluralise('day', day_count), pluralise('hour', hours), pluralise('min', minutes))
+    return "{} {} {}".format(pluralise("day", day_count), pluralise("hour", hours), pluralise("min", minutes))
 
 
 def get_certificate_expiry_date(fullchain_path: Path) -> datetime:
     cert_content = fullchain_path.read_bytes()
     cert = x509.load_pem_x509_certificate(cert_content, default_backend())
-    if hasattr(cert, 'not_valid_after_utc'):
+    if hasattr(cert, "not_valid_after_utc"):
         expiry_date: datetime = cert.not_valid_after_utc
     else:
         expiry_date: datetime = cert.not_valid_after
@@ -441,7 +421,7 @@ def save_dict_to_file(config: dict, json_file_path: Path):
     """
 
     final_config = {}
-    with open(json_file_path, "r") as f:
+    with open(json_file_path) as f:
         final_config = json.load(f)
     for key, value in config.items():
         final_config[key] = value

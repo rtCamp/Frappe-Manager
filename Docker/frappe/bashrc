@@ -1,0 +1,169 @@
+# ~/.bashrc: executed by bash(1) for interactive non-login shells,
+# and sourced by ~/.profile for login shells.
+
+# For truly non-interactive scripts, some features are disabled below
+
+# ============================================================================
+# History Configuration
+# ============================================================================
+HISTCONTROL=ignoreboth:erasedups  # Ignore duplicates and commands starting with space
+HISTSIZE=100000                    # Large history in memory
+HISTFILESIZE=200000                # Large history on disk
+HISTTIMEFORMAT='%F %T '            # Add timestamps to history
+shopt -s histappend                # Append to history, don't overwrite
+shopt -s cmdhist                   # Save multi-line commands as one entry
+
+# ============================================================================
+# Shell Options
+# ============================================================================
+shopt -s checkwinsize              # Update LINES and COLUMNS after each command
+shopt -s cdspell                   # Autocorrect typos in path names when using cd
+shopt -s dirspell                  # Autocorrect directory names during completion
+shopt -s globstar 2>/dev/null      # Enable ** recursive glob pattern (bash 4+)
+
+# ============================================================================
+# Environment Variables
+# ============================================================================
+export LC_ALL=en_US.UTF-8
+export LANG=en_US.UTF-8
+export LANGUAGE=en_US.UTF-8
+export EDITOR='vim'
+export PATH="/opt/user/.bin:$HOME/.local/bin:$PATH"
+
+# ============================================================================
+# Color Support
+# ============================================================================
+if [ -x /usr/bin/dircolors ]; then
+    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+    alias ls='ls --color=auto'
+    alias grep='grep --color=auto'
+    alias fgrep='fgrep --color=auto'
+    alias egrep='egrep --color=auto'
+fi
+
+# Force color support
+export CLICOLOR=1
+export GCC_COLORS='error=01;31:warning=01;35:note=01;36:caret=01;32:locus=01:quote=01'
+
+# ============================================================================
+# Bash Completion
+# ============================================================================
+if ! shopt -oq posix; then
+  if [ -f /usr/share/bash-completion/bash_completion ]; then
+    . /usr/share/bash-completion/bash_completion
+  elif [ -f /etc/bash_completion ]; then
+    . /etc/bash_completion
+  fi
+fi
+
+# ============================================================================
+# Useful Aliases
+# ============================================================================
+alias ll='ls -alFh'
+alias la='ls -A'
+alias l='ls -CF'
+alias ..='cd ..'
+alias ...='cd ../..'
+alias c='clear'
+alias h='history'
+alias df='df -h'
+alias du='du -h'
+alias free='free -h'
+
+# Git aliases (if git is available)
+if command -v git &> /dev/null; then
+    alias gs='git status'
+    alias gd='git diff'
+    alias gdc='git diff --cached'
+    alias gl='git log --oneline --graph --decorate'
+    alias gp='git pull'
+    alias gf='git fetch'
+fi
+
+# Bench aliases
+alias bench-logs='tail -f /workspace/frappe-bench/logs/*.log'
+alias bench-console='bench console'
+alias bench-restart='bench restart'
+
+# ============================================================================
+# FM Host Detection (from common_site_config.json)
+# ============================================================================
+fm_host() {
+    local common_site_config="/workspace/frappe-bench/sites/common_site_config.json"
+    if [[ -f "$common_site_config" ]] && command -v jq &> /dev/null; then
+        local site_name
+        site_name=$(jq -r '.default_site // empty' "$common_site_config" 2>/dev/null)
+        if [[ -n "$site_name" && "$site_name" != "null" ]]; then
+            echo "$site_name"
+            return
+        fi
+    fi
+    # Fallback to hostname
+    hostname -s
+}
+
+# ============================================================================
+# Git Branch Detection (lightweight, no dependencies)
+# ============================================================================
+git_branch() {
+    if command -v git &> /dev/null; then
+        local branch
+        branch=$(git symbolic-ref --short HEAD 2>/dev/null || git describe --tags --exact-match 2>/dev/null || git rev-parse --short HEAD 2>/dev/null)
+        if [[ -n "$branch" ]]; then
+            # Check for uncommitted changes
+            if ! git diff --quiet 2>/dev/null || ! git diff --cached --quiet 2>/dev/null; then
+                echo " (${branch}*)"
+            else
+                echo " (${branch})"
+            fi
+        fi
+    fi
+}
+
+# ============================================================================
+# Prompt Configuration
+# ============================================================================
+# Color definitions
+COLOR_RESET='\[\033[0m\]'
+COLOR_USER='\[\033[01;32m\]'      # Green for user
+COLOR_ROOT='\[\033[01;31m\]'      # Red for root
+COLOR_HOST='\[\033[01;36m\]'      # Cyan for host
+COLOR_DIR='\[\033[01;34m\]'       # Blue for directory
+COLOR_GIT='\[\033[01;33m\]'       # Yellow for git
+COLOR_PROMPT='\[\033[01;32m\]'    # Green for prompt symbol
+
+# Build prompt based on user
+if [[ $EUID -eq 0 ]]; then
+    # Root prompt (red)
+    PS1="${COLOR_ROOT}\u${COLOR_RESET}@${COLOR_HOST}\$(fm_host)${COLOR_RESET}:${COLOR_DIR}\w${COLOR_GIT}\$(git_branch)${COLOR_RESET}\n${COLOR_ROOT}# ${COLOR_RESET}"
+else
+    # Regular user prompt (green)
+    PS1="${COLOR_USER}\u${COLOR_RESET}@${COLOR_HOST}\$(fm_host)${COLOR_RESET}:${COLOR_DIR}\w${COLOR_GIT}\$(git_branch)${COLOR_RESET}\n${COLOR_PROMPT}➤${COLOR_RESET} "
+fi
+
+# ============================================================================
+# Source Additional Configs
+# ============================================================================
+# Source global definitions if they exist
+if [ -f /etc/bashrc ]; then
+    . /etc/bashrc
+fi
+
+# Source user aliases if they exist
+if [ -f ~/.bash_aliases ]; then
+    . ~/.bash_aliases
+fi
+
+# ============================================================================
+# Welcome Message (only for interactive login shells)
+# ============================================================================
+if [[ $- == *i* ]] && shopt -q login_shell && [[ -z "$FM_WELCOME_SHOWN" ]]; then
+    export FM_WELCOME_SHOWN=1
+    echo ""
+    echo "Welcome to Frappe Manager Development Environment"
+    if [[ -f /workspace/frappe-bench/sites/common_site_config.json ]]; then
+        site=$(jq -r '.default_site // "No site configured"' /workspace/frappe-bench/sites/common_site_config.json 2>/dev/null)
+        echo "Current site: $site"
+    fi
+    echo ""
+fi

@@ -1,0 +1,152 @@
+[project]
+site_name        = "Frappe Manager"
+site_description = "Documentation for Frappe Manager — simple local Frappe development and deployment"
+site_url         = "https://opensource.rtcamp.com/Frappe-Manager/"
+repo_name        = "rtcamp/frappe-manager"
+repo_url         = "https://github.com/rtcamp/frappe-manager"
+edit_uri         = "edit/main/docs/"
+extra_css        = ["stylesheets/extra.css"]
+
+# ---------------------------------------------------------------------------
+# Navigation
+# ---------------------------------------------------------------------------
+nav = [
+  { "Home" = "index.md" },
+  { "Getting Started" = [
+    "getting-started/index.md",
+    { "Requirements"  = "getting-started/requirements.md" },
+    { "Installation"  = "getting-started/installation.md" },
+    { "Quick Start"   = "getting-started/quick-start.md" },
+  ]},
+  { "Guides" = [
+    "guides/index.md",
+    { "Environments"           = "guides/environments.md" },
+    { "SSL / HTTPS"            = "guides/ssl.md" },
+    { "App Management"         = "guides/app-management.md" },
+    { "Admin Tools"            = "guides/admin-tools.md" },
+    { "VSCode Integration"     = "guides/vscode.md" },
+    { "Windows / WSL"          = "guides/wsl.md" },
+    { "External Database"      = "guides/external-database.md" },
+    { "Upload Limits"          = "guides/upload-limits.md" },
+    { "Google API Development" = "guides/google-api.md" },
+    { "fmx — In-Container Services" = "guides/fmx.md" },
+    { "Python & Node Versions"      = "guides/python-node-versions.md" },
+    { "Backup & Restore"            = "guides/backup-restore.md" },
+  ]},
+  { "Commands" = [
+    "commands/index.md",
+    { "fm create"   = "commands/create.md" },
+    { "fm start"    = "commands/start.md" },
+    { "fm stop"     = "commands/stop.md" },
+    { "fm restart"  = "commands/restart.md" },
+    { "fm delete"   = "commands/delete.md" },
+    { "fm list"     = "commands/list.md" },
+    { "fm info"     = "commands/info.md" },
+    { "fm logs"     = "commands/logs.md" },
+    { "fm shell"    = "commands/shell.md" },
+    { "fm code"     = "commands/code.md" },
+    { "fm update"   = "commands/update.md" },
+    { "fm reset"    = "commands/reset.md" },
+    { "fm migrate"  = "commands/migrate.md" },
+    { "fm ngrok"    = "commands/ngrok.md" },
+    { "fm ssl" = [
+      "commands/ssl.md",
+      { "Cloudflare DNS Config" = "commands/ssl-dns-config-cloudflare.md" },
+    ]},
+    { "fm services" = "commands/services.md" },
+    { "fm self"     = "commands/self.md" },
+  ]},
+  { "Reference" = [
+    "reference/index.md",
+    { "Architecture"              = "reference/architecture.md" },
+    { "Configuration Files"       = "reference/configuration.md" },
+    { "Workers & Background Jobs" = "reference/workers.md" },
+    { "Migrations"                = "reference/migrations.md" },
+    { "Logs & Debugging"          = "reference/logs.md" },
+  ]},
+  { "FAQ"       = "faq.md" },
+  { "Changelog" = "changelog.md" },
+]
+
+# ---------------------------------------------------------------------------
+# Theme — rtCamp Brand Inspired
+# ---------------------------------------------------------------------------
+[project.theme]
+variant  = "modern"
+language = "en"
+logo     = "assets/logo.png"
+favicon  = "assets/logo.png"
+font = { text = "Reddit Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif", code = "JetBrains Mono, Consolas, Monaco, monospace" }
+features = [
+  # Navigation
+  "navigation.tabs",
+  "navigation.tabs.sticky",
+  "navigation.sections",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.instant.progress",
+  "navigation.path",
+  "navigation.top",
+  "navigation.footer",
+  "navigation.tracking",
+  # Search
+  "search.highlight",
+  "search.suggest",
+  "search.share",
+  # Content
+  "content.code.copy",
+  "content.code.annotate",
+  "content.tabs.link",
+  "content.tooltips",
+  "content.action.edit",
+  # TOC
+  "toc.follow",
+]
+
+[project.theme.icon]
+repo     = "fontawesome/brands/github"
+edit     = "lucide/pencil"
+previous = "lucide/chevron-left"
+next     = "lucide/chevron-right"
+
+# Light mode — rtCamp orange + purple accents
+[[project.theme.palette]]
+scheme      = "default"
+primary     = "deep-orange"
+accent      = "pink"
+
+  [project.theme.palette.toggle]
+  icon = "lucide/moon"
+  name = "Switch to dark mode"
+
+# Dark mode — rtCamp orange + purple accents  
+[[project.theme.palette]]
+scheme      = "slate"
+primary     = "deep-orange"
+accent      = "pink"
+
+  [project.theme.palette.toggle]
+  icon = "lucide/sun"
+  name = "Switch to light mode"
+
+# ---------------------------------------------------------------------------
+# Social links
+# ---------------------------------------------------------------------------
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/rtcamp/frappe-manager"
+name = "GitHub"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/python"
+link = "https://pypi.org/project/frappe-manager/"
+name = "PyPI"
+
+# ---------------------------------------------------------------------------
+# Versioning — powered by squidfunk/mike fork
+# ---------------------------------------------------------------------------
+[project.extra.version]
+provider = "mike"
+alias    = true   # shows "0.20 (latest)" in the selector
+default  = "latest"  # "latest" is the stable version, suppresses warning banner

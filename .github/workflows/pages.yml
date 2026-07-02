@@ -1,0 +1,87 @@
+name: Deploy Documentation
+
+on:
+  push:
+    branches:
+      - develop
+    tags:
+      - 'v*'
+    paths:
+      - 'docs/**'
+      - 'zensical.toml'
+      - 'frappe_manager/**'
+      - 'scripts/update_cli_docs.py'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "latest"
+      - name: Install dependencies
+        run: uv sync --no-dev
+      - name: Generate command reference docs
+        run: uv run python scripts/update_cli_docs.py
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+      - name: Compile SCSS
+        run: bunx sass docs/stylesheets/extra.scss docs/stylesheets/extra.css --style=compressed --no-source-map
+      - name: Install Zensical and mike
+        run: uv pip install --system zensical "git+https://github.com/squidfunk/mike.git"
+      - name: Configure git for mike
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Set custom domain
+        if: vars.PAGES_CNAME != ''
+        run: echo "${{ vars.PAGES_CNAME }}" > docs/CNAME
+      - name: Resolve version slug from __about__.py
+        id: ver
+        run: |
+          full=$(python -c "from frappe_manager.__about__ import __version__; print(__version__)")
+          slug=$(python -c "
+          import re, sys
+          v = '$full'
+          m = re.match(r'^(\d+\.\d+)', v)
+          print('v' + m.group(1) if m else v)
+          ")
+          echo "full=$full" >> $GITHUB_OUTPUT
+          echo "slug=$slug" >> $GITHUB_OUTPUT
+      - name: Deploy versioned docs (release tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: mike deploy --push --update-aliases --alias-type redirect --title "${{ steps.ver.outputs.slug }}" ${{ steps.ver.outputs.slug }} latest -F zensical.toml
+      - name: Deploy dev docs (develop branch)
+        if: github.ref == 'refs/heads/develop'
+        run: |
+          stale=$(mike list --json -F zensical.toml | python3 -c "
+          import json, sys
+          versions = json.load(sys.stdin)
+          new = '${{ steps.ver.outputs.full }}'
+          for v in versions:
+              if 'dev' in v.get('aliases', []) and v['version'] != new:
+                  print(v['version'])
+          ")
+          [ -n "$stale" ] && mike delete --push "$stale" -F zensical.toml || true
+          mike deploy --push --update-aliases --alias-type redirect --title "${{ steps.ver.outputs.full }}" ${{ steps.ver.outputs.full }} dev -F zensical.toml
+      - name: Set default version to latest (release tag)
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: mike set-default --push latest -F zensical.toml
+      - name: Set default version to dev (develop branch)
+        if: github.ref == 'refs/heads/develop'
+        run: mike set-default --push dev -F zensical.toml

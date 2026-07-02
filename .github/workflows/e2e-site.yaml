@@ -33,11 +33,11 @@ jobs:
         os: [ubuntu-latest]
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Cache Docker images
         id: cache-docker-images
-        uses: actions/cache@v3
+        uses: actions/cache@v6
         with:
           path: /tmp/docker-images
           key: docker-images-${{ runner.os }}-${{ hashFiles('Docker/images-tag.json') }}
@@ -52,7 +52,7 @@ jobs:
             docker load < /tmp/docker-images/images.tar
           fi
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python-ver }}
 
@@ -73,13 +73,13 @@ jobs:
       - name: e2e run
         id: e2e_test
         timeout-minutes: 20
-        working-directory: test
+        working-directory: scripts/e2e
         run: |
           ./e2e_test.sh
 
       - name: Upload FM logs
         if: always()  # Upload logs whether the test succeeds or fails
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fm-logs-${{ matrix.python-ver }}
           path: ~/frappe/logs/fm.log

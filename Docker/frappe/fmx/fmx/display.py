@@ -3,25 +3,26 @@ import typer
 from rich.console import Console
 from rich.theme import Theme
 from rich.tree import Tree
-from rich.table import Table
-from rich.panel import Panel
 
-custom_theme = Theme({
-    "info": "dim cyan",
-    "warning": "yellow",
-    "error": "bold red",
-    "success": "green",
-    "heading": "bold cyan",
-    "highlight": "bold magenta",
-    "dimmed": "dim"
-})
+custom_theme = Theme(
+    {
+        "info": "dim cyan",
+        "warning": "yellow",
+        "error": "bold red",
+        "success": "green",
+        "heading": "bold cyan",
+        "highlight": "bold magenta",
+        "dimmed": "dim",
+    }
+)
+
 
 class DisplayManager:
     """Handles all console output using Rich."""
 
     def __init__(self, verbose: bool = False):
-        self._console = Console(theme=custom_theme, stderr=True, highlight=False) # Default to stderr for logs/status
-        self._stdout_console = Console(theme=custom_theme, highlight=False) # For primary command output if needed
+        self._console = Console(theme=custom_theme, stderr=True, highlight=False)  # Default to stderr for logs/status
+        self._stdout_console = Console(theme=custom_theme, highlight=False)  # For primary command output if needed
         self.verbose = verbose
 
     def print(self, message: Any = "", **kwargs):
@@ -66,12 +67,5 @@ class DisplayManager:
         """Prints a rich Tree object."""
         self._stdout_console.print(tree, **kwargs)
 
-    def display_table(self, table: Table, **kwargs):
-         """Prints a rich Table object."""
-         self._stdout_console.print(table, **kwargs)
-
-    def display_panel(self, panel: Panel, **kwargs):
-         """Prints a rich Panel object."""
-         self._stdout_console.print(panel, **kwargs)
 
 display = DisplayManager()

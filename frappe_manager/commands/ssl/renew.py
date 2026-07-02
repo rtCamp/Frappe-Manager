@@ -1,0 +1,156 @@
+"""Renew SSL certificates command."""
+
+from typing import Annotated
+
+import typer
+from typer_examples import example
+
+from frappe_manager import CLI_BENCHES_DIRECTORY
+from frappe_manager.logger.context import LoggerContext
+from frappe_manager.output_manager import spinner, temporary_stop
+from frappe_manager.site_manager.bench_service import BenchService
+from frappe_manager.site_manager.exceptions import BenchSSLCertificateNotIssued
+from frappe_manager.site_manager.site import Bench
+from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotDueForRenewalError
+from frappe_manager.utils.callbacks import prompt_for_bench_selection, sites_autocompletion_callback
+
+from .external_helpers import _renew_all_external_certificates, _renew_external_certificate
+from .helpers import get_output_handler
+
+ssl_renew_command = typer.Typer(no_args_is_help=True)
+
+# Ensure examples panel is installed for this sub-typer
+from typer_examples import install
+
+install(ssl_renew_command)
+
+
+@ssl_renew_command.command()
+@example(
+    "Renew all certificates for a bench",
+    "{benchname}",
+    detail="Renews all TLS certificates associated with the specified bench.",
+    benchname="mybench",
+)
+@example(
+    "Renew certificate for specific domain",
+    "{benchname} example.com",
+    detail="Renews a single domain certificate for the given bench.",
+    benchname="mybench",
+)
+@example(
+    "Renew all certificates for all benches",
+    "--all",
+    detail="Renews certificates across all benches managed by FM when run by an administrator.",
+)
+@example(
+    "Test renewal with Let's Encrypt staging (dry-run)",
+    "{benchname} --dry-run",
+    detail="Simulates the renewal using Let's Encrypt staging environment to validate configuration.",
+    benchname="mybench",
+)
+@example(
+    "Renew specific external (standalone) domain",
+    "--standalone example.com",
+    detail="Renews a standalone external domain certificate managed outside benches.",
+)
+@example(
+    "Renew all external (standalone) domains",
+    "--standalone --all",
+    detail="Renews all external standalone certificates managed by FM.",
+)
+def renew(
+    ctx: typer.Context,
+    benchname: Annotated[
+        str | None,
+        typer.Argument(
+            help="Name of the bench (omit for standalone mode).",
+            autocompletion=sites_autocompletion_callback,
+        ),
+    ] = None,
+    domain: Annotated[
+        str | None,
+        typer.Argument(help="Specific domain to renew. If omitted, renews all certificates for the bench/standalone."),
+    ] = None,
+    all: Annotated[bool, typer.Option(help="Renew ssl cert for all benches.")] = False,
+    standalone: Annotated[bool, typer.Option("--standalone", help="Renew certificates for external domains")] = False,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Test renewal using Let's Encrypt staging server without modifying the system."),
+    ] = False,
+    force: Annotated[
+        bool,
+        typer.Option("--force", "-f", help="Force renewal even if certificate is not due for renewal."),
+    ] = False,
+):
+    """
+    Renew SSL certificates.
+
+    Supports bench and standalone modes. Use --dry-run to validate against Let's Encrypt staging; --force forces renewal.
+    """
+
+    if standalone:
+        if all:
+            _renew_all_external_certificates(ctx, dry_run, force)
+        else:
+            actual_domain = domain if domain else benchname
+            if not actual_domain:
+                context = LoggerContext(operation="ssl-renew-external")
+                output = get_output_handler(ctx, context=context)
+                output.display_error("Domain required for standalone renewal")
+                with temporary_stop(output):
+                    typer.echo(ctx.get_help())
+                raise typer.Exit(1)
+            _renew_external_certificate(ctx, actual_domain, dry_run, force)
+    else:
+        # Existing bench renewal logic
+        services_manager = ctx.obj["services"]
+        bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager)
+
+        if all:
+            sites_list = bench_service.get_bench_names()
+        else:
+            benchname = prompt_for_bench_selection(benchname)
+
+            if not benchname:
+                context = LoggerContext(operation="ssl-renew")
+                output = get_output_handler(ctx, context=context)
+                output.display_error("Benchname required in bench mode")
+                with temporary_stop(output):
+                    typer.echo(ctx.get_help())
+                raise typer.Exit(1)
+            sites_list = [benchname]
+
+        for benchname in sites_list:
+            context = LoggerContext(bench=benchname, operation="ssl-renew")
+            output = get_output_handler(ctx, context=context)
+            logger = ctx.obj.get("logger")
+            bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
+
+            output.change_head(f"Renew certificate for {benchname}")
+            try:
+                if domain:
+                    cert_domains = [cert.domain for cert in bench.certificate_manager.certificates]
+                    if domain not in cert_domains:
+                        output.display_error(
+                            f"No SSL certificate found for domain '{domain}'.\n"
+                            f"Configured certificates: {', '.join(cert_domains) if cert_domains else 'None'}\n"
+                            f"To add a certificate, use: fm ssl add {benchname} {domain}",
+                        )
+                        raise typer.Exit(1)
+
+                    # Renew specific domain certificate
+                    with spinner(output, f"Renewing certificate for {domain}"):
+                        bench.ssl.renew_certificate(domain, dry_run=dry_run, force=force)
+                    if not dry_run:
+                        output.print(f"Certificate renewed for {domain}", emoji_code=":white_check_mark:")
+                else:
+                    # Renew all certificates for the bench
+                    with spinner(output, f"Renewing certificates for {benchname}"):
+                        bench.ssl.renew_all_certificates(dry_run=dry_run, force=force)
+            except (BenchSSLCertificateNotIssued, SSLCertificateNotDueForRenewalError) as e:
+                output.warning(e.message)
+
+            except Exception as e:
+                output.display_error(str(e))
+                raise typer.Exit(1)

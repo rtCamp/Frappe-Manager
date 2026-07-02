@@ -1,27 +1,85 @@
-[tool.poetry]
+[project]
 name = "frappe-manager"
-version = "0.18.0"
-license = "MIT"
-repository = "https://github.com/rtcamp/frappe-manager"
+dynamic = ["version"]
 description = "A CLI tool based on Docker Compose to easily manage Frappe based projects. As of now, only suitable for development in local machines running on Mac and Linux based OS."
-authors = ["rtCamp <sys@rtcamp.com>"]
-maintainers = ["Alok Singh <alok.singh@rtcamp.com>"]
-documentation = "https://github.com/rtcamp/frappe-manager/wiki"
 readme = "README.md"
+requires-python = ">=3.13,<3.14"
+license = { text = "MIT" }
+authors = [ { name = "rtCamp", email = "sys@rtcamp.com" } ]
+maintainers = [ { name = "Alok Singh", email = "alok.singh@rtcamp.com" } ]
+dependencies = [
+    "typer>=0.21.0,<0.22.0",
+    "requests>=2.32.0,<3.0.0",
+    "psutil>=7.0.0,<8.0.0",
+    "configargparse!=1.7",
+    "ruamel-yaml>=0.19.0,<0.20.0",
+    "tomlkit>=0.14.0,<0.15.0",
+    "pydantic>=2.9.0,<3.0.0",
+    "email-validator>=2.3.0,<3.0.0",
+    "jinja2>=3.1.6,<4.0.0",
+    "ngrok>=1.7.0,<2.0.0",
+    "passlib>=1.7.4,<2.0.0",
+    "inquirerpy>=0.3.4,<0.4.0",
+    "gitpython>=3.1.40,<4.0.0",
+    "cryptography>=46.0.0,<50.0.0",
+    "packaging>=26.0.0,<27.0.0",
+    "typer-examples",
+]
+
+[project.urls]
+Repository = "https://github.com/rtcamp/frappe-manager"
+Documentation = "https://rtcamp.github.io/frappe-manager/"
+"Bug Tracker" = "https://github.com/rtcamp/frappe-manager/issues"
+
+[project.scripts]
+fm = "frappe_manager.main:cli_entrypoint"
 
 [tool.ruff]
 line-length = 120
 indent-width = 4
-target-version = "py310"
+target-version = "py313"
 
 [tool.ruff.lint]
 dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 select = ["E", "F", "I", "B", "C", "W", "UP", "N", "YTT", "S", "BLE", "FBT", "A", "COM", "C4", "DTZ", "T10", "EM", "EXE", "ISC", "ICN", "G", "INP", "PIE", "T20", "PYI", "PT", "Q", "RSE", "RET", "SLF", "SIM", "TID", "TCH", "ARG", "PTH", "ERA", "PD", "PGH", "PL", "TRY", "RUF"]
 ignore = [
+    # Existing exceptions
     "F841",    # Unused variables
     "E501",    # Line too long (handled by formatter)
     "C901",    # Function is too complex
     "PLR0913", # Too many arguments to function call
+    "FBT001",  # Boolean positional argument (matches existing DisplayManager API)
+    "FBT002",  # Boolean default positional argument (matches existing DisplayManager API)
+    "ARG002",  # Unused method argument (required by interface/ABC)
+    "BLE001",  # Catching broad exception (intentional for robustness)
+    "S110",    # Try-except-pass (intentional no-op in silent handler)
+    "COM812",  # Trailing comma (conflicts with formatter - formatter handles this)
+    
+    # Test-related
+    "S101",    # Assert statement (standard in pytest)
+    "PT011",   # pytest.raises() too broad (acceptable for integration tests)
+    
+    # CLI tool patterns
+    "T201",    # Print statements (CLI tool requires them for output)
+    
+    # Code organization
+    "G004",    # F-string in logging (more readable than % formatting)
+    "PLC0415", # Import outside top-level (lazy/conditional imports for performance)
+    "E402",    # Module import not at top (conditional imports)
+    "INP001",  # Implicit namespace package (intentional project structure)
+    
+    # Exception handling style (high noise, low value)
+    "TRY003",  # Raise with string message (common, readable pattern)
+    "EM101",   # Raw string in exception (no practical benefit to extract)
+    "EM102",   # F-string in exception (more readable than concatenation)
+    "TRY002",  # Raise vanilla class (custom exceptions not always needed)
+    "TRY201",  # Verbose raise (explicit re-raise can be clearer)
+    "TRY400",  # Use Exception instead of error (minor distinction)
+    
+    # Complexity rules (context-dependent, often necessary)
+    "PLR0912", # Too many branches (sometimes unavoidable in business logic)
+    "PLR0915", # Too many statements (sometimes needed for clarity)
+    "PLR2004", # Magic value comparison (often clear from context)
 ]
 fixable = ["ALL"]
 unfixable = []
@@ -36,32 +94,55 @@ quote-style = "preserve"
 force-single-line = false
 known-first-party = ["frappe_manager"]
 
-[tool.poetry.urls]
-"Bug Tracker" = "https://github.com/rtcamp/frappe-manager/issues"
-
-[tool.poetry.scripts]
-fm = "frappe_manager.main:cli_entrypoint"
-
-[tool.poetry.dependencies]
-python = "^3.10"
-typer = "^0.15.4"
-requests = "^2.31.0"
-psutil = "^5.9.6"
-configargparse = "!=1.7"
-ruamel-yaml = "^0.18.5"
-tomlkit = "^0.12.3"
-certbot = "^2.9.0"
-pydantic = "^2.6.4"
-email-validator = "^2.1.1"
-jinja2 = "^3.1.3"
-certbot-dns-cloudflare = "^2.10.0"
-ngrok = "^1.4.0"
-passlib = "^1.7.4"
-inquirerpy = "^0.3.4"
 
 [tool.pyright]
 reportOptionalMemberAccess = false
 
 [build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["frappe_manager"]
+
+[tool.hatch.version]
+path = "frappe_manager/__about__.py"
+
+[tool.uv]
+package = true
+
+[tool.uv.sources]
+typer-examples = { git = "https://github.com/Xieyt/typer-examples", tag = "v1.1.0" }
+mike = { git = "https://github.com/squidfunk/mike.git" }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.0",
+    "pytest-mock>=3.15.0",
+    "pytest-cov>=7.0.0",
+    "pytest-env>=1.2.0",
+    "debugpy>=1.8.20",
+    "zensical",
+    "mike",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--cov=frappe_manager/ssl_manager",
+    "--cov-report=html",
+    "--cov-report=term-missing",
+    "--strict-markers",
+]
+markers = [
+    "unit: Unit tests",
+    "integration: Integration tests",
+    "slow: Slow running tests",
+]
+env = [
+    "FM_LETSENCRYPT_STAGING=0",
+]

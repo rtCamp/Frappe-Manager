@@ -1,7 +1,11 @@
 .DS_Store
 .idea
+.venv/*
 *.log
 tmp/*
-tests/*
+.tmp/*
 **/__pycache__/**
 readme.org
+docs/stylesheets/extra.css
+.env
+.coverage

@@ -1,0 +1,68 @@
+[changelog]
+header = """
+# Changelog
+
+All notable changes to Frappe Manager are documented here.
+
+> Versions prior to v0.19.0 were released without structured changelogs.
+> See the [GitHub Releases page](https://github.com/rtCamp/Frappe-Manager/releases) for historical notes.\n
+"""
+body = """
+{% if version %}\
+## {{ version }} - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else %}\
+## [Unreleased]
+{% endif %}\
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group }}
+{% for commit in commits %}
+- {% if commit.scope %}**{{ commit.scope }}:** {% endif %}{{ commit.message | upper_first }}\
+{% if commit.breaking %} (**BREAKING**){% endif %} ([`{{ commit.id | truncate(length=7, end="") }}`]({{ "https://github.com/rtCamp/Frappe-Manager/commit/" }}{{ commit.id }}))\
+{% endfor %}
+{% endfor %}\n
+"""
+footer = ""
+trim = true
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+split_commits = false
+
+commit_parsers = [
+  # Skip noise
+  { message = "^chore: [Pp]repare release", skip = true },
+  { message = "^chore: [Ss]et next development version", skip = true },
+  { message = "^chore: [Bb]ump", skip = true },
+  { message = "^chore\\(deps\\)", skip = true },
+  { message = "^build\\(deps\\)", skip = true },
+  { message = "^Merge pull request", skip = true },
+  { message = "^Merge branch", skip = true },
+
+  # User-facing groups
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Bug Fixes" },
+  { message = "^perf", group = "Performance" },
+  { message = "^revert", group = "Reverts" },
+
+  # Developer-facing groups (visible but separated)
+  { message = "^refactor", group = "Refactoring" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^test", group = "Testing" },
+  { message = "^ci", group = "CI" },
+  { message = "^build", group = "Build" },
+  { message = "^chore", group = "Chores" },
+  { message = "^style", group = "Styling" },
+]
+
+protect_breaking_commits = false
+filter_commits = true
+
+# Use the tag as-is (e.g. v0.19.0)
+tag_pattern = "v[0-9].*"
+
+# Ignore lightweight / duplicate tags
+ignore_tags = "^v[0-9]+\\.[0-9]+$"
+
+topo_order = false
+sort_commits = "newest"
