@@ -22,7 +22,7 @@ jobs:
 
       - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v8
+      - uses: astral-sh/setup-uv@v8.2.0
 
       - name: Run tests
         run: uv run --frozen pytest tests/ -v --cov=frappe_manager
@@ -33,7 +33,7 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v8
+      - uses: astral-sh/setup-uv@v8.2.0
 
       - name: Build
         run: uv build
@@ -53,7 +53,7 @@ jobs:
           fetch-depth: 0
 
       - name: Download dist artifacts
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           name: dist
           path: dist/

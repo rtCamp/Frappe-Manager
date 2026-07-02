@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   tag:
@@ -14,6 +15,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Create and push tag
         env:
@@ -22,9 +25,41 @@ jobs:
           VERSION=$(echo "$HEAD_REF" | sed 's|^release/||')
 
           if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "Error: branch '$HEAD_REF' does not match release/vX.Y.Z — aborting tag creation."
+            echo "Error: branch '$HEAD_REF' does not match release/vX.Y.Z — aborting."
             exit 1
           fi
 
           git tag "$VERSION"
           git push origin "$VERSION"
+
+      - uses: astral-sh/setup-uv@v8.2.0
+
+      - name: Build
+        run: uv build
+
+      - name: Extract release notes from changelog
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          VERSION=$(echo "$HEAD_REF" | sed 's|^release/||;s|^v||')
+          python3 -c "
+          import re, sys
+          with open('docs/changelog.md') as f:
+              content = f.read()
+          pattern = rf'(## v{re.escape(sys.argv[1])}.*?)(?=\n## v|\Z)'
+          match = re.search(pattern, content, re.DOTALL)
+          print(match.group(1).strip() if match else f'Release {sys.argv[1]}')
+          " "$VERSION" > release-notes.md
+
+      - name: Create draft GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          VERSION=$(echo "$HEAD_REF" | sed 's|^release/||')
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --notes-file release-notes.md \
+            --verify-tag \
+            --draft \
+            dist/*
