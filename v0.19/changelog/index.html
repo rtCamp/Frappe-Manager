@@ -1,0 +1,2785 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Documentation for Frappe Manager — simple local Frappe development and deployment">
+      
+      
+      
+        <link rel="canonical" href="https://opensource.rtcamp.com/Frappe-Manager/v0.19/changelog/">
+      
+      
+        <link rel="prev" href="../faq/">
+      
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/logo.png">
+      <meta name="generator" content="zensical-0.0.36">
+    
+    
+      
+        <title>Changelog - Frappe Manager</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../assets/stylesheets/modern/main.1e981d71.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../assets/stylesheets/modern/palette.dfe2e883.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Reddit+Sans,+-apple-system,+BlinkMacSystemFont,+Segoe+UI,+Roboto,+sans-serif:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono,+Consolas,+Monaco,+monospace:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Reddit Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif";--md-code-font:"JetBrains Mono, Consolas, Monaco, monospace"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,a=__md_scope)=>JSON.parse(t.getItem(a.pathname+"."+e)),__md_set=(e,t,a=localStorage,_=__md_scope)=>{try{a.setItem(_.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="pink">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#changelog" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="./.." title="Frappe Manager" class="md-header__button md-logo" aria-label="Frappe Manager" data-md-component="logo">
+      
+  <img src="../assets/logo.png" alt="Frappe Manager">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Frappe Manager
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Changelog
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="none" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="pink"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="none" data-md-color-scheme="slate" data-md-color-primary="deep-orange" data-md-color-accent="pink"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/rtcamp/frappe-manager" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rtcamp/frappe-manager
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="./.." class="md-tabs__link">
+        
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../getting-started/" class="md-tabs__link">
+          
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../guides/" class="md-tabs__link">
+          
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../commands/" class="md-tabs__link">
+          
+  
+  Commands
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+    
+      <li class="md-tabs__item">
+        <a href="../reference/" class="md-tabs__link">
+          
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../faq/" class="md-tabs__link">
+        
+  
+  FAQ
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    <li class="md-tabs__item md-tabs__item--active">
+      <a href="././" class="md-tabs__link">
+        
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="./.." title="Frappe Manager" class="md-nav__button md-logo" aria-label="Frappe Manager" data-md-component="logo">
+      
+  <img src="../assets/logo.png" alt="Frappe Manager">
+
+    </a>
+    Frappe Manager
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rtcamp/frappe-manager" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rtcamp/frappe-manager
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="./.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Getting Started
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Getting Started
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/requirements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Requirements
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Installation
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../getting-started/quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Quick Start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../guides/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Guides
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Guides
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Environments
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/ssl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    SSL / HTTPS
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/app-management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    App Management
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/admin-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Admin Tools
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/vscode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    VSCode Integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/wsl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Windows / WSL
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/external-database/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    External Database
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/upload-limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Upload Limits
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/google-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Google API Development
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/fmx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fmx — In-Container Services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/python-node-versions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Python & Node Versions
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../guides/backup-restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Backup & Restore
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../commands/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Commands
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Commands
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/create/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fm create
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fm start
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/stop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fm stop
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/restart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fm restart
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/delete/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fm delete
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/list/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fm list
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/info/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fm info
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/logs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fm logs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/shell/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fm shell
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/code/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fm code
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/update/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fm update
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/reset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fm reset
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/migrate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fm migrate
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/ngrok/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fm ngrok
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_16" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_16" id="__nav_4_16_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fm ssl
+  
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_16_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_16">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    fm ssl
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/ssl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Ssl
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/ssl-dns-config-cloudflare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Cloudflare DNS Config
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fm services
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../commands/self/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    fm self
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../reference/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Reference
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    Reference
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Architecture
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/configuration/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Configuration Files
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/workers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Workers & Background Jobs
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/migrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Migrations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../reference/logs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Logs & Debugging
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    FAQ
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changelog
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#v0190dev0-2026-04-14" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        v0.19.0.dev0 - 2026-04-14
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="v0.19.0.dev0 - 2026-04-14">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bug-fixes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bug Fixes
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Build
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CI
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chores" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Chores
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Documentation
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#features" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Features
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Performance
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#refactoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Refactoring
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#styling" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Styling
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Testing
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#v0190dev0-2026-04-14" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        v0.19.0.dev0 - 2026-04-14
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="v0.19.0.dev0 - 2026-04-14">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#bug-fixes" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bug Fixes
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#build" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Build
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ci" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        CI
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#chores" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Chores
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#documentation" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Documentation
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#features" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Features
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#performance" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Performance
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#refactoring" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Refactoring
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#styling" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Styling
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#testing" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Testing
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+  
+    <a href="https://github.com/rtcamp/frappe-manager/edit/main/docs/changelog.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497zM15 5l4 4"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="changelog">Changelog<a class="headerlink" href="#changelog" title="Permanent link">&para;</a></h1>
+<p>All notable changes to Frappe Manager are documented here.</p>
+<blockquote>
+<p>Versions prior to v0.19.0 were released without structured changelogs.
+See the <a href="https://github.com/rtCamp/Frappe-Manager/releases">GitHub Releases page</a> for historical notes.</p>
+</blockquote>
+<h2 id="v0190dev0-2026-04-14">v0.19.0.dev0 - 2026-04-14<a class="headerlink" href="#v0190dev0-2026-04-14" title="Permanent link">&para;</a></h2>
+<h3 id="bug-fixes">Bug Fixes<a class="headerlink" href="#bug-fixes" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Ensure robust subprocess output decoding (<a href="https://github.com/rtCamp/Frappe-Manager/commit/b23bfa14a1a3b0d13220bba2c258642383824b5e"><code>b23bfa1</code></a>)</li>
+<li>Add timeouts to mirror selection curl calls (<a href="https://github.com/rtCamp/Frappe-Manager/commit/459a563cf2db1f1ee4ba3e7d5b8db92db0eb5ab4"><code>459a563</code></a>)</li>
+<li>Fix inaccurate RQ queue status filtering (<a href="https://github.com/rtCamp/Frappe-Manager/commit/bef9dfd2285ca394b9de7de6b58c1684926eb646"><code>bef9dfd</code></a>)</li>
+<li>Start all services on migration failure instead of workers only (<a href="https://github.com/rtCamp/Frappe-Manager/commit/1b2f90b49f2905d2808aa832fef570c3f23e5c77"><code>1b2f90b</code></a>)</li>
+<li>Treat empty FRAPPE_MANAGER_HOME as unset (<a href="https://github.com/rtCamp/Frappe-Manager/commit/e8eebeef1872106d3516992ed94325754ed31af2"><code>e8eebee</code></a>)</li>
+<li>Remove debug set -x and fix Docker layer issues (<a href="https://github.com/rtCamp/Frappe-Manager/commit/e192c6909081e8793bb3f0b864ec8afb4543d3d0"><code>e192c69</code></a>)</li>
+<li>Raise on export_to_toml write failure instead of returning False (<a href="https://github.com/rtCamp/Frappe-Manager/commit/f4b08c8c6a1908428c997d7ff1d762d832a396a2"><code>f4b08c8</code></a>)</li>
+<li>Clean up orphaned cert on HTTPS config or reload failure (<a href="https://github.com/rtCamp/Frappe-Manager/commit/109daec6ab93ce8c3c6435133f3b9700429f9a10"><code>109daec</code></a>)</li>
+<li>Surface renewal failures as errors instead of warnings (<a href="https://github.com/rtCamp/Frappe-Manager/commit/fc4d9af453e6e5fb65cf82fa830f0ec0b2d5cdd2"><code>fc4d9af</code></a>)</li>
+<li>Guard ctx.obj assignments behind help_called check (<a href="https://github.com/rtCamp/Frappe-Manager/commit/ec85d703565fa6eb24ab5732354d21a7ff210337"><code>ec85d70</code></a>)</li>
+<li>Switch to root user for final COPY operations (<a href="https://github.com/rtCamp/Frappe-Manager/commit/4000b537d5371315c79acdb3d9f8ff332780e777"><code>4000b53</code></a>)</li>
+<li>Set USER and GROUP env vars for gosu (<a href="https://github.com/rtCamp/Frappe-Manager/commit/937baaa28f51678d809de2b593bab48c623ac3b3"><code>937baaa</code></a>)</li>
+<li>Add timestamp to venv backup directory (<a href="https://github.com/rtCamp/Frappe-Manager/commit/f07176b70e6bd4001f9b30feeffd9ab134795bb2"><code>f07176b</code></a>)</li>
+<li>Explicitly pass env vars in entrypoint (<a href="https://github.com/rtCamp/Frappe-Manager/commit/151b8d6daf6239d16aa03f99300cfcd192f12de9"><code>151b8d6</code></a>)</li>
+<li>Correctly handle migrations for pre-release versions (<a href="https://github.com/rtCamp/Frappe-Manager/commit/f27e326c02cf0fb209e679b35c9b7d366a5a68cf"><code>f27e326</code></a>)</li>
+<li>Use <code>frappe_site_name</code> for asset resolution instead of <code>host</code> (<a href="https://github.com/rtCamp/Frappe-Manager/commit/2b0212a39a0518295acf730821fcddd782010490"><code>2b0212a</code></a>)</li>
+<li>Use stdout to get selected python version (<a href="https://github.com/rtCamp/Frappe-Manager/commit/8a48cfd631dac3800dc11c4ae64697feb3246137"><code>8a48cfd</code></a>)</li>
+<li>Pull global service images if missing (<a href="https://github.com/rtCamp/Frappe-Manager/commit/40c2ad7afdb0f49eb85b994e14198873d7f62a5f"><code>40c2ad7</code></a>)</li>
+<li>Address Copilot review feedback on constant naming and standalone script support (<a href="https://github.com/rtCamp/Frappe-Manager/commit/a543e88c04883f638644c8f47e93384215da8231"><code>a543e88</code></a>)</li>
+<li>Strip ANSI codes in help text assertion for CI compatibility (<a href="https://github.com/rtCamp/Frappe-Manager/commit/f725f1b5dd7ec89eb0cd81e6a753b1c404130402"><code>f725f1b</code></a>)</li>
+<li>Remove trailing slash from admin tool proxy_pass (<a href="https://github.com/rtCamp/Frappe-Manager/commit/4ee19771adc7c934f62b93a2e4d8b179d1826861"><code>4ee1977</code></a>)</li>
+<li>Resolve various minor bugs and regressions (<a href="https://github.com/rtCamp/Frappe-Manager/commit/993ca12a599c2c7910e1b95470eb6592dcdbd7a1"><code>993ca12</code></a>)</li>
+<li><strong>shell:</strong> Improve interactive terminal support for bench commands (<a href="https://github.com/rtCamp/Frappe-Manager/commit/d938de930c3273b84378ed7f06554f8828198199"><code>d938de9</code></a>)</li>
+<li><strong>ssl:</strong> Remove logger variable references and cleanup (<a href="https://github.com/rtCamp/Frappe-Manager/commit/86bc781986da4235256dfadb2bcf164c0063289f"><code>86bc781</code></a>)</li>
+<li><strong>cli:</strong> Handle SIGPIPE and stop output before interactive shell (<a href="https://github.com/rtCamp/Frappe-Manager/commit/bd9c0119f766a5820c03e84628f376feb61919ca"><code>bd9c011</code></a>)</li>
+<li><strong>logger:</strong> Add thread safety to LiveAwareRichHandler with output lock (<a href="https://github.com/rtCamp/Frappe-Manager/commit/c884722640e01a03c23d80ca6f37bb275b4ef419"><code>c884722</code></a>)</li>
+<li><strong>logger:</strong> Ensure parent directories are created for log files (<a href="https://github.com/rtCamp/Frappe-Manager/commit/a142211fa23899f5a2f11c3dbb057ea1b9ca9813"><code>a142211</code></a>)</li>
+<li><strong>nginx:</strong> Remove trailing slashes from admin tools proxy_pass directives (<a href="https://github.com/rtCamp/Frappe-Manager/commit/c171982b46c927d37cd24f6bd8d3500d5a874408"><code>c171982</code></a>)</li>
+<li><strong>migrate:</strong> Parse and quote Python version in uv commands (<a href="https://github.com/rtCamp/Frappe-Manager/commit/745e1192511a7ad68532e33537a3d1cd94e93192"><code>745e119</code></a>)</li>
+<li><strong>migrate:</strong> Prompt for rollback in single-bench migrations (<a href="https://github.com/rtCamp/Frappe-Manager/commit/f8e4fb979e274dd8bc8721093c83eb31e7d4d835"><code>f8e4fb9</code></a>)</li>
+<li><strong>migrate:</strong> Remove archive option for single-bench migrations (<a href="https://github.com/rtCamp/Frappe-Manager/commit/f84030117d9bf8bd19208856d7925634bfc15aff"><code>f840301</code></a>)</li>
+<li><strong>examples:</strong> Only show benchname for commands that require it (<a href="https://github.com/rtCamp/Frappe-Manager/commit/be553f0bcbebd4ac706e6a6b731d222da4017b87"><code>be553f0</code></a>)</li>
+<li><strong>migrate:</strong> Replace Literal with Enum for --on-failure parameter (<a href="https://github.com/rtCamp/Frappe-Manager/commit/89715c0523704d27e3e6193a65abcb03f45eb5eb"><code>89715c0</code></a>)</li>
+<li><strong>examples:</strong> Update examples.json to match actual CLI flags (<a href="https://github.com/rtCamp/Frappe-Manager/commit/0686479c3904989b94de681ecd3a3b3689b9e037"><code>0686479</code></a>)</li>
+<li>Correct SSL remove required_flag to match actual CLI flag (<a href="https://github.com/rtCamp/Frappe-Manager/commit/fc2d06ebc223f9dde1798eaa4bdf39bee42a7fce"><code>fc2d06e</code></a>)</li>
+<li>Add required_flag to all prompts for proper non-interactive mode (<a href="https://github.com/rtCamp/Frappe-Manager/commit/234ccf2735b45fb32cd3ac5d4b5b6647fb8c0426"><code>234ccf2</code></a>)</li>
+<li>Implement prompt_fuzzy() to fix --non-interactive flag and spinner context managers (<a href="https://github.com/rtCamp/Frappe-Manager/commit/b8e4c7333962fa0d56e725337e21aa3e047ce81b"><code>b8e4c73</code></a>)</li>
+<li>Revert Phase 2 table reuse optimization to prevent IndexError (<a href="https://github.com/rtCamp/Frappe-Manager/commit/6f68ba290fcb5c9be6bb19db10f6f9faa6239040"><code>6f68ba2</code></a>)</li>
+<li>Handle missing database info keys in bench info display (<a href="https://github.com/rtCamp/Frappe-Manager/commit/184972e9ab5a235177402fe32c6006fb282da4b5"><code>184972e</code></a>)</li>
+<li>Replace incorrect error() calls with display_error() (<a href="https://github.com/rtCamp/Frappe-Manager/commit/f7851de2a878a597cf69d0eeedf0a2bc6549cd61"><code>f7851de</code></a>)</li>
+<li>Forward set_interactive_mode to delegate in LoggingOutputHandler (<a href="https://github.com/rtCamp/Frappe-Manager/commit/b2329056e5b836894a8f599354b8f80a0d833aa8"><code>b232905</code></a>)</li>
+<li>Suppress spinners and status messages in non-interactive mode (<a href="https://github.com/rtCamp/Frappe-Manager/commit/cc136b4f41ca9e050a82cd95afffdc1553b0c2b6"><code>cc136b4</code></a>)</li>
+<li>Add missing exception parameter in update error handler (<a href="https://github.com/rtCamp/Frappe-Manager/commit/33c80e057e7ce279b49d59f33691d2013d890df7"><code>33c80e0</code></a>)</li>
+<li>Correct spinner and error handling in runtime execution (<a href="https://github.com/rtCamp/Frappe-Manager/commit/e6470b16ae9cf258037d9f40587126de8806c4b5"><code>e6470b1</code></a>)</li>
+<li>Validate HTTP 200 status for Ubuntu mirrors before selection (<a href="https://github.com/rtCamp/Frappe-Manager/commit/b7ca15de69a82c353bf7311f0e1f8f0778ccacab"><code>b7ca15d</code></a>)</li>
+<li>Improve bench creation resilience and app installation order (<a href="https://github.com/rtCamp/Frappe-Manager/commit/befb44708f3a84f1cc46708dd08215f92d5b3727"><code>befb447</code></a>)</li>
+<li>Clean up InquirerPy prompt display (<a href="https://github.com/rtCamp/Frappe-Manager/commit/5b90fb63bbda63904eaabd53f309642615ba9202"><code>5b90fb6</code></a>)</li>
+<li>Suppress sudo hint message in interactive shells (<a href="https://github.com/rtCamp/Frappe-Manager/commit/db57f8325a1ea17656ca2e82b7311d4d08d74b0f"><code>db57f83</code></a>)</li>
+<li>Update oh-my-zsh location and bump versions (<a href="https://github.com/rtCamp/Frappe-Manager/commit/0d0f16c6360b994bffa85321932b515d16a45b2c"><code>0d0f16c</code></a>)</li>
+<li>Use fnm-managed node path for node-socketio (<a href="https://github.com/rtCamp/Frappe-Manager/commit/68f783cc60e1029af5e3192f139315b99c7e354a"><code>68f783c</code></a>)</li>
+<li>Handle UV Python platform-specific versions and update default symlink (<a href="https://github.com/rtCamp/Frappe-Manager/commit/4290e0112154dd885be64a99b8145fb5404703cf"><code>4290e01</code></a>)</li>
+<li>Complete type safety improvements - achieve 0 errors (<a href="https://github.com/rtCamp/Frappe-Manager/commit/2e3c1f3fafdd00bfab367ee1ce2423fbcf9d6125"><code>2e3c1f3</code></a>)</li>
+<li>Add type safety improvements and docker type stub (<a href="https://github.com/rtCamp/Frappe-Manager/commit/b0a1791e800f050a027b275ffabeb75eec28b926"><code>b0a1791</code></a>)</li>
+<li>Correct certificate manager method calls (<a href="https://github.com/rtCamp/Frappe-Manager/commit/aaed8dc33cc51bab720258952d3a899114557c98"><code>aaed8dc</code></a>)</li>
+<li>Use newline separator for alias domains in output (<a href="https://github.com/rtCamp/Frappe-Manager/commit/2e2a68fe172a71739e3647a6cad9e61bab7a8ef6"><code>2e2a68f</code></a>)</li>
+</ul>
+<h3 id="build">Build<a class="headerlink" href="#build" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Update dependencies and regenerate lock file (<a href="https://github.com/rtCamp/Frappe-Manager/commit/0ff9637b774c3d005f8d41b2f3295a8f3e95392a"><code>0ff9637</code></a>)</li>
+<li>Relocate .uv and .fnm directories to frappe-bench (<a href="https://github.com/rtCamp/Frappe-Manager/commit/3e1cda03b01acb2beeba1a30567b3a847f15b9f0"><code>3e1cda0</code></a>)</li>
+<li>Pin typer-examples dependency (<a href="https://github.com/rtCamp/Frappe-Manager/commit/799a56cf9c40987aca7470fc3d2312f0778f7dec"><code>799a56c</code></a>)</li>
+<li>Move version source of truth to <strong>about</strong>.py (<a href="https://github.com/rtCamp/Frappe-Manager/commit/8e92b71d6436ffe233db279f6fd54bb8df064f50"><code>8e92b71</code></a>)</li>
+<li>Install wkhtmltopdf in base Docker stage (<a href="https://github.com/rtCamp/Frappe-Manager/commit/62fa695812d07d7911e20fe3c86b01462292fa47"><code>62fa695</code></a>)</li>
+<li>Simplify arch detection for wkhtmltopdf (<a href="https://github.com/rtCamp/Frappe-Manager/commit/7f8a5cf01d7bd340b97bf04410b2e961129a5b05"><code>7f8a5cf</code></a>)</li>
+<li>Adjust Docker build environment paths (<a href="https://github.com/rtCamp/Frappe-Manager/commit/336fed154310f30f7f583c1b5c85664eb15c2f3d"><code>336fed1</code></a>)</li>
+<li>Restrict Python version to 3.13 (<a href="https://github.com/rtCamp/Frappe-Manager/commit/d9edf6c799ffa360a26b297de111384c7bbeafd1"><code>d9edf6c</code></a>)</li>
+<li>Support Python 3.13 (<a href="https://github.com/rtCamp/Frappe-Manager/commit/baba3691988f06ea6e4224824c698312e8980bf8"><code>baba369</code></a>)</li>
+<li>Bump required Python version to 3.14.2 (<a href="https://github.com/rtCamp/Frappe-Manager/commit/a5bf8bee073560d5c02b4c4af6aca7e0929ec70e"><code>a5bf8be</code></a>)</li>
+<li>Increase minimum Python version to 3.14 (<a href="https://github.com/rtCamp/Frappe-Manager/commit/4ca16b6de1bfe9cd4b6b71fcccb68f99389d43de"><code>4ca16b6</code></a>)</li>
+<li>Upgrade Python to 3.14 and update dependencies (<a href="https://github.com/rtCamp/Frappe-Manager/commit/37874e3335dab79dddb4567ee6e69eb0a4839738"><code>37874e3</code></a>)</li>
+<li>Use script for Dockerfile mirror selection (<a href="https://github.com/rtCamp/Frappe-Manager/commit/42f6fc5f337e05bb193914834ebcf97d20834271"><code>42f6fc5</code></a>)</li>
+</ul>
+<h3 id="ci">CI<a class="headerlink" href="#ci" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Integrate git-cliff for automated changelog generation (<a href="https://github.com/rtCamp/Frappe-Manager/commit/3dc343024412b3b6e81146ab5162334713e8979a"><code>3dc3430</code></a>)</li>
+<li>Use CNAME file and alias-type redirect for pages deployment (<a href="https://github.com/rtCamp/Frappe-Manager/commit/435712e99ed6a39c1282b68b726d6be504216dae"><code>435712e</code></a>)</li>
+<li>Streamline custom domain setup for Pages (<a href="https://github.com/rtCamp/Frappe-Manager/commit/a7da3cecdd0732f8712f2e7c007b80ff6848289b"><code>a7da3ce</code></a>)</li>
+<li>Disable main branch documentation deployment (<a href="https://github.com/rtCamp/Frappe-Manager/commit/54fab97bf825b24168db2892f2f7d0aec510b317"><code>54fab97</code></a>)</li>
+<li>Enhance documentation deployment workflow (<a href="https://github.com/rtCamp/Frappe-Manager/commit/5c6cbbaf76a70b87ee67b684f276b3b5d0a59cd3"><code>5c6cbba</code></a>)</li>
+<li>Compile SCSS for documentation styles (<a href="https://github.com/rtCamp/Frappe-Manager/commit/7c2c6ecd67ffe15fdead16b530e9e1317e6012fa"><code>7c2c6ec</code></a>)</li>
+<li>Conditionally push CLI docs changes (<a href="https://github.com/rtCamp/Frappe-Manager/commit/03a3990f24393da7c46e94001ecdf61b92fbe34e"><code>03a3990</code></a>)</li>
+<li>Switch to Mike for versioned docs deployment (<a href="https://github.com/rtCamp/Frappe-Manager/commit/1c1655c304d7c4d9d5265c9c52837ddf53e10ad8"><code>1c1655c</code></a>)</li>
+<li>Add PyPI publish workflow on v* tag push (<a href="https://github.com/rtCamp/Frappe-Manager/commit/a229a8c4110b732b032fdebbf3bd142adba1d866"><code>a229a8c</code></a>)</li>
+<li>Separate build cache by architecture (<a href="https://github.com/rtCamp/Frappe-Manager/commit/7b2be8206248345b2bed8c4e05f48cadae139e84"><code>7b2be82</code></a>)</li>
+<li>Update default wiki branch to master (<a href="https://github.com/rtCamp/Frappe-Manager/commit/1d01765d78dd0e351c06aee87d6084c89b4ef333"><code>1d01765</code></a>)</li>
+<li>Always push wiki on manual trigger (<a href="https://github.com/rtCamp/Frappe-Manager/commit/5b62c46174950a023d49ebdfcff54029dddf5a46"><code>5b62c46</code></a>)</li>
+<li>Remove ref/0 from docs workflow trigger (<a href="https://github.com/rtCamp/Frappe-Manager/commit/7371cedbee152811292a6913861152034ed5f37c"><code>7371ced</code></a>)</li>
+<li>Disable PR comment for CLI doc updates (<a href="https://github.com/rtCamp/Frappe-Manager/commit/21fff1ca78d8b307cb6c9a74907facb968402156"><code>21fff1c</code></a>)</li>
+<li>Add permissions to CLI docs workflow (<a href="https://github.com/rtCamp/Frappe-Manager/commit/fd9c1c6b48a9d456646164df5dd7853e5ebe5efc"><code>fd9c1c6</code></a>)</li>
+<li>Bump Python to 3.13 in docs workflow (<a href="https://github.com/rtCamp/Frappe-Manager/commit/d34cae5404048f2f34635b159256ca4b6be8a41b"><code>d34cae5</code></a>)</li>
+<li>Add workflow to auto-generate CLI docs (<a href="https://github.com/rtCamp/Frappe-Manager/commit/cacfa5653d4ebaf4c37f378310a0d3e163cf6282"><code>cacfa56</code></a>)</li>
+<li>Update pytest workflow for Python 3.13 (<a href="https://github.com/rtCamp/Frappe-Manager/commit/9f627157f65ae0d4c0fc356427f4da1162358ff8"><code>9f62715</code></a>)</li>
+<li>Update Python version for CI tests (<a href="https://github.com/rtCamp/Frappe-Manager/commit/b68fde1b4d943da4e2a359045aab90848ec3976b"><code>b68fde1</code></a>)</li>
+<li>Add unit test workflow and refactor E2E (<a href="https://github.com/rtCamp/Frappe-Manager/commit/56a89f71abc34c06f9d3f31f08d4fe8fe2895014"><code>56a89f7</code></a>)</li>
+<li>Unify image baking workflow for all services (<a href="https://github.com/rtCamp/Frappe-Manager/commit/4cfe2b2b7de14f614d575bd2cc312827c720abf5"><code>4cfe2b2</code></a>)</li>
+</ul>
+<h3 id="chores">Chores<a class="headerlink" href="#chores" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Remove Redis Queue Dashboard (<a href="https://github.com/rtCamp/Frappe-Manager/commit/46d8089290633a837259fc594b895fe508777d57"><code>46d8089</code></a>)</li>
+<li>Prepare for v0.19.0 development (<a href="https://github.com/rtCamp/Frappe-Manager/commit/3a882ee7686d2c8a26f5ef17e5b7cf16a1d57a08"><code>3a882ee</code></a>)</li>
+<li>Remove debug print statement (<a href="https://github.com/rtCamp/Frappe-Manager/commit/adb57c52b49e59afa1050d8021f66f9a355e31fb"><code>adb57c5</code></a>)</li>
+<li>Simplify docs CI and update README (<a href="https://github.com/rtCamp/Frappe-Manager/commit/8758fa9c222677f13bbbb3fa7176f71f5e32e615"><code>8758fa9</code></a>)</li>
+<li>Update build steps in Linux binary workflow (<a href="https://github.com/rtCamp/Frappe-Manager/commit/35090555733b8841c3db549632acb01abd999cba"><code>3509055</code></a>)</li>
+<li>Add test utilities and Python dependencies (<a href="https://github.com/rtCamp/Frappe-Manager/commit/08ddb1134bf04d64abbd2ddc5824f0188c161073"><code>08ddb11</code></a>)</li>
+<li>Update .gitignore for virtual environments (<a href="https://github.com/rtCamp/Frappe-Manager/commit/ed85ff1d027879d0ec121bd9bfe8bf946f85993a"><code>ed85ff1</code></a>)</li>
+<li>Update .gitignore to exclude .tmp directory (<a href="https://github.com/rtCamp/Frappe-Manager/commit/7c1a4f88a69b5cbbdee771780e6f72ddc20016f0"><code>7c1a4f8</code></a>)</li>
+<li>Remove poetry files and add uv.lock (<a href="https://github.com/rtCamp/Frappe-Manager/commit/a701c09c0a880f0b2a6a6f2a4ab8cc4987cc5b64"><code>a701c09</code></a>)</li>
+<li>Update .envrc for uv-based environment setup (<a href="https://github.com/rtCamp/Frappe-Manager/commit/202a22e0ce5f86a27572e921380b2833d16dcb5a"><code>202a22e</code></a>)</li>
+<li>Migrate to PEP 621 and update dependencies (<a href="https://github.com/rtCamp/Frappe-Manager/commit/094ecf7a75bfe72c3bd3d63a8ce583f6eac9df3d"><code>094ecf7</code></a>)</li>
+<li>Remove devbox configuration files (<a href="https://github.com/rtCamp/Frappe-Manager/commit/f871d46da5775153ccf91e8c2b46c4f605079eb8"><code>f871d46</code></a>)</li>
+<li>Add dependabot configuration (<a href="https://github.com/rtCamp/Frappe-Manager/commit/f5334148bb51e9448ea0a93f486a49b26f8d19cc"><code>f533414</code></a>)</li>
+</ul>
+<h3 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Migrate changelog to docs/changelog.md as single source of truth (<a href="https://github.com/rtCamp/Frappe-Manager/commit/c36825a865c395bf27f439bc52a1992f70141821"><code>c36825a</code></a>)</li>
+<li>Show dev version in CHANGELOG.md instead of Unreleased (<a href="https://github.com/rtCamp/Frappe-Manager/commit/d29f71dd9ebc80379892fe2b6fed7a1f67ed9127"><code>d29f71d</code></a>)</li>
+<li>Document Python update --no-recreate-python-env (<a href="https://github.com/rtCamp/Frappe-Manager/commit/b20dd57e1f11be7673985f53daedcb0a6862165c"><code>b20dd57</code></a>)</li>
+<li>Add examples for <code>update</code> command (<a href="https://github.com/rtCamp/Frappe-Manager/commit/46665ec3035f0cb3f11994d3e71375e3961c2437"><code>46665ec</code></a>)</li>
+<li>Expand and rewrite reference documentation (<a href="https://github.com/rtCamp/Frappe-Manager/commit/611b6bf0e7e69a3d033f56b63d744b1bcd267f48"><code>611b6bf</code></a>)</li>
+<li>Rewrite and expand environments guide (<a href="https://github.com/rtCamp/Frappe-Manager/commit/9a4e4bc9694527ad955b7e013c9f3688083ce6c9"><code>9a4e4bc</code></a>)</li>
+<li>Overhaul and expand SSL guide (<a href="https://github.com/rtCamp/Frappe-Manager/commit/aa43ef913129e58392cdc9d162aeadd5c7a4fba4"><code>aa43ef9</code></a>)</li>
+<li>Redesign command reference and standardize examples (<a href="https://github.com/rtCamp/Frappe-Manager/commit/06d1b3e4d1de951f4ff064d1bc901cf2a6603eea"><code>06d1b3e</code></a>)</li>
+<li>Add guides for backup, fmx, and versions (<a href="https://github.com/rtCamp/Frappe-Manager/commit/d97ccf24bdf72de02e6e155e0490eaf2e60b454d"><code>d97ccf2</code></a>)</li>
+<li>Reorganize FAQ page with sections (<a href="https://github.com/rtCamp/Frappe-Manager/commit/e4fb4caab095fb4aabb8abbd5985ab0b29933ca4"><code>e4fb4ca</code></a>)</li>
+<li>Add documentation for fmx utility (<a href="https://github.com/rtCamp/Frappe-Manager/commit/b428bb1771fde1787cb1ffdbfb3e1dc0c58a2e69"><code>b428bb1</code></a>)</li>
+<li>Overhaul and standardize documentation (<a href="https://github.com/rtCamp/Frappe-Manager/commit/18e68a110086197170e556c4a278020a8c796cb8"><code>18e68a1</code></a>)</li>
+<li>Overhaul documentation site and content (<a href="https://github.com/rtCamp/Frappe-Manager/commit/4e333c9b36f9d7586ac7115fe1383c1a18305159"><code>4e333c9</code></a>)</li>
+<li>Move documentation to GitHub Pages (<a href="https://github.com/rtCamp/Frappe-Manager/commit/bfe49a16163de2d8af1cf99aa0b03cbf493deb31"><code>bfe49a1</code></a>)</li>
+<li>Update scripts README for CLI doc generator (<a href="https://github.com/rtCamp/Frappe-Manager/commit/f33f14cb6e4ff62c434fde8a9ff5457421b8521a"><code>f33f14c</code></a>)</li>
+<li>Improve CLI option help texts (<a href="https://github.com/rtCamp/Frappe-Manager/commit/7c838cf9561f2842dd0620a2ca33ff0467c7d584"><code>7c838cf</code></a>)</li>
+<li>Simplify README and move examples to Wiki (<a href="https://github.com/rtCamp/Frappe-Manager/commit/6ac53af7c339cd58269f0812f20e1c8b1bd441fd"><code>6ac53af</code></a>)</li>
+<li>Update <code>uvx</code> run instructions (<a href="https://github.com/rtCamp/Frappe-Manager/commit/0da98127094b42b2562786d6f541b72245f628b4"><code>0da9812</code></a>)</li>
+<li>Enhance README installation and usage guide (<a href="https://github.com/rtCamp/Frappe-Manager/commit/a7d610f1a7acdb92f7c95f9332b74f8f15674384"><code>a7d610f</code></a>)</li>
+<li>Remove hardcoded examples from command docstrings (<a href="https://github.com/rtCamp/Frappe-Manager/commit/81c4eaeba8b87283d47f4e29e26cc8fea9e79427"><code>81c4eae</code></a>)</li>
+<li><strong>tests:</strong> Add comprehensive testing guide with global handler documentation (<a href="https://github.com/rtCamp/Frappe-Manager/commit/59058a53cffed111558b91fbbc5e30534b16c479"><code>59058a5</code></a>)</li>
+<li>Improve CLI command descriptions and examples (<a href="https://github.com/rtCamp/Frappe-Manager/commit/899725477b38e80fe5f7050297defc3b3f89b246"><code>8997254</code></a>)</li>
+<li><strong>ssl:</strong> Update comment to remove certbot reference in site.py (<a href="https://github.com/rtCamp/Frappe-Manager/commit/17da3c2d2443c0778b01b717060313ba7ab0def4"><code>17da3c2</code></a>)</li>
+</ul>
+<h3 id="features">Features<a class="headerlink" href="#features" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add Python and Node version to bench info (<a href="https://github.com/rtCamp/Frappe-Manager/commit/923d2b5095bff46dec1badfdce12ddd4a19c8448"><code>923d2b5</code></a>)</li>
+<li>Add option to control Python environment recreation (<a href="https://github.com/rtCamp/Frappe-Manager/commit/caf96244b8ccdbc47e3825809edf54dba585219d"><code>caf9624</code></a>)</li>
+<li>Add platform parameter to Docker run command (<a href="https://github.com/rtCamp/Frappe-Manager/commit/763946cf8174004534d42e333fd4db86f448447c"><code>763946c</code></a>)</li>
+<li>Migrate to uv and improve installer UX (<a href="https://github.com/rtCamp/Frappe-Manager/commit/597a1ea4f1623559302b5a57b9f99423311b0761"><code>597a1ea</code></a>)</li>
+<li>Migrate to uv and improve installer UX (<a href="https://github.com/rtCamp/Frappe-Manager/commit/d8194fc7c0b4fd00737d92a048eb26295bfa42c9"><code>d8194fc</code></a>)</li>
+<li>Add --version flag to CLI (<a href="https://github.com/rtCamp/Frappe-Manager/commit/57e138590d5129a97e379a6de079624138c0ef47"><code>57e1385</code></a>)</li>
+<li>Add structured examples to CLI help output (<a href="https://github.com/rtCamp/Frappe-Manager/commit/4cbcd1689f63d58730424013743b401a37504954"><code>4cbcd16</code></a>)</li>
+<li>Add detailed CLI examples to restart command (<a href="https://github.com/rtCamp/Frappe-Manager/commit/f5812adb3d1e67396bd9974ddf4394258ce6fb06"><code>f5812ad</code></a>)</li>
+<li>Add worker kill timeout and poll options (<a href="https://github.com/rtCamp/Frappe-Manager/commit/cc86ae9b4cf2a09e85b0b8965d0488a80dc28c78"><code>cc86ae9</code></a>)</li>
+<li>Improve migration output and optimize worker restarts (<a href="https://github.com/rtCamp/Frappe-Manager/commit/2de9d6e99fa46d631d62e0e84e3b1f4569a3b900"><code>2de9d6e</code></a>)</li>
+<li><strong>fmx:</strong> Add RQ control command and improve status display (<a href="https://github.com/rtCamp/Frappe-Manager/commit/e08c45ddcc6b25e44815c10e9e439d0fb8e82751"><code>e08c45d</code></a>)</li>
+<li><strong>fmx:</strong> Add RQ worker status to status command (<a href="https://github.com/rtCamp/Frappe-Manager/commit/207531d7001a142256b067ba88757042718eccdb"><code>207531d</code></a>)</li>
+<li>Add zero-downtime migration with custom command support (<a href="https://github.com/rtCamp/Frappe-Manager/commit/08f5630d9a03c518dd36f7b98ae7358316c60608"><code>08f5630</code></a>)</li>
+<li>Automate command reference updates (<a href="https://github.com/rtCamp/Frappe-Manager/commit/ba7f784f378c32c7c379cc09a1aa56160b1c89de"><code>ba7f784</code></a>)</li>
+<li>Add correct reload for global nginx proxy (<a href="https://github.com/rtCamp/Frappe-Manager/commit/194cdebb25f76ed5c68f541001ea7a04bba278f1"><code>194cdeb</code></a>)</li>
+<li>Add --bench-console option to shell (<a href="https://github.com/rtCamp/Frappe-Manager/commit/0f7276d36ab22efc7b6e9134bc02d87f2a1bf601"><code>0f7276d</code></a>)</li>
+<li>Add exit method to logging output handler (<a href="https://github.com/rtCamp/Frappe-Manager/commit/2112ddd4a9969788431fce39db5660603c600ba4"><code>2112ddd</code></a>)</li>
+<li><strong>cli:</strong> Improve example command substitution with dynamic parameter handling (<a href="https://github.com/rtCamp/Frappe-Manager/commit/259938e4680c6170d20d6f61e77d6d0edd376937"><code>259938e</code></a>)</li>
+<li><strong>logger:</strong> Integrate contextual logging across commands and managers (<a href="https://github.com/rtCamp/Frappe-Manager/commit/00fe58488b642d10ae4cf9aeeea78cddb44df0c5"><code>00fe584</code></a>)</li>
+<li><strong>migrate:</strong> Add granular flags for confirmation and failure handling (<a href="https://github.com/rtCamp/Frappe-Manager/commit/fde91fc9d16e9b8c6dca3c2af1c66ec8a7e0961b"><code>fde91fc</code></a>)</li>
+<li>Add required_flag to migration and SSL prompts (<a href="https://github.com/rtCamp/Frappe-Manager/commit/c9c71988c4799fa801c0d8705f5c45f063f912fb"><code>c9c7198</code></a>)</li>
+<li>Update commands with non-interactive support (<a href="https://github.com/rtCamp/Frappe-Manager/commit/bb49b3fa84db190dfed900e83bbb13cb3b8bc5dd"><code>bb49b3f</code></a>)</li>
+<li>Add global --non-interactive/-n flag (<a href="https://github.com/rtCamp/Frappe-Manager/commit/820a9d29e1d61c1baf82f05ff9e8f8ed5e653e87"><code>820a9d2</code></a>)</li>
+<li>Add required_flag parameter to OutputHandler implementations (<a href="https://github.com/rtCamp/Frappe-Manager/commit/370695b8a6db50d4fa743961209aeb6012e82d6d"><code>370695b</code></a>)</li>
+<li><strong>output:</strong> Implement global output handler registry and migrate core commands (<a href="https://github.com/rtCamp/Frappe-Manager/commit/ea1438863efea914ab145cb75392f3b376706e58"><code>ea14388</code></a>)</li>
+<li>Add script to find best Ubuntu mirror (<a href="https://github.com/rtCamp/Frappe-Manager/commit/25fb0778176c03ec1d594c6bde42398d40d42ad3"><code>25fb077</code></a>)</li>
+<li>Add best mirror selection for package installations (<a href="https://github.com/rtCamp/Frappe-Manager/commit/0096cfc7acc929b066fada4bb9d67b376310e861"><code>0096cfc</code></a>)</li>
+<li>Improve Python/Node version management and output (<a href="https://github.com/rtCamp/Frappe-Manager/commit/1be41053f7c14f0a5827e5e2b3c295f05c92bd8c"><code>1be4105</code></a>)</li>
+<li>Introduce interactive bench selection and improve CLI help (<a href="https://github.com/rtCamp/Frappe-Manager/commit/feab3d7e76fe52d0f5927e8995234873f422933f"><code>feab3d7</code></a>)</li>
+<li>Add comprehensive migration command and system (<a href="https://github.com/rtCamp/Frappe-Manager/commit/2e721526e81643a2dae6191f2a7b6f81dfd3360e"><code>2e72152</code></a>)</li>
+<li>Enhance database backup and SSL management (<a href="https://github.com/rtCamp/Frappe-Manager/commit/8b40ab7d8526e196f55abeda57de3be04361a6c1"><code>8b40ab7</code></a>)</li>
+<li>Implement migration for v0.19.0 (<a href="https://github.com/rtCamp/Frappe-Manager/commit/77082efb27d22575a6460d83d1c799e67bcc34cb"><code>77082ef</code></a>)</li>
+<li>Add domain uniqueness validation for benches (<a href="https://github.com/rtCamp/Frappe-Manager/commit/c532e5dc1fc892f0c52b21adb5308b45b7be8421"><code>c532e5d</code></a>)</li>
+<li>Add explicit primary/alias domain config (<a href="https://github.com/rtCamp/Frappe-Manager/commit/7853fb5d3c15e37fd5b8f12bf7be737898ca20bc"><code>7853fb5</code></a>)</li>
+<li>Add Docker restart policy management (<a href="https://github.com/rtCamp/Frappe-Manager/commit/b24fe0fc1e2582cff743e346e02345c29251d4dd"><code>b24fe0f</code></a>)</li>
+<li>Add TTY detection and non-TTY fallbacks to DisplayManager (<a href="https://github.com/rtCamp/Frappe-Manager/commit/681f4f354e7b0343631ac18da6d40eba12ee005b"><code>681f4f3</code></a>)</li>
+<li>Replace Rich Prompt with InquirerPy for better UX (<a href="https://github.com/rtCamp/Frappe-Manager/commit/0e9590a96320e4c6fb04b1bb54bb4d6ca8b1472d"><code>0e9590a</code></a>)</li>
+<li>Implement <code>self compose</code> and bench validation (<a href="https://github.com/rtCamp/Frappe-Manager/commit/0eabd48de1e79de36e26cdc7c826447e898b8f8d"><code>0eabd48</code></a>)</li>
+<li>Generate unique database names for benches (<a href="https://github.com/rtCamp/Frappe-Manager/commit/3da24e18d762d2e134e8cb5f3c791638e9f6eb1f"><code>3da24e1</code></a>)</li>
+<li>Add nginx restart support to fm restart command (<a href="https://github.com/rtCamp/Frappe-Manager/commit/a45bcefc069afcfeff7572a3c4f1b22c80fb81fc"><code>a45bcef</code></a>)</li>
+<li>Add Python/Node version management and flexible restart options (<a href="https://github.com/rtCamp/Frappe-Manager/commit/3264687fdf461bd5c86dbd5e85d797de311ab18b"><code>3264687</code></a>)</li>
+<li>Enhance shell and logs commands with flexible service targeting and docker compose run support (<a href="https://github.com/rtCamp/Frappe-Manager/commit/33506085b9dca50166bd910fc6762ac534d28c0d"><code>3350608</code></a>)</li>
+<li>Add parallel app cloning with multi-auth fallback and monorepo support (<a href="https://github.com/rtCamp/Frappe-Manager/commit/87cf56264c35370199f0be6776626c99ef72c9c6"><code>87cf562</code></a>)</li>
+<li>Add configurable upload size limit for bench sites (<a href="https://github.com/rtCamp/Frappe-Manager/commit/39097356724fa02d0dc1b58e0a001fa3842f3872"><code>3909735</code></a>)</li>
+<li><strong>shell:</strong> Add command execution mode with -c flag and passthrough syntax (<a href="https://github.com/rtCamp/Frappe-Manager/commit/f0332aeac4660196ae11d475213e5ff45200b496"><code>f0332ae</code></a>)</li>
+<li><strong>ssl:</strong> Add acme-sh passthrough command for advanced certificate operations (<a href="https://github.com/rtCamp/Frappe-Manager/commit/0e5cfb1a569b9d3b7cc6c1732733379d914b8ce7"><code>0e5cfb1</code></a>)</li>
+<li>Add database deletion control flags and improve SSL certificate cleanup (<a href="https://github.com/rtCamp/Frappe-Manager/commit/30d63240aa13f834f3d59acefa28803878067bbc"><code>30d6324</code></a>)</li>
+<li><strong>ssl:</strong> Fix certificate structure bugs and remove duplicate challenge field (<a href="https://github.com/rtCamp/Frappe-Manager/commit/c28ce344985ae77653f474ef7dfd533f02a98e6d"><code>c28ce34</code></a>)</li>
+<li><strong>ssl:</strong> Add standalone SSL management with CNAME delegation support (<a href="https://github.com/rtCamp/Frappe-Manager/commit/a39fbd219c54b8fe1526805dba4429bb39b4250a"><code>a39fbd2</code></a>)</li>
+<li><strong>ssl:</strong> Enhance SSL commands with output handler, validation, and improved UX (<a href="https://github.com/rtCamp/Frappe-Manager/commit/fd9a68c32bb7053a93ed1c209c0c24ebc1228910"><code>fd9a68c</code></a>)</li>
+<li><strong>logger:</strong> Add contextual logging with verbose control and comprehensive testing (<a href="https://github.com/rtCamp/Frappe-Manager/commit/7ece5ffc0c23a95f8ecfd28736c9b4100f6253fb"><code>7ece5ff</code></a>)</li>
+<li>Add ComposeOrchestrator and DockerClient integrations (<a href="https://github.com/rtCamp/Frappe-Manager/commit/1915324eeb5e300922ae9f12870410ef585dbacf"><code>1915324</code></a>)</li>
+<li>Update alias domain support in site creation (<a href="https://github.com/rtCamp/Frappe-Manager/commit/54413fb08bb5256aaef08d631cc77d8d2ac23a90"><code>54413fb</code></a>)</li>
+<li>Add alias_domains support in BenchConfig (<a href="https://github.com/rtCamp/Frappe-Manager/commit/e8d6fabcd4b11492b257fd735a4eb70329ad6969"><code>e8d6fab</code></a>)</li>
+<li>Support alias domains for SSL and site management (<a href="https://github.com/rtCamp/Frappe-Manager/commit/aa172fac070e0b81357026ca1c3d1de474d6a428"><code>aa172fa</code></a>)</li>
+<li>Add alias domain management to bench (<a href="https://github.com/rtCamp/Frappe-Manager/commit/8cd3cd3d26a44d45b664b982c5e2a4f020e0888d"><code>8cd3cd3</code></a>)</li>
+<li>Add alias domain support for SSL symlinks (<a href="https://github.com/rtCamp/Frappe-Manager/commit/5b3068f34386181ef204ad10a37ab08eb3ce9d21"><code>5b3068f</code></a>)</li>
+<li>Add alias domains support for SSL certificates (<a href="https://github.com/rtCamp/Frappe-Manager/commit/e28fef4e84856228e9ada2bb08ef8b6985bac1bc"><code>e28fef4</code></a>)</li>
+<li>Add support for custom Redis URL in CLI (<a href="https://github.com/rtCamp/Frappe-Manager/commit/af558cafa432a5f010ee019767fd59b5eb61bc3a"><code>af558ca</code></a>)</li>
+<li>Add CLI for RQ Worker Controller (<a href="https://github.com/rtCamp/Frappe-Manager/commit/b500aeb1e4bede7df5859d80fc08dd3f33b74166"><code>b500aeb</code></a>)</li>
+<li>Extend DockerClient to support new options (<a href="https://github.com/rtCamp/Frappe-Manager/commit/bdcbc84b52e436f96171404107f7ddeaff4bea12"><code>bdcbc84</code></a>)</li>
+</ul>
+<h3 id="performance">Performance<a class="headerlink" href="#performance" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add fast-exec entrypoint for one-off commands (<a href="https://github.com/rtCamp/Frappe-Manager/commit/7b5d95bae4cdec54750d4a444804ffba4d7df697"><code>7b5d95b</code></a>)</li>
+<li>Use numeric gosu for instant container startup (<a href="https://github.com/rtCamp/Frappe-Manager/commit/e4753ee8dba104d07171fb71908b9e8d550e5625"><code>e4753ee</code></a>)</li>
+<li>Add lightweight entrypoint for faster commands (<a href="https://github.com/rtCamp/Frappe-Manager/commit/321017418a561adc52292426205b2250eb721cf5"><code>3210174</code></a>)</li>
+<li>Remove slow recursive chown on /opt (<a href="https://github.com/rtCamp/Frappe-Manager/commit/4a84a0047fb9b3da55b5fcd7951cd3e5779b16fa"><code>4a84a00</code></a>)</li>
+<li>Optimize container restarts for updates and domain changes (<a href="https://github.com/rtCamp/Frappe-Manager/commit/41c93bdbfe34cfc46756a72bb5055c6c254140ec"><code>41c93bd</code></a>)</li>
+<li>Optimize output handler Phase 2 (table reuse in live_lines) (<a href="https://github.com/rtCamp/Frappe-Manager/commit/79376a1c9b1b38e63076bca55e59417c3051ccd5"><code>79376a1</code></a>)</li>
+<li>Optimize output handler Phase 1 (console singleton + deprecation caching + emoji constants) (<a href="https://github.com/rtCamp/Frappe-Manager/commit/74a784f5c3785ca4dfb45d3971279ac8ef674df7"><code>74a784f</code></a>)</li>
+</ul>
+<h3 id="refactoring">Refactoring<a class="headerlink" href="#refactoring" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Move VS Code configs to JSON templates (<a href="https://github.com/rtCamp/Frappe-Manager/commit/6d55f06840693bdff3133dc5df068aecd890cd9e"><code>6d55f06</code></a>)</li>
+<li>Refactor output and supervisor handling (<a href="https://github.com/rtCamp/Frappe-Manager/commit/77556462c58a0941bd54b095569d976859e4cc05"><code>7755646</code></a>)</li>
+<li>Refactor supervisor configuration generation (<a href="https://github.com/rtCamp/Frappe-Manager/commit/35167f4bbe6977a61b632a88b789f7a8fd3ec483"><code>35167f4</code></a>)</li>
+<li>Streamline supervisor config generation (<a href="https://github.com/rtCamp/Frappe-Manager/commit/f9ea11aba1c968da120ddc42e9b9814d8d47e7fb"><code>f9ea11a</code></a>)</li>
+<li>Update Sass mix() function calls (<a href="https://github.com/rtCamp/Frappe-Manager/commit/3b47694a53672c4d9d460743332c7d042e239767"><code>3b47694</code></a>)</li>
+<li>Migrate CLI examples to typer-examples (<a href="https://github.com/rtCamp/Frappe-Manager/commit/f03dfd25bf36fe6585cb661a164bc03eb21d6037"><code>f03dfd2</code></a>)</li>
+<li>Refine process kill message and display (<a href="https://github.com/rtCamp/Frappe-Manager/commit/c7ba01841d7fa577e8d23c6e980fad1af08e5c6b"><code>c7ba018</code></a>)</li>
+<li>Clean up command output and internal API (<a href="https://github.com/rtCamp/Frappe-Manager/commit/ab3b9afec76baa64283e67e810921c95d88c4cdd"><code>ab3b9af</code></a>)</li>
+<li>Refactor service output and remove force kill (<a href="https://github.com/rtCamp/Frappe-Manager/commit/429fd8f17f308e6582d14a8b5a2857f1f35305fd"><code>429fd8f</code></a>)</li>
+<li>Refactor command execution and utilities (<a href="https://github.com/rtCamp/Frappe-Manager/commit/e540a94b05700a786ab6e38f234ba4c1fb290f34"><code>e540a94</code></a>)</li>
+<li>Extract RQ worker management to helper module (<a href="https://github.com/rtCamp/Frappe-Manager/commit/e5952186174b2cd5f60a9e5c3f4047e9ea743277"><code>e595218</code></a>)</li>
+<li>Refactor RQ worker drain options (<a href="https://github.com/rtCamp/Frappe-Manager/commit/1d2b375aa5a36bba45997c123efff7ce1034e185"><code>1d2b375</code></a>)</li>
+<li>Refactor RQ worker suspension and idle handling (<a href="https://github.com/rtCamp/Frappe-Manager/commit/f05b69b4d772fd2efe17739ea0d718d8ef062a96"><code>f05b69b</code></a>)</li>
+<li>Refactor RQ worker suspension logic (<a href="https://github.com/rtCamp/Frappe-Manager/commit/26dc3cd502c2a133c1770a76dd48c3f6816ec5b5"><code>26dc3cd</code></a>)</li>
+<li>Refactor RQ worker suspension and cleanup CLI (<a href="https://github.com/rtCamp/Frappe-Manager/commit/deebcf2a9ebd18d1f871c806bb647cb231f4bfb1"><code>deebcf2</code></a>)</li>
+<li>Refactor bench connection configuration logic (<a href="https://github.com/rtCamp/Frappe-Manager/commit/33bdbb2f079af9f950b1089083fbaf142dfc765f"><code>33bdbb2</code></a>)</li>
+<li><strong>fmx:</strong> Improve status command RQ reporting and process state tracking (<a href="https://github.com/rtCamp/Frappe-Manager/commit/451425b58771ba32afcf394558dbc9e962ea60e0"><code>451425b</code></a>)</li>
+<li><strong>fmx:</strong> Simplify bench-wrapper and streamline restart/stop commands (<a href="https://github.com/rtCamp/Frappe-Manager/commit/ea6a7bba31bd77110bb1a0091c109c3b50f1b322"><code>ea6a7bb</code></a>)</li>
+<li><strong>fmx:</strong> Improve UI output and add verbose/debug flags (<a href="https://github.com/rtCamp/Frappe-Manager/commit/3100031b0270e5af35942c773182f8c03ee0964b"><code>3100031</code></a>)</li>
+<li><strong>fmx:</strong> Comprehensive codebase audit fixes for stability (<a href="https://github.com/rtCamp/Frappe-Manager/commit/46c131bebc110dda4f6bcb538c5d6e3ea2d37e19"><code>46c131b</code></a>)</li>
+<li>Simplify corepack setup using FNM variable (<a href="https://github.com/rtCamp/Frappe-Manager/commit/32d528a0f65e7b396fbc62078d60adb5595f9501"><code>32d528a</code></a>)</li>
+<li>Use corepack to enable yarn (<a href="https://github.com/rtCamp/Frappe-Manager/commit/a14ada427c3974a794170f354142e043e0e3c0ae"><code>a14ada4</code></a>)</li>
+<li>Remove exec-command.sh wrapper script (<a href="https://github.com/rtCamp/Frappe-Manager/commit/0e6c94081f10e831bcf5b7bb184651606b2750f4"><code>0e6c940</code></a>)</li>
+<li>Generalize image tag update in migration (<a href="https://github.com/rtCamp/Frappe-Manager/commit/fbbc2b816a14861e4085b60d5057551f3af1f3cc"><code>fbbc2b8</code></a>)</li>
+<li>Use dynamic version in migration script (<a href="https://github.com/rtCamp/Frappe-Manager/commit/341a8d3588f8fe9b48e51e348c194ac73f561847"><code>341a8d3</code></a>)</li>
+<li>Derive image tags from package version (<a href="https://github.com/rtCamp/Frappe-Manager/commit/4a7fb98fb711aaab22b613933334a222c44501f9"><code>4a7fb98</code></a>)</li>
+<li>Use exec-command.sh for container commands (<a href="https://github.com/rtCamp/Frappe-Manager/commit/508d2c2c6ddb2125cb75374de45e9bc68549d3dc"><code>508d2c2</code></a>)</li>
+<li>Refactor Docker <code>run</code> command execution (<a href="https://github.com/rtCamp/Frappe-Manager/commit/1dd75f780195189ae78dd9846909c057e905a98a"><code>1dd75f7</code></a>)</li>
+<li>Remove redundant bench name check (<a href="https://github.com/rtCamp/Frappe-Manager/commit/d74580109d118a9b8f450c625f440fb4fd09eba6"><code>d745801</code></a>)</li>
+<li>Remove redundant bench name check (<a href="https://github.com/rtCamp/Frappe-Manager/commit/046d1600e33a5fc338d324e9a5336613ce44490b"><code>046d160</code></a>)</li>
+<li>Refactor supervisor config generation (<a href="https://github.com/rtCamp/Frappe-Manager/commit/c66d0854940a430ec512bc6b49bc57568129464c"><code>c66d085</code></a>)</li>
+<li>Remove deprecated --sync-config flag (<a href="https://github.com/rtCamp/Frappe-Manager/commit/b1dedea8d085b60c3db209f0fce4cb40f5c80b4c"><code>b1dedea</code></a>)</li>
+<li>Clarify database backup message (<a href="https://github.com/rtCamp/Frappe-Manager/commit/0a729f61b8a6f83757611e3da9f822e618ac0dd3"><code>0a729f6</code></a>)</li>
+<li>Simplify backup skip warning message (<a href="https://github.com/rtCamp/Frappe-Manager/commit/747948160f0194142c246d2f6133e844056fe916"><code>7479481</code></a>)</li>
+<li>Refactor and simplify shell command (<a href="https://github.com/rtCamp/Frappe-Manager/commit/aaa887537665c26a344084505b98034da327d6a2"><code>aaa8875</code></a>)</li>
+<li><strong>docker:</strong> Replace subprocess with os.execvp for docker compose execution (<a href="https://github.com/rtCamp/Frappe-Manager/commit/10771c6e08b7f56d13589ce09e7a54b040566ffb"><code>10771c6</code></a>)</li>
+<li><strong>logger:</strong> Simplify LiveAwareRichHandler by relying on Rich Console coordination (<a href="https://github.com/rtCamp/Frappe-Manager/commit/e8155c7b30c31232b6a3d13b93f724b4fe81d20f"><code>e8155c7</code></a>)</li>
+<li><strong>logger:</strong> Simplify verbose flag and add configurable file logging (<a href="https://github.com/rtCamp/Frappe-Manager/commit/46bb2d72581f3260dca075edd65cf70d8c366603"><code>46bb2d7</code></a>)</li>
+<li><strong>docker:</strong> Add auto-streaming support to docker compose wrapper (<a href="https://github.com/rtCamp/Frappe-Manager/commit/1d99023177ff3f2a6c01e259d97da67a28ef0543"><code>1d99023</code></a>)</li>
+<li>Phase 3 code quality improvements (type hints + f-string optimization) (<a href="https://github.com/rtCamp/Frappe-Manager/commit/4b3acef314ee619951c706b5154429ae49a2c10d"><code>4b3acef</code></a>)</li>
+<li>Remove DisplayManager module completely (<strong>BREAKING</strong>) (<a href="https://github.com/rtCamp/Frappe-Manager/commit/47bde2c6c873329adf12a5fe89b72ff71aee9ab1"><code>47bde2c</code></a>)</li>
+<li>Inline DisplayManager into RichOutputHandler (<strong>BREAKING</strong>) (<a href="https://github.com/rtCamp/Frappe-Manager/commit/ad0e71d4807af33387bb7bce2809bbf549364fc4"><code>ad0e71d</code></a>)</li>
+<li>Remove final richprint usage and unused imports (<a href="https://github.com/rtCamp/Frappe-Manager/commit/652489444f9345ded77979edbb7f94c5e36dfda8"><code>6524894</code></a>)</li>
+<li>Enhance app repository validation with detailed auth reporting (<a href="https://github.com/rtCamp/Frappe-Manager/commit/650eaa792ee584f938408915307eee3045220a15"><code>650eaa7</code></a>)</li>
+<li>Add migration check whitelist and multi-level command path detection (<a href="https://github.com/rtCamp/Frappe-Manager/commit/8070c91c611e6534d5edeee9cac2915c9c47f926"><code>8070c91</code></a>)</li>
+<li>Implement interactive migration flow with infrastructure and bench separation (<a href="https://github.com/rtCamp/Frappe-Manager/commit/817a3daf129151d36c7630c2d10d77ba7e97bb72"><code>817a3da</code></a>)</li>
+<li>Delete old sub_commands/ssl_command.py (<a href="https://github.com/rtCamp/Frappe-Manager/commit/f06001fc12bae55597bf834a0fac4c66db6633ee"><code>f06001f</code></a>)</li>
+<li>Move SSL commands to commands/ssl/ module (<a href="https://github.com/rtCamp/Frappe-Manager/commit/b4f9d3c058c7f7136402db616d7cbc507495c9db"><code>b4f9d3c</code></a>)</li>
+<li>Delete old sub_commands/self_commands.py (<a href="https://github.com/rtCamp/Frappe-Manager/commit/64e01bba80b0882469e99526ad2187c547c714fc"><code>64e01bb</code></a>)</li>
+<li>Move self commands to commands/self/ module (<a href="https://github.com/rtCamp/Frappe-Manager/commit/1da74b4f78439fc222ceafca5afd751c634b2a24"><code>1da74b4</code></a>)</li>
+<li>Delete old services_manager/commands.py (<a href="https://github.com/rtCamp/Frappe-Manager/commit/4e3b85046195b644309a45666f7f164d736e9fd3"><code>4e3b850</code></a>)</li>
+<li>Move services commands to commands/services/ module (<a href="https://github.com/rtCamp/Frappe-Manager/commit/e14ff551cae58af3efa635ee72a608d0e1035d38"><code>e14ff55</code></a>)</li>
+<li>Create commands module structure (<a href="https://github.com/rtCamp/Frappe-Manager/commit/13fd4d904c09827fe6f27b2fc3944e4a1ab74234"><code>13fd4d9</code></a>)</li>
+<li>Remove unused ComposeOrchestrator layer (<a href="https://github.com/rtCamp/Frappe-Manager/commit/1fc3eca98c4a269e3f31adf606b491149ebbb5a1"><code>1fc3eca</code></a>)</li>
+<li>Add port conflict detection to DockerException and remove unused port checking utilities (<a href="https://github.com/rtCamp/Frappe-Manager/commit/94d0ae6a14bd7a2a508c4ceeb4e8286e02cba5cb"><code>94d0ae6</code></a>)</li>
+<li>Clean up output formatting and remove unused variables (<a href="https://github.com/rtCamp/Frappe-Manager/commit/74752cb31ac02dae2921e8d84979d19106a2b6ec"><code>74752cb</code></a>)</li>
+<li>Enhance SSL renewal with force/dry-run support and improve output formatting (<a href="https://github.com/rtCamp/Frappe-Manager/commit/3e402f92d1f7548b0ba3fb71918cdac06792743f"><code>3e402f9</code></a>)</li>
+<li>Use AppConfig objects consistently throughout app handling (<a href="https://github.com/rtCamp/Frappe-Manager/commit/24d2bc75855c8bccab0d69f0b313f57377750d7e"><code>24d2bc7</code></a>)</li>
+<li>Parallelize app validation and improve progress visibility (<a href="https://github.com/rtCamp/Frappe-Manager/commit/163a9aa85520fe6d4068265c44f394a132e7f6fb"><code>163a9aa</code></a>)</li>
+<li>Improve migration UX with clearer prompts and runtime rebuild handling (<a href="https://github.com/rtCamp/Frappe-Manager/commit/1050f618e32e7e23547486cc0109e9edd662e844"><code>1050f61</code></a>)</li>
+<li>Refactor commands and add progress spinners (<a href="https://github.com/rtCamp/Frappe-Manager/commit/3e9cd918d0aad8081283d45f2790cb549f8002f8"><code>3e9cd91</code></a>)</li>
+<li>Refactor SSL challenge handling and CLI examples (<a href="https://github.com/rtCamp/Frappe-Manager/commit/90f3835f732f0a07e968fd58150160f5cbfa5639"><code>90f3835</code></a>)</li>
+<li>Improve BenchNotFoundError handling (<a href="https://github.com/rtCamp/Frappe-Manager/commit/8e9891485b02bb38ef401a62b131563a17959e21"><code>8e98914</code></a>)</li>
+<li>Refactor database deletion and command execution (<a href="https://github.com/rtCamp/Frappe-Manager/commit/4ccab3eca0c6035819d77fbf16b277358a875451"><code>4ccab3e</code></a>)</li>
+<li>Centralize Docker command output streaming (<a href="https://github.com/rtCamp/Frappe-Manager/commit/8044d36d1fb9e1802b3ba13881ec92af6459a601"><code>8044d36</code></a>)</li>
+<li>Refactor migration system and output handling (<a href="https://github.com/rtCamp/Frappe-Manager/commit/c6bc3714d78bbd204bcaa2b4260072ab77477386"><code>c6bc371</code></a>)</li>
+<li>Refactor migration command output and logic (<a href="https://github.com/rtCamp/Frappe-Manager/commit/d16d6b564e4f5292a26c8bd54882ae5db1f70e75"><code>d16d6b5</code></a>)</li>
+<li>Refactor user data input format handling (<a href="https://github.com/rtCamp/Frappe-Manager/commit/d673c59f3fb8d4673faba63760c8888c35e1a97c"><code>d673c59</code></a>)</li>
+<li>Refactor migration system with rolling policy (<a href="https://github.com/rtCamp/Frappe-Manager/commit/283930b913e80bfab1008d2b2de99d4b708b7c18"><code>283930b</code></a>)</li>
+<li>Improve Nginx multi-domain and build process (<a href="https://github.com/rtCamp/Frappe-Manager/commit/5521f3f2ede6c9467be0a8e6c3dec4e38c37183d"><code>5521f3f</code></a>)</li>
+<li>Refactor error handling and bench service init (<a href="https://github.com/rtCamp/Frappe-Manager/commit/f2497b7baf7ad34302565c627e82ebe83250c0cc"><code>f2497b7</code></a>)</li>
+<li>Refactor output management with context managers (<a href="https://github.com/rtCamp/Frappe-Manager/commit/e0d504a64f09761c2f393afd459b7399176377c8"><code>e0d504a</code></a>)</li>
+<li>Remove trailing periods from output messages (<a href="https://github.com/rtCamp/Frappe-Manager/commit/9573b82519c465582f0b8d9db1a1e71b60dcc0b2"><code>9573b82</code></a>)</li>
+<li>Use output.prompt_ask instead of typer.confirm (<a href="https://github.com/rtCamp/Frappe-Manager/commit/5bc3408522dbd409a015f5993198c168ec75812b"><code>5bc3408</code></a>)</li>
+<li>Improve Python/Node installation messages (<a href="https://github.com/rtCamp/Frappe-Manager/commit/aacf288a77c1fe696c3064970918c68ab16c7b68"><code>aacf288</code></a>)</li>
+<li>Remove oh-my-zsh, switch to system-wide bash config (<a href="https://github.com/rtCamp/Frappe-Manager/commit/5680c2860631ff8eaf8edb14ce2d89f0dc9f9ede"><code>5680c28</code></a>)</li>
+<li>Update SSL challenge type property name (<a href="https://github.com/rtCamp/Frappe-Manager/commit/75da14623d12c64189ed1f1c371fb14a2353b077"><code>75da146</code></a>)</li>
+<li>Improve code readability and documentation (<a href="https://github.com/rtCamp/Frappe-Manager/commit/e8b849226db3eb97da5b09354de2b49d5b09f9b6"><code>e8b8492</code></a>)</li>
+<li>Reduce output verbosity during bench operations (<a href="https://github.com/rtCamp/Frappe-Manager/commit/c0c080a2d2f9dcce4bf2b9ccee826608b1740abd"><code>c0c080a</code></a>)</li>
+<li>Implement 5-phase bench initialization with docker compose run (<a href="https://github.com/rtCamp/Frappe-Manager/commit/826d59541ddff383dd2760aeb2a7cf961361d422"><code>826d595</code></a>)</li>
+<li>Migrate Docker from pyenv/nvm to fnm/uv for Python and Node management (<a href="https://github.com/rtCamp/Frappe-Manager/commit/e13f8a97971c930328e40be3934cac8de55a5704"><code>e13f8a9</code></a>)</li>
+<li>Remove frappe_branch param and integrate frappe into apps_list (<a href="https://github.com/rtCamp/Frappe-Manager/commit/94fbda8f992dcbab3e9a1a02fabc004912fe2406"><code>94fbda8</code></a>)</li>
+<li>Remove unused certbot dependencies (<a href="https://github.com/rtCamp/Frappe-Manager/commit/bcbaa1b16e15128fdfd016269a146083b0866c89"><code>bcbaa1b</code></a>)</li>
+<li>Add generic subprocess streaming and enhance SSL certificate operations with live output (<a href="https://github.com/rtCamp/Frappe-Manager/commit/06e34191e09eac30b6f519bcdbffdef228581f9e"><code>06e3419</code></a>)</li>
+<li><strong>ssl:</strong> Remove email requirement from Let's Encrypt certificate operations (<a href="https://github.com/rtCamp/Frappe-Manager/commit/1f26e74caa0e8cbf1ecb9df2c060cf4f48c3698a"><code>1f26e74</code></a>)</li>
+<li>Remove SSL and Let's Encrypt options from create/update commands (<a href="https://github.com/rtCamp/Frappe-Manager/commit/e7d1716daea986c49a3151001dcf68c1e14baadf"><code>e7d1716</code></a>)</li>
+<li>Remove redundant 'fm ssl delete' command (<a href="https://github.com/rtCamp/Frappe-Manager/commit/0aec3fe8735cb75ed4868c049382909c4064e7a5"><code>0aec3fe</code></a>)</li>
+<li><strong>ssl:</strong> Remove certbot service in favor of acme.sh (<a href="https://github.com/rtCamp/Frappe-Manager/commit/14e862be08480ae771256a9ab0401a066439b2ca"><code>14e862b</code></a>)</li>
+<li>Bug fixes to acme.sh and ssl manager (<a href="https://github.com/rtCamp/Frappe-Manager/commit/c9cc29c4299032b424971d3874648774492e33b4"><code>c9cc29c</code></a>)</li>
+<li>Enhance logging and display coordination (<a href="https://github.com/rtCamp/Frappe-Manager/commit/d175dcb98aa412bbe43c7678740ea4aef912290c"><code>d175dcb</code></a>)</li>
+<li>Remove Typer framework dependencies from business logic (<a href="https://github.com/rtCamp/Frappe-Manager/commit/c785b94266ff21fe4c4a11981f1839a27439e8c9"><code>c785b94</code></a>)</li>
+<li>Replace richprint.exit() with proper exception handling (<a href="https://github.com/rtCamp/Frappe-Manager/commit/08901f52e3d7520f7ff4f46bb4dcbd09fd2141c0"><code>08901f5</code></a>)</li>
+<li>Decouple CLI from business logic with OutputHandler abstraction (<a href="https://github.com/rtCamp/Frappe-Manager/commit/78dd3a74ffa9e8589ef1d93208d001345840e7ba"><code>78dd3a7</code></a>)</li>
+<li>Rename site_exceptions to exceptions (<a href="https://github.com/rtCamp/Frappe-Manager/commit/38428b342bf327cbe4353c32bfacb693ef97476b"><code>38428b3</code></a>)</li>
+<li>Restructure admin and worker module organization (<a href="https://github.com/rtCamp/Frappe-Manager/commit/72d1c5acb824dea1a66f39a43f82fe09ee604392"><code>72d1c5a</code></a>)</li>
+<li>Replace BenchesManager with BenchService (<a href="https://github.com/rtCamp/Frappe-Manager/commit/cca8269944f2e6934f5b8d6c1b7cf19a53f5fbb5"><code>cca8269</code></a>)</li>
+<li>Extract bench operations into modular classes (<a href="https://github.com/rtCamp/Frappe-Manager/commit/4c1660bce9a9426451241af5de4f32c04550d5f9"><code>4c1660b</code></a>)</li>
+<li>Modularize and restructure Bench class (<a href="https://github.com/rtCamp/Frappe-Manager/commit/9080270890e953480085d644e707dd05659c0c15"><code>9080270</code></a>)</li>
+<li>Simplify Docker compose interaction (<a href="https://github.com/rtCamp/Frappe-Manager/commit/b5b9320ed83ea3465d142089e73f004396789b3a"><code>b5b9320</code></a>)</li>
+<li>Consolidate DockerWrapper and ComposeManager modules (<a href="https://github.com/rtCamp/Frappe-Manager/commit/0106c8cae868c72ed1adadba42a26024e1a94b70"><code>0106c8c</code></a>)</li>
+<li>Decouple nginx-proxy functionality from monolithic manager (<a href="https://github.com/rtCamp/Frappe-Manager/commit/e79d33d74ad946fa95497b1c636948e70d24ac22"><code>e79d33d</code></a>)</li>
+<li>Simplify alias domain handling in SSL management (<a href="https://github.com/rtCamp/Frappe-Manager/commit/90a862102541c1948f568837196608ec109d2271"><code>90a8621</code></a>)</li>
+<li>Update service management logic in site manager (<a href="https://github.com/rtCamp/Frappe-Manager/commit/8aed9f5a2ae205cf8bb10de564d4667449019962"><code>8aed9f5</code></a>)</li>
+<li>Update alias domain handling for SSL and config (<a href="https://github.com/rtCamp/Frappe-Manager/commit/307e4cc4d7033e67b4a1997556560ee4b6dd666f"><code>307e4cc</code></a>)</li>
+<li>Move rq import inside function (<a href="https://github.com/rtCamp/Frappe-Manager/commit/0bf6fe2d16a1c0b81b6dd2b50dd5429a7b036936"><code>0bf6fe2</code></a>)</li>
+</ul>
+<h3 id="styling">Styling<a class="headerlink" href="#styling" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Add custom SCSS stylesheet and docs build tasks (<a href="https://github.com/rtCamp/Frappe-Manager/commit/6bd3f251f4b0c9b1abf160ddcebd80e31f61b315"><code>6bd3f25</code></a>)</li>
+<li>Implement new docs theme with rtCamp branding (<a href="https://github.com/rtCamp/Frappe-Manager/commit/74651dd627de1e9d8655e6b70e1f95909ca7f676"><code>74651dd</code></a>)</li>
+<li>Adjust migration start message display (<a href="https://github.com/rtCamp/Frappe-Manager/commit/b494f664e2ca1b8dbe226f0d1df6f3d330cc7d6b"><code>b494f66</code></a>)</li>
+<li>Apply ruff formatting across codebase (<a href="https://github.com/rtCamp/Frappe-Manager/commit/efb4f1c11aa17d8492d1f9b055096cf8599410e2"><code>efb4f1c</code></a>)</li>
+<li>Update type hints to use <code>Type | None</code> syntax (<a href="https://github.com/rtCamp/Frappe-Manager/commit/aca0d23cafcff357a48a1dbdf971460a27036349"><code>aca0d23</code></a>)</li>
+</ul>
+<h3 id="testing">Testing<a class="headerlink" href="#testing" title="Permanent link">&para;</a></h3>
+<ul>
+<li>Standardize config formatting and improve migration test coverage (<a href="https://github.com/rtCamp/Frappe-Manager/commit/7978800dffbe7568b679e9812270e136ee21c274"><code>7978800</code></a>)</li>
+<li>Update migration tests to use 'yes' parameter instead of 'force' (<a href="https://github.com/rtCamp/Frappe-Manager/commit/a8ffc3746ca28694a1702aaa34eaf3c4bef5622f"><code>a8ffc37</code></a>)</li>
+<li>Add global handler fixture and fix CLI tests (<a href="https://github.com/rtCamp/Frappe-Manager/commit/54d2c4491b33f7f4cb7188ba59fe8f8988bf2807"><code>54d2c44</code></a>)</li>
+<li><strong>ssl:</strong> Add comprehensive tests for SSL certificate lifecycle operations (<a href="https://github.com/rtCamp/Frappe-Manager/commit/c96cf8155acb1188dd97104b0962d5590ef6c4d0"><code>c96cf81</code></a>)</li>
+<li><strong>ssl:</strong> Complete certbot removal and fix all unit tests (<a href="https://github.com/rtCamp/Frappe-Manager/commit/4eb18cb34f43d3976b85962b13d47b478a20f110"><code>4eb18cb</code></a>)</li>
+</ul>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../faq/" class="md-footer__link md-footer__link--prev" aria-label="Previous: FAQ">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                FAQ
+              </div>
+            </div>
+          </a>
+        
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/rtcamp/frappe-manager" target="_blank" rel="noopener" title="GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://pypi.org/project/frappe-manager/" target="_blank" rel="noopener" title="PyPI" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.8 200.5c-7.7-30.9-22.3-54.2-53.4-54.2h-40.1v47.4c0 36.8-31.2 67.8-66.8 67.8H172.7c-29.2 0-53.4 25-53.4 54.3v101.8c0 29 25.2 46 53.4 54.3 33.8 9.9 66.3 11.7 106.8 0 26.9-7.8 53.4-23.5 53.4-54.3v-40.7H226.2v-13.6h160.2c31.1 0 42.6-21.7 53.4-54.2 11.2-33.5 10.7-65.7 0-108.6M286.2 444.7a20.4 20.4 0 1 1 0-40.7 20.4 20.4 0 1 1 0 40.7M167.8 248.1h106.8c29.7 0 53.4-24.5 53.4-54.3V91.9c0-29-24.4-50.7-53.4-55.6-35.8-5.9-74.7-5.6-106.8.1-45.2 8-53.4 24.7-53.4 55.6v40.7h106.9v13.6h-147c-31.1 0-58.3 18.7-66.8 54.2-9.8 40.7-10.2 66.1 0 108.6 7.6 31.6 25.7 54.2 56.8 54.2H101v-48.8c0-35.3 30.5-66.4 66.8-66.4m-6.6-183.4a20.4 20.4 0 1 1 0 40.8 20.4 20.4 0 1 1 0-40.8"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate":null,"base":"..","features":["navigation.tabs","navigation.tabs.sticky","navigation.sections","navigation.indexes","navigation.instant","navigation.instant.prefetch","navigation.instant.progress","navigation.path","navigation.top","navigation.footer","navigation.tracking","search.highlight","search.suggest","search.share","content.code.copy","content.code.annotate","content.tabs.link","content.tooltips","content.action.edit","toc.follow"],"search":"../assets/javascripts/workers/search.e2d2d235.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"alias":true,"default":"latest","provider":"mike"}}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.dbc0afdc.min.js"></script>
+      
+    
+  </body>
+</html>
