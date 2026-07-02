@@ -1,0 +1,30 @@
+name: Tag on Release Merge
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    if: github.event.pull_request.merged == true && startsWith(github.head_ref, 'release/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Create and push tag
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          VERSION=$(echo "$HEAD_REF" | sed 's|^release/||')
+
+          if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Error: branch '$HEAD_REF' does not match release/vX.Y.Z — aborting tag creation."
+            exit 1
+          fi
+
+          git tag "$VERSION"
+          git push origin "$VERSION"

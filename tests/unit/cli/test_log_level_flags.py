@@ -277,5 +277,9 @@ class TestLoggerConfiguration:
                                                 pass
 
                                             mock_get_logger.assert_called()
-                                            call_args = mock_get_logger.call_args
+                                            # get_logger is called twice: once for the contextual logger
+                                            # (file_level only) and once for the command logger (with console_level).
+                                            # We need the second call.
+                                            assert len(mock_get_logger.call_args_list) >= 2
+                                            call_args = mock_get_logger.call_args_list[1]
                                             assert call_args[1]["console_level"] == "INFO"
