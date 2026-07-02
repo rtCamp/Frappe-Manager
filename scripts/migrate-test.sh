@@ -125,7 +125,7 @@ install_fm() {
     fi
     echo "  ${GREEN}✓${NC} Venv created at $FM_TMP" >&2
 
-    if ! ssh_cmd "\"$FM_UV\" pip install --python \"$FM_TMP/bin/python\" \"$repo\" --reinstall --quiet"; then
+    if ! ssh_cmd "\"$FM_UV\" pip install --python \"$FM_TMP/bin/python\" \"$repo\" --reinstall --refresh --quiet"; then
         echo "  ${RED}✗${NC} pip install failed for: $repo" >&2
         exit 1
     fi
