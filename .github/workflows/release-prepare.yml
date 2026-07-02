@@ -1,0 +1,63 @@
+name: Prepare Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release (e.g. 0.19.0)'
+        required: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: develop
+          fetch-depth: 0
+
+      - name: Validate version format
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "Error: '$VERSION' is not a valid semver (expected e.g. 0.19.0)"
+            exit 1
+          fi
+
+      - name: Update changelog
+        uses: orhun/git-cliff-action@v4
+        with:
+          config: cliff.toml
+          args: --unreleased --tag v${{ github.event.inputs.version }} --prepend docs/changelog.md
+        env:
+          GITHUB_REPO: ${{ github.repository }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Open release PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          BRANCH="release/v${VERSION}"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add docs/changelog.md
+          git commit -m "chore(release): prepare for v${VERSION}"
+          git push origin "$BRANCH"
+          gh pr create \
+            --base main \
+            --head "$BRANCH" \
+            --title "chore(release): v${VERSION}" \
+            --body "## Release v${VERSION}
+
+          Review the generated changelog entries below before merging.
+          Merging this PR will automatically create the \`v${VERSION}\` tag and trigger the publish workflow.
+
+          - [ ] Changelog entries look correct
+          - [ ] Version in \`pyproject.toml\` is \`${VERSION}\`"

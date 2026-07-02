@@ -7,43 +7,60 @@ on:
 
 permissions:
   contents: write
-  id-token: write
 
 jobs:
-  changelog:
+  test:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-          ref: develop
 
-      - name: Install git-cliff
-        uses: kenji-miyake/setup-git-cliff@v2
+      - uses: astral-sh/setup-uv@v8
 
-      - name: Update changelog
-        run: git cliff --tag "${{ github.ref_name }}" --output docs/changelog.md
-
-      - name: Commit changelog
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/changelog.md
-          git diff --cached --quiet || git commit -m "docs: update changelog for ${{ github.ref_name }}"
-          git push origin develop
+      - name: Run tests
+        run: uv run --frozen pytest tests/ -v --cov=frappe_manager
 
   publish:
     runs-on: ubuntu-latest
     environment: pypi
-    needs: changelog
-
+    needs: test
+    permissions:
+      id-token: write
     steps:
       - uses: actions/checkout@v7
 
-      - uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v8
 
       - name: Build
         run: uv build
 
-      - name: Publish
+      - name: Publish to PyPI
         run: uv publish
+
+  release:
+    runs-on: ubuntu-latest
+    needs: publish
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Extract release notes from changelog
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          python3 -c "
+          import re, sys
+          with open('docs/changelog.md') as f:
+              content = f.read()
+          pattern = rf'(## v{re.escape(sys.argv[1])}.*?)(?=\n## v|\Z)'
+          match = re.search(pattern, content, re.DOTALL)
+          print(match.group(1).strip() if match else f'Release {sys.argv[1]}')
+          " "$VERSION" > release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file release-notes.md \
+            --verify-tag
