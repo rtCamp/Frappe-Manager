@@ -1,0 +1,3587 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="Documentation for Frappe Manager — simple local Frappe development and deployment">
+      
+      
+      
+        <link rel="canonical" href="https://opensource.rtcamp.com/Frappe-Manager/0.20.0.dev0/reference/configuration/">
+      
+      
+        <link rel="prev" href="../architecture/">
+      
+      
+        <link rel="next" href="../workers/">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../../assets/logo.png">
+      <meta name="generator" content="zensical-0.0.46">
+    
+    
+      
+        <title>Configuration Files - Frappe Manager</title>
+      
+    
+    
+      
+        
+      
+      <link rel="stylesheet" href="../../assets/stylesheets/modern/main.19d3147f.min.css">
+      
+        
+          
+        
+        <link rel="stylesheet" href="../../assets/stylesheets/modern/palette.dfe2e883.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Reddit+Sans,+-apple-system,+BlinkMacSystemFont,+Segoe+UI,+Roboto,+sans-serif:300,300i,400,400i,500,500i,700,700i%7CJetBrains+Mono,+Consolas,+Monaco,+monospace:400,400i,700,700i&amp;display=fallback">
+        <style>:root{--md-text-font:"Reddit Sans, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif";--md-code-font:"JetBrains Mono, Consolas, Monaco, monospace"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../../stylesheets/extra.css">
+    
+    <script>__md_scope=new URL("../..",location),__md_scope.pathname.endsWith("/")||(__md_scope=new URL(__md_scope.pathname+"/",location)),__md_hash=e=>[...e].reduce(((e,t)=>(e<<5)-e+t.charCodeAt(0)),0),__md_get=(e,t=localStorage,_=__md_scope)=>JSON.parse(t.getItem(_.pathname+"."+e)),__md_set=(e,t,_=localStorage,a=__md_scope)=>{try{_.setItem(a.pathname+"."+e,JSON.stringify(t))}catch(e){}},document.documentElement.setAttribute("data-platform",navigator.platform)</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="pink">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer" aria-label="Navigation"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#configuration-files" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+      <div data-md-color-scheme="default" data-md-component="outdated" hidden>
+        
+      </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow md-header--lifted" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../.." title="Frappe Manager" class="md-header__button md-logo" aria-label="Frappe Manager" data-md-component="logo">
+      
+  <img src="../../assets/logo.png" alt="Frappe Manager">
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer" aria-label="Navigation">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-menu" viewBox="0 0 24 24"><path d="M4 5h16M4 12h16M4 19h16"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            Frappe Manager
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              Configuration Files
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="none" data-md-color-scheme="default" data-md-color-primary="deep-orange" data-md-color-accent="pink"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-moon" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.803a6 6 0 0 0 8.268 8.268c.344-.215.825-.004.803.401"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="none" data-md-color-scheme="slate" data-md-color-primary="deep-orange" data-md-color-accent="pink"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search" aria-label="Search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-search" viewBox="0 0 24 24"><path d="m21 21-4.34-4.34"/><circle cx="11" cy="11" r="8"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog" aria-label="Search">
+  <button type="button" class="md-search__button">
+    Search
+  </button>
+</div>
+      
+    
+    <div class="md-header__source">
+      
+        <a href="https://github.com/rtcamp/frappe-manager" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rtcamp/frappe-manager
+  </div>
+</a>
+      
+    </div>
+  </nav>
+  
+    
+      
+<nav class="md-tabs" aria-label="Tabs" data-md-component="tabs">
+  <div class="md-grid">
+    <ul class="md-tabs__list">
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../.." class="md-tabs__link">
+        
+  
+  Home
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../getting-started/" class="md-tabs__link">
+          
+  
+  Getting Started
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../guides/" class="md-tabs__link">
+          
+  
+  Guides
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item">
+        <a href="../../commands/" class="md-tabs__link">
+          
+  
+  Commands
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+    
+  
+  
+    
+      
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-tabs__item md-tabs__item--active">
+        <a href="../" class="md-tabs__link">
+          
+  
+  Reference
+
+        </a>
+      </li>
+    
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../faq/" class="md-tabs__link">
+        
+  
+  FAQ
+
+      </a>
+    </li>
+  
+
+      
+        
+  
+  
+  
+  
+    <li class="md-tabs__item">
+      <a href="../../changelog/" class="md-tabs__link">
+        
+  
+  Changelog
+
+      </a>
+    </li>
+  
+
+      
+    </ul>
+  </div>
+</nav>
+    
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+  
+
+
+<nav class="md-nav md-nav--primary md-nav--lifted" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../.." title="Frappe Manager" class="md-nav__button md-logo" aria-label="Frappe Manager" data-md-component="logo">
+      
+  <img src="../../assets/logo.png" alt="Frappe Manager">
+
+    </a>
+    Frappe Manager
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/rtcamp/frappe-manager" title="Go to repository" class="md-source" data-md-component="source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+  </div>
+  <div class="md-source__repository">
+    rtcamp/frappe-manager
+  </div>
+</a>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../.." class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Home
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../getting-started/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Getting Started
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Getting Started
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/requirements/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Requirements
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/installation/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Installation
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../getting-started/quick-start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Quick Start
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../guides/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Guides
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Guides
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/environments/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Environments
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/ssl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  SSL / HTTPS
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/app-management/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  App Management
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/admin-tools/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Admin Tools
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/vscode/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  VSCode Integration
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/wsl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Windows / WSL
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/external-database/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  External Database
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/upload-limits/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Upload Limits
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/google-api/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Google API Development
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/fmx/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fmx — In-Container Services
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/python-node-versions/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Python & Node Versions
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../guides/backup-restore/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Backup & Restore
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../../commands/" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Commands
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Commands
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/create/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fm create
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/start/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fm start
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/stop/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fm stop
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/restart/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fm restart
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/delete/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fm delete
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/list/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fm list
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/info/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fm info
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/logs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fm logs
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/shell/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fm shell
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/code/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fm code
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/update/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fm update
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/reset/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fm reset
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/migrate/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fm migrate
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/ngrok/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fm ngrok
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    
+    
+      
+        
+      
+        
+      
+    
+    
+    
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4_16" >
+        
+          
+          <label class="md-nav__link" for="__nav_4_16" id="__nav_4_16_label" tabindex="0">
+            
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fm ssl
+
+    
+  </span>
+  
+  
+
+            <span class="md-nav__icon md-icon"></span>
+          </label>
+        
+        <nav class="md-nav" data-md-level="2" aria-labelledby="__nav_4_16_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_4_16">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  fm ssl
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/ssl/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Ssl
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/ssl-dns-config-cloudflare/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Cloudflare DNS Config
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/services/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fm services
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../commands/self/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  fm self
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+      
+        
+        
+      
+      
+        
+      
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--section md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Reference
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+  Reference
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../architecture/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Architecture
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Configuration Files
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="././" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Configuration Files
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Quick Reference
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Quick Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#global-config-fm_configtoml" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Global Config (<code>fm_config.toml</code>)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bench-config-bench_configtoml" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bench Config (<code>bench_config.toml</code>)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#global-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Global Configuration
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Global Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#version" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>version</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ngrok-auth-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ngrok_auth_token</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#validation-enforce-domain-uniqueness" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>validation.enforce_domain_uniqueness</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logs-file-level" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>logs.file_level</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dns-providers-cloudflare-api-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>dns_providers.cloudflare.api_token</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dns-providers-cloudflare-api-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>dns_providers.cloudflare.api_key</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dns-providers-cloudflare-email" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>dns_providers.cloudflare.email</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bench-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bench Configuration
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Bench Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#name" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>name</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#developer-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>developer_mode</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#admin-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>admin_tools</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-type" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>environment_type</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#upload-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>upload_limit</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#restart-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>restart_policy</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#alias-domains" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>alias_domains</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-uv" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>use_uv</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>db_name</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#github-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>github_token</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#python-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>python_version</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#node-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>node_version</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#admin-tools-username" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>admin_tools_username</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#admin-tools-password" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>admin_tools_password</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssl-certificates" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ssl_certificates</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dns-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>dns_providers</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Environment Variables
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Environment Variables">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#env-frappe-manager-home" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FRAPPE_MANAGER_HOME</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#env-fm-letsencrypt-staging" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FM_LETSENCRYPT_STAGING</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#directory-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Directory Layout
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../workers/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Workers & Background Jobs
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../migrations/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Migrations
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../logs/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Logs & Debugging
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../faq/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  FAQ
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../../changelog/" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+  Changelog
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+              
+              <div class="md-sidebar md-sidebar--secondary" data-md-component="sidebar" data-md-type="toc" >
+                <div class="md-sidebar__scrollwrap">
+                  
+                    
+                    
+                    
+                      
+                    
+                    
+                      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+                      <div class="md-sidebar-button__wrapper">
+                        <label class="md-sidebar-button" for="__toc"></label>
+                      </div>
+                    
+                  
+                  <div class="md-sidebar__inner">
+                    
+
+
+<nav class="md-nav md-nav--secondary" aria-label="On this page">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      On this page
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#quick-reference" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Quick Reference
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Quick Reference">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#global-config-fm_configtoml" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Global Config (<code>fm_config.toml</code>)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#bench-config-bench_configtoml" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bench Config (<code>bench_config.toml</code>)
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#global-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Global Configuration
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Global Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#version" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>version</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ngrok-auth-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ngrok_auth_token</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#validation-enforce-domain-uniqueness" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>validation.enforce_domain_uniqueness</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#logs-file-level" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>logs.file_level</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dns-providers-cloudflare-api-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>dns_providers.cloudflare.api_token</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dns-providers-cloudflare-api-key" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>dns_providers.cloudflare.api_key</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dns-providers-cloudflare-email" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>dns_providers.cloudflare.email</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#bench-configuration" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Bench Configuration
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Bench Configuration">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#name" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>name</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#developer-mode" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>developer_mode</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#admin-tools" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>admin_tools</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#environment-type" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>environment_type</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#upload-limit" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>upload_limit</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#restart-policy" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>restart_policy</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#alias-domains" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>alias_domains</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#use-uv" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>use_uv</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#db-name" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>db_name</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#github-token" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>github_token</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#python-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>python_version</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#node-version" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>node_version</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#admin-tools-username" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>admin_tools_username</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#admin-tools-password" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>admin_tools_password</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#ssl-certificates" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>ssl_certificates</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#dns-providers" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>dns_providers</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#environment-variables" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Environment Variables
+      </span>
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Environment Variables">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#env-frappe-manager-home" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FRAPPE_MANAGER_HOME</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#env-fm-letsencrypt-staging" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        <code>FM_LETSENCRYPT_STAGING</code>
+      </span>
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#directory-layout" class="md-nav__link">
+    <span class="md-ellipsis">
+      <span class="md-typeset">
+        Directory Layout
+      </span>
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+                
+
+
+
+  
+
+
+  <nav class="md-path" aria-label="Navigation" >
+    <ol class="md-path__list">
+      
+        
+  
+  
+    <li class="md-path__item">
+      <a href="../.." class="md-path__link">
+        
+  
+  <span class="md-ellipsis">
+    Home
+  </span>
+
+      </a>
+    </li>
+  
+
+      
+      
+        
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+      <li class="md-path__item">
+        <a href="../" class="md-path__link">
+          
+  
+  <span class="md-ellipsis">
+    Reference
+  </span>
+
+        </a>
+      </li>
+    
+  
+
+      
+    </ol>
+  </nav>
+
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+  
+    <a href="https://github.com/rtcamp/frappe-manager/edit/main/docs/reference/configuration.md" title="Edit this page" class="md-content__button md-icon" rel="edit">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-pencil" viewBox="0 0 24 24"><path d="M21.174 6.812a1 1 0 0 0-3.986-3.987L3.842 16.174a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497zM15 5l4 4"/></svg>
+    </a>
+  
+  
+
+
+<h1 id="configuration-files">Configuration Files<a class="headerlink" href="#configuration-files" title="Permanent link">&para;</a></h1>
+<p>Frappe Manager stores settings in TOML configuration files at two scopes:</p>
+<ul>
+<li><strong>Global</strong>: <code>~/frappe/fm_config.toml</code> — Machine-wide settings (ngrok tokens, DNS credentials, logging)</li>
+<li><strong>Per-bench</strong>: <code>~/frappe/sites/&lt;benchname&gt;/bench_config.toml</code> — Bench-specific settings (environment, SSL, upload limits)</li>
+</ul>
+<p>Changes take effect on next <code>fm start</code> or service restart.</p>
+<div class="admonition warning">
+<p class="admonition-title">Use <code>fm update</code> commands for safe editing</p>
+<p>These files are managed by FM. Manual edits may be overwritten or cause validation errors. Use <code>fm update</code> commands whenever possible.</p>
+</div>
+<div class="admonition tip">
+<p class="admonition-title">Relocating the root directory</p>
+<p>Set <code>FRAPPE_MANAGER_HOME</code> environment variable before any <code>fm</code> command to move all FM data to a custom location:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">FRAPPE_MANAGER_HOME</span><span class="o">=</span>/srv/frappe
+</span><span id="__span-0-2"><a id="__codelineno-0-2" name="__codelineno-0-2" href="#__codelineno-0-2"></a>fm<span class="w"> </span>create<span class="w"> </span>mybench<span class="w">  </span><span class="c1"># Creates bench under /srv/frappe/sites/mybench</span>
+</span></code></pre></div>
+</div>
+<hr />
+<h2 id="quick-reference">Quick Reference<a class="headerlink" href="#quick-reference" title="Permanent link">&para;</a></h2>
+<h3 id="global-config-fm_configtoml">Global Config (<code>fm_config.toml</code>)<a class="headerlink" href="#global-config-fm_configtoml" title="Permanent link">&para;</a></h3>
+<p>Minimal example showing common settings:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="n">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.19.0&quot;</span>
+</span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>
+</span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="n">ngrok_auth_token</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;2abc...&quot;</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="k">[validation]</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="n">enforce_domain_uniqueness</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="k">[logs]</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="n">file_level</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;DEBUG&quot;</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="k">[dns_providers.cloudflare]</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="n">api_token</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;abc123...&quot;</span>
+</span></code></pre></div>
+<h3 id="bench-config-bench_configtoml">Bench Config (<code>bench_config.toml</code>)<a class="headerlink" href="#bench-config-bench_configtoml" title="Permanent link">&para;</a></h3>
+<p>Minimal example showing common settings:</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;mybench.localhost&quot;</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="n">developer_mode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="n">admin_tools</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">false</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="n">environment_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod&quot;</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="n">upload_limit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;50M&quot;</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="n">restart_policy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;unless-stopped&quot;</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="n">alias_domains</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;www.mybench.com&quot;</span><span class="p">]</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="n">use_uv</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="n">db_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;fm_mybench_a1b2c3d4&quot;</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="n">python_version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;3.13&quot;</span>
+</span><span id="__span-2-12"><a id="__codelineno-2-12" name="__codelineno-2-12" href="#__codelineno-2-12"></a><span class="n">node_version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;20&quot;</span>
+</span><span id="__span-2-13"><a id="__codelineno-2-13" name="__codelineno-2-13" href="#__codelineno-2-13"></a>
+</span><span id="__span-2-14"><a id="__codelineno-2-14" name="__codelineno-2-14" href="#__codelineno-2-14"></a><span class="n">github_token</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;ghp_...&quot;</span>
+</span><span id="__span-2-15"><a id="__codelineno-2-15" name="__codelineno-2-15" href="#__codelineno-2-15"></a>
+</span><span id="__span-2-16"><a id="__codelineno-2-16" name="__codelineno-2-16" href="#__codelineno-2-16"></a><span class="n">admin_tools_username</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;admin&quot;</span>
+</span><span id="__span-2-17"><a id="__codelineno-2-17" name="__codelineno-2-17" href="#__codelineno-2-17"></a><span class="n">admin_tools_password</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;secret123&quot;</span>
+</span><span id="__span-2-18"><a id="__codelineno-2-18" name="__codelineno-2-18" href="#__codelineno-2-18"></a>
+</span><span id="__span-2-19"><a id="__codelineno-2-19" name="__codelineno-2-19" href="#__codelineno-2-19"></a><span class="k">[[ssl_certificates]]</span>
+</span><span id="__span-2-20"><a id="__codelineno-2-20" name="__codelineno-2-20" href="#__codelineno-2-20"></a><span class="n">domain</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;mybench.com&quot;</span>
+</span><span id="__span-2-21"><a id="__codelineno-2-21" name="__codelineno-2-21" href="#__codelineno-2-21"></a><span class="n">ssl_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;letsencrypt&quot;</span>
+</span><span id="__span-2-22"><a id="__codelineno-2-22" name="__codelineno-2-22" href="#__codelineno-2-22"></a><span class="n">challenge_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http01&quot;</span>
+</span><span id="__span-2-23"><a id="__codelineno-2-23" name="__codelineno-2-23" href="#__codelineno-2-23"></a>
+</span><span id="__span-2-24"><a id="__codelineno-2-24" name="__codelineno-2-24" href="#__codelineno-2-24"></a><span class="k">[dns_providers.cloudflare]</span>
+</span><span id="__span-2-25"><a id="__codelineno-2-25" name="__codelineno-2-25" href="#__codelineno-2-25"></a><span class="n">api_token</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;bench-override-token&quot;</span>
+</span></code></pre></div>
+<hr />
+<h2 id="global-configuration">Global Configuration<a class="headerlink" href="#global-configuration" title="Permanent link">&para;</a></h2>
+<p>Settings in <code>~/frappe/fm_config.toml</code> apply to all benches and FM operations.</p>
+<h3 id="version"><code>version</code><a class="headerlink" href="#version" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> (auto-managed)<br />
+<strong>Type:</strong> <code>string</code><br />
+<strong>File key:</strong> <code>version</code></p>
+<p>FM version that last wrote this config file. Automatically updated by FM. Do not edit manually.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="n">version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;0.19.0&quot;</span>
+</span></code></pre></div>
+<hr />
+<h3 id="ngrok-auth-token"><code>ngrok_auth_token</code><a class="headerlink" href="#ngrok-auth-token" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>null</code><br />
+<strong>Type:</strong> <code>string | null</code><br />
+<strong>File key:</strong> <code>ngrok_auth_token</code></p>
+<p>Saved ngrok authentication token for persistent tunneling. Written by <code>fm ngrok --save-token</code>.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="n">ngrok_auth_token</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;2abc...&quot;</span>
+</span></code></pre></div>
+<p><strong>See also:</strong> <a href="/commands/ngrok/">fm ngrok command</a></p>
+<hr />
+<h3 id="validation-enforce-domain-uniqueness"><code>validation.enforce_domain_uniqueness</code><a class="headerlink" href="#validation-enforce-domain-uniqueness" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>true</code><br />
+<strong>Type:</strong> <code>boolean</code><br />
+<strong>File key:</strong> <code>[validation]</code> → <code>enforce_domain_uniqueness</code></p>
+<p>When <code>true</code>, FM prevents creating multiple benches with the same domain. When <code>false</code>, allows domain conflicts (use with caution — causes nginx proxy conflicts).</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="k">[validation]</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="n">enforce_domain_uniqueness</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+</span></code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">Nginx conflicts with duplicate domains</p>
+<p>Setting this to <code>false</code> allows creating benches with duplicate domains, but nginx-proxy can only route to one of them. Use unique domains or <code>alias_domains</code> instead.</p>
+</div>
+<hr />
+<h3 id="logs-file-level"><code>logs.file_level</code><a class="headerlink" href="#logs-file-level" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>"DEBUG"</code><br />
+<strong>Type:</strong> <code>string</code><br />
+<strong>File key:</strong> <code>[logs]</code> → <code>file_level</code></p>
+<p>Log verbosity written to <code>~/frappe/logs/fm.log</code>. Does not affect console output verbosity (use <code>--verbose</code> flag for that).</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="k">[logs]</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="n">file_level</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;DEBUG&quot;</span>
+</span></code></pre></div>
+<p><strong>Valid values:</strong> <code>DEBUG</code>, <code>INFO</code>, <code>WARNING</code>, <code>ERROR</code>, <code>CRITICAL</code></p>
+<p><strong>See also:</strong> <a href="/reference/logs/">Logs reference</a></p>
+<hr />
+<h3 id="dns-providers-cloudflare-api-token"><code>dns_providers.cloudflare.api_token</code><a class="headerlink" href="#dns-providers-cloudflare-api-token" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>null</code><br />
+<strong>Type:</strong> <code>string | null</code><br />
+<strong>File key:</strong> <code>[dns_providers.cloudflare]</code> → <code>api_token</code><br />
+<strong>Env var:</strong> <code>FM_CLOUDFLARE_API_TOKEN</code> (runtime override)</p>
+<p>Global Cloudflare API Token for DNS-01 SSL challenges. <strong>Recommended over Global API Key</strong> (scoped permissions, more secure).</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="k">[dns_providers.cloudflare]</span>
+</span><span id="__span-7-2"><a id="__codelineno-7-2" name="__codelineno-7-2" href="#__codelineno-7-2"></a><span class="n">api_token</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;abc123...&quot;</span>
+</span></code></pre></div>
+<div class="admonition tip">
+<p class="admonition-title">Required scoped permissions</p>
+<p>Your API token needs:</p>
+<ul>
+<li><strong>Zone → DNS → Edit</strong> for target zones</li>
+<li><strong>Zone → Zone → Read</strong> for all zones</li>
+</ul>
+<p>Create at: <a href="https://dash.cloudflare.com/profile/api-tokens">Cloudflare Dashboard → My Profile → API Tokens</a></p>
+</div>
+<div class="admonition info">
+<p class="admonition-title">Per-bench override available</p>
+<p>Bench-specific tokens in <code>bench_config.toml</code> take precedence over this global token.</p>
+</div>
+<p><strong>See also:</strong> <a href="/guides/ssl/#dns-01-cloudflare-api-token">SSL guide — DNS-01 setup</a>, <a href="/commands/ssl/dns-config/">fm ssl dns-config command</a></p>
+<hr />
+<h3 id="dns-providers-cloudflare-api-key"><code>dns_providers.cloudflare.api_key</code><a class="headerlink" href="#dns-providers-cloudflare-api-key" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>null</code><br />
+<strong>Type:</strong> <code>string | null</code><br />
+<strong>File key:</strong> <code>[dns_providers.cloudflare]</code> → <code>api_key</code></p>
+<p>Legacy Cloudflare Global API Key for DNS-01 challenges. Requires <code>email</code> field. Grants full account access — use <code>api_token</code> instead.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-8-1"><a id="__codelineno-8-1" name="__codelineno-8-1" href="#__codelineno-8-1"></a><span class="k">[dns_providers.cloudflare]</span>
+</span><span id="__span-8-2"><a id="__codelineno-8-2" name="__codelineno-8-2" href="#__codelineno-8-2"></a><span class="n">api_key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;abc123...&quot;</span>
+</span><span id="__span-8-3"><a id="__codelineno-8-3" name="__codelineno-8-3" href="#__codelineno-8-3"></a><span class="n">email</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;you@example.com&quot;</span>
+</span></code></pre></div>
+<p><strong>See also:</strong> <a href="#dns-providers-cloudflare-api-token">#dns-providers-cloudflare-api-token</a></p>
+<hr />
+<h3 id="dns-providers-cloudflare-email"><code>dns_providers.cloudflare.email</code><a class="headerlink" href="#dns-providers-cloudflare-email" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>null</code><br />
+<strong>Type:</strong> <code>string | null</code><br />
+<strong>File key:</strong> <code>[dns_providers.cloudflare]</code> → <code>email</code></p>
+<p>Cloudflare account email. Required when using <code>api_key</code> (not needed for <code>api_token</code>).</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-9-1"><a id="__codelineno-9-1" name="__codelineno-9-1" href="#__codelineno-9-1"></a><span class="k">[dns_providers.cloudflare]</span>
+</span><span id="__span-9-2"><a id="__codelineno-9-2" name="__codelineno-9-2" href="#__codelineno-9-2"></a><span class="n">api_key</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;abc123...&quot;</span>
+</span><span id="__span-9-3"><a id="__codelineno-9-3" name="__codelineno-9-3" href="#__codelineno-9-3"></a><span class="n">email</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;you@example.com&quot;</span>
+</span></code></pre></div>
+<hr />
+<h2 id="bench-configuration">Bench Configuration<a class="headerlink" href="#bench-configuration" title="Permanent link">&para;</a></h2>
+<p>Settings in <code>~/frappe/sites/&lt;benchname&gt;/bench_config.toml</code> apply to a single bench.</p>
+<div class="admonition tip">
+<p class="admonition-title">Quick lookup</p>
+<p>Jump to specific settings: <a href="#name">name</a> · <a href="#developer-mode">developer_mode</a> · <a href="#admin-tools">admin_tools</a> · <a href="#environment-type">environment_type</a> · <a href="#upload-limit">upload_limit</a> · <a href="#restart-policy">restart_policy</a> · <a href="#ssl-certificates">ssl_certificates</a> · <a href="#dns-providers">dns_providers</a></p>
+</div>
+<h3 id="name"><code>name</code><a class="headerlink" href="#name" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> (set on creation)<br />
+<strong>Type:</strong> <code>string</code><br />
+<strong>File key:</strong> <code>name</code></p>
+<p>Bench hostname and primary domain. Must be unique if <code>validation.enforce_domain_uniqueness = true</code>.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-10-1"><a id="__codelineno-10-1" name="__codelineno-10-1" href="#__codelineno-10-1"></a><span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;mybench.localhost&quot;</span>
+</span></code></pre></div>
+<div class="admonition info">
+<p class="admonition-title">Immutable after creation</p>
+<p>Cannot be changed after creation (requires bench recreation). This value determines:</p>
+<ul>
+<li>Bench directory name: <code>~/frappe/sites/mybench.localhost/</code></li>
+<li>Container prefix: <code>fm-mybench-localhost-*</code></li>
+<li>Default URL: <code>http://mybench.localhost</code></li>
+</ul>
+</div>
+<hr />
+<h3 id="developer-mode"><code>developer_mode</code><a class="headerlink" href="#developer-mode" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>true</code> (dev environment), <code>false</code> (prod environment)<br />
+<strong>Type:</strong> <code>boolean</code><br />
+<strong>File key:</strong> <code>developer_mode</code></p>
+<p>Frappe Developer Mode toggle. When <code>true</code>, enables debug toolbar, disables caching, shows detailed error pages.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-11-1"><a id="__codelineno-11-1" name="__codelineno-11-1" href="#__codelineno-11-1"></a><span class="n">developer_mode</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+</span></code></pre></div>
+<div class="admonition tip">
+<p class="admonition-title">Independent from environment type</p>
+<p>You can enable developer mode in production environments or disable it in dev — this setting is independent of <code>environment_type</code>.</p>
+</div>
+<p><strong>Change via:</strong> <code>fm update BENCHNAME --developer-mode enable|disable</code></p>
+<p><strong>See also:</strong> <a href="/guides/environments/">Environments guide</a>, <a href="/commands/update/">fm update command</a></p>
+<hr />
+<h3 id="admin-tools"><code>admin_tools</code><a class="headerlink" href="#admin-tools" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>true</code> (dev environment), <code>false</code> (prod environment)<br />
+<strong>Type:</strong> <code>boolean</code><br />
+<strong>File key:</strong> <code>admin_tools</code></p>
+<p>Enable Mailpit (email testing) and Adminer (database UI) containers. Protected by HTTP Basic Auth when enabled.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-12-1"><a id="__codelineno-12-1" name="__codelineno-12-1" href="#__codelineno-12-1"></a><span class="n">admin_tools</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+</span></code></pre></div>
+<p><strong>Access URLs (when enabled):</strong></p>
+<ul>
+<li>Mailpit: <code>http://&lt;benchname&gt;/mailpit/</code></li>
+<li>Adminer: <code>http://&lt;benchname&gt;/adminer/</code></li>
+</ul>
+<p><strong>Change via:</strong> <code>fm update BENCHNAME --admin-tools enable|disable</code></p>
+<p><strong>See also:</strong> <a href="#admin-tools-username">#admin-tools-username</a>, <a href="#admin-tools-password">#admin-tools-password</a></p>
+<hr />
+<h3 id="environment-type"><code>environment_type</code><a class="headerlink" href="#environment-type" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>"dev"</code><br />
+<strong>Type:</strong> <code>"dev" | "prod"</code><br />
+<strong>File key:</strong> <code>environment_type</code></p>
+<p>Environment profile determining web server, restart policy, and default settings for <code>developer_mode</code> and <code>admin_tools</code>.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-13-1"><a id="__codelineno-13-1" name="__codelineno-13-1" href="#__codelineno-13-1"></a><span class="n">environment_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;prod&quot;</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Aspect</th>
+<th><code>dev</code></th>
+<th><code>prod</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Web server</td>
+<td>Werkzeug (single-threaded)</td>
+<td>Gunicorn (<code>(CPU×2)+1</code> workers)</td>
+</tr>
+<tr>
+<td>Restart policy</td>
+<td><code>no</code> (manual start)</td>
+<td><code>unless-stopped</code> (auto-recovery)</td>
+</tr>
+<tr>
+<td>Developer mode</td>
+<td>ON by default</td>
+<td>OFF by default</td>
+</tr>
+<tr>
+<td>Admin tools</td>
+<td>ON by default</td>
+<td>OFF by default</td>
+</tr>
+<tr>
+<td>Logs</td>
+<td><code>web.dev.log</code> (single file)</td>
+<td><code>web.log</code> + <code>web.error.log</code> (split)</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition warning">
+<p class="admonition-title">Switching recreates only the frappe container</p>
+<p>Environment switch <strong>does not recreate</strong> workers, nginx, Redis, or MariaDB. Only the main frappe web container is recreated.</p>
+</div>
+<p><strong>Change via:</strong> <code>fm update BENCHNAME --environment dev|prod</code></p>
+<p><strong>See also:</strong> <a href="/guides/environments/">Environments guide</a></p>
+<hr />
+<h3 id="upload-limit"><code>upload_limit</code><a class="headerlink" href="#upload-limit" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>"50M"</code><br />
+<strong>Type:</strong> <code>string</code><br />
+<strong>File key:</strong> <code>upload_limit</code></p>
+<p>Maximum file upload size enforced by nginx. Uses nginx size syntax.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-14-1"><a id="__codelineno-14-1" name="__codelineno-14-1" href="#__codelineno-14-1"></a><span class="n">upload_limit</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;500M&quot;</span>
+</span></code></pre></div>
+<p><strong>Valid formats:</strong> <code>50M</code>, <code>500M</code>, <code>1G</code>, <code>2G</code></p>
+<p><strong>Change via:</strong> <code>fm update BENCHNAME --upload-limit 500M</code></p>
+<hr />
+<h3 id="restart-policy"><code>restart_policy</code><a class="headerlink" href="#restart-policy" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>"no"</code> (dev), <code>"unless-stopped"</code> (prod)<br />
+<strong>Type:</strong> <code>"no" | "always" | "on-failure" | "unless-stopped"</code><br />
+<strong>File key:</strong> <code>restart_policy</code></p>
+<p>Docker Compose restart policy for all bench services (frappe, workers, nginx, Redis).</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-15-1"><a id="__codelineno-15-1" name="__codelineno-15-1" href="#__codelineno-15-1"></a><span class="n">restart_policy</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;unless-stopped&quot;</span>
+</span></code></pre></div>
+<table>
+<thead>
+<tr>
+<th>Policy</th>
+<th>Behavior</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>no</code></td>
+<td>Never restart (manual start only)</td>
+</tr>
+<tr>
+<td><code>always</code></td>
+<td>Always restart (even after manual stop)</td>
+</tr>
+<tr>
+<td><code>on-failure</code></td>
+<td>Restart only on crash (exit code ≠ 0)</td>
+</tr>
+<tr>
+<td><code>unless-stopped</code></td>
+<td>Restart unless manually stopped (<strong>recommended for prod</strong>)</td>
+</tr>
+</tbody>
+</table>
+<div class="admonition tip">
+<p class="admonition-title">Recommended: <code>unless-stopped</code> for production</p>
+<p>Provides automatic recovery after crashes or server reboots, but respects intentional <code>fm stop</code> commands.</p>
+</div>
+<p><strong>Change via:</strong> <code>fm update BENCHNAME --restart-policy unless-stopped</code></p>
+<hr />
+<h3 id="alias-domains"><code>alias_domains</code><a class="headerlink" href="#alias-domains" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>[]</code><br />
+<strong>Type:</strong> <code>array of strings</code><br />
+<strong>File key:</strong> <code>alias_domains</code></p>
+<p>Additional hostnames served by this bench. Each alias can have its own SSL certificate.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-16-1"><a id="__codelineno-16-1" name="__codelineno-16-1" href="#__codelineno-16-1"></a><span class="n">alias_domains</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="s2">&quot;www.mybench.com&quot;</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;alt.mybench.com&quot;</span><span class="p">]</span>
+</span></code></pre></div>
+<p><strong>Usage:</strong></p>
+<ul>
+<li>All aliases serve the same Frappe bench</li>
+<li>Each alias can have independent SSL configuration</li>
+<li>Requires DNS A/CNAME records pointing to server</li>
+</ul>
+<p><strong>Change via:</strong> <code>fm update BENCHNAME --alias-domains www.example.com,alt.example.com</code></p>
+<p><strong>See also:</strong> <a href="/commands/ssl/add/">fm ssl add command</a></p>
+<hr />
+<h3 id="use-uv"><code>use_uv</code><a class="headerlink" href="#use-uv" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>true</code><br />
+<strong>Type:</strong> <code>boolean</code><br />
+<strong>File key:</strong> <code>use_uv</code></p>
+<p>Use <code>uv</code> for Python package installation (faster than pip). Falls back to <code>pip</code> if <code>uv</code> fails.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-17-1"><a id="__codelineno-17-1" name="__codelineno-17-1" href="#__codelineno-17-1"></a><span class="n">use_uv</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="kc">true</span>
+</span></code></pre></div>
+<p><strong>Performance impact:</strong></p>
+<ul>
+<li><code>true</code>: 5-10× faster installs, automatic fallback to pip on failure</li>
+<li><code>false</code>: Standard pip installs only</li>
+</ul>
+<p><strong>Added in:</strong> FM 0.17.0</p>
+<hr />
+<h3 id="db-name"><code>db_name</code><a class="headerlink" href="#db-name" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> (auto-generated)<br />
+<strong>Type:</strong> <code>string</code><br />
+<strong>File key:</strong> <code>db_name</code></p>
+<p>Database name in global MariaDB service. Auto-generated random string on bench creation to avoid conflicts.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-18-1"><a id="__codelineno-18-1" name="__codelineno-18-1" href="#__codelineno-18-1"></a><span class="n">db_name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;fm_mybench_a1b2c3d4&quot;</span>
+</span></code></pre></div>
+<p><strong>Format:</strong> <code>fm_&lt;benchname_sanitized&gt;_&lt;8_random_chars&gt;</code></p>
+<div class="admonition danger">
+<p class="admonition-title">Do not modify manually</p>
+<p>Changing this value causes database connection failure. FM expects the database name to match this field exactly.</p>
+</div>
+<hr />
+<h3 id="github-token"><code>github_token</code><a class="headerlink" href="#github-token" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>null</code><br />
+<strong>Type:</strong> <code>string | null</code><br />
+<strong>File key:</strong> <code>github_token</code></p>
+<p>GitHub Personal Access Token for cloning private app repositories.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-19-1"><a id="__codelineno-19-1" name="__codelineno-19-1" href="#__codelineno-19-1"></a><span class="n">github_token</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;ghp_...&quot;</span>
+</span></code></pre></div>
+<p><strong>Required permissions:</strong> <code>repo</code> (full control of private repositories)</p>
+<p><strong>Set via:</strong> <code>fm create BENCHNAME --github-token ghp_...</code></p>
+<p><strong>See also:</strong> <a href="/commands/create/">fm create command</a></p>
+<hr />
+<h3 id="python-version"><code>python_version</code><a class="headerlink" href="#python-version" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> (auto-detected from frappe app)<br />
+<strong>Type:</strong> <code>string | null</code><br />
+<strong>File key:</strong> <code>python_version</code></p>
+<p>Python version override. Extracted from frappe app's <code>pyproject.toml</code> on creation.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-20-1"><a id="__codelineno-20-1" name="__codelineno-20-1" href="#__codelineno-20-1"></a><span class="n">python_version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;3.13&quot;</span>
+</span></code></pre></div>
+<p><strong>Set via:</strong> <code>fm create BENCHNAME --python 3.13</code> or <code>fm update BENCHNAME --python 3.13</code></p>
+<p><strong>Added in:</strong> FM 0.18.0</p>
+<hr />
+<h3 id="node-version"><code>node_version</code><a class="headerlink" href="#node-version" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> (auto-detected from frappe app)<br />
+<strong>Type:</strong> <code>string | null</code><br />
+<strong>File key:</strong> <code>node_version</code></p>
+<p>Node.js version override. Extracted from frappe app's <code>pyproject.toml</code> on creation.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-21-1"><a id="__codelineno-21-1" name="__codelineno-21-1" href="#__codelineno-21-1"></a><span class="n">node_version</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;20&quot;</span>
+</span></code></pre></div>
+<p><strong>Set via:</strong> <code>fm create BENCHNAME --node 20</code> or <code>fm update BENCHNAME --node 20</code></p>
+<p><strong>Added in:</strong> FM 0.18.0</p>
+<hr />
+<h3 id="admin-tools-username"><code>admin_tools_username</code><a class="headerlink" href="#admin-tools-username" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>null</code> (generated on enable)<br />
+<strong>Type:</strong> <code>string | null</code><br />
+<strong>File key:</strong> <code>admin_tools_username</code></p>
+<p>HTTP Basic Auth username for Mailpit and Adminer. Auto-generated when <code>admin_tools</code> enabled.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-22-1"><a id="__codelineno-22-1" name="__codelineno-22-1" href="#__codelineno-22-1"></a><span class="n">admin_tools_username</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;admin&quot;</span>
+</span></code></pre></div>
+<p><strong>See also:</strong> <a href="#admin-tools">#admin-tools</a>, <a href="#admin-tools-password">#admin-tools-password</a></p>
+<hr />
+<h3 id="admin-tools-password"><code>admin_tools_password</code><a class="headerlink" href="#admin-tools-password" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>null</code> (generated on enable)<br />
+<strong>Type:</strong> <code>string | null</code><br />
+<strong>File key:</strong> <code>admin_tools_password</code></p>
+<p>HTTP Basic Auth password for Mailpit and Adminer. Auto-generated when <code>admin_tools</code> enabled.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-23-1"><a id="__codelineno-23-1" name="__codelineno-23-1" href="#__codelineno-23-1"></a><span class="n">admin_tools_password</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;secret123&quot;</span>
+</span></code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">Stored in plaintext</p>
+<p>This password is stored unencrypted in the TOML file. Restrict file permissions:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-24-1"><a id="__codelineno-24-1" name="__codelineno-24-1" href="#__codelineno-24-1"></a>chmod<span class="w"> </span><span class="m">600</span><span class="w"> </span>~/frappe/sites/&lt;benchname&gt;/bench_config.toml
+</span></code></pre></div>
+</div>
+<hr />
+<h3 id="ssl-certificates"><code>ssl_certificates</code><a class="headerlink" href="#ssl-certificates" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>[]</code><br />
+<strong>Type:</strong> <code>array of objects</code><br />
+<strong>File key:</strong> <code>[[ssl_certificates]]</code></p>
+<p>List of SSL certificates for primary domain and aliases. Each domain gets individual certificate entry.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-25-1"><a id="__codelineno-25-1" name="__codelineno-25-1" href="#__codelineno-25-1"></a><span class="k">[[ssl_certificates]]</span>
+</span><span id="__span-25-2"><a id="__codelineno-25-2" name="__codelineno-25-2" href="#__codelineno-25-2"></a><span class="n">domain</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;mybench.com&quot;</span>
+</span><span id="__span-25-3"><a id="__codelineno-25-3" name="__codelineno-25-3" href="#__codelineno-25-3"></a><span class="n">ssl_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;letsencrypt&quot;</span>
+</span><span id="__span-25-4"><a id="__codelineno-25-4" name="__codelineno-25-4" href="#__codelineno-25-4"></a><span class="n">challenge_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;http01&quot;</span>
+</span><span id="__span-25-5"><a id="__codelineno-25-5" name="__codelineno-25-5" href="#__codelineno-25-5"></a><span class="n">acme_client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;acme.sh&quot;</span>
+</span><span id="__span-25-6"><a id="__codelineno-25-6" name="__codelineno-25-6" href="#__codelineno-25-6"></a>
+</span><span id="__span-25-7"><a id="__codelineno-25-7" name="__codelineno-25-7" href="#__codelineno-25-7"></a><span class="k">[[ssl_certificates]]</span>
+</span><span id="__span-25-8"><a id="__codelineno-25-8" name="__codelineno-25-8" href="#__codelineno-25-8"></a><span class="n">domain</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;www.mybench.com&quot;</span>
+</span><span id="__span-25-9"><a id="__codelineno-25-9" name="__codelineno-25-9" href="#__codelineno-25-9"></a><span class="n">ssl_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;letsencrypt&quot;</span>
+</span><span id="__span-25-10"><a id="__codelineno-25-10" name="__codelineno-25-10" href="#__codelineno-25-10"></a><span class="n">challenge_type</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;dns01&quot;</span>
+</span><span id="__span-25-11"><a id="__codelineno-25-11" name="__codelineno-25-11" href="#__codelineno-25-11"></a><span class="n">acme_client</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;acme.sh&quot;</span>
+</span></code></pre></div>
+<p><strong>Certificate object fields:</strong></p>
+<ul>
+<li><code>domain</code>: Hostname for this certificate</li>
+<li><code>ssl_type</code>: <code>"letsencrypt"</code> or <code>"none"</code></li>
+<li><code>challenge_type</code>: <code>"http01"</code> or <code>"dns01"</code></li>
+<li><code>acme_client</code>: Always <code>"acme.sh"</code></li>
+</ul>
+<p><strong>Managed by:</strong> <code>fm ssl add</code>, <code>fm ssl remove</code>, <code>fm ssl renew</code> commands</p>
+<p><strong>See also:</strong> <a href="/guides/ssl/">SSL guide</a>, <a href="/commands/ssl/">fm ssl commands</a></p>
+<hr />
+<h3 id="dns-providers"><code>dns_providers</code><a class="headerlink" href="#dns-providers" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> (inherits from global config)<br />
+<strong>Type:</strong> <code>object | null</code><br />
+<strong>File key:</strong> <code>[dns_providers]</code></p>
+<p>Bench-specific DNS provider credentials. Overrides global <code>fm_config.toml</code> DNS settings.</p>
+<div class="language-toml highlight"><pre><span></span><code><span id="__span-26-1"><a id="__codelineno-26-1" name="__codelineno-26-1" href="#__codelineno-26-1"></a><span class="k">[dns_providers.cloudflare]</span>
+</span><span id="__span-26-2"><a id="__codelineno-26-2" name="__codelineno-26-2" href="#__codelineno-26-2"></a><span class="n">api_token</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;bench-specific-token&quot;</span>
+</span></code></pre></div>
+<p><strong>Override behavior:</strong></p>
+<ul>
+<li>If set: Uses bench-specific credentials for DNS-01 challenges</li>
+<li>If not set: Falls back to global <code>fm_config.toml</code> credentials</li>
+</ul>
+<p><strong>Set via:</strong> <code>fm ssl dns-config cloudflare BENCHNAME</code></p>
+<p><strong>See also:</strong> <a href="#dns-providers-cloudflare-api-token">#dns-providers-cloudflare-api-token</a>, <a href="/commands/ssl/dns-config/">fm ssl dns-config command</a></p>
+<hr />
+<h2 id="environment-variables">Environment Variables<a class="headerlink" href="#environment-variables" title="Permanent link">&para;</a></h2>
+<p>FM recognizes these environment variables for runtime configuration overrides.</p>
+<h3 id="env-frappe-manager-home"><code>FRAPPE_MANAGER_HOME</code><a class="headerlink" href="#env-frappe-manager-home" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>~/frappe</code><br />
+<strong>Type:</strong> directory path</p>
+<p>Root directory for all FM data (benches, services, logs, configs). Must be set before any <code>fm</code> command.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-27-1"><a id="__codelineno-27-1" name="__codelineno-27-1" href="#__codelineno-27-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">FRAPPE_MANAGER_HOME</span><span class="o">=</span>/srv/frappe
+</span><span id="__span-27-2"><a id="__codelineno-27-2" name="__codelineno-27-2" href="#__codelineno-27-2"></a>fm<span class="w"> </span>create<span class="w"> </span>mybench
+</span></code></pre></div>
+<p><strong>Relocates all data:</strong></p>
+<ul>
+<li>Config files: <code>/srv/frappe/fm_config.toml</code></li>
+<li>Benches: <code>/srv/frappe/sites/&lt;benchname&gt;/</code></li>
+<li>Services: <code>/srv/frappe/services/</code></li>
+<li>Logs: <code>/srv/frappe/logs/</code></li>
+</ul>
+<div class="admonition tip">
+<p class="admonition-title">Make it persistent</p>
+<p>Add to <code>~/.bashrc</code> or <code>~/.zshrc</code> to persist across shell sessions:</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-28-1"><a id="__codelineno-28-1" name="__codelineno-28-1" href="#__codelineno-28-1"></a><span class="nb">echo</span><span class="w"> </span><span class="s1">&#39;export FRAPPE_MANAGER_HOME=/srv/frappe&#39;</span><span class="w"> </span>&gt;&gt;<span class="w"> </span>~/.bashrc
+</span></code></pre></div>
+</div>
+<hr />
+<h3 id="env-fm-letsencrypt-staging"><code>FM_LETSENCRYPT_STAGING</code><a class="headerlink" href="#env-fm-letsencrypt-staging" title="Permanent link">&para;</a></h3>
+<p><strong>Default:</strong> <code>"0"</code><br />
+<strong>Type:</strong> <code>"1" | "0" | "true" | "false" | "yes" | "no"</code></p>
+<p>Force staging Let's Encrypt server for testing. Prevents hitting production rate limits.</p>
+<div class="language-bash highlight"><pre><span></span><code><span id="__span-29-1"><a id="__codelineno-29-1" name="__codelineno-29-1" href="#__codelineno-29-1"></a><span class="nb">export</span><span class="w"> </span><span class="nv">FM_LETSENCRYPT_STAGING</span><span class="o">=</span><span class="m">1</span>
+</span><span id="__span-29-2"><a id="__codelineno-29-2" name="__codelineno-29-2" href="#__codelineno-29-2"></a>fm<span class="w"> </span>ssl<span class="w"> </span>add<span class="w"> </span>mybench.com
+</span></code></pre></div>
+<div class="admonition warning">
+<p class="admonition-title">Staging certificates are untrusted</p>
+<p>Staging certificates are issued by "Fake LE Intermediate X1" — browsers will show security warnings. Use only for testing.</p>
+</div>
+<p><strong>Production rate limits:</strong></p>
+<ul>
+<li>50 certificates per registered domain per week</li>
+<li>5 duplicate certificates per week (same set of names)</li>
+</ul>
+<p><strong>See also:</strong> <a href="/guides/ssl/#before-you-start">SSL guide — Before you start</a></p>
+<hr />
+<h2 id="directory-layout">Directory Layout<a class="headerlink" href="#directory-layout" title="Permanent link">&para;</a></h2>
+<div class="language-text highlight"><pre><span></span><code><span id="__span-30-1"><a id="__codelineno-30-1" name="__codelineno-30-1" href="#__codelineno-30-1"></a>~/frappe/                                    ← FRAPPE_MANAGER_HOME
+</span><span id="__span-30-2"><a id="__codelineno-30-2" name="__codelineno-30-2" href="#__codelineno-30-2"></a>├── fm_config.toml                           ← Global config
+</span><span id="__span-30-3"><a id="__codelineno-30-3" name="__codelineno-30-3" href="#__codelineno-30-3"></a>├── logs/
+</span><span id="__span-30-4"><a id="__codelineno-30-4" name="__codelineno-30-4" href="#__codelineno-30-4"></a>│   └── fm.log                               ← CLI log (rotated daily)
+</span><span id="__span-30-5"><a id="__codelineno-30-5" name="__codelineno-30-5" href="#__codelineno-30-5"></a>├── services/
+</span><span id="__span-30-6"><a id="__codelineno-30-6" name="__codelineno-30-6" href="#__codelineno-30-6"></a>│   ├── docker-compose.yml                   ← Global services compose
+</span><span id="__span-30-7"><a id="__codelineno-30-7" name="__codelineno-30-7" href="#__codelineno-30-7"></a>│   ├── nginx-proxy/
+</span><span id="__span-30-8"><a id="__codelineno-30-8" name="__codelineno-30-8" href="#__codelineno-30-8"></a>│   │   └── ssl/
+</span><span id="__span-30-9"><a id="__codelineno-30-9" name="__codelineno-30-9" href="#__codelineno-30-9"></a>│   │       └── acmesh/                      ← acme.sh certificate store
+</span><span id="__span-30-10"><a id="__codelineno-30-10" name="__codelineno-30-10" href="#__codelineno-30-10"></a>│   ├── global-db/                           ← MariaDB data
+</span><span id="__span-30-11"><a id="__codelineno-30-11" name="__codelineno-30-11" href="#__codelineno-30-11"></a>│   └── global-redis-*/                      ← Redis data
+</span><span id="__span-30-12"><a id="__codelineno-30-12" name="__codelineno-30-12" href="#__codelineno-30-12"></a>└── sites/
+</span><span id="__span-30-13"><a id="__codelineno-30-13" name="__codelineno-30-13" href="#__codelineno-30-13"></a>    └── &lt;benchname&gt;/
+</span><span id="__span-30-14"><a id="__codelineno-30-14" name="__codelineno-30-14" href="#__codelineno-30-14"></a>        ├── bench_config.toml                ← Bench config
+</span><span id="__span-30-15"><a id="__codelineno-30-15" name="__codelineno-30-15" href="#__codelineno-30-15"></a>        ├── docker-compose.yml               ← Main compose
+</span><span id="__span-30-16"><a id="__codelineno-30-16" name="__codelineno-30-16" href="#__codelineno-30-16"></a>        ├── docker-compose.workers.yml       ← Workers compose
+</span><span id="__span-30-17"><a id="__codelineno-30-17" name="__codelineno-30-17" href="#__codelineno-30-17"></a>        ├── docker-compose.admin-tools.yml   ← Admin tools compose
+</span><span id="__span-30-18"><a id="__codelineno-30-18" name="__codelineno-30-18" href="#__codelineno-30-18"></a>        ├── logs/                            ← Bench logs
+</span><span id="__span-30-19"><a id="__codelineno-30-19" name="__codelineno-30-19" href="#__codelineno-30-19"></a>        └── workspace/
+</span><span id="__span-30-20"><a id="__codelineno-30-20" name="__codelineno-30-20" href="#__codelineno-30-20"></a>            └── frappe-bench/                ← Frappe files
+</span></code></pre></div>
+<p><strong>See also:</strong> <a href="/reference/architecture/">Architecture reference</a></p>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+  <script>var tabs=__md_get("__tabs");if(Array.isArray(tabs))e:for(var set of document.querySelectorAll(".tabbed-set")){var labels=set.querySelector(".tabbed-labels");for(var tab of tabs)for(var label of labels.getElementsByTagName("label"))if(label.innerText.trim()===tab){var input=document.getElementById(label.htmlFor);input.checked=!0;continue e}}</script>
+
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+          <button type="button" class="md-top md-icon" data-md-component="top" hidden>
+  
+  <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-circle-arrow-up" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="m16 12-4-4-4 4M12 16V8"/></svg>
+  Back to top
+</button>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+    
+      
+      <nav class="md-footer__inner md-grid" aria-label="Footer" >
+        
+          
+          <a href="../architecture/" class="md-footer__link md-footer__link--prev" aria-label="Previous: Architecture">
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-chevron-left" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6"/></svg>
+            </div>
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Previous
+              </span>
+              <div class="md-ellipsis">
+                Architecture
+              </div>
+            </div>
+          </a>
+        
+        
+          
+          <a href="../workers/" class="md-footer__link md-footer__link--next" aria-label="Next: Workers &amp; Background Jobs">
+            <div class="md-footer__title">
+              <span class="md-footer__direction">
+                Next
+              </span>
+              <div class="md-ellipsis">
+                Workers & Background Jobs
+              </div>
+            </div>
+            <div class="md-footer__button md-icon">
+              
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-chevron-right" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></svg>
+            </div>
+          </a>
+        
+      </nav>
+    
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://zensical.org/" target="_blank" rel="noopener">
+      Zensical
+    </a>
+  
+</div>
+      
+        
+<div class="md-social">
+  
+    
+    
+    
+    
+    <a href="https://github.com/rtcamp/frappe-manager" target="_blank" rel="noopener" title="GitHub" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 7.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M173.9 397.4c0 2-2.3 3.6-5.2 3.6-3.3.3-5.6-1.3-5.6-3.6 0-2 2.3-3.6 5.2-3.6 3-.3 5.6 1.3 5.6 3.6m-31.1-4.5c-.7 2 1.3 4.3 4.3 4.9 2.6 1 5.6 0 6.2-2s-1.3-4.3-4.3-5.2c-2.6-.7-5.5.3-6.2 2.3m44.2-1.7c-2.9.7-4.9 2.6-4.6 4.9.3 2 2.9 3.3 5.9 2.6 2.9-.7 4.9-2.6 4.6-4.6-.3-1.9-3-3.2-5.9-2.9M252.8 8C114.1 8 8 113.3 8 252c0 110.9 69.8 205.8 169.5 239.2 12.8 2.3 17.3-5.6 17.3-12.1 0-6.2-.3-40.4-.3-61.4 0 0-70 15-84.7-29.8 0 0-11.4-29.1-27.8-36.6 0 0-22.9-15.7 1.6-15.4 0 0 24.9 2 38.6 25.8 21.9 38.6 58.6 27.5 72.9 20.9 2.3-16 8.8-27.1 16-33.7-55.9-6.2-112.3-14.3-112.3-110.5 0-27.5 7.6-41.3 23.6-58.9-2.6-6.5-11.1-33.3 2.6-67.9 20.9-6.5 69 27 69 27 20-5.6 41.5-8.5 62.8-8.5s42.8 2.9 62.8 8.5c0 0 48.1-33.6 69-27 13.7 34.7 5.2 61.4 2.6 67.9 16 17.7 25.8 31.5 25.8 58.9 0 96.5-58.9 104.2-114.8 110.5 9.2 7.9 17 22.9 17 46.4 0 33.7-.3 75.4-.3 83.6 0 6.5 4.6 14.4 17.3 12.1C436.2 457.8 504 362.9 504 252 504 113.3 391.5 8 252.8 8M105.2 352.9c-1.3 1-1 3.3.7 5.2 1.6 1.6 3.9 2.3 5.2 1 1.3-1 1-3.3-.7-5.2-1.6-1.6-3.9-2.3-5.2-1m-10.8-8.1c-.7 1.3.3 2.9 2.3 3.9 1.6 1 3.6.7 4.3-.7.7-1.3-.3-2.9-2.3-3.9-2-.6-3.6-.3-4.3.7m32.4 35.6c-1.6 1.3-1 4.3 1.3 6.2 2.3 2.3 5.2 2.6 6.5 1 1.3-1.3.7-4.3-1.3-6.2-2.2-2.3-5.2-2.6-6.5-1m-11.4-14.7c-1.6 1-1.6 3.6 0 5.9s4.3 3.3 5.6 2.3c1.6-1.3 1.6-3.9 0-6.2-1.4-2.3-4-3.3-5.6-2"/></svg>
+    </a>
+  
+    
+    
+    
+    
+    <a href="https://pypi.org/project/frappe-manager/" target="_blank" rel="noopener" title="PyPI" class="md-social__link">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2026 Fonticons, Inc.--><path fill="currentColor" d="M439.8 200.5c-7.7-30.9-22.3-54.2-53.4-54.2h-40.1v47.4c0 36.8-31.2 67.8-66.8 67.8H172.7c-29.2 0-53.4 25-53.4 54.3v101.8c0 29 25.2 46 53.4 54.3 33.8 9.9 66.3 11.7 106.8 0 26.9-7.8 53.4-23.5 53.4-54.3v-40.7H226.2v-13.6h160.2c31.1 0 42.6-21.7 53.4-54.2 11.2-33.5 10.7-65.7 0-108.6M286.2 444.7a20.4 20.4 0 1 1 0-40.7 20.4 20.4 0 1 1 0 40.7M167.8 248.1h106.8c29.7 0 53.4-24.5 53.4-54.3V91.9c0-29-24.4-50.7-53.4-55.6-35.8-5.9-74.7-5.6-106.8.1-45.2 8-53.4 24.7-53.4 55.6v40.7h106.9v13.6h-147c-31.1 0-58.3 18.7-66.8 54.2-9.8 40.7-10.2 66.1 0 108.6 7.6 31.6 25.7 54.2 56.8 54.2H101v-48.8c0-35.3 30.5-66.4 66.8-66.4m-6.6-183.4a20.4 20.4 0 1 1 0 40.8 20.4 20.4 0 1 1 0-40.8"/></svg>
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+      <div class="md-progress" data-md-component="progress" role="progressbar"></div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate":null,"base":"../..","features":["navigation.tabs","navigation.tabs.sticky","navigation.sections","navigation.indexes","navigation.instant","navigation.instant.prefetch","navigation.instant.progress","navigation.path","navigation.top","navigation.footer","navigation.tracking","search.highlight","search.suggest","search.share","content.code.copy","content.code.annotate","content.tabs.link","content.tooltips","content.action.edit","toc.follow"],"search":"../../assets/javascripts/workers/search.b6b7e04f.min.js","tags":null,"translations":{"clipboard.copied":"Copied to clipboard","clipboard.copy":"Copy to clipboard","search.result.more.one":"1 more on this page","search.result.more.other":"# more on this page","search.result.none":"No matching documents","search.result.one":"1 matching document","search.result.other":"# matching documents","search.result.placeholder":"Type to start searching","search.result.term.missing":"Missing","select.version":"Select version"},"version":{"alias":true,"default":"latest","provider":"mike"}}</script>
+    
+    
+      <script src="../../assets/javascripts/bundle.ee611ef6.min.js"></script>
+      
+    
+  </body>
+</html>
