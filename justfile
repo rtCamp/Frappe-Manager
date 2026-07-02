@@ -74,6 +74,52 @@ lint-fix:
         echo "No changed Python files to fix"
     fi
 
+# Check GitHub Actions versions against latest releases (requires gh CLI)
+check-actions:
+    #!/usr/bin/env bash
+    echo "Checking GitHub Actions versions..."
+    echo ""
+    cache_dir=$(mktemp -d)
+    trap 'rm -rf "$cache_dir"' EXIT
+    outdated=0
+    while IFS='|' read -r filepath action; do
+        file=$(basename "$filepath")
+        repo=$(echo "$action" | cut -d@ -f1)
+        current=$(echo "$action" | cut -d@ -f2)
+        cache_key=$(echo "$repo" | tr '/' '_')
+        if [ ! -f "$cache_dir/$cache_key" ]; then
+            gh api "repos/$repo/releases/latest" --jq '.tag_name' 2>/dev/null \
+                > "$cache_dir/$cache_key" || echo "unknown" > "$cache_dir/$cache_key"
+        fi
+        latest=$(cat "$cache_dir/$cache_key")
+        if [ "$latest" = "unknown" ]; then
+            printf "  %-10s %-45s %s\n" "unknown" "$repo ($current)" "[$file]"
+            continue
+        fi
+        major_current=$(echo "$current" | grep -oE 'v[0-9]+')
+        major_latest=$(echo "$latest" | grep -oE 'v[0-9]+')
+        if [ "$major_current" != "$major_latest" ]; then
+            printf "  %-10s %-45s %s\n" "OUTDATED" "$repo  ($current → $latest)" "[$file]"
+            outdated=$((outdated + 1))
+        else
+            printf "  %-10s %-45s %s\n" "ok" "$repo  ($current)" "[$file]"
+        fi
+    done < <(
+        grep -rn "uses:" .github/workflows/*.yml | grep -E '@v[0-9]+' \
+        | while IFS= read -r line; do
+            filepath=$(echo "$line" | cut -d: -f1)
+            action=$(echo "$line" | grep -oE '[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+@v[0-9]+')
+            [ -n "$action" ] && echo "$filepath|$action"
+          done | sort -u
+    )
+    echo ""
+    if [ "$outdated" -gt 0 ]; then
+        echo "$outdated action(s) outdated."
+        exit 1
+    else
+        echo "All actions up to date."
+    fi
+
 # ── Docs generation ──────────────────────────────────────────────────────────
 
 # Generate command reference docs from the live CLI
