@@ -66,13 +66,13 @@ def _run_migration(display: DisplayManager, migrate_timeout: int, migrate_comman
     Args:
         display: DisplayManager for output
         migrate_timeout: Timeout in seconds (0 = wait indefinitely)
-        migrate_command: Custom migrate command (default: ["bench", "migrate", "--skip-failing"])
+        migrate_command: Custom migrate command (default: ["bench", "migrate"])
 
     Returns:
         True if migration succeeded, False to abort restart
     """
     if migrate_command is None:
-        migrate_command = ["bench", "migrate", "--skip-failing"]
+        migrate_command = ["bench", "migrate"]
 
     full_command = ' '.join(migrate_command)
     display.print(f"🔄 Running: cd /workspace/frappe-bench && {full_command}")
@@ -369,7 +369,7 @@ def _handle_migrate_failure(
     "Run DB migration first, then restart",
     "--migrate",
     detail=(
-        "Runs 'bench migrate --skip-failing' before restarting. Non-worker services (web, "
+        "Runs 'bench migrate' before restarting. Non-worker services (web, "
         "socketio) stay up during migration so the site remains accessible. Workers are drained "
         "by default — add --no-drain-workers only if the migration does not change tables that "
         "running jobs touch."
@@ -497,7 +497,7 @@ def command(
         Optional[str],
         typer.Option(
             "--migrate-command",
-            help="Custom migrate command (default: 'bench migrate --skip-failing'). "
+            help="Custom migrate command (default: 'bench migrate'). "
             "Example: 'bench --site mysite.localhost migrate'.",
         ),
     ] = None,
