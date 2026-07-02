@@ -111,7 +111,9 @@ def get_current_fm_version():
     Returns:
         str: The current version of the frappe-manager package.
     """
-    return importlib.metadata.version("frappe-manager")
+    from frappe_manager.__about__ import __version__
+
+    return __version__
 
 
 def get_docker_image_tag():
