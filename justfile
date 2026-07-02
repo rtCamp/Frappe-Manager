@@ -108,7 +108,7 @@ check-actions:
         grep -rn "uses:" .github/workflows/*.yml | grep -E '@v[0-9]+' \
         | while IFS= read -r line; do
             filepath=$(echo "$line" | cut -d: -f1)
-            action=$(echo "$line" | grep -oE '[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+@v[0-9]+')
+            action=$(echo "$line" | grep -oE '[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+@v[0-9]+(\.[0-9]+)*')
             [ -n "$action" ] && echo "$filepath|$action"
           done | sort -u
     )
