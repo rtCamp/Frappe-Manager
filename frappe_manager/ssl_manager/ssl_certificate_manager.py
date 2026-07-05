@@ -270,7 +270,7 @@ class SSLCertificateManager:
             info = {
                 "domain": cert.domain,
                 "ssl_type": cert.ssl_type.value,
-                "challenge_type": cert.challenge_type.value,
+                "challenge_type": cert.challenge_type.value if cert.challenge_type else None,
                 "exists": False,
                 "expiry_date": None,
                 "needs_renewal": False,

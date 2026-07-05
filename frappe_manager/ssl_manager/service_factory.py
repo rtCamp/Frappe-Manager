@@ -51,6 +51,15 @@ def create_certificate_service(
             output_handler=output_handler,
         )
 
+    if certificate.ssl_type == SUPPORTED_SSL_TYPES.dev:
+        from frappe_manager.ssl_manager.dev_certificate_service import DevCertificateService
+
+        return DevCertificateService(
+            logger=logger,
+            ssl_service_dir=storage_config.ssl_dir,
+            output_handler=output_handler,
+        )
+
     return AcmeShCertificateService(
         logger=logger,
         ssl_service_dir=storage_config.ssl_dir,

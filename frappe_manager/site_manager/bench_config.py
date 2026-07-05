@@ -875,6 +875,8 @@ def ssl_certificate_from_toml_data(ssl_data: dict, domain: str) -> SSLCertificat
             api_token=api_token,
             acme_client=acme_client,
         )
+    if ssl_type == SUPPORTED_SSL_TYPES.dev:
+        return SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.dev)
     return SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none)
 
 

@@ -76,6 +76,13 @@ def add_certificate(
             help="Manage SSL for external (non-bench) Docker project. Use with docker network 'fm-global-frontend-network'.",
         ),
     ] = False,
+    dev: Annotated[
+        bool,
+        typer.Option(
+            "--dev",
+            help="Issue a locally-trusted dev certificate using a local CA (no internet required).",
+        ),
+    ] = False,
     skip_dns_check: Annotated[
         bool,
         typer.Option(
@@ -97,6 +104,12 @@ def add_certificate(
     Supports bench mode (adds certificate to a bench) and standalone mode for external Docker projects using FM nginx-proxy.
     Use --dry-run to validate issuance against Let's Encrypt staging first.
     """
+
+    if dev and standalone:
+        context = LoggerContext(operation="ssl-add")
+        output = get_output_handler(ctx, context=context)
+        output.display_error("--dev cannot be used with --standalone mode")
+        raise typer.Exit(1)
 
     if standalone:
         # Standalone mode: domain can be first arg (as benchname) or second arg
@@ -130,4 +143,4 @@ def add_certificate(
                 typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
-        _add_bench_certificate(ctx, benchname, domain, challenge, cname, dry_run)
+        _add_bench_certificate(ctx, benchname, domain, challenge, cname, dry_run, dev=dev)

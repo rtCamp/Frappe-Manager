@@ -7,6 +7,7 @@ from frappe_manager.logger.context import LoggerContext
 from frappe_manager.output_manager import spinner, temporary_stop
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotFoundError
 from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate, LetsencryptSSLCertificate
 
@@ -20,6 +21,7 @@ def _add_bench_certificate(
     challenge: LETSENCRYPT_PREFERRED_CHALLENGE,
     cname: str | None,
     dry_run: bool,
+    dev: bool = False,
 ):
     """Add SSL certificate for a bench domain (existing logic extracted)."""
 
@@ -45,40 +47,39 @@ def _add_bench_certificate(
 
     output.change_head(f"Adding SSL certificate for {domain}")
 
-    try:
+    if dev:
         if cname:
-            cert = CustomDomainCertificate(
-                domain=domain,
-                ssl_type=SUPPORTED_SSL_TYPES.le,
-                api_token=None,
-                api_key=None,
-                challenge_type=challenge,
-                delegation_cname=cname,
-            )
-            output.print(f"Using CNAME delegation: {cname}", emoji_code=":information:")
-        else:
-            cert = LetsencryptSSLCertificate(
-                domain=domain,
-                ssl_type=SUPPORTED_SSL_TYPES.le,
-                api_token=None,
-                api_key=None,
-                challenge_type=challenge,
-            )
+            output.display_error("--cname is not applicable to dev certificates")
+            raise typer.Exit(1)
+        cert = SSLCertificate(
+            domain=domain,
+            ssl_type=SUPPORTED_SSL_TYPES.dev,
+        )
+    elif cname:
+        cert = CustomDomainCertificate(
+            domain=domain,
+            ssl_type=SUPPORTED_SSL_TYPES.le,
+            api_token=None,
+            api_key=None,
+            challenge_type=challenge,
+            delegation_cname=cname,
+        )
+        output.print(f"Using CNAME delegation: {cname}", emoji_code=":information:")
+    else:
+        cert = LetsencryptSSLCertificate(
+            domain=domain,
+            ssl_type=SUPPORTED_SSL_TYPES.le,
+            api_token=None,
+            api_key=None,
+            challenge_type=challenge,
+        )
 
-        with spinner(output, f"Adding SSL certificate for {domain}"):
-            bench.certificate_manager.add_certificate(cert, dry_run=dry_run)
+    with spinner(output, f"Adding SSL certificate for {domain}"):
+        bench.certificate_manager.add_certificate(cert, dry_run=dry_run)
 
-        if not dry_run:
-            output.print(f"SSL certificate added for {domain}", emoji_code=":white_check_mark:")
-            output.print("Certificate has been issued and configured.", emoji_code=":zap:")
-
-    except ValueError as e:
-        output.display_error(f"Failed to add certificate: {e}")
-        raise typer.Exit(1)
-    except Exception as e:
-        output.display_error(f"Failed to add certificate: {e}")
-        output.display_error(f"Error details: {e!s}")
-        raise typer.Exit(1)
+    if not dry_run:
+        output.print(f"SSL certificate added for {domain}", emoji_code=":white_check_mark:")
+        output.print("Certificate has been issued and configured.", emoji_code=":zap:")
 
 
 def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, yes: bool):
@@ -118,11 +119,11 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
 
     except SSLCertificateNotFoundError as e:
         output.display_error(f"Certificate not found: {e}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
     except Exception as e:
         output.display_error(f"Failed to remove certificate: {e}")
         output.display_error(f"Error details: {e!s}")
-        raise typer.Exit(1)
+        raise typer.Exit(1) from None
 
 
 def _list_bench_certificates(ctx: typer.Context, benchname: str):
@@ -156,7 +157,7 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
             # Domain has a certificate configured
             cert = cert_map[domain]
             ssl_type = cert["ssl_type"]
-            challenge_type = cert.get("challenge_type", "N/A")
+            challenge_type = cert.get("challenge_type") or "N/A"
             status = "✅ Issued" if cert["exists"] else "❌ Not Issued"
 
             if cert["exists"] and cert["expiry_date"]:

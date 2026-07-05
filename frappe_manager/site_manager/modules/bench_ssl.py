@@ -98,6 +98,13 @@ class BenchSSL:
                 return False
             self.create_individual_certificates()
 
+        elif certificate.ssl_type == SUPPORTED_SSL_TYPES.dev:
+            if self.has_certificate():
+                if raise_error:
+                    raise BenchSSLCertificateAlreadyIssued(self.bench_name)
+                return False
+            self.create_individual_certificates()
+
         elif certificate.ssl_type == SUPPORTED_SSL_TYPES.none:
             if self.has_certificate():
                 self.remove_certificate()

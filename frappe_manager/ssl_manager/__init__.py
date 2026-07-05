@@ -3,6 +3,7 @@ from enum import Enum
 
 class SUPPORTED_SSL_TYPES(str, Enum):
     le = "letsencrypt"
+    dev = "dev"
     none = "disable"
 
 

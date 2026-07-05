@@ -26,7 +26,7 @@ class SSLCertificate(BaseModel):
     # User configuration
     domain: str
     ssl_type: SUPPORTED_SSL_TYPES
-    challenge_type: LETSENCRYPT_PREFERRED_CHALLENGE = LETSENCRYPT_PREFERRED_CHALLENGE.http01
+    challenge_type: LETSENCRYPT_PREFERRED_CHALLENGE | None = None
     enabled: bool = True
     acme_client: str = "acme.sh"  # ACME client for certificate issuance (acme.sh)
     hsts: str = "off"
