@@ -10,6 +10,7 @@ from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any, Literal, cast
 
+from frappe_manager import CLI_SERVICES_DIRECTORY
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.docker.compose_file import ComposeFile
 from frappe_manager.docker.subprocess_output import SubprocessOutput
@@ -19,7 +20,6 @@ from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager import NON_BASH_SUPPORTED_SERVICES
 from frappe_manager.site_manager.bench_config import BenchConfig
-from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.utils.docker import host_run_cp
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version
 
@@ -110,18 +110,52 @@ class BenchDockerOps:
         # is handled via extra_hosts (pointing to the global proxy).
         # The proxy discovers domains via VIRTUAL_HOST env var, not network aliases.
 
-        # Add extra_hosts for SSL-enabled domains pointing to the global nginx proxy's static IP
+        # Add extra_hosts for the primary domain and alias domains pointing to the
+        # global nginx proxy's static IP. The proxy handles both HTTP and HTTPS,
+        # so this is safe even before SSL is configured.
         fm_config = FMConfigManager.import_from_toml()
         proxy_ip = fm_config.network.proxy_ip
         if proxy_ip:
-            ssl_domains = []
-            for cert in self.config.ssl_certificates:
-                if cert.ssl_type != SUPPORTED_SSL_TYPES.none:
-                    ssl_domains.append(cert.domain)
-            if ssl_domains:
-                extra_hosts = [f"{domain}:{proxy_ip}" for domain in ssl_domains]
-                for service in ["frappe", "socketio", "schedule"]:
-                    self.compose_file_manager.set_extrahosts(service, extra_hosts)
+            all_domains = [self.config.name]
+            if self.config.alias_domains:
+                all_domains.extend(self.config.alias_domains)
+            extra_hosts = [f"{domain}:{proxy_ip}" for domain in all_domains]
+            for service in ["frappe", "socketio", "schedule"]:
+                self.compose_file_manager.set_extrahosts(service, extra_hosts)
+
+        # For dev SSL (self-signed certs), mount the CA cert into containers
+        # that make outbound HTTPS requests, so they trust the dev cert.
+        # Production Let's Encrypt certs are trusted by default and don't need this.
+        from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
+        from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
+        has_dev_ssl = any(
+            cert.ssl_type == SUPPORTED_SSL_TYPES.dev
+            for cert in self.config.ssl_certificates
+        )
+        if has_dev_ssl:
+            ca_cert_host = CLI_SERVICES_DIRECTORY / "nginx-proxy" / "ssl" / "dev" / "ca" / "rootCA.pem"
+            if ca_cert_host.exists():
+                container_ca_path = "/etc/ssl/certs/fm-dev-ca.pem"
+                ca_services = ["frappe", "socketio", "schedule"]
+                for svc in ca_services:
+                    # Mount the CA cert
+                    vols = self.compose_file_manager.get_service_volumes(svc)
+                    vols.append(
+                        DockerVolumeMount(
+                            host=str(ca_cert_host),
+                            container=container_ca_path,
+                            type=DockerVolumeType.bind,
+                            compose_path=self.compose_file_manager.compose_path,
+                        )
+                    )
+                    self.compose_file_manager.set_service_volumes(svc, vols)
+                    # Set runtime-specific env var for CA trust
+                    envs = self.compose_file_manager.get_envs(svc) or {}
+                    # Node.js apps (socketio) or any process that uses NODE_EXTRA_CA_CERTS
+                    envs["NODE_EXTRA_CA_CERTS"] = container_ca_path
+                    # Python requests library honors this env var
+                    envs["REQUESTS_CA_BUNDLE"] = container_ca_path
+                    self.compose_file_manager.set_envs(svc, envs, append=True)
 
         # Use configure_bench method to set all configurations atomically
         self.compose_file_manager.configure_bench(

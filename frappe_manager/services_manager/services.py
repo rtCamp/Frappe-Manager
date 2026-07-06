@@ -33,6 +33,7 @@ from frappe_manager.utils.helpers import (
 )
 from frappe_manager.utils.network import (
     compute_network_config,
+    detect_running_network,
     find_available_subnet,
     get_docker_network_subnets,
 )
@@ -207,17 +208,25 @@ class ServicesManager:
         # set secrets in compose
         self.generate_compose(inputs)
 
-        # Ensure network configuration (subnet + proxy IP) is computed and saved
+        # Ensure network configuration (subnet + proxy IP) is set
         fm_config = FMConfigManager.import_from_toml()
         if not fm_config.network.configured:
-            self.output.change_head("Configuring global frontend network")
-            used_subnets = get_docker_network_subnets()
-            cidr = find_available_subnet(used_subnets)
-            net_config = compute_network_config(str(cidr), "fm-global-frontend-network")
-            fm_config.network.subnet_cidr = net_config["subnet_cidr"]
-            fm_config.network.proxy_ip = net_config["proxy_ip"]
-            fm_config.export_to_toml()
-            self.output.print(f"Assigned subnet {net_config['subnet_cidr']}, proxy IP {net_config['proxy_ip']}")
+            # First check if the network is already running (e.g. from a previous setup)
+            running = detect_running_network("fm-global-frontend-network", docker=self.docker_client)
+            if running:
+                fm_config.network.subnet_cidr = running["subnet_cidr"]
+                fm_config.network.proxy_ip = running["proxy_ip"]
+                fm_config.export_to_toml()
+                self.output.print(f"Detected running network: {running['subnet_cidr']}, proxy at {running['proxy_ip']}")
+            else:
+                self.output.change_head("Configuring global frontend network")
+                used_subnets = get_docker_network_subnets()
+                cidr = find_available_subnet(used_subnets)
+                net_config = compute_network_config(str(cidr), "fm-global-frontend-network")
+                fm_config.network.subnet_cidr = net_config["subnet_cidr"]
+                fm_config.network.proxy_ip = net_config["proxy_ip"]
+                fm_config.export_to_toml()
+                self.output.print(f"Assigned subnet {net_config['subnet_cidr']}, proxy IP {net_config['proxy_ip']}")
 
         # Set the subnet in the compose YAML
         if fm_config.network.subnet_cidr:

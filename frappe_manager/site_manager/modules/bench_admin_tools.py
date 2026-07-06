@@ -190,18 +190,30 @@ class BenchAdminTools:
         self.output.print("Removed Mailpit as default mail server")
 
     def wait_till_services_started(self, interval=2, timeout=30):
-        admin_tools_services = ["mailpit:8025", "adminer:8080"]
+        """
+        Wait for admin tools services to start by checking their HTTP ports directly.
 
-        for tool in admin_tools_services:
+        Uses the admin-tools compose file to exec into each service container
+        and check its port, avoiding dependency on the bench nginx (which may
+        be crash-looping if frappe isn't ready yet).
+        """
+        admin_tools_services = [
+            ("mailpit", "8025"),
+            ("adminer", "8080"),
+        ]
+
+        for tool_name, tool_port in admin_tools_services:
             running = False
-            for i in range(timeout):
+            for _ in range(timeout):
                 try:
-                    check_command = f"wait-for-it -t {interval} {get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}{tool}"
-                    self.bench.docker_client.compose.exec(service="nginx", command=check_command, stream=False)
-
+                    self.docker_client.compose.exec(
+                        service=tool_name,
+                        command=f"timeout {interval} nc -z localhost {tool_port}",
+                        stream=False,
+                    )
                     running = True
                     break
-                except DockerException as e:
+                except DockerException:
                     continue
 
             if not running:

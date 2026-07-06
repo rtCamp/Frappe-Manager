@@ -6,54 +6,26 @@ for the global-frontend-network, avoiding conflicts with existing Docker network
 """
 
 import ipaddress
-import json
-import subprocess
 import sys
 from typing import Tuple
 
+from frappe_manager.docker.docker_client import DockerClient
+
 PREFERRED_SUBNET = ipaddress.IPv4Network("10.1.0.0/16")
+DEFAULT_PROXY_NAME = "fm_global-nginx-proxy"
+DEFAULT_NETWORK_NAME = "fm-global-frontend-network"
 
 
-def get_docker_network_subnets() -> list[ipaddress.IPv4Network]:
+def get_docker_network_subnets(docker: DockerClient | None = None) -> list[ipaddress.IPv4Network]:
     """Scan all Docker networks and return their IPv4 subnets."""
     subnets: list[ipaddress.IPv4Network] = []
+    if docker is None:
+        docker = DockerClient()
 
-    try:
-        result = subprocess.run(
-            ["docker", "network", "ls", "--format", "{{.Name}}"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=True,
-        )
-    except (subprocess.TimeoutExpired, subprocess.SubprocessError):
-        return subnets
-
-    for name in result.stdout.strip().splitlines():
-        name = name.strip()
-        if not name:
-            continue
-        try:
-            inspect = subprocess.run(
-                ["docker", "network", "inspect", name, "--format", "{{json .IPAM.Config}}"],
-                capture_output=True,
-                text=True,
-                timeout=10,
-                check=False,
-            )
-        except subprocess.TimeoutExpired:
-            continue
-
-        if inspect.returncode != 0 or not inspect.stdout.strip():
-            continue
-        raw = inspect.stdout.strip()
-        if raw == "null":
-            continue
-        try:
-            configs = json.loads(raw)
-        except json.JSONDecodeError:
-            continue
-        if not configs:
+    names = docker.network_ls()
+    for name in names:
+        configs = docker.network_inspect(name)
+        if not configs or not isinstance(configs, list):
             continue
         for cfg in configs:
             if not isinstance(cfg, dict):
@@ -70,6 +42,7 @@ def get_docker_network_subnets() -> list[ipaddress.IPv4Network]:
 
 def find_available_subnet(
     used_subnets: list[ipaddress.IPv4Network] | None = None,
+    docker: DockerClient | None = None,
 ) -> ipaddress.IPv4Network:
     """
     Find a free /16 in 10.0.0.0/8 that doesn't overlap with any existing Docker networks.
@@ -77,13 +50,11 @@ def find_available_subnet(
     Tries 10.1.0.0/16 first (most common), then scans 10.2.0.0/16 through 10.255.0.0/16.
     """
     if used_subnets is None:
-        used_subnets = get_docker_network_subnets()
+        used_subnets = get_docker_network_subnets(docker=docker)
 
-    # Try preferred subnet first
     if not any(PREFERRED_SUBNET.overlaps(u) for u in used_subnets):
         return PREFERRED_SUBNET
 
-    # Scan remaining /16s in 10.0.0.0/8
     for i in range(2, 256):
         candidate = ipaddress.IPv4Network(f"10.{i}.0.0/16")
         if not any(candidate.overlaps(u) for u in used_subnets):
@@ -92,36 +63,16 @@ def find_available_subnet(
     raise RuntimeError("No free /16 subnet found in 10.0.0.0/8")
 
 
-def get_ips_in_use_on_network(network_name: str) -> set[str]:
+def get_ips_in_use_on_network(
+    network_name: str = DEFAULT_NETWORK_NAME,
+    docker: DockerClient | None = None,
+) -> set[str]:
     """Return the set of IPv4 addresses currently assigned on a Docker network."""
     used: set[str] = set()
+    if docker is None:
+        docker = DockerClient()
 
-    try:
-        result = subprocess.run(
-            [
-                "docker",
-                "network",
-                "inspect",
-                network_name,
-                "--format",
-                "{{json .Containers}}",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-    except subprocess.TimeoutExpired:
-        return used
-
-    if result.returncode != 0 or not result.stdout.strip():
-        return used
-
-    try:
-        containers = json.loads(result.stdout)
-    except json.JSONDecodeError:
-        return used
-
+    containers = docker.network_inspect(network_name, format="{{json .Containers}}")
     if not containers:
         return used
 
@@ -133,13 +84,16 @@ def get_ips_in_use_on_network(network_name: str) -> set[str]:
     return used
 
 
-def pick_proxy_ip(subnet_cidr: str, network_name: str = "fm-global-frontend-network") -> str:
+def pick_proxy_ip(
+    subnet_cidr: str,
+    network_name: str = DEFAULT_NETWORK_NAME,
+    docker: DockerClient | None = None,
+) -> str:
     """
     Pick the first free IP address after the gateway (.1) on the given network.
     """
     net = ipaddress.IPv4Network(subnet_cidr, strict=False)
-    gateway = net.network_address + 1  # Docker reserves .1 as gateway
-    used = get_ips_in_use_on_network(network_name)
+    used = get_ips_in_use_on_network(network_name, docker=docker)
 
     for offset in range(2, 255):
         candidate = str(net.network_address + offset)
@@ -149,13 +103,49 @@ def pick_proxy_ip(subnet_cidr: str, network_name: str = "fm-global-frontend-netw
     raise RuntimeError(f"No free IP address in {subnet_cidr} for proxy")
 
 
-def compute_network_config(subnet_cidr: str, network_name: str = "fm-global-frontend-network") -> dict:
+def detect_running_network(
+    network_name: str = DEFAULT_NETWORK_NAME,
+    proxy_container: str = DEFAULT_PROXY_NAME,
+    docker: DockerClient | None = None,
+) -> dict | None:
     """
-    Compute the full network config dict (subnet + IP) given a CIDR.
+    Detect the actual subnet and proxy IP from a running Docker network.
+
+    Returns dict with 'subnet_cidr' and 'proxy_ip' if the network exists,
+    or None if the network doesn't exist.
     """
+    if docker is None:
+        docker = DockerClient()
+
+    configs = docker.network_inspect(network_name)
+    if not configs or not isinstance(configs, list):
+        return None
+
+    subnet_cidr = configs[0].get("Subnet") if isinstance(configs[0], dict) else None
+    if not subnet_cidr:
+        return None
+
+    # Get proxy container's IP on this network
+    proxy_ip = ""
+    net_info = docker.container_inspect(proxy_container, format="{{json .NetworkSettings.Networks}}")
+    net_info = net_info or {}
+    for net_name, cfg in net_info.items():
+        if net_name == network_name:
+            proxy_ip = cfg.get("IPAddress", "")
+            break
+
+    return {"subnet_cidr": subnet_cidr, "proxy_ip": proxy_ip}
+
+
+def compute_network_config(
+    subnet_cidr: str,
+    network_name: str = DEFAULT_NETWORK_NAME,
+    docker: DockerClient | None = None,
+) -> dict:
+    """Compute the full network config dict (subnet + IP) given a CIDR."""
     return {
         "subnet_cidr": subnet_cidr,
-        "proxy_ip": pick_proxy_ip(subnet_cidr, network_name),
+        "proxy_ip": pick_proxy_ip(subnet_cidr, network_name, docker=docker),
     }
 
 

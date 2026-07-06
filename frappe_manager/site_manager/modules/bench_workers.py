@@ -21,7 +21,6 @@ from frappe_manager.site_manager.exceptions import (
     BenchOperationException,
     BenchWorkersSupervisorConfigurtionNotFoundError,
 )
-from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version
 from frappe_manager.utils.site import is_default_worker
 
@@ -56,6 +55,54 @@ class BenchWorkers:
         self.output = output_handler or RichOutputHandler()
         self.compose_file_manager = ComposeFile(self.compose_path, template_name="docker-compose.workers.tmpl")
         self.docker_client = DockerClient(compose_file_path=self.compose_path, output=self.output)
+
+    def get_expected_workers(
+        self,
+        include_default_workers: bool = True,
+        include_custom_workers: bool = True,
+    ) -> list[str]:
+        """
+        Get list of expected workers from supervisor configuration.
+
+        Args:
+            include_default_workers: Whether to include default workers (short, long)
+            include_custom_workers: Whether to include custom workers
+
+        Returns:
+            Sorted list of worker service names
+
+        Raises:
+            BenchWorkersSupervisorConfigurtionNotFoundError: If no worker configs found
+        """
+        self.output.change_head("Checking workers info")
+
+        workers_supervisor_conf_paths = []
+
+        for file_path in self.config_dir.iterdir():
+            file_path_abs = str(file_path.absolute())
+            if file_path.is_file():
+                if file_path_abs.endswith(".workers.fm.supervisor.conf"):
+                    workers_supervisor_conf_paths.append(file_path)
+
+        if len(workers_supervisor_conf_paths) == 0:
+            raise BenchWorkersSupervisorConfigurtionNotFoundError(self.bench.name, str(self.config_dir))
+
+        workers_expected_service_names = []
+
+        for worker_name in workers_supervisor_conf_paths:
+            worker_name = worker_name.name
+            worker_name = worker_name.replace("frappe-bench-frappe-", "")
+            worker_name = worker_name.replace(".workers.fm.supervisor.conf", "")
+
+            if is_default_worker(worker_name):
+                if include_default_workers:
+                    workers_expected_service_names.append(worker_name)
+            elif include_custom_workers:
+                workers_expected_service_names.append(worker_name)
+
+        workers_expected_service_names.sort()
+
+        return workers_expected_service_names
 
     def is_new_workers_added(self, include_default_workers: bool = False) -> bool:
         """
@@ -116,17 +163,15 @@ class BenchWorkers:
         if len(workers_expected_service_names) > 0:
             import os
 
-            # Add extra_hosts for SSL-enabled domains pointing to the global nginx proxy's static IP
+            # Add extra_hosts for the bench domain pointing to the global nginx proxy's static IP
             fm_config = FMConfigManager.import_from_toml()
             proxy_ip = fm_config.network.proxy_ip
             extra_hosts = None
             if proxy_ip:
-                ssl_domains = []
-                for cert in self.bench.bench_config.ssl_certificates:
-                    if cert.ssl_type != SUPPORTED_SSL_TYPES.none:
-                        ssl_domains.append(cert.domain)
-                if ssl_domains:
-                    extra_hosts = [f"{domain}:{proxy_ip}" for domain in ssl_domains]
+                all_domains = [self.bench.name]
+                if self.bench.bench_config.alias_domains:
+                    all_domains.extend(self.bench.bench_config.alias_domains)
+                extra_hosts = [f"{domain}:{proxy_ip}" for domain in all_domains]
 
             for worker in workers_expected_service_names:
                 worker_config = deepcopy(template_worker_config)
@@ -135,6 +180,23 @@ class BenchWorkers:
                 worker_config["environment"]["WORKER_NAME"] = worker
                 if extra_hosts:
                     worker_config["extra_hosts"] = extra_hosts
+
+                # For dev SSL, mount the CA cert so workers trust the dev certificate
+                from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
+                has_dev_ssl = any(
+                    cert.ssl_type == SUPPORTED_SSL_TYPES.dev
+                    for cert in self.bench.bench_config.ssl_certificates
+                )
+                if has_dev_ssl:
+                    from frappe_manager import CLI_SERVICES_DIRECTORY
+                    ca_host = CLI_SERVICES_DIRECTORY / "nginx-proxy" / "ssl" / "dev" / "ca" / "rootCA.pem"
+                    if ca_host.exists():
+                        ca_container = "/etc/ssl/certs/fm-dev-ca.pem"
+                        vol_str = f"{ca_host}:{ca_container}:ro"
+                        worker_config.setdefault("volumes", []).append(vol_str)
+                        worker_config["environment"]["NODE_EXTRA_CA_CERTS"] = ca_container
+                        worker_config["environment"]["REQUESTS_CA_BUNDLE"] = ca_container
+
                 self.compose_file_manager.yml["services"][worker] = worker_config
 
             self.compose_file_manager.with_prefix(

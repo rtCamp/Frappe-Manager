@@ -78,6 +78,13 @@ def _add_bench_certificate(
         bench.certificate_manager.add_certificate(cert, dry_run=dry_run)
 
     if not dry_run:
+        # Update host_name to HTTPS since SSL is now active
+        try:
+            bench.set_bench_site_config({"host_name": f"https://{domain}"})
+            output.debug(f"Updated host_name to https://{domain}")
+        except Exception:
+            # Non-fatal — site config may not exist yet if site isn't created
+            pass
         output.print(f"SSL certificate added for {domain}", emoji_code=":white_check_mark:")
         output.print("Certificate has been issued and configured.", emoji_code=":zap:")
 
@@ -114,6 +121,13 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
     try:
         with spinner(output, f"Removing SSL certificate for {domain}"):
             bench.certificate_manager.remove_certificate_by_domain(domain)
+
+        # Revert host_name to HTTP since SSL was removed
+        try:
+            bench.set_bench_site_config({"host_name": f"http://{domain}"})
+            output.debug(f"Updated host_name to http://{domain}")
+        except Exception:
+            pass
 
         output.print(f"SSL certificate removed for {domain}", emoji_code=":white_check_mark:")
 

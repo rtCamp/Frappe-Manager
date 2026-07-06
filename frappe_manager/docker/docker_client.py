@@ -211,6 +211,61 @@ class DockerClient:
         )
         return iterator
 
+    def network_ls(
+        self,
+        format: str = "{{.Name}}",
+        stream: bool = False,
+    ) -> list[str]:
+        """List Docker networks and return their names."""
+        parameters: dict = locals()
+        cmd: list[str] = ["network", "ls"]
+        remove_parameters = ["stream"]
+        cmd += parameters_to_options(parameters, exclude=remove_parameters)
+        output: SubprocessOutput = run_command_with_exit_code(self.docker_cmd + cmd, stream=stream)
+        names = [line.strip() for line in output.stdout if line.strip()]
+        return names
+
+    def network_inspect(
+        self,
+        network_name: str,
+        format: str = "{{json .IPAM.Config}}",
+        stream: bool = False,
+    ) -> list:
+        """Inspect a Docker network and return parsed JSON output."""
+        parameters: dict = locals()
+        cmd: list[str] = ["network", "inspect", network_name]
+        remove_parameters = ["stream", "network_name"]
+        cmd += parameters_to_options(parameters, exclude=remove_parameters)
+        try:
+            output: SubprocessOutput = run_command_with_exit_code(self.docker_cmd + cmd, stream=stream)
+            if output.stdout:
+                return json.loads(" ".join(output.stdout))
+        except DockerException:
+            return []
+        return []
+
+    def container_inspect(
+        self,
+        container_name: str,
+        format: str = "{{json .NetworkSettings.Networks}}",
+        stream: bool = False,
+    ) -> dict:
+        """Inspect a container and return parsed JSON of its network settings."""
+        parameters: dict = locals()
+        cmd: list[str] = ["inspect", container_name]
+        remove_parameters = ["stream", "container_name"]
+        cmd += parameters_to_options(parameters, exclude=remove_parameters)
+        try:
+            output: SubprocessOutput = run_command_with_exit_code(self.docker_cmd + cmd, stream=stream)
+            if output.stdout:
+                data = json.loads(" ".join(output.stdout))
+                if isinstance(data, list) and len(data) > 0:
+                    return data[0]
+                return data
+        except DockerException:
+            return {}
+        return {}
+
     def images(
         self,
         format: Literal["json"] = "json",
