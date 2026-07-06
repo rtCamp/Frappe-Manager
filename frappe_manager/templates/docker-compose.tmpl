@@ -16,6 +16,7 @@ services:
     networks:
       site-network:
       global-backend-network:
+      global-frontend-network:
 
   nginx:
     image: ghcr.io/rtcamp/frappe-manager-nginx:{{ nginx_image_tag }}
@@ -54,6 +55,7 @@ services:
       - ./workspace:/workspace
     networks:
       site-network:
+      global-frontend-network:
 
   schedule:
     image: ghcr.io/rtcamp/frappe-manager-frappe:{{ frappe_image_tag }}
@@ -69,6 +71,7 @@ services:
     networks:
       site-network:
       global-backend-network:
+      global-frontend-network:
 
   redis-cache:
     image: redis:8-alpine

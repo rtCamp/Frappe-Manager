@@ -9,6 +9,7 @@ from jinja2 import Template
 
 from frappe_manager import CLI_DIR, CLI_SERVICES_DIRECTORY
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
+from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.database_service_manager import (
@@ -29,6 +30,11 @@ from frappe_manager.utils.helpers import (
     get_template_path,
     get_unix_groups,
     random_password_generate,
+)
+from frappe_manager.utils.network import (
+    compute_network_config,
+    find_available_subnet,
+    get_docker_network_subnets,
 )
 
 
@@ -200,6 +206,36 @@ class ServicesManager:
 
         # set secrets in compose
         self.generate_compose(inputs)
+
+        # Ensure network configuration (subnet + proxy IP) is computed and saved
+        fm_config = FMConfigManager.import_from_toml()
+        if not fm_config.network.configured:
+            self.output.change_head("Configuring global frontend network")
+            used_subnets = get_docker_network_subnets()
+            cidr = find_available_subnet(used_subnets)
+            net_config = compute_network_config(str(cidr), "fm-global-frontend-network")
+            fm_config.network.subnet_cidr = net_config["subnet_cidr"]
+            fm_config.network.proxy_ip = net_config["proxy_ip"]
+            fm_config.export_to_toml()
+            self.output.print(f"Assigned subnet {net_config['subnet_cidr']}, proxy IP {net_config['proxy_ip']}")
+
+        # Set the subnet in the compose YAML
+        if fm_config.network.subnet_cidr:
+            try:
+                self.compose_file_manager.yml["networks"]["global-frontend-network"]["ipam"]["config"][0][
+                    "subnet"
+                ] = fm_config.network.subnet_cidr
+            except (KeyError, IndexError):
+                pass
+
+        # Set the proxy's static IP in the compose YAML
+        if fm_config.network.proxy_ip:
+            try:
+                self.compose_file_manager.yml["services"]["global-nginx-proxy"]["networks"] = {
+                    "global-frontend-network": {"ipv4_address": fm_config.network.proxy_ip},
+                }
+            except KeyError:
+                pass
 
         if current_system == "Darwin":
             self.compose_file_manager.remove_container_user("global-nginx-proxy")

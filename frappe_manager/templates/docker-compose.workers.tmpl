@@ -6,6 +6,7 @@ services:
     networks:
       site-network:
       global-backend-network:
+      global-frontend-network:
     volumes:
       - fm-sockets:/fm-sockets
       - ./workspace:/workspace
@@ -25,4 +26,7 @@ networks:
     external: true
   global-backend-network:
     name: fm-global-backend-network
+    external: true
+  global-frontend-network:
+    name: fm-global-frontend-network
     external: true

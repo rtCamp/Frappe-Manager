@@ -14,10 +14,12 @@ from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.docker.compose_file import ComposeFile
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger.contextual import ContextualLogger
+from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager import NON_BASH_SUPPORTED_SERVICES
 from frappe_manager.site_manager.bench_config import BenchConfig
+from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.utils.docker import host_run_cp
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version
 
@@ -104,7 +106,22 @@ class BenchDockerOps:
         if self.config.alias_domains:
             network_aliases.extend(self.config.alias_domains)
 
-        self.compose_file_manager.set_network_alias("nginx", "site-network", network_aliases)
+        # No domain aliases on bench nginx — internal DNS resolution for all domains
+        # is handled via extra_hosts (pointing to the global proxy).
+        # The proxy discovers domains via VIRTUAL_HOST env var, not network aliases.
+
+        # Add extra_hosts for SSL-enabled domains pointing to the global nginx proxy's static IP
+        fm_config = FMConfigManager.import_from_toml()
+        proxy_ip = fm_config.network.proxy_ip
+        if proxy_ip:
+            ssl_domains = []
+            for cert in self.config.ssl_certificates:
+                if cert.ssl_type != SUPPORTED_SSL_TYPES.none:
+                    ssl_domains.append(cert.domain)
+            if ssl_domains:
+                extra_hosts = [f"{domain}:{proxy_ip}" for domain in ssl_domains]
+                for service in ["frappe", "socketio", "schedule"]:
+                    self.compose_file_manager.set_extrahosts(service, extra_hosts)
 
         # Use configure_bench method to set all configurations atomically
         self.compose_file_manager.configure_bench(

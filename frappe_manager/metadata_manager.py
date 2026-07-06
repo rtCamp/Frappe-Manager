@@ -104,6 +104,23 @@ class FMLogsConfig(BaseModel):
         return cls(**toml_doc)
 
 
+class FMNetworkConfig(BaseModel):
+    """Network configuration for the global frontend network."""
+
+    subnet_cidr: str | None = Field(
+        default=None,
+        description="CIDR subnet for the global-frontend-network (e.g. 10.1.0.0/16)",
+    )
+    proxy_ip: str | None = Field(
+        default=None,
+        description="Static IP of global-nginx-proxy on global-frontend-network (e.g. 10.1.0.2)",
+    )
+
+    @property
+    def configured(self) -> bool:
+        return bool(self.subnet_cidr and self.proxy_ip)
+
+
 class FMConfigManager(BaseModel):
     root_path: Path
     version: Version
@@ -111,6 +128,7 @@ class FMConfigManager(BaseModel):
     ngrok_auth_token: str | None = Field(None, description="Ngrok authentication token")
     validation: FMValidationConfig = Field(default=FMValidationConfig())
     logs: FMLogsConfig = Field(default=FMLogsConfig())
+    network: FMNetworkConfig = Field(default=FMNetworkConfig())
 
     def __init__(self, **data):
         super().__init__(**data)
@@ -182,6 +200,7 @@ class FMConfigManager(BaseModel):
         input_data["ngrok_auth_token"] = None
         input_data["validation"] = FMValidationConfig()
         input_data["logs"] = FMLogsConfig()
+        input_data["network"] = FMNetworkConfig()
 
         raw_config_data = {}
 
@@ -199,6 +218,9 @@ class FMConfigManager(BaseModel):
 
             if "logs" in data:
                 input_data["logs"] = FMLogsConfig(**data["logs"])
+
+            if "network" in data:
+                input_data["network"] = FMNetworkConfig(**data["network"])
 
             if "migration_state" in data:
                 import json
