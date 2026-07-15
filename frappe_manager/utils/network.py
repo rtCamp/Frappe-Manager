@@ -7,7 +7,6 @@ for the global-frontend-network, avoiding conflicts with existing Docker network
 
 import ipaddress
 import sys
-from typing import Tuple
 
 from frappe_manager.docker.docker_client import DockerClient
 

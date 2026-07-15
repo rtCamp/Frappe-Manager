@@ -15,7 +15,6 @@ from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.docker.compose_file import ComposeFile
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger.contextual import ContextualLogger
-from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager import NON_BASH_SUPPORTED_SERVICES
@@ -111,10 +110,21 @@ class BenchDockerOps:
         # The proxy discovers domains via VIRTUAL_HOST env var, not network aliases.
 
         # Add extra_hosts for the primary domain and alias domains pointing to the
-        # global nginx proxy's static IP. The proxy handles both HTTP and HTTPS,
-        # so this is safe even before SSL is configured.
-        fm_config = FMConfigManager.import_from_toml()
-        proxy_ip = fm_config.network.proxy_ip
+        # global nginx proxy. The proxy IP is detected live from Docker so it's
+        # always correct even if the proxy was recreated after a restart.
+        proxy_ip = ""
+        try:
+            net_info = DockerClient().container_inspect(
+                "fm_global-nginx-proxy",
+                format="{{json .NetworkSettings.Networks}}",
+            )
+            for name, cfg in (net_info or {}).items():
+                if name == "fm-global-frontend-network":
+                    proxy_ip = cfg.get("IPAddress", "")
+                    break
+        except Exception:
+            pass
+
         if proxy_ip:
             all_domains = [self.config.name]
             if self.config.alias_domains:

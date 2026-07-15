@@ -24,9 +24,19 @@ class VhostConfigManager:
     """
 
     # Default HTTPS redirect configuration
+    # Allows internal services (socketio) to make HTTP API calls without redirect,
+    # since Node.js fetch() drops Cookie headers on cross-protocol redirects.
     HTTPS_REDIRECT_CONFIG = """# Enable HTTPS redirect for this domain only
 # This domain has a valid SSL certificate
+# Internal service API calls allowed over HTTP (Cookie header lost on redirect)
+set $redirect_to_https 0;
 if ($scheme = http) {
+    set $redirect_to_https 1;
+}
+if ($uri ~ ^/api/method/frappe\\.realtime\\.) {
+    set $redirect_to_https 0;
+}
+if ($redirect_to_https = 1) {
     return 301 https://$host$request_uri;
 }
 """

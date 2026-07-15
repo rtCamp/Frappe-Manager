@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 
 from frappe_manager import SiteServicesEnum
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
-from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
@@ -163,9 +162,22 @@ class BenchWorkers:
         if len(workers_expected_service_names) > 0:
             import os
 
-            # Add extra_hosts for the bench domain pointing to the global nginx proxy's static IP
-            fm_config = FMConfigManager.import_from_toml()
-            proxy_ip = fm_config.network.proxy_ip
+            # Detect the global proxy IP live from Docker so it's always correct
+            # even after restarts. Falls back to config if detection fails.
+            proxy_ip = ""
+            try:
+                from frappe_manager.docker.docker_client import DockerClient
+                net_info = DockerClient().container_inspect(
+                    "fm_global-nginx-proxy",
+                    format="{{json .NetworkSettings.Networks}}",
+                )
+                for name, cfg in (net_info or {}).items():
+                    if name == "fm-global-frontend-network":
+                        proxy_ip = cfg.get("IPAddress", "")
+                        break
+            except Exception:
+                pass
+
             extra_hosts = None
             if proxy_ip:
                 all_domains = [self.bench.name]
