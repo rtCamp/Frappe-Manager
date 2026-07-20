@@ -6,6 +6,7 @@ Extracted from the monolithic Bench class for better separation of concerns.
 """
 
 import sys
+import shlex
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -402,7 +403,7 @@ class BenchDockerOps:
         if use_run:
             run_args: dict[str, Any] = {
                 "service": compose_service,
-                "command": f'{shell_path} -c "{command}"',
+                "command": f"{shell_path} -c {shlex.quote(command)}",
                 "rm": True,
                 "use_shlex_split": True,
                 "stream": False,
@@ -432,7 +433,7 @@ class BenchDockerOps:
         else:
             exec_args: dict[str, Any] = {
                 "service": compose_service,
-                "command": f'{shell_path} -c "{command}"',
+                "command": f"{shell_path} -c {shlex.quote(command)}",
                 "stream": False,
                 "capture_output": True,
                 "use_shlex_split": True,
