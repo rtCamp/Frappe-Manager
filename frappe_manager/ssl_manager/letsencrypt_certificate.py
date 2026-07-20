@@ -1,5 +1,6 @@
 from pydantic import Field, model_validator
 
+from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 
 
@@ -7,6 +8,9 @@ class LetsencryptSSLCertificate(SSLCertificate):
     # Email field removed - Let's Encrypt discontinued email notifications (June 2025)
     api_token: str | None = Field(None, description="Cloudflare API token.")
     api_key: str | None = Field(None, description="Cloudflare Global API Key.")
+    # Let's Encrypt always uses an ACME challenge; default so downstream
+    # acme.sh code can safely read challenge_type.value.
+    challenge_type: LETSENCRYPT_PREFERRED_CHALLENGE = LETSENCRYPT_PREFERRED_CHALLENGE.http01
     toml_exclude: set | None = {"domain", "toml_exclude"}
 
     @model_validator(mode="after")

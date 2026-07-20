@@ -36,6 +36,7 @@ from frappe_manager.utils.network import (
     detect_running_network,
     find_available_subnet,
     get_docker_network_subnets,
+    pick_proxy_ip,
 )
 
 
@@ -208,16 +209,22 @@ class ServicesManager:
         # set secrets in compose
         self.generate_compose(inputs)
 
-        # Ensure network configuration (subnet + proxy IP) is set
+        # Ensure network configuration (subnet + proxy IP) is set. Only the
+        # frontend network is auto-sized to dodge host subnet clashes; the
+        # backend network keeps its fixed subnet from the template.
         fm_config = FMConfigManager.import_from_toml()
         if not fm_config.network.configured:
-            # First check if the network is already running (e.g. from a previous setup)
+            # Reuse the network if it's already running (e.g. from a previous setup)
             running = detect_running_network("fm-global-frontend-network", docker=self.docker_client)
             if running:
-                fm_config.network.subnet_cidr = running["subnet_cidr"]
-                fm_config.network.proxy_ip = running["proxy_ip"]
+                subnet_cidr = running["subnet_cidr"]
+                # The proxy may not be attached yet; pick a free IP in the subnet
+                # instead of persisting an empty address.
+                proxy_ip = running["proxy_ip"] or pick_proxy_ip(subnet_cidr, "fm-global-frontend-network")
+                fm_config.network.subnet_cidr = subnet_cidr
+                fm_config.network.proxy_ip = proxy_ip
                 fm_config.export_to_toml()
-                self.output.print(f"Detected running network: {running['subnet_cidr']}, proxy at {running['proxy_ip']}")
+                self.output.print(f"Detected running network: {subnet_cidr}, proxy at {proxy_ip}")
             else:
                 self.output.change_head("Configuring global frontend network")
                 used_subnets = get_docker_network_subnets()
@@ -237,12 +244,21 @@ class ServicesManager:
             except (KeyError, IndexError):
                 pass
 
-        # Set the proxy's static IP in the compose YAML
+        # Pin the proxy's static IP without dropping any other networks it's on
         if fm_config.network.proxy_ip:
             try:
-                self.compose_file_manager.yml["services"]["global-nginx-proxy"]["networks"] = {
-                    "global-frontend-network": {"ipv4_address": fm_config.network.proxy_ip},
-                }
+                proxy_service = self.compose_file_manager.yml["services"]["global-nginx-proxy"]
+                nets = proxy_service.get("networks")
+                if isinstance(nets, list):
+                    nets = {name: {} for name in nets}
+                elif not isinstance(nets, dict):
+                    nets = {}
+                entry = nets.get("global-frontend-network")
+                if not isinstance(entry, dict):
+                    entry = {}
+                entry["ipv4_address"] = fm_config.network.proxy_ip
+                nets["global-frontend-network"] = entry
+                proxy_service["networks"] = nets
             except KeyError:
                 pass
 

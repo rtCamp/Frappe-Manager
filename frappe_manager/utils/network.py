@@ -6,7 +6,6 @@ for the global-frontend-network, avoiding conflicts with existing Docker network
 """
 
 import ipaddress
-import sys
 
 from frappe_manager.docker.docker_client import DockerClient
 
@@ -124,14 +123,8 @@ def detect_running_network(
     if not subnet_cidr:
         return None
 
-    # Get proxy container's IP on this network
-    proxy_ip = ""
-    net_info = docker.container_inspect(proxy_container, format="{{json .NetworkSettings.Networks}}")
-    net_info = net_info or {}
-    for net_name, cfg in net_info.items():
-        if net_name == network_name:
-            proxy_ip = cfg.get("IPAddress", "")
-            break
+    # Get the proxy container's live IP on this network
+    proxy_ip = get_proxy_ip_on_frontend(network_name, proxy_container, docker=docker)
 
     return {"subnet_cidr": subnet_cidr, "proxy_ip": proxy_ip}
 
@@ -148,8 +141,24 @@ def compute_network_config(
     }
 
 
-def get_platform() -> str:
-    """Return whether we're on macOS ('osx') or Linux ('linux')."""
-    if sys.platform == "darwin":
-        return "osx"
-    return "linux"
+def get_proxy_ip_on_frontend(
+    network_name: str = DEFAULT_NETWORK_NAME,
+    proxy_container: str = DEFAULT_PROXY_NAME,
+    docker: DockerClient | None = None,
+) -> str:
+    """
+    Return the global proxy container's live IPv4 address on the frontend network.
+
+    Reads the address straight from Docker so it stays correct even after the
+    proxy is recreated. Returns "" if the proxy or network can't be inspected.
+    """
+    if docker is None:
+        docker = DockerClient()
+    try:
+        net_info = docker.container_inspect(proxy_container, format="{{json .NetworkSettings.Networks}}")
+    except Exception:
+        return ""
+    for net_name, cfg in (net_info or {}).items():
+        if net_name == network_name:
+            return cfg.get("IPAddress", "")
+    return ""

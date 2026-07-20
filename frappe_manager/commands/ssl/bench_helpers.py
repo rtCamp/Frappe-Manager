@@ -82,9 +82,9 @@ def _add_bench_certificate(
         try:
             bench.set_bench_site_config({"host_name": f"https://{domain}"})
             output.debug(f"Updated host_name to https://{domain}")
-        except Exception:
+        except Exception as e:
             # Non-fatal — site config may not exist yet if site isn't created
-            pass
+            output.debug(f"Could not update host_name to https://{domain}: {e}")
         output.print(f"SSL certificate added for {domain}", emoji_code=":white_check_mark:")
         output.print("Certificate has been issued and configured.", emoji_code=":zap:")
 
@@ -126,8 +126,8 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
         try:
             bench.set_bench_site_config({"host_name": f"http://{domain}"})
             output.debug(f"Updated host_name to http://{domain}")
-        except Exception:
-            pass
+        except Exception as e:
+            output.debug(f"Could not update host_name to http://{domain}: {e}")
 
         output.print(f"SSL certificate removed for {domain}", emoji_code=":white_check_mark:")
 

@@ -11,7 +11,7 @@ Provides worker management for the bench including:
 from copy import deepcopy
 from typing import TYPE_CHECKING
 
-from frappe_manager import SiteServicesEnum
+from frappe_manager import CLI_SERVICES_DIRECTORY, SiteServicesEnum
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.output_manager import OutputHandler
@@ -20,7 +20,9 @@ from frappe_manager.site_manager.exceptions import (
     BenchOperationException,
     BenchWorkersSupervisorConfigurtionNotFoundError,
 )
+from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version
+from frappe_manager.utils.network import get_proxy_ip_on_frontend
 from frappe_manager.utils.site import is_default_worker
 
 if TYPE_CHECKING:
@@ -162,21 +164,9 @@ class BenchWorkers:
         if len(workers_expected_service_names) > 0:
             import os
 
-            # Detect the global proxy IP live from Docker so it's always correct
-            # even after restarts. Falls back to config if detection fails.
-            proxy_ip = ""
-            try:
-                from frappe_manager.docker.docker_client import DockerClient
-                net_info = DockerClient().container_inspect(
-                    "fm_global-nginx-proxy",
-                    format="{{json .NetworkSettings.Networks}}",
-                )
-                for name, cfg in (net_info or {}).items():
-                    if name == "fm-global-frontend-network":
-                        proxy_ip = cfg.get("IPAddress", "")
-                        break
-            except Exception:
-                pass
+            # Detect the global proxy IP live from Docker so it stays correct
+            # even after the proxy is recreated.
+            proxy_ip = get_proxy_ip_on_frontend()
 
             extra_hosts = None
             if proxy_ip:
@@ -185,6 +175,19 @@ class BenchWorkers:
                     all_domains.extend(self.bench.bench_config.alias_domains)
                 extra_hosts = [f"{domain}:{proxy_ip}" for domain in all_domains]
 
+            # For dev SSL, workers need the CA cert mounted so outbound HTTPS
+            # requests trust the self-signed dev certificate. Resolve this once.
+            has_dev_ssl = any(
+                cert.ssl_type == SUPPORTED_SSL_TYPES.dev
+                for cert in self.bench.bench_config.ssl_certificates
+            )
+            ca_host = None
+            if has_dev_ssl:
+                candidate = CLI_SERVICES_DIRECTORY / "nginx-proxy" / "ssl" / "dev" / "ca" / "rootCA.pem"
+                if candidate.exists():
+                    ca_host = candidate
+            ca_container = "/etc/ssl/certs/fm-dev-ca.pem"
+
             for worker in workers_expected_service_names:
                 worker_config = deepcopy(template_worker_config)
                 worker_config["environment"]["USERID"] = os.getuid()
@@ -192,22 +195,10 @@ class BenchWorkers:
                 worker_config["environment"]["WORKER_NAME"] = worker
                 if extra_hosts:
                     worker_config["extra_hosts"] = extra_hosts
-
-                # For dev SSL, mount the CA cert so workers trust the dev certificate
-                from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
-                has_dev_ssl = any(
-                    cert.ssl_type == SUPPORTED_SSL_TYPES.dev
-                    for cert in self.bench.bench_config.ssl_certificates
-                )
-                if has_dev_ssl:
-                    from frappe_manager import CLI_SERVICES_DIRECTORY
-                    ca_host = CLI_SERVICES_DIRECTORY / "nginx-proxy" / "ssl" / "dev" / "ca" / "rootCA.pem"
-                    if ca_host.exists():
-                        ca_container = "/etc/ssl/certs/fm-dev-ca.pem"
-                        vol_str = f"{ca_host}:{ca_container}:ro"
-                        worker_config.setdefault("volumes", []).append(vol_str)
-                        worker_config["environment"]["NODE_EXTRA_CA_CERTS"] = ca_container
-                        worker_config["environment"]["REQUESTS_CA_BUNDLE"] = ca_container
+                if ca_host:
+                    worker_config.setdefault("volumes", []).append(f"{ca_host}:{ca_container}:ro")
+                    worker_config["environment"]["NODE_EXTRA_CA_CERTS"] = ca_container
+                    worker_config["environment"]["REQUESTS_CA_BUNDLE"] = ca_container
 
                 self.compose_file_manager.yml["services"][worker] = worker_config
 

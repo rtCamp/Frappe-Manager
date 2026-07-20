@@ -21,6 +21,7 @@ from frappe_manager.site_manager import NON_BASH_SUPPORTED_SERVICES
 from frappe_manager.site_manager.bench_config import BenchConfig
 from frappe_manager.utils.docker import host_run_cp
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version
+from frappe_manager.utils.network import get_proxy_ip_on_frontend
 
 
 class BenchDockerOps:
@@ -110,20 +111,9 @@ class BenchDockerOps:
         # The proxy discovers domains via VIRTUAL_HOST env var, not network aliases.
 
         # Add extra_hosts for the primary domain and alias domains pointing to the
-        # global nginx proxy. The proxy IP is detected live from Docker so it's
-        # always correct even if the proxy was recreated after a restart.
-        proxy_ip = ""
-        try:
-            net_info = DockerClient().container_inspect(
-                "fm_global-nginx-proxy",
-                format="{{json .NetworkSettings.Networks}}",
-            )
-            for name, cfg in (net_info or {}).items():
-                if name == "fm-global-frontend-network":
-                    proxy_ip = cfg.get("IPAddress", "")
-                    break
-        except Exception:
-            pass
+        # global nginx proxy. The proxy IP is read live from Docker so it's always
+        # correct even if the proxy was recreated after a restart.
+        proxy_ip = get_proxy_ip_on_frontend()
 
         if proxy_ip:
             all_domains = [self.config.name]
