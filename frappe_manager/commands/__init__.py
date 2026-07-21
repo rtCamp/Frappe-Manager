@@ -7,8 +7,8 @@ from pathlib import Path
 from typing import Annotated, List, Optional, cast
 
 import typer
-from typer_examples import install
 from rich.panel import Panel
+from typer_examples import install
 
 from frappe_manager import (
     CLI_BENCH_CONFIG_FILE_NAME,
@@ -480,11 +480,13 @@ def app_callback(
 
 # Import extracted read-only commands (Step 3)
 # Import extracted remaining commands (Step 6)
+from frappe_manager.commands.bake import bake
 from frappe_manager.commands.code import code
 
 # Import extracted complex commands (Step 5)
 from frappe_manager.commands.create import create
 from frappe_manager.commands.delete import delete
+from frappe_manager.commands.deploy import deploy, rollback, switch
 from frappe_manager.commands.info import info
 from frappe_manager.commands.list import list as list_benches
 from frappe_manager.commands.logs import logs
@@ -514,6 +516,10 @@ app.command(name="reset")(reset)
 app.command(name="restart")(restart)
 app.command(name="ngrok")(ngrok)
 app.command(name="migrate")(migrate)
+app.command(name="bake", no_args_is_help=True)(bake)
+app.command(name="deploy", no_args_is_help=True)(deploy)
+app.command(name="switch", no_args_is_help=True)(switch)
+app.command(name="rollback", no_args_is_help=True)(rollback)
 
 # Export app and helpers for backward compatibility
 __all__ = ["app", "app_callback", "check_bench_migration_required", "get_bench_arg_from_context"]

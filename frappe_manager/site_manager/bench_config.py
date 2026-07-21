@@ -914,6 +914,27 @@ class MigrationState(BaseModel):
     last_migration_date: str | None = Field(None, description="ISO timestamp of last migration")
 
 
+class DeployStateEntry(BaseModel):
+    """One recorded image deploy (appended to :class:`DeployState.history`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    tag: str = Field(..., description="Image tag deployed.")
+    deployed_at: str = Field(..., description="ISO timestamp of the deploy.")
+    migrate_status: str = Field(..., description="Migrate outcome: 'migrated', 'skipped', 'failed', or 'rollback'.")
+
+
+class DeployState(BaseModel):
+    """Image deploy state (`[deploy_state]` in bench_config.toml)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    current_tag: str | None = Field(None, description="Currently deployed image tag.")
+    previous_tag: str | None = Field(None, description="Previously deployed image tag (rollback target).")
+    last_deploy_at: str | None = Field(None, description="ISO timestamp of the last successful deploy.")
+    history: list[DeployStateEntry] = Field(default_factory=list, description="Chronological deploy history.")
+
+
 class DeploymentMode(str, Enum):
     """Bench runtime: live-mounted code (dev) vs immutable app image (prod)."""
 
@@ -1067,6 +1088,11 @@ class BenchConfig(BaseModel):
     migration_state: MigrationState | None = Field(
         None,
         description="Migration state tracking (managed by migration system)",
+    )
+
+    deploy_state: DeployState | None = Field(
+        None,
+        description="Image deploy state tracking (managed by the deploy orchestrator)",
     )
 
     # NewRelic APM
@@ -1272,6 +1298,18 @@ class BenchConfig(BaseModel):
         if migration_state_data and isinstance(migration_state_data, dict):
             migration_state_obj = MigrationState(**migration_state_data)
 
+        deploy_state_data = data.get("deploy_state", None)
+        deploy_state_obj = None
+        if deploy_state_data and isinstance(deploy_state_data, dict):
+            history_data = deploy_state_data.get("history", []) or []
+            history = [DeployStateEntry(**dict(entry)) for entry in history_data if isinstance(entry, dict)]
+            deploy_state_obj = DeployState(
+                current_tag=deploy_state_data.get("current_tag"),
+                previous_tag=deploy_state_data.get("previous_tag"),
+                last_deploy_at=deploy_state_data.get("last_deploy_at"),
+                history=history,
+            )
+
         input_data = {
             "name": data.get("name", None),
             "developer_mode": data.get("developer_mode", None),
@@ -1293,6 +1331,7 @@ class BenchConfig(BaseModel):
             "db_name": data.get("db_name"),
             "restart_policy": data.get("restart_policy", None),
             "migration_state": migration_state_obj,
+            "deploy_state": deploy_state_obj,
             "newrelic_enabled": data.get("newrelic_enabled", False),
             "newrelic_license_key": data.get("newrelic_license_key", None),
             "deployment_mode": data.get("deployment_mode", "mount"),

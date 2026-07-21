@@ -132,6 +132,7 @@ class DockerComposeWrapper:
         always_recreate_deps: bool = False,
         quiet_pull: bool = False,
         pull: Literal["missing", "never", "always"] = "missing",
+        wait: bool = False,
         *,
         stream: Literal[True],
     ) -> Iterable[tuple[str, bytes]]: ...
@@ -148,6 +149,7 @@ class DockerComposeWrapper:
         always_recreate_deps: bool = False,
         quiet_pull: bool = False,
         pull: Literal["missing", "never", "always"] = "missing",
+        wait: bool = False,
         *,
         stream: Literal[False] = False,
     ) -> SubprocessOutput: ...
@@ -164,6 +166,7 @@ class DockerComposeWrapper:
         always_recreate_deps: bool = False,
         quiet_pull: bool = False,
         pull: Literal["missing", "never", "always"] = "missing",
+        wait: bool = False,
         stream: bool | None = None,
     ) -> Iterable[tuple[str, bytes]] | SubprocessOutput:
         """Start services defined in the compose file.

@@ -8,6 +8,7 @@ Extracted from the monolithic Bench class and BenchOperations for better
 separation of concerns.
 """
 
+import os
 import shlex
 from collections.abc import Iterator
 from pathlib import Path
@@ -73,6 +74,7 @@ class BenchAppManager:
         docker_client: DockerClient,
         bench_config: BenchConfig,
         output_handler: OutputHandler | None = None,
+        provision_image: str | None = None,
     ):
         """
         Initialize BenchAppManager.
@@ -84,6 +86,8 @@ class BenchAppManager:
             docker_client: Docker client for container operations
             bench_config: Bench configuration object
             output_handler: Handler for output operations
+            provision_image: If set, provisioning runs via plain ``docker run``
+                against this image (bake/image mode) instead of ``docker compose``.
         """
         self.logger = logger.child(component="app_manager")
         self.bench_name = bench_name
@@ -91,6 +95,7 @@ class BenchAppManager:
         self.docker_client = docker_client
         self.bench_config = bench_config
         self.output = output_handler or RichOutputHandler()
+        self.provision_image = provision_image
 
         self.frappe_bench_dir: Path = bench_path / "workspace" / "frappe-bench"
         self.bench_cli_cmd = ["/opt/user/.bin/bench"]
@@ -886,6 +891,12 @@ fi
             DockerException: If command fails and no exception object provided
         """
         try:
+            if use_run and self.provision_image:
+                return self._run_in_provision_image(
+                    command,
+                    capture_output=capture_output,
+                    workdir=workdir,
+                )
             if use_run:
                 wrapped_command = f"cd {workdir} && {command}"
                 run_command = f"/bin/bash -c '{wrapped_command}'"
@@ -945,3 +956,80 @@ fi
                 raise_exception_obj.set_output(e.output)
                 raise raise_exception_obj
             raise e
+
+    def _run_in_provision_image(
+        self,
+        command: str,
+        capture_output: bool = False,
+        workdir: str = "/workspace/frappe-bench",
+    ) -> SubprocessOutput | None:
+        """Run a bench command via plain ``docker run`` against ``self.provision_image``.
+
+        Ported from fmd's image runner: remap the frappe uid/gid to the host
+        user so the bind-mounted build-context is writable, drop privileges to
+        frappe, then exec the command. Used by ``fm bake`` (image mode) where no
+        long-running compose service exists. Mirrors the compose ``use_run``
+        branch for capture vs. stream output.
+        """
+        bench_mount = "/workspace/frappe-bench"
+
+        # bake owns frappe_bench_dir; ensure it exists for the bind-mount.
+        self.frappe_bench_dir.mkdir(parents=True, exist_ok=True)
+
+        host_uid = os.getuid()
+        host_gid = os.getgid()
+
+        inner_cmd = f"source /etc/bash.bashrc; cd {workdir} && {command}"
+        bash_script = (
+            f"usermod -u {host_uid} frappe 2>/dev/null; "
+            f"groupmod -g {host_gid} frappe 2>/dev/null; "
+            f"chown -R frappe:frappe {bench_mount} 2>/dev/null; "
+            f"exec gosu frappe /bin/bash -c {shlex.quote(inner_cmd)}"
+        )
+        bash_command = ["-c", bash_script]
+
+        env = {
+            "HOME": bench_mount,
+            "USER": "frappe",
+            "GROUP": "frappe",
+            "PATH": f"{bench_mount}/.uv/python-default/bin:{bench_mount}/.fnm/aliases/default/bin:/usr/local/bin:/opt/user/.bin:/usr/local/sbin:/usr/sbin:/usr/bin:/sbin:/bin",
+            "FNM_DIR": f"{bench_mount}/.fnm",
+            "FNM_NODE_DIST_MIRROR": "https://nodejs.org/dist",
+            "FNM_MULTISHELL_PATH": f"{bench_mount}/.fnm",
+            "FNM_COREPACK_ENABLED": "true",
+            "COREPACK_HOME": f"{bench_mount}/.fnm/corepack",
+            "COREPACK_ENABLE_DOWNLOAD_PROMPT": "0",
+            "UV_PYTHON_INSTALL_DIR": f"{bench_mount}/.uv/python",
+            "UV_CACHE_DIR": f"{bench_mount}/.uv/cache",
+            "UV_PYTHON_DOWNLOADS": "automatic",
+            "UV_PYTHON_PREFERENCE": "only-managed",
+            "BENCH_USE_UV": "true",
+            "PYTHONUNBUFFERED": "1",
+            "LC_ALL": "en_US.UTF-8",
+            "LANG": "en_US.UTF-8",
+            "LANGUAGE": "en_US.UTF-8",
+            **{
+                k: os.environ[k]
+                for k in ("DOCKER_HOST", "GITHUB_TOKEN", "GIT_TOKEN", "UV_LINK_MODE", "DOCKER_DEFAULT_PLATFORM")
+                if k in os.environ
+            },
+        }
+
+        result = self.docker_client.run(
+            image=self.provision_image,
+            user="root",
+            command=shlex.join(bash_command),
+            entrypoint="/bin/bash",
+            volume=[f"{self.frappe_bench_dir}:{bench_mount}"],
+            env=env,
+            workdir=workdir,
+            pull="missing",
+            rm=True,
+            stream=not capture_output,
+        )
+
+        if capture_output:
+            return self._filter_docker_warnings(cast("SubprocessOutput", result))
+
+        self.output.live_lines(cast("Iterator[tuple[str, bytes]]", result))
+        return None

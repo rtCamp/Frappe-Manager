@@ -173,6 +173,72 @@ class BenchDockerOps:
         self.compose_file_manager.set_all_services_restart(restart_policy)
         self.compose_file_manager.write_to_file()
 
+    # Image-mode code services: run the immutable app image, mount only site data.
+    IMAGE_CODE_SERVICES = ("frappe", "socketio", "schedule")
+
+    def render_image_compose(self, deploy_tag: str) -> str:
+        """Rewrite the bench compose for image mode, pinned to ``deploy_tag``.
+
+        Mutations (applied only when ``deployment_mode == image``):
+
+        * Pin frappe/socketio/schedule to ``deploy_tag`` and nginx to the
+          matching ``<repo>-nginx:<tag>`` app-assets image.
+        * Replace the wholesale ``./workspace:/workspace`` bind with data-only
+          binds (``sites/<site>``, ``common_site_config.json``, ``apps.txt``,
+          ``logs``) so the baked app code + assets in the image are not shadowed.
+          Named volumes (fm-sockets) and nginx config binds are preserved.
+
+        Returns the nginx image tag that was pinned. Idempotent: safe to re-run
+        with a new tag (used by deploy swap and rollback re-pin).
+        """
+        from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
+        from frappe_manager.site_manager.bench_config import DeploymentMode
+        from frappe_manager.site_manager.modules.bake import BakeManager
+
+        if self.config.deployment_mode != DeploymentMode.image:
+            raise ValueError("render_image_compose is only valid for image deployment mode")
+
+        nginx_tag = BakeManager.nginx_image_tag(deploy_tag)
+        frappe_repo, _, frappe_tagpart = deploy_tag.rpartition(":")
+        nginx_repo, _, nginx_tagpart = nginx_tag.rpartition(":")
+
+        services = self.compose_file_manager.get_services_list()
+        images: dict = {}
+        for svc in self.IMAGE_CODE_SERVICES:
+            if svc in services:
+                images[svc] = {"name": frappe_repo, "tag": frappe_tagpart}
+        if "nginx" in services:
+            images["nginx"] = {"name": nginx_repo, "tag": nginx_tagpart}
+        self.compose_file_manager.set_all_images(images)
+
+        compose_path = self.compose_file_manager.compose_path
+        site = self.config.name
+        sites_rel = "./workspace/frappe-bench/sites"
+
+        def _data_binds() -> list:
+            specs = [
+                (f"{sites_rel}/{site}", f"/workspace/frappe-bench/sites/{site}"),
+                (f"{sites_rel}/common_site_config.json", "/workspace/frappe-bench/sites/common_site_config.json"),
+                (f"{sites_rel}/apps.txt", "/workspace/frappe-bench/sites/apps.txt"),
+                ("./workspace/frappe-bench/logs", "/workspace/frappe-bench/logs"),
+                ("./workspace/frappe-bench/config", "/workspace/frappe-bench/config"),
+            ]
+            return [
+                DockerVolumeMount(host=h, container=c, type=DockerVolumeType.bind, compose_path=compose_path)
+                for h, c in specs
+            ]
+
+        for svc in (*self.IMAGE_CODE_SERVICES, "nginx"):
+            if svc not in services:
+                continue
+            existing = self.compose_file_manager.get_service_volumes(svc)
+            kept = [v for v in existing if str(v.container) != "/workspace"]
+            self.compose_file_manager.set_service_volumes(svc, kept + _data_binds())
+
+        self.compose_file_manager.write_to_file()
+        self.output.print(f"Rendered image-mode compose pinned to {deploy_tag}")
+        return nginx_tag
+
     def create_compose_dirs(self) -> bool:
         """
         Create the necessary directories for the Compose setup.
