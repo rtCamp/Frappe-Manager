@@ -611,6 +611,17 @@ class ComposeFile:
             output = get_global_output_handler()
             output.warning("user not present")
 
+    def remove_container_name(self, container):
+        """Drop the fixed ``container_name`` so the service can be scaled
+        (docker compose rejects ``--scale`` on services with a container_name)."""
+        self.yml["services"].get(container, {}).pop("container_name", None)
+
+    def set_container_name(self, container, name):
+        """Set a single service's fixed container_name (restores it after a
+        rolling render stripped it for scaling)."""
+        if container in self.yml["services"]:
+            self.yml["services"][container]["container_name"] = name
+
     def get_all_images(self):
         """
         Retrieves all the images for each service in the Compose file.

@@ -11,7 +11,7 @@ from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any, Literal, cast
 
-from frappe_manager import CLI_SERVICES_DIRECTORY
+from frappe_manager import CLI_DEFAULT_DELIMETER, CLI_SERVICES_DIRECTORY
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.docker.compose_file import ComposeFile
 from frappe_manager.docker.subprocess_output import SubprocessOutput
@@ -176,7 +176,11 @@ class BenchDockerOps:
     # Image-mode code services: run the immutable app image, mount only site data.
     IMAGE_CODE_SERVICES = ("frappe", "socketio", "schedule")
 
-    def render_image_compose(self, deploy_tag: str) -> str:
+    # Web services scaled 2->1 during a rolling (blue-green) deploy. They must
+    # shed their fixed container_name so docker compose will accept --scale.
+    ROLLING_WEB_SERVICES = ("frappe", "nginx")
+
+    def render_image_compose(self, deploy_tag: str, rolling: bool = False) -> str:
         """Rewrite the bench compose for image mode, pinned to ``deploy_tag``.
 
         Mutations (applied only when ``deployment_mode == image``):
@@ -234,6 +238,28 @@ class BenchDockerOps:
             existing = self.compose_file_manager.get_service_volumes(svc)
             kept = [v for v in existing if str(v.container) != "/workspace"]
             self.compose_file_manager.set_service_volumes(svc, kept + _data_binds())
+
+        # Rolling (blue-green) swap: shed container_name on the scaled web
+        # services so `compose up --scale <svc>=2` is accepted. The fm-sockets
+        # named-volume mount is intentionally KEPT: the entrypoint rewrites
+        # supervisord to /fm-sockets/<service>.sock and `rm -rf`s any stale
+        # socket before binding, so the second replica simply takes over the
+        # canonical socket (last-writer-wins) while the old replica's gunicorn
+        # keeps serving -- no collision that stops either supervisord, and the
+        # surviving (new) replica ends up owning the canonical socket. Callers
+        # restore container_name (canonical re-render + docker rename) after the
+        # cutover so get_container_names() keeps working between deploys.
+        prefix = get_container_name_prefix(self.config.name)
+        for svc in self.ROLLING_WEB_SERVICES:
+            if svc not in services:
+                continue
+            if rolling:
+                self.compose_file_manager.remove_container_name(svc)
+            else:
+                # Restore the canonical container_name a prior rolling render may
+                # have stripped, so get_container_names()/_frappe_running() keep
+                # working and the rolling swap stays repeatable.
+                self.compose_file_manager.set_container_name(svc, f"{prefix}{CLI_DEFAULT_DELIMETER}{svc}")
 
         self.compose_file_manager.write_to_file()
         self.output.print(f"Rendered image-mode compose pinned to {deploy_tag}")

@@ -33,6 +33,7 @@ from frappe_manager.site_manager.bench_config import (
     DeployState,
     DeployStateEntry,
 )
+from frappe_manager.utils.docker import run_command_with_exit_code
 
 BENCH_BIN = "/opt/user/.bin/bench"
 FRAPPE_SERVICE = "frappe"
@@ -42,6 +43,24 @@ FMX_PYTHON = "/opt/uv-tools/fmx/bin/python"
 
 class DeployError(Exception):
     """Raised when an image deploy cannot proceed or fails."""
+
+
+def rolling_eligible(
+    migrate: bool,
+    maintenance_mode_phases: list[str],
+    override: bool | None = None,
+) -> bool:
+    """Decide whether a deploy may use the rolling (blue-green) web swap.
+
+    ``override`` is the CLI ``--rolling/--no-rolling`` flag (None = auto). In auto
+    mode a deploy is rolling-eligible only when it cannot break old code that
+    shares the DB during the overlap: either it does not migrate at all, or the
+    operator has asserted a backward-compatible (additive) migration by clearing
+    ``maintenance_mode_phases``. Migrate deploys with a maintenance window keep
+    the existing recreate-swap path (Decision 1)."""
+    if override is not None:
+        return override
+    return migrate is False or maintenance_mode_phases == []
 
 
 def _apply_image_mounts(compose_file_manager, site: str, services: list[str]) -> None:
@@ -191,6 +210,206 @@ class DeployOrchestrator:
         with contextlib.suppress(Exception):
             self.docker.compose.up(services=["nginx"], detach=True, pull="never", stream=False)
         time.sleep(3)
+
+    # ---------------------------------------------------------- rolling swap
+
+    def _raw_compose(self, *args: str):
+        """Run a raw ``docker compose`` subcommand against the bench compose.
+
+        The wrapper's ``up`` cannot express ``--scale``, so the rolling path
+        builds compose commands directly. Inherits ``DOCKER_HOST`` from the
+        surrounding deploy env, so it targets the same (possibly remote) daemon."""
+        cmd = list(self.docker.compose.docker_compose_cmd) + list(args)
+        return run_command_with_exit_code(cmd, stream=False, capture_output=True)
+
+    def _raw_docker(self, *args: str):
+        return run_command_with_exit_code(["docker", *args], stream=False, capture_output=True)
+
+    def _compose_ps_ids(self, service: str) -> list[str]:
+        out = self._raw_compose("ps", "-q", service)
+        return [ln.strip() for ln in out.stdout if ln.strip()]
+
+    def _scale(self, scales: dict[str, int]) -> None:
+        """``compose up -d --no-recreate`` at the given per-service replica counts.
+
+        ``--no-recreate`` keeps the old (old-tag) container in place and only
+        adds the new replica; the compose file is already pinned to the new tag."""
+        args = ["up", "-d", "--no-recreate", "--pull", "never"]
+        for svc, n in scales.items():
+            args += ["--scale", f"{svc}={n}"]
+        out = self._raw_compose(*args)
+        if out.exit_code not in (0, None):
+            raise DeployError(f"compose scale {scales} failed: {''.join(out.stderr) or ''.join(out.stdout)}")
+
+    def _new_container_id(self, service: str, old_ids: list[str]) -> str | None:
+        for cid in self._compose_ps_ids(service):
+            if cid not in old_ids:
+                return cid
+        return None
+
+    def _container_health(self, container_id: str, retries: int = 45, interval: int = 2) -> bool:
+        """Poll ``/api/method/ping`` inside ``container_id`` (curl or wget). Honors
+        the timing rule: retries*interval spans well past the app's boot +
+        in-flight window before we drain the old replica."""
+        probe = (
+            'if command -v curl >/dev/null 2>&1; then '
+            'curl -s -o /dev/null -w "%{http_code}" http://localhost:80/api/method/ping; '
+            'else wget -q -O /dev/null -S http://localhost:80/api/method/ping 2>&1 | '
+            'awk "/HTTP\\//{print \\$2; exit}"; fi'
+        )
+        for i in range(retries):
+            try:
+                out = self._raw_docker("exec", container_id, "sh", "-c", probe)
+                code = "".join(out.stdout).strip().split()[-1] if out.stdout else ""
+                if code in ("200", "404", "503"):
+                    return True
+            except Exception as e:
+                self.logger.debug(f"container health {container_id[:12]} attempt {i + 1}: {e}")
+            time.sleep(interval)
+        return False
+
+    # app-nginx runs under supervisord as a NON-root user, so `/run/nginx.pid` is
+    # never written and `nginx -s reload` fails ("open /run/nginx.pid failed").
+    # Find the master via /proc (no `ps` in the image) and SIGHUP it directly so
+    # nginx re-parses config and re-resolves the static `upstream frappe:80`.
+    # Match on /proc/PID/comm (== "nginx"), NOT cmdline: this very script's
+    # `sh -c` argv would otherwise contain the search string and HUP itself. The
+    # master is the nginx process whose parent is not nginx (workers' parent is).
+    _NGINX_HUP = (
+        'for p in /proc/[0-9]*; do '
+        '[ "$(cat "$p/comm" 2>/dev/null)" = "nginx" ] || continue; '
+        'pp=$(awk "/^PPid:/{print \\$2}" "$p/status" 2>/dev/null); '
+        '[ "$(cat "/proc/$pp/comm" 2>/dev/null)" = "nginx" ] && continue; '
+        'kill -HUP "${p#/proc/}" && exit 0; done; '
+        'nginx -s reload'
+    )
+
+    def _reload_nginx(self, container_id: str) -> None:
+        """Graceful SIGHUP reload so the surviving app-nginx re-resolves the static
+        ``server frappe:80`` upstream (drops the drained replica, keeps the new)."""
+        with contextlib.suppress(Exception):
+            self._raw_docker("exec", container_id, "sh", "-c", self._NGINX_HUP)
+
+    def _stop(self, container_id: str) -> None:
+        # Graceful stop (SIGTERM): gunicorn/nginx finish in-flight and CLOSE their
+        # listener, so new connections are refused-fast (not black-holed). `stop`
+        # also drops the container from Docker's embedded DNS immediately.
+        with contextlib.suppress(Exception):
+            self._raw_docker("stop", container_id)
+
+    def _rm(self, container_id: str) -> None:
+        with contextlib.suppress(Exception):
+            self._raw_docker("rm", "-f", container_id)
+
+    def _stop_rm(self, container_id: str, drain: float = 3.0) -> None:
+        self._stop(container_id)
+        if drain:
+            time.sleep(drain)
+        self._rm(container_id)
+
+    def _rename(self, container_id: str, name: str) -> None:
+        # A canonical container may still exist if a prior deploy was interrupted.
+        with contextlib.suppress(Exception):
+            self._raw_docker("rename", container_id, name)
+
+    def _abort_rolling(
+        self, web: list[str], old_ids: dict[str, list[str]], old_tag: str | None, snaps: dict[Path, bytes],
+    ) -> None:
+        """New replica unhealthy: OLD never stopped -> still serving. Tear down the
+        new replicas and restore the pre-deploy (old-tag) compose. Zero downtime
+        even on a failed rolling deploy."""
+        self.output.warning("Rolling: new replica unhealthy; keeping old, tearing down new replicas")
+        for svc in web:
+            nid = self._new_container_id(svc, old_ids[svc])
+            if nid:
+                self._stop_rm(nid, drain=0)
+        self._restore_compose(snaps)
+        if old_tag:
+            self._pin_workers(old_tag)
+
+    def _rolling_swap(self, new_tag: str, old_tag: str | None, snaps: dict[Path, bytes]) -> None:
+        """Blue-green web swap: run new + old web replicas concurrently, drain old,
+        then reduce to the new replica -- zero dropped requests for a no-migrate
+        deploy (vs the recreate-swap's brief blip). Recreate-swap stays the
+        migrate/fallback path.
+
+        Scale target = BOTH web tiers (frappe gunicorn + nginx). The global
+        jwilder/nginx-proxy routes to app-nginx (VIRTUAL_HOST) which in turn
+        proxies to frappe; scaling only one tier would drop the other during its
+        recreate. Frappe is scaled first so the new app-nginx (added next)
+        resolves both frappe replicas. CAVEAT: during the overlap a request may
+        cross version tiers (new-nginx -> old-frappe or vice-versa); for a plain
+        code+assets deploy against one shared DB this is zero-DOWNTIME (requests
+        succeed), not zero-skew -- a client may momentarily get old assets with
+        new code or vice-versa. Eligibility (no migrate / additive) guarantees
+        both code versions are DB-compatible, so the skew cannot 500."""
+        services = self.compose.get_services_list()
+        web = [s for s in ("frappe", "nginx") if s in services]
+        canonical = self.compose.get_container_names()
+        old_ids = {svc: self._compose_ps_ids(svc) for svc in web}
+
+        # 1. Re-render the compose without container_name on the web tiers so
+        #    docker compose accepts --scale, and pin workers to the new tag.
+        self.output.change_head("Rolling: rendering scalable image compose")
+        self.docker_ops.render_image_compose(new_tag, rolling=True)
+        self._pin_workers(new_tag)
+
+        # 2. Add the new frappe replica alongside the old (old keeps serving).
+        self.output.change_head("Rolling: starting new frappe replica")
+        self._scale({"frappe": 2})
+        new_frappe = self._new_container_id("frappe", old_ids["frappe"])
+        if not new_frappe or not self._container_health(new_frappe):
+            self._abort_rolling(web, old_ids, old_tag, snaps)
+            raise DeployError("new frappe replica failed health check; kept old, no swap")
+
+        # 3. Add the new nginx replica (now resolves both frappe replicas).
+        self.output.change_head("Rolling: starting new nginx replica")
+        self._scale({"frappe": 2, "nginx": 2})
+        new_nginx = self._new_container_id("nginx", old_ids["nginx"])
+        if not new_nginx or not self._container_health(new_nginx):
+            self._abort_rolling(web, old_ids, old_tag, snaps)
+            raise DeployError("new nginx replica failed health check; kept old, no swap")
+
+        # 4. Drain OLD replicas. jwilder/nginx-proxy 1.11 does NOT honor container
+        #    health, so proxy routing changes only on container add/remove;
+        #    nginx's default `proxy_next_upstream error timeout` retries the
+        #    surviving upstream during the brief proxy->nginx churn.
+        #
+        #    app-nginx's `upstream frappe:80` is resolved ONCE at config load, so
+        #    a killed old-frappe would leave a dead IP that black-holes SYNs
+        #    (connect-timeout hang, no fast failover). We therefore `stop` old
+        #    frappe first (drops it from Docker DNS + closes its listener) and
+        #    `nginx -s reload` the survivor to re-resolve to only the new replica
+        #    BEFORE removing it, so no request is ever routed to a dead IP.
+        self.output.change_head("Rolling: draining old web replicas")
+        time.sleep(5)
+        for cid in old_ids["nginx"]:
+            self._stop(cid)
+        self._reload_nginx(new_nginx)  # re-resolve frappe upstream on survivor
+        for cid in old_ids["nginx"]:
+            self._rm(cid)
+        for cid in old_ids["frappe"]:
+            self._stop(cid)
+        self._reload_nginx(new_nginx)  # drop the just-stopped old frappe upstream
+        for cid in old_ids["frappe"]:
+            self._rm(cid)
+        self._reload_nginx(new_nginx)
+
+        # 5. Survivors are compose replica #2; rename to the canonical names and
+        #    re-render the canonical (container_name-bearing) compose WITHOUT a
+        #    `compose up`, so get_container_names() keeps matching and no recreate
+        #    (no blip) happens.
+        self.output.change_head("Rolling: restoring canonical container names")
+        self._rename(new_frappe, canonical["frappe"])
+        self._rename(new_nginx, canonical["nginx"])
+        self.docker_ops.render_image_compose(new_tag, rolling=False)
+
+        # 6. Bring the non-web code tiers (socketio, schedule) + workers to the
+        #    new tag. These are out of the /api HTTP path; a brief socketio
+        #    reconnect is acceptable and not in the request histogram.
+        with contextlib.suppress(Exception):
+            self._raw_compose("up", "-d", "--pull", "never", "socketio", "schedule")
+        self._up_workers()
 
     def _worker_services(self):
         """Return ``(compose_file_manager, docker_client, service_list)`` for the
@@ -358,8 +577,12 @@ class DeployOrchestrator:
 
     # ------------------------------------------------------------------ public
 
-    def deploy(self, new_tag: str) -> None:
-        """Run the full recreate-swap deploy to ``new_tag``."""
+    def deploy(self, new_tag: str, rolling: bool | None = None) -> None:
+        """Run the image deploy to ``new_tag``.
+
+        Uses the rolling (blue-green) web swap when eligible (see
+        ``rolling_eligible``) and the old stack is up; otherwise the
+        recreate-swap. ``rolling`` is the ``--rolling/--no-rolling`` override."""
         self._require_image_mode()
         old_tag = self._current_deployed_tag()
 
@@ -388,6 +611,15 @@ class DeployOrchestrator:
         maintenance = migrate and self.deploy_config.maintenance_mode
         backup_dir = self.bench_path / "backups" / f"deploy-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
         db_dump: Path | None = None
+
+        do_rolling = (
+            rolling_eligible(migrate, self.deploy_config.maintenance_mode_phases, rolling)
+            and self._frappe_running()
+        )
+        if (rolling or do_rolling) and not self._frappe_running():
+            self.output.warning(
+                "Rolling swap requested but no running web to swap alongside; using recreate-swap.",
+            )
 
         # 3. Backup
         if self.deploy_config.backups:
@@ -429,12 +661,18 @@ class DeployOrchestrator:
                     f"Compose reverted, no swap performed. Re-run deploy after fixing: {e}",
                 ) from e
 
-        # 7b. Recreate-swap. No ``--wait``: nginx emerg-exits on the frappe:80
-        # upstream DNS if it wins the startup race, so we gate on the frappe
-        # curl health check and then (re)start nginx once frappe resolves.
-        self.output.change_head("Swapping to new image (recreate)")
-        self.docker.compose.up(services=[], detach=True, pull="never", stream=False)
-        self._up_workers()
+        # 7b. Swap. Rolling (blue-green) when eligible -> zero dropped requests;
+        # otherwise recreate-swap (the maintenance window covers the brief blip).
+        if do_rolling:
+            self.output.change_head("Rolling (blue-green) web swap")
+            self._rolling_swap(new_tag, old_tag, snaps)
+        else:
+            # Recreate-swap. No ``--wait``: nginx emerg-exits on the frappe:80
+            # upstream DNS if it wins the startup race, so we gate on the frappe
+            # curl health check and then (re)start nginx once frappe resolves.
+            self.output.change_head("Swapping to new image (recreate)")
+            self.docker.compose.up(services=[], detach=True, pull="never", stream=False)
+            self._up_workers()
 
         # Health gate (503 = maintenance page = server up; finalize clears it).
         self.output.change_head("Health-gating new containers")
@@ -449,7 +687,8 @@ class DeployOrchestrator:
                 f"Deploy of {new_tag} failed health check and is halted in maintenance mode "
                 f"(no previous tag to roll back to). Investigate the new containers.",
             )
-        self._ensure_nginx()
+        if not do_rolling:
+            self._ensure_nginx()
         self.output.print("New containers are healthy")
 
         # 8. Finalize.

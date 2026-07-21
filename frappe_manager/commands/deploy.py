@@ -80,6 +80,15 @@ def deploy(
             show_default=False,
         ),
     ] = None,
+    rolling: Annotated[
+        bool | None,
+        typer.Option(
+            "--rolling/--no-rolling",
+            help="Force/disable the rolling (blue-green) web swap. Default: auto "
+            "(rolling when the deploy is no-migrate or asserts an additive migration).",
+            show_default=False,
+        ),
+    ] = None,
 ):
     """
     Bake an immutable image from the bench and deploy it (recreate-swap).
@@ -126,7 +135,7 @@ def deploy(
     try:
         with docker_host_env(docker_host):
             orchestrator = DeployOrchestrator(bench, output_handler=output, logger=logger)
-            orchestrator.deploy(built_tag)
+            orchestrator.deploy(built_tag, rolling=rolling)
     except DeployError as e:
         output.display_error(str(e))
         raise typer.Exit(1) from e
@@ -149,9 +158,19 @@ def switch(
         ),
     ],
     tag: Annotated[str, typer.Argument(help="Full image tag to switch to (e.g. local/mybench:20260721-abc123).")],
+    rolling: Annotated[
+        bool | None,
+        typer.Option(
+            "--rolling/--no-rolling",
+            help="Force/disable the rolling (blue-green) web swap. Default: auto "
+            "(rolling when the deploy is no-migrate or asserts an additive migration).",
+            show_default=False,
+        ),
+    ] = None,
 ):
     """
-    Switch a bench to an existing image tag (no bake) via recreate-swap.
+    Switch a bench to an existing image tag (no bake). Rolling (blue-green) web
+    swap when eligible, else recreate-swap.
     """
     output = get_global_output_handler()
     logger = ctx.obj.get("logger") if ctx.obj else None
@@ -159,7 +178,7 @@ def switch(
 
     try:
         orchestrator = DeployOrchestrator(bench, output_handler=output, logger=logger)
-        orchestrator.deploy(tag)
+        orchestrator.deploy(tag, rolling=rolling)
     except DeployError as e:
         output.display_error(str(e))
         raise typer.Exit(1) from e
