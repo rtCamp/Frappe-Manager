@@ -27,6 +27,8 @@ $ fm create BENCHNAME [OPTIONS]
 * `--node`: Node version (e.g., '18', '20'). Auto-detected by default.
 * `--restart`: Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).
 * `--allow-domain-conflicts`: Skip domain uniqueness validation (not recommended). Allows creating benches with duplicate domains.
+* `--newrelic/--no-newrelic`: Enable NewRelic APM monitoring for the web process.
+* `--newrelic-license-key`: NewRelic ingest license key. Required when --newrelic is set.
 
 
 ## Examples

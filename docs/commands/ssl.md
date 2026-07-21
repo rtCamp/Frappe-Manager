@@ -170,6 +170,7 @@ $ fm ssl add BENCHNAME DOMAIN [OPTIONS]
 * `--cname`: CNAME delegation record for DNS-01 challenge (requires dns01)
 * `--dry-run`: Test certificate generation using Let's Encrypt staging server without adding it to the system.
 * `--standalone`: Manage SSL for external (non-bench) Docker project. Use with docker network 'fm-global-frontend-network'.
+* `--dev`: Issue a locally-trusted dev certificate using a local CA (no internet required).
 * `--skip-dns-check`: Skip DNS validation before certificate generation (use if DNS will be configured later).
 * `--wait-for-dns`: Wait for DNS propagation (polls every 30s for up to 5 minutes).
 

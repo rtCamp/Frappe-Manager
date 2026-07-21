@@ -29,6 +29,8 @@ $ fm update BENCHNAME [OPTIONS]
 * `--recreate-python-env/--no-recreate-python-env`: Recreate the Python virtual environment. Use --no-recreate-python-env to skip if current version already satisfies the requirement.
 * `--restart`: Update Docker restart policy for all bench services.
 * `--allow-domain-conflicts`: Skip domain uniqueness validation when adding aliases (not recommended).
+* `--newrelic/--no-newrelic`: Enable or disable NewRelic APM monitoring for the web process.
+* `--newrelic-license-key`: NewRelic ingest license key.
 
 
 ## Examples

@@ -9,6 +9,7 @@ Migration operates at two levels:
 Without arguments, migrates only FM infrastructure. Specify a benchname to migrate that bench,
 or use --all-benches to migrate all benches. Use --auto-proceed to skip confirmation prompts.
 Control failure handling with --on-failure: prompt (ask), archive (save failed), or rollback (revert all).
+Use --rerun to test idempotency — re-applies all migration steps even when already up to date.
 
 **Usage**:
 
@@ -27,6 +28,7 @@ $ fm migrate BENCHNAME [OPTIONS]
 * `--skip-backup-for`: Skip backup for specific benches (comma-separated)
 * `--exclude-bench`: Exclude specific benches from migration (only with --all-benches)
 * `--auto-proceed`: Skip migration confirmation prompt (proceed automatically)
+* `--rerun`: Re-run migration even if already migrated (for testing idempotency). Config transforms and supervisor regeneration are re-applied, but the runtime environment is only rebuilt when Python/Node versions change.
 * `--on-failure`: What to do if migration fails: prompt (ask user), archive (save failed benches), rollback (revert all)
 
 

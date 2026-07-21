@@ -17,6 +17,7 @@ $ fm self [OPTIONS] COMMAND [ARGS]...
 * `update`: Check for and install frappe-manager updates.
 * `update-images`: Pull latest FM stack docker images.
 * `compose`: Run docker compose commands with auto-detected compose files.
+* `stop`: Stop everything managed by FM.
 
 
 ### `fm self update`
@@ -146,5 +147,46 @@ Runs 'docker compose stats' to view resource usage for bench containers.
 
 ```bash
 fm self compose mybench stats
+```
+
+
+### `fm self stop`
+
+Stop everything managed by FM.
+
+Stops all running benches and global services (global-db, global-nginx-proxy).
+Use --global-only or --benches-only to stop only a subset.
+
+**Usage**:
+
+```console
+$ fm self stop
+```
+
+
+## Examples
+
+### Stop everything (all benches + global services)
+
+Stops all running benches and all global services (global-db, global-nginx-proxy).
+
+```bash
+fm self stop
+```
+
+### Stop only global services
+
+Stops only global services, leaves benches running.
+
+```bash
+fm self stop --global-only
+```
+
+### Stop only benches
+
+Stops only benches, leaves global services running.
+
+```bash
+fm self stop --benches-only
 ```
 
