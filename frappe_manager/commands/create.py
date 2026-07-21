@@ -13,7 +13,16 @@ from frappe_manager import (
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.services_manager.services import ServicesManager
-from frappe_manager.site_manager.bench_config import AppConfig, BenchConfig, FMBenchEnvType, RestartPolicyEnum
+from frappe_manager.site_manager.bench_config import (
+    AppConfig,
+    BenchConfig,
+    DeployBuildConfig,
+    DeployConfig,
+    DeploymentMode,
+    FMBenchEnvType,
+    RegistryConfig,
+    RestartPolicyEnum,
+)
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.domain_conflict import DomainConflictError, validate_domains_unique
 from frappe_manager.utils.callbacks import (
@@ -21,6 +30,48 @@ from frappe_manager.utils.callbacks import (
     apps_list_validation_callback,
 )
 from frappe_manager.utils.site import validate_sitename
+
+
+def _resolve_deploy_options(
+    deployment_mode: DeploymentMode | None,
+    image: str | None,
+    registry: str | None,
+    distribution: str,
+    python_version: str | None,
+    node_version: str | None,
+) -> tuple[DeploymentMode, DeployConfig | None, DeployBuildConfig | None, RegistryConfig | None]:
+    """Resolve the two-axis deploy model (#323) for ``fm create``.
+
+    Image mode is opt-in — chosen explicitly (``--deployment-mode image``) or
+    implied by ``--image`` — so plain ``fm create`` (and ``--environment prod``)
+    keep producing backward-compatible ``mount`` benches. Returns the resolved
+    ``deployment_mode`` plus the ``[deploy]``/``[build]``/``[registry]`` configs
+    (``None`` in mount mode).
+    """
+    resolved = deployment_mode or (DeploymentMode.image if image else DeploymentMode.mount)
+
+    if resolved != DeploymentMode.image:
+        if image:
+            raise typer.BadParameter("--image is only valid in image deployment mode (use --deployment-mode image).")
+        if registry:
+            raise typer.BadParameter("--registry is only valid in image deployment mode.")
+        return resolved, None, None, None
+
+    if not image:
+        raise typer.BadParameter(
+            "Image deployment mode requires --image <repo> (fm bake/deploy pin its tag as <repo>:<timestamp>-<sha>).",
+        )
+    if registry and distribution not in ("registry", "save_load"):
+        raise typer.BadParameter("--distribution must be 'registry' or 'save_load'.")
+
+    deploy_config = DeployConfig(image=image)
+    build_config = (
+        DeployBuildConfig(python_version=python_version, node_version=node_version)
+        if (python_version or node_version)
+        else None
+    )
+    registry_config = RegistryConfig(registry=registry, distribution=distribution) if registry else None
+    return resolved, deploy_config, build_config, registry_config
 
 
 @example(
@@ -157,6 +208,39 @@ def create(
             show_default=False,
         ),
     ] = None,
+    deployment_mode: Annotated[
+        DeploymentMode | None,
+        typer.Option(
+            "--deployment-mode",
+            help="Runtime: 'mount' (live-mounted code, dev) or 'image' (immutable app image, prod). "
+            "Defaults to 'image' when --image is given, else 'mount'.",
+            show_default=False,
+        ),
+    ] = None,
+    image: Annotated[
+        str | None,
+        typer.Option(
+            "--image",
+            help="Image repository for image-based deployment (sets [deploy].image; fm manages the :tag). "
+            "Implies image deployment mode.",
+            show_default=False,
+        ),
+    ] = None,
+    registry: Annotated[
+        str | None,
+        typer.Option(
+            "--registry",
+            help="Registry host/namespace for image push/pull (sets [registry].registry). Image mode only.",
+            show_default=False,
+        ),
+    ] = None,
+    distribution: Annotated[
+        str,
+        typer.Option(
+            "--distribution",
+            help="Image transport when a registry is set: 'registry' (push/pull) or 'save_load' (docker save/load over SSH).",
+        ),
+    ] = "registry",
 ):
     """
     Create a new bench with apps.
@@ -222,6 +306,17 @@ def create(
     sanitized_bench_name = benchname.replace(".", "_").replace("-", "_")
     db_name = f"fm_{sanitized_bench_name}_{secrets.token_hex(8)}"
 
+    # Two-axis deploy model (#323): resolve runtime (mount|image) + image configs.
+    resolved_deployment_mode, deploy_config, build_config, registry_config = _resolve_deploy_options(
+        deployment_mode, image, registry, distribution, python_version, node_version
+    )
+    if resolved_deployment_mode == DeploymentMode.image:
+        output.print(
+            f"Image bench: provisions apps + creates the site now; run "
+            f"[blue]fm deploy {benchname}[/blue] to bake the image and switch to it.",
+            emoji_code=":package:",
+        )
+
     bench_config: BenchConfig = BenchConfig(
         name=benchname,
         apps_list=final_apps_list,
@@ -242,6 +337,10 @@ def create(
         restart_policy=restart,
         newrelic_enabled=newrelic,
         newrelic_license_key=newrelic_license_key,
+        deployment_mode=resolved_deployment_mode,
+        deploy=deploy_config,
+        build=build_config,
+        registry=registry_config,
     )
 
     if apps:
