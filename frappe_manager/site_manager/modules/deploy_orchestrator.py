@@ -129,6 +129,42 @@ class DeployOrchestrator:
             return False
         return False
 
+    def _fetch_image(self, tag: str) -> None:
+        """Ensure ``tag`` (+ its derived nginx tag) is present on the target daemon.
+
+        registry mode: ``docker login`` (when creds set) then ``docker pull`` any
+        missing tags — so a remote daemon (via ``DOCKER_HOST``) gets the image.
+        save_load mode: the images must be transported+loaded beforehand; a
+        missing tag is a hard error here. local/absent registry: pull if missing.
+        """
+        from frappe_manager.site_manager.modules.bake import BakeManager
+        from frappe_manager.site_manager.modules.transport import registry_login
+
+        nginx_tag = BakeManager.nginx_image_tag(tag)
+        missing = [t for t in (tag, nginx_tag) if not self._image_present(t)]
+        if not missing:
+            return
+
+        registry = getattr(self.config, "registry", None)
+        distribution = registry.distribution if registry else "registry"
+        if distribution == "save_load":
+            raise DeployError(
+                f"Image(s) {', '.join(missing)} not present and distribution='save_load'; "
+                "transport the image(s) (docker save/load) to this daemon before switching.",
+            )
+
+        registry_login(self.docker, registry, output=self.output)
+        for t in missing:
+            self.output.print(f"Fetching {t} from registry")
+            try:
+                self.docker.pull(t, stream=False)
+            except DockerException as e:
+                # The nginx image is optional (absent when the bench has no assets).
+                if t == nginx_tag:
+                    self.output.warning(f"Could not pull nginx image {t} (continuing): {e}")
+                    continue
+                raise DeployError(f"Failed to fetch image {t} from registry: {e}") from e
+
     def _health_check(self, retries: int = 45, interval: int = 2) -> bool:
         for i in range(retries):
             try:
@@ -327,11 +363,9 @@ class DeployOrchestrator:
         self._require_image_mode()
         old_tag = self._current_deployed_tag()
 
-        # 1. Fetch
+        # 1. Fetch (registry login+pull, or verify save_load-loaded image present)
         self.output.change_head(f"Fetching image {new_tag}")
-        if not self._image_present(new_tag):
-            self.output.print(f"Image {new_tag} not present locally; pulling")
-            self.docker.pull(new_tag, stream=False)
+        self._fetch_image(new_tag)
 
         # 2. Pre-flight boot check (nonzero => abort before any change)
         self.output.change_head("Pre-flight boot check")
@@ -437,9 +471,7 @@ class DeployOrchestrator:
         self._require_image_mode()
         self.output.change_head(f"Rolling back to {previous_tag}")
 
-        if not self._image_present(previous_tag):
-            self.output.print(f"Image {previous_tag} not present locally; pulling")
-            self.docker.pull(previous_tag, stream=False)
+        self._fetch_image(previous_tag)
 
         self.docker_ops.render_image_compose(previous_tag)
         self._pin_workers(previous_tag)

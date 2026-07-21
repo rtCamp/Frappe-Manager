@@ -211,6 +211,81 @@ class DockerClient:
         )
         return iterator
 
+    def push(
+        self,
+        image: str,
+        stream: bool = True,
+    ):
+        """Push an image (or repo:tag) to its registry (``docker push <image>``).
+
+        Mirrors :meth:`pull`. Assumes the daemon is already authenticated (see
+        :meth:`login`) or the registry is anonymous/insecure.
+        """
+        parameters: dict = locals()
+
+        push_cmd: list[str] = ["push"]
+        remove_parameters = ["stream", "image"]
+
+        push_cmd += parameters_to_options(parameters, exclude=remove_parameters)
+        push_cmd += [image]
+
+        iterator = run_command_with_exit_code(
+            self.docker_cmd + push_cmd,
+            stream=stream,
+        )
+        return iterator
+
+    def login(
+        self,
+        registry: str,
+        username: str,
+        password: str,
+        stream: bool = False,
+    ):
+        """Authenticate the daemon to ``registry`` via ``docker login
+        <registry> -u <user> --password-stdin``.
+
+        The password is fed on stdin (never argv) so it never leaks into the
+        process table. Raises :class:`DockerException` on a failed login.
+        """
+        login_cmd: list[str] = ["login", registry, "-u", username, "--password-stdin"]
+
+        return run_command_with_exit_code(
+            self.docker_cmd + login_cmd,
+            stream=False,
+            capture_output=False,
+            input_data=password.encode() if isinstance(password, str) else password,
+        )
+
+    def save(
+        self,
+        images: list[str],
+        output_path: Path,
+        stream: bool = False,
+    ):
+        """Save one or more images to a tar archive (``docker save -o <path> <imgs>``)."""
+        save_cmd: list[str] = ["save", "-o", str(output_path), *images]
+
+        iterator = run_command_with_exit_code(
+            self.docker_cmd + save_cmd,
+            stream=stream,
+        )
+        return iterator
+
+    def load(
+        self,
+        input_path: Path,
+        stream: bool = False,
+    ):
+        """Load images from a tar archive (``docker load -i <path>``)."""
+        load_cmd: list[str] = ["load", "-i", str(input_path)]
+
+        iterator = run_command_with_exit_code(
+            self.docker_cmd + load_cmd,
+            stream=stream,
+        )
+        return iterator
+
     def network_ls(
         self,
         format: str = "{{.Name}}",

@@ -29,6 +29,7 @@ from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.bench_config import AppConfig, BenchConfig
 from frappe_manager.site_manager.modules.bench_app import BenchAppManager
+from frappe_manager.site_manager.modules.transport import push_images
 from frappe_manager.site_manager.provisioner import provision
 from frappe_manager.utils.docker import host_run_cp, run_command_with_exit_code
 
@@ -226,10 +227,12 @@ class BakeManager:
                 docker=self.docker_client,
             )
 
-    def bake(self, tag: str | None = None) -> str:
-        """Provision -> build the runtime image. Returns the built tag.
+    def bake(self, tag: str | None = None, push: bool | None = None) -> str:
+        """Provision -> build the runtime image (+ optional registry push). Returns the built tag.
 
         ``tag`` overrides the auto-generated ``<repo>:<ts>-<sha>`` when given.
+        ``push`` forces (``True``) or suppresses (``False``) the registry push;
+        ``None`` (default) pushes when ``[registry].distribution == 'registry'``.
         """
         base_image = self.resolve_base_image()
         tag = tag or self.resolve_tag()
@@ -287,12 +290,34 @@ class BakeManager:
 
             self.output.print(f"Built image: {tag}", emoji_code=":white_check_mark:")
 
-            self._build_nginx_image(frappe_bench_dir, tag)
+            nginx_tag = self._build_nginx_image(frappe_bench_dir, tag)
 
-            # NOTE: registry push and tag pruning are deferred (Phase 4b).
+            if self._should_push(push):
+                self._push_images([t for t in (tag, nginx_tag) if t])
+
+            # NOTE: local tag pruning to releases_retain_limit is deferred.
             return tag
         finally:
             shutil.rmtree(context_dir, ignore_errors=True)
+
+    def _registry_config(self):
+        return getattr(self.bench_config, "registry", None)
+
+    def _should_push(self, push: bool | None) -> bool:
+        """Resolve the push decision: explicit flag wins; otherwise push when a
+        ``[registry]`` table is configured with ``distribution == 'registry'``.
+
+        The registry host is normally encoded in ``[deploy].image`` (e.g.
+        ``localhost:5000/rtest``); a separate ``[registry].registry`` is only
+        needed for ``docker login``.
+        """
+        reg = self._registry_config()
+        default = bool(reg and reg.distribution == "registry")
+        return default if push is None else push
+
+    def _push_images(self, tags: list[str]) -> None:
+        reg = self._registry_config()
+        push_images(self.docker_client, tags, reg, output=self.output)
 
     def _build_nginx_image(self, frappe_bench_dir: Path, tag: str) -> str | None:
         """Build the app-nginx assets image (``<repo>-nginx:<tag>``).

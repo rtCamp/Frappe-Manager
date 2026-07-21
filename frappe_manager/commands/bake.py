@@ -51,6 +51,14 @@ def bake(
             show_default=False,
         ),
     ] = None,
+    push: Annotated[
+        bool | None,
+        typer.Option(
+            "--push/--no-push",
+            help="Push the baked image to the registry (default: push when [registry] is configured for 'registry').",
+            show_default=False,
+        ),
+    ] = None,
 ):
     """
     Bake an immutable app image from a bench.
@@ -78,7 +86,7 @@ def bake(
 
     try:
         bake_manager = BakeManager(bench_config, output_handler=output, logger=logger)
-        built_tag = bake_manager.bake(tag=tag)
+        built_tag = bake_manager.bake(tag=tag, push=push)
     except BakeError as e:
         output.display_error(str(e))
         raise typer.Exit(1) from e

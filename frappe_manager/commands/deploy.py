@@ -7,6 +7,14 @@ from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_config import DeploymentMode
 from frappe_manager.site_manager.modules.bake import BakeError, BakeManager
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError, DeployOrchestrator
+from frappe_manager.site_manager.modules.transport import (
+    TransportError,
+    build_docker_host,
+    docker_host_env,
+    present_tags,
+    remote_docker_host,
+    transport_save_load,
+)
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
 
@@ -55,12 +63,35 @@ def deploy(
         str | None,
         typer.Option("--tag", help="Full image tag to build (overrides the auto-generated tag).", show_default=False),
     ] = None,
+    remote: Annotated[
+        str | None,
+        typer.Option(
+            "--remote",
+            help="Deploy to a remote daemon over SSH (DOCKER_HOST=ssh://<user>@<host>:<port>). "
+            "Falls back to [remote].ssh_server when omitted.",
+            show_default=False,
+        ),
+    ] = None,
+    push: Annotated[
+        bool | None,
+        typer.Option(
+            "--push/--no-push",
+            help="Push the baked image to the registry (default: push when [registry] is configured for 'registry').",
+            show_default=False,
+        ),
+    ] = None,
 ):
     """
     Bake an immutable image from the bench and deploy it (recreate-swap).
 
     Runs the image pipeline: fetch -> pre-flight -> backup -> maintenance ->
     drain -> migrate (one-shot new image) -> recreate-swap -> finalize -> record.
+
+    Transport (Phase 5): in registry mode the image is pushed after bake and the
+    (possibly remote) daemon pulls it during fetch; in save_load mode the image
+    is streamed to the remote via ``docker save | ssh docker load`` before deploy.
+    With ``--remote`` the local orchestrator drives the remote daemon via
+    ``DOCKER_HOST``.
     """
     output = get_global_output_handler()
     logger = ctx.obj.get("logger") if ctx.obj else None
@@ -69,16 +100,33 @@ def deploy(
     if image:
         bench.bench_config.deploy.image = image
 
+    registry = bench.bench_config.registry
+    remote_config = bench.bench_config.remote
+    distribution = registry.distribution if registry else "registry"
+
+    docker_host = build_docker_host(remote, remote_config) if remote else remote_docker_host(remote_config)
+
     try:
         bake_manager = BakeManager(bench.bench_config, output_handler=output, logger=logger)
-        built_tag = bake_manager.bake(tag=tag)
+        built_tag = bake_manager.bake(tag=tag, push=push)
     except BakeError as e:
         output.display_error(str(e))
         raise typer.Exit(1) from e
 
+    # save_load (airgap): transport the images to the remote daemon before deploy.
+    if distribution == "save_load":
+        try:
+            nginx_tag = BakeManager.nginx_image_tag(built_tag)
+            tags = present_tags(bench.docker_client, [built_tag, nginx_tag])
+            transport_save_load(tags, remote_config, output=output)
+        except TransportError as e:
+            output.display_error(str(e))
+            raise typer.Exit(1) from e
+
     try:
-        orchestrator = DeployOrchestrator(bench, output_handler=output, logger=logger)
-        orchestrator.deploy(built_tag)
+        with docker_host_env(docker_host):
+            orchestrator = DeployOrchestrator(bench, output_handler=output, logger=logger)
+            orchestrator.deploy(built_tag)
     except DeployError as e:
         output.display_error(str(e))
         raise typer.Exit(1) from e

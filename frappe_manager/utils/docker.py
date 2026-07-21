@@ -62,6 +62,7 @@ def run_command_with_exit_code(
     capture_output: bool = True,
     env: dict[str, str] | None = None,
     cwd: str | None = None,
+    input_data: bytes | None = None,
 ) -> Iterable[tuple[str, bytes]] | SubprocessOutput:
     """
     Run a command and return the exit code.
@@ -70,6 +71,8 @@ def run_command_with_exit_code(
         full_cmd (list): The command to be executed as a list of strings.
         env (Dict[str, str], optional): Environment variables to be set for the command. Defaults to None.
         stream (bool, optional): Flag indicating whether to stream the command output. Defaults to True.
+        input_data (bytes, optional): Bytes fed to the command's stdin (e.g. ``docker login
+            --password-stdin``). Only honored on the non-streaming, non-capturing path. Defaults to None.
     """
     if not stream:
         if not capture_output:
@@ -77,7 +80,7 @@ def run_command_with_exit_code(
             logger.debug("- -" * 10)
             logger.debug(f"COMMAND: {' '.join(full_cmd)}")
 
-            run_output = run(full_cmd, cwd=cwd, env=env)
+            run_output = run(full_cmd, cwd=cwd, env=env, input=input_data)
             exit_code = run_output.returncode
 
             logger.debug(f"RETURN CODE: {exit_code}")
