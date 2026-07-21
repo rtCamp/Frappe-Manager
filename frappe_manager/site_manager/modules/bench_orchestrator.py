@@ -26,6 +26,7 @@ from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.bench_config import FMBenchEnvType
 from frappe_manager.site_manager.exceptions import BenchOperationException
+from frappe_manager.site_manager.provisioner import provision
 
 if TYPE_CHECKING:
     from frappe_manager.site_manager.site import Bench
@@ -171,53 +172,14 @@ class BenchOrchestrator:
 
         bench.supervisor.setup_supervisor(bench.path, force=True, use_run=True)
 
-        self.output.change_head("Cloning apps")
-        bench.app_manager.install_apps(
+        provision(
+            bench.app_manager,
             bench.bench_config.apps_list,
-            github_token=bench.bench_config.github_token,
+            output=self.output,
             use_uv=bench.bench_config.use_uv,
-            clone_only=True,
+            github_token=bench.bench_config.github_token,
             use_run=True,
         )
-
-        self._detect_python_node_versions()
-
-        if bench.bench_config.python_version or bench.bench_config.node_version:
-            bench.app_manager.setup_python_and_node_environments(use_run=True, recreate_python_env=True)
-
-        self.output.change_head("Installing dependencies for all apps")
-        bench.app_manager.install_apps(
-            bench.bench_config.apps_list,
-            github_token=bench.bench_config.github_token,
-            use_uv=bench.bench_config.use_uv,
-            skip_clone=True,
-            use_run=True,
-        )
-
-    def _detect_python_node_versions(self) -> None:
-        """Detect Python and Node version requirements from frappe app"""
-        bench = self.bench
-
-        from frappe_manager.site_manager.bench_config import (
-            extract_node_version_requirement,
-            extract_python_version_requirement,
-        )
-
-        frappe_app_path = bench.path / "workspace" / "frappe-bench" / "apps" / "frappe"
-        if frappe_app_path.exists():
-            if not bench.bench_config.python_version:
-                detected_python = extract_python_version_requirement(frappe_app_path)
-                if detected_python:
-                    bench.bench_config.python_version = detected_python
-                    self.output.print(f"Detected Python version requirement: {detected_python}")
-                    self.logger.info(f"{bench.name}: Auto-detected Python version: {detected_python}")
-
-            if not bench.bench_config.node_version:
-                detected_node = extract_node_version_requirement(frappe_app_path)
-                if detected_node:
-                    bench.bench_config.node_version = detected_node
-                    self.output.print(f"Detected Node version requirement: {detected_node}")
-                    self.logger.info(f"{bench.name}: Auto-detected Node version: {detected_node}")
 
     def _phase3_start_and_verify_bench(self) -> None:
         """Phase 3: Start containers and verify bench server responding"""

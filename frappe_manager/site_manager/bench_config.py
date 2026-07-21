@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import tomlkit
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 from tomlkit.items import Array as TOMLArray
 
 from frappe_manager import CLI_DEFAULT_DELIMETER
@@ -914,11 +914,110 @@ class MigrationState(BaseModel):
     last_migration_date: str | None = Field(None, description="ISO timestamp of last migration")
 
 
+class DeploymentMode(str, Enum):
+    """Bench runtime: live-mounted code (dev) vs immutable app image (prod)."""
+
+    mount = "mount"
+    image = "image"
+
+
+class DeployConfig(BaseModel):
+    """Image-based deploy configuration (`[deploy]` in bench_config.toml)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    image: str | None = Field(None, description="Image repo; fm manages the :tag.")
+    migrate: bool = Field(True, description="Run bench migrate during deploy.")
+    migrate_timeout: int = Field(300, description="Migrate timeout in seconds.")
+    migrate_command: str | None = Field(None, description="Custom migrate command override.")
+    maintenance_mode: bool = Field(True, description="Show maintenance page during schema-changing steps.")
+    maintenance_mode_phases: list[str] = Field(
+        default_factory=lambda: ["migrate"],
+        description="Phases with maintenance page: 'migrate' (schema change). [] asserts a backward-compatible migration (no page).",
+    )
+    backups: bool = Field(True, description="Take DB + config backup before switch.")
+    rollback: bool = Field(True, description="Re-pin the previous tag on failure.")
+    restore_on_failure: bool = Field(
+        False,
+        description="Also restore the DB backup on failed migrate/switch (default off; migrate is transactional/resumable).",
+    )
+    search_replace: bool = Field(True, description="Run search-and-replace in DB after restore.")
+    install_apps: bool = Field(True, description="Install new apps to the site during finalize.")
+    releases_retain_limit: int = Field(7, description="Prune old image tags; always keeps current + previous.")
+    drain_workers: bool = Field(True, description="Drain RQ workers before migrate/restart.")
+    drain_workers_timeout: int = Field(300, description="Seconds to wait for workers to drain.")
+    drain_workers_poll: int = Field(5, description="Poll interval in seconds while draining.")
+    skip_stale_workers: bool = Field(True, description="Skip stale workers when draining.")
+    skip_stale_timeout: int = Field(15, description="Seconds before a worker is considered stale.")
+    worker_kill_timeout: int = Field(15, description="Seconds before force-killing workers.")
+    worker_kill_poll: float = Field(3.0, description="Poll interval in seconds while waiting to kill workers.")
+    common_site_config: dict[str, Any] | None = Field(None, description="Keys to merge into common_site_config.json.")
+    site_config: dict[str, Any] | None = Field(None, description="Keys to merge into site_config.json.")
+    before_restart: str | None = Field(None, description="Script inside container before restart.")
+    after_restart: str | None = Field(None, description="Script inside container after restart.")
+    host_before_restart: str | None = Field(None, description="Script on host before restart.")
+    host_after_restart: str | None = Field(None, description="Script on host after restart.")
+    before_bench_build: str | None = Field(None, description="Script inside container before bench build.")
+    after_bench_build: str | None = Field(None, description="Script inside container after bench build.")
+    host_before_bench_build: str | None = Field(None, description="Script on host before bench build.")
+    host_after_bench_build: str | None = Field(None, description="Script on host after bench build.")
+    before_python_install: str | None = Field(None, description="Script inside container before pip install.")
+    after_python_install: str | None = Field(None, description="Script inside container after pip install.")
+    host_before_python_install: str | None = Field(None, description="Script on host before pip install.")
+    host_after_python_install: str | None = Field(None, description="Script on host after pip install.")
+
+
+class DeployBuildConfig(BaseModel):
+    """Image build configuration for `fm bake`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    base_image: str | None = Field(None, description="Base image for the runtime Dockerfile FROM.")
+    python_version: str | None = Field(None, description="Python version (uv) baked into the image.")
+    node_version: str | None = Field(None, description="Node version (fnm) baked into the image.")
+    platforms: list[str] = Field(default_factory=lambda: ["linux/amd64"], description="Target build platform(s).")
+
+
+class RegistryConfig(BaseModel):
+    """Image registry / transport configuration."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    registry: str | None = Field(None, description="Registry host/namespace for push/pull.")
+    username: str | None = Field(None, description="Registry username (env-substituted).")
+    password: str | None = Field(None, description="Registry password/token (env-substituted, --password-stdin).")
+    distribution: str = Field(
+        "registry", description="Image transport: 'registry' (push/pull) or 'save_load' (docker save/load over SSH)."
+    )
+
+
+class RemoteConfig(BaseModel):
+    """Remote deploy target (`DOCKER_HOST=ssh://` primary; ssh-fallback fields)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    ssh_server: str | None = Field(None, description="Remote server hostname or IP address.")
+    ssh_user: str = Field("frappe", description="SSH username for the remote server.")
+    ssh_port: int = Field(22, description="SSH port number.")
+    fm_source: str | None = Field(None, description="fm source for remote install (git URL or local path); ssh-fallback only.")
+    benches_root: str | None = Field(None, description="Root directory for benches on the remote host.")
+
+
 class BenchConfig(BaseModel):
     name: str = Field(..., description="The name of the bench")
     developer_mode: bool = Field(..., description="Whether developer mode is enabled")
     admin_tools: bool = Field(..., description="Whether admin tools are enabled")
     environment_type: FMBenchEnvType = Field(..., description="The type of environment")
+
+    # Two-axis deploy model (#323): runtime (mount|image) + image-based deploy config
+    deployment_mode: DeploymentMode = Field(
+        DeploymentMode.mount,
+        description="Runtime: 'mount' (dev, live-mounted code) or 'image' (immutable app image). Default 'mount' (backward-compatible).",
+    )
+    deploy: DeployConfig | None = Field(None, description="Image-based deploy configuration (required for image mode).")
+    build: DeployBuildConfig | None = Field(None, description="Image build configuration for bake.")
+    registry: RegistryConfig | None = Field(None, description="Image registry / transport configuration.")
+    remote: RemoteConfig | None = Field(None, description="Remote deploy target configuration.")
 
     # Multi-certificate support
     ssl_certificates: list[SSLCertificate] = Field(default=[], description="List of SSL certificates for this bench")
@@ -1196,6 +1295,11 @@ class BenchConfig(BaseModel):
             "migration_state": migration_state_obj,
             "newrelic_enabled": data.get("newrelic_enabled", False),
             "newrelic_license_key": data.get("newrelic_license_key", None),
+            "deployment_mode": data.get("deployment_mode", "mount"),
+            "deploy": DeployConfig(**data["deploy"]) if data.get("deploy") else None,
+            "build": DeployBuildConfig(**data["build"]) if data.get("build") else None,
+            "registry": RegistryConfig(**data["registry"]) if data.get("registry") else None,
+            "remote": RemoteConfig(**data["remote"]) if data.get("remote") else None,
         }
 
         bench_config_instance = cls(**input_data)
