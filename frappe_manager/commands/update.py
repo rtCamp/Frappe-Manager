@@ -8,6 +8,7 @@ from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.bench_config import (
     AppConfig,
+    DeploymentMode,
     FMBenchEnvType,
     RestartPolicyEnum,
     extract_node_version_requirement,
@@ -25,6 +26,16 @@ from frappe_manager.utils.callbacks import (
     sitename_callback,
     sites_autocompletion_callback,
 )
+
+
+def is_immutable_update_request(python_version: str | None, node_version: str | None) -> bool:
+    """Return True when an update requests changes that are immutable in image mode.
+
+    Image benches ship a pre-built app image; Python/Node runtime changes rebuild
+    the venv and reinstall apps into the mounted workspace, which does not exist in
+    image mode. Such changes must go through ``fm deploy`` instead.
+    """
+    return bool(python_version or node_version)
 
 
 @example(
@@ -226,6 +237,17 @@ def update(
     output = get_global_output_handler()
     logger = ctx.obj.get("logger")
     bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
+
+    if bench.bench_config.deployment_mode == DeploymentMode.image and is_immutable_update_request(
+        python_version=python_version, node_version=node_version
+    ):
+        output.stop()
+        output.display_error(
+            f"{bench.name} is image-mode; code/apps/deps are immutable — "
+            "use 'fm deploy' to build+ship a new image. "
+            "'fm update' only changes SSL/env/policy.",
+        )
+        raise typer.Exit(1)
 
     bench_config_save = False
 

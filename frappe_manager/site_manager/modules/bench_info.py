@@ -18,6 +18,7 @@ from rich.table import Table
 from frappe_manager.docker import DockerException
 from frappe_manager.output_manager import OutputHandler, temporary_stop
 from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.site_manager.bench_config import DeploymentMode
 from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
@@ -235,6 +236,18 @@ class BenchInfo:
                 else "Not Enabled"
             ),
         }
+
+        data["Deployment Mode"] = self.bench_config.deployment_mode.value
+        if self.bench_config.deployment_mode == DeploymentMode.image:
+            deploy_state = self.bench_config.deploy_state
+            if deploy_state and deploy_state.current_tag:
+                data["Deployed Tag"] = deploy_state.current_tag
+                if deploy_state.previous_tag:
+                    data["Previous Tag"] = deploy_state.previous_tag
+                if deploy_state.last_deploy_at:
+                    data["Last Deploy At"] = deploy_state.last_deploy_at
+            else:
+                data["Deployed Tag"] = "N/A (not yet deployed)"
 
         # Add alias domains if present (independent of SSL status)
         if self.bench_config.alias_domains:

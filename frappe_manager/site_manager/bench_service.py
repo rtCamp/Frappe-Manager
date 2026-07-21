@@ -258,6 +258,7 @@ class BenchService:
         table.add_column("Site")
         table.add_column("Status", vertical="middle")
         table.add_column("Path")
+        table.add_column("Mode")
 
         for bench_name in bench_dict.keys():
             try:
@@ -275,7 +276,8 @@ class BenchService:
 
                 status_data = f"[{status_color}]{status_msg}[/{status_color}]"
 
-                table.add_row(row_data, status_data, path_data, style=f"{status_color}")
+                mode_data = bench.bench_config.deployment_mode.value
+                table.add_row(row_data, status_data, path_data, mode_data, style=f"{status_color}")
                 self.output.update_live(table, padding=(0, 0, 0, 0))
 
             except FileNotFoundError as e:

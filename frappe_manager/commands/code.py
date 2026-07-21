@@ -6,6 +6,7 @@ from typer_examples import example
 from frappe_manager import DEFAULT_EXTENSIONS
 from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.site_manager.bench_config import DeploymentMode
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import (
     code_command_extensions_callback,
@@ -86,6 +87,13 @@ def code(
     output = get_global_output_handler()
     logger = ctx.obj.get("logger")
     bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
+
+    if bench.bench_config.deployment_mode == DeploymentMode.image:
+        output.warning(
+            "Image-mode bench has no live-mounted workspace: VSCode edits target the "
+            "immutable app image and do not persist. Use this to reproduce+observe only; "
+            "ship real code changes with 'fm deploy'.",
+        )
 
     if force_start:
         bench.start()
