@@ -44,7 +44,7 @@ Implementation: `frappe_manager/site_manager/deploy_config_overlay.py` (`resolve
 
 | Command | Purpose | Key flags |
 |---|---|---|
-| `fm create <bench>` | provision bench + site (mount or image) | `--environment` `--apps` `--image` `--deployment-mode` `--registry` `--distribution` `--python` `--node` |
+| `fm create <bench>` | provision bench + site (mount or image) | `--environment` `--apps` `--image` `--runtime` `--registry` `--distribution` `--python` `--node` |
 | `fm bake <bench>` | build image from the bench | `--image` `--tag` `--push/--no-push` `--config` |
 | `fm deploy <bench>` | bake + switch (recreate/rolling) | `--image` `--tag` `--remote` `--push/--no-push` `--rolling/--no-rolling` `--config` |
 | `fm switch <bench> <tag>` | switch to an existing tag | `--rolling/--no-rolling` |

@@ -19,14 +19,14 @@ Within fm, one provisioning path (fmd's `image`/`docker run` runner) is shared b
 
 ## 12. Migration path / cutover (phased)
 
-1. **Config + templates**: `deployment_mode` field (default `mount`), `DeployConfig`/`RegistryConfig`/`RemoteConfig`, `frappe_server_mode`; prod compose templates; prod Dockerfile.
+1. **Config + templates**: `runtime` field (default `mount`), `DeployConfig`/`RegistryConfig`/`RemoteConfig`, `frappe_server_mode`; prod compose templates; prod Dockerfile.
 2. **Local `bake` + `switch` (+ `deploy` wrapper)**: buildable app image, image runtime, switch/rollback on local host.
 3. **Registry + save/load + `deploy --remote`**: transport + remote `switch`.
 4. Docs + regenerated CLI docs (`just docs-gen`); `fm code` debug service (#323 item 4). **fmd deprecation** is tracked separately, once fm's image path is proven in production.
 
 ## 13. Open questions / risks
 
-- **fm blast radius**: fm is the primary CLI with a migration gate. The image *runtime* is opt-in (`deployment_mode=image`) and **additive** on fm's existing supervisor-per-service model — there is **no all-benches migration** (each compose service still runs its one program under its own `supervisord`). Feature-flag the image path until proven in production.
+- **fm blast radius**: fm is the primary CLI with a migration gate. The image *runtime* is opt-in (`runtime=image`) and **additive** on fm's existing supervisor-per-service model — there is **no all-benches migration** (each compose service still runs its one program under its own `supervisord`). Feature-flag the image path until proven in production.
 - **Duplication vs fmd (temporary, accepted)**: fm owns the features directly; fmd stays legacy until deprecated. Accept the short-term overlap rather than building shared fm↔fmd infra.
 - **Secrets in build**: private-repo token passed to the provisioning `docker run` (env / secret file), used only at clone, never baked; registry creds env-substituted + masked on write.
 - **State source of truth** — **DECIDED: explicit `[deploy.state]` in `bench_config.toml`** (current tag, previous tag, deploy history: tag+timestamp), written transactionally per successful deploy. Reliable rollback target that survives image pruning; retention (`releases_retain_limit`) must always keep the `current`+`previous` tags referenced by state. Deriving from local docker tags rejected (fragile: pruned previous = lost rollback target).
@@ -40,4 +40,4 @@ Within fm, one provisioning path (fmd's `image`/`docker run` runner) is shared b
 - **Registry auth** — **DECIDED: `docker login` from `[deploy.registry]` creds** (env-substituted, `--password-stdin`) before push/pull against the active daemon (incl. remote via `DOCKER_HOST=ssh://`); ambient daemon creds when none configured (§10).
 - **Tag pruning** — **DECIDED: prune local tags by default; registry pruning opt-in (`--prune-registry`)**; always preserve `current`+`previous` (and history-referenced) tags (§9).
 - **Switch success gating & failure** — **DECIDED**: **pre-flight** the new image (`docker run <tag>` boot check) *before* migrate; **swap via `compose up -d --wait`** gated on the web healthcheck (`/api/method/ping`, §16) before finalize/record. On failure the default is **halt + report** (no destructive DB restore — `bench migrate` is transactional/resumable via `patch_log`, so re-run to resume). **`restore_on_failure`** (opt-in, default off) restores the DB backup + re-pins previous; `rollback` (re-pin tag) and `restore_on_failure` (restore DB) are separate (§8, §8.2).
-- **Two-axis model** — **DECIDED (Decision 11): separate `environment_type` (settings, unchanged) from a new `deployment_mode: mount|image` (runtime)** rather than overloading `environment_type`. Backward-compatible (default `mount`; legacy prod keeps working), orthogonal (image-in-dev testable), no silent redefinition of existing prod benches. `--environment prod` only *defaults* `deployment_mode=image` for new benches (§3).
+- **Two-axis model** — **DECIDED (Decision 11): separate `environment_type` (settings, unchanged) from a new `runtime: mount|image`** rather than overloading `environment_type`. Backward-compatible (default `mount`; legacy prod keeps working), orthogonal (image-in-dev testable), no silent redefinition of existing prod benches. `--environment prod` only *defaults* `runtime=image` for new benches (§3).

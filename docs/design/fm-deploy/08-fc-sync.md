@@ -10,7 +10,7 @@ All of the below is **implemented, unit-tested, and live-verified** on `frappe@1
 
 | Area | Commit | Verified |
 |---|---|---|
-| `fm create` image-mode wiring (`--deployment-mode`/`--image`/`--registry`/`--distribution` → `deployment_mode` + `[deploy]`/`[build]`/`[registry]`); image is opt-in, `--environment prod` stays backward-compatible `mount` | `6cd6cfa` (+ docs `6b50614`) | create→toml round-trip; proven flow it automates |
+| `fm create` image-runtime wiring (`--runtime`/`--image`/`--registry`/`--distribution` → `runtime` + `[deploy]`/`[build]`/`[registry]`); image is opt-in, `--environment prod` stays backward-compatible `mount` | `6cd6cfa` (+ docs `6b50614`) | create→toml round-trip; proven flow it automates |
 | `install_apps` in finalize — installs baked apps not yet on the site (`bench list-apps` diff; defensive: skip unless `frappe` in the parsed set) | `015e433` | added `payments` → deploy installed it (`frappe`→`frappe+payments`) |
 | Switch hooks — `host_before_restart`/`before_restart` before swap, `after_restart`/`host_after_restart` in finalize | `86bccfd` | all 4 fired in order; env expanded; markers |
 | Config-merge — `[deploy].common_site_config`/`site_config` merged in finalize (preserves existing keys) | `8465d95` | merged, db/redis keys preserved, ping 200 |

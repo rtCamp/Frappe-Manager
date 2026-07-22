@@ -12,7 +12,7 @@ Stay in fm conventions: extend `BenchConfig` / `bench_config.toml`. **No** paral
 # ─── existing fm fields ───
 name = "mybench"
 environment_type = "prod"           # SETTINGS axis: developer_mode/admin_tools/restart/dev-pkgs/server default (unchanged meaning)
-deployment_mode = "image"           # RUNTIME axis (new): mount (default) | image. `image` enables everything below
+runtime = "image"                   # RUNTIME axis (new): mount (default) | image. `image` enables everything below
 frappe_server_mode = "gunicorn"     # gunicorn (prod default) | bench_serve; independent of both axes
 background_workers = 1              # existing fm field → supervisor numprocs per worker (Decision 6 reverted)
 # multi_queue_consumption, workers = {…}  → existing fm fields; decide which worker services render
@@ -69,7 +69,7 @@ previous = "fm-20260718-9f8e7d6"
 # history = [ { tag = "…", ts = "…" }, … ]
 ```
 
-New top-level `BenchConfig` field: `deployment_mode: {mount, image}` (Axis B, Decision 11; default `mount`) — orthogonal to the existing `environment_type`. New nested models (`site_manager/bench_config.py`, or a `deploy_config.py` it imports): `DeployConfig`, `DeployBuildConfig`, `RegistryConfig`, `RemoteConfig`, `DeployStateConfig` — the `[deploy]*` tree is only consulted when `deployment_mode=image`. Worker multiplicity reuses fm's existing `background_workers` / `multi_queue_consumption` / `workers` fields (Decision 6); `AppConfig` reused as-is. `[deploy.state]` is written by fm on each successful switch (current/previous/history) and round-trips like the rest; registry `password` is masked on write per fm's existing secret-masking.
+New top-level `BenchConfig` field: `runtime: {mount, image}` (Axis B, Decision 11; default `mount`) — orthogonal to the existing `environment_type`. New nested models (`site_manager/bench_config.py`, or a `deploy_config.py` it imports): `DeployConfig`, `DeployBuildConfig`, `RegistryConfig`, `RemoteConfig`, `DeployStateConfig` — the `[deploy]*` tree is only consulted when `runtime=image`. Worker multiplicity reuses fm's existing `background_workers` / `multi_queue_consumption` / `workers` fields (Decision 6); `AppConfig` reused as-is. `[deploy.state]` is written by fm on each successful switch (current/previous/history) and round-trips like the rest; registry `password` is masked on write per fm's existing secret-masking.
 
 ### 4.1 Config sources & CI portability
 

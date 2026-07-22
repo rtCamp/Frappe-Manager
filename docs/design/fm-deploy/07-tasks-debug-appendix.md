@@ -4,7 +4,7 @@
 
 ## 14. Task breakdown
 
-1. Config: `deployment_mode` field (Axis B, default `mount`) + models (`DeployConfig`, `DeployBuildConfig`, `RegistryConfig`, `RemoteConfig`) + `frappe_server_mode`; masking; TOML round-trip in `BenchConfig`.
+1. Config: `runtime` field (Axis B, default `mount`) + models (`DeployConfig`, `DeployBuildConfig`, `RegistryConfig`, `RemoteConfig`) + `frappe_server_mode`; masking; TOML round-trip in `BenchConfig`.
 2. Rolling enablement: in the prod compose, drop the web service's fixed `container_name` and give each web replica its **own** per-replica `/fm-sockets/frappe.sock` supervisord socket (not shared) so the web service can scale to 2 replicas — needed only for rolling. Build recipes live in `Docker/`: `Docker/frappe/runtime.Dockerfile` (COPY-only) and an `app-assets` target appended to the existing `Docker/nginx/Dockerfile` (no new nginx file). `templates/` gains only `docker-compose.prod.tmpl`.
 3. Bake: extract `BenchOrchestrator`'s provisioning phase into a `provision(workspace, apps, use_run, hooks)` unit → `bake` calls it with `use_run=True` into a build-context dir (same `BenchApp.install_apps`/`setup_python_and_node_environments` as dev `create`) → `Docker/frappe/runtime.Dockerfile` `COPY`s the tree (`docker build`); tag scheme + tag pruning.
 4. `DeployOrchestrator`: local switch/rollback pipeline (pre-flight → backup → maintenance/drain → migrate → `compose up -d --wait` health-gate → finalize → record) with the three failure branches (§8, §8.2); reuses `BenchService`/`MariaDBManager`.
@@ -16,7 +16,7 @@
 10. `fm code` (#323 item 4): keep fm's existing **launch**-based dev-container debug — VSCode `launch.json` starts `bench serve --noreload` under debugpy, with `preLaunchTask = fmx stop frappe` freeing port 80 (supervisor keeps the container alive; ↻ relaunches the bench-serve child in place). **image** = reproduce + observe (§15): throwaway `frappe-debug` from the current tag against an **isolated data copy** (restored/scrubbed), out of rotation, web-only (opt-in live db); logs / traces / `py-spy`; opt-in live attach (recoverable via `fm restart`).
 11. Config layering: `--config` (repo base) + `--config-overrides` + flags + env-substitution, with precedence (§4.1).
 12. Composite GitHub Action wrapping `fm bake`/`fm deploy` at fmd-action parity (§4.1).
-13. Branch existing commands (`update`/`start`/`stop`/`restart`/`logs`/`shell`/`code`/`info`/`list`/`reset`/`delete`) on `deployment_mode` (mount vs image); enforce the `update`↔`deploy` boundary (§3.2).
+13. Branch existing commands (`update`/`start`/`stop`/`restart`/`logs`/`shell`/`code`/`info`/`list`/`reset`/`delete`) on `runtime` (mount vs image); enforce the `update`↔`deploy` boundary (§3.2).
 14. App sourcing + hooks fidelity (§6.1): clone options (branch/commit, shallow, subdir, monorepo symlink-reuse, remove_remote, token to provisioning `docker run`); build hooks run in the provisioning `docker run`; host build hooks interleave (preserved — no isolated build); switch hooks → container exec / host; hook env parity (`get_script_env`).
 
 ## 15. `fm code` — debug workflow (#323 item 4)
@@ -129,7 +129,7 @@ These sketches exist to de-risk the design; exact flags/paths are finalized duri
 
 ```toml
 environment_type = "prod"
-deployment_mode = "image"
+runtime = "image"
 frappe_server_mode = "gunicorn"
 
 [[apps]]

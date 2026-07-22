@@ -46,7 +46,7 @@ We take *inspiration* from frappe_docker's validated patterns but **own the buil
 Two **independent** axes:
 
 - **`environment_type` (`dev` / `prod`) — the settings bundle (unchanged).** developer_mode, admin_tools, restart-policy default, dev packages, `frappe_server_mode` default, `FRAPPE_ENV`. What fm's env flag already means; we do **not** overload it.
-- **`deployment_mode` (`mount` / `image`) — the runtime (new).** The only difference is *where code comes from*.
+- **`runtime` (`mount` / `image`) — the code-delivery axis (new).** The only difference is *where code comes from*.
 - **Supervisor is retained** (both runtimes). fm keeps its existing per-service `supervisord` model; the `image` mode is **additive** on it, not a migration for existing benches.
 
 | | `mount` (dev / local) | `image` (deploy) |
@@ -58,7 +58,7 @@ Two **independent** axes:
 
 **Shared by both:** the supervisor-per-service model (`frappe`/web, `socketio`, `schedule`, `worker-<queue>`, each running its one program under `supervisord` via `launch_supervisor_service.sh`; workers scale via `numprocs=background_workers`); `frappe_server_mode` (bench serve / gunicorn) and `environment_type` settings apply to both; the switch/drain/restart orchestration (§8, §8.3) is one code path over compose.
 
-`deployment_mode` defaults to `mount`. The axes are orthogonal: `mount`+`dev` (local dev), `mount`+`prod` (prod on mounted code, e.g. build-on-server), `image`+`prod` (the immutable target), `image`+`dev` (test the image runtime locally). Per #323, `--environment prod` on a **new** bench *defaults* `deployment_mode=image`, but the two are set and stored independently.
+`runtime` defaults to `mount`. The axes are orthogonal: `mount`+`dev` (local dev), `mount`+`prod` (prod on mounted code, e.g. build-on-server), `image`+`prod` (the immutable target), `image`+`dev` (test the image runtime locally). Per #323, `--environment prod` on a **new** bench *defaults* `runtime=image`, but the two are set and stored independently.
 
 `frappe_server_mode: {bench_serve, gunicorn}` stays its own field (defaulted from `environment_type` — dev=serve, prod=gunicorn — independently overridable per #323: "prod server in dev workflow").
 
@@ -73,7 +73,7 @@ The daemon target is a variable, not the code path: local uses the host Docker s
 
 ### 3.2 Impact on existing commands (image-runtime branch)
 
-`deployment_mode=image` is a branch point across the command surface, not just `deploy`. Both runtimes share the supervisor-per-service compose model; the branch is about **immutability** — `mount` benches keep mutable-code behavior (edit in place, `fm update`), while `image` benches re-point commands at immutable-image semantics (deploy by tag, `[deploy.state]`, ephemeral shell, no `/workspace` code mount).
+`runtime=image` is a branch point across the command surface, not just `deploy`. Both runtimes share the supervisor-per-service compose model; the branch is about **immutability** — `mount` benches keep mutable-code behavior (edit in place, `fm update`), while `image` benches re-point commands at immutable-image semantics (deploy by tag, `[deploy.state]`, ephemeral shell, no `/workspace` code mount).
 
 | Command | `image`-runtime behavior |
 |---|---|
@@ -83,7 +83,7 @@ The daemon target is a variable, not the code path: local uses the host Docker s
 | `logs` | `docker compose logs <service>` (per-container stdout/stderr) for both runtimes; per-service supervisor logs remain available inside each container. |
 | `shell` | `compose exec <svc> bash` (default `frappe`). In image mode **ephemeral** — edits don't persist (no workspace mount) and are lost on the next `switch`; warn. |
 | `code` | **Mount**: live-mounted editable debug. **Image**: **reproduce + observe** (§15) — throwaway `frappe-debug` from the current tag against live db/redis (VSCode attaches *into* the container; baked source, no `pathMappings`) for reproducible bugs; logs / traces / `py-spy` for live-only issues. Can't breakpoint the live worker without pausing it. |
-| `info` | Show `deployment_mode` + `environment_type`, current/previous tag, running services + health. |
+| `info` | Show `runtime` + `environment_type`, current/previous tag, running services + health. |
 | `list` | Annotate benches with runtime (mount/image) + env + current tag. |
 | `reset` | Recreate the site in the data volume; image untouched (no code reset). |
 | `delete` | `compose down`; remove data + optionally prune the bench's image tags (§9). |

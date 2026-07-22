@@ -6,7 +6,7 @@
   - Image-based deployment lives in **`fm`** (not `fmd`). `fmd` stays release-based.
   - `fm deploy` supports **local host and remote (ship-style)** — remote is first-class, for automation/control parity with the switch pipeline.
   - Distribution: **registry push/pull** *and* **`docker save`/`load` over SSH**.
-  - **Two axes** (Decision 11): `environment_type` (`dev`/`prod`) = settings (unchanged); a new `deployment_mode` (`mount`/`image`) = runtime. `image` (default `mount`) is what enables the deploy machinery — existing benches untouched.
+  - **Two axes** (Decision 11): `environment_type` (`dev`/`prod`) = settings (unchanged); a new `runtime` axis (`mount`/`image`). `image` (default `mount`) is what enables the deploy machinery — existing benches untouched.
 - **Companion doc**: `fmd/docs/design/image-based-deployment.md` (the earlier fmd-hosted proposal this supersedes for the deploy path).
 
 > This design is split across the files below. **Section numbers (`§N`) are stable across the set** — a reference like "(§8)" always means section 8 (in `04-runtime-switch.md`), regardless of which file you're reading.
@@ -32,14 +32,14 @@
 | 1 | Zero-downtime | **Rolling web swap is the default** (both runtimes), built into fm (docker-rollout algorithm), **not** the plugin. Maintenance page bound to the **migrate step only**: no-schema-change ⇒ zero-downtime, no page; migrate / new-app install ⇒ page. Opt-out (`--additive` / `maintenance_mode_phases=[]`) skips it for asserted backward-compat migrations | §8.1 |
 | 2 | Assets | Bake into image (same tag), served by nginx — **reuses `Docker/nginx/Dockerfile`** via an `app-assets` `COPY` target; `runtime.Dockerfile` lives in `Docker/frappe/` (no invented files) | §9 |
 | 3 | Drain/migrate/maintenance | Keep in-container `fmx`; fm calls it via `exec` (as `fmd` does); host-side port optional/deferred | §8.3 |
-| 4 | Bootstrap | `fm create` provisions (`--environment prod` defaults `deployment_mode=image`); `fm deploy` build/ship/switch-only | §9 |
+| 4 | Bootstrap | `fm create` provisions (`--environment prod` defaults `runtime=image`); `fm deploy` build/ship/switch-only | §9 |
 | 5 | Deploy state | Explicit `[deploy.state]` in `bench_config.toml` | §13 |
 | 6 | Worker scaling | Supervisor `numprocs=background_workers` (existing model) | §7 |
 | 7 | Multi-site | Single-site per bench | §2 |
 | 8 | Registry auth | `docker login` from config creds; ambient fallback | §10 |
 | 9 | Tag pruning | Local default; registry opt-in; keep current+previous | §9 |
 | 10 | Switch gating | Web healthcheck (`/api/method/ping`) before finalize | §8 |
-| 11 | Two-axis model | Separate `deployment_mode: mount\|image` (runtime) from `environment_type` (settings); default `mount`, backward-compatible | §3 |
+| 11 | Two-axis model | Separate `runtime: mount\|image` from `environment_type` (settings); default `mount`, backward-compatible | §3 |
 | 12 | Debug model | `fm code` = existing supervisor-based flow: VSCode **launches** `bench serve --noreload` under debugpy; `preLaunchTask` `fmx stop frappe` frees port 80. Image: reproduce + observe, isolated data copy, out of rotation | §15 |
 
 Foundational framing: **supervisor STAYS** — each compose service runs its one program under its own `supervisord` (via `launch_supervisor_service.sh`) in both runtimes; the `image` runtime is opt-in **additive** on that model (no supervisor-removal migration). **`fm restart` owns the drain→migrate→restart→resume orchestration over compose; `switch` = `fm restart` + new tag + migrate** (§3.2, §8.3). fm is a plain Docker client managing sibling containers (§3.1) — not DinD, no socket-mounting; remote is the same code with `DOCKER_HOST=ssh://`.
