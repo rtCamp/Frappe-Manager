@@ -13,8 +13,12 @@ rolling scale-2 is deferred to Phase 4b. Supervisor stays.
 """
 
 import contextlib
+import json
 import re
+import shlex
 import shutil
+import subprocess
+import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -103,6 +107,53 @@ def _parse_installed_apps(lines) -> set[str]:
 def _new_apps(wanted: list[str], installed: set[str]) -> list[str]:
     """Apps in ``wanted`` (image/config order) not present in ``installed``."""
     return [a for a in wanted if a not in installed]
+
+
+_HOOK_FIELDS = frozenset(
+    {
+        "before_restart",
+        "after_restart",
+        "host_before_restart",
+        "host_after_restart",
+        "before_bench_build",
+        "after_bench_build",
+        "host_before_bench_build",
+        "host_after_bench_build",
+        "before_python_install",
+        "after_python_install",
+        "host_before_python_install",
+        "host_after_python_install",
+    }
+)
+
+
+def _resolve_hook_content(value: str) -> str:
+    """Inline script text, or the file contents when ``value`` is a path to an
+    existing ``.sh``/``.py`` script (mirrors fmd's hook resolution)."""
+    stripped = value.strip()
+    looks_path = stripped.startswith(("/", "./", "~/")) or Path(stripped).suffix in (".sh", ".py")
+    if looks_path:
+        candidate = Path(stripped).expanduser()
+        if candidate.exists():
+            return candidate.read_text()
+    return value
+
+
+def _hook_env(deploy_config, *, site: str, bench_path: str, deploy_tag: str) -> dict[str, str]:
+    """Environment for deploy hooks: core vars + every scalar ``[deploy]`` field
+    upper-cased (the hook script fields themselves excluded), matching fmd."""
+    env: dict[str, str] = {"SITE_NAME": site, "BENCH_PATH": bench_path, "DEPLOY_TAG": deploy_tag}
+    data = deploy_config.model_dump() if deploy_config else {}
+    for name, value in data.items():
+        if name in _HOOK_FIELDS or value is None:
+            continue
+        if isinstance(value, bool):
+            env[name.upper()] = str(value).lower()
+        elif isinstance(value, (dict, list)):
+            env[name.upper()] = json.dumps(value)
+        else:
+            env[name.upper()] = str(value)
+    return env
 
 
 class DeployOrchestrator:
@@ -609,6 +660,62 @@ class DeployOrchestrator:
             except Exception as e:
                 raise DeployError(f"Failed to install new app '{app}' on the site during finalize: {e}") from e
 
+    def _hook_script(self, value: str, deploy_tag: str) -> str:
+        """``set -e`` + exported env + resolved content, so no exec env passthrough is needed."""
+        env = _hook_env(self.deploy_config, site=self.site, bench_path=str(self.bench_path), deploy_tag=deploy_tag)
+        exports = "".join(f"export {k}={shlex.quote(v)}\n" for k, v in env.items())
+        return "set -e\n" + exports + _resolve_hook_content(value)
+
+    def _run_host_hook(self, value: str | None, phase: str, deploy_tag: str) -> None:
+        if not value:
+            return
+        self.output.change_head(f"Running {phase} hook (host)")
+        with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as fh:
+            fh.write(self._hook_script(value, deploy_tag))
+            script_path = fh.name
+        try:
+            proc = subprocess.run(  # noqa: S603
+                ["bash", script_path],  # noqa: S607
+                cwd=str(self.bench_path),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            for line in (proc.stdout or "").splitlines():
+                if line.strip():
+                    self.output.print(line.strip())
+            if proc.returncode != 0:
+                raise DeployError(
+                    f"{phase} hook (host) failed (exit {proc.returncode}): {(proc.stderr or '').strip()}",
+                )
+        finally:
+            with contextlib.suppress(OSError):
+                Path(script_path).unlink()
+
+    def _run_container_hook(self, value: str | None, phase: str, deploy_tag: str) -> None:
+        if not value:
+            return
+        if not self._frappe_running():
+            self.output.warning(f"Skipping {phase} hook: no running frappe container.")
+            return
+        self.output.change_head(f"Running {phase} hook (container)")
+        logs_dir = self.bench_path / "workspace" / "frappe-bench" / "logs"
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        name = f".fm_hook_{phase}_{int(time.time())}.sh"
+        host_script = logs_dir / name
+        container_script = f"/workspace/frappe-bench/logs/{name}"
+        host_script.write_text(self._hook_script(value, deploy_tag))
+        try:
+            result = self._exec_frappe(f"bash {container_script}")
+            for line in getattr(result, "stdout", None) or []:
+                if line.strip():
+                    self.output.print(line.strip())
+        except Exception as e:
+            raise DeployError(f"{phase} hook (container) failed: {e}") from e
+        finally:
+            with contextlib.suppress(OSError):
+                host_script.unlink()
+
     def _migrate(self, deploy_tag: str) -> bool:
         """Run bench migrate in a one-shot container from the newly-pinned image."""
         self.output.change_head("Running migrations (one-shot new-image container)")
@@ -726,6 +833,10 @@ class DeployOrchestrator:
                     f"Compose reverted, no swap performed. Re-run deploy after fixing: {e}",
                 ) from e
 
+        # Switch hooks (pre-restart): host first, then the still-running old container.
+        self._run_host_hook(self.deploy_config.host_before_restart, "host_before_restart", new_tag)
+        self._run_container_hook(self.deploy_config.before_restart, "before_restart", new_tag)
+
         # 7b. Swap. Rolling (blue-green) when eligible -> zero dropped requests;
         # otherwise recreate-swap (the maintenance window covers the brief blip).
         if do_rolling:
@@ -764,6 +875,10 @@ class DeployOrchestrator:
             self._exec_frappe(f"{BENCH_BIN} --site {self.site} clear-cache")
         except Exception as e:
             self.output.warning(f"clear-cache failed (continuing): {e}")
+        # Switch hooks (post-restart): new container first, then host.
+        self._run_container_hook(self.deploy_config.after_restart, "after_restart", new_tag)
+        self._run_host_hook(self.deploy_config.host_after_restart, "host_after_restart", new_tag)
+
         if maintenance:
             self._set_maintenance(0)
 
