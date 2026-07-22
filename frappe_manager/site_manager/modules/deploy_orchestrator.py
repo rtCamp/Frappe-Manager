@@ -13,6 +13,7 @@ rolling scale-2 is deferred to Phase 4b. Supervisor stays.
 """
 
 import contextlib
+import re
 import shutil
 import time
 from datetime import UTC, datetime
@@ -83,6 +84,25 @@ def _apply_image_mounts(compose_file_manager, site: str, services: list[str]) ->
             for h, c in specs
         ]
         compose_file_manager.set_service_volumes(svc, kept + data)
+
+
+def _parse_installed_apps(lines) -> set[str]:
+    """Parse ``bench list-apps`` output into a set of installed app names.
+
+    Tolerant of the version/branch columns some Frappe versions print: takes the
+    first whitespace token of each line when it is a valid (lowercase) app module
+    name, dropping headers/noise."""
+    names: set[str] = set()
+    for line in lines or []:
+        tokens = line.strip().split()
+        if tokens and re.fullmatch(r"[a-z][a-z0-9_]*", tokens[0]):
+            names.add(tokens[0])
+    return names
+
+
+def _new_apps(wanted: list[str], installed: set[str]) -> list[str]:
+    """Apps in ``wanted`` (image/config order) not present in ``installed``."""
+    return [a for a in wanted if a not in installed]
 
 
 class DeployOrchestrator:
@@ -544,6 +564,51 @@ class DeployOrchestrator:
         except Exception as e:
             self.output.warning(f"Could not resume RQ workers (continuing): {e}")
 
+    def _site_installed_apps(self) -> set[str]:
+        """App names installed on the site, parsed from ``bench list-apps``.
+
+        Returns an empty set when listing fails; callers must treat a set that
+        lacks the always-present ``frappe`` app as unreliable (see
+        :meth:`_install_new_apps`)."""
+        try:
+            result = self._exec_frappe(f"{BENCH_BIN} --site {self.site} list-apps")
+        except Exception as e:
+            self.output.warning(f"Could not list installed apps: {e}")
+            return set()
+        return _parse_installed_apps(getattr(result, "stdout", None))
+
+    def _install_new_apps(self) -> None:
+        """Install apps baked into the image but not yet on the site (``[deploy].install_apps``).
+
+        ``config.apps_list`` is populated by bake's ``_derive_apps_list`` on the
+        ``fm deploy`` path; on ``switch``/``rollback`` (no bake) it is empty and
+        nothing is reconciled. Runs in the new container during finalize (under
+        maintenance when migrating). Defensive: only installs when the installed
+        set is read reliably (must contain ``frappe``) so a parse failure skips
+        rather than blindly reinstalling every app."""
+        if not self.deploy_config.install_apps:
+            return
+        wanted = [a.name for a in (self.config.apps_list or [])]
+        if not wanted:
+            return
+        installed = self._site_installed_apps()
+        if "frappe" not in installed:
+            self.output.warning(
+                "Skipping new-app install: could not reliably read installed apps "
+                "(no 'frappe' in `bench list-apps` output).",
+            )
+            return
+        new = _new_apps(wanted, installed)
+        if not new:
+            return
+        self.output.change_head(f"Installing new app(s) on site: {', '.join(new)}")
+        for app in new:
+            try:
+                self._exec_frappe(f"{BENCH_BIN} --site {self.site} install-app {app}")
+                self.output.print(f"Installed app '{app}' on site")
+            except Exception as e:
+                raise DeployError(f"Failed to install new app '{app}' on the site during finalize: {e}") from e
+
     def _migrate(self, deploy_tag: str) -> bool:
         """Run bench migrate in a one-shot container from the newly-pinned image."""
         self.output.change_head("Running migrations (one-shot new-image container)")
@@ -692,8 +757,9 @@ class DeployOrchestrator:
         self.output.print("New containers are healthy")
 
         # 8. Finalize.
-        self.output.change_head("Finalizing (resume workers, clear cache, maintenance off)")
+        self.output.change_head("Finalizing (resume workers, install new apps, clear cache, maintenance off)")
         self._resume_workers()
+        self._install_new_apps()
         try:
             self._exec_frappe(f"{BENCH_BIN} --site {self.site} clear-cache")
         except Exception as e:
