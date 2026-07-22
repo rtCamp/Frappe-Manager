@@ -282,9 +282,23 @@ fi
                             raise_exception_obj=None,
                             use_run=use_run,
                         )
-                        if result and result.exit_code == 0 and result.stdout:
-                            selected_python_full = result.stdout[0].strip()
-                        else:
+                        selected_python_full = None
+                        if result and result.combined:
+                            import re
+
+                            installed = []
+                            for line in result.combined:
+                                if "/usr/bin" in line or "download available" in line:
+                                    continue
+                                match = re.search(r"cpython-(\d+)\.(\d+)\.(\d+)", line)
+                                if match:
+                                    installed.append(
+                                        (int(match.group(1)), int(match.group(2)), int(match.group(3)), line.strip()),
+                                    )
+                            if installed:
+                                installed.sort(reverse=True)
+                                selected_python_full = installed[0][3]
+                        if not selected_python_full:
                             selected_python_full = f"cpython-{python_version}"
 
                         self.output.print(f"Installed Python {python_version} via uv")
