@@ -62,6 +62,26 @@ class BakeManager:
         version = importlib.metadata.version("frappe-manager")
         return f"ghcr.io/rtcamp/frappe-manager-frappe:v{version}"
 
+    @staticmethod
+    def apply_build_overrides(bench_config, output=None) -> None:
+        """Apply ``[build].python_version``/``node_version`` onto the bench config
+        so provisioning bakes with them (they take precedence over the
+        create-time / auto-detected versions). ``[build].platforms`` (multi- or
+        cross-arch) is not yet honored: provision-then-COPY bakes host-arch
+        binaries, so a foreign-arch image needs emulated provisioning."""
+        build = bench_config.build
+        if not build:
+            return
+        if build.python_version:
+            bench_config.python_version = build.python_version
+        if build.node_version:
+            bench_config.node_version = build.node_version
+        if output and build.platforms and build.platforms != ["linux/amd64"]:
+            output.warning(
+                f"[build].platforms={build.platforms} is not yet honored; building for the host "
+                f"architecture only (multi/cross-arch needs emulated provisioning).",
+            )
+
     def resolve_tag(self) -> str:
         """``<repo>:<UTC timestamp>-<git short sha|nogit>``.
 
@@ -264,6 +284,7 @@ class BakeManager:
                 provision_image=base_image,
             )
 
+            self.apply_build_overrides(self.bench_config, self.output)
             self.output.change_head("Provisioning apps into build context")
             provision(
                 app_manager,
