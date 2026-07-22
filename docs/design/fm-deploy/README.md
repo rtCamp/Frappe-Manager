@@ -23,6 +23,7 @@
 | [`06-fmd-cutover-decisions.md`](06-fmd-cutover-decisions.md) | §11 Division of labor with fmd · §12 Cutover · §13 Open questions / risks |
 | [`07-tasks-debug-appendix.md`](07-tasks-debug-appendix.md) | §14 Task breakdown · §15 `fm code` debug · §16 Appendix (sketches) · §17 Worked example |
 | [`08-fc-sync.md`](08-fc-sync.md) | §18 Implementation status (shipped + verified) · §19 Frappe Cloud sync port plan (deferred, needs FC creds) · §20 Minor deferrals |
+| [`09-cli-ux.md`](09-cli-ux.md) | §21 UX problem · §22 Decision: `--config` overlay (not fmd's config fork) · §23 Command surface · §24 Standalone bake (planned) · §25 Status |
 
 ## Decision record (all locked)
 

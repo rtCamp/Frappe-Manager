@@ -6,6 +6,7 @@ from typer_examples import example
 from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_config import BenchConfig, DeployConfig
+from frappe_manager.site_manager.deploy_config_overlay import ConfigOverlayError, apply_config_overlays
 from frappe_manager.site_manager.modules.bake import BakeError, BakeManager
 from frappe_manager.utils.callbacks import (
     sitename_callback,
@@ -59,6 +60,15 @@ def bake(
             show_default=False,
         ),
     ] = None,
+    config: Annotated[
+        list[str],
+        typer.Option(
+            "--config",
+            help="TOML config overlay: a file path or inline TOML content, deep-merged into the "
+            "bench config before baking. Repeatable; later --config wins.",
+            show_default=False,
+        ),
+    ] = [],
 ):
     """
     Bake an immutable app image from a bench.
@@ -73,6 +83,12 @@ def bake(
     if not bench_config_path.exists():
         output.display_error(f"Bench '{benchname}' not found ({bench_config_path} missing).")
         raise typer.Exit(1)
+
+    try:
+        apply_config_overlays(bench_config_path, config)
+    except ConfigOverlayError as e:
+        output.display_error(str(e))
+        raise typer.Exit(1) from e
 
     bench_config: BenchConfig = BenchConfig.import_from_toml(bench_config_path)
 

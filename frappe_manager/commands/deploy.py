@@ -3,8 +3,10 @@ from typing import Annotated
 import typer
 from typer_examples import example
 
+from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_config import DeploymentMode
+from frappe_manager.site_manager.deploy_config_overlay import ConfigOverlayError, apply_config_overlays
 from frappe_manager.site_manager.modules.bake import BakeError, BakeManager
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError, DeployOrchestrator
 from frappe_manager.site_manager.modules.transport import (
@@ -89,6 +91,15 @@ def deploy(
             show_default=False,
         ),
     ] = None,
+    config: Annotated[
+        list[str],
+        typer.Option(
+            "--config",
+            help="TOML config overlay: a file path or inline TOML content, deep-merged into the "
+            "bench config before deploy. Repeatable; later --config wins.",
+            show_default=False,
+        ),
+    ] = [],
 ):
     """
     Bake an immutable image from the bench and deploy it (recreate-swap).
@@ -104,6 +115,12 @@ def deploy(
     """
     output = get_global_output_handler()
     logger = ctx.obj.get("logger") if ctx.obj else None
+    if config:
+        try:
+            apply_config_overlays(CLI_BENCHES_DIRECTORY / benchname / CLI_BENCH_CONFIG_FILE_NAME, config)
+        except ConfigOverlayError as e:
+            output.display_error(str(e))
+            raise typer.Exit(1) from e
     bench = _load_image_bench(ctx, benchname)
 
     if image:
