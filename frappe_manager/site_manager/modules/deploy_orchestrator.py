@@ -660,6 +660,22 @@ class DeployOrchestrator:
             except Exception as e:
                 raise DeployError(f"Failed to install new app '{app}' on the site during finalize: {e}") from e
 
+    def _apply_config_merges(self) -> None:
+        """Merge ``[deploy].common_site_config`` / ``site_config`` keys into the
+        site's ``common_site_config.json`` / ``site_config.json``.
+
+        Both files are host-mounted data, so the new container picks up the merge
+        immediately (clear-cache follows in finalize). ``save_dict_to_file``
+        merges, so unrelated keys are preserved."""
+        common = self.deploy_config.common_site_config
+        site = self.deploy_config.site_config
+        if common:
+            self.output.change_head("Merging common_site_config keys")
+            self.bench.set_common_bench_config(common)
+        if site:
+            self.output.change_head("Merging site_config keys")
+            self.bench.set_bench_site_config(site)
+
     def _hook_script(self, value: str, deploy_tag: str) -> str:
         """``set -e`` + exported env + resolved content, so no exec env passthrough is needed."""
         env = _hook_env(self.deploy_config, site=self.site, bench_path=str(self.bench_path), deploy_tag=deploy_tag)
@@ -871,6 +887,7 @@ class DeployOrchestrator:
         self.output.change_head("Finalizing (resume workers, install new apps, clear cache, maintenance off)")
         self._resume_workers()
         self._install_new_apps()
+        self._apply_config_merges()
         try:
             self._exec_frappe(f"{BENCH_BIN} --site {self.site} clear-cache")
         except Exception as e:
