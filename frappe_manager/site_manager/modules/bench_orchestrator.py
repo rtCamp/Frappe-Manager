@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.site_manager.bench_config import FMBenchEnvType
+from frappe_manager.site_manager.bench_config import DeploymentMode, FMBenchEnvType
 from frappe_manager.site_manager.exceptions import BenchOperationException
 from frappe_manager.site_manager.provisioner import provision
 
@@ -116,6 +116,10 @@ class BenchOrchestrator:
                 self._create_template_bench()
                 return
 
+            if bench.bench_config.deployment_mode == DeploymentMode.image:
+                self._create_image_bench()
+                return
+
             self._phase2_initialize_bench()
             self._phase3_start_and_verify_bench()
             self._phase4_create_site()
@@ -138,6 +142,62 @@ class BenchOrchestrator:
         except Exception as e:
             self._handle_creation_failure(e)
 
+    def _create_image_bench(self) -> None:
+        """Bootstrap an image-mode bench from a pre-built app image.
+
+        No provisioning: the image already carries app code, Python/Node and
+        baked assets. Renders an image-pinned compose, creates the site, installs
+        the image's baked apps into it, and pins the workers to the same image.
+        """
+        from frappe_manager.site_manager.bench_config import AppConfig
+        from frappe_manager.site_manager.modules.deploy_orchestrator import pin_workers_to_image
+        from frappe_manager.site_manager.modules.transport import fetch_image
+        from frappe_manager.utils.docker import host_run_cp
+
+        bench = self.bench
+        tag = bench.bench_config.deploy_state.current_tag
+
+        # Host-side config + supervisor (mode-agnostic, no image needed).
+        common_site_config_data = bench.bench_config.get_commmon_site_config_data(
+            bench.services.database_manager.database_server_info,
+        )
+        bench.set_common_bench_config(common_site_config_data)
+        bench.supervisor.setup_supervisor(bench.path, force=True, use_run=True)
+
+        # Ensure the app image (+ its nginx-assets image) is present.
+        fetch_image(bench.docker_client, bench.bench_config.registry, tag, output=self.output)
+
+        # Seed apps.txt from the baked image and drive apps_list off it.
+        apps_txt = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
+        host_run_cp(tag, "/workspace/frappe-bench/sites/apps.txt", str(apps_txt), bench.docker_client)
+        baked = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
+        bench.bench_config.apps_list = [AppConfig.from_string(n) for n in baked]
+
+        # Pin the bench compose to the image and start.
+        bench.docker_ops.render_image_compose(tag)
+        self._phase3_start_and_verify_bench()
+        self._phase4_create_site()
+
+        apps_installed = self._phase6_install_apps()
+
+        self._phase5_finalize()
+
+        # Workers must run the app image (with baked apps), not the base fm image.
+        pin_workers_to_image(bench.workers, bench.name, tag)
+        bench.workers.docker_client.compose.up(services=[], detach=True, pull="never", wait=True, stream=False)
+
+        if apps_installed:
+            bench.info()
+
+            if ".localhost" not in bench.name:
+                self.output.print(
+                    "Please note that You will have to add a host entry to your system's hosts file to access the bench locally.",
+                )
+        else:
+            remove_status = bench.remove_bench(default_choice=False)
+            if not remove_status:
+                bench.info()
+
     def _phase1_prepare_structure(self) -> None:
         """Phase 1: Create directories and docker-compose.yml"""
         bench = self.bench
@@ -155,7 +215,17 @@ class BenchOrchestrator:
         compose_inputs["environment"]["frappe"]["FRAPPE_ENV"] = bench.bench_config.environment_type.value
 
         bench.generate_compose(compose_inputs)
-        bench.create_compose_dirs()
+
+        base_image = bench.bench_config.base_image
+        if base_image:
+            repo, _, tag = base_image.rpartition(":")
+            present = any(
+                img.get("Repository") == repo and img.get("Tag") == tag for img in bench.docker_client.images()
+            )
+            if not present:
+                self.output.change_head(f"Pulling base image {base_image}")
+                bench.docker_client.pull(base_image, stream=False)
+        bench.create_compose_dirs(copy_runtimes=bench.bench_config.deployment_mode != DeploymentMode.image)
 
     def _phase2_initialize_bench(self) -> None:
         """Phase 2: Initialize bench using docker compose run (no persistent containers)"""

@@ -89,6 +89,21 @@ def _apply_image_mounts(compose_file_manager, site: str, services: list[str]) ->
         compose_file_manager.set_service_volumes(svc, kept + data)
 
 
+def pin_workers_to_image(workers, site: str, deploy_tag: str) -> None:
+    """Pin the workers compose services to ``deploy_tag`` and swap in data-only
+    image mounts. No-op when the bench has no workers compose."""
+    if not workers.compose_path.exists():
+        return
+    cfm = workers.compose_file_manager
+    svcs = cfm.get_services_list()
+    if not svcs:
+        return
+    repo, _, tagpart = deploy_tag.rpartition(":")
+    cfm.set_all_images({svc: {"name": repo, "tag": tagpart} for svc in svcs})
+    _apply_image_mounts(cfm, site, svcs)
+    cfm.write_to_file()
+
+
 def _parse_installed_apps(lines) -> set[str]:
     """Parse ``bench list-apps`` output into a set of installed app names.
 
@@ -161,51 +176,18 @@ class DeployOrchestrator:
     def _set_maintenance(self, value: int) -> None:
         self._exec_frappe(f"{BENCH_BIN} --site {self.site} set-config -g maintenance_mode {value}")
 
-    def _image_present(self, tag: str) -> bool:
-        repo, _, tagpart = tag.rpartition(":")
-        try:
-            for img in self.docker.images():
-                if img.get("Repository") == repo and img.get("Tag") == tagpart:
-                    return True
-        except Exception:
-            return False
-        return False
-
     def _fetch_image(self, tag: str) -> None:
         """Ensure ``tag`` (+ its derived nginx tag) is present on the target daemon.
 
-        registry mode: ``docker login`` (when creds set) then ``docker pull`` any
-        missing tags — so a remote daemon (via ``DOCKER_HOST``) gets the image.
-        save_load mode: the images must be transported+loaded beforehand; a
-        missing tag is a hard error here. local/absent registry: pull if missing.
+        Delegates to the shared ``transport.fetch_image``; ``TransportError`` is
+        re-raised as ``DeployError`` to preserve deploy's error contract.
         """
-        from frappe_manager.site_manager.modules.bake import BakeManager
-        from frappe_manager.site_manager.modules.transport import registry_login
+        from frappe_manager.site_manager.modules.transport import TransportError, fetch_image
 
-        nginx_tag = BakeManager.nginx_image_tag(tag)
-        missing = [t for t in (tag, nginx_tag) if not self._image_present(t)]
-        if not missing:
-            return
-
-        registry = getattr(self.config, "registry", None)
-        distribution = registry.distribution if registry else "registry"
-        if distribution == "save_load":
-            raise DeployError(
-                f"Image(s) {', '.join(missing)} not present and distribution='save_load'; "
-                "transport the image(s) (docker save/load) to this daemon before switching.",
-            )
-
-        registry_login(self.docker, registry, output=self.output)
-        for t in missing:
-            self.output.print(f"Fetching {t} from registry")
-            try:
-                self.docker.pull(t, stream=False)
-            except DockerException as e:
-                # The nginx image is optional (absent when the bench has no assets).
-                if t == nginx_tag:
-                    self.output.warning(f"Could not pull nginx image {t} (continuing): {e}")
-                    continue
-                raise DeployError(f"Failed to fetch image {t} from registry: {e}") from e
+        try:
+            fetch_image(self.docker, getattr(self.config, "registry", None), tag, output=self.output)
+        except TransportError as e:
+            raise DeployError(str(e)) from e
 
     def _health_check(self, retries: int = 45, interval: int = 2) -> bool:
         for i in range(retries):
@@ -451,14 +433,7 @@ class DeployOrchestrator:
         return cfm, workers.docker_client, svcs
 
     def _pin_workers(self, deploy_tag: str) -> None:
-        info = self._worker_services()
-        if not info:
-            return
-        cfm, _dc, svcs = info
-        repo, _, tagpart = deploy_tag.rpartition(":")
-        cfm.set_all_images({svc: {"name": repo, "tag": tagpart} for svc in svcs})
-        _apply_image_mounts(cfm, self.site, svcs)
-        cfm.write_to_file()
+        pin_workers_to_image(self.bench.workers, self.site, deploy_tag)
 
     def _up_workers(self) -> None:
         info = self._worker_services()

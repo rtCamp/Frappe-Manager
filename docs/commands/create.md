@@ -4,6 +4,11 @@ Create a new bench with apps.
 
 Creates a bench directory, config, and installs requested apps. If not specified, Frappe is included by default.
 
+Deployment mode (--deployment-mode): 'mount' (default) live-mounts code for local
+development, and --image overrides the base frappe image. 'image' runs a pre-built
+app image (built by `fm bake` or otherwise present/pullable) given via --image and
+does not accept --apps/--python/--node -- those are baked into the image.
+
 **Usage**:
 
 ```console
@@ -27,12 +32,10 @@ $ fm create BENCHNAME [OPTIONS]
 * `--node`: Node version (e.g., '18', '20'). Auto-detected by default.
 * `--restart`: Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).
 * `--allow-domain-conflicts`: Skip domain uniqueness validation (not recommended). Allows creating benches with duplicate domains.
+* `--deployment-mode`: Runtime: 'mount' (default, live-mounted code) or 'image' (immutable pre-built app image). Default 'mount'.
+* `--image`: Mount mode: override the base frappe image (repo:tag). Image mode: the pre-built app image to run (repo:tag; must exist locally or be pullable).
 * `--newrelic/--no-newrelic`: Enable NewRelic APM monitoring for the web process.
 * `--newrelic-license-key`: NewRelic ingest license key. Required when --newrelic is set.
-* `--deployment-mode`: Runtime: 'mount' (live-mounted code, dev) or 'image' (immutable app image, prod). Defaults to 'image' when --image is given, else 'mount'.
-* `--image`: Image repository for image-based deployment (sets [deploy].image; fm manages the :tag). Implies image deployment mode.
-* `--registry`: Registry host/namespace for image push/pull (sets [registry].registry). Image mode only.
-* `--distribution`: Image transport when a registry is set: 'registry' (push/pull) or 'save_load' (docker save/load over SSH).
 
 
 ## Examples

@@ -190,6 +190,8 @@ class BenchWorkers:
 
             for worker in workers_expected_service_names:
                 worker_config = deepcopy(template_worker_config)
+                if self.bench.bench_config.base_image:
+                    worker_config["image"] = self.bench.bench_config.base_image
                 worker_config["environment"]["USERID"] = os.getuid()
                 worker_config["environment"]["USERGROUP"] = os.getgid()
                 worker_config["environment"]["WORKER_NAME"] = worker

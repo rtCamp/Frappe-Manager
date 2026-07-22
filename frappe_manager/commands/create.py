@@ -16,11 +16,10 @@ from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import (
     AppConfig,
     BenchConfig,
-    DeployBuildConfig,
     DeployConfig,
     DeploymentMode,
+    DeployState,
     FMBenchEnvType,
-    RegistryConfig,
     RestartPolicyEnum,
 )
 from frappe_manager.site_manager.bench_service import BenchService
@@ -31,47 +30,62 @@ from frappe_manager.utils.callbacks import (
 )
 from frappe_manager.utils.site import validate_sitename
 
+# Rich help panels grouping related options in `fm create --help`.
+_PANEL_DEPLOYMENT = "Deployment Options"
+_PANEL_MONITORING = "Monitoring Options"
+
+
+def _has_explicit_tag(image_ref: str) -> bool:
+    """True when image_ref carries a :tag (':' after the last '/'), so a bare
+    'localhost:5000/repo' host-port is not mistaken for a tag."""
+    return ":" in image_ref.rsplit("/", 1)[-1]
+
 
 def _resolve_deploy_options(
     deployment_mode: DeploymentMode | None,
     image: str | None,
-    registry: str | None,
-    distribution: str,
+    apps: list,
     python_version: str | None,
     node_version: str | None,
-) -> tuple[DeploymentMode, DeployConfig | None, DeployBuildConfig | None, RegistryConfig | None]:
-    """Resolve the two-axis deploy model (#323) for ``fm create``.
+) -> tuple[DeploymentMode, DeployConfig | None, str | None, str | None]:
+    """Resolve the deploy model (#323) for ``fm create``.
 
-    Image mode is opt-in — chosen explicitly (``--deployment-mode image``) or
-    implied by ``--image`` — so plain ``fm create`` (and ``--environment prod``)
-    keep producing backward-compatible ``mount`` benches. Returns the resolved
-    ``deployment_mode`` plus the ``[deploy]``/``[build]``/``[registry]`` configs
-    (``None`` in mount mode).
+    Mode is selected only by ``--deployment-mode`` (default ``mount``); ``--image``
+    no longer implies image mode. ``--image`` is mode-scoped: in mount mode it
+    overrides the base frappe image, in image mode it is the pre-built app image
+    to run. Returns ``(resolved_mode, deploy_config, current_tag, base_image_override)``.
     """
-    resolved = deployment_mode or (DeploymentMode.image if image else DeploymentMode.mount)
+    resolved = deployment_mode or DeploymentMode.mount
 
     if resolved != DeploymentMode.image:
+        base_image_override = None
         if image:
-            raise typer.BadParameter("--image is only valid in image deployment mode (use --deployment-mode image).")
-        if registry:
-            raise typer.BadParameter("--registry is only valid in image deployment mode.")
-        return resolved, None, None, None
+            if not _has_explicit_tag(image):
+                raise typer.BadParameter("--image must include a tag, e.g. 'ghcr.io/acme/frappe-custom:v15'.")
+            base_image_override = image
+        return resolved, None, None, base_image_override
 
     if not image:
         raise typer.BadParameter(
-            "Image deployment mode requires --image <repo> (fm bake/deploy pin its tag as <repo>:<timestamp>-<sha>).",
+            "Image deployment mode requires --image <repo:tag> — an existing image built by 'fm bake' "
+            "or otherwise present/pullable.",
         )
-    if registry and distribution not in ("registry", "save_load"):
-        raise typer.BadParameter("--distribution must be 'registry' or 'save_load'.")
+    if not _has_explicit_tag(image):
+        raise typer.BadParameter(
+            "--image must be a full reference with a tag, e.g. 'ghcr.io/acme/mybench:fm-20260722-abc123'.",
+        )
+    if apps:
+        raise typer.BadParameter(
+            "--apps is not supported in image mode; apps are baked into the image. "
+            "Build the image with 'fm bake' (its --config/--apps).",
+        )
+    if python_version:
+        raise typer.BadParameter("--python is not supported in image mode; the Python version is baked into the image.")
+    if node_version:
+        raise typer.BadParameter("--node is not supported in image mode; the Node version is baked into the image.")
 
-    deploy_config = DeployConfig(image=image)
-    build_config = (
-        DeployBuildConfig(python_version=python_version, node_version=node_version)
-        if (python_version or node_version)
-        else None
-    )
-    registry_config = RegistryConfig(registry=registry, distribution=distribution) if registry else None
-    return resolved, deploy_config, build_config, registry_config
+    repo = image.rpartition(":")[0]
+    return resolved, DeployConfig(image=repo), image, None
 
 
 @example(
@@ -192,12 +206,33 @@ def create(
             show_default=False,
         ),
     ] = False,
+    deployment_mode: Annotated[
+        DeploymentMode | None,
+        typer.Option(
+            "--deployment-mode",
+            help="Runtime: 'mount' (default, live-mounted code) or 'image' (immutable pre-built app image). "
+            "Default 'mount'.",
+            show_default=False,
+            rich_help_panel=_PANEL_DEPLOYMENT,
+        ),
+    ] = None,
+    image: Annotated[
+        str | None,
+        typer.Option(
+            "--image",
+            help="Mount mode: override the base frappe image (repo:tag). Image mode: the pre-built app "
+            "image to run (repo:tag; must exist locally or be pullable).",
+            show_default=False,
+            rich_help_panel=_PANEL_DEPLOYMENT,
+        ),
+    ] = None,
     newrelic: Annotated[
         bool,
         typer.Option(
             "--newrelic/--no-newrelic",
             help="Enable NewRelic APM monitoring for the web process.",
             show_default=False,
+            rich_help_panel=_PANEL_MONITORING,
         ),
     ] = False,
     newrelic_license_key: Annotated[
@@ -206,46 +241,19 @@ def create(
             "--newrelic-license-key",
             help="NewRelic ingest license key. Required when --newrelic is set.",
             show_default=False,
+            rich_help_panel=_PANEL_MONITORING,
         ),
     ] = None,
-    deployment_mode: Annotated[
-        DeploymentMode | None,
-        typer.Option(
-            "--deployment-mode",
-            help="Runtime: 'mount' (live-mounted code, dev) or 'image' (immutable app image, prod). "
-            "Defaults to 'image' when --image is given, else 'mount'.",
-            show_default=False,
-        ),
-    ] = None,
-    image: Annotated[
-        str | None,
-        typer.Option(
-            "--image",
-            help="Image repository for image-based deployment (sets [deploy].image; fm manages the :tag). "
-            "Implies image deployment mode.",
-            show_default=False,
-        ),
-    ] = None,
-    registry: Annotated[
-        str | None,
-        typer.Option(
-            "--registry",
-            help="Registry host/namespace for image push/pull (sets [registry].registry). Image mode only.",
-            show_default=False,
-        ),
-    ] = None,
-    distribution: Annotated[
-        str,
-        typer.Option(
-            "--distribution",
-            help="Image transport when a registry is set: 'registry' (push/pull) or 'save_load' (docker save/load over SSH).",
-        ),
-    ] = "registry",
 ):
     """
     Create a new bench with apps.
 
     Creates a bench directory, config, and installs requested apps. If not specified, Frappe is included by default.
+
+    Deployment mode (--deployment-mode): 'mount' (default) live-mounts code for local
+    development, and --image overrides the base frappe image. 'image' runs a pre-built
+    app image (built by `fm bake` or otherwise present/pullable) given via --image and
+    does not accept --apps/--python/--node -- those are baked into the image.
     """
 
     services_manager: ServicesManager = ctx.obj["services"]
@@ -306,14 +314,13 @@ def create(
     sanitized_bench_name = benchname.replace(".", "_").replace("-", "_")
     db_name = f"fm_{sanitized_bench_name}_{secrets.token_hex(8)}"
 
-    # Two-axis deploy model (#323): resolve runtime (mount|image) + image configs.
-    resolved_deployment_mode, deploy_config, build_config, registry_config = _resolve_deploy_options(
-        deployment_mode, image, registry, distribution, python_version, node_version
+    # Deploy model (#323): resolve runtime (mount|image) + mode-scoped --image.
+    resolved_deployment_mode, deploy_config, deploy_current_tag, base_image_override = _resolve_deploy_options(
+        deployment_mode, image, apps, python_version, node_version
     )
     if resolved_deployment_mode == DeploymentMode.image:
         output.print(
-            f"Image bench: provisions apps + creates the site now; run "
-            f"[blue]fm deploy {benchname}[/blue] to bake the image and switch to it.",
+            f"Image bench: creating the site from pre-built image [blue]{deploy_current_tag}[/blue].",
             emoji_code=":package:",
         )
 
@@ -339,8 +346,10 @@ def create(
         newrelic_license_key=newrelic_license_key,
         deployment_mode=resolved_deployment_mode,
         deploy=deploy_config,
-        build=build_config,
-        registry=registry_config,
+        base_image=base_image_override,
+        deploy_state=DeployState(current_tag=deploy_current_tag)
+        if resolved_deployment_mode == DeploymentMode.image
+        else None,
     )
 
     if apps:

@@ -421,8 +421,8 @@ class Bench:
         """
         self.database.sync_common_site_config(services_db_host, services_db_port)
 
-    def create_compose_dirs(self) -> bool:
-        return self.docker_ops.create_compose_dirs()
+    def create_compose_dirs(self, copy_runtimes: bool = True) -> bool:
+        return self.docker_ops.create_compose_dirs(copy_runtimes=copy_runtimes)
 
     def start(
         self,

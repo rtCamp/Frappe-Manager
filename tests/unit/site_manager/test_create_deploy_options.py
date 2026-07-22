@@ -1,43 +1,49 @@
-"""Contract tests for `fm create`'s image-mode wiring (#323).
+"""Contract tests for `fm create`'s deploy-mode wiring (#323).
 
 Covers `_resolve_deploy_options` — the pure resolver that turns the create CLI
-flags (--deployment-mode/--image/--registry/--distribution) into the
-deployment_mode + [deploy]/[build]/[registry] config, plus a full
-BenchConfig export/import round-trip proving a created image bench persists the
-exact fields `fm bake`/`fm deploy` require.
+flags (--deployment-mode/--image) into the deployment_mode + [deploy] config +
+current tag + mount base-image override. Mode is selected only by
+--deployment-mode (default mount); --image is mode-scoped. Also a full
+BenchConfig export/import round-trip proving persisted deploy fields survive.
 """
 
 import pytest
 import typer
 
-from frappe_manager.commands.create import _resolve_deploy_options
+from frappe_manager.commands.create import _has_explicit_tag, _resolve_deploy_options
 from frappe_manager.site_manager.bench_config import (
     BenchConfig,
     DeploymentMode,
+    DeployState,
     FMBenchEnvType,
 )
 
 
-def _resolve(deployment_mode=None, image=None, registry=None, distribution="registry", python=None, node=None):
-    return _resolve_deploy_options(deployment_mode, image, registry, distribution, python, node)
+def _resolve(deployment_mode=None, image=None, apps=None, python=None, node=None):
+    return _resolve_deploy_options(deployment_mode, image, apps or [], python, node)
 
 
 def test_default_is_mount_backward_compatible():
-    # Plain `fm create` (and `--environment prod`, which does not touch this) stays mount.
-    mode, deploy, build, registry = _resolve()
+    # Plain `fm create` stays mount with no deploy/tag/override.
+    mode, deploy, current_tag, base_image = _resolve()
     assert mode == DeploymentMode.mount
     assert deploy is None
-    assert build is None
-    assert registry is None
+    assert current_tag is None
+    assert base_image is None
 
 
-def test_image_flag_implies_image_mode():
-    mode, deploy, build, registry = _resolve(image="ghcr.io/acme/mybench")
-    assert mode == DeploymentMode.image
-    assert deploy is not None
-    assert deploy.image == "ghcr.io/acme/mybench"
-    assert build is None  # no --python/--node given
-    assert registry is None
+def test_image_flag_does_not_imply_image_mode():
+    # --image alone no longer flips the mode; it's a mount base-image override.
+    mode, deploy, current_tag, base_image = _resolve(image="ghcr.io/acme/frappe-custom:v15")
+    assert mode == DeploymentMode.mount
+    assert deploy is None
+    assert current_tag is None
+    assert base_image == "ghcr.io/acme/frappe-custom:v15"
+
+
+def test_mount_override_requires_tag():
+    with pytest.raises(typer.BadParameter):
+        _resolve(image="ghcr.io/acme/frappe-custom")
 
 
 def test_explicit_image_mode_requires_image():
@@ -45,42 +51,50 @@ def test_explicit_image_mode_requires_image():
         _resolve(deployment_mode=DeploymentMode.image)
 
 
-def test_image_flag_rejected_in_mount_mode():
+def test_image_mode_requires_tag():
     with pytest.raises(typer.BadParameter):
-        _resolve(deployment_mode=DeploymentMode.mount, image="ghcr.io/acme/x")
+        _resolve(deployment_mode=DeploymentMode.image, image="ghcr.io/acme/mybench")
 
 
-def test_registry_rejected_in_mount_mode():
+def test_image_mode_rejects_apps():
     with pytest.raises(typer.BadParameter):
-        _resolve(registry="ghcr.io/acme")
+        _resolve(deployment_mode=DeploymentMode.image, image="ghcr.io/acme/mybench:v1", apps=["erpnext"])
 
 
-def test_bad_distribution_rejected():
+def test_image_mode_rejects_python():
     with pytest.raises(typer.BadParameter):
-        _resolve(image="ghcr.io/acme/x", registry="ghcr.io/acme", distribution="bogus")
+        _resolve(deployment_mode=DeploymentMode.image, image="ghcr.io/acme/mybench:v1", python="3.12")
 
 
-def test_build_config_only_when_versions_given():
-    _, _, build_none, _ = _resolve(image="ghcr.io/acme/x")
-    assert build_none is None
-    _, _, build, _ = _resolve(image="ghcr.io/acme/x", python="3.11", node="20")
-    assert build is not None
-    assert build.python_version == "3.11"
-    assert build.node_version == "20"
+def test_image_mode_rejects_node():
+    with pytest.raises(typer.BadParameter):
+        _resolve(deployment_mode=DeploymentMode.image, image="ghcr.io/acme/mybench:v1", node="20")
 
 
-def test_registry_config_populated():
-    _, _, _, registry = _resolve(image="ghcr.io/acme/x", registry="ghcr.io/acme", distribution="save_load")
-    assert registry is not None
-    assert registry.registry == "ghcr.io/acme"
-    assert registry.distribution == "save_load"
+def test_image_mode_splits_repo_and_keeps_tag():
+    mode, deploy, current_tag, base_image = _resolve(
+        deployment_mode=DeploymentMode.image, image="ghcr.io/acme/mybench:fm-1"
+    )
+    assert mode == DeploymentMode.image
+    assert deploy is not None
+    assert deploy.image == "ghcr.io/acme/mybench"
+    assert current_tag == "ghcr.io/acme/mybench:fm-1"
+    assert base_image is None
+
+
+def test_has_explicit_tag_ignores_host_port():
+    # A registry host:port is not a tag; a real :tag after the last '/' is.
+    assert _has_explicit_tag("localhost:5000/repo") is False
+    assert _has_explicit_tag("localhost:5000/repo:v1") is True
+    assert _has_explicit_tag("ghcr.io/acme/x:tag") is True
+    assert _has_explicit_tag("repo") is False
 
 
 def test_created_image_bench_persists_deploy_fields(tmp_path):
     # The full path a created image bench takes: resolver -> BenchConfig -> TOML -> reload.
     path = tmp_path / "bench_config.toml"
-    mode, deploy, build, registry = _resolve(
-        image="ghcr.io/acme/mybench", registry="ghcr.io/acme", python="3.11", node="20"
+    mode, deploy, current_tag, base_image = _resolve(
+        deployment_mode=DeploymentMode.image, image="ghcr.io/acme/mybench:fm-1"
     )
     bc = BenchConfig(
         name="mybench.localhost",
@@ -90,8 +104,8 @@ def test_created_image_bench_persists_deploy_fields(tmp_path):
         root_path=path,
         deployment_mode=mode,
         deploy=deploy,
-        build=build,
-        registry=registry,
+        base_image=base_image,
+        deploy_state=DeployState(current_tag=current_tag),
     )
     assert bc.export_to_toml(path) is True
 
@@ -99,7 +113,27 @@ def test_created_image_bench_persists_deploy_fields(tmp_path):
     assert reloaded.deployment_mode == DeploymentMode.image
     assert reloaded.deploy is not None
     assert reloaded.deploy.image == "ghcr.io/acme/mybench"
-    assert reloaded.build is not None
-    assert reloaded.build.python_version == "3.11"
-    assert reloaded.registry is not None
-    assert reloaded.registry.registry == "ghcr.io/acme"
+    assert reloaded.deploy_state is not None
+    assert reloaded.deploy_state.current_tag == "ghcr.io/acme/mybench:fm-1"
+    assert reloaded.base_image is None
+
+
+def test_created_mount_bench_persists_base_image(tmp_path):
+    path = tmp_path / "bench_config.toml"
+    mode, deploy, _current_tag, base_image = _resolve(image="local/frappe-base:test")
+    bc = BenchConfig(
+        name="ovr.localhost",
+        developer_mode=True,
+        admin_tools=True,
+        environment_type=FMBenchEnvType.dev,
+        root_path=path,
+        deployment_mode=mode,
+        deploy=deploy,
+        base_image=base_image,
+    )
+    assert bc.export_to_toml(path) is True
+
+    reloaded = BenchConfig.import_from_toml(path)
+    assert reloaded.deployment_mode == DeploymentMode.mount
+    assert reloaded.deploy is None
+    assert reloaded.base_image == "local/frappe-base:test"

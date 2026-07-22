@@ -21,6 +21,7 @@ $ fm bake BENCHNAME [OPTIONS]
 * `--image`: Image repository to bake into (overrides [deploy].image).
 * `--tag`: Full image tag to build (overrides the auto-generated <repo>:<timestamp>-<sha>).
 * `--push/--no-push`: Push the baked image to the registry (default: push when [registry] is configured for 'registry').
+* `--config`: TOML config overlay: a file path or inline TOML content, deep-merged into the bench config before baking. Repeatable; later --config wins.
 
 
 ## Examples

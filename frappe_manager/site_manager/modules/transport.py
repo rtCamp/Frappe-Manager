@@ -48,6 +48,55 @@ def registry_login(docker: DockerClient, registry_config, output=None) -> bool:
     return False
 
 
+def image_present(docker: DockerClient, tag: str) -> bool:
+    """True when ``tag`` (repo:tag) is present on the target daemon."""
+    repo, _, tagpart = tag.rpartition(":")
+    try:
+        for img in docker.images():
+            if img.get("Repository") == repo and img.get("Tag") == tagpart:
+                return True
+    except Exception:
+        return False
+    return False
+
+
+def fetch_image(docker: DockerClient, registry_config, tag: str, output=None) -> None:
+    """Ensure ``tag`` (+ its derived nginx tag) is present on the target daemon.
+
+    registry mode: ``docker login`` (when creds set) then ``docker pull`` any
+    missing tags. save_load mode: a missing tag is a hard error (transport it
+    first). local/absent registry: pull if missing.
+    """
+    from frappe_manager.docker import DockerException
+    from frappe_manager.site_manager.modules.bake import BakeManager
+
+    nginx_tag = BakeManager.nginx_image_tag(tag)
+    missing = [t for t in (tag, nginx_tag) if not image_present(docker, t)]
+    if not missing:
+        return
+
+    distribution = registry_config.distribution if registry_config else "registry"
+    if distribution == "save_load":
+        raise TransportError(
+            f"Image(s) {', '.join(missing)} not present and distribution='save_load'; "
+            "transport the image(s) (docker save/load) to this daemon before switching.",
+        )
+
+    registry_login(docker, registry_config, output=output)
+    for t in missing:
+        if output is not None:
+            output.print(f"Fetching {t} from registry")
+        try:
+            docker.pull(t, stream=False)
+        except DockerException as e:
+            # The nginx image is optional (absent when the bench has no assets).
+            if t == nginx_tag:
+                if output is not None:
+                    output.warning(f"Could not pull nginx image {t} (continuing): {e}")
+                continue
+            raise TransportError(f"Failed to fetch image {t} from registry: {e}") from e
+
+
 def push_images(docker: DockerClient, tags: list[str], registry_config, output=None) -> None:
     """Log in (if creds) then ``docker push`` each tag in ``tags``."""
     tags = [t for t in tags if t]

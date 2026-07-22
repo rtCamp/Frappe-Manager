@@ -1038,6 +1038,10 @@ class BenchConfig(BaseModel):
     deploy: DeployConfig | None = Field(None, description="Image-based deploy configuration (required for image mode).")
     build: DeployBuildConfig | None = Field(None, description="Image build configuration for bake.")
     registry: RegistryConfig | None = Field(None, description="Image registry / transport configuration.")
+    base_image: str | None = Field(
+        None,
+        description="Mount mode: override the base frappe image (repo:tag) for frappe/socketio/schedule/workers. None = default fm image.",
+    )
     remote: RemoteConfig | None = Field(None, description="Remote deploy target configuration.")
 
     # Multi-certificate support
@@ -1335,6 +1339,7 @@ class BenchConfig(BaseModel):
             "newrelic_enabled": data.get("newrelic_enabled", False),
             "newrelic_license_key": data.get("newrelic_license_key", None),
             "deployment_mode": data.get("deployment_mode", "mount"),
+            "base_image": data.get("base_image", None),
             "deploy": DeployConfig(**data["deploy"]) if data.get("deploy") else None,
             "build": DeployBuildConfig(**data["build"]) if data.get("build") else None,
             "registry": RegistryConfig(**data["registry"]) if data.get("registry") else None,
