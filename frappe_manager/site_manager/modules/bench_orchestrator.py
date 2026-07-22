@@ -24,7 +24,7 @@ from typing import TYPE_CHECKING
 from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.site_manager.bench_config import DeploymentMode, FMBenchEnvType
+from frappe_manager.site_manager.bench_config import BenchRuntime, FMBenchEnvType
 from frappe_manager.site_manager.exceptions import BenchOperationException
 from frappe_manager.site_manager.provisioner import provision
 
@@ -116,7 +116,7 @@ class BenchOrchestrator:
                 self._create_template_bench()
                 return
 
-            if bench.bench_config.deployment_mode == DeploymentMode.image:
+            if bench.bench_config.runtime == BenchRuntime.image:
                 self._create_image_bench()
                 return
 
@@ -225,7 +225,7 @@ class BenchOrchestrator:
             if not present:
                 self.output.change_head(f"Pulling base image {base_image}")
                 bench.docker_client.pull(base_image, stream=False)
-        bench.create_compose_dirs(copy_runtimes=bench.bench_config.deployment_mode != DeploymentMode.image)
+        bench.create_compose_dirs(copy_runtimes=bench.bench_config.runtime != BenchRuntime.image)
 
     def _phase2_initialize_bench(self) -> None:
         """Phase 2: Initialize bench using docker compose run (no persistent containers)"""

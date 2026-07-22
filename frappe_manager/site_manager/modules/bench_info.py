@@ -18,7 +18,7 @@ from rich.table import Table
 from frappe_manager.docker import DockerException
 from frappe_manager.output_manager import OutputHandler, temporary_stop
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.site_manager.bench_config import DeploymentMode
+from frappe_manager.site_manager.bench_config import BenchRuntime
 from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
@@ -237,8 +237,8 @@ class BenchInfo:
             ),
         }
 
-        data["Deployment Mode"] = self.bench_config.deployment_mode.value
-        if self.bench_config.deployment_mode == DeploymentMode.image:
+        data["Runtime"] = self.bench_config.runtime.value
+        if self.bench_config.runtime == BenchRuntime.image:
             deploy_state = self.bench_config.deploy_state
             if deploy_state and deploy_state.current_tag:
                 data["Deployed Tag"] = deploy_state.current_tag

@@ -5,7 +5,7 @@ from typer_examples import example
 
 from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY
 from frappe_manager.output_manager import get_global_output_handler
-from frappe_manager.site_manager.bench_config import DeploymentMode
+from frappe_manager.site_manager.bench_config import BenchRuntime
 from frappe_manager.site_manager.deploy_config_overlay import ConfigOverlayError, apply_config_overlays
 from frappe_manager.site_manager.modules.bake import BakeError, BakeManager
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError, DeployOrchestrator
@@ -26,10 +26,10 @@ def _load_image_bench(ctx: typer.Context, benchname: str) -> Bench:
     output = get_global_output_handler()
     logger = ctx.obj.get("logger") if ctx.obj else None
     bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
-    if bench.bench_config.deployment_mode != DeploymentMode.image:
+    if bench.bench_config.runtime != BenchRuntime.image:
         output.display_error(
-            f"Bench '{benchname}' is not in image deployment mode. "
-            f"Set deployment_mode = 'image' and [deploy].image in its bench_config.toml first.",
+            f"Bench '{benchname}' is not in image runtime. "
+            f"Set runtime = 'image' and [deploy].image in its bench_config.toml first.",
         )
         raise typer.Exit(1)
     return bench

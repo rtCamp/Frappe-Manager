@@ -7,8 +7,8 @@ that current/previous tags and the deploy history survive the round-trip.
 
 from frappe_manager.site_manager.bench_config import (
     BenchConfig,
+    BenchRuntime,
     DeployConfig,
-    DeploymentMode,
     DeployState,
     DeployStateEntry,
     FMBenchEnvType,
@@ -22,7 +22,7 @@ def _image_bench(path):
         admin_tools=False,
         environment_type=FMBenchEnvType.prod,
         root_path=path,
-        deployment_mode=DeploymentMode.image,
+        runtime=BenchRuntime.image,
         deploy=DeployConfig(image="local/x"),
     )
 

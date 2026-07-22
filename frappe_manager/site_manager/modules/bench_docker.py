@@ -190,7 +190,7 @@ class BenchDockerOps:
     def render_image_compose(self, deploy_tag: str, rolling: bool = False) -> str:
         """Rewrite the bench compose for image mode, pinned to ``deploy_tag``.
 
-        Mutations (applied only when ``deployment_mode == image``):
+        Mutations (applied only when ``runtime == image``):
 
         * Pin frappe/socketio/schedule to ``deploy_tag`` and nginx to the
           matching ``<repo>-nginx:<tag>`` app-assets image.
@@ -203,11 +203,11 @@ class BenchDockerOps:
         with a new tag (used by deploy swap and rollback re-pin).
         """
         from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
-        from frappe_manager.site_manager.bench_config import DeploymentMode
+        from frappe_manager.site_manager.bench_config import BenchRuntime
         from frappe_manager.site_manager.modules.bake import BakeManager
 
-        if self.config.deployment_mode != DeploymentMode.image:
-            raise ValueError("render_image_compose is only valid for image deployment mode")
+        if self.config.runtime != BenchRuntime.image:
+            raise ValueError("render_image_compose is only valid for image runtime")
 
         nginx_tag = BakeManager.nginx_image_tag(deploy_tag)
         frappe_repo, _, frappe_tagpart = deploy_tag.rpartition(":")

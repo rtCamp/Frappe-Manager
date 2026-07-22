@@ -935,8 +935,8 @@ class DeployState(BaseModel):
     history: list[DeployStateEntry] = Field(default_factory=list, description="Chronological deploy history.")
 
 
-class DeploymentMode(str, Enum):
-    """Bench runtime: live-mounted code (dev) vs immutable app image (prod)."""
+class BenchRuntime(str, Enum):
+    """Bench runtime: live-mounted code (``mount``) vs immutable app image (``image``)."""
 
     mount = "mount"
     image = "image"
@@ -1031,9 +1031,9 @@ class BenchConfig(BaseModel):
     environment_type: FMBenchEnvType = Field(..., description="The type of environment")
 
     # Two-axis deploy model (#323): runtime (mount|image) + image-based deploy config
-    deployment_mode: DeploymentMode = Field(
-        DeploymentMode.mount,
-        description="Runtime: 'mount' (dev, live-mounted code) or 'image' (immutable app image). Default 'mount' (backward-compatible).",
+    runtime: BenchRuntime = Field(
+        BenchRuntime.mount,
+        description="Runtime: 'mount' (live-mounted code) or 'image' (immutable app image). Default 'mount'.",
     )
     deploy: DeployConfig | None = Field(None, description="Image-based deploy configuration (required for image mode).")
     build: DeployBuildConfig | None = Field(None, description="Image build configuration for bake.")
@@ -1338,7 +1338,7 @@ class BenchConfig(BaseModel):
             "deploy_state": deploy_state_obj,
             "newrelic_enabled": data.get("newrelic_enabled", False),
             "newrelic_license_key": data.get("newrelic_license_key", None),
-            "deployment_mode": data.get("deployment_mode", "mount"),
+            "runtime": data.get("runtime", "mount"),
             "base_image": data.get("base_image", None),
             "deploy": DeployConfig(**data["deploy"]) if data.get("deploy") else None,
             "build": DeployBuildConfig(**data["build"]) if data.get("build") else None,

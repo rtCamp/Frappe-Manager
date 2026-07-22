@@ -276,7 +276,7 @@ class BenchService:
 
                 status_data = f"[{status_color}]{status_msg}[/{status_color}]"
 
-                mode_data = bench.bench_config.deployment_mode.value
+                mode_data = bench.bench_config.runtime.value
                 table.add_row(row_data, status_data, path_data, mode_data, style=f"{status_color}")
                 self.output.update_live(table, padding=(0, 0, 0, 0))
 

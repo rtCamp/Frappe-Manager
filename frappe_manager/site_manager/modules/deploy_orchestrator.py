@@ -32,7 +32,7 @@ from frappe_manager.services_manager.database_service_manager import (
     MariaDBManager,
 )
 from frappe_manager.site_manager.bench_config import (
-    DeploymentMode,
+    BenchRuntime,
     DeployState,
     DeployStateEntry,
 )
@@ -144,10 +144,10 @@ class DeployOrchestrator:
     # ------------------------------------------------------------------ helpers
 
     def _require_image_mode(self) -> None:
-        if self.config.deployment_mode != DeploymentMode.image:
+        if self.config.runtime != BenchRuntime.image:
             raise DeployError(
-                f"Bench '{self.site}' is not in image deployment mode "
-                f"(deployment_mode={self.config.deployment_mode.value}). Set deployment_mode = 'image'.",
+                f"Bench '{self.site}' is not in image runtime "
+                f"(runtime={self.config.runtime.value}). Set runtime = 'image'.",
             )
         if self.deploy_config is None or not self.deploy_config.image:
             raise DeployError("No [deploy].image configured; cannot deploy an image.")

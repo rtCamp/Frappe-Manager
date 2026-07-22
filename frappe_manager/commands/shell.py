@@ -9,7 +9,7 @@ from typer_examples import example
 from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager import NON_BASH_SUPPORTED_SERVICES
-from frappe_manager.site_manager.bench_config import DeploymentMode
+from frappe_manager.site_manager.bench_config import BenchRuntime
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
 
@@ -192,7 +192,7 @@ def shell(
     logger = ctx.obj.get("logger")
     bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
 
-    if bench.bench_config.deployment_mode == DeploymentMode.image:
+    if bench.bench_config.runtime == BenchRuntime.image:
         output.warning(
             "Image-mode shell is ephemeral: the app image has no workspace mount, "
             "so edits made here do not persist and are lost on the next switch/deploy. "

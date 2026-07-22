@@ -1,6 +1,6 @@
 """Contract tests for the image-based deploy config on BenchConfig.
 
-Defends: the `deployment_mode` two-axis default, the TOML round-trip of the nested
+Defends: the `runtime` two-axis default, the TOML round-trip of the nested
 `deploy`/`build`/`registry`/`remote` tables, `extra="forbid"` on the deploy models,
 and backward compatibility (a bench_config.toml with no deploy keys loads as mount).
 """
@@ -11,9 +11,9 @@ from pydantic import ValidationError
 
 from frappe_manager.site_manager.bench_config import (
     BenchConfig,
+    BenchRuntime,
     DeployBuildConfig,
     DeployConfig,
-    DeploymentMode,
     FMBenchEnvType,
     RegistryConfig,
     RemoteConfig,
@@ -37,7 +37,7 @@ def _image_bench(path):
         admin_tools=False,
         environment_type=FMBenchEnvType.prod,
         root_path=path,
-        deployment_mode=DeploymentMode.image,
+        runtime=BenchRuntime.image,
         deploy=DeployConfig(image="ghcr.io/acme/x", maintenance_mode_phases=["migrate"]),
         build=DeployBuildConfig(base_image="ghcr.io/rtcamp/frappe-manager-frappe", python_version="3.11"),
         registry=RegistryConfig(registry="ghcr.io/acme", username="u", distribution="save_load"),
@@ -45,9 +45,9 @@ def _image_bench(path):
     )
 
 
-def test_deployment_mode_defaults_to_mount(tmp_path):
+def test_runtime_defaults_to_mount(tmp_path):
     bc = _mount_bench(tmp_path / "bench_config.toml")
-    assert bc.deployment_mode == DeploymentMode.mount
+    assert bc.runtime == BenchRuntime.mount
     assert bc.deploy is None
 
 
@@ -62,7 +62,7 @@ def test_missing_deploy_keys_loads_as_mount(tmp_path):
     path.write_text(tomlkit.dumps(doc))
 
     bc = BenchConfig.import_from_toml(path)
-    assert bc.deployment_mode == DeploymentMode.mount
+    assert bc.runtime == BenchRuntime.mount
     assert bc.deploy is None
     assert bc.build is None
     assert bc.registry is None
@@ -74,7 +74,7 @@ def test_image_deploy_roundtrip(tmp_path):
     assert _image_bench(path).export_to_toml(path) is True
 
     bc = BenchConfig.import_from_toml(path)
-    assert bc.deployment_mode == DeploymentMode.image
+    assert bc.runtime == BenchRuntime.image
     assert bc.deploy is not None
     assert bc.deploy.image == "ghcr.io/acme/x"
     assert bc.deploy.maintenance_mode_phases == ["migrate"]
@@ -97,7 +97,7 @@ def test_additive_optout_empty_phases_roundtrip(tmp_path):
         admin_tools=False,
         environment_type=FMBenchEnvType.prod,
         root_path=path,
-        deployment_mode=DeploymentMode.image,
+        runtime=BenchRuntime.image,
         deploy=DeployConfig(image="ghcr.io/acme/a", maintenance_mode_phases=[]),
     )
     bc.export_to_toml(path)

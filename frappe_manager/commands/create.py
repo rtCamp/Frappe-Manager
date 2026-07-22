@@ -16,8 +16,8 @@ from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import (
     AppConfig,
     BenchConfig,
+    BenchRuntime,
     DeployConfig,
-    DeploymentMode,
     DeployState,
     FMBenchEnvType,
     RestartPolicyEnum,
@@ -42,22 +42,22 @@ def _has_explicit_tag(image_ref: str) -> bool:
 
 
 def _resolve_deploy_options(
-    deployment_mode: DeploymentMode | None,
+    runtime: BenchRuntime | None,
     image: str | None,
     apps: list,
     python_version: str | None,
     node_version: str | None,
-) -> tuple[DeploymentMode, DeployConfig | None, str | None, str | None]:
+) -> tuple[BenchRuntime, DeployConfig | None, str | None, str | None]:
     """Resolve the deploy model (#323) for ``fm create``.
 
-    Mode is selected only by ``--deployment-mode`` (default ``mount``); ``--image``
+    Mode is selected only by ``--runtime`` (default ``mount``); ``--image``
     no longer implies image mode. ``--image`` is mode-scoped: in mount mode it
     overrides the base frappe image, in image mode it is the pre-built app image
     to run. Returns ``(resolved_mode, deploy_config, current_tag, base_image_override)``.
     """
-    resolved = deployment_mode or DeploymentMode.mount
+    resolved = runtime or BenchRuntime.mount
 
-    if resolved != DeploymentMode.image:
+    if resolved != BenchRuntime.image:
         base_image_override = None
         if image:
             if not _has_explicit_tag(image):
@@ -206,10 +206,10 @@ def create(
             show_default=False,
         ),
     ] = False,
-    deployment_mode: Annotated[
-        DeploymentMode | None,
+    runtime: Annotated[
+        BenchRuntime | None,
         typer.Option(
-            "--deployment-mode",
+            "--runtime",
             help="Runtime: 'mount' (default, live-mounted code) or 'image' (immutable pre-built app image). "
             "Default 'mount'.",
             show_default=False,
@@ -250,7 +250,7 @@ def create(
 
     Creates a bench directory, config, and installs requested apps. If not specified, Frappe is included by default.
 
-    Deployment mode (--deployment-mode): 'mount' (default) live-mounts code for local
+    Runtime (--runtime): 'mount' (default) live-mounts code for local
     development, and --image overrides the base frappe image. 'image' runs a pre-built
     app image (built by `fm bake` or otherwise present/pullable) given via --image and
     does not accept --apps/--python/--node -- those are baked into the image.
@@ -315,10 +315,10 @@ def create(
     db_name = f"fm_{sanitized_bench_name}_{secrets.token_hex(8)}"
 
     # Deploy model (#323): resolve runtime (mount|image) + mode-scoped --image.
-    resolved_deployment_mode, deploy_config, deploy_current_tag, base_image_override = _resolve_deploy_options(
-        deployment_mode, image, apps, python_version, node_version
+    resolved_runtime, deploy_config, deploy_current_tag, base_image_override = _resolve_deploy_options(
+        runtime, image, apps, python_version, node_version
     )
-    if resolved_deployment_mode == DeploymentMode.image:
+    if resolved_runtime == BenchRuntime.image:
         output.print(
             f"Image bench: creating the site from pre-built image [blue]{deploy_current_tag}[/blue].",
             emoji_code=":package:",
@@ -344,11 +344,11 @@ def create(
         restart_policy=restart,
         newrelic_enabled=newrelic,
         newrelic_license_key=newrelic_license_key,
-        deployment_mode=resolved_deployment_mode,
+        runtime=resolved_runtime,
         deploy=deploy_config,
         base_image=base_image_override,
         deploy_state=DeployState(current_tag=deploy_current_tag)
-        if resolved_deployment_mode == DeploymentMode.image
+        if resolved_runtime == BenchRuntime.image
         else None,
     )
 

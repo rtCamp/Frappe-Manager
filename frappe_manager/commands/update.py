@@ -8,7 +8,7 @@ from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.bench_config import (
     AppConfig,
-    DeploymentMode,
+    BenchRuntime,
     FMBenchEnvType,
     RestartPolicyEnum,
     extract_node_version_requirement,
@@ -238,7 +238,7 @@ def update(
     logger = ctx.obj.get("logger")
     bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
 
-    if bench.bench_config.deployment_mode == DeploymentMode.image and is_immutable_update_request(
+    if bench.bench_config.runtime == BenchRuntime.image and is_immutable_update_request(
         python_version=python_version, node_version=node_version
     ):
         output.stop()
