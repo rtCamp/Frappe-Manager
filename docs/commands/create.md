@@ -29,6 +29,10 @@ $ fm create BENCHNAME [OPTIONS]
 * `--allow-domain-conflicts`: Skip domain uniqueness validation (not recommended). Allows creating benches with duplicate domains.
 * `--newrelic/--no-newrelic`: Enable NewRelic APM monitoring for the web process.
 * `--newrelic-license-key`: NewRelic ingest license key. Required when --newrelic is set.
+* `--deployment-mode`: Runtime: 'mount' (live-mounted code, dev) or 'image' (immutable app image, prod). Defaults to 'image' when --image is given, else 'mount'.
+* `--image`: Image repository for image-based deployment (sets [deploy].image; fm manages the :tag). Implies image deployment mode.
+* `--registry`: Registry host/namespace for image push/pull (sets [registry].registry). Image mode only.
+* `--distribution`: Image transport when a registry is set: 'registry' (push/pull) or 'save_load' (docker save/load over SSH).
 
 
 ## Examples
