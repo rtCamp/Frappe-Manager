@@ -272,6 +272,7 @@ class BakeManager:
                 use_uv=self.bench_config.use_uv,
                 github_token=self.bench_config.github_token,
                 use_run=True,
+                deploy_config=self.bench_config.deploy,
             )
 
             self.output.change_head(f"Building runtime image {tag}")
