@@ -1,7 +1,11 @@
 import secrets
+import tempfile
+from pathlib import Path
 from typing import Annotated, cast
 
+import tomlkit
 import typer
+from click.core import ParameterSource
 from typer_examples import example
 
 from frappe_manager import (
@@ -23,6 +27,7 @@ from frappe_manager.site_manager.bench_config import (
     RestartPolicyEnum,
 )
 from frappe_manager.site_manager.bench_service import BenchService
+from frappe_manager.site_manager.deploy_config_overlay import ConfigOverlayError, merge_overlays
 from frappe_manager.site_manager.domain_conflict import DomainConflictError, validate_domains_unique
 from frappe_manager.utils.callbacks import (
     alias_domains_validation_callback,
@@ -30,8 +35,8 @@ from frappe_manager.utils.callbacks import (
 )
 from frappe_manager.utils.site import validate_sitename
 
-# Rich help panels grouping related options in `fm create --help`.
-_PANEL_DEPLOYMENT = "Deployment Options"
+# Rich help panels for `fm create --help`, grouped by runtime applicability.
+_PANEL_MOUNT = "Mount Runtime Options (mount only)"
 _PANEL_MONITORING = "Monitoring Options"
 
 
@@ -88,6 +93,120 @@ def _resolve_deploy_options(
     return resolved, DeployConfig(image=repo), image, None
 
 
+def _ensure_frappe_first(apps: list[AppConfig]) -> list[AppConfig]:
+    """Frappe present and first (create's app-ordering rule)."""
+    frappe_app = None
+    others: list[AppConfig] = []
+    for app in apps:
+        if app.name == "frappe" or app.name.endswith("/frappe"):
+            frappe_app = app
+        else:
+            others.append(app)
+    if frappe_app is None:
+        frappe_app = AppConfig.from_string(f"frappe:{STABLE_APP_BRANCH_MAPPING_LIST['frappe']}")
+    return [frappe_app, *others]
+
+
+def _build_overlay_bench_config(
+    *,
+    config: list[str],
+    benchname: str,
+    root_path: Path,
+    apps: list[AppConfig],
+    environment: FMBenchEnvType,
+    developer_mode_status: bool,
+    admin_pass: str,
+    alias_domains: list[str] | None,
+    github_token: str | None,
+    python_version: str | None,
+    node_version: str | None,
+    restart: RestartPolicyEnum | None,
+    newrelic: bool,
+    newrelic_license_key: str | None,
+    runtime: BenchRuntime | None,
+    image: str | None,
+    db_name: str,
+    explicit: set[str],
+) -> tuple[BenchConfig, bool]:
+    """Build a ``BenchConfig`` from a ``--config`` overlay with precedence B:
+    explicit CLI flags > ``--config`` values > create defaults.
+
+    ``explicit`` is the set of create parameter names the user actually passed
+    (Click COMMANDLINE/ENVIRONMENT). Returns the config plus whether apps came
+    from the user (flag or config) so the caller can gate repo validation.
+    """
+    seed = tomlkit.document()
+    seed["name"] = benchname
+    seed["developer_mode"] = False
+    seed["admin_tools"] = False
+    seed["environment_type"] = FMBenchEnvType.dev.value
+    merged = merge_overlays(tomlkit.dumps(seed), config)
+
+    handle = tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False)  # noqa: SIM115
+    try:
+        handle.write(merged)
+        handle.close()
+        bc = BenchConfig.import_from_toml(Path(handle.name))
+    finally:
+        Path(handle.name).unlink(missing_ok=True)
+
+    apps_from_user = "apps" in explicit or bool(bc.apps_list)
+
+    bc.name = benchname
+    bc.root_path = root_path
+
+    if "environment" in explicit:
+        bc.environment_type = environment
+
+    # Dev forces developer/admin tools on (create policy); prod honors flag/config.
+    if bc.environment_type == FMBenchEnvType.dev:
+        bc.developer_mode = True
+        bc.admin_tools = True
+    elif "developer_mode" in explicit:
+        bc.developer_mode = developer_mode_status
+
+    if "admin_pass" in explicit:
+        bc.admin_pass = admin_pass
+    if "alias_domains" in explicit:
+        bc.alias_domains = list(alias_domains) if alias_domains else []
+    if "github_token" in explicit:
+        bc.github_token = github_token
+    if "python_version" in explicit:
+        bc.python_version = python_version
+    if "node_version" in explicit:
+        bc.node_version = node_version
+    if "restart" in explicit:
+        bc.restart_policy = restart
+    if "newrelic" in explicit:
+        bc.newrelic_enabled = newrelic
+    if "newrelic_license_key" in explicit:
+        bc.newrelic_license_key = newrelic_license_key
+    if not bc.db_name:
+        bc.db_name = db_name
+
+    if "apps" in explicit:
+        bc.apps_list = _ensure_frappe_first(apps)
+    else:
+        bc.apps_list = _ensure_frappe_first(bc.apps_list)
+
+    # Runtime/image selection: explicit --runtime/--image re-resolve (flag path);
+    # otherwise keep whatever the config declared ([runtime]/[deploy]/[deploy_state]).
+    if "runtime" in explicit or "image" in explicit:
+        r_runtime, r_deploy, r_tag, r_base = _resolve_deploy_options(
+            runtime if "runtime" in explicit else bc.runtime,
+            image if "image" in explicit else None,
+            apps if "apps" in explicit else [],
+            python_version if "python_version" in explicit else None,
+            node_version if "node_version" in explicit else None,
+        )
+        bc.runtime = r_runtime
+        bc.deploy = r_deploy
+        bc.base_image = r_base
+        bc.deploy_state = DeployState(current_tag=r_tag) if r_runtime == BenchRuntime.image else None
+
+    return bc, apps_from_user
+
+
 @example(
     "Create bench with Frappe only",
     "{benchname}",
@@ -141,6 +260,7 @@ def create(
             help="Apps to install. Format: appname:branch or appname (e.g., erpnext:version-15)",
             callback=apps_list_validation_callback,
             show_default=False,
+            rich_help_panel=_PANEL_MOUNT,
         ),
     ] = [],
     environment: Annotated[
@@ -169,9 +289,10 @@ def create(
         typer.Option(
             "--github-token",
             "-t",
-            help="GitHub token for private repos (or use GITHUB_TOKEN env var)",
+            help="Mount runtime only: GitHub token for cloning private app repos (or use GITHUB_TOKEN env var).",
             envvar="GITHUB_TOKEN",
             show_default=False,
+            rich_help_panel=_PANEL_MOUNT,
         ),
     ] = None,
     python_version: Annotated[
@@ -180,6 +301,7 @@ def create(
             "--python",
             help="Python version (e.g., '3.11'). Auto-detected by default.",
             show_default=False,
+            rich_help_panel=_PANEL_MOUNT,
         ),
     ] = None,
     node_version: Annotated[
@@ -188,6 +310,7 @@ def create(
             "--node",
             help="Node version (e.g., '18', '20'). Auto-detected by default.",
             show_default=False,
+            rich_help_panel=_PANEL_MOUNT,
         ),
     ] = None,
     restart: Annotated[
@@ -213,7 +336,6 @@ def create(
             help="Runtime: 'mount' (default, live-mounted code) or 'image' (immutable pre-built app image). "
             "Default 'mount'.",
             show_default=False,
-            rich_help_panel=_PANEL_DEPLOYMENT,
         ),
     ] = None,
     image: Annotated[
@@ -223,9 +345,17 @@ def create(
             help="Mount mode: override the base frappe image (repo:tag). Image mode: the pre-built app "
             "image to run (repo:tag; must exist locally or be pullable).",
             show_default=False,
-            rich_help_panel=_PANEL_DEPLOYMENT,
         ),
     ] = None,
+    config: Annotated[
+        list[str],
+        typer.Option(
+            "--config",
+            help="TOML config overlay: a file path or inline TOML content used as the base bench config. "
+            "Explicit CLI flags override it; repeatable, later --config wins.",
+            show_default=False,
+        ),
+    ] = [],
     newrelic: Annotated[
         bool,
         typer.Option(
@@ -254,6 +384,10 @@ def create(
     development, and --image overrides the base frappe image. 'image' runs a pre-built
     app image (built by `fm bake` or otherwise present/pullable) given via --image and
     does not accept --apps/--python/--node -- those are baked into the image.
+
+    --config supplies a TOML base (file or inline) for the bench config (e.g. [deploy],
+    [registry], [remote], [build], hooks); explicit CLI flags override it. Repeatable,
+    later --config wins.
     """
 
     services_manager: ServicesManager = ctx.obj["services"]
@@ -261,102 +395,123 @@ def create(
     fm_config: FMConfigManager = ctx.obj["fm_config_manager"]
 
     benchname = validate_sitename(benchname)
-
-    if newrelic and not newrelic_license_key:
-        raise typer.BadParameter("--newrelic-license-key is required when --newrelic is set.")
-
-    all_domains = {benchname}
-    if alias_domains:
-        all_domains.update(alias_domains)
-
-    skip_check = allow_domain_conflicts or not fm_config.validation.enforce_domain_uniqueness
-
-    try:
-        validate_domains_unique(all_domains, benches_root=CLI_BENCHES_DIRECTORY, skip_check=skip_check)
-    except DomainConflictError as e:
-        output = get_global_output_handler()
-        output.display_error(str(e))
-        output.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
-        raise typer.Exit(1)
-
     output = get_global_output_handler()
     bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
-    bench_path = bench_service.benches_directory / benchname
-    bench_config_path = bench_path / CLI_BENCH_CONFIG_FILE_NAME
+    bench_config_path = bench_service.benches_directory / benchname / CLI_BENCH_CONFIG_FILE_NAME
 
-    if developer_mode == EnableDisableOptionsEnum.enable:
-        developer_mode_status = True
-    elif developer_mode == EnableDisableOptionsEnum.disable:
-        developer_mode_status = False
-
-    # Ensure frappe is always first in apps_list
-    # If user didn't specify frappe, add default version
-    # If user specified frappe, move it to first position
-
-    # Callback returns List[AppConfig], cast for type checker
+    developer_mode_status = developer_mode == EnableDisableOptionsEnum.enable
     apps_config = cast("list[AppConfig]", apps)
-
-    final_apps_list = []
-    frappe_app = None
-    other_apps = []
-
-    for app_config in apps_config:
-        if app_config.name == "frappe" or app_config.name.endswith("/frappe"):
-            frappe_app = app_config
-        else:
-            other_apps.append(app_config)
-
-    if frappe_app is None:
-        frappe_app = AppConfig.from_string(f"frappe:{STABLE_APP_BRANCH_MAPPING_LIST['frappe']}")
-
-    final_apps_list = [frappe_app] + other_apps
-
     sanitized_bench_name = benchname.replace(".", "_").replace("-", "_")
     db_name = f"fm_{sanitized_bench_name}_{secrets.token_hex(8)}"
 
-    # Deploy model (#323): resolve runtime (mount|image) + mode-scoped --image.
-    resolved_runtime, deploy_config, deploy_current_tag, base_image_override = _resolve_deploy_options(
-        runtime, image, apps, python_version, node_version
-    )
-    if resolved_runtime == BenchRuntime.image:
-        output.print(
-            f"Image bench: creating the site from pre-built image [blue]{deploy_current_tag}[/blue].",
-            emoji_code=":package:",
+    if config:
+        explicit = {
+            name
+            for name in (
+                "environment", "developer_mode", "admin_pass", "alias_domains", "github_token",
+                "python_version", "node_version", "restart", "newrelic", "newrelic_license_key",
+                "runtime", "image", "apps",
+            )
+            if ctx.get_parameter_source(name)
+            in (ParameterSource.COMMANDLINE, ParameterSource.ENVIRONMENT, ParameterSource.PROMPT)
+        }
+        try:
+            bench_config, apps_from_user = _build_overlay_bench_config(
+                config=config,
+                benchname=benchname,
+                root_path=bench_config_path,
+                apps=apps_config,
+                environment=environment,
+                developer_mode_status=developer_mode_status,
+                admin_pass=admin_pass,
+                alias_domains=alias_domains,
+                github_token=github_token,
+                python_version=python_version,
+                node_version=node_version,
+                restart=restart,
+                newrelic=newrelic,
+                newrelic_license_key=newrelic_license_key,
+                runtime=runtime,
+                image=image,
+                db_name=db_name,
+                explicit=explicit,
+            )
+        except ConfigOverlayError as e:
+            output.display_error(str(e))
+            raise typer.Exit(1) from e
+
+        if bench_config.runtime == BenchRuntime.image:
+            current_tag = bench_config.deploy_state.current_tag if bench_config.deploy_state else None
+            if not current_tag:
+                output.display_error(
+                    "Image runtime needs a pre-built image: pass --image <repo:tag>, or set "
+                    "[deploy].image + [deploy_state].current_tag in --config.",
+                )
+                raise typer.Exit(1)
+            output.print(
+                f"Image bench: creating the site from pre-built image [blue]{current_tag}[/blue].",
+                emoji_code=":package:",
+            )
+    else:
+        final_apps_list = _ensure_frappe_first(apps_config)
+
+        # Deploy model (#323): resolve runtime (mount|image) + mode-scoped --image.
+        resolved_runtime, deploy_config, deploy_current_tag, base_image_override = _resolve_deploy_options(
+            runtime, image, apps, python_version, node_version
         )
+        if resolved_runtime == BenchRuntime.image:
+            output.print(
+                f"Image bench: creating the site from pre-built image [blue]{deploy_current_tag}[/blue].",
+                emoji_code=":package:",
+            )
 
-    bench_config: BenchConfig = BenchConfig(
-        name=benchname,
-        apps_list=final_apps_list,
-        developer_mode=True if environment == FMBenchEnvType.dev else developer_mode_status,
-        admin_tools=True if environment == FMBenchEnvType.dev else False,
-        admin_pass=admin_pass,
-        environment_type=environment,
-        root_path=bench_config_path,
-        ssl_certificates=[],
-        alias_domains=alias_domains if alias_domains else [],
-        github_token=github_token,
-        use_uv=True,
-        python_version=python_version,
-        node_version=node_version,
-        db_name=db_name,
-        admin_tools_username=None,
-        admin_tools_password=None,
-        restart_policy=restart,
-        newrelic_enabled=newrelic,
-        newrelic_license_key=newrelic_license_key,
-        runtime=resolved_runtime,
-        deploy=deploy_config,
-        base_image=base_image_override,
-        deploy_state=DeployState(current_tag=deploy_current_tag)
-        if resolved_runtime == BenchRuntime.image
-        else None,
-    )
+        bench_config = BenchConfig(
+            name=benchname,
+            apps_list=final_apps_list,
+            developer_mode=True if environment == FMBenchEnvType.dev else developer_mode_status,
+            admin_tools=True if environment == FMBenchEnvType.dev else False,
+            admin_pass=admin_pass,
+            environment_type=environment,
+            root_path=bench_config_path,
+            ssl_certificates=[],
+            alias_domains=alias_domains if alias_domains else [],
+            github_token=github_token,
+            use_uv=True,
+            python_version=python_version,
+            node_version=node_version,
+            db_name=db_name,
+            admin_tools_username=None,
+            admin_tools_password=None,
+            restart_policy=restart,
+            newrelic_enabled=newrelic,
+            newrelic_license_key=newrelic_license_key,
+            runtime=resolved_runtime,
+            deploy=deploy_config,
+            base_image=base_image_override,
+            deploy_state=DeployState(current_tag=deploy_current_tag)
+            if resolved_runtime == BenchRuntime.image
+            else None,
+        )
+        apps_from_user = bool(apps)
 
-    if apps:
-        apps_config = bench_config.get_apps_config()
+    # --- shared validation + creation (both paths) ---
+    if bench_config.newrelic_enabled and not bench_config.newrelic_license_key:
+        raise typer.BadParameter("--newrelic-license-key is required when --newrelic is set.")
 
-        with spinner(output, f"Validating {len(apps_config)} app repositories"):
-            validation_result = AppConfig.validate_repos_batch(apps_config, github_token)
+    all_domains = {bench_config.name, *bench_config.alias_domains}
+    skip_check = allow_domain_conflicts or not fm_config.validation.enforce_domain_uniqueness
+    try:
+        validate_domains_unique(all_domains, benches_root=CLI_BENCHES_DIRECTORY, skip_check=skip_check)
+    except DomainConflictError as e:
+        output.display_error(str(e))
+        output.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
+        raise typer.Exit(1) from e
+
+    if apps_from_user:
+        apps_to_check = bench_config.get_apps_config()
+
+        with spinner(output, f"Validating {len(apps_to_check)} app repositories"):
+            validation_result = AppConfig.validate_repos_batch(apps_to_check, bench_config.github_token)
 
         for result in validation_result.results:
             if result.success:
@@ -366,13 +521,13 @@ def create(
 
         if not validation_result.all_valid:
             output.display_error(
-                f"\n⚠️  {validation_result.failure_count}/{len(apps_config)} repositories failed validation",
+                f"\n⚠️  {validation_result.failure_count}/{len(apps_to_check)} repositories failed validation",
             )
             output.display_error("Please check the repository names, branches, and authentication")
             raise typer.Exit(1)
 
     # Warn if prod bench is being created with restart: no
-    if restart == RestartPolicyEnum.no and environment == FMBenchEnvType.prod:
+    if bench_config.restart_policy == RestartPolicyEnum.no and bench_config.environment_type == FMBenchEnvType.prod:
         output.warning("⚠️  Creating production bench with restart policy 'no'")
         output.warning("    Containers will not auto-recover from failures or system reboots")
 

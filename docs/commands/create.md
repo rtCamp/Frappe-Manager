@@ -9,6 +9,10 @@ development, and --image overrides the base frappe image. 'image' runs a pre-bui
 app image (built by `fm bake` or otherwise present/pullable) given via --image and
 does not accept --apps/--python/--node -- those are baked into the image.
 
+--config supplies a TOML base (file or inline) for the bench config (e.g. [deploy],
+[registry], [remote], [build], hooks); explicit CLI flags override it. Repeatable,
+later --config wins.
+
 **Usage**:
 
 ```console
@@ -27,13 +31,14 @@ $ fm create BENCHNAME [OPTIONS]
 * `--template`: Create as template bench
 * `--admin-pass`: Administrator password
 * `--alias-domains`: Alias domains (comma-separated). Use 'fm ssl add' for SSL.
-* `-t, --github-token`: GitHub token for private repos (or use GITHUB_TOKEN env var)
+* `-t, --github-token`: Mount runtime only: GitHub token for cloning private app repos (or use GITHUB_TOKEN env var).
 * `--python`: Python version (e.g., '3.11'). Auto-detected by default.
 * `--node`: Node version (e.g., '18', '20'). Auto-detected by default.
 * `--restart`: Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).
 * `--allow-domain-conflicts`: Skip domain uniqueness validation (not recommended). Allows creating benches with duplicate domains.
 * `--runtime`: Runtime: 'mount' (default, live-mounted code) or 'image' (immutable pre-built app image). Default 'mount'.
 * `--image`: Mount mode: override the base frappe image (repo:tag). Image mode: the pre-built app image to run (repo:tag; must exist locally or be pullable).
+* `--config`: TOML config overlay: a file path or inline TOML content used as the base bench config. Explicit CLI flags override it; repeatable, later --config wins.
 * `--newrelic/--no-newrelic`: Enable NewRelic APM monitoring for the web process.
 * `--newrelic-license-key`: NewRelic ingest license key. Required when --newrelic is set.
 

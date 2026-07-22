@@ -116,6 +116,11 @@ class BakeManager:
     def _repo_root() -> Path:
         return Path(__file__).resolve().parents[3]
 
+    def _resolve_bake_apps(self) -> list[AppConfig]:
+        """Apps to bake: an explicit ``apps_list`` (standalone bake / config) wins;
+        otherwise reconstruct it from the live bench's cloned repos."""
+        return self.bench_config.apps_list or self._derive_apps_list()
+
     def _derive_apps_list(self) -> list[AppConfig]:
         """Reconstruct the app clone specs from the live bench.
 
@@ -267,7 +272,7 @@ class BakeManager:
             frappe_bench_dir.mkdir(parents=True, exist_ok=True)
 
             self.output.change_head("Resolving bench apps")
-            apps = self._derive_apps_list()
+            apps = self._resolve_bake_apps()
             self.bench_config.apps_list = apps
             self.output.print(f"Baking apps: {', '.join(a.name for a in apps)}")
 
