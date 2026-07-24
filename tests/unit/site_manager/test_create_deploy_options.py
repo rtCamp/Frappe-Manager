@@ -147,26 +147,35 @@ def test_created_mount_bench_persists_base_image(tmp_path):
 
 def test_from_image_rejects_image_runtime():
     with pytest.raises(typer.BadParameter, match="MOUNT"):
-        _validate_from_image("r:t", BenchRuntime.image, [], None, None)
-
-
-def test_from_image_rejects_provisioning_flags():
-    # apps / python / node come from the image.
-    with pytest.raises(typer.BadParameter, match="--apps"):
-        _validate_from_image("r:t", BenchRuntime.mount, ["erpnext"], None, None)
-    with pytest.raises(typer.BadParameter):
-        _validate_from_image("r:t", BenchRuntime.mount, [], "3.12", None)
-    with pytest.raises(typer.BadParameter):
-        _validate_from_image("r:t", BenchRuntime.mount, [], None, "20")
+        _validate_from_image("r:t", BenchRuntime.image)
 
 
 def test_from_image_requires_explicit_tag():
     with pytest.raises(typer.BadParameter, match="tag"):
-        _validate_from_image("localhost:5000/repo", BenchRuntime.mount, [], None, None)
+        _validate_from_image("localhost:5000/repo", BenchRuntime.mount)
 
 
 def test_from_image_valid_contract_passes():
-    _validate_from_image("ghcr.io/acme/erp:jun01", BenchRuntime.mount, [], None, None)
+    # --apps (overrides) and --python/--node (toolchain swap) are ALLOWED with
+    # --from-image; only image runtime and tagless references are rejected.
+    _validate_from_image("ghcr.io/acme/erp:jun01", BenchRuntime.mount)
+
+
+# ------------------------------------------------------------ seed overrides merge
+
+
+def test_merge_app_overrides_replaces_in_place_and_appends():
+    from frappe_manager.site_manager.bench_config import AppConfig
+    from frappe_manager.site_manager.modules.bench_orchestrator import merge_app_overrides
+
+    baked = [AppConfig.from_string("frappe"), AppConfig.from_string("erpnext")]
+    frappe_dev = AppConfig.from_string("frappe:develop")
+    added = AppConfig.from_string("myorg/frappe-hello-world:main")
+    added.name = "frappe_hello_world"  # post-clone corrected module name
+
+    merged = merge_app_overrides(baked, [frappe_dev, added])
+    assert [a.name for a in merged] == ["frappe", "erpnext", "frappe_hello_world"]  # frappe first, add appended
+    assert merged[0].ref == "develop"  # replaced in place with the override ref
 
 
 # ------------------------------------------------------------ developer mode
