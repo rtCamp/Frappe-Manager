@@ -69,8 +69,11 @@ def rolling_eligible(
 
 
 def _apply_image_mounts(compose_file_manager, site: str, services: list[str]) -> None:
-    """Replace the wholesale ``./workspace:/workspace`` bind on ``services`` with
-    data-only binds so the immutable image's baked code/assets are not shadowed."""
+    """On the first conversion (from the mount template) replace the wholesale
+    ``./workspace:/workspace`` bind on ``services`` with data-only binds so the
+    immutable image's baked code/assets are not shadowed. Once a service is already
+    data-only its volumes are left untouched, so re-pins (deploy/rollback) change ONLY
+    the image tag and any user-added mounts are preserved."""
     compose_path = compose_file_manager.compose_path
     sites_rel = "./workspace/frappe-bench/sites"
     specs = [
@@ -82,6 +85,8 @@ def _apply_image_mounts(compose_file_manager, site: str, services: list[str]) ->
     ]
     for svc in services:
         existing = compose_file_manager.get_service_volumes(svc)
+        if not any(str(v.container) == "/workspace" for v in existing):
+            continue  # already data-only: leave volumes (and user mounts) as-is
         kept = [v for v in existing if str(v.container) != "/workspace"]
         data = [
             DockerVolumeMount(host=h, container=c, type=DockerVolumeType.bind, compose_path=compose_path)

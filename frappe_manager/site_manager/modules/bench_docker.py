@@ -194,10 +194,12 @@ class BenchDockerOps:
 
         * Pin frappe/socketio/schedule to ``deploy_tag`` and nginx to the
           matching ``<repo>-nginx:<tag>`` app-assets image.
-        * Replace the wholesale ``./workspace:/workspace`` bind with data-only
-          binds (``sites/<site>``, ``common_site_config.json``, ``apps.txt``,
-          ``logs``) so the baked app code + assets in the image are not shadowed.
-          Named volumes (fm-sockets) and nginx config binds are preserved.
+        * On the FIRST render only (converting from the mount template) replace the
+          wholesale ``./workspace:/workspace`` bind with data-only binds
+          (``sites/<site>``, ``common_site_config.json``, ``apps.txt``, ``logs``,
+          ``config``). Once a service is data-only its volumes are left untouched, so
+          re-renders (deploy/switch/rollback) change ONLY the image tag and any
+          user-added mounts are preserved.
 
         Returns the nginx image tag that was pinned. Idempotent: safe to re-run
         with a new tag (used by deploy swap and rollback re-pin).
@@ -243,8 +245,12 @@ class BenchDockerOps:
             if svc not in services:
                 continue
             existing = self.compose_file_manager.get_service_volumes(svc)
-            kept = [v for v in existing if str(v.container) != "/workspace"]
-            self.compose_file_manager.set_service_volumes(svc, kept + _data_binds())
+            # One-time conversion: only when the wholesale ./workspace bind is still present
+            # (first render, from the mount template). Once data-only, leave volumes as-is so
+            # re-renders change ONLY the image and any user-added mounts survive.
+            if any(str(v.container) == "/workspace" for v in existing):
+                kept = [v for v in existing if str(v.container) != "/workspace"]
+                self.compose_file_manager.set_service_volumes(svc, kept + _data_binds())
 
         # Rolling (blue-green) swap: shed container_name on the scaled web
         # services so `compose up --scale <svc>=2` is accepted. The fm-sockets
