@@ -309,15 +309,15 @@ def pull_docker_images() -> bool:
     no_error = True
     for image in images_list:
         output = get_global_output_handler()
-        status = f"[blue]Pulling image[/blue] [bold][yellow]{image}[/yellow][/bold]"
+        status = f"[fm.info]Pulling image[/fm.info] [fm.warn]{image}[/fm.warn]"
         output.change_head(status, style=None)
         try:
             pull_output = docker.pull(container_name=image, stream=True)
             output.live_lines(pull_output, padding=(0, 0, 0, 2))
         except DockerException as e:
             no_error = False
-            output.error(f"[bold][red]Error [/bold][/red]: Failed to pull {image}", e)
-        output.print(f"[green]Pulled[/green] [blue]{image}[/blue]")
+            output.error(f"[fm.error]Error [/fm.error]: Failed to pull {image}", e)
+        output.print(f"[fm.ok]Pulled[/fm.ok] [fm.info]{image}[/fm.info]")
 
     return no_error
 

@@ -266,7 +266,7 @@ class AcmeShCertificateService:
         use_staging = os.getenv("FM_LETSENCRYPT_STAGING", "").lower() in ("1", "true", "yes")
         if use_staging:
             self.output.print(
-                "[yellow]Using Let's Encrypt STAGING server (test certificates)[/yellow]",
+                "[fm.warn]Using Let's Encrypt STAGING server (test certificates)[/fm.warn]",
                 emoji_code=":warning:",
             )
 
@@ -334,9 +334,9 @@ class AcmeShCertificateService:
             raise SSLCertificateNotFoundError(certificate.domain)
 
         if dry_run:
-            self.output.print(f"[green]Certificate generated successfully (staging) for {certificate.domain}[/green]")
+            self.output.print(f"[fm.ok]Certificate generated successfully (staging) for {certificate.domain}[/fm.ok]")
             self.output.print(
-                "[yellow]Skipped: Copying certificate files (dry run)[/yellow]",
+                "[fm.warn]Skipped: Copying certificate files (dry run)[/fm.warn]",
                 emoji_code=":fast_forward:",
             )
             return (key_path, fullchain_path)
@@ -373,7 +373,7 @@ class AcmeShCertificateService:
         use_staging = os.getenv("FM_LETSENCRYPT_STAGING", "").lower() in ("1", "true", "yes")
         if use_staging:
             self.output.print(
-                "[yellow]Using Let's Encrypt STAGING server for renewal (test certificates)[/yellow]",
+                "[fm.warn]Using Let's Encrypt STAGING server for renewal (test certificates)[/fm.warn]",
                 emoji_code=":warning:",
             )
 
@@ -408,9 +408,9 @@ class AcmeShCertificateService:
 
         if fullchain_path.exists() and key_path.exists():
             if dry_run:
-                self.output.print(f"[green]Certificate renewed successfully (staging) for {certificate.domain}[/green]")
+                self.output.print(f"[fm.ok]Certificate renewed successfully (staging) for {certificate.domain}[/fm.ok]")
                 self.output.print(
-                    "[yellow]Skipped: Copying certificate files (dry run)[/yellow]",
+                    "[fm.warn]Skipped: Copying certificate files (dry run)[/fm.warn]",
                     emoji_code=":fast_forward:",
                 )
                 return True

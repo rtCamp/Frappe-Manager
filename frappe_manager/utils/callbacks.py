@@ -137,10 +137,6 @@ def sites_autocompletion_callback() -> list[Path]:
     return sites_list
 
 
-def val(answers, current):
-    print(answers, current)
-
-
 def sitename_callback(sitename: str | None):
     if not sitename:
         sitename = get_sitename_from_current_path()

@@ -71,7 +71,7 @@ class MigrationErrorHandler:
         Returns:
             bool: Always False (migration failed)
         """
-        self.executor.output.display_error(f"[red]Migration failed[red] : {exception}", emoji_code="")
+        self.executor.output.display_error(f"[fm.error]Migration failed[/fm.error] : {exception}", emoji_code="")
         self._rollback_all()
         return False
 
@@ -83,9 +83,9 @@ class MigrationErrorHandler:
         for bench, bench_status in self.executor.migrate_benches.items():
             if not bench_status["exception"]:
                 if passed_print_head:
-                    self.executor.output.print("\n\n[bold green]Migration Passed Benches[/bold green]\n", emoji_code="")
+                    self.executor.output.print("\n\n[fm.ok]Migration Passed Benches[/fm.ok]\n", emoji_code="")
                     passed_print_head = False
-                self.executor.output.print(f"[green]Bench[/green]: {bench}", emoji_code="")
+                self.executor.output.print(f"[fm.ok]Bench[/fm.ok]: {bench}", emoji_code="")
 
         failed_print_head = True
 
@@ -93,16 +93,16 @@ class MigrationErrorHandler:
         for bench, bench_status in self.executor.migrate_benches.items():
             if bench_status["exception"]:
                 if failed_print_head:
-                    self.executor.output.print("\n[bold red]Migration Failed Benches[/bold red]\n", emoji_code="")
+                    self.executor.output.print("\n[fm.error]Migration Failed Benches[/fm.error]\n", emoji_code="")
                     failed_print_head = False
 
-                self.executor.output.display_error(f"[red]Bench[/red]: {bench}", emoji_code="")
+                self.executor.output.display_error(f"[fm.error]Bench[/fm.error]: {bench}", emoji_code="")
                 self.executor.output.display_error(
-                    f"[red]Failed Migration Version[/red]: {bench_status['last_migration_version']}",
+                    f"[fm.error]Failed Migration Version[/fm.error]: {bench_status['last_migration_version']}",
                     emoji_code="",
                 )
                 self.executor.output.display_error(
-                    f"[red]Exception[/red]: {type(bench_status['exception']).__name__}",
+                    f"[fm.error]Exception[/fm.error]: {type(bench_status['exception']).__name__}",
                     emoji_code="",
                 )
                 self.executor.output.print(f"   {bench_status['exception']}", emoji_code="")
@@ -140,8 +140,8 @@ class MigrationErrorHandler:
                 "Migration failed for bench.",
                 "",
                 "Available options:",
-                "[blue][yes][/blue] Rollback bench : Restore the bench to its last working version before migration.",
-                f"[blue][no][/blue] Skip rollback : Leave bench in current state. You can manually fix or retry with: fm migrate {bench_name}",
+                "[fm.info][yes][/fm.info] Rollback bench : Restore the bench to its last working version before migration.",
+                f"[fm.info][no][/fm.info] Skip rollback : Leave bench in current state. You can manually fix or retry with: fm migrate {bench_name}",
                 "",
                 "Do you want to rollback the bench?",
             ]
@@ -170,8 +170,8 @@ class MigrationErrorHandler:
 
         archive_msg = [
             "Available options after migrations failure :",
-            rf"[blue][yes][/blue] Archive failed benches : Benches that have failed will be rolled back to there last successfully completed migration version and stored in '{CLI_SITES_ARCHIVE}'.",
-            r"[blue][no][/blue] Revert migration : Restore the FM CLI and FM environment to the last successfully completed migration version for all benches.",
+            rf"[fm.info][yes][/fm.info] Archive failed benches : Benches that have failed will be rolled back to there last successfully completed migration version and stored in '{CLI_SITES_ARCHIVE}'.",
+            r"[fm.info][no][/fm.info] Revert migration : Restore the FM CLI and FM environment to the last successfully completed migration version for all benches.",
             "\nDo you wish to archive all benches that failed during migration ?",
         ]
 
@@ -194,7 +194,7 @@ class MigrationErrorHandler:
                 archive_bench_path = CLI_SITES_ARCHIVE / bench
                 CLI_SITES_ARCHIVE.mkdir(exist_ok=True, parents=True)
                 shutil.move(bench_info["object"].path, archive_bench_path)
-                self.executor.output.print(f"[bold]Archived bench :[/bold] [yellow]{bench}[/yellow]", emoji_code="")
+                self.executor.output.print(f"[bold]Archived bench :[/bold] [fm.warn]{bench}[/fm.warn]", emoji_code="")
 
     def _rollback_all(self, show_cli_downgrade_instructions: bool = True):
         """

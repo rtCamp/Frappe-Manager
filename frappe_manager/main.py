@@ -59,7 +59,7 @@ def cli_entrypoint():
         logger = log.get_logger(file_level=file_level)
         output = get_global_output_handler()
 
-        output.display_error(f"[red]Error Occurred[/red] {str(e).strip()}")
+        output.display_error(f"[fm.error]Error Occurred[/fm.error] {str(e).strip()}")
 
         # Show details if available
         if e.details:
@@ -84,7 +84,7 @@ def cli_entrypoint():
         logger = log.get_logger(file_level=file_level)
         output = get_global_output_handler()
 
-        output.display_error(f"[red]Unexpected Error[/red] {str(e).strip()}")
+        output.display_error(f"[fm.error]Unexpected Error[/fm.error] {str(e).strip()}")
         output.print(f"More info about error is logged in {CLI_LOG_DIRECTORY / 'fm.log'}", emoji_code=":mag:")
         output.stop()
 

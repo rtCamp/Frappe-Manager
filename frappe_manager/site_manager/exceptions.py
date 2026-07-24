@@ -19,7 +19,7 @@ class BenchException(Exception):
         self.message = message
 
         if prefix_bench_name:
-            self.message = f"[blue][bold]{bench_name} :[/bold][/blue] {message}"
+            self.message = f"[fm.info][bold]{bench_name} :[/bold][/fm.info] {message}"
 
         super().__init__(self.message)
 
@@ -256,7 +256,7 @@ class BenchOperationException(BenchException):
                 "\n".join(self.output.stdout),
                 box=box,
                 padding=(0, 1),
-                border_style="dim",
+                border_style="fm.muted",
                 title="Error command stdout",
                 title_align="left",
             )
@@ -267,7 +267,7 @@ class BenchOperationException(BenchException):
                 "\n".join(self.output.combined),
                 box=box,
                 padding=(0, 1),
-                border_style="dim",
+                border_style="fm.muted",
                 title="Error command output",
                 title_align="left",
             )
@@ -278,7 +278,7 @@ class BenchOperationException(BenchException):
                 "\n".join(self.output.stderr),
                 box=box,
                 padding=(0, 1),
-                border_style="dim",
+                border_style="fm.muted",
                 title="Error command stderr",
                 title_align="left",
             )

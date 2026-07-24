@@ -37,7 +37,7 @@ def update(
         latest_version = update_info["info"]["version"]
         if not fm_version == latest_version:
             update_msg = (
-                f":arrows_counterclockwise: New update available [blue][bold]v{latest_version}[/bold][/blue]"
+                f":arrows_counterclockwise: New update available [fm.accent]v{latest_version}[/fm.accent]"
                 "\nDo you want to update ?"
             )
             continue_update = output.prompt_ask(

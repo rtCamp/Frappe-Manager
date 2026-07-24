@@ -39,7 +39,7 @@ def stop(
     output = get_global_output_handler()
 
     if global_only and benches_only:
-        output.print("[red]Error:[/red] --global-only and --benches-only are mutually exclusive. Choose one.")
+        output.print("[fm.error]Error:[/fm.error] --global-only and --benches-only are mutually exclusive. Choose one.")
         raise typer.Exit(code=1)
 
     stop_global = not benches_only

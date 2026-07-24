@@ -113,16 +113,16 @@ def dns_config_cloudflare(
     if not api_token and not api_key:
         output = get_global_output_handler()
         output.display_error("Either [bold]--api-token[/bold] or [bold]--api-key[/bold] must be provided")
-        output.print("\n[green]Recommended:[/green] Use --api-token for better security and scoped permissions")
-        output.print("[yellow]Legacy:[/yellow] Use --api-key with --email for Global API Key authentication")
-        output.print("\n[dim]Create API Token at: https://dash.cloudflare.com/profile/api-tokens[/dim]")
+        output.print("\n[fm.ok]Recommended:[/fm.ok] Use --api-token for better security and scoped permissions")
+        output.print("[fm.warn]Legacy:[/fm.warn] Use --api-key with --email for Global API Key authentication")
+        output.print("\n[fm.muted]Create API Token at: https://dash.cloudflare.com/profile/api-tokens[/fm.muted]")
         raise typer.Exit(1)
 
     if api_key and not email:
         output = get_global_output_handler()
         output.display_error("[bold]--email[/bold] is required when using [bold]--api-key[/bold] (Global API Key)")
-        output.print("\n[yellow]Note:[/yellow] API Key authentication requires your Cloudflare account email")
-        output.print("[green]Better option:[/green] Use --api-token instead (doesn't require email)")
+        output.print("\n[fm.warn]Note:[/fm.warn] API Key authentication requires your Cloudflare account email")
+        output.print("[fm.ok]Better option:[/fm.ok] Use --api-token instead (doesn't require email)")
         raise typer.Exit(1)
 
     # Configure credentials

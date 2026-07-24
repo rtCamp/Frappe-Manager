@@ -513,7 +513,7 @@ def create(
                 )
                 raise typer.Exit(1)
             output.print(
-                f"Image bench: creating the site from pre-built image [blue]{current_tag}[/blue].",
+                f"Image bench: creating the site from pre-built image [fm.info]{current_tag}[/fm.info].",
                 emoji_code=":package:",
             )
 
@@ -536,12 +536,12 @@ def create(
         if from_image:
             _validate_from_image(from_image, resolved_runtime)
             output.print(
-                f"Mount bench: seeding workspace from baked image [blue]{from_image}[/blue].",
+                f"Mount bench: seeding workspace from baked image [fm.info]{from_image}[/fm.info].",
                 emoji_code=":package:",
             )
         if resolved_runtime == BenchRuntime.image:
             output.print(
-                f"Image bench: creating the site from pre-built image [blue]{deploy_current_tag}[/blue].",
+                f"Image bench: creating the site from pre-built image [fm.info]{deploy_current_tag}[/fm.info].",
                 emoji_code=":package:",
             )
 

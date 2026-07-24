@@ -156,14 +156,14 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
 
     cert_map = {cert["domain"]: cert for cert in certs}
 
-    table = Table(show_header=True, header_style="bold magenta")
-    table.add_column("Domain", style="cyan")
-    table.add_column("Type", style="yellow")
-    table.add_column("Challenge", style="magenta")
-    table.add_column("Status", style="green")
-    table.add_column("Expiry", style="blue")
+    table = Table(show_header=True, header_style="fm.accent")
+    table.add_column("Domain", style="fm.info")
+    table.add_column("Type", style="fm.warn")
+    table.add_column("Challenge", style="fm.info")
+    table.add_column("Status", style="fm.ok")
+    table.add_column("Expiry", style="fm.info")
     table.add_column("Days Left", justify="right")
-    table.add_column("Renewal", style="red")
+    table.add_column("Renewal", style="fm.error")
 
     # Show all domains, whether they have certificates or not
     for domain in all_domains:

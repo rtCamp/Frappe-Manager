@@ -54,7 +54,7 @@ class SSLCertificateNotDueForRenewalError(Exception):
         self,
         domain,
         expiry_date: datetime,
-        message="[blue]{}:[/blue] Certificate is not due for renewal will expire in {}.",
+        message="[fm.info]{}:[/fm.info] Certificate is not due for renewal will expire in {}.",
     ):
         self.domain = domain
         self.expiry_date = expiry_date

@@ -765,7 +765,7 @@ class Bench:
             num_log_files = len(log_file_paths)
 
             if num_log_files == 0:
-                self.output.print("[yellow]No log files found.[/yellow]")
+                self.output.print("[fm.warn]No log files found.[/fm.warn]")
                 return
 
             # Open log files and create generators
@@ -805,7 +805,7 @@ class Bench:
                 if not self._is_service_running(service):
                     self.output.stop()
                     self.output.display_error(
-                        f"Cannot show logs. [blue]{self.name}[/blue]'s compose service '{service}' not running!",
+                        f"Cannot show logs. [fm.info]{self.name}[/fm.info]'s compose service '{service}' not running!",
                     )
                     return
                 self.docker_ops.logs(services=[service], follow=follow)
@@ -856,7 +856,7 @@ class Bench:
         self.logger.debug(f"Attempting to remove bench: {self.name}", extra_fields=extra)
 
         params: dict[str, Any] = {}
-        params["prompt"] = f"🤔 Do you want to remove [bold][green]'{self.name}'[/bold][/green]"
+        params["prompt"] = f"🤔 Do you want to remove [bold][fm.ok]'{self.name}'[/bold][/fm.ok]"
         params["choices"] = ["yes", "no"]
 
         if default_choice:

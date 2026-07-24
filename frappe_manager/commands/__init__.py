@@ -7,7 +7,6 @@ from pathlib import Path
 from typing import Annotated, List, Optional, cast
 
 import typer
-from rich.panel import Panel
 from typer_examples import install
 
 from frappe_manager import (
@@ -101,7 +100,7 @@ def check_bench_migration_required(bench_name: str | None) -> None:
 
         output.warning(f"Bench migration required: {bench_name} (v{bench_version} → v{fm_version})\n", emoji_code="")
         output.print("Bench migration updates configuration and applies necessary changes.\n", emoji_code="")
-        output.print(f"Run: [cyan]fm migrate {bench_name}[/cyan]\n", emoji_code="")
+        output.print(f"Run: [fm.info]fm migrate {bench_name}[/fm.info]\n", emoji_code="")
         raise typer.Exit(0)
 
 

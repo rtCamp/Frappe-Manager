@@ -81,10 +81,10 @@ def _list_all_certificates(ctx: typer.Context):
     context = LoggerContext(operation="ssl-list-all")
     output = get_output_handler(ctx, context=context)
 
-    output.print("\n[bold cyan]═══ External Certificates ═══[/bold cyan]\n", emoji_code="")
+    output.print("\n[fm.accent]═══ External Certificates ═══[/fm.accent]\n", emoji_code="")
     _list_external_certificates(ctx)
 
-    output.print("\n[bold cyan]═══ Bench Certificates ═══[/bold cyan]\n", emoji_code="")
+    output.print("\n[fm.accent]═══ Bench Certificates ═══[/fm.accent]\n", emoji_code="")
 
     bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager)
     benches = bench_service.get_bench_names()

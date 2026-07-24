@@ -138,11 +138,11 @@ class SSLCertificateManager:
         original_staging = None
         if dry_run:
             self.output_handler.print(
-                "[bold yellow]DRY RUN MODE: Using Let's Encrypt staging server[/bold yellow]",
+                "[fm.warn]DRY RUN MODE: Using Let's Encrypt staging server[/fm.warn]",
                 emoji_code="🧪",
             )
             self.output_handler.print(
-                "[dim]No system modifications will be made (no symlinks, nginx restart, or config save)[/dim]",
+                "[fm.muted]No system modifications will be made (no symlinks, nginx restart, or config save)[/fm.muted]",
             )
 
             original_staging = os.environ.get("FM_LETSENCRYPT_STAGING")
@@ -170,14 +170,14 @@ class SSLCertificateManager:
                 actual_cert_type = getattr(certificate, "acme_client", "letsencrypt")
 
             if dry_run:
-                self.output_handler.print(f"[green]Certificate validated successfully for {certificate.domain}[/green]")
-                self.output_handler.print("[yellow]Skipped: Creating symlinks (dry run)[/yellow]", emoji_code="⏭️ ")
+                self.output_handler.print(f"[fm.ok]Certificate validated successfully for {certificate.domain}[/fm.ok]")
+                self.output_handler.print("[fm.warn]Skipped: Creating symlinks (dry run)[/fm.warn]", emoji_code="⏭️ ")
                 self.output_handler.print(
-                    "[yellow]Skipped: Creating vhost.d redirect config (dry run)[/yellow]",
+                    "[fm.warn]Skipped: Creating vhost.d redirect config (dry run)[/fm.warn]",
                     emoji_code="⏭️ ",
                 )
-                self.output_handler.print("[yellow]Skipped: Restarting nginx (dry run)[/yellow]", emoji_code="⏭️ ")
-                self.output_handler.print("[yellow]Skipped: Saving configuration (dry run)[/yellow]", emoji_code="⏭️ ")
+                self.output_handler.print("[fm.warn]Skipped: Restarting nginx (dry run)[/fm.warn]", emoji_code="⏭️ ")
+                self.output_handler.print("[fm.warn]Skipped: Saving configuration (dry run)[/fm.warn]", emoji_code="⏭️ ")
                 self.logger.info("Dry run completed successfully", extra_fields={"domain": certificate.domain})
             else:
                 self.logger.info(
@@ -486,22 +486,22 @@ class SSLCertificateManager:
         reissued_paths = None
         if not renewal_success:
             self.output_handler.print(
-                "[yellow]Certificate not found in acme.sh, re-issuing...[/yellow]",
+                "[fm.warn]Certificate not found in acme.sh, re-issuing...[/fm.warn]",
                 emoji_code="⚠️",
             )
             key_path, fullchain_path = service.generate_certificate(certificate, dry_run=dry_run)
             reissued_paths = (key_path, fullchain_path)
 
             if not dry_run:
-                self.output_handler.print(f"[green]Certificate re-issued successfully for {certificate.domain}[/green]")
+                self.output_handler.print(f"[fm.ok]Certificate re-issued successfully for {certificate.domain}[/fm.ok]")
 
         if dry_run:
             self.output_handler.print(
-                f"[green]Certificate renewal validated successfully for {certificate.domain}[/green]",
+                f"[fm.ok]Certificate renewal validated successfully for {certificate.domain}[/fm.ok]",
             )
-            self.output_handler.print("[yellow]️Skipped: Updating symlinks (dry run)[/yellow]", emoji_code="⏭ ")
+            self.output_handler.print("[fm.warn]️Skipped: Updating symlinks (dry run)[/fm.warn]", emoji_code="⏭ ")
             if not skip_nginx_restart:
-                self.output_handler.print("[yellow]Skipped: Restarting nginx (dry run)[/yellow]", emoji_code="⏭️ ")
+                self.output_handler.print("[fm.warn]Skipped: Restarting nginx (dry run)[/fm.warn]", emoji_code="⏭️ ")
         else:
             try:
                 if reissued_paths:
@@ -556,10 +556,10 @@ class SSLCertificateManager:
         original_staging = None
         if dry_run:
             self.output_handler.print(
-                "[bold yellow]DRY RUN MODE: Using Let's Encrypt staging server[/bold yellow]",
+                "[fm.warn]DRY RUN MODE: Using Let's Encrypt staging server[/fm.warn]",
                 emoji_code="🧪 ",
             )
-            self.output_handler.print("[dim]No system modifications will be made (no symlinks or nginx restart)[/dim]")
+            self.output_handler.print("[fm.muted]No system modifications will be made (no symlinks or nginx restart)[/fm.muted]")
 
             original_staging = os.environ.get("FM_LETSENCRYPT_STAGING")
             os.environ["FM_LETSENCRYPT_STAGING"] = "1"
@@ -604,10 +604,10 @@ class SSLCertificateManager:
         original_staging = None
         if dry_run:
             self.output_handler.print(
-                "[bold yellow]DRY RUN MODE: Using Let's Encrypt staging server[/bold yellow]",
+                "[fm.warn]DRY RUN MODE: Using Let's Encrypt staging server[/fm.warn]",
                 emoji_code="🧪",
             )
-            self.output_handler.print("[dim]No system modifications will be made (no symlinks or nginx restart)[/dim]")
+            self.output_handler.print("[fm.muted]No system modifications will be made (no symlinks or nginx restart)[/fm.muted]")
 
             original_staging = os.environ.get("FM_LETSENCRYPT_STAGING")
             os.environ["FM_LETSENCRYPT_STAGING"] = "1"
@@ -634,7 +634,7 @@ class SSLCertificateManager:
 
             if renewed_count > 0:
                 if dry_run:
-                    self.output_handler.print("[yellow]Skipped: Restarting nginx (dry run)[/yellow]", emoji_code="⏭️ ")
+                    self.output_handler.print("[fm.warn]Skipped: Restarting nginx (dry run)[/fm.warn]", emoji_code="⏭️ ")
                 else:
                     self.nginx_controller.restart()
                 self.output_handler.print(f"Renewal complete: {renewed_count} renewed, {skipped_count} skipped")

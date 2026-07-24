@@ -236,14 +236,14 @@ def migrate(
         if fm_infrastructure_needs_migration:
             table.add_row(
                 "✅",
-                "[cyan]FM Infrastructure[/cyan]",
-                f"[yellow]v{fm_infrastructure_version}[/yellow] → [green]v{current_version}[/green]",
+                "[fm.info]FM Infrastructure[/fm.info]",
+                f"[fm.warn]v{fm_infrastructure_version}[/fm.warn] → [fm.ok]v{current_version}[/fm.ok]",
             )
         else:
             table.add_row(
                 "⏭️ ",
-                "[cyan]FM Infrastructure[/cyan]",
-                f"[yellow]v{fm_infrastructure_version}[/yellow] (already up to date)",
+                "[fm.info]FM Infrastructure[/fm.info]",
+                f"[fm.warn]v{fm_infrastructure_version}[/fm.warn] (already up to date)",
             )
 
     if benches_migrated:
@@ -251,18 +251,18 @@ def migrate(
             orig_version = next((v for n, v in benches_checked if n == bench_name), None)
             table.add_row(
                 "✅",
-                f"[cyan]{bench_name}[/cyan]",
-                f"[yellow]v{orig_version}[/yellow] → [green]v{current_version}[/green]",
+                f"[fm.info]{bench_name}[/fm.info]",
+                f"[fm.warn]v{orig_version}[/fm.warn] → [fm.ok]v{current_version}[/fm.ok]",
             )
 
     if benches_skipped:
         for bench_name in benches_skipped:
             orig_version = next((v for n, v in benches_checked if n == bench_name), None)
-            table.add_row("⏭️ ", f"[cyan]{bench_name}[/cyan]", f"[yellow]v{orig_version}[/yellow] (already up to date)")
+            table.add_row("⏭️ ", f"[fm.info]{bench_name}[/fm.info]", f"[fm.warn]v{orig_version}[/fm.warn] (already up to date)")
 
     if benches_failed:
         for bench_name in benches_failed:
-            table.add_row("❌", f"[cyan]{bench_name}[/cyan]", "[red]Migration failed[/red]")
+            table.add_row("❌", f"[fm.info]{bench_name}[/fm.info]", "[fm.error]Migration failed[/fm.error]")
 
     output.print_data(table)
 

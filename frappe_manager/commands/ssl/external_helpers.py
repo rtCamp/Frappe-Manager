@@ -251,7 +251,7 @@ def _add_external_certificate(
             output.print(f"SSL certificate added for {domain}", emoji_code=":white_check_mark:")
             output.print("Certificate configured successfully", emoji_code=":zap:")
             output.print("", emoji_code="")
-            output.print("[bold cyan]To use this certificate in your Docker project:[/bold cyan]", emoji_code="")
+            output.print("[fm.accent]To use this certificate in your Docker project:[/fm.accent]", emoji_code="")
             output.print("", emoji_code="")
             output.print("1. Add to your docker-compose.yml:", emoji_code="")
             output.print("", emoji_code="")
@@ -471,13 +471,13 @@ def _list_external_certificates(ctx: typer.Context):
 
     link_manager = CertificateLinkManager(storage_config)
 
-    table = Table(title="External Domains & SSL Certificates", show_header=True, header_style="bold magenta")
-    table.add_column("Domain", style="cyan")
-    table.add_column("Type", style="yellow")
-    table.add_column("Status", style="green")
-    table.add_column("Expiry", style="blue")
+    table = Table(title="External Domains & SSL Certificates", show_header=True, header_style="fm.accent")
+    table.add_column("Domain", style="fm.info")
+    table.add_column("Type", style="fm.warn")
+    table.add_column("Status", style="fm.ok")
+    table.add_column("Expiry", style="fm.info")
     table.add_column("Days Left", justify="right")
-    table.add_column("Renewal", style="red")
+    table.add_column("Renewal", style="fm.error")
 
     # Add SSL-enabled domains
     for domain_config in external_domains:
@@ -518,8 +518,8 @@ def _list_external_certificates(ctx: typer.Context):
     output.print_data(table)
 
     if non_ssl_domains:
-        output.print("\n[yellow]💡 Tip: Add SSL certificates for non-SSL domains:[/yellow]", emoji_code="")
-        output.print("[dim]  fm ssl add --standalone <domain>[/dim]", emoji_code="")
+        output.print("\n[fm.warn]💡 Tip: Add SSL certificates for non-SSL domains:[/fm.warn]", emoji_code="")
+        output.print("[fm.muted]  fm ssl add --standalone <domain>[/fm.muted]", emoji_code="")
 
 
 def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool, force: bool = False):

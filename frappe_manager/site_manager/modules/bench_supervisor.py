@@ -107,7 +107,7 @@ class BenchSupervisor:
             service_running = False
 
         if not service_running:
-            self.output.display_error(text=f"Service [blue]{service}[/blue] not running.")
+            self.output.display_error(text=f"Service [fm.info]{service}[/fm.info] not running.")
             return False
 
         if force:

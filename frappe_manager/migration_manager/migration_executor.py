@@ -167,7 +167,7 @@ class MigrationExecutor:
         if self.migrations:
             if fm_infrastructure_needs_migration:
                 self.output.print(
-                    f"FM Infrastructure: [yellow]v{self.prev_version}[/yellow] → [green]v{self.current_version}[/green]",
+                    f"FM Infrastructure: [fm.warn]v{self.prev_version}[/fm.warn] → [fm.ok]v{self.current_version}[/fm.ok]",
                     emoji_code="",
                 )
                 self.output.print("  • CLI configuration", emoji_code="")
@@ -189,7 +189,7 @@ class MigrationExecutor:
 
                         if bench_version < self.current_version:
                             self.output.print(
-                                f"  • {bench_name}: [yellow]v{bench_version}[/yellow] → [green]v{self.current_version}[/green]",
+                                f"  • {bench_name}: [fm.warn]v{bench_version}[/fm.warn] → [fm.ok]v{self.current_version}[/fm.ok]",
                                 emoji_code="",
                             )
 

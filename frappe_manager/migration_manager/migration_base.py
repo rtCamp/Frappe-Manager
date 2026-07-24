@@ -71,7 +71,7 @@ class MigrationBase(ABC):
         if self.skip:
             return True
 
-        self.output.print(f"[bold][blue]Migration for v{self.version!s}[/blue][/bold]", emoji_code=":package:")
+        self.output.print(f"[bold][fm.info]Migration for v{self.version!s}[/fm.info][/bold]", emoji_code=":package:")
         self.logger.info(f"v{self.version!s}: Started")
         self.logger.info("-" * 40)
 
@@ -153,7 +153,7 @@ class MigrationBase(ABC):
             if bench.name in self.migration_executor.migrate_benches.keys():
                 bench_info = self.migration_executor.migrate_benches[bench.name]
                 if bench_info["exception"]:
-                    self.output.print(f"Skipping migration for failed bench [blue]{bench.name}[/blue]")
+                    self.output.print(f"Skipping migration for failed bench [fm.info]{bench.name}[/fm.info]")
                     main_error = True
                     continue
 
@@ -190,7 +190,7 @@ class MigrationBase(ABC):
             raise MigrationExceptionInBench("")
 
     def bench_basic_backup(self, bench: MigrationBench):
-        self.output.print(f"Migrating bench [bold][blue]{bench.name}[/blue][/bold]")
+        self.output.print(f"Migrating bench [bold][fm.info]{bench.name}[/fm.info][/bold]")
 
         if self.migration_executor.skip_backup:
             self.output.warning(f"Skipping backup for {bench.name}")
@@ -319,4 +319,4 @@ class MigrationBase(ABC):
 
         host_db_sql_file_path.unlink()
 
-        self.output.print(f"[blue]{bench.name}[/blue] db backup completed successfully.")
+        self.output.print(f"[fm.info]{bench.name}[/fm.info] db backup completed successfully.")

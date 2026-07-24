@@ -528,7 +528,7 @@ class BenchOrchestrator:
         bench = self.bench
 
         self.output.stop()
-        self.output.display_error(f"[red][bold]Error Occured: [/bold][/red]{exception}")
+        self.output.display_error(f"[fm.error][bold]Error Occured: [/bold][/fm.error]{exception}")
 
         exception_traceback_str = capture_and_format_exception()
         self.logger.error(f"{bench.name}: NOT WORKING\n Exception: {exception_traceback_str}")
