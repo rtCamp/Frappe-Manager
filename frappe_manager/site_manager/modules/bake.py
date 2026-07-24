@@ -252,6 +252,82 @@ class BakeManager:
                 docker=self.docker_client,
             )
 
+    def _populate_context_from_workspace(self, dest_frappe_bench: Path) -> list[AppConfig]:
+        """Snapshot the bench's on-disk frappe-bench into the build context (source=workspace).
+
+        Copies code + venv + built assets as-is (no clone/install), excluding dev/site
+        state (per-site data, logs, pids, sockets, caches, .git) so the image stays
+        code+assets. Relies on fm's constant ``/workspace/frappe-bench`` container path,
+        so the relocatable uv venv keeps working after the copy.
+        """
+        src = Path(self.bench_config.root_path).parent / "workspace" / "frappe-bench"
+        if not src.is_dir():
+            raise BakeError(f"Workspace not found for source=workspace: {src}")
+        apps = self._derive_apps_list()  # read git specs from the real workspace first
+        self._copy_workspace(src, dest_frappe_bench)
+        return apps
+
+    @staticmethod
+    def _copy_workspace(src: Path, dest: Path) -> None:
+        """Filtered copy of a frappe-bench tree for a workspace-source bake."""
+        shutil.copytree(
+            src,
+            dest,
+            symlinks=True,  # preserve the relocatable venv's /workspace/... symlinks
+            ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.sock", ".cache", ".git"),
+        )
+        # Drop dev/site state under sites/: keep only assets + apps.txt/apps.json.
+        sites = dest / "sites"
+        if sites.is_dir():
+            for child in sites.iterdir():
+                if child.name in ("assets", "apps.txt", "apps.json"):
+                    continue
+                if child.is_dir():
+                    shutil.rmtree(child, ignore_errors=True)
+                else:
+                    child.unlink(missing_ok=True)
+        else:
+            sites.mkdir(parents=True, exist_ok=True)
+        # Reseed minimal sites files (the real ones are volume-mounted at runtime).
+        apps_txt = sites / "apps.txt"
+        if not apps_txt.exists():
+            apps_txt.write_text("frappe\n")
+        (sites / "common_site_config.json").write_text("{}")
+        # Clear volatile dirs.
+        for rel in ("logs", "config/pids"):
+            volatile = dest / rel
+            if volatile.is_dir():
+                for item in volatile.iterdir():
+                    if item.is_dir():
+                        shutil.rmtree(item, ignore_errors=True)
+                    else:
+                        item.unlink(missing_ok=True)
+
+    def _apply_includes(self, frappe_bench_dir: Path, includes: list[str]) -> None:
+        """Copy extra host paths into the build context (``[build].include``).
+
+        Each entry is ``src`` or ``src:dest``; ``dest`` is relative to
+        ``/workspace/frappe-bench`` (defaults to the src basename). Applied after
+        the source populates the tree, so includes override existing files.
+        """
+        for entry in includes:
+            src_str, _, dest_str = entry.partition(":")
+            src = Path(src_str).expanduser()
+            if not src.exists():
+                raise BakeError(f"--include source not found: {src_str}")
+            dest_rel = dest_str or src.name
+            if dest_rel.startswith("/") or ".." in Path(dest_rel).parts:
+                raise BakeError(
+                    f"--include destination must be relative and inside the bench (no '..'): {dest_rel!r}",
+                )
+            dest = frappe_bench_dir / dest_rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if src.is_dir():
+                shutil.copytree(src, dest, symlinks=True, dirs_exist_ok=True)
+            else:
+                shutil.copy2(src, dest)
+            self.output.print(f"Included {src_str} -> frappe-bench/{dest_rel}")
+
     def bake(self, tag: str | None = None, push: bool | None = None) -> str:
         """Provision -> build the runtime image (+ optional registry push). Returns the built tag.
 
@@ -269,36 +345,49 @@ class BakeManager:
         context_dir = Path(tempfile.mkdtemp(prefix="fm-bake-"))
         try:
             frappe_bench_dir = context_dir / "workspace" / "frappe-bench"
-            frappe_bench_dir.mkdir(parents=True, exist_ok=True)
+            source = (self.bench_config.build.source if self.bench_config.build else None) or "provision"
 
-            self.output.change_head("Resolving bench apps")
-            apps = self._resolve_bake_apps()
-            self.bench_config.apps_list = apps
-            self.output.print(f"Baking apps: {', '.join(a.name for a in apps)}")
+            if source == "workspace":
+                self.output.change_head("Snapshotting bench workspace")
+                apps = self._populate_context_from_workspace(frappe_bench_dir)
+                self.bench_config.apps_list = apps
+                self.output.print(f"Baking apps (workspace snapshot): {', '.join(a.name for a in apps)}")
+            else:
+                frappe_bench_dir.mkdir(parents=True, exist_ok=True)
 
-            self.output.change_head("Preparing build context")
-            self._seed_bench_skeleton(frappe_bench_dir, base_image)
+                self.output.change_head("Resolving bench apps")
+                apps = self._resolve_bake_apps()
+                self.bench_config.apps_list = apps
+                self.output.print(f"Baking apps: {', '.join(a.name for a in apps)}")
 
-            app_manager = BenchAppManager(
-                logger=self.logger,
-                bench_name=self.bench_config.name,
-                bench_path=context_dir,
-                docker_client=self.docker_client,
-                bench_config=self.bench_config,
-                output_handler=self.output,
-                provision_image=base_image,
-            )
+                self.output.change_head("Preparing build context")
+                self._seed_bench_skeleton(frappe_bench_dir, base_image)
 
-            self.apply_build_overrides(self.bench_config, self.output)
-            self.output.change_head("Provisioning apps into build context")
-            provision(
-                app_manager,
-                apps,
-                output=self.output,
-                use_uv=self.bench_config.use_uv,
-                github_token=self.bench_config.github_token,
-                use_run=True,
-            )
+                app_manager = BenchAppManager(
+                    logger=self.logger,
+                    bench_name=self.bench_config.name,
+                    bench_path=context_dir,
+                    docker_client=self.docker_client,
+                    bench_config=self.bench_config,
+                    output_handler=self.output,
+                    provision_image=base_image,
+                )
+
+                self.apply_build_overrides(self.bench_config, self.output)
+                self.output.change_head("Provisioning apps into build context")
+                provision(
+                    app_manager,
+                    apps,
+                    output=self.output,
+                    use_uv=self.bench_config.use_uv,
+                    github_token=self.bench_config.github_token,
+                    use_run=True,
+                )
+
+            includes = (self.bench_config.build.include if self.bench_config.build else None) or []
+            if includes:
+                self.output.change_head("Applying extra includes")
+                self._apply_includes(frappe_bench_dir, includes)
 
             self.output.change_head(f"Building runtime image {tag}")
             build_cmd = [

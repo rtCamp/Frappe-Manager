@@ -1017,9 +1017,19 @@ class BuildConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     base_image: str | None = Field(None, description="Base image for the runtime Dockerfile FROM.")
+    source: str = Field(
+        "provision",
+        description="App source: 'provision' (clone+install fresh, reproducible) or 'workspace' "
+        "(snapshot the bench's on-disk workspace; bench mode only).",
+    )
     python_version: str | None = Field(None, description="Python version (uv) baked into the image.")
     node_version: str | None = Field(None, description="Node version (fnm) baked into the image.")
     platforms: list[str] = Field(default_factory=lambda: ["linux/amd64"], description="Target build platform(s).")
+    include: list[str] = Field(
+        default_factory=list,
+        description="Extra host paths baked into the image: 'src' or 'src:dest' (dest relative to "
+        "/workspace/frappe-bench). Applied after source; overrides existing files.",
+    )
 
 
 class RegistryConfig(BaseModel):

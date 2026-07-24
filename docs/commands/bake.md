@@ -32,6 +32,8 @@ $ fm bake BENCHNAME [OPTIONS]
 * `--python`: Standalone bake only: Python version to bake (sets [build].python_version).
 * `--node`: Standalone bake only: Node version to bake (sets [build].node_version).
 * `-t, --github-token`: Standalone bake only: GitHub token for private app repos (or use GITHUB_TOKEN env var).
+* `--source`: App source: 'provision' (default, clone+install fresh) or 'workspace' (snapshot the bench's current on-disk workspace; bench mode only).
+* `--include`: Extra path to bake into the image: 'src' or 'src:dest' (dest relative to the bench root, i.e. /workspace/frappe-bench). Applied after source; overrides. Repeatable.
 
 
 ## Examples

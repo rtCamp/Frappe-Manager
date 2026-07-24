@@ -12,7 +12,7 @@ from frappe_manager import (
     STABLE_APP_BRANCH_MAPPING_LIST,
 )
 from frappe_manager.output_manager import get_global_output_handler
-from frappe_manager.site_manager.bench_config import AppConfig, BenchConfig
+from frappe_manager.site_manager.bench_config import AppConfig, BenchConfig, BuildConfig
 from frappe_manager.site_manager.deploy_config_overlay import (
     ConfigOverlayError,
     apply_config_overlays,
@@ -201,6 +201,24 @@ def bake(
             show_default=False,
         ),
     ] = None,
+    source: Annotated[
+        str | None,
+        typer.Option(
+            "--source",
+            help="App source: 'provision' (default, clone+install fresh) or 'workspace' "
+            "(snapshot the bench's current on-disk workspace; bench mode only).",
+            show_default=False,
+        ),
+    ] = None,
+    include: Annotated[
+        list[str],
+        typer.Option(
+            "--include",
+            help="Extra path to bake into the image: 'src' or 'src:dest' (dest relative to the bench "
+            "root, i.e. /workspace/frappe-bench). Applied after source; overrides. Repeatable.",
+            show_default=False,
+        ),
+    ] = [],
 ):
     """
     Bake an immutable app image.
@@ -249,6 +267,25 @@ def bake(
 
     if image:
         bench_config.image = image
+
+    if source is not None:
+        if source not in ("provision", "workspace"):
+            output.display_error("--source must be 'provision' or 'workspace'.")
+            raise typer.Exit(1)
+        if bench_config.build is None:
+            bench_config.build = BuildConfig()
+        bench_config.build.source = source
+
+    if standalone and bench_config.build and bench_config.build.source == "workspace":
+        output.display_error(
+            "--source workspace requires a bench (it snapshots the bench's workspace); omit it for standalone bake.",
+        )
+        raise typer.Exit(1)
+
+    if include:
+        if bench_config.build is None:
+            bench_config.build = BuildConfig()
+        bench_config.build.include = [*bench_config.build.include, *include]
 
     logger = ctx.obj.get("logger") if ctx.obj else None
 
