@@ -23,7 +23,7 @@ from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.utils.helpers import format_ssl_certificate_time_remaining
-from frappe_manager.utils.site import generate_services_table
+from frappe_manager.utils.site import generate_services_table, read_bench_node_version, read_bench_python_version
 
 if TYPE_CHECKING:
     from frappe_manager.services_manager.services import ServicesManager
@@ -57,6 +57,7 @@ class BenchInfo:
         has_certificate_fn,
         is_running_fn,
         get_services_running_status_fn,
+        docker_client=None,
         output_handler: OutputHandler | None = None,
     ):
         """
@@ -87,6 +88,7 @@ class BenchInfo:
         self.has_certificate = has_certificate_fn
         self.is_running = is_running_fn
         self.get_services_running_status = get_services_running_status_fn
+        self.docker_client = docker_client
         self.output = output_handler or RichOutputHandler()
 
     def get_common_config(self) -> dict:
@@ -134,34 +136,31 @@ class BenchInfo:
         return apps_data
 
     def get_python_version(self) -> str:
-        """
-        Read the active Python version from the uv python-default symlink.
+        """Active Python version.
 
-        Returns:
-            Version string (e.g. "3.12.9") or "N/A" if not resolvable.
+        Image runtime: read the ``fm.python.version`` label baked onto the image
+        (immutable). Mount runtime: read the uv python-default symlink.
         """
-        symlink = self.bench_path / "workspace/frappe-bench/.uv/python-default"
-        try:
-            target = Path(symlink.readlink()).name  # e.g. cpython-3.12.9-linux-x86_64-gnu
-            parts = target.split("-")
-            return parts[1] if len(parts) > 1 else "N/A"
-        except (OSError, IndexError):
-            return "N/A"
+        if self.bench_config.runtime == BenchRuntime.image:
+            return self._image_label("fm.python.version")
+        return read_bench_python_version(self.bench_path / "workspace/frappe-bench") or "N/A"
 
     def get_node_version(self) -> str:
-        """
-        Read the active Node version from the fnm default alias symlink.
+        """Active Node version.
 
-        Returns:
-            Version string (e.g. "v22.11.0") or "N/A" if not resolvable.
+        Image runtime: read the ``fm.node.version`` label baked onto the image.
+        Mount runtime: read the fnm default alias symlink.
         """
-        symlink = self.bench_path / "workspace/frappe-bench/.fnm/aliases/default"
-        try:
-            target = symlink.readlink()  # e.g. ../node-versions/v22.11.0/installation
-            version = next((p for p in target.parts if p.startswith("v")), None)
-            return version or "N/A"
-        except OSError:
+        if self.bench_config.runtime == BenchRuntime.image:
+            return self._image_label("fm.node.version")
+        return read_bench_node_version(self.bench_path / "workspace/frappe-bench") or "N/A"
+
+    def _image_label(self, key: str) -> str:
+        """Read ``key`` off the pinned image (deploy_state.current_tag); ``N/A`` if absent."""
+        tag = self.bench_config.deploy_state.current_tag if self.bench_config.deploy_state else None
+        if not tag or self.docker_client is None:
             return "N/A"
+        return self.docker_client.image_labels(tag).get(key) or "N/A"
 
     def get_log_file_paths(self) -> list[Path]:
         """

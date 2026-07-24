@@ -10,6 +10,27 @@ from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchException
 
 
+def read_bench_python_version(frappe_bench_dir: Path) -> str | None:
+    """Active Python version (e.g. "3.12.9") from the uv python-default symlink, or None."""
+    symlink = frappe_bench_dir / ".uv" / "python-default"
+    try:
+        target = Path(symlink.readlink()).name  # cpython-3.12.9-linux-x86_64-gnu
+        parts = target.split("-")
+        return parts[1] if len(parts) > 1 else None
+    except (OSError, IndexError):
+        return None
+
+
+def read_bench_node_version(frappe_bench_dir: Path) -> str | None:
+    """Active Node version (e.g. "v22.11.0") from the fnm default alias symlink, or None."""
+    symlink = frappe_bench_dir / ".fnm" / "aliases" / "default"
+    try:
+        target = symlink.readlink()  # ../node-versions/v22.11.0/installation
+        return next((p for p in target.parts if p.startswith("v")), None)
+    except OSError:
+        return None
+
+
 def generate_services_table(services_status: dict):
     # running site services status
     services_table = Table(

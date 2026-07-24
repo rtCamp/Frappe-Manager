@@ -32,6 +32,7 @@ from frappe_manager.site_manager.modules.bench_app import BenchAppManager
 from frappe_manager.site_manager.modules.transport import push_images
 from frappe_manager.site_manager.provisioner import provision
 from frappe_manager.utils.docker import host_run_cp, run_command_with_exit_code
+from frappe_manager.utils.site import read_bench_node_version, read_bench_python_version
 
 
 class BakeError(Exception):
@@ -390,6 +391,8 @@ class BakeManager:
                 self._apply_includes(frappe_bench_dir, includes)
 
             self.output.change_head(f"Building runtime image {tag}")
+            py_version = read_bench_python_version(frappe_bench_dir)
+            node_version = read_bench_node_version(frappe_bench_dir)
             build_cmd = [
                 "docker",
                 "build",
@@ -399,8 +402,11 @@ class BakeManager:
                 str(dockerfile),
                 "-t",
                 tag,
-                str(context_dir / "workspace"),
             ]
+            for _k, _v in (("fm.python.version", py_version), ("fm.node.version", node_version)):
+                if _v:
+                    build_cmd += ["--label", f"{_k}={_v}"]
+            build_cmd.append(str(context_dir / "workspace"))
             run_command_with_exit_code(build_cmd, stream=False, capture_output=False)
 
             self.output.print(f"Built image: {tag}", emoji_code=":white_check_mark:")

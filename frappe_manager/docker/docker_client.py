@@ -341,6 +341,18 @@ class DockerClient:
             return {}
         return {}
 
+    def image_labels(self, image: str) -> dict:
+        """Return the image's config labels as a dict (``{}`` if unavailable)."""
+        cmd: list[str] = ["inspect", image, "--format", "{{json .Config.Labels}}"]
+        try:
+            output: SubprocessOutput = run_command_with_exit_code(self.docker_cmd + cmd, stream=False)
+            if output.stdout:
+                data = json.loads(" ".join(output.stdout))
+                return data or {}
+        except DockerException:
+            return {}
+        return {}
+
     def images(
         self,
         format: Literal["json"] = "json",

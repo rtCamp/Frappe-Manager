@@ -195,6 +195,7 @@ class Bench:
             has_certificate_fn=lambda: self.has_certificate(),
             is_running_fn=lambda: self.running,
             get_services_running_status_fn=self._get_services_running_status,
+            docker_client=docker_client,
             output_handler=self.output,
         )
 
