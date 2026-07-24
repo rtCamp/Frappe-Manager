@@ -113,7 +113,7 @@ class RichOutputHandler(OutputHandler):
 
             super().start(text)
 
-            self.current_head = self.previous_head = Text(text=text, style="bold blue")
+            self.current_head = self.previous_head = Text(text=text, style="fm.accent")
             self.spinner = Spinner(text=self.current_head, name="dots2", speed=1)
 
             self._spinner_active = True
@@ -123,24 +123,36 @@ class RichOutputHandler(OutputHandler):
                 self.live.start(refresh=True)
                 self.live.update(self.spinner, refresh=True)
             else:
-                self.stderr.print(f"{EMOJI_WORKING}  {text}")
+                self._print_noninteractive_head(text)
 
-    def change_head(self, text: str, style: str | None = "blue bold") -> None:
+    def _print_noninteractive_head(self, text: str) -> None:
+        """One ⚙️ line per DISTINCT head in non-interactive mode.
+
+        Deduplicates consecutive repeats (nested spinners/change_head chains
+        re-announce the same phase) and suppresses the generic "Working"
+        placeholder -- it carries no information and only adds CI noise.
+        """
+        if text == "Working" or text == getattr(self, "_last_ni_head", None):
+            return
+        self._last_ni_head = text
+        self.stderr.print(f"{EMOJI_WORKING}  {text}")
+
+    def change_head(self, text: str, style: str | None = "fm.accent") -> None:
         """
         Update the current operation status message.
 
         Args:
             text: The new status message
-            style: Optional Rich style string (e.g., "blue bold")
+            style: Rich style/token for the spinner text (honored; None = unstyled)
         """
         if not self._is_interactive:
-            self.stderr.print(f"{EMOJI_WORKING}  {text}")
+            self._print_noninteractive_head(text)
             return
 
         self.previous_head = self.current_head
         self.current_head = text
         if style:
-            self.spinner.update(text=Text(self.current_head, style="blue bold"))
+            self.spinner.update(text=Text(self.current_head, style=style))
         else:
             self.spinner.update(text=self.current_head)
         self.live.refresh()
@@ -153,13 +165,13 @@ class RichOutputHandler(OutputHandler):
             text: The new head text
         """
         if not self._is_interactive:
-            self.stderr.print(f"{EMOJI_WORKING}  {text}")
+            self._print_noninteractive_head(text)
             return
 
         self.previous_head = self.current_head
         self.current_head = text
-        self.live.console.print(self.previous_head, style="blue")
-        self.spinner.update(text=Text(self.current_head, style="blue bold"), style="bold blue")
+        self.live.console.print(self.previous_head, style="fm.info")
+        self.spinner.update(text=Text(self.current_head, style="fm.accent"), style="fm.accent")
 
     def stop(self) -> None:
         """Stop the current operation status display."""
@@ -317,8 +329,7 @@ class RichOutputHandler(OutputHandler):
                     break
             return
 
-        max_height = lines
-        displayed_lines = deque(maxlen=max_height)
+        displayed_lines: deque = deque(maxlen=lines)
 
         while True:
             try:
@@ -329,42 +340,42 @@ class RichOutputHandler(OutputHandler):
                 if "[==".lower() in line.lower() or "Updating files:".lower() in line.lower():
                     continue
 
-                if source == "stdout" and stdout:
-                    displayed_lines.append(line)
-
-                if source == "stderr" and stderr:
-                    displayed_lines.append(line)
+                if (source == "stdout" and stdout) or (source == "stderr" and stderr):
+                    # Build each line's Text ONCE (not per refresh) -- streaming
+                    # thousands of lines must not re-wrap the whole buffer each time.
+                    rendered = Text(log_prefix + " ", no_wrap=True)
+                    rendered.append_text(Text.from_ansi(line))
+                    displayed_lines.append(rendered)
 
                 if stop_string and stop_string.lower() in line.lower():
                     raise StopIteration
 
-                # Create fresh table for each update (prevents IndexError during Rich rendering)
-                table = Table(show_header=False, box=None)
-                table.add_column()
-
-                for linex in list(displayed_lines):
-                    prefix_text = Text(log_prefix + " ", no_wrap=True)
-                    table_line = Text.from_ansi(linex)
-                    prefix_text.append_text(table_line)
-                    table.add_row(prefix_text)
-
-                self.update_live(table, padding=padding)
-                self.live.refresh()
+                # No manual refresh: Live's auto refresh (4fps) throttles rendering
+                # regardless of how fast lines arrive.
+                self.update_live(Group(*displayed_lines), padding=padding, refresh=False)
 
             except KeyboardInterrupt:
-                self.live.refresh()
+                # NEVER swallow Ctrl-C mid-stream: clear the tail and propagate.
+                self.update_live()
+                raise
 
             except StopIteration:
                 self.update_live()
                 break
 
-    def update_live(self, renderable: Any = None, padding: tuple[int, int, int, int] = (0, 0, 0, 0)) -> None:
+    def update_live(
+        self,
+        renderable: Any = None,
+        padding: tuple[int, int, int, int] = (0, 0, 0, 0),
+        refresh: bool = True,
+    ) -> None:
         """
         Update the live display with new content.
 
         Args:
             renderable: Rich renderable object to display
             padding: Padding around content (top, right, bottom, left)
+            refresh: Force an immediate render; False defers to Live's auto refresh
         """
         if not self._is_interactive:
             return
@@ -374,9 +385,10 @@ class RichOutputHandler(OutputHandler):
                 renderable = Padding(renderable, padding)
 
             group = Group(self.spinner, renderable)
-            self.live.update(group)
+            self.live.update(group, refresh=False)
         else:
-            self.live.update(self.spinner)
+            self.live.update(self.spinner, refresh=False)
+        if refresh:
             self.live.refresh()
 
     def prompt_ask(
@@ -416,6 +428,7 @@ class RichOutputHandler(OutputHandler):
             from InquirerPy import inquirer
             from InquirerPy.utils import InquirerPyStyle
 
+            resume_text = self._current_text or "Working"
             self.spinner.update()
             self.live.stop()
 
@@ -450,7 +463,7 @@ class RichOutputHandler(OutputHandler):
                     style=custom_style,
                 ).execute()
 
-            self.start("Working")
+            self.start(resume_text)
             return value
         if choices:
             choices_str = "/".join(str(c) for c in choices)
@@ -501,6 +514,7 @@ class RichOutputHandler(OutputHandler):
         if self._is_interactive:
             from InquirerPy import inquirer
 
+            resume_text = self._current_text or "Working"
             self.spinner.update()
             self.live.stop()
 
@@ -519,7 +533,7 @@ class RichOutputHandler(OutputHandler):
                 **kwargs,
             ).execute()
 
-            self.start("Working")
+            self.start(resume_text)
             return value
         raise NonInteractiveError(
             f"Cannot prompt in non-interactive mode: {prompt}",
