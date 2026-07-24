@@ -93,3 +93,7 @@ __all__ = [
     "DockerVolumeMount",
     "DockerVolumeType",
 ]
+
+# Progress-bar noise emitted by docker pull/build streams; pass to
+# OutputHandler.live_lines(line_filters=...) at docker-streaming call sites.
+DOCKER_LINE_NOISE = ("[==", "updating files:")

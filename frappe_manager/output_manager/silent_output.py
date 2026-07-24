@@ -5,7 +5,7 @@ This implementation suppresses all output, useful for testing and
 background operations where no user feedback is needed.
 """
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 from frappe_manager.output_manager.base import OutputHandler
@@ -139,6 +139,7 @@ class SilentOutputHandler(OutputHandler):
         padding: tuple[int, int, int, int] = (0, 0, 0, 2),
         stop_string: str | None = None,
         log_prefix: str = "=>",
+        line_filters: "Sequence[str] | None" = None,
     ) -> None:
         """
         Display live streaming output (consumes iterator but produces no output).

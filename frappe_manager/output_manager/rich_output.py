@@ -6,6 +6,7 @@ live output, and interactive prompts. All functionality is self-contained
 within this handler, implementing the OutputHandler interface.
 """
 
+import contextlib
 import re
 import threading
 import warnings
@@ -175,23 +176,27 @@ class RichOutputHandler(OutputHandler):
 
     def stop(self) -> None:
         """Stop the current operation status display."""
-        with self._lock:
-            if _DEPRECATION_WARNINGS_ENABLED:
-                warnings.warn(
-                    "Direct output.stop() is deprecated. Use context managers instead:\n"
-                    "    from frappe_manager.output_manager import spinner\n"
-                    "    with spinner(output, 'text'): ...\n"
-                    "See .plans/output-migration-guide.md for migration guide.",
-                    DeprecationWarning,
-                    stacklevel=2,
+        if _DEPRECATION_WARNINGS_ENABLED:
+            warnings.warn(
+                "Direct output.stop() is deprecated. Use context managers instead:\n"
+                "    from frappe_manager.output_manager import spinner\n"
+                "    with spinner(output, 'text'): ...\n"
+                "See .plans/output-migration-guide.md for migration guide.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+
+            if OutputRefactoringFlags.strict_mode():
+                raise RuntimeError(
+                    "Direct output.stop() is not allowed in strict mode. "
+                    "Use context managers: with spinner(output, 'text'): ...",
                 )
 
-                if OutputRefactoringFlags.strict_mode():
-                    raise RuntimeError(
-                        "Direct output.stop() is not allowed in strict mode. "
-                        "Use context managers: with spinner(output, 'text'): ...",
-                    )
+        self._stop_impl()
 
+    def _stop_impl(self) -> None:
+        """Stop the spinner/live display (internal: no deprecation gating)."""
+        with self._lock:
             super().stop()
 
             self._spinner_active = False
@@ -201,6 +206,24 @@ class RichOutputHandler(OutputHandler):
                 self.spinner.update()
                 self.live.update(Text("", end=""))
                 self.live.stop()
+
+    @contextlib.contextmanager
+    def _pause_live(self):
+        """Suspend the Live region for raw/stdout writes, then resume it.
+
+        The internal analogue of ``temporary_stop``: makes print_data (and any
+        raw terminal writer) safe while a spinner runs, WITHOUT call sites
+        managing the lifecycle.
+        """
+        resume = self._spinner_active and self._is_interactive
+        if resume:
+            self.live.stop()
+        try:
+            yield
+        finally:
+            if resume:
+                self.live.start(refresh=True)
+                self.live.update(self.spinner, refresh=True)
 
     def print(self, text: str, emoji_code: str = ":zap:", prefix: str | None = None, **kwargs) -> None:
         """
@@ -247,10 +270,15 @@ class RichOutputHandler(OutputHandler):
         """
         Display error message without raising exception.
 
+        An error ENDS the current operation: any active spinner is stopped
+        first, so call sites never need a manual ``output.stop()`` before it.
+
         Args:
             text: The error message
             emoji_code: Emoji code to display (e.g., ":no_entry:")
         """
+        if self._spinner_active:
+            self._stop_impl()
         self.stderr.print(f"{emoji_code} {text}")
 
     def error(self, text: str, exception: Exception, emoji_code: str = ":no_entry:") -> None:
@@ -268,7 +296,7 @@ class RichOutputHandler(OutputHandler):
         Raises:
             Exception: Always raises the provided exception
         """
-        self.stderr.print(f"{emoji_code} {text}")
+        self.display_error(text, emoji_code)
 
         if exception:
             raise exception
@@ -292,6 +320,7 @@ class RichOutputHandler(OutputHandler):
         padding: tuple[int, int, int, int] = (0, 0, 0, 2),
         stop_string: str | None = None,
         log_prefix: str = "=>",
+        line_filters: Sequence[str] | None = None,
     ) -> None:
         """
         Display live streaming output from a process.
@@ -304,7 +333,11 @@ class RichOutputHandler(OutputHandler):
             padding: Padding around displayed lines (top, right, bottom, left)
             stop_string: String that stops display when found
             log_prefix: Prefix for each line
+            line_filters: Case-insensitive substrings whose lines are dropped
+                (caller-owned noise knowledge, e.g. docker's progress bars)
         """
+        filters = tuple(f.lower() for f in (line_filters or ()))
+
         if not self._is_interactive:
             while True:
                 try:
@@ -312,7 +345,7 @@ class RichOutputHandler(OutputHandler):
                     if isinstance(line, bytes):
                         line = line.decode(errors="replace")
 
-                    if "[==".lower() in line.lower() or "Updating files:".lower() in line.lower():
+                    if any(f in line.lower() for f in filters):
                         continue
 
                     if source == "stdout" and stdout:
@@ -337,7 +370,7 @@ class RichOutputHandler(OutputHandler):
                 if isinstance(line, bytes):
                     line = line.decode(errors="replace")
 
-                if "[==".lower() in line.lower() or "Updating files:".lower() in line.lower():
+                if any(f in line.lower() for f in filters):
                     continue
 
                 if (source == "stdout" and stdout) or (source == "stderr" and stderr):
@@ -545,6 +578,10 @@ class RichOutputHandler(OutputHandler):
         return self._is_interactive and self.is_spinner_active and not self.verbose
 
     def print_data(self, data: Any, **kwargs) -> None:
+        with self._pause_live():
+            self._print_data_impl(data, **kwargs)
+
+    def _print_data_impl(self, data: Any, **kwargs) -> None:
         import json
 
         from rich.console import ConsoleRenderable
@@ -579,7 +616,7 @@ class RichOutputHandler(OutputHandler):
             os_exit: If True, the program will exit with status code 1 (default: False)
             error_msg: The error message to be displayed after the text (default: None)
         """
-        self.stop()
+        self._stop_impl()
 
         to_print = f"{emoji_code} {text}"
         if error_msg:

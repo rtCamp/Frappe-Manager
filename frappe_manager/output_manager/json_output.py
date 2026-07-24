@@ -7,7 +7,7 @@ displayed to the terminal.
 """
 
 import json
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 from frappe_manager.output_manager.base import OutputHandler
@@ -229,6 +229,7 @@ class JSONOutputHandler(OutputHandler):
         padding: tuple[int, int, int, int] = (0, 0, 0, 2),
         stop_string: str | None = None,
         log_prefix: str = "=>",
+        line_filters: "Sequence[str] | None" = None,
     ) -> None:
         """
         Display live streaming output from a process.

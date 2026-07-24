@@ -7,7 +7,7 @@ allowing business logic to be independent of the presentation layer.
 
 import sys
 from abc import ABC, abstractmethod
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 
@@ -153,6 +153,7 @@ class OutputHandler(ABC):
         padding: tuple[int, int, int, int] = (0, 0, 0, 2),
         stop_string: str | None = None,
         log_prefix: str = "=>",
+        line_filters: "Sequence[str] | None" = None,
     ) -> None:
         """
         Display live streaming output from a process.

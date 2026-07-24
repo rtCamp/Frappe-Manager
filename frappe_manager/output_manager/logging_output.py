@@ -7,7 +7,7 @@ providing a single source of truth for debugging.
 
 import logging
 import sys
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 import typer
@@ -215,6 +215,7 @@ class LoggingOutputHandler(OutputHandler):
         padding: tuple[int, int, int, int] = (0, 0, 0, 2),
         stop_string: str | None = None,
         log_prefix: str = "=>",
+        line_filters: "Sequence[str] | None" = None,
     ) -> None:
         """
         Display live lines (logs start/stop, not individual lines for performance).
@@ -232,7 +233,7 @@ class LoggingOutputHandler(OutputHandler):
             log_prefix: Prefix for each line
         """
         self._log_message(logging.DEBUG, f"LIVE_LINES: Starting (stdout={stdout}, stderr={stderr})")
-        self.delegate.live_lines(data, stdout, stderr, lines, padding, stop_string, log_prefix)
+        self.delegate.live_lines(data, stdout, stderr, lines, padding, stop_string, log_prefix, line_filters)
         self._log_message(logging.DEBUG, "LIVE_LINES: Completed")
 
     def update_live(self, renderable: Any = None, padding: tuple[int, int, int, int] = (0, 0, 0, 0)) -> None:

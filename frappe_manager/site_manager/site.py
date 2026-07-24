@@ -1,4 +1,3 @@
-import itertools
 import shutil
 import time
 from collections.abc import Iterator
@@ -41,7 +40,6 @@ from frappe_manager.ssl_manager.service_factory import create_certificate_servic
 from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
 from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
 from frappe_manager.utils.helpers import (
-    log_file,
     save_dict_to_file,
 )
 from frappe_manager.utils.site import domain_level
@@ -755,39 +753,44 @@ class Bench:
         return self.info_display.get_log_file_paths()
 
     def handle_frappe_server_file_logs(self, follow: bool):
-        log_generators = []
+        """Print (and optionally follow) the bench's host-side log files.
 
+        Raw print() by design: this is a passthrough stream (pipe/grep-able).
+        Non-follow prints each file sequentially; follow then polls all files
+        in one loop -- draining every available line per cycle and sleeping
+        only when idle (plain files are always select()-readable, so polling
+        is the portable tail strategy; the drain-then-sleep shape keeps it
+        from busy-looping).
+        """
+        log_file_paths = self.get_log_file_paths()
+        if not log_file_paths:
+            self.output.print("[fm.warn]No log files found.[/fm.warn]")
+            return
+
+        files = [open(path) for path in log_file_paths]
         try:
-            # Get log file paths
-            log_file_paths = self.get_log_file_paths()
+            # Existing content first, file by file (no line-interleaving of
+            # unrelated files, which zip_longest used to do).
+            for handle in files:
+                for line in handle:
+                    print(line.rstrip("\n"))
 
-            # Check how many log files are available
-            num_log_files = len(log_file_paths)
-
-            if num_log_files == 0:
-                self.output.print("[fm.warn]No log files found.[/fm.warn]")
+            if not follow:
                 return
 
-            # Open log files and create generators
-            for path in log_file_paths:
-                log_generators.append(log_file(open(path), follow=follow))
-
-            if follow:
-                while True:
-                    try:
-                        for line in itertools.chain.from_iterable(log_generators):
-                            print(line.strip())
-                    except StopIteration:
-                        time.sleep(0.1)
-            else:
-                for lines in itertools.zip_longest(*log_generators, fillvalue=""):
-                    for line in lines:
-                        if line:
-                            print(line.strip())
-
+            while True:
+                idle = True
+                for handle in files:
+                    while line := handle.readline():
+                        print(line.rstrip("\n"))
+                        idle = False
+                if idle:
+                    time.sleep(0.5)
+        except KeyboardInterrupt:
+            pass
         finally:
-            for logfile in log_generators:
-                logfile.close()
+            for handle in files:
+                handle.close()
 
     def logs(self, follow: bool, service: str | None = None):
         """
