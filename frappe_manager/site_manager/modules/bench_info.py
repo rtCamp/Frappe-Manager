@@ -10,7 +10,7 @@ Handles information retrieval and display for the bench including:
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from rich.console import Console
 from rich.table import Table
@@ -23,7 +23,12 @@ from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.utils.helpers import format_ssl_certificate_time_remaining
-from frappe_manager.utils.site import generate_services_table, read_bench_node_version, read_bench_python_version
+from frappe_manager.utils.site import (
+    generate_services_table,
+    read_bench_app_refs,
+    read_bench_node_version,
+    read_bench_python_version,
+)
 
 if TYPE_CHECKING:
     from frappe_manager.services_manager.services import ServicesManager
@@ -121,19 +126,22 @@ class BenchInfo:
             raise BenchException(self.bench_name, message="site_config.json not found.")
         return json.loads(site_config_path.read_text())
 
-    def get_installed_apps_list(self) -> dict[str, Any]:
-        """
-        Get list of installed apps from apps.json.
+    def get_bench_apps(self) -> list[dict]:
+        """Installed apps as ``[{name, ref, commit}]``.
 
-        Returns:
-            dict: Installed apps data with versions, or empty dict if not found
+        Image runtime: from the baked ``fm.apps`` label (the host has no ``apps/``).
+        Mount runtime: from git under the workspace ``apps/``.
         """
-        apps_json_file = self.bench_path / "workspace/frappe-bench/sites/apps.json"
-        if not apps_json_file.exists():
-            return {}
-        with open(apps_json_file) as f:
-            apps_data = json.load(f)
-        return apps_data
+        if self.bench_config.runtime == BenchRuntime.image:
+            tag = self.bench_config.deploy_state.current_tag if self.bench_config.deploy_state else None
+            if not tag or self.docker_client is None:
+                return []
+            raw = self.docker_client.image_labels(tag).get("fm.apps")
+            try:
+                return json.loads(raw) if raw else []
+            except (ValueError, TypeError):
+                return []
+        return read_bench_app_refs(self.bench_path / "workspace" / "frappe-bench")
 
     def get_python_version(self) -> str:
         """Active Python version.
@@ -282,14 +290,15 @@ class BenchInfo:
         for key in data:
             bench_info_table.add_row(key, data[key])
 
-        # Get bench apps data
-        apps_json = self.get_installed_apps_list()
-        if apps_json:
+        # Bench apps: name + ref (branch/tag) + commit. Git-derived; image mode reads labels.
+        apps = self.get_bench_apps()
+        if apps:
             bench_apps_list_table = Table(show_lines=True, show_edge=False, pad_edge=False, expand=True)
             bench_apps_list_table.add_column("App")
-            bench_apps_list_table.add_column("Version")
-            for app in apps_json.keys():
-                bench_apps_list_table.add_row(app, apps_json[app]["version"])
+            bench_apps_list_table.add_column("Ref")
+            bench_apps_list_table.add_column("Commit")
+            for app in apps:
+                bench_apps_list_table.add_row(app.get("name", "?"), app.get("ref") or "—", app.get("commit") or "N/A")
             bench_info_table.add_row("Bench Apps", bench_apps_list_table)
 
         running_bench_services = self.get_services_running_status()

@@ -616,8 +616,8 @@ class Bench:
     def regenerate_workers_supervisor_conf(self):
         self.worker_coordinator.regenerate_workers_supervisor_conf()
 
-    def get_bench_installed_apps_list(self):
-        return self.info_display.get_installed_apps_list()
+    def get_bench_apps(self):
+        return self.info_display.get_bench_apps()
 
     # this can be plugable
     def get_db_connection_info(self):

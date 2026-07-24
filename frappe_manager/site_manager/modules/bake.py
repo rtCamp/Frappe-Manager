@@ -15,6 +15,7 @@ The provisioning step is the exact same shared path used by ``fm create``
 """
 
 import importlib.metadata
+import json
 import shutil
 import subprocess
 import tempfile
@@ -32,7 +33,7 @@ from frappe_manager.site_manager.modules.bench_app import BenchAppManager
 from frappe_manager.site_manager.modules.transport import push_images
 from frappe_manager.site_manager.provisioner import provision
 from frappe_manager.utils.docker import host_run_cp, run_command_with_exit_code
-from frappe_manager.utils.site import read_bench_node_version, read_bench_python_version
+from frappe_manager.utils.site import read_bench_app_refs, read_bench_node_version, read_bench_python_version
 
 
 class BakeError(Exception):
@@ -393,6 +394,17 @@ class BakeManager:
             self.output.change_head(f"Building runtime image {tag}")
             py_version = read_bench_python_version(frappe_bench_dir)
             node_version = read_bench_node_version(frappe_bench_dir)
+            git_src = (
+                Path(self.bench_config.root_path).parent / "workspace" / "frappe-bench"
+                if source == "workspace"
+                else frappe_bench_dir
+            )
+            app_refs = read_bench_app_refs(git_src)
+            labels = {
+                "fm.python.version": py_version,
+                "fm.node.version": node_version,
+                "fm.apps": json.dumps(app_refs, separators=(",", ":")) if app_refs else None,
+            }
             build_cmd = [
                 "docker",
                 "build",
@@ -403,7 +415,7 @@ class BakeManager:
                 "-t",
                 tag,
             ]
-            for _k, _v in (("fm.python.version", py_version), ("fm.node.version", node_version)):
+            for _k, _v in labels.items():
                 if _v:
                     build_cmd += ["--label", f"{_k}={_v}"]
             build_cmd.append(str(context_dir / "workspace"))

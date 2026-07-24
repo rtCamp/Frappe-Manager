@@ -1,5 +1,6 @@
 import json
 import re
+import subprocess
 from pathlib import Path
 
 from rich.table import Table
@@ -29,6 +30,55 @@ def read_bench_node_version(frappe_bench_dir: Path) -> str | None:
         return next((p for p in target.parts if p.startswith("v")), None)
     except OSError:
         return None
+
+
+def _git(app_path: Path, *args: str) -> str | None:
+    """Run a git command in ``app_path`` (safe.directory bypasses ownership checks)."""
+    try:
+        result = subprocess.run(  # noqa: S603
+            ["git", "-c", "safe.directory=*", "-C", str(app_path), *args],  # noqa: S607
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            return result.stdout.strip() or None
+    except Exception:
+        return None
+    return None
+
+
+def read_bench_app_refs(frappe_bench_dir: Path) -> list[dict]:
+    """Per-app ``{name, ref, commit}`` from git under ``apps/`` (apps.txt order, frappe first).
+
+    ``ref`` is the branch or tag HEAD points at (``None`` when detached on a bare commit);
+    ``commit`` is the short HEAD sha. Used to stamp image labels at bake and to show
+    mount-mode apps directly from disk.
+    """
+    apps_dir = frappe_bench_dir / "apps"
+    if not apps_dir.is_dir():
+        return []
+    names: list[str] = []
+    apps_txt = frappe_bench_dir / "sites" / "apps.txt"
+    if apps_txt.exists():
+        names = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
+    for child in sorted(apps_dir.iterdir()):
+        if child.name not in names and (child / ".git").exists():
+            names.append(child.name)
+    if "frappe" in names:
+        names = ["frappe", *[n for n in names if n != "frappe"]]
+
+    apps: list[dict] = []
+    for name in names:
+        app_path = apps_dir / name
+        if not (app_path / ".git").exists():
+            continue
+        commit = _git(app_path, "rev-parse", "--short", "HEAD")
+        ref = _git(app_path, "symbolic-ref", "--short", "-q", "HEAD") or _git(
+            app_path, "describe", "--tags", "--exact-match"
+        )
+        apps.append({"name": name, "ref": ref, "commit": commit})
+    return apps
 
 
 def generate_services_table(services_status: dict):
