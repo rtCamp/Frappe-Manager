@@ -34,8 +34,11 @@ from frappe_manager.utils.callbacks import (
 )
 from frappe_manager.utils.site import validate_sitename
 
-# Rich help panels for `fm create --help`, grouped by runtime applicability.
+# Rich help panels for `fm create --help`, grouped by concern / runtime applicability
+# (mirrors `fm update`).
+_PANEL_RUNTIME = "Runtime Options"
 _PANEL_MOUNT = "Mount Runtime Options (mount only)"
+_PANEL_DOMAIN = "Domain Options"
 _PANEL_MONITORING = "Monitoring Options"
 
 
@@ -111,6 +114,30 @@ def _validate_from_image(
     if not _has_explicit_tag(from_image):
         raise typer.BadParameter("--from-image requires an explicit ':tag' (e.g. local/myapp:20260724-abc).")
 
+
+
+def _resolve_developer_mode(
+    environment: FMBenchEnvType,
+    resolved_runtime: BenchRuntime,
+    explicit_enable: bool,
+) -> bool:
+    """Developer mode for a new bench.
+
+    dev-environment benches default to enabled -- EXCEPT image runtime, where it
+    is refused outright: DocType authoring writes app SOURCE files, and standard
+    doctypes sync files -> DB (never DB -> files), so writes into an image
+    bench's ephemeral container layer are unrecoverable schema-work loss.
+    """
+    if resolved_runtime == BenchRuntime.image:
+        if explicit_enable:
+            raise typer.BadParameter(
+                "--developer-mode enable is not supported with image runtime: DocType authoring "
+                "writes app files into the ephemeral container layer (lost on the next deploy, "
+                "never re-derivable from the DB). Develop on a mount bench, or demote later with "
+                "'fm update <bench> --runtime mount'.",
+            )
+        return False
+    return environment == FMBenchEnvType.dev or explicit_enable
 
 def _ensure_frappe_first(apps: list[AppConfig]) -> list[AppConfig]:
     """Frappe present and first (create's app-ordering rule)."""
@@ -288,7 +315,11 @@ def create(
     ] = FMBenchEnvType.dev,
     developer_mode: Annotated[
         EnableDisableOptionsEnum,
-        typer.Option(help="Enable/disable developer mode"),
+        typer.Option(
+            help="Enable/disable developer mode (DocType edits write app files -- editable workspace only; "
+            "auto-enabled on dev-environment mount benches).",
+            rich_help_panel=_PANEL_MOUNT,
+        ),
     ] = EnableDisableOptionsEnum.disable,
     template: Annotated[bool, typer.Option(help="Create as template bench")] = False,
     admin_pass: Annotated[
@@ -301,6 +332,7 @@ def create(
             help="Alias domains (comma-separated). Use 'fm ssl add' for SSL.",
             callback=alias_domains_validation_callback,
             show_default=False,
+            rich_help_panel=_PANEL_DOMAIN,
         ),
     ] = None,
     github_token: Annotated[
@@ -346,24 +378,27 @@ def create(
             "--allow-domain-conflicts",
             help="Skip domain uniqueness validation (not recommended). Allows creating benches with duplicate domains.",
             show_default=False,
+            rich_help_panel=_PANEL_DOMAIN,
         ),
     ] = False,
     runtime: Annotated[
         BenchRuntime | None,
         typer.Option(
             "--runtime",
-            help="Runtime: 'mount' (default, live-mounted code) or 'image' (immutable pre-built app image). "
-            "Default 'mount'.",
+            help="Runtime: 'mount' (default, live-mounted editable code) or 'image' (immutable pre-built "
+            "app image; settings-only, deploys via fm switch).",
             show_default=False,
+            rich_help_panel=_PANEL_RUNTIME,
         ),
     ] = None,
     image: Annotated[
         str | None,
         typer.Option(
             "--image",
-            help="Mount mode: override the base frappe image (repo:tag). Image mode: the pre-built app "
-            "image to run (repo:tag; must exist locally or be pullable).",
+            help="Mount runtime: override the base frappe image (repo:tag). Image runtime: the pre-built "
+            "app image to run (repo:tag; must exist locally or be pullable).",
             show_default=False,
+            rich_help_panel=_PANEL_RUNTIME,
         ),
     ] = None,
     from_image: Annotated[
@@ -482,6 +517,14 @@ def create(
                 f"Image bench: creating the site from pre-built image [blue]{current_tag}[/blue].",
                 emoji_code=":package:",
             )
+
+        if bench_config.runtime == BenchRuntime.image and bench_config.developer_mode:
+            output.display_error(
+                "developer_mode = true is not supported with image runtime: DocType authoring writes "
+                "app files into the ephemeral container layer (lost on the next deploy). Remove it "
+                "from the config overlay or use runtime = 'mount'.",
+            )
+            raise typer.Exit(1)
     else:
         final_apps_list = _ensure_frappe_first(apps_config)
 
@@ -504,7 +547,7 @@ def create(
         bench_config = BenchConfig(
             name=benchname,
             apps_list=final_apps_list,
-            developer_mode=True if environment == FMBenchEnvType.dev else developer_mode_status,
+            developer_mode=_resolve_developer_mode(environment, resolved_runtime, developer_mode_status),
             admin_tools=True if environment == FMBenchEnvType.dev else False,
             admin_pass=admin_pass,
             environment_type=environment,

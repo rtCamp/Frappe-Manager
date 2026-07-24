@@ -2,7 +2,9 @@
 
 Update bench configuration and settings.
 
-Adjusts environment type, developer mode, runtime versions, alias domains, and other bench settings.
+Settings (SSL/env/domains/policy/monitoring) apply to BOTH runtimes. Code-affecting
+options -- --python/--node/--developer-mode -- need an editable workspace (mount);
+on an image bench ship changes with 'fm deploy', or demote first via --runtime mount.
 
 **Usage**:
 
@@ -16,18 +18,18 @@ $ fm update BENCHNAME [OPTIONS]
 
 **Options**:
 
-* `--admin-tools`: Toggle admin-tools.
-* `-e, --environment`: Switch bench environment.
-* `--runtime`: Switch bench runtime. 'mount': materialize the editable workspace from the currently deployed image (code on disk == running code, so no migrate). For mount -> image, use fm switch (it migrates onto the baked image).
-* `--developer-mode`: Toggle frappe developer mode.
+* `--admin-tools`: Enable/disable admin tools (Adminer at /adminer, Mailpit at /mailpit).
+* `-e, --environment`: Switch environment (dev|prod): adjusts FRAPPE_ENV, serving mode and admin-tool defaults.
+* `--runtime`: Switch bench runtime. 'mount' materializes an editable workspace from the CURRENTLY DEPLOYED image (code on disk == running code, so no migrate; stale leftovers are stashed, never deleted). mount -> image goes through 'fm switch' instead (it migrates onto the image).
+* `--developer-mode`: Toggle frappe developer mode (DocType edits write app files -- needs an editable workspace).
 * `--mailpit-as-default-mail-server`: Configure Mailpit as default mail server
-* `--add-alias`: Add alias domains to the site (comma-separated, e.g., www.example.com,api.example.com)
-* `--remove-alias`: Remove alias domains from the site (comma-separated, e.g., shop.example.com)
+* `--add-alias`: Add alias domains (comma-separated, e.g. www.example.com,api.example.com).
+* `--remove-alias`: Remove alias domains (comma-separated, e.g. shop.example.com).
 * `--upload-limit`: Set maximum upload size for files (e.g., '50M', '100M', '500M', '1G')
-* `--python`: Update Python version (e.g., '3.11', '3.12', '>=3.11,<3.14'). Will recreate virtual environment.
-* `--node`: Update Node version (e.g., '18', '20', '>=18'). Will install and set as default.
+* `--python`: Update Python version (e.g. '3.11', '>=3.11,<3.14'); recreates the venv and reinstalls apps.
+* `--node`: Update Node version (e.g. '18', '20', '>=18'); installs and sets as default.
 * `--skip-version-check`: Skip validation of Python/Node versions against Frappe requirements. Use with caution.
-* `--recreate-python-env/--no-recreate-python-env`: Recreate the Python virtual environment. Use --no-recreate-python-env to skip if current version already satisfies the requirement.
+* `--recreate-python-env/--no-recreate-python-env`: Recreate the Python venv; --no-recreate-python-env skips when the current version already satisfies.
 * `--restart`: Update Docker restart policy for all bench services.
 * `--allow-domain-conflicts`: Skip domain uniqueness validation when adding aliases (not recommended).
 * `--newrelic/--no-newrelic`: Enable or disable NewRelic APM monitoring for the web process.

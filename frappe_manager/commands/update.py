@@ -28,14 +28,27 @@ from frappe_manager.utils.callbacks import (
 )
 
 
-def is_immutable_update_request(python_version: str | None, node_version: str | None) -> bool:
-    """Return True when an update requests changes that are immutable in image mode.
+# Rich help panels grouping options by concern / applicable runtime in `fm update --help`.
+_PANEL_RUNTIME = "Runtime Options"
+_PANEL_MOUNT = "Mount Runtime Options (mount only)"
+_PANEL_DOMAIN = "Domain Options"
+_PANEL_MONITORING = "Monitoring Options"
 
-    Image benches ship a pre-built app image; Python/Node runtime changes rebuild
-    the venv and reinstall apps into the mounted workspace, which does not exist in
-    image mode. Such changes must go through ``fm deploy`` instead.
+
+def is_immutable_update_request(
+    python_version: str | None,
+    node_version: str | None,
+    developer_mode: EnableDisableOptionsEnum | None = None,
+) -> bool:
+    """True when an update requests changes that are immutable in image runtime.
+
+    Image benches run a pre-built app image: Python/Node changes rebuild the venv
+    in a mounted workspace that does not exist, and developer mode would write
+    DocType/app files into the ephemeral container layer (silently lost on the
+    next deploy). Ship such changes via ``fm deploy``, or demote to an editable
+    workspace first with ``fm update <bench> --runtime mount``.
     """
-    return bool(python_version or node_version)
+    return bool(python_version or node_version or developer_mode == EnableDisableOptionsEnum.enable)
 
 
 @example(
@@ -116,25 +129,39 @@ def update(
     ] = None,
     admin_tools: Annotated[
         EnableDisableOptionsEnum | None,
-        typer.Option("--admin-tools", help="Toggle admin-tools.", show_default=False),
+        typer.Option(
+            "--admin-tools",
+            help="Enable/disable admin tools (Adminer at /adminer, Mailpit at /mailpit).",
+            show_default=False,
+        ),
     ] = None,
     environment: Annotated[
         FMBenchEnvType | None,
-        typer.Option("--environment", "-e", help="Switch bench environment.", show_default=False),
+        typer.Option(
+            "--environment",
+            "-e",
+            help="Switch environment (dev|prod): adjusts FRAPPE_ENV, serving mode and admin-tool defaults.",
+            show_default=False,
+        ),
     ] = None,
     runtime: Annotated[
         BenchRuntime | None,
         typer.Option(
             "--runtime",
-            help="Switch bench runtime. 'mount': materialize the editable workspace from the "
-            "currently deployed image (code on disk == running code, so no migrate). "
-            "For mount -> image, use fm switch (it migrates onto the baked image).",
+            help="Switch bench runtime. 'mount' materializes an editable workspace from the CURRENTLY "
+            "DEPLOYED image (code on disk == running code, so no migrate; stale leftovers are stashed, "
+            "never deleted). mount -> image goes through 'fm switch' instead (it migrates onto the image).",
             show_default=False,
+            rich_help_panel=_PANEL_RUNTIME,
         ),
     ] = None,
     developer_mode: Annotated[
         EnableDisableOptionsEnum | None,
-        typer.Option(help="Toggle frappe developer mode.", show_default=False),
+        typer.Option(
+            help="Toggle frappe developer mode (DocType edits write app files -- needs an editable workspace).",
+            show_default=False,
+            rich_help_panel=_PANEL_MOUNT,
+        ),
     ] = None,
     mailpit_as_default_mail_server: Annotated[
         bool,
@@ -148,18 +175,20 @@ def update(
         str | None,
         typer.Option(
             "--add-alias",
-            help="Add alias domains to the site (comma-separated, e.g., www.example.com,api.example.com)",
+            help="Add alias domains (comma-separated, e.g. www.example.com,api.example.com).",
             callback=alias_domains_validation_callback,
             show_default=False,
+            rich_help_panel=_PANEL_DOMAIN,
         ),
     ] = None,
     remove_alias: Annotated[
         str | None,
         typer.Option(
             "--remove-alias",
-            help="Remove alias domains from the site (comma-separated, e.g., shop.example.com)",
+            help="Remove alias domains (comma-separated, e.g. shop.example.com).",
             callback=alias_domains_validation_callback,
             show_default=False,
+            rich_help_panel=_PANEL_DOMAIN,
         ),
     ] = None,
     upload_limit: Annotated[
@@ -174,16 +203,18 @@ def update(
         str | None,
         typer.Option(
             "--python",
-            help="Update Python version (e.g., '3.11', '3.12', '>=3.11,<3.14'). Will recreate virtual environment.",
+            help="Update Python version (e.g. '3.11', '>=3.11,<3.14'); recreates the venv and reinstalls apps.",
             show_default=False,
+            rich_help_panel=_PANEL_MOUNT,
         ),
     ] = None,
     node_version: Annotated[
         str | None,
         typer.Option(
             "--node",
-            help="Update Node version (e.g., '18', '20', '>=18'). Will install and set as default.",
+            help="Update Node version (e.g. '18', '20', '>=18'); installs and sets as default.",
             show_default=False,
+            rich_help_panel=_PANEL_MOUNT,
         ),
     ] = None,
     skip_version_check: Annotated[
@@ -192,14 +223,16 @@ def update(
             "--skip-version-check",
             help="Skip validation of Python/Node versions against Frappe requirements. Use with caution.",
             show_default=False,
+            rich_help_panel=_PANEL_MOUNT,
         ),
     ] = False,
     recreate_python_env: Annotated[
         bool,
         typer.Option(
             "--recreate-python-env/--no-recreate-python-env",
-            help="Recreate the Python virtual environment. Use --no-recreate-python-env to skip if current version already satisfies the requirement.",
+            help="Recreate the Python venv; --no-recreate-python-env skips when the current version already satisfies.",
             show_default=True,
+            rich_help_panel=_PANEL_MOUNT,
         ),
     ] = True,
     restart: Annotated[
@@ -216,6 +249,7 @@ def update(
             "--allow-domain-conflicts",
             help="Skip domain uniqueness validation when adding aliases (not recommended).",
             show_default=False,
+            rich_help_panel=_PANEL_DOMAIN,
         ),
     ] = False,
     newrelic: Annotated[
@@ -224,6 +258,7 @@ def update(
             "--newrelic/--no-newrelic",
             help="Enable or disable NewRelic APM monitoring for the web process.",
             show_default=False,
+            rich_help_panel=_PANEL_MONITORING,
         ),
     ] = None,
     newrelic_license_key: Annotated[
@@ -232,13 +267,16 @@ def update(
             "--newrelic-license-key",
             help="NewRelic ingest license key.",
             show_default=False,
+            rich_help_panel=_PANEL_MONITORING,
         ),
     ] = None,
 ):
     """
     Update bench configuration and settings.
 
-    Adjusts environment type, developer mode, runtime versions, alias domains, and other bench settings.
+    Settings (SSL/env/domains/policy/monitoring) apply to BOTH runtimes. Code-affecting
+    options -- --python/--node/--developer-mode -- need an editable workspace (mount);
+    on an image bench ship changes with 'fm deploy', or demote first via --runtime mount.
     """
 
     services_manager = ctx.obj["services"]
@@ -249,13 +287,14 @@ def update(
     bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
 
     if bench.bench_config.runtime == BenchRuntime.image and is_immutable_update_request(
-        python_version=python_version, node_version=node_version
+        python_version=python_version, node_version=node_version, developer_mode=developer_mode
     ):
         output.stop()
         output.display_error(
-            f"{bench.name} is image-mode; code/apps/deps are immutable — "
-            "use 'fm deploy' to build+ship a new image. "
-            "'fm update' only changes SSL/env/policy.",
+            f"{bench.name} is image runtime; code, apps, Python/Node and developer mode are immutable — "
+            "ship changes with 'fm deploy', or demote to an editable workspace first: "
+            f"fm update {bench.name} --runtime mount. "
+            "'fm update' on an image bench changes settings only (SSL/env/domains/policy).",
         )
         raise typer.Exit(1)
 

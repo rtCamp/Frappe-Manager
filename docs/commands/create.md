@@ -27,7 +27,7 @@ $ fm create BENCHNAME [OPTIONS]
 
 * `-a, --apps`: Apps to install. Format: appname:branch or appname (e.g., erpnext:version-15)
 * `-e, --environment`: Environment type (dev or prod)
-* `--developer-mode`: Enable/disable developer mode
+* `--developer-mode`: Enable/disable developer mode (DocType edits write app files -- editable workspace only; auto-enabled on dev-environment mount benches).
 * `--template`: Create as template bench
 * `--admin-pass`: Administrator password
 * `--alias-domains`: Alias domains (comma-separated). Use 'fm ssl add' for SSL.
@@ -36,8 +36,8 @@ $ fm create BENCHNAME [OPTIONS]
 * `--node`: Node version (e.g., '18', '20'). Auto-detected by default.
 * `--restart`: Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).
 * `--allow-domain-conflicts`: Skip domain uniqueness validation (not recommended). Allows creating benches with duplicate domains.
-* `--runtime`: Runtime: 'mount' (default, live-mounted code) or 'image' (immutable pre-built app image). Default 'mount'.
-* `--image`: Mount mode: override the base frappe image (repo:tag). Image mode: the pre-built app image to run (repo:tag; must exist locally or be pullable).
+* `--runtime`: Runtime: 'mount' (default, live-mounted editable code) or 'image' (immutable pre-built app image; settings-only, deploys via fm switch).
+* `--image`: Mount runtime: override the base frappe image (repo:tag). Image runtime: the pre-built app image to run (repo:tag; must exist locally or be pullable).
 * `--from-image`: Mount runtime: seed the workspace from a baked app image (repo:tag) instead of cloning + installing apps -- near-instant create from a release image. Not with --apps/--python/--node (those come from the image).
 * `--config`: TOML config overlay: a file path or inline TOML content used as the base bench config. Explicit CLI flags override it; repeatable, later --config wins.
 * `--newrelic/--no-newrelic`: Enable NewRelic APM monitoring for the web process.

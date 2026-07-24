@@ -10,7 +10,12 @@ image mode, else None.
 import pytest
 import typer
 
-from frappe_manager.commands.create import _has_explicit_tag, _resolve_deploy_options, _validate_from_image
+from frappe_manager.commands.create import (
+    _has_explicit_tag,
+    _resolve_deploy_options,
+    _resolve_developer_mode,
+    _validate_from_image,
+)
 from frappe_manager.site_manager.bench_config import (
     BenchConfig,
     BenchRuntime,
@@ -162,3 +167,21 @@ def test_from_image_requires_explicit_tag():
 
 def test_from_image_valid_contract_passes():
     _validate_from_image("ghcr.io/acme/erp:jun01", BenchRuntime.mount, [], None, None)
+
+
+# ------------------------------------------------------------ developer mode
+
+
+def test_developer_mode_matrix():
+    # dev env auto-enables on mount; prod honors the explicit flag.
+    assert _resolve_developer_mode(FMBenchEnvType.dev, BenchRuntime.mount, explicit_enable=False) is True
+    assert _resolve_developer_mode(FMBenchEnvType.prod, BenchRuntime.mount, explicit_enable=True) is True
+    assert _resolve_developer_mode(FMBenchEnvType.prod, BenchRuntime.mount, explicit_enable=False) is False
+    # image runtime NEVER auto-enables (doctype files -> ephemeral layer).
+    assert _resolve_developer_mode(FMBenchEnvType.dev, BenchRuntime.image, explicit_enable=False) is False
+    assert _resolve_developer_mode(FMBenchEnvType.prod, BenchRuntime.image, explicit_enable=False) is False
+
+
+def test_developer_mode_enable_refused_on_image_runtime():
+    with pytest.raises(typer.BadParameter, match="developer-mode"):
+        _resolve_developer_mode(FMBenchEnvType.dev, BenchRuntime.image, explicit_enable=True)
