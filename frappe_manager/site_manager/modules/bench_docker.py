@@ -19,7 +19,7 @@ from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager import NON_BASH_SUPPORTED_SERVICES
-from frappe_manager.site_manager.bench_config import BenchConfig
+from frappe_manager.site_manager.bench_config import BenchConfig, BenchRuntime
 from frappe_manager.utils.docker import host_run_cp
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version
 from frappe_manager.utils.network import get_proxy_ip_on_frontend
@@ -288,10 +288,12 @@ class BenchDockerOps:
         frappe_bench_dir.mkdir(parents=True, exist_ok=True)
 
         (frappe_bench_dir / "sites").mkdir(parents=True, exist_ok=True)
-        (frappe_bench_dir / "apps").mkdir(parents=True, exist_ok=True)
         (frappe_bench_dir / "logs").mkdir(parents=True, exist_ok=True)
         (frappe_bench_dir / "config").mkdir(parents=True, exist_ok=True)
         (frappe_bench_dir / "config" / "pids").mkdir(parents=True, exist_ok=True)
+        # Image runtime ships app code in the image; the host has no bind-mounted apps/.
+        if self.config.runtime != BenchRuntime.image:
+            (frappe_bench_dir / "apps").mkdir(parents=True, exist_ok=True)
 
         apps_txt = frappe_bench_dir / "sites" / "apps.txt"
         if not apps_txt.exists():

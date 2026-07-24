@@ -270,6 +270,7 @@ class BenchWorkerCoordinator:
         setup_supervisor: bool = True,
         include_default_workers: bool = True,
         include_custom_workers: bool = True,
+        start: bool = True,
     ):
         """
         Synchronize workers compose file and optionally setup supervisor.
@@ -298,7 +299,7 @@ class BenchWorkerCoordinator:
             include_custom_workers=include_custom_workers,
         )
 
-        if start_required:
+        if start_required and start:
             self.workers.docker_client.compose.up(
                 services=[],
                 detach=True,

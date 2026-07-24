@@ -586,6 +586,7 @@ class Bench:
         setup_supervisor: bool = True,
         include_default_workers: bool = True,
         include_custom_workers: bool = True,
+        start: bool = True,
     ):
         extra = {
             "operation": "workers_sync_compose",
@@ -600,6 +601,7 @@ class Bench:
                 setup_supervisor=setup_supervisor,
                 include_default_workers=include_default_workers,
                 include_custom_workers=include_custom_workers,
+                start=start,
             )
             self.logger.info(f"Workers compose synced for bench: {self.name}", extra_fields=extra)
         except Exception as e:

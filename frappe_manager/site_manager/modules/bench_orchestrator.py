@@ -319,7 +319,11 @@ class BenchOrchestrator:
         bench = self.bench
 
         self.output.change_head("Configuring bench workers")
-        bench.sync_workers_compose(force_recreate=True, setup_supervisor=False)
+        bench.sync_workers_compose(
+            force_recreate=True,
+            setup_supervisor=False,
+            start=bench.bench_config.runtime != BenchRuntime.image,
+        )
         self.output.print("Configured bench workers")
 
         from datetime import datetime
