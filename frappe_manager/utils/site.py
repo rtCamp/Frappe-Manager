@@ -6,7 +6,7 @@ from pathlib import Path
 from rich.table import Table
 
 from frappe_manager import CLI_BENCHES_DIRECTORY
-from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
+from frappe_manager.docker import DOCKER_LINE_NOISE, DockerVolumeMount, DockerVolumeType
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchException
 
@@ -313,7 +313,7 @@ def pull_docker_images() -> bool:
         output.change_head(status, style=None)
         try:
             pull_output = docker.pull(container_name=image, stream=True)
-            output.live_lines(pull_output, padding=(0, 0, 0, 2))
+            output.live_lines(pull_output, padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE)
         except DockerException as e:
             no_error = False
             output.error(f"[fm.error]Error [/fm.error]: Failed to pull {image}", e)

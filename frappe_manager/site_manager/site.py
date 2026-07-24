@@ -9,7 +9,7 @@ from frappe_manager import (
     CLI_BENCHES_DIRECTORY,
     SiteServicesEnum,
 )
-from frappe_manager.docker import ComposeFile, DockerClient, DockerException
+from frappe_manager.docker import DOCKER_LINE_NOISE, ComposeFile, DockerClient, DockerException
 from frappe_manager.logger import ContextualLogger
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.output_manager import OutputHandler
@@ -516,7 +516,7 @@ class Bench:
         if self.workers.compose_file_manager.exists():
             self.output.change_head("Removing bench workers containers")
             output = self.workers.docker_client.compose.down(remove_orphans=True, volumes=True, timeout=5, stream=True)
-            self.output.live_lines(cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2))
+            self.output.live_lines(cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE)
             self.output.print("Removed bench workers containers")
         else:
             self.output.warning("Bench workers compose file not found. Skipping containers removal.")
@@ -806,7 +806,6 @@ class Bench:
                 self.handle_frappe_server_file_logs(follow=follow)
             else:
                 if not self._is_service_running(service):
-                    self.output.stop()
                     self.output.display_error(
                         f"Cannot show logs. [fm.info]{self.name}[/fm.info]'s compose service '{service}' not running!",
                     )

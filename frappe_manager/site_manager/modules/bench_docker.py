@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Literal, cast
 
 from frappe_manager import CLI_DEFAULT_DELIMETER, CLI_SERVICES_DIRECTORY
-from frappe_manager.docker import DockerClient, DockerException
+from frappe_manager.docker import DOCKER_LINE_NOISE, DockerClient, DockerException
 from frappe_manager.docker.compose_file import ComposeFile
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger.contextual import ContextualLogger
@@ -363,7 +363,7 @@ class BenchDockerOps:
                 timeout=timeout,
                 stream=True,
             )
-            self.output.live_lines(cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2))
+            self.output.live_lines(cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE)
             self.output.print("Removed bench containers")
         else:
             self.output.warning("Bench compose file not found. Skipping containers removal.")
@@ -390,7 +390,6 @@ class BenchDockerOps:
             user = "frappe"
 
         if not use_run and not self._is_service_running(compose_service):
-            self.output.stop()
             self.output.display_error(f"Cannot spawn shell. Compose service '{compose_service}' not running!")
             return
 
@@ -535,12 +534,11 @@ class BenchDockerOps:
 
         services_list = services or []
         if services_list and not self._is_service_running(services_list[0]):
-            self.output.stop()
             self.output.display_error(f"Cannot show logs. Service '{services_list[0]}' not running!")
             return
 
         output = self.docker_client.compose.logs(services=services_list, follow=follow, stream=True)
-        self.output.live_lines(cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2))
+        self.output.live_lines(cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE)
 
     def frappe_logs_till_start(self) -> None:
         """
@@ -561,6 +559,7 @@ class BenchDockerOps:
             cast("Iterator[tuple[str, bytes]]", output),
             padding=(0, 0, 0, 2),
             stop_string="INFO supervisord started with pid",
+            line_filters=DOCKER_LINE_NOISE,
         )
 
     def restart_services(self, services: list, force: bool = False) -> None:

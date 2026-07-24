@@ -5,7 +5,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel
 
-from frappe_manager.docker import ComposeFile, DockerClient, DockerException
+from frappe_manager.docker import DOCKER_LINE_NOISE, ComposeFile, DockerClient, DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
@@ -210,7 +210,7 @@ class MariaDBManager(DatabaseServiceManager):
             )
             if capture_output:
                 return output
-            self.output.live_lines(output)
+            self.output.live_lines(output, line_filters=DOCKER_LINE_NOISE)
         except DockerException as e:
             if raise_exception_obj:
                 raise raise_exception_obj

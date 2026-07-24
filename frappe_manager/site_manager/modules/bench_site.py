@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import cast
 
 from frappe_manager import CLI_DEFAULT_DELIMETER
-from frappe_manager.docker import DockerClient, DockerException
+from frappe_manager.docker import DOCKER_LINE_NOISE, DockerClient, DockerException
 from frappe_manager.docker.compose_file import ComposeFile
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger.contextual import ContextualLogger
@@ -350,7 +350,7 @@ class BenchSiteManager:
                         stream=True,
                     ),
                 )
-                self.output.live_lines(output)
+                self.output.live_lines(output, line_filters=DOCKER_LINE_NOISE)
             else:
                 exec_command = f"/bin/bash -c '{command}'"
                 if capture_output:
@@ -375,7 +375,7 @@ class BenchSiteManager:
                         stream=True,
                     ),
                 )
-                self.output.live_lines(output)
+                self.output.live_lines(output, line_filters=DOCKER_LINE_NOISE)
 
         except DockerException as e:
             if raise_exception_obj:

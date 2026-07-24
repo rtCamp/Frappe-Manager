@@ -1,5 +1,5 @@
 from frappe_manager.compose_project.exceptions import DockerComposeProjectFailedToRemoveError
-from frappe_manager.docker import ComposeFile, DockerClient, DockerComposeWrapper, DockerException
+from frappe_manager.docker import DOCKER_LINE_NOISE, ComposeFile, DockerClient, DockerComposeWrapper, DockerException
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 
@@ -58,7 +58,7 @@ class ComposeProject:
                 timeout=timeout,
                 stream=True,
             )
-            self.output.live_lines(output, padding=(0, 0, 0, 2))
+            self.output.live_lines(output, padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE)
         except DockerException as e:
             raise DockerComposeProjectFailedToRemoveError(
                 self.compose_file_manager.compose_path,

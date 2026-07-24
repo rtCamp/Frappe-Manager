@@ -328,16 +328,15 @@ def app_callback(
                     output.print("This updates CLI config and global services", emoji_code="  ")
                     output.print("", emoji_code="")
 
-                    with temporary_stop(output):
-                        infra_choice = output.prompt_ask(
-                            prompt="How would you like to proceed?",
-                            choices=[
-                                {"name": "Update now (recommended)", "value": "update"},
-                                {"name": "Update later (run 'fm migrate' when ready)", "value": "skip"},
-                            ],
-                            default="update",
-                            required_flag="'fm migrate' (run migration explicitly)",
-                        )
+                    infra_choice = output.prompt_ask(
+                        prompt="How would you like to proceed?",
+                        choices=[
+                            {"name": "Update now (recommended)", "value": "update"},
+                            {"name": "Update later (run 'fm migrate' when ready)", "value": "skip"},
+                        ],
+                        default="update",
+                        required_flag="'fm migrate' (run migration explicitly)",
+                    )
 
                     if infra_choice == "update":
                         output.print("\n🔄 Updating FM infrastructure...\n", emoji_code="")
@@ -371,19 +370,18 @@ def app_callback(
                             output.print("This may modify bench configuration and services.", emoji_code="")
                             output.print("", emoji_code="")
 
-                            with temporary_stop(output):
-                                bench_choice = output.prompt_ask(
-                                    prompt=f"Migrate bench '{bench_arg}' now?",
-                                    choices=[
-                                        {"name": "Update now", "value": "update"},
-                                        {
-                                            "name": f"Update later (run 'fm migrate {bench_arg}' when ready)",
-                                            "value": "skip",
-                                        },
-                                    ],
-                                    default="update",
-                                    required_flag=f"'fm migrate {bench_arg}' (run migration explicitly)",
-                                )
+                            bench_choice = output.prompt_ask(
+                                prompt=f"Migrate bench '{bench_arg}' now?",
+                                choices=[
+                                    {"name": "Update now", "value": "update"},
+                                    {
+                                        "name": f"Update later (run 'fm migrate {bench_arg}' when ready)",
+                                        "value": "skip",
+                                    },
+                                ],
+                                default="update",
+                                required_flag=f"'fm migrate {bench_arg}' (run migration explicitly)",
+                            )
 
                             if bench_choice == "update":
                                 output.print(f"\nMigrating bench '{bench_arg}'...\n", emoji_code="🔄 ")
@@ -426,16 +424,15 @@ def app_callback(
                     output.print("This may modify bench configuration and services.", emoji_code="")
                     output.print("", emoji_code="")
 
-                    with temporary_stop(output):
-                        bench_choice = output.prompt_ask(
-                            prompt=f"Migrate bench '{bench_arg}' now?",
-                            choices=[
-                                {"name": "Update now", "value": "update"},
-                                {"name": f"Update later (run 'fm migrate {bench_arg}' when ready)", "value": "skip"},
-                            ],
-                            default="update",
-                            required_flag=f"'fm migrate {bench_arg}' (run migration explicitly)",
-                        )
+                    bench_choice = output.prompt_ask(
+                        prompt=f"Migrate bench '{bench_arg}' now?",
+                        choices=[
+                            {"name": "Update now", "value": "update"},
+                            {"name": f"Update later (run 'fm migrate {bench_arg}' when ready)", "value": "skip"},
+                        ],
+                        default="update",
+                        required_flag=f"'fm migrate {bench_arg}' (run migration explicitly)",
+                    )
 
                     if bench_choice == "update":
                         output.print(f"\nMigrating bench '{bench_arg}'...\n", emoji_code="🔄 ")

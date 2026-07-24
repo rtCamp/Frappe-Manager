@@ -16,6 +16,7 @@ from rich.console import Console
 from rich.traceback import Traceback
 
 from frappe_manager import CLI_DEFAULT_DELIMETER, CLI_SITE_NAME_DELIMETER
+from frappe_manager.docker import DOCKER_LINE_NOISE
 from frappe_manager.logger import log
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager import PREBAKED_SITE_APPS
@@ -295,7 +296,7 @@ def install_package(package_name, version):
         stream=True,
     )
     output = get_global_output_handler()
-    output.live_lines(output_lines)
+    output.live_lines(output_lines, line_filters=DOCKER_LINE_NOISE)
 
 
 def create_class_from_dict(class_name, attributes_dict):

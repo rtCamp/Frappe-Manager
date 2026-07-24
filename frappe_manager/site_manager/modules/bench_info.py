@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING
 
 
 from frappe_manager.docker import DockerException
-from frappe_manager.output_manager import OutputHandler, temporary_stop
+from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.bench_config import BenchRuntime
 from frappe_manager.site_manager.exceptions import BenchException
@@ -310,5 +310,4 @@ class BenchInfo:
                 card.fact("tools", dots(running_bench_admin_tools))
 
         # Themed singleton console via the handler (no raw Console() bypass).
-        with temporary_stop(self.output):
-            self.output.print_data(card.render())
+        self.output.print_data(card.render())

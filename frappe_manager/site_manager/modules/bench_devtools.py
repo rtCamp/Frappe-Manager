@@ -152,7 +152,6 @@ class BenchDevTools:
         """Verify VS Code is installed and accessible."""
         vscode_path = shutil.which("code")
         if not vscode_path:
-            self.output.stop()
             self.output.display_error("Visual Studio Code binary i.e 'code' is not accessible via cli")
 
     def _get_frappe_container_name(self) -> str:

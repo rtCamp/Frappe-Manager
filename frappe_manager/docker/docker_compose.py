@@ -7,6 +7,7 @@ from pathlib import Path
 from subprocess import run
 from typing import Literal, TypeVar, cast, overload
 
+from frappe_manager.docker import DOCKER_LINE_NOISE
 from frappe_manager.output_manager.base import OutputHandler
 from frappe_manager.utils.docker import (
     SubprocessOutput,
@@ -78,7 +79,7 @@ def docker_command(
                     logger.debug("[docker_command] Entering auto-streaming mode with tee()")
                     display_iter, capture_iter = itertools.tee(iterator, 2)
                     logger.debug("[docker_command] Calling output.live_lines()")
-                    self.output.live_lines(display_iter, padding=(0, 0, 0, 2))
+                    self.output.live_lines(display_iter, padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE)
                     logger.debug("[docker_command] Converting capture_iter to SubprocessOutput")
                     result = SubprocessOutput.from_output(capture_iter)
                     logger.debug(

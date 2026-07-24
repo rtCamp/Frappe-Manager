@@ -309,7 +309,6 @@ def update(
             python_version=python_version, node_version=node_version, developer_mode=developer_mode, apps=apps
         )
     ):
-        output.stop()
         output.display_error(
             f"{bench.name} is image runtime; code, apps, Python/Node and developer mode are immutable — "
             "ship changes with 'fm deploy', or demote to an editable workspace "
@@ -358,7 +357,6 @@ def update(
             if runtime == bench.bench_config.runtime:
                 output.print(f"Bench runtime is already '{runtime.value}'")
             elif runtime == BenchRuntime.image:
-                output.stop()
                 output.display_error(
                     "mount -> image conversion runs through the deploy pipeline (it must migrate the "
                     "site onto the baked image): set runtime = 'image' and a top-level image in "
@@ -378,7 +376,6 @@ def update(
                 deploy_state = bench.bench_config.deploy_state
                 tag = deploy_state.current_tag if deploy_state else None
                 if not tag:
-                    output.stop()
                     output.display_error("No deployed tag recorded; cannot materialize the workspace.")
                     raise typer.Exit(1)
 

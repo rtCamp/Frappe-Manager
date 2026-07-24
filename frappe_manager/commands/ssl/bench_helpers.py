@@ -4,7 +4,7 @@ import typer
 from rich.table import Table
 
 from frappe_manager.logger.context import LoggerContext
-from frappe_manager.output_manager import spinner, temporary_stop
+from frappe_manager.output_manager import spinner
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
@@ -105,13 +105,12 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
     output.change_head(f"Removing SSL certificate for {domain}")
 
     if not yes:
-        with temporary_stop(output):
-            choice = output.prompt_ask(
-                prompt=f"Remove SSL certificate for {domain}?",
-                choices=["yes", "no"],
-                default="no",
-                required_flag="--yes or -y",
-            )
+        choice = output.prompt_ask(
+            prompt=f"Remove SSL certificate for {domain}?",
+            choices=["yes", "no"],
+            default="no",
+            required_flag="--yes or -y",
+        )
         if choice != "yes":
             output.print("Cancelled.", emoji_code=":x:")
             raise typer.Exit(0)
@@ -193,5 +192,4 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
 
         table.add_row(domain, ssl_type, challenge_type, status, expiry, days_left, renewal)
 
-    output.stop()
     output.print_data(table)

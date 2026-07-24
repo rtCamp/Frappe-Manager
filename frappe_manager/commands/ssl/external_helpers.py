@@ -297,13 +297,12 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, yes: bool):
     output.change_head(f"Removing SSL certificate for {domain}")
 
     if not yes:
-        with temporary_stop(output):
-            choice = output.prompt_ask(
-                prompt=f"Remove SSL certificate for {domain}?",
-                choices=["yes", "no"],
-                default="no",
-                required_flag="--yes or -y",
-            )
+        choice = output.prompt_ask(
+            prompt=f"Remove SSL certificate for {domain}?",
+            choices=["yes", "no"],
+            default="no",
+            required_flag="--yes or -y",
+        )
         if choice != "yes":
             output.print("Cancelled.", emoji_code=":x:")
             raise typer.Exit(0)
@@ -514,7 +513,6 @@ def _list_external_certificates(ctx: typer.Context):
     for domain in non_ssl_domains:
         table.add_row(domain, "none", "🔓 No SSL", "N/A", "N/A", "N/A")
 
-    output.stop()
     output.print_data(table)
 
     if non_ssl_domains:

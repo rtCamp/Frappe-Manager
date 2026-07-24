@@ -54,3 +54,33 @@ def test_live_lines_propagates_keyboard_interrupt():
 
     with pytest.raises(KeyboardInterrupt):
         handler.live_lines(stream())
+
+
+def _mock_inquirer(monkeypatch, answer: str = "x"):
+    from types import SimpleNamespace
+
+    from InquirerPy import inquirer
+
+    stub = lambda **kw: SimpleNamespace(execute=lambda: answer)  # noqa: E731
+    monkeypatch.setattr(inquirer, "text", stub)
+    monkeypatch.setattr(inquirer, "select", stub)
+
+
+def test_prompt_with_no_spinner_does_not_leak_one(monkeypatch):
+    handler = _handler(interactive=True)
+    handler.live = MagicMock()
+    _mock_inquirer(monkeypatch)
+    assert not handler.is_spinner_active
+    assert handler.prompt_ask("question?") == "x"
+    assert not handler.is_spinner_active  # resume is conditional: nothing born
+    handler.live.stop.assert_not_called()  # and nothing paused
+
+
+def test_prompt_resumes_active_spinner_with_original_text(monkeypatch):
+    handler = _handler(interactive=True)
+    handler.live = MagicMock()
+    _mock_inquirer(monkeypatch)
+    handler.start("Deploying bench")
+    assert handler.prompt_ask("question?") == "x"
+    assert handler.is_spinner_active
+    assert handler._current_text == "Deploying bench"  # not "Working"

@@ -14,7 +14,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import cast
 
-from frappe_manager.docker import DockerClient, DockerException
+from frappe_manager.docker import DOCKER_LINE_NOISE, DockerClient, DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager import OutputHandler
@@ -1043,7 +1043,7 @@ fi
                         stream=True,
                     ),
                 )
-                self.output.live_lines(output)
+                self.output.live_lines(output, line_filters=DOCKER_LINE_NOISE)
             else:
                 exec_command = f"/bin/bash -c '{command}'"
                 if capture_output:
@@ -1069,7 +1069,7 @@ fi
                         stream=True,
                     ),
                 )
-                self.output.live_lines(output)
+                self.output.live_lines(output, line_filters=DOCKER_LINE_NOISE)
 
         except DockerException as e:
             if raise_exception_obj:
@@ -1151,5 +1151,5 @@ fi
         if capture_output:
             return self._filter_docker_warnings(cast("SubprocessOutput", result))
 
-        self.output.live_lines(cast("Iterator[tuple[str, bytes]]", result))
+        self.output.live_lines(cast("Iterator[tuple[str, bytes]]", result), line_filters=DOCKER_LINE_NOISE)
         return None

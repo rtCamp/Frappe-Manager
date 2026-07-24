@@ -461,9 +461,13 @@ class RichOutputHandler(OutputHandler):
             from InquirerPy import inquirer
             from InquirerPy.utils import InquirerPyStyle
 
+            # Pause the live region only if WE own an active spinner; resume is
+            # symmetric -- a prompt with no spinner running must not birth one.
+            was_active = self._spinner_active
             resume_text = self._current_text or "Working"
             self.spinner.update()
-            self.live.stop()
+            if was_active:
+                self.live.stop()
 
             custom_style = InquirerPyStyle(
                 {
@@ -496,7 +500,8 @@ class RichOutputHandler(OutputHandler):
                     style=custom_style,
                 ).execute()
 
-            self.start(resume_text)
+            if was_active:
+                self.start(resume_text)
             return value
         if choices:
             choices_str = "/".join(str(c) for c in choices)
@@ -547,9 +552,13 @@ class RichOutputHandler(OutputHandler):
         if self._is_interactive:
             from InquirerPy import inquirer
 
+            # Pause the live region only if WE own an active spinner; resume is
+            # symmetric -- a prompt with no spinner running must not birth one.
+            was_active = self._spinner_active
             resume_text = self._current_text or "Working"
             self.spinner.update()
-            self.live.stop()
+            if was_active:
+                self.live.stop()
 
             qmark = kwargs.pop("qmark", "🤔")
             amark = kwargs.pop("amark", "🤔")
@@ -566,7 +575,8 @@ class RichOutputHandler(OutputHandler):
                 **kwargs,
             ).execute()
 
-            self.start(resume_text)
+            if was_active:
+                self.start(resume_text)
             return value
         raise NonInteractiveError(
             f"Cannot prompt in non-interactive mode: {prompt}",
