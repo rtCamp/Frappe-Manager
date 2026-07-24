@@ -208,6 +208,16 @@ def app_callback(
             fm_config_manager: FMConfigManager = FMConfigManager.import_from_toml()
             file_level = fm_config_manager.logs.file_level
 
+            # Theme (colors) + style (layout) from config; env FM_THEME/FM_STYLE win.
+            from frappe_manager.output_manager.style import set_output_style
+            from frappe_manager.output_manager.theme import apply_output_theme
+
+            try:
+                apply_output_theme(fm_config_manager.output.theme, fm_config_manager.output.colors)
+                set_output_style(fm_config_manager.output.style)
+            except Exception as e:  # cosmetic subsystem: warn + defaults, never block commands
+                output.warning(f"Output theme/style config: {e} -- using defaults.")
+
             logger = log.get_logger(console_level=console_level, file_level=file_level)
 
             contextual_logger.logger = logger

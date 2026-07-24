@@ -104,6 +104,34 @@ class FMLogsConfig(BaseModel):
         return cls(**toml_doc)
 
 
+class FMOutputConfig(BaseModel):
+    """Terminal output appearance: color THEME + layout STYLE + token overrides."""
+
+    theme: str = Field(
+        default="default",
+        description="Output color theme: default, mono (color-blind safe), high-contrast. Env: FM_THEME.",
+    )
+    style: str = Field(
+        default="rail",
+        description="Output layout style: rail, box, flat, ascii. Env: FM_STYLE.",
+    )
+    colors: dict[str, str] = Field(
+        default={},
+        description="Per-token style overrides, e.g. 'fm.env.prod' = 'bold magenta'.",
+    )
+
+    def get_toml_doc(self):
+        model_dict = self.model_dump(exclude_none=True)
+        toml_doc = tomlkit.document()
+        for key, value in model_dict.items():
+            toml_doc[key] = value
+        return toml_doc
+
+    @classmethod
+    def import_from_toml_doc(cls, toml_doc):
+        return cls(**toml_doc)
+
+
 class FMNetworkConfig(BaseModel):
     """Network configuration for the global frontend network."""
 
@@ -129,6 +157,7 @@ class FMConfigManager(BaseModel):
     validation: FMValidationConfig = Field(default=FMValidationConfig())
     logs: FMLogsConfig = Field(default=FMLogsConfig())
     network: FMNetworkConfig = Field(default=FMNetworkConfig())
+    output: FMOutputConfig = Field(default=FMOutputConfig())
 
     def __init__(self, **data):
         super().__init__(**data)
@@ -201,6 +230,7 @@ class FMConfigManager(BaseModel):
         input_data["validation"] = FMValidationConfig()
         input_data["logs"] = FMLogsConfig()
         input_data["network"] = FMNetworkConfig()
+        input_data["output"] = FMOutputConfig()
 
         raw_config_data = {}
 
@@ -221,6 +251,9 @@ class FMConfigManager(BaseModel):
 
             if "network" in data:
                 input_data["network"] = FMNetworkConfig(**data["network"])
+
+            if "output" in data:
+                input_data["output"] = FMOutputConfig(**data["output"])
 
             if "migration_state" in data:
                 import json

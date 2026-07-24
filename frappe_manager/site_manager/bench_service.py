@@ -293,42 +293,35 @@ class BenchService:
             )
             return None
 
-        from rich.console import Group
-
         from frappe_manager.output_manager import railcard
 
-        blocks: list = []
+        items: list[railcard.Card] = []
         for row in rows:
             if row.get("error"):
-                self.output.warning(f"[red][bold]{row['name']}[/bold][/red] : {row['error']}")
+                self.output.warning(f"[fm.error][fm.name]{row['name']}[/fm.name][/fm.error] : {row['error']}")
                 continue
 
             active = row["status"] == "active"
-            env = f"[red]{row['environment']}[/red]" if row["environment"] == "prod" else row["environment"]
-            # Status as TEXT, color only as enhancement (color-blind safe).
-            status_word = "[green]running[/green]" if active else "[red]stopped[/red]"
-            meta = f"{status_word} [dim]· {row['runtime']} ·[/dim] {env}[dim] · restart:{row['restart_policy']}[/dim]"
-            blocks.append(railcard.headline(row["name"], meta, active, link=f"http://{row['name']}"))
-
-            def fact(label: str, value: str, active: bool = active) -> str:
-                return railcard.fact(label, value, active)
-
-            blocks.append(fact("apps", ", ".join(row["apps"]) or "-"))
+            card = railcard.Card(
+                row["name"],
+                railcard.bench_meta(active, row["runtime"], row["environment"], row["restart_policy"]),
+                active,
+                link=f"http://{row['name']}",
+            )
+            card.fact("apps", ", ".join(row["apps"]) or "-")
             if row["deployed_tag"]:
-                blocks.append(fact("tag", row["deployed_tag"]))
+                card.fact("tag", row["deployed_tag"])
             if row["base_image"]:
-                blocks.append(fact("base", row["base_image"]))
+                card.fact("base", row["base_image"])
             if row["seed_image"]:
-                blocks.append(fact("seeded", row["seed_image"]))
+                card.fact("seeded", row["seed_image"])
             if row["alias_domains"]:
-                blocks.append(fact("domains", ", ".join(row["alias_domains"])))
-            blocks.append(fact("dir", f"[dim]{row['path']}[/dim]"))
-            blocks.append(" ")
+                card.fact("domains", ", ".join(row["alias_domains"]))
+            card.fact("dir", f"[fm.muted]{row['path']}[/fm.muted]")
+            items.append(card)
 
         self.output.stop()
-        if blocks and blocks[-1] == " ":
-            blocks.pop()  # no trailing blank line
-        return Group(*blocks)
+        return railcard.cards(items)
 
     def _create_cleanup_bench(self, bench_name: str) -> Bench:
         """

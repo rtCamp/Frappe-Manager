@@ -28,6 +28,23 @@ def cli_entrypoint():
     basic_handler = RichOutputHandler()
     set_global_output_handler(basic_handler)
 
+    # Apply output theme/style early (env/default) so even pre-config output is
+    # themed; re-applied with fm_config values in app_callback.
+    from frappe_manager.output_manager.style import set_output_style
+    from frappe_manager.output_manager.theme import apply_output_theme
+
+    try:
+        apply_output_theme()
+        set_output_style()
+    except Exception as e:  # cosmetic subsystem: NEVER brick the CLI
+        basic_handler.warning(f"Output theme/style: {e} -- using defaults.")
+        import os
+
+        os.environ.pop("FM_THEME", None)
+        os.environ.pop("FM_STYLE", None)
+        apply_output_theme()
+        set_output_style()
+
     try:
         app()
     except FrappeManagerException as e:

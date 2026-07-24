@@ -12,7 +12,6 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from rich.console import Console
 
 from frappe_manager.docker import DockerException
 from frappe_manager.output_manager import OutputHandler, temporary_stop
@@ -186,12 +185,10 @@ class BenchInfo:
     def display_info(self) -> None:
         """Render the bench detail card.
 
-        Same grammar as the ``fm list`` cards (``output_manager.railcard``):
-        this is the list card EXPANDED with site / runtime / access / services
-        sections, so both views read as one product.
+        Same grammar as ``fm list`` (``output_manager.railcard.Card``): the
+        list card EXPANDED with site / runtime / access / services sections.
+        Layout comes from the active STYLE, colors from the THEME tokens.
         """
-        from rich.console import Group
-
         from frappe_manager.output_manager import railcard
 
         self.output.change_head("Getting bench info")
@@ -207,86 +204,79 @@ class BenchInfo:
         if "admin_password" in site_config:
             admin_pass = site_config["admin_password"]
 
-        env_value = config.environment_type.value
-        env = f"[red]{env_value}[/red]" if env_value == "prod" else env_value
-        # Status as TEXT, color only as enhancement (color-blind safe).
-        status_word = "[green]running[/green]" if active else "[red]stopped[/red]"
-        meta = f"{status_word} [dim]· {config.runtime.value} ·[/dim] {env}[dim] · restart:{config.restart_policy.value}[/dim]"
-        blocks: list = [railcard.headline(self.bench_name, meta, active, link=f"{protocol}://{self.bench_name}")]
-
-        def fact(label: str, value: str) -> str:
-            return railcard.fact(label, value, active)
+        card = railcard.Card(
+            self.bench_name,
+            railcard.bench_meta(active, config.runtime.value, config.environment_type.value, config.restart_policy.value),
+            active,
+            link=f"{protocol}://{self.bench_name}",
+        )
 
         # ---- site
-        blocks += railcard.section("site", active)
-        blocks.append(fact("url", f"{protocol}://{self.bench_name}"))
+        card.section("site")
+        card.fact("url", f"{protocol}://{self.bench_name}")
         if self.has_certificate():
             ssl_cert = config.get_primary_certificate()
             ssl_service_type = f"{ssl_cert.ssl_type.value}"
             if ssl_cert.ssl_type == SUPPORTED_SSL_TYPES.le and isinstance(ssl_cert, LetsencryptSSLCertificate):
                 ssl_service_type = f"[{ssl_cert.challenge_type.value}] {ssl_cert.ssl_type.value}"
             remaining = format_ssl_certificate_time_remaining(self.certificate_manager.get_certificate_expiry())
-            blocks.append(fact("https", f"{ssl_service_type.upper()} [dim]·[/dim] {remaining}"))
+            card.fact("https", f"{ssl_service_type.upper()} [fm.muted]·[/fm.muted] {remaining}")
         else:
-            blocks.append(fact("https", "[dim]not enabled[/dim]"))
+            card.fact("https", "[fm.muted]not enabled[/fm.muted]")
         if config.alias_domains:
-            blocks.append(fact("domains", ", ".join(sorted(config.alias_domains))))
+            card.fact("domains", ", ".join(sorted(config.alias_domains)))
         abs_path = self.bench_path.absolute()
-        blocks.append(fact("dir", f"[dim][link=file://{abs_path}]{abs_path}[/link][/dim]"))
+        card.fact("dir", f"[fm.muted][link=file://{abs_path}]{abs_path}[/link][/fm.muted]")
 
         # ---- runtime
-        blocks += railcard.section("runtime", active)
-        blocks.append(fact("python", str(self.get_python_version())))
-        blocks.append(fact("node", str(self.get_node_version())))
+        card.section("runtime")
+        card.fact("python", str(self.get_python_version()))
+        card.fact("node", str(self.get_node_version()))
         # Apps: name + ref (branch/tag) + commit. Git-derived; image mode reads labels.
         for i, app in enumerate(self.get_bench_apps() or []):
             label = "apps" if i == 0 else ""
             ref = app.get("ref") or "—"
             commit = app.get("commit") or ""
-            blocks.append(fact(label, f"{app.get('name', '?')}  [dim]{ref}  {commit}[/dim]"))
+            card.fact(label, f"{app.get('name', '?')}  [fm.muted]{ref}  {commit}[/fm.muted]")
         if config.runtime == BenchRuntime.image:
             deploy_state = config.deploy_state
             tag = deploy_state.current_tag if deploy_state and deploy_state.current_tag else None
-            blocks.append(fact("tag", tag or "[dim]N/A (not yet deployed)[/dim]"))
+            card.fact("tag", tag or "[fm.muted]N/A (not yet deployed)[/fm.muted]")
             if deploy_state and deploy_state.previous_tag:
-                blocks.append(fact("previous", deploy_state.previous_tag))
+                card.fact("previous", deploy_state.previous_tag)
             if deploy_state and deploy_state.last_deploy_at:
-                blocks.append(fact("deployed", str(deploy_state.last_deploy_at)))
+                card.fact("deployed", str(deploy_state.last_deploy_at))
         else:
             if config.base_image:
-                blocks.append(fact("base", config.base_image))
+                card.fact("base", config.base_image)
             if config.seed_image:
-                blocks.append(fact("seeded", config.seed_image))
+                card.fact("seeded", config.seed_image)
 
         # ---- access
-        blocks += railcard.section("access", active)
-        blocks.append(fact("frappe", f"administrator [dim]/[/dim] {admin_pass}"))
+        card.section("access")
+        card.fact("frappe", f"administrator [fm.muted]/[/fm.muted] {admin_pass}")
         db_name = bench_db_info.get("name", "N/A")
         db_pass = bench_db_info.get("password", "N/A")
-        blocks.append(fact("db", f"{db_name} [dim]/[/dim] {db_pass}"))
-        blocks.append(
-            fact("root db", f"{services_db_info.user} [dim]/[/dim] {services_db_info.password} [dim]@[/dim] {services_db_info.host}")
+        card.fact("db", f"{db_name} [fm.muted]/[/fm.muted] [fm.secret]{db_pass}[/fm.secret]")
+        card.fact(
+            "root db",
+            f"{services_db_info.user} [fm.muted]/[/fm.muted] [fm.secret]{services_db_info.password}[/fm.secret] "
+            f"[fm.muted]@[/fm.muted] {services_db_info.host}",
         )
         if config.admin_tools:
             username = config.admin_tools_username or "admin"
             password = config.admin_tools_password or "protected"
-            blocks.append(
-                fact(
-                    "tools",
-                    f"{protocol}://{self.bench_name}/mailpit [dim]·[/dim] {protocol}://{self.bench_name}/adminer"
-                    f"  [dim]({username} / {password})[/dim]",
-                )
+            card.fact(
+                "tools",
+                f"{protocol}://{self.bench_name}/mailpit [fm.muted]·[/fm.muted] {protocol}://{self.bench_name}/adminer"
+                f"  [fm.muted]({username} / {password})[/fm.muted]",
             )
         else:
-            blocks.append(fact("tools", "[dim]not enabled[/dim]"))
+            card.fact("tools", "[fm.muted]not enabled[/fm.muted]")
 
         # ---- services (live container state)
         def dots(statuses: dict) -> str:
-            parts = []
-            for svc, state in sorted(statuses.items()):
-                dot = "[green]●[/green]" if state == "running" else f"[red]●[/red] [dim]{state}:[/dim]"
-                parts.append(f"{dot} {svc}")
-            return "   ".join(parts)
+            return "   ".join(f"{railcard.status_dot(state)} {svc}" for svc, state in sorted(statuses.items()))
 
         running_bench_services = self.get_services_running_status()
 
@@ -311,14 +301,14 @@ class BenchInfo:
                 running_bench_admin_tools = {}
 
         if running_bench_services or running_bench_workers or running_bench_admin_tools:
-            blocks += railcard.section("services", active)
+            card.section("services")
             if running_bench_services:
-                blocks.append(fact("bench", dots(running_bench_services)))
+                card.fact("bench", dots(running_bench_services))
             if running_bench_workers:
-                blocks.append(fact("workers", dots(running_bench_workers)))
+                card.fact("workers", dots(running_bench_workers))
             if running_bench_admin_tools:
-                blocks.append(fact("tools", dots(running_bench_admin_tools)))
+                card.fact("tools", dots(running_bench_admin_tools))
 
-        # Stop spinner temporarily to print without corruption
+        # Themed singleton console via the handler (no raw Console() bypass).
         with temporary_stop(self.output):
-            Console().print(Group(*blocks))
+            self.output.print_data(card.render())

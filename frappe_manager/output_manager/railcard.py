@@ -1,40 +1,124 @@
-"""Rail-card rendering grammar shared by ``fm list`` and ``fm info``.
+"""Card component shared by ``fm list`` and ``fm info``.
 
-One visual language across the inventory and detail views: a status-colored
-left rail (green heavy bar = active, dim light bar = inactive), a bold
-headline (name + dim meta), and dim right-padded fact labels. ``fm list``
-renders collapsed cards; ``fm info`` renders the same card expanded with
-sections. Machine escape hatches (``--json``/``--paths``) bypass this
-entirely.
+Views declare content (headline, facts, sections); rendering is decided by
+the active STYLE profile (``output_manager.style``: rail / box / flat /
+ascii) and colored by the semantic THEME tokens (``output_manager.theme``).
+Views never hardcode glyphs, layout, or colors.
+
+``fm list`` renders collapsed cards; ``fm info`` the same card expanded with
+sections -- one grammar, one product. State is always carried by TEXT
+(e.g. ``running``/``stopped``); tokens only enhance it (mono-theme safe).
 """
 
-_LABEL_WIDTH = 9
+from dataclasses import dataclass, field
+
+from rich.console import Group, RenderableType
+
+from frappe_manager.output_manager.style import get_output_style
 
 
-def rail(active: bool) -> str:
-    return "[green]┃[/green]" if active else "[dim]│[/dim]"
+@dataclass
+class Card:
+    """A bench (or any entity) card: headline + labeled facts + sections."""
+
+    name: str
+    meta: str
+    active: bool = True
+    link: str | None = None
+    _rows: list[tuple[str, str, str]] = field(default_factory=list)  # (kind, label, value)
+
+    def fact(self, label: str, value: str) -> "Card":
+        self._rows.append(("fact", label, value))
+        return self
+
+    def section(self, title: str) -> "Card":
+        self._rows.append(("section", title, ""))
+        return self
+
+    # ---------------------------------------------------------------- render
+
+    def _headline(self) -> str:
+        name_markup = f"[link={self.link}]{self.name}[/link]" if self.link else self.name
+        token = "fm.name" if self.active else "fm.name.inactive"
+        return f"[{token}]{name_markup}[/{token}]   {self.meta}"
+
+    def _fact_line(self, label: str, value: str, prefix: str) -> str:
+        width = get_output_style().label_width
+        return f"{prefix}[fm.label]{label:<{width}}[/fm.label] {value}"
+
+    def __rich__(self) -> RenderableType:
+        return self.render()
+
+    def render(self) -> RenderableType:
+        style = get_output_style()
+        if style.card == "box":
+            return self._render_box(style)
+        return self._render_rail(style)  # "rail" and "flat" share the line layout
+
+    def _render_rail(self, style) -> RenderableType:
+        rail_token = "fm.rail.active" if self.active else "fm.rail.inactive"
+        glyph = style.rail_active if self.active else style.rail_inactive
+        rail = f"[{rail_token}]{glyph}[/{rail_token}] " if glyph else "  "
+        lines: list[str] = [self._headline()]
+        for kind, label, value in self._rows:
+            if kind == "section":
+                lines.append(rail.rstrip())
+                lines.append(f"{rail}[fm.section]{label}[/fm.section]")
+            else:
+                lines.append(self._fact_line(label, value, f"{rail}  "))
+        return Group(*lines)
+
+    def _render_box(self, style) -> RenderableType:
+        from rich import box as rich_box
+        from rich.panel import Panel
+
+        lines: list[str] = []
+        for kind, label, value in self._rows:
+            if kind == "section":
+                if lines:
+                    lines.append("")
+                lines.append(f"[fm.section]{label}[/fm.section]")
+            else:
+                lines.append(self._fact_line(label, value, ""))
+        border = "fm.rail.active" if self.active else "fm.rail.inactive"
+        return Panel(
+            Group(*lines),
+            title=self._headline(),
+            title_align="left",
+            border_style=border,
+            box=rich_box.ROUNDED,
+            expand=False,
+            padding=(0, 1),
+        )
 
 
-def headline(name: str, meta: str, active: bool, link: str | None = None) -> str:
-    """Card head: bare bold (linked) name + caller-marked meta.
-
-    No rail on the headline -- the rail hangs BELOW it (from the fact lines),
-    so the card reads as a title generating its own line.
-    """
-    name_markup = f"[link={link}]{name}[/link]" if link else name
-    style = "bold" if active else "bold dim"
-    return f"[{style}]{name_markup}[/{style}]   {meta}"
-
-
-def fact(label: str, value: str, active: bool) -> str:
-    """One `label  value` line under the rail; empty label continues the previous fact."""
-    return f"{rail(active)}   [dim]{label:<{_LABEL_WIDTH}}[/dim] {value}"
+def cards(items: list[Card]) -> RenderableType:
+    """Render a list of cards with style-appropriate separation."""
+    style = get_output_style()
+    blocks: list[RenderableType] = []
+    for i, card in enumerate(items):
+        if i and style.card != "box":  # panels separate themselves
+            blocks.append(" ")
+        blocks.append(card.render())
+    return Group(*blocks)
 
 
-def blank(active: bool) -> str:
-    return rail(active)
+def status_dot(state: str) -> str:
+    """Service state as dot + text (state text carries meaning; dot enhances)."""
+    style = get_output_style()
+    if state == "running":
+        return f"[fm.ok]{style.dot_ok}[/fm.ok]"
+    return f"[fm.error]{style.dot_bad}[/fm.error] [fm.muted]{state}:[/fm.muted]"
 
 
-def section(title: str, active: bool) -> list[str]:
-    """Section separator: blank rail line + dim bold title."""
-    return [blank(active), f"{rail(active)} [bold dim]{title}[/bold dim]"]
+def bench_meta(active: bool, runtime: str, environment: str, restart_policy: str) -> str:
+    """Standard bench headline meta. Status is a WORD first (text carries state;
+    tokens only enhance -- mono-theme safe)."""
+    status_token = "fm.status.running" if active else "fm.status.stopped"
+    status_word = "running" if active else "stopped"
+    env_token = "fm.env.prod" if environment == "prod" else "fm.env.dev"
+    return (
+        f"[{status_token}]{status_word}[/{status_token}]"
+        f" [fm.muted]· {runtime} ·[/fm.muted] [{env_token}]{environment}[/{env_token}]"
+        f"[fm.muted] · restart:{restart_policy}[/fm.muted]"
+    )
