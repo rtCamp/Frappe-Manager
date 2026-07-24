@@ -166,7 +166,7 @@ def test_from_image_valid_contract_passes():
 
 def test_merge_app_overrides_replaces_in_place_and_appends():
     from frappe_manager.site_manager.bench_config import AppConfig
-    from frappe_manager.site_manager.modules.bench_orchestrator import merge_app_overrides
+    from frappe_manager.site_manager.modules.bench_app import merge_app_overrides
 
     baked = [AppConfig.from_string("frappe"), AppConfig.from_string("erpnext")]
     frappe_dev = AppConfig.from_string("frappe:develop")

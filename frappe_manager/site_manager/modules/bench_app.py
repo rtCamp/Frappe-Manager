@@ -31,6 +31,20 @@ from frappe_manager.site_manager.modules.app_cloner import AppCloner, AppClonerE
 from frappe_manager.utils.docker import parameters_to_options
 
 
+
+def merge_app_overrides(current: list[AppConfig], overrides: list[AppConfig]) -> list[AppConfig]:
+    """Merge override apps into an app list by RESOLVED module name.
+
+    An override whose module name matches an existing app replaces it in place
+    (order preserved -- frappe stays first); unknown modules are appended.
+    Names must be post-clone corrected (repo ``frappe-hello-world`` -> module
+    ``frappe_hello_world``) before merging.
+    """
+    merged = {a.name: a for a in current}
+    for app in overrides:
+        merged[app.name] = app
+    return list(merged.values())
+
 class BenchAppManager:
     """
     Manages Frappe app operations within a bench.
@@ -561,6 +575,98 @@ fi
         self.output.print("Built frontend assets")
 
         return apps_config
+
+    def graft_apps(
+        self,
+        overrides: list[AppConfig],
+        stash: bool = False,
+        use_run: bool = False,
+    ) -> tuple[list[str], Path | None]:
+        """Graft app overrides onto the workspace: replace existing apps or add new ones.
+
+        Clones land in a temp dir first: the cloner skips existing paths, and an
+        app's real identity (Python module name; e.g. repo ``frappe-hello-world``
+        -> module ``frappe_hello_world``) is only known AFTER cloning. Each
+        resolved app then replaces its current copy in place or is appended as a
+        new app; ``apps.txt`` + ``bench_config.apps_list`` are merged by module
+        name; deps install into the venv; assets rebuild only for grafted apps.
+
+        ``stash=True`` (existing benches) moves replaced app code aside into a
+        timestamped stash dir instead of deleting it -- it may hold uncommitted
+        work. ``stash=False`` (fresh seeded creates) removes the replaced copy.
+
+        Returns ``(added_app_names, stash_dir)`` -- apps NOT previously in the
+        bench (callers install those to the site), and the stash dir when
+        anything was stashed.
+        """
+        import shutil
+        from datetime import UTC, datetime
+
+        from frappe_manager.site_manager.modules.app_cloner import AppCloner
+
+        apps_dir = self.frappe_bench_dir / "apps"
+        tmp_dir = apps_dir / ".fm-graft-tmp"
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        tmp_dir.mkdir(parents=True)
+
+        # apps.txt on disk is the truth for what the bench currently has --
+        # bench_config.apps_list can be stale/empty (e.g. image-created benches).
+        apps_txt = self.frappe_bench_dir / "sites" / "apps.txt"
+        current_names = (
+            [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()] if apps_txt.exists() else []
+        )
+        if not current_names:
+            current_names = [a.name for a in self.bench_config.apps_list]
+        existing = set(current_names)
+        added: list[str] = []
+        stash_dir: Path | None = None
+
+        self.output.change_head(f"Cloning {len(overrides)} override app(s)")
+        try:
+            cloner = AppCloner(
+                logger=self.logger,
+                apps_dir=tmp_dir,
+                github_token=self.bench_config.github_token,
+                output_handler=self.output,
+            )
+            cloner.clone_apps_parallel(overrides)  # corrects each AppConfig.name to the module name
+
+            for app in overrides:
+                src = tmp_dir / app.name
+                target = apps_dir / app.name
+                if app.name in existing:
+                    self.output.print(f"Replacing app {app.name} ({app.repo}:{app.ref or 'default'})")
+                else:
+                    if app.name != "frappe":  # the framework is never "installed to site"
+                        added.append(app.name)
+                    self.output.print(f"Adding app {app.name} ({app.repo}:{app.ref or 'default'})")
+                if target.exists():
+                    if stash:
+                        if stash_dir is None:
+                            ts = datetime.now(UTC).strftime('%Y%m%d%H%M%S')
+                            stash_dir = self.frappe_bench_dir / f".fm-apps-stash-{ts}"
+                            stash_dir.mkdir()
+                        shutil.move(str(target), str(stash_dir / app.name))
+                    else:
+                        shutil.rmtree(target)
+                shutil.move(str(src), str(target))
+        finally:
+            shutil.rmtree(tmp_dir, ignore_errors=True)
+
+        # apps.txt and bench_config.apps_list carry the merged truth (merge base =
+        # the on-disk names so a stale config can never clobber real apps).
+        configs = {a.name: a for a in self.bench_config.apps_list}
+        current_list = [configs.get(n, AppConfig.from_string(n)) for n in current_names]
+        self.bench_config.apps_list = merge_app_overrides(current_list, overrides)
+        apps_txt.write_text("\n".join(a.name for a in self.bench_config.apps_list) + "\n")
+
+        self.output.change_head("Installing grafted app dependencies into the venv")
+        self._install_python_deps_with_uv(overrides, use_uv=self.bench_config.use_uv, use_run=use_run)
+        self._install_node_deps(use_run=use_run)
+        self.output.change_head("Building assets for grafted apps")
+        self.build(app_list=[a.name for a in overrides], use_run=use_run)
+        self.output.print(f"Grafted app(s): {', '.join(a.name for a in overrides)}")
+        return added, stash_dir
 
     def _install_python_deps_with_uv(self, apps: list[AppConfig], use_uv: bool = True, use_run: bool = False) -> None:
         """

@@ -28,3 +28,12 @@ def test_developer_mode_enable_is_immutable():
 def test_developer_mode_disable_is_allowed():
     # Disabling writes nothing into apps/ -- fine on image benches.
     assert is_immutable_update_request(None, None, developer_mode=EnableDisableOptionsEnum.disable) is False
+
+
+def test_apps_graft_is_immutable():
+    # App grafts edit the mounted workspace, which image benches lack.
+    assert is_immutable_update_request(None, None, apps=["frappe:develop"]) is True
+
+
+def test_empty_apps_list_is_allowed():
+    assert is_immutable_update_request(None, None, apps=[]) is False

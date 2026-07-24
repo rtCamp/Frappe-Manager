@@ -23,6 +23,7 @@ from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import (
     alias_domains_validation_callback,
+    apps_list_validation_callback,
     sitename_callback,
     sites_autocompletion_callback,
 )
@@ -39,16 +40,17 @@ def is_immutable_update_request(
     python_version: str | None,
     node_version: str | None,
     developer_mode: EnableDisableOptionsEnum | None = None,
+    apps: list | None = None,
 ) -> bool:
     """True when an update requests changes that are immutable in image runtime.
 
     Image benches run a pre-built app image: Python/Node changes rebuild the venv
-    in a mounted workspace that does not exist, and developer mode would write
-    DocType/app files into the ephemeral container layer (silently lost on the
-    next deploy). Ship such changes via ``fm deploy``, or demote to an editable
-    workspace first with ``fm update <bench> --runtime mount``.
+    in a mounted workspace that does not exist, app grafts edit that workspace,
+    and developer mode would write DocType/app files into the ephemeral container
+    layer (silently lost on the next deploy). Ship such changes via ``fm deploy``,
+    or demote to an editable workspace first (``--runtime mount``).
     """
-    return bool(python_version or node_version or developer_mode == EnableDisableOptionsEnum.enable)
+    return bool(python_version or node_version or apps or developer_mode == EnableDisableOptionsEnum.enable)
 
 
 @example(
@@ -155,6 +157,19 @@ def update(
             rich_help_panel=_PANEL_RUNTIME,
         ),
     ] = None,
+    apps: Annotated[
+        list[str],
+        typer.Option(
+            "--apps",
+            "-a",
+            help="Override or add apps on the running bench (repeatable; appname:ref or org/repo:ref). "
+            "Replaces the app's code with a fresh clone (old code stashed, never deleted) or adds a "
+            "new app (installed to the site); deps reinstall, targeted asset build, then migrate.",
+            callback=apps_list_validation_callback,
+            show_default=False,
+            rich_help_panel=_PANEL_MOUNT,
+        ),
+    ] = [],
     developer_mode: Annotated[
         EnableDisableOptionsEnum | None,
         typer.Option(
@@ -286,14 +301,19 @@ def update(
     logger = ctx.obj.get("logger")
     bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
 
-    if bench.bench_config.runtime == BenchRuntime.image and is_immutable_update_request(
-        python_version=python_version, node_version=node_version, developer_mode=developer_mode
+    demoting_to_mount = runtime == BenchRuntime.mount
+    if (
+        bench.bench_config.runtime == BenchRuntime.image
+        and not demoting_to_mount  # --runtime mount in the same command: demotion runs FIRST, then these apply
+        and is_immutable_update_request(
+            python_version=python_version, node_version=node_version, developer_mode=developer_mode, apps=apps
+        )
     ):
         output.stop()
         output.display_error(
             f"{bench.name} is image runtime; code, apps, Python/Node and developer mode are immutable — "
-            "ship changes with 'fm deploy', or demote to an editable workspace first: "
-            f"fm update {bench.name} --runtime mount. "
+            "ship changes with 'fm deploy', or demote to an editable workspace "
+            f"(add --runtime mount, or run: fm update {bench.name} --runtime mount first). "
             "'fm update' on an image bench changes settings only (SSL/env/domains/policy).",
         )
         raise typer.Exit(1)
@@ -490,6 +510,25 @@ def update(
             output.change_head("Restarting frappe container to apply NewRelic changes")
             bench.docker_client.compose.up(services=["frappe"], detach=True, force_recreate=True)
             output.print("NewRelic configuration updated")
+
+        if apps:
+            from typing import cast
+
+            apps_overrides = cast("list[AppConfig]", apps)
+            added, apps_stash = bench.app_manager.graft_apps(apps_overrides, stash=True, use_run=False)
+            if apps_stash:
+                output.warning(f"Replaced app code moved to {apps_stash} -- review and delete it.")
+            for app_name in added:
+                output.change_head(f"Installing {app_name} to site")
+                bench.app_manager.install_app_to_site(app_name)
+            output.change_head("Running bench migrate")
+            migrate_cmd = " ".join(bench.app_manager.bench_cli_cmd + ["--site", bench.name, "migrate"])
+            bench.app_manager._container_run(migrate_cmd)
+            output.change_head("Restarting services to load grafted apps")
+            bench.restart_web_containers_services(use_container_restart=False)
+            bench.restart_workers_containers_services(use_container_restart=False)
+            output.print(f"Grafted apps applied: {', '.join(a.name for a in apps_overrides)}")
+            bench_config_save = True
 
         if python_version or node_version:
             frappe_app_path = bench.path / "workspace" / "frappe-bench" / "apps" / "frappe"

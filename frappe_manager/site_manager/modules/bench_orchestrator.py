@@ -32,19 +32,6 @@ if TYPE_CHECKING:
     from frappe_manager.site_manager.site import Bench
 
 
-def merge_app_overrides(current: list, overrides: list) -> list:
-    """Merge override apps into the baked app list by RESOLVED module name.
-
-    An override whose module name matches a baked app replaces it in place
-    (order preserved -- frappe stays first); unknown modules are appended.
-    Names must be post-clone corrected (repo ``frappe-hello-world`` -> module
-    ``frappe_hello_world``) before merging.
-    """
-    merged = {a.name: a for a in current}
-    for app in overrides:
-        merged[app.name] = app
-    return list(merged.values())
-
 
 class BenchOrchestrator:
     """
@@ -343,58 +330,14 @@ class BenchOrchestrator:
         bench.supervisor.setup_supervisor(bench.path, force=True, use_run=True)
 
     def _apply_seed_overrides(self, overrides: list, frappe_bench_dir, baked: list[str]) -> None:
-        """Clone ``--apps`` overrides and graft them onto the seeded workspace.
+        """Graft ``--apps`` overrides onto the seeded workspace.
 
-        Clones land in a temp dir first: the cloner skips existing paths, and an
-        app's real identity (Python module name; e.g. repo ``frappe-hello-world``
-        -> module ``frappe_hello_world``) is only known AFTER cloning. Each
-        resolved app then replaces its baked copy (same position) or is appended
-        as a new app; deps install into the seeded venv; assets rebuild only for
-        the grafted apps.
+        Delegates to :meth:`BenchAppManager.graft_apps` (shared with
+        ``fm update --apps``). Fresh bench: replaced baked copies are removed,
+        not stashed. Added apps need no site handling here -- phase 6 installs
+        every app in ``apps_list`` to the new site.
         """
-        import shutil
-
-        from frappe_manager.site_manager.modules.app_cloner import AppCloner
-
-        bench = self.bench
-        apps_dir = frappe_bench_dir / "apps"
-        tmp_dir = apps_dir / ".fm-seed-overrides"
-        shutil.rmtree(tmp_dir, ignore_errors=True)
-        tmp_dir.mkdir(parents=True)
-
-        self.output.change_head(f"Cloning {len(overrides)} override app(s)")
-        try:
-            cloner = AppCloner(
-                logger=self.logger,
-                apps_dir=tmp_dir,
-                github_token=bench.bench_config.github_token,
-                output_handler=self.output,
-            )
-            cloner.clone_apps_parallel(overrides)  # corrects each AppConfig.name to the module name
-
-            for app in overrides:
-                src = tmp_dir / app.name
-                target = apps_dir / app.name
-                verb = "Replacing baked" if app.name in baked else "Adding"
-                self.output.print(f"{verb} app {app.name} ({app.repo}:{app.ref or 'default'})")
-                if target.exists():
-                    shutil.rmtree(target)
-                shutil.move(str(src), str(target))
-        finally:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
-
-        # Merge by resolved module name: replace in place (baked order, frappe
-        # first) or append; apps.txt and bench_config.apps_list carry the truth.
-        bench.bench_config.apps_list = merge_app_overrides(bench.bench_config.apps_list, overrides)
-        apps_txt = frappe_bench_dir / "sites" / "apps.txt"
-        apps_txt.write_text("\n".join(a.name for a in bench.bench_config.apps_list) + "\n")
-
-        self.output.change_head("Installing override app dependencies into the seeded venv")
-        bench.app_manager._install_python_deps_with_uv(overrides, use_uv=bench.bench_config.use_uv, use_run=True)
-        bench.app_manager._install_node_deps(use_run=True)
-        self.output.change_head("Building assets for override apps")
-        bench.app_manager.build(app_list=[a.name for a in overrides], use_run=True)
-        self.output.print(f"Applied override app(s): {', '.join(a.name for a in overrides)}")
+        self.bench.app_manager.graft_apps(overrides, stash=False, use_run=True)
 
     def _phase3_start_and_verify_bench(self) -> None:
         """Phase 3: Start containers and verify bench server responding"""
