@@ -21,7 +21,7 @@ import time
 from datetime import UTC, datetime
 from pathlib import Path
 
-from frappe_manager.docker import DockerException, DockerVolumeMount, DockerVolumeType
+from frappe_manager.docker import DockerException
 from frappe_manager.logger import log
 from frappe_manager.logger.context import LoggerContext
 from frappe_manager.logger.contextual import ContextualLogger
@@ -68,45 +68,28 @@ def rolling_eligible(
     return migrate is False or maintenance_mode_phases == []
 
 
-def _apply_image_mounts(compose_file_manager, site: str, services: list[str]) -> None:
-    """On the first conversion (from the mount template) replace the wholesale
-    ``./workspace:/workspace`` bind on ``services`` with data-only binds so the
-    immutable image's baked code/assets are not shadowed. Once a service is already
-    data-only its volumes are left untouched, so re-pins (deploy/rollback) change ONLY
-    the image tag and any user-added mounts are preserved."""
-    compose_path = compose_file_manager.compose_path
-    sites_rel = "./workspace/frappe-bench/sites"
-    specs = [
-        (f"{sites_rel}/{site}", f"/workspace/frappe-bench/sites/{site}"),
-        (f"{sites_rel}/common_site_config.json", "/workspace/frappe-bench/sites/common_site_config.json"),
-        (f"{sites_rel}/apps.txt", "/workspace/frappe-bench/sites/apps.txt"),
-        ("./workspace/frappe-bench/logs", "/workspace/frappe-bench/logs"),
-        ("./workspace/frappe-bench/config", "/workspace/frappe-bench/config"),
-    ]
-    for svc in services:
-        existing = compose_file_manager.get_service_volumes(svc)
-        if not any(str(v.container) == "/workspace" for v in existing):
-            continue  # already data-only: leave volumes (and user mounts) as-is
-        kept = [v for v in existing if str(v.container) != "/workspace"]
-        data = [
-            DockerVolumeMount(host=h, container=c, type=DockerVolumeType.bind, compose_path=compose_path)
-            for h, c in specs
-        ]
-        compose_file_manager.set_service_volumes(svc, kept + data)
-
-
 def pin_workers_to_image(workers, site: str, deploy_tag: str) -> None:
-    """Pin the workers compose services to ``deploy_tag`` and swap in data-only
-    image mounts. No-op when the bench has no workers compose."""
+    """Pin the workers compose to ``deploy_tag`` with image-mode data binds.
+
+    Thin delegator over the compose_shape projection -- the same specs the
+    workers' own generate_compose uses, with ``deploy_tag`` as the candidate
+    tag. No-op when the bench has no workers compose. Idempotent; user extras
+    (override.yml / non-managed mounts) pass through untouched.
+    """
+    from frappe_manager.site_manager.modules.compose_shape import (
+        RenderContext,
+        apply_specs,
+        worker_service_specs,
+    )
+
     if not workers.compose_path.exists():
         return
     cfm = workers.compose_file_manager
     svcs = cfm.get_services_list()
     if not svcs:
         return
-    repo, _, tagpart = deploy_tag.rpartition(":")
-    cfm.set_all_images({svc: {"name": repo, "tag": tagpart} for svc in svcs})
-    _apply_image_mounts(cfm, site, svcs)
+    specs = worker_service_specs(workers.bench.bench_config, svcs, RenderContext(deploy_tag=deploy_tag))
+    apply_specs(cfm, specs, site)
     cfm.write_to_file()
 
 

@@ -146,11 +146,10 @@ class BenchOrchestrator:
         """Bootstrap an image-mode bench from a pre-built app image.
 
         No provisioning: the image already carries app code, Python/Node and
-        baked assets. Renders an image-pinned compose, creates the site, installs
-        the image's baked apps into it, and pins the workers to the same image.
+        baked assets. Phase 1/5 generation projects the image shape (compose_shape),
+        so this path only creates the site and installs the image's baked apps.
         """
         from frappe_manager.site_manager.bench_config import AppConfig
-        from frappe_manager.site_manager.modules.deploy_orchestrator import pin_workers_to_image
         from frappe_manager.site_manager.modules.transport import fetch_image
         from frappe_manager.utils.docker import host_run_cp
 
@@ -173,11 +172,10 @@ class BenchOrchestrator:
         baked = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
         bench.bench_config.apps_list = [AppConfig.from_string(n) for n in baked]
 
-        # Pin the bench compose to the image. Pre-create the site dir (frappe-owned) so the
-        # per-site bind isn't auto-created root-owned by `compose up`; new-site --force then
-        # populates that existing empty dir.
+        # Pre-create the site dir (frappe-owned) so the per-site bind isn't auto-created
+        # root-owned by `compose up`; new-site --force then populates that existing empty
+        # dir. (The compose was already projected to the image shape in phase 1.)
         (bench.path / "workspace" / "frappe-bench" / "sites" / bench.name).mkdir(parents=True, exist_ok=True)
-        bench.docker_ops.render_image_compose(tag)
         self._phase3_start_and_verify_bench()
         self._phase4_create_site(force=True)
 
@@ -185,8 +183,7 @@ class BenchOrchestrator:
 
         self._phase5_finalize()
 
-        # Workers must run the app image (with baked apps), not the base fm image.
-        pin_workers_to_image(bench.workers, bench.name, tag)
+        # Workers compose was generated image-shaped in phase 5; just bring them up.
         bench.workers.docker_client.compose.up(services=[], detach=True, pull="never", wait=True, stream=False)
 
         if apps_installed:

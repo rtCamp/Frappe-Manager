@@ -5,8 +5,8 @@ This module handles all Docker and docker-compose operations for a bench.
 Extracted from the monolithic Bench class for better separation of concerns.
 """
 
-import sys
 import shlex
+import sys
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -172,111 +172,60 @@ class BenchDockerOps:
         restart_policy = inputs.get("restart_policy", "no")
         self.compose_file_manager.set_all_services_restart(restart_policy)
 
-        # Mount mode base-image override: repoint code services to a custom frappe image.
-        if self.config.base_image:
-            repo, _, tag = self.config.base_image.rpartition(":")
-            self.compose_file_manager.set_all_images(
-                {svc: {"name": repo, "tag": tag} for svc in self.IMAGE_CODE_SERVICES}
-            )
+        # Mode shape (image + code-service volumes) is a pure projection of
+        # bench_config via compose_shape -- the same specs deploy re-pins use,
+        # so every writer produces the identical shape (create/update/deploy).
+        from frappe_manager.site_manager.modules.compose_shape import apply_specs, bench_service_specs
+
+        apply_specs(self.compose_file_manager, bench_service_specs(self.config), self.config.name)
         self.compose_file_manager.write_to_file()
 
-    # Image-mode code services: run the immutable app image, mount only site data.
-    IMAGE_CODE_SERVICES = ("frappe", "socketio", "schedule")
-
-    # Web services scaled 2->1 during a rolling (blue-green) deploy. They must
-    # shed their fixed container_name so docker compose will accept --scale.
-    ROLLING_WEB_SERVICES = ("frappe", "nginx")
-
     def render_image_compose(self, deploy_tag: str, rolling: bool = False) -> str:
-        """Rewrite the bench compose for image mode, pinned to ``deploy_tag``.
+        """Re-pin the bench compose to ``deploy_tag`` (deploy/switch/rollback).
 
-        Mutations (applied only when ``runtime == image``):
-
-        * Pin frappe/socketio/schedule to ``deploy_tag`` and nginx to the
-          matching ``<repo>-nginx:<tag>`` app-assets image.
-        * On the FIRST render only (converting from the mount template) replace the
-          wholesale ``./workspace:/workspace`` bind with data-only binds
-          (``sites/<site>``, ``common_site_config.json``, ``apps.txt``, ``logs``,
-          ``config``). Once a service is data-only its volumes are left untouched, so
-          re-renders (deploy/switch/rollback) change ONLY the image tag and any
-          user-added mounts are preserved.
-
-        Returns the nginx image tag that was pinned. Idempotent: safe to re-run
-        with a new tag (used by deploy swap and rollback re-pin).
+        Thin delegator over the compose_shape projection -- the same specs
+        ``generate_compose`` uses, with ``deploy_tag`` as the candidate tag (so
+        deploy shapes the NEW tag without mutating deploy_state mid-pipeline).
+        ``rolling=True`` sheds container_name on the scaled web services so
+        ``compose up --scale`` is accepted; the canonical render restores them.
+        Returns the paired nginx assets tag. Idempotent.
         """
-        from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
         from frappe_manager.site_manager.bench_config import BenchRuntime
         from frappe_manager.site_manager.modules.bake import BakeManager
+        from frappe_manager.site_manager.modules.compose_shape import (
+            RenderContext,
+            apply_specs,
+            bench_service_specs,
+        )
 
         if self.config.runtime != BenchRuntime.image:
             raise ValueError("render_image_compose is only valid for image runtime")
 
-        nginx_tag = BakeManager.nginx_image_tag(deploy_tag)
-        frappe_repo, _, frappe_tagpart = deploy_tag.rpartition(":")
-        nginx_repo, _, nginx_tagpart = nginx_tag.rpartition(":")
-
-        services = self.compose_file_manager.get_services_list()
-        images: dict = {}
-        for svc in self.IMAGE_CODE_SERVICES:
-            if svc in services:
-                images[svc] = {"name": frappe_repo, "tag": frappe_tagpart}
-        if "nginx" in services:
-            images["nginx"] = {"name": nginx_repo, "tag": nginx_tagpart}
-        self.compose_file_manager.set_all_images(images)
-
-        compose_path = self.compose_file_manager.compose_path
-        site = self.config.name
-        sites_rel = "./workspace/frappe-bench/sites"
-
-        def _data_binds() -> list:
-            specs = [
-                (f"{sites_rel}/{site}", f"/workspace/frappe-bench/sites/{site}"),
-                (f"{sites_rel}/common_site_config.json", "/workspace/frappe-bench/sites/common_site_config.json"),
-                (f"{sites_rel}/apps.txt", "/workspace/frappe-bench/sites/apps.txt"),
-                ("./workspace/frappe-bench/logs", "/workspace/frappe-bench/logs"),
-                ("./workspace/frappe-bench/config", "/workspace/frappe-bench/config"),
-            ]
-            return [
-                DockerVolumeMount(host=h, container=c, type=DockerVolumeType.bind, compose_path=compose_path)
-                for h, c in specs
-            ]
-
-        for svc in (*self.IMAGE_CODE_SERVICES, "nginx"):
-            if svc not in services:
-                continue
-            existing = self.compose_file_manager.get_service_volumes(svc)
-            # One-time conversion: only when the wholesale ./workspace bind is still present
-            # (first render, from the mount template). Once data-only, leave volumes as-is so
-            # re-renders change ONLY the image and any user-added mounts survive.
-            if any(str(v.container) == "/workspace" for v in existing):
-                kept = [v for v in existing if str(v.container) != "/workspace"]
-                self.compose_file_manager.set_service_volumes(svc, kept + _data_binds())
+        specs = bench_service_specs(self.config, RenderContext(deploy_tag=deploy_tag, rolling=rolling))
+        apply_specs(self.compose_file_manager, specs, self.config.name)
 
         # Rolling (blue-green) swap: shed container_name on the scaled web
-        # services so `compose up --scale <svc>=2` is accepted. The fm-sockets
-        # named-volume mount is intentionally KEPT: the entrypoint rewrites
-        # supervisord to /fm-sockets/<service>.sock and `rm -rf`s any stale
-        # socket before binding, so the second replica simply takes over the
-        # canonical socket (last-writer-wins) while the old replica's gunicorn
-        # keeps serving -- no collision that stops either supervisord, and the
-        # surviving (new) replica ends up owning the canonical socket. Callers
-        # restore container_name (canonical re-render + docker rename) after the
-        # cutover so get_container_names() keeps working between deploys.
+        # services so `compose up --scale <svc>=2` is accepted; the canonical
+        # (non-rolling) render restores them so get_container_names() keeps
+        # working between deploys. The fm-sockets mount stays: the entrypoint
+        # rewrites supervisord to /fm-sockets/<svc>.sock and clears stale
+        # sockets, so the new replica takes over the canonical socket
+        # (last-writer-wins) during the overlap.
+        services = self.compose_file_manager.get_services_list()
         prefix = get_container_name_prefix(self.config.name)
-        for svc in self.ROLLING_WEB_SERVICES:
-            if svc not in services:
+        for spec in specs:
+            if not spec.rolling or spec.name not in services:
                 continue
             if rolling:
-                self.compose_file_manager.remove_container_name(svc)
+                self.compose_file_manager.remove_container_name(spec.name)
             else:
-                # Restore the canonical container_name a prior rolling render may
-                # have stripped, so get_container_names()/_frappe_running() keep
-                # working and the rolling swap stays repeatable.
-                self.compose_file_manager.set_container_name(svc, f"{prefix}{CLI_DEFAULT_DELIMETER}{svc}")
+                self.compose_file_manager.set_container_name(
+                    spec.name, f"{prefix}{CLI_DEFAULT_DELIMETER}{spec.name}"
+                )
 
         self.compose_file_manager.write_to_file()
         self.output.print(f"Rendered image-mode compose pinned to {deploy_tag}")
-        return nginx_tag
+        return BakeManager.nginx_image_tag(deploy_tag)
 
     def create_compose_dirs(self, copy_runtimes: bool = True) -> bool:
         """
