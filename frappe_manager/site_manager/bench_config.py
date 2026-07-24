@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import tomlkit
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
@@ -982,7 +982,11 @@ class SwitchConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    migrate: bool = Field(True, description="Run bench migrate during switch.")
+    migrate: bool | Literal["auto"] = Field(
+        True,
+        description="Run bench migrate during switch: true, false, or 'auto' (probe the new image's "
+        "pending patches / app-version drift against the live DB and migrate only when needed).",
+    )
     migrate_timeout: int = Field(300, description="Migrate timeout in seconds.")
     migrate_command: str | None = Field(None, description="Custom migrate command override.")
     maintenance_mode: bool = Field(True, description="Show maintenance page during schema-changing steps.")

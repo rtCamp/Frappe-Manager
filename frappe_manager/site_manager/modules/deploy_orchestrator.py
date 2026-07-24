@@ -12,6 +12,7 @@ v1 uses recreate-swap (the maintenance window covers the brief web restart);
 rolling scale-2 is deferred to Phase 4b. Supervisor stays.
 """
 
+import base64
 import contextlib
 import re
 import shutil
@@ -66,6 +67,20 @@ def rolling_eligible(
     if override is not None:
         return override
     return migrate is False or maintenance_mode_phases == []
+
+
+MIGRATE_PROBE_MARKER = "FM-MIGRATE-PROBE"
+
+
+def parse_migrate_probe(lines) -> bool | None:
+    """Verdict from the migrate-probe marker line.
+
+    True = migrate needed, False = clean (no pending patches / version drift),
+    None = no verdict found in the output."""
+    for line in lines or []:
+        if MIGRATE_PROBE_MARKER in line:
+            return "clean" not in line.split(MIGRATE_PROBE_MARKER, 1)[1]
+    return None
 
 
 def pin_workers_to_image(workers, site: str, deploy_tag: str) -> None:
@@ -672,6 +687,57 @@ class DeployOrchestrator:
         self.output.print("Migrations applied")
         return True
 
+    def _probe_migrate_needed(self, new_tag: str) -> bool:
+        """``migrate = "auto"``: probe the NEW image against the live site DB.
+
+        Runs a one-shot container from the (already re-pinned) compose and feeds a
+        base64-encoded script to the image's python with frappe initialized -- the
+        same mechanism as ``fm shell --bench-console``. Migrate is needed when the
+        new code has pending patches (patches.txt vs tabPatch Log) or app-version
+        drift (code ``__version__`` vs tabInstalled Application). A failed or
+        verdict-less probe returns True (conservative: full maintenance+migrate).
+        """
+        probe = f"""import sys
+import os
+os.chdir('/workspace/frappe-bench/sites')
+sys.path.insert(0, '/workspace/frappe-bench/apps')
+import frappe
+frappe.init(site='{self.site}')
+frappe.connect()
+from frappe.modules.patch_handler import get_all_patches
+executed = set(frappe.get_all("Patch Log", pluck="patch"))
+pending = [p for p in map(str, get_all_patches()) if p not in executed]
+installed = {{r.app_name: r.app_version for r in frappe.get_all("Installed Application", fields=["app_name", "app_version"])}}
+drift = []
+for app in frappe.get_installed_apps():
+    code_v = getattr(frappe.get_module(app), "__version__", None)
+    if code_v and installed.get(app) != code_v:
+        drift.append(app)
+status = "needed" if (pending or drift) else "clean"
+print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" % (",".join(drift) or "none"))
+"""
+        encoded = base64.b64encode(probe.encode()).decode()
+        try:
+            result = self.docker.compose.run(
+                service=FRAPPE_SERVICE,
+                entrypoint="/bin/bash",
+                command=f"-c 'echo {encoded} | base64 -d | /workspace/frappe-bench/env/bin/python'",
+                user="frappe",
+                rm=True,
+                stream=False,
+            )
+        except DockerException as e:
+            self.output.warning(f"Migrate probe failed ({e}); assuming migrate is needed.")
+            return True
+        lines = list(getattr(result, "stdout", None) or []) + list(getattr(result, "stderr", None) or [])
+        needed = parse_migrate_probe(lines)
+        if needed is None:
+            self.output.warning("Migrate probe produced no verdict; assuming migrate is needed.")
+            return True
+        marker = next(ln.strip() for ln in lines if MIGRATE_PROBE_MARKER in ln)
+        self.output.print(f"Migrate probe: {marker}")
+        return needed
+
     def _current_deployed_tag(self) -> str | None:
         state = self.config.deploy_state
         if state and state.current_tag:
@@ -720,10 +786,32 @@ class DeployOrchestrator:
             raise DeployError(f"Pre-flight boot check failed for {new_tag}; aborting deploy: {e}") from e
         self.output.print("Pre-flight boot check passed")
 
-        migrate = bool(self.switch_config.migrate)
-        maintenance = migrate and self.switch_config.maintenance_mode
         backup_dir = self.bench_path / "backups" / f"deploy-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
         db_dump: Path | None = None
+
+        # 3. Backup (pre-change state)
+        if self.switch_config.backup_db:
+            self.output.change_head("Backing up DB + site config")
+            db_dump = self._backup(backup_dir)
+
+        snaps = self._snapshot_compose()
+
+        # 4. Render the image-mode compose pinned to the new tag. From here until
+        # the swap, every abort path restores the snapshots (old stack serving).
+        self.output.change_head("Rendering image-mode compose")
+        self.docker_ops.render_image_compose(new_tag)
+        self._pin_workers(new_tag)
+
+        # 5. Resolve migrate: explicit bool, or 'auto' -> probe the NEW image
+        # against the live DB (pending patches / app-version drift).
+        requested = self.switch_config.migrate
+        if requested == "auto":
+            self.output.change_head("Probing new image for pending migrations")
+            migrate = self._probe_migrate_needed(new_tag)
+            self.output.print(f"Migrate probe verdict: {'migrate needed' if migrate else 'no migration needed'}")
+        else:
+            migrate = bool(requested)
+        maintenance = migrate and self.switch_config.maintenance_mode
 
         do_rolling = (
             rolling_eligible(migrate, self.switch_config.maintenance_mode_phases, rolling)
@@ -734,29 +822,17 @@ class DeployOrchestrator:
                 "Rolling swap requested but no running web to swap alongside; using recreate-swap.",
             )
 
-        # 3. Backup
-        if self.switch_config.backup_db:
-            self.output.change_head("Backing up DB + site config")
-            db_dump = self._backup(backup_dir)
-
-        # 4. Maintenance ON (only when migrating)
-        if maintenance and self._frappe_running():
-            self.output.change_head("Enabling maintenance mode")
-            self._set_maintenance(1)
-
-        # 5. Drain workers (old container)
-        self._drain_workers()
-
-        snaps = self._snapshot_compose()
-
-        # 6/7a. Render image-mode compose pinned to the new tag (before migrate).
-        self.output.change_head("Rendering image-mode compose")
-        self.docker_ops.render_image_compose(new_tag)
-        self._pin_workers(new_tag)
-
-        # 6. Migrate in a one-shot new-image container.
         migrate_status = "skipped"
         try:
+            # 6. Maintenance ON (only when migrating)
+            if maintenance and self._frappe_running():
+                self.output.change_head("Enabling maintenance mode")
+                self._set_maintenance(1)
+
+            # 7. Drain workers (old container)
+            self._drain_workers()
+
+            # 8. Migrate in a one-shot new-image container.
             if migrate:
                 self._run_host_hook(self._switch_hook("before_migrate", host=True), "host_before_migrate", new_tag)
                 self._run_container_hook(self._switch_hook("before_migrate"), "before_migrate", new_tag)
@@ -778,11 +854,11 @@ class DeployOrchestrator:
             # Switch hooks (pre-restart): host first, then the still-running old container.
             self._run_host_hook(self._switch_hook("before_restart", host=True), "host_before_restart", new_tag)
             self._run_container_hook(self._switch_hook("before_restart"), "before_restart", new_tag)
-        except DeployError:
-            # Abort BEFORE the swap (hook or migrate failure): the OLD stack is still
-            # the live one. Revert the compose re-pin and drop maintenance so an
-            # aborted deploy never leaves the site dark or the compose half-switched
-            # toward the new tag (a later plain `compose up` must not jump tags).
+        except Exception:
+            # Abort BEFORE the swap (hook/migrate/maintenance/drain failure): the OLD
+            # stack is still the live one. Revert the compose re-pin and drop
+            # maintenance so an aborted deploy never leaves the site dark or the
+            # compose half-switched (a later plain `compose up` must not jump tags).
             self._restore_compose(snaps)
             if self._frappe_running():
                 with contextlib.suppress(Exception):
