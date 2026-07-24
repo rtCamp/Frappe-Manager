@@ -106,15 +106,35 @@ class RuntimeShape(Protocol):
     def binds(self) -> list[VolumeBind]: ...
 
 
+def default_code_image() -> str:
+    """Stock fm frappe image for the running fm version (matches the template render)."""
+    import importlib.metadata
+
+    return f"ghcr.io/rtcamp/frappe-manager-frappe:v{importlib.metadata.version('frappe-manager')}"
+
+
+def default_nginx_image() -> str:
+    """Stock fm nginx image for the running fm version (matches the template render)."""
+    import importlib.metadata
+
+    return f"ghcr.io/rtcamp/frappe-manager-nginx:v{importlib.metadata.version('frappe-manager')}"
+
+
 @dataclass(frozen=True)
 class MountShape:
-    """Mount runtime: live-mounted workspace; base image (or override)."""
+    """Mount runtime: live-mounted workspace; stock fm images (or base_image override).
+
+    Images are pinned EXPLICITLY (not left to the template default) so a runtime
+    flip (image -> mount) re-points services off the app image -- an existing
+    compose has no "template default" to fall back to.
+    """
 
     base_image: str | None = None
 
     def image(self, service: str) -> str | None:
-        # nginx keeps the stock fm nginx image; base_image overrides code services only.
-        return None if service == "nginx" else self.base_image
+        if service == "nginx":
+            return default_nginx_image()
+        return self.base_image or default_code_image()
 
     def binds(self) -> list[VolumeBind]:
         return [VolumeBind("./workspace", "/workspace")]

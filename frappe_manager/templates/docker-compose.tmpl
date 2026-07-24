@@ -15,6 +15,11 @@ services:
         devcontainer.metadata: '[{ "remoteUser": "frappe"}]'
     networks:
       site-network:
+        # Bench-nginx upstreams resolve this alias: it exists ONLY on the site
+        # network, so DNS can never return another bench's frappe (the bare
+        # service name `frappe` also lives on the shared frontend network).
+        aliases:
+          - frappe-site
       global-backend-network:
       global-frontend-network:
 
@@ -55,6 +60,8 @@ services:
       - ./workspace:/workspace
     networks:
       site-network:
+        aliases:
+          - socketio-site
       global-frontend-network:
 
   schedule:

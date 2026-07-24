@@ -346,6 +346,17 @@ def create(
             show_default=False,
         ),
     ] = None,
+    from_image: Annotated[
+        str | None,
+        typer.Option(
+            "--from-image",
+            help="Mount runtime: seed the workspace from a baked app image (repo:tag) instead of "
+            "cloning + installing apps -- near-instant create from a release image. Not with "
+            "--apps/--python/--node (those come from the image).",
+            show_default=False,
+            rich_help_panel=_PANEL_MOUNT,
+        ),
+    ] = None,
     config: Annotated[
         list[str],
         typer.Option(
@@ -458,6 +469,21 @@ def create(
         resolved_runtime, image_repo, deploy_current_tag, base_image_override = _resolve_deploy_options(
             runtime, image, apps, python_version, node_version
         )
+        if from_image:
+            if resolved_runtime == BenchRuntime.image:
+                raise typer.BadParameter(
+                    "--from-image seeds a MOUNT workspace; image runtime already runs the image (use --image).",
+                )
+            if apps or python_version or node_version:
+                raise typer.BadParameter(
+                    "--from-image seeds apps and Python/Node from the image; --apps/--python/--node are not allowed.",
+                )
+            if not _has_explicit_tag(from_image):
+                raise typer.BadParameter("--from-image requires an explicit ':tag' (e.g. local/myapp:20260724-abc).")
+            output.print(
+                f"Mount bench: seeding workspace from baked image [blue]{from_image}[/blue].",
+                emoji_code=":package:",
+            )
         if resolved_runtime == BenchRuntime.image:
             output.print(
                 f"Image bench: creating the site from pre-built image [blue]{deploy_current_tag}[/blue].",
@@ -487,6 +513,7 @@ def create(
             runtime=resolved_runtime,
             image=image_repo,
             base_image=base_image_override,
+            seed_image=from_image,
             deploy_state=DeployState(current_tag=deploy_current_tag)
             if resolved_runtime == BenchRuntime.image
             else None,

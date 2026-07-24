@@ -13,6 +13,8 @@ from frappe_manager.site_manager.modules.compose_shape import (
     apply_specs,
     bench_service_specs,
     bind_strings,
+    default_code_image,
+    default_nginx_image,
     runtime_shape,
     worker_service_specs,
 )
@@ -32,15 +34,17 @@ def _cfg(runtime, name="s.localhost", tag=None, base_image=None):
 
 def test_mount_shape_defaults():
     shape = runtime_shape(_cfg(BenchRuntime.mount))
-    assert shape.image("frappe") is None  # template default kept
-    assert shape.image("nginx") is None
+    # Explicit stock pins (not template defaults) so a runtime flip re-points
+    # services off the app image.
+    assert shape.image("frappe") == default_code_image()
+    assert shape.image("nginx") == default_nginx_image()
     assert [(b.host, b.container) for b in shape.binds()] == [("./workspace", "/workspace")]
 
 
 def test_mount_shape_base_image_override():
     shape = runtime_shape(_cfg(BenchRuntime.mount, base_image="custom/frappe:x1"))
     assert shape.image("frappe") == "custom/frappe:x1"
-    assert shape.image("nginx") is None  # nginx keeps stock image in mount
+    assert shape.image("nginx") == default_nginx_image()  # nginx keeps the stock image in mount
 
 
 def test_image_shape_tags_and_binds():
@@ -78,7 +82,7 @@ def test_bench_specs_cover_code_services_with_rolling_roles():
 
 def test_worker_specs_and_bind_strings():
     (spec,) = worker_service_specs(_cfg(BenchRuntime.mount), ["long-worker"])
-    assert spec.image is None
+    assert spec.image == default_code_image()
     assert bind_strings(spec) == ["./workspace:/workspace"]
     (ispec,) = worker_service_specs(_cfg(BenchRuntime.image, tag="r:t"), ["long-worker"])
     assert ispec.image == "r:t"
@@ -142,7 +146,7 @@ def test_apply_specs_mount_mode_round_trip(tmp_path):
     apply_specs(cfm, bench_service_specs(cfg), cfg.name)
     fr = [str(v) for v in cfm.get_service_volumes("frappe")]
     assert "./workspace:/workspace" in fr  # mount keeps live workspace
-    assert cfm.yml["services"]["frappe"]["image"] == "base:1"  # template default kept
+    assert cfm.yml["services"]["frappe"]["image"] == default_code_image()  # stock pin applied
 
 
 def test_apply_specs_switch_image_to_mount_restores_workspace(tmp_path):

@@ -1127,6 +1127,11 @@ class BenchConfig(BaseModel):
         None,
         description="Mount mode: override the base frappe image (repo:tag) for frappe/socketio/schedule/workers. None = default fm image.",
     )
+    seed_image: str | None = Field(
+        None,
+        description="Mount runtime: workspace was seeded from this baked image at create "
+        "(extracted; no clone/install/build). Provenance record.",
+    )
     deploy: DeployConfig | None = Field(None, description="Remote ship target for --remote deploys ([deploy]).")
 
     # Multi-certificate support
@@ -1431,6 +1436,7 @@ class BenchConfig(BaseModel):
             "runtime": data.get("runtime", "mount"),
             "image": data.get("image", None),
             "base_image": data.get("base_image", None),
+            "seed_image": data.get("seed_image", None),
             "switch": SwitchConfig(**dict(data["switch"])) if data.get("switch") else None,
             "build": BuildConfig(**dict(data["build"])) if data.get("build") else None,
             "registry": RegistryConfig(**dict(data["registry"])) if data.get("registry") else None,

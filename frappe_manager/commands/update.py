@@ -122,6 +122,16 @@ def update(
         FMBenchEnvType | None,
         typer.Option("--environment", "-e", help="Switch bench environment.", show_default=False),
     ] = None,
+    runtime: Annotated[
+        BenchRuntime | None,
+        typer.Option(
+            "--runtime",
+            help="Switch bench runtime. 'mount': materialize the editable workspace from the "
+            "currently deployed image (code on disk == running code, so no migrate). "
+            "For mount -> image, use fm switch (it migrates onto the baked image).",
+            show_default=False,
+        ),
+    ] = None,
     developer_mode: Annotated[
         EnableDisableOptionsEnum | None,
         typer.Option(help="Toggle frappe developer mode.", show_default=False),
@@ -284,6 +294,53 @@ def update(
 
             output.print(f"Switched bench environment to {environment.value}")
             bench_config_save = True
+
+        if runtime:
+            if runtime == bench.bench_config.runtime:
+                output.print(f"Bench runtime is already '{runtime.value}'")
+            elif runtime == BenchRuntime.image:
+                output.stop()
+                output.display_error(
+                    "mount -> image conversion runs through the deploy pipeline (it must migrate the "
+                    "site onto the baked image): set runtime = 'image' and a top-level image in "
+                    f"bench_config.toml, then run fm switch {bench.name} <repo:tag>.",
+                )
+                raise typer.Exit(1)
+            else:
+                # image -> mount demotion: extract the editable workspace from the
+                # CURRENTLY DEPLOYED tag -- code on disk == running code, so no
+                # migrate is needed; site data already lives host-side and is untouched.
+                from frappe_manager.site_manager.modules.transport import fetch_image
+                from frappe_manager.site_manager.modules.workspace_seed import materialize_workspace_from_image
+
+                deploy_state = bench.bench_config.deploy_state
+                tag = deploy_state.current_tag if deploy_state else None
+                if not tag:
+                    output.stop()
+                    output.display_error("No deployed tag recorded; cannot materialize the workspace.")
+                    raise typer.Exit(1)
+
+                output.change_head(f"Materializing editable workspace from {tag}")
+                fetch_image(bench.docker_client, bench.bench_config.registry, tag, output=output)
+                frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
+                extracted = materialize_workspace_from_image(bench.docker_client, tag, frappe_bench_dir, output=output)
+                output.print(f"Extracted from image: {', '.join(extracted) if extracted else 'nothing (already present)'}")
+
+                bench.bench_config.runtime = BenchRuntime.mount
+
+                compose_inputs = bench.bench_config.export_to_compose_inputs()
+                compose_inputs.setdefault("environment", {}).setdefault("frappe", {})
+                compose_inputs["environment"]["frappe"]["FRAPPE_ENV"] = bench.bench_config.environment_type.value
+                bench.generate_compose(compose_inputs)
+                if bench.workers.compose_file_manager.compose_path.exists():
+                    bench.workers.generate_compose()
+
+                output.print("Recreating containers on the mount runtime..")
+                bench.docker_client.compose.up(detach=True, force_recreate=True, pull="never")
+                bench.workers.docker_client.compose.up(services=[], detach=True, pull="never", stream=False)
+
+                output.print(f"Switched runtime to mount (workspace from {tag})")
+                bench_config_save = True
 
         if restart:
             old_policy = bench.bench_config.restart_policy.value

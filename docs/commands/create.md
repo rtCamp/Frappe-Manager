@@ -38,6 +38,7 @@ $ fm create BENCHNAME [OPTIONS]
 * `--allow-domain-conflicts`: Skip domain uniqueness validation (not recommended). Allows creating benches with duplicate domains.
 * `--runtime`: Runtime: 'mount' (default, live-mounted code) or 'image' (immutable pre-built app image). Default 'mount'.
 * `--image`: Mount mode: override the base frappe image (repo:tag). Image mode: the pre-built app image to run (repo:tag; must exist locally or be pullable).
+* `--from-image`: Mount runtime: seed the workspace from a baked app image (repo:tag) instead of cloning + installing apps -- near-instant create from a release image. Not with --apps/--python/--node (those come from the image).
 * `--config`: TOML config overlay: a file path or inline TOML content used as the base bench config. Explicit CLI flags override it; repeatable, later --config wins.
 * `--newrelic/--no-newrelic`: Enable NewRelic APM monitoring for the web process.
 * `--newrelic-license-key`: NewRelic ingest license key. Required when --newrelic is set.

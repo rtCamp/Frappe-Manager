@@ -18,6 +18,7 @@ $ fm update BENCHNAME [OPTIONS]
 
 * `--admin-tools`: Toggle admin-tools.
 * `-e, --environment`: Switch bench environment.
+* `--runtime`: Switch bench runtime. 'mount': materialize the editable workspace from the currently deployed image (code on disk == running code, so no migrate). For mount -> image, use fm switch (it migrates onto the baked image).
 * `--developer-mode`: Toggle frappe developer mode.
 * `--mailpit-as-default-mail-server`: Configure Mailpit as default mail server
 * `--add-alias`: Add alias domains to the site (comma-separated, e.g., www.example.com,api.example.com)

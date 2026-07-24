@@ -120,12 +120,26 @@ class BenchOrchestrator:
                 self._create_image_bench()
                 return
 
-            self._phase2_initialize_bench()
+            if bench.bench_config.seed_image:
+                self._phase2_seed_from_image()
+            else:
+                self._phase2_initialize_bench()
             self._phase3_start_and_verify_bench()
             self._phase4_create_site()
             self._phase5_finalize()
 
             apps_installed = self._phase6_install_apps()
+
+            if bench.bench_config.seed_image:
+                # The phase-3 health probe hits the server BEFORE the site exists;
+                # Frappe caches that route miss in redis -- flush it or the fresh
+                # site 404s until a manual clear-cache.
+                self.output.change_head("Clearing website route cache")
+                clear_cmd = " ".join(bench.app_manager.bench_cli_cmd + ["--site", bench.name, "clear-cache"])
+                try:
+                    bench.app_manager._container_run(clear_cmd)
+                except Exception as e:
+                    self.logger.warning(f"{bench.name}: clear-cache failed: {e}")
 
             if apps_installed:
                 bench.info()
@@ -225,7 +239,11 @@ class BenchOrchestrator:
             if not present:
                 self.output.change_head(f"Pulling base image {base_image}")
                 bench.docker_client.pull(base_image, stream=False)
-        bench.create_compose_dirs(copy_runtimes=bench.bench_config.runtime != BenchRuntime.image)
+        # Seeded creates get .uv/.fnm (and everything else) from the SEED image --
+        # pre-copying runtimes from the base image would version-mismatch the venv.
+        bench.create_compose_dirs(
+            copy_runtimes=bench.bench_config.runtime != BenchRuntime.image and not bench.bench_config.seed_image
+        )
 
     def _phase2_initialize_bench(self) -> None:
         """Phase 2: Initialize bench using docker compose run (no persistent containers)"""
@@ -250,6 +268,38 @@ class BenchOrchestrator:
             github_token=bench.bench_config.github_token,
             use_run=True,
         )
+
+    def _phase2_seed_from_image(self) -> None:
+        """Phase 2 (seeded): materialize the workspace from a baked image instead of
+        provisioning -- the image already carries apps (with .git), env, runtimes and
+        built assets at the exact paths the mount bind exposes, so no clone /
+        dependency install / asset build is needed."""
+        from frappe_manager.site_manager.bench_config import AppConfig
+        from frappe_manager.site_manager.modules.transport import fetch_image
+        from frappe_manager.site_manager.modules.workspace_seed import materialize_workspace_from_image
+        from frappe_manager.utils.docker import host_run_cp
+
+        bench = self.bench
+        tag = bench.bench_config.seed_image
+
+        self.output.change_head(f"Seeding workspace from image {tag}")
+        fetch_image(bench.docker_client, bench.bench_config.registry, tag, output=self.output)
+        frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
+        materialize_workspace_from_image(bench.docker_client, tag, frappe_bench_dir, output=self.output)
+
+        # The baked app set drives apps.txt and the per-site installs.
+        apps_txt = frappe_bench_dir / "sites" / "apps.txt"
+        host_run_cp(tag, "/workspace/frappe-bench/sites/apps.txt", str(apps_txt), bench.docker_client)
+        baked = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
+        bench.bench_config.apps_list = [AppConfig.from_string(n) for n in baked]
+        self.output.print(f"Seeded workspace from {tag} (apps: {', '.join(baked)})")
+
+        self.output.change_head("Configuring common_site_config.json")
+        common_site_config_data = bench.bench_config.get_commmon_site_config_data(
+            bench.services.database_manager.database_server_info,
+        )
+        bench.set_common_bench_config(common_site_config_data)
+        bench.supervisor.setup_supervisor(bench.path, force=True, use_run=True)
 
     def _phase3_start_and_verify_bench(self) -> None:
         """Phase 3: Start containers and verify bench server responding"""
