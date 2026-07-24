@@ -533,16 +533,18 @@ class RichOutputHandler(OutputHandler):
     def print_data(self, data: Any, **kwargs) -> None:
         import json
 
-        from rich.table import Table as RichTable
+        from rich.console import ConsoleRenderable
 
         mode = OutputRefactoringFlags.stream_separation_mode()
 
+        # ConsoleRenderable covers Table, Group, Panel, Text, ... -- anything rich
+        # can render goes through the console instead of str()'s repr.
         if mode == "legacy":
-            if isinstance(data, RichTable):
+            if isinstance(data, ConsoleRenderable):
                 self.stderr.print(data)
             else:
                 self.stderr.print(str(data))
-        elif isinstance(data, RichTable):
+        elif isinstance(data, ConsoleRenderable):
             self.stdout.print(data)
         elif isinstance(data, (dict, list)):
             json_str = json.dumps(data, indent=2, default=str)

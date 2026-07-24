@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from rich.console import Console
-from rich.table import Table
 
 from frappe_manager.docker import DockerException
 from frappe_manager.output_manager import OutputHandler, temporary_stop
@@ -24,7 +23,6 @@ from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.utils.helpers import format_ssl_certificate_time_remaining
 from frappe_manager.utils.site import (
-    generate_services_table,
     read_bench_app_refs,
     read_bench_node_version,
     read_bench_python_version,
@@ -186,126 +184,113 @@ class BenchInfo:
         return [bench_prod_server_log_path_stderr, bench_prod_server_log_path_stdout]
 
     def display_info(self) -> None:
-        """
-        Retrieve and display comprehensive information about the bench.
+        """Render the bench detail card.
 
-        This includes: URL, root path, status, credentials, database info,
-        SSL status, admin tools, installed apps, and running services.
+        Same grammar as the ``fm list`` cards (``output_manager.railcard``):
+        this is the list card EXPANDED with site / runtime / access / services
+        sections, so both views read as one product.
         """
+        from rich.console import Group
+
+        from frappe_manager.output_manager import railcard
+
         self.output.change_head("Getting bench info")
+
+        config = self.bench_config
         bench_db_info = self.get_db_connection_info()
-
-        db_user = bench_db_info.get("name", "N/A")
-        db_pass = bench_db_info.get("password", "N/A")
-
         services_db_info = self.services.database_manager.database_server_info
-        bench_info_table = Table(show_lines=True, show_header=False, highlight=True)
-
         protocol = "https" if self.has_certificate() else "http"
+        active = self.is_running()
 
-        # Get admin password from site_config.json if available
-        admin_pass = self.bench_config.admin_pass + " (default)"
+        admin_pass = config.admin_pass + " (default)"
         site_config = self.get_site_config()
         if "admin_password" in site_config:
             admin_pass = site_config["admin_password"]
 
-        ssl_cert = self.bench_config.get_primary_certificate()
-        ssl_service_type = f"{ssl_cert.ssl_type.value}"
-        if ssl_cert.ssl_type == SUPPORTED_SSL_TYPES.le:
-            if isinstance(ssl_cert, LetsencryptSSLCertificate):
+        env_value = config.environment_type.value
+        env = f"[red]{env_value}[/red]" if env_value == "prod" else env_value
+        # Status as TEXT, color only as enhancement (color-blind safe).
+        status_word = "[green]running[/green]" if active else "[red]stopped[/red]"
+        meta = f"{status_word} [dim]· {config.runtime.value} ·[/dim] {env}[dim] · restart:{config.restart_policy.value}[/dim]"
+        blocks: list = [railcard.headline(self.bench_name, meta, active, link=f"{protocol}://{self.bench_name}")]
+
+        def fact(label: str, value: str) -> str:
+            return railcard.fact(label, value, active)
+
+        # ---- site
+        blocks += railcard.section("site", active)
+        blocks.append(fact("url", f"{protocol}://{self.bench_name}"))
+        if self.has_certificate():
+            ssl_cert = config.get_primary_certificate()
+            ssl_service_type = f"{ssl_cert.ssl_type.value}"
+            if ssl_cert.ssl_type == SUPPORTED_SSL_TYPES.le and isinstance(ssl_cert, LetsencryptSSLCertificate):
                 ssl_service_type = f"[{ssl_cert.challenge_type.value}] {ssl_cert.ssl_type.value}"
-            else:
-                ssl_service_type = f"{ssl_cert.ssl_type.value}"
-
-        is_running = self.is_running()
-        status = "Active" if is_running else "Inactive"
-        status_color = "green" if is_running else "red"
-        status_display = f"[{status_color}]{status}[/{status_color}]"
-
-        data = {
-            "Bench Url": f"{protocol}://{self.bench_name}",
-            "Bench Root": f"[link=file://{self.bench_path.absolute()}]{self.bench_path.absolute()}[/link]",
-            "Status": status_display,
-            "Python Version": self.get_python_version(),
-            "Node Version": self.get_node_version(),
-            "Frappe Username": "administrator",
-            "Frappe Password": admin_pass,
-            "Root DB User": services_db_info.user,
-            "Root DB Password": services_db_info.password,
-            "Root DB Host": services_db_info.host,
-            "DB Name": db_user,
-            "DB User": db_user,
-            "DB Password": db_pass,
-            "Environment": self.bench_config.environment_type.value,
-            "HTTPS": (
-                f"{ssl_service_type.upper()} ({format_ssl_certificate_time_remaining(self.certificate_manager.get_certificate_expiry())})"
-                if self.has_certificate()
-                else "Not Enabled"
-            ),
-        }
-
-        data["Runtime"] = self.bench_config.runtime.value
-        if self.bench_config.runtime == BenchRuntime.image:
-            deploy_state = self.bench_config.deploy_state
-            if deploy_state and deploy_state.current_tag:
-                data["Deployed Tag"] = deploy_state.current_tag
-                if deploy_state.previous_tag:
-                    data["Previous Tag"] = deploy_state.previous_tag
-                if deploy_state.last_deploy_at:
-                    data["Last Deploy At"] = deploy_state.last_deploy_at
-            else:
-                data["Deployed Tag"] = "N/A (not yet deployed)"
-
-        # Add alias domains if present (independent of SSL status)
-        if self.bench_config.alias_domains:
-            alias_list = "\n".join(sorted(self.bench_config.alias_domains))
-            data["Alias Domains"] = alias_list
-
-        if not self.bench_config.admin_tools:
-            data["Admin Tools"] = "Not Enabled"
+            remaining = format_ssl_certificate_time_remaining(self.certificate_manager.get_certificate_expiry())
+            blocks.append(fact("https", f"{ssl_service_type.upper()} [dim]·[/dim] {remaining}"))
         else:
-            # Create main admin tools table
-            admin_tools_Table = Table(show_lines=False, show_edge=False, pad_edge=False, expand=True)
-            admin_tools_Table.add_column("Service", style="cyan")
-            admin_tools_Table.add_column("URL", style="blue")
+            blocks.append(fact("https", "[dim]not enabled[/dim]"))
+        if config.alias_domains:
+            blocks.append(fact("domains", ", ".join(sorted(config.alias_domains))))
+        abs_path = self.bench_path.absolute()
+        blocks.append(fact("dir", f"[dim][link=file://{abs_path}]{abs_path}[/link][/dim]"))
 
-            # Get auth credentials
-            username = self.bench_config.admin_tools_username or "admin"
-            password = self.bench_config.admin_tools_password or "protected"
+        # ---- runtime
+        blocks += railcard.section("runtime", active)
+        blocks.append(fact("python", str(self.get_python_version())))
+        blocks.append(fact("node", str(self.get_node_version())))
+        # Apps: name + ref (branch/tag) + commit. Git-derived; image mode reads labels.
+        for i, app in enumerate(self.get_bench_apps() or []):
+            label = "apps" if i == 0 else ""
+            ref = app.get("ref") or "—"
+            commit = app.get("commit") or ""
+            blocks.append(fact(label, f"{app.get('name', '?')}  [dim]{ref}  {commit}[/dim]"))
+        if config.runtime == BenchRuntime.image:
+            deploy_state = config.deploy_state
+            tag = deploy_state.current_tag if deploy_state and deploy_state.current_tag else None
+            blocks.append(fact("tag", tag or "[dim]N/A (not yet deployed)[/dim]"))
+            if deploy_state and deploy_state.previous_tag:
+                blocks.append(fact("previous", deploy_state.previous_tag))
+            if deploy_state and deploy_state.last_deploy_at:
+                blocks.append(fact("deployed", str(deploy_state.last_deploy_at)))
+        else:
+            if config.base_image:
+                blocks.append(fact("base", config.base_image))
+            if config.seed_image:
+                blocks.append(fact("seeded", config.seed_image))
 
-            # Create auth info section
-            auth_info = f"\nAuthentication Required:\n  Username: [cyan]{username}[/cyan]\n  Password: [green]{password}[/green]"
+        # ---- access
+        blocks += railcard.section("access", active)
+        blocks.append(fact("frappe", f"administrator [dim]/[/dim] {admin_pass}"))
+        db_name = bench_db_info.get("name", "N/A")
+        db_pass = bench_db_info.get("password", "N/A")
+        blocks.append(fact("db", f"{db_name} [dim]/[/dim] {db_pass}"))
+        blocks.append(
+            fact("root db", f"{services_db_info.user} [dim]/[/dim] {services_db_info.password} [dim]@[/dim] {services_db_info.host}")
+        )
+        if config.admin_tools:
+            username = config.admin_tools_username or "admin"
+            password = config.admin_tools_password or "protected"
+            blocks.append(
+                fact(
+                    "tools",
+                    f"{protocol}://{self.bench_name}/mailpit [dim]·[/dim] {protocol}://{self.bench_name}/adminer"
+                    f"  [dim]({username} / {password})[/dim]",
+                )
+            )
+        else:
+            blocks.append(fact("tools", "[dim]not enabled[/dim]"))
 
-            admin_tools_Table.add_row("Mailpit", f"{protocol}://{self.bench_name}/mailpit")
-            admin_tools_Table.add_row("Adminer", f"{protocol}://{self.bench_name}/adminer")
-
-            # Combine table and auth info
-            from rich.console import Group
-
-            data["Admin Tools"] = Group(admin_tools_Table, auth_info)
-
-        bench_info_table.add_column(no_wrap=True)
-        bench_info_table.add_column(no_wrap=True)
-
-        for key in data:
-            bench_info_table.add_row(key, data[key])
-
-        # Bench apps: name + ref (branch/tag) + commit. Git-derived; image mode reads labels.
-        apps = self.get_bench_apps()
-        if apps:
-            bench_apps_list_table = Table(show_lines=True, show_edge=False, pad_edge=False, expand=True)
-            bench_apps_list_table.add_column("App")
-            bench_apps_list_table.add_column("Ref")
-            bench_apps_list_table.add_column("Commit")
-            for app in apps:
-                bench_apps_list_table.add_row(app.get("name", "?"), app.get("ref") or "—", app.get("commit") or "N/A")
-            bench_info_table.add_row("Bench Apps", bench_apps_list_table)
+        # ---- services (live container state)
+        def dots(statuses: dict) -> str:
+            parts = []
+            for svc, state in sorted(statuses.items()):
+                dot = "[green]●[/green]" if state == "running" else f"[red]●[/red] [dim]{state}:[/dim]"
+                parts.append(f"{dot} {svc}")
+            return "   ".join(parts)
 
         running_bench_services = self.get_services_running_status()
 
-        # Get workers status using docker_client
         try:
-            services = self.workers.compose_file_manager.get_services_list()
             containers = self.workers.compose_file_manager.get_container_names().values()
             all_statuses = self.workers.docker_client.compose.get_all_services_status()
             running_bench_workers = {
@@ -314,11 +299,9 @@ class BenchInfo:
         except DockerException:
             running_bench_workers = {}
 
-        # Get admin tools services status directly from docker_client
         running_bench_admin_tools = {}
         if self.admin_tools.compose_file_manager.exists():
             try:
-                services = self.admin_tools.compose_file_manager.get_services_list()
                 containers = self.admin_tools.compose_file_manager.get_container_names().values()
                 all_statuses = self.admin_tools.docker_client.compose.get_all_services_status()
                 running_bench_admin_tools = {
@@ -327,19 +310,15 @@ class BenchInfo:
             except Exception:
                 running_bench_admin_tools = {}
 
-        if running_bench_services:
-            bench_services_table = generate_services_table(running_bench_services)
-            bench_info_table.add_row("Bench Services", bench_services_table)
+        if running_bench_services or running_bench_workers or running_bench_admin_tools:
+            blocks += railcard.section("services", active)
+            if running_bench_services:
+                blocks.append(fact("bench", dots(running_bench_services)))
+            if running_bench_workers:
+                blocks.append(fact("workers", dots(running_bench_workers)))
+            if running_bench_admin_tools:
+                blocks.append(fact("tools", dots(running_bench_admin_tools)))
 
-        if running_bench_workers:
-            bench_workers_table = generate_services_table(running_bench_workers)
-            bench_info_table.add_row("Bench Workers", bench_workers_table)
-
-        if running_bench_admin_tools:
-            bench_admin_table = generate_services_table(running_bench_admin_tools)
-            bench_info_table.add_row("Bench Admin Tools", bench_admin_table)
-
-        # Stop spinner temporarily to print the table without corruption
+        # Stop spinner temporarily to print without corruption
         with temporary_stop(self.output):
-            console = Console()
-            console.print(bench_info_table)
+            Console().print(Group(*blocks))

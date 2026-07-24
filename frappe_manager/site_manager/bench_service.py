@@ -14,8 +14,6 @@ Benefits:
 
 from pathlib import Path
 
-from rich.table import Table
-
 from frappe_manager.docker import ComposeFile, DockerClient
 from frappe_manager.logger import log
 from frappe_manager.output_manager import OutputHandler
@@ -226,65 +224,111 @@ class BenchService:
         """
         return list(self.discover_benches().keys())
 
-    def list_benches_table(self) -> Table:
+    def list_benches_data(self) -> list[dict]:
+        """Collect per-bench facts for ``fm list`` (single source for table + --json).
+
+        Cheap host-side reads (config, apps.txt) plus one docker liveness check per
+        bench. A bench with a broken/missing config is still listed, with ``error``.
         """
-        Generate a formatted table of all benches.
+        rows: list[dict] = []
+        for bench_name in self.discover_benches():
+            try:
+                bench = self.get_bench(bench_name, workers_check=False, admin_tools_check=False)
+                config = bench.bench_config
 
-        Returns:
-            Rich Table object with bench information
+                apps_txt = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
+                if apps_txt.exists():
+                    apps = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
+                else:
+                    apps = [a.name for a in config.apps_list]
 
-        Example:
-            >>> table = service.list_benches_table()
-            >>> self.output.print(table)
+                deploy_state = config.deploy_state
+                rows.append(
+                    {
+                        "name": bench.name,
+                        "status": "active" if bench.running else "inactive",
+                        "runtime": config.runtime.value,
+                        "environment": config.environment_type.value,
+                        "apps": apps,
+                        "deployed_tag": deploy_state.current_tag if deploy_state else None,
+                        "previous_tag": deploy_state.previous_tag if deploy_state else None,
+                        "base_image": config.base_image,
+                        "seed_image": config.seed_image,
+                        "alias_domains": list(config.alias_domains or []),
+                        "developer_mode": config.developer_mode,
+                        "admin_tools": config.admin_tools,
+                        "restart_policy": config.restart_policy.value,
+                        "path": str(bench.path),
+                        "error": None,
+                    }
+                )
+            except FileNotFoundError as e:
+                rows.append(
+                    {
+                        "name": bench_name,
+                        "status": "unknown",
+                        "error": f"bench config not found at {e.filename}",
+                        "path": str(self.benches_directory / bench_name),
+                    }
+                )
+        return rows
+
+    def list_benches_view(self):
+        """Card-per-bench view for ``fm list``.
+
+        A table forces every fact to compete for horizontal space (truncated
+        tags/paths); record cards give each fact its own wrapping line, so
+        adding facts scales vertically. Returns a rich renderable, or None
+        when no benches exist.
         """
         self.output.change_head("Generating bench list")
 
-        bench_dict = self.discover_benches()
-
-        if not bench_dict:
+        rows = self.list_benches_data()
+        if not rows:
             self.output.stop()
             self.output.print(
                 "Seems like you haven't created any sites yet. "
                 "To create a bench, use the command: 'fm create <benchname>'.",
                 emoji_code=":white_check_mark:",
             )
-            table = Table(show_lines=True, show_header=True, highlight=True)
-            table.add_column("Site")
-            table.add_column("Status", vertical="middle")
-            table.add_column("Path")
-            return table
+            return None
 
-        table = Table(show_lines=True, show_header=True, highlight=True)
-        table.add_column("Site")
-        table.add_column("Status", vertical="middle")
-        table.add_column("Path")
-        table.add_column("Mode")
+        from rich.console import Group
 
-        for bench_name in bench_dict.keys():
-            try:
-                bench = self.get_bench(bench_name, workers_check=False, admin_tools_check=False)
+        from frappe_manager.output_manager import railcard
 
-                row_data = f"[link=http://{bench.name}]{bench.name}[/link]"
-                path_data = f"[link=file://{bench.path}]{bench.path}[/link]"
+        blocks: list = []
+        for row in rows:
+            if row.get("error"):
+                self.output.warning(f"[red][bold]{row['name']}[/bold][/red] : {row['error']}")
+                continue
 
-                status_color = "white"
-                status_msg = "Inactive"
+            active = row["status"] == "active"
+            env = f"[red]{row['environment']}[/red]" if row["environment"] == "prod" else row["environment"]
+            # Status as TEXT, color only as enhancement (color-blind safe).
+            status_word = "[green]running[/green]" if active else "[red]stopped[/red]"
+            meta = f"{status_word} [dim]· {row['runtime']} ·[/dim] {env}[dim] · restart:{row['restart_policy']}[/dim]"
+            blocks.append(railcard.headline(row["name"], meta, active, link=f"http://{row['name']}"))
 
-                if bench.running:
-                    status_color = "green"
-                    status_msg = "Active"
+            def fact(label: str, value: str, active: bool = active) -> str:
+                return railcard.fact(label, value, active)
 
-                status_data = f"[{status_color}]{status_msg}[/{status_color}]"
-
-                mode_data = bench.bench_config.runtime.value
-                table.add_row(row_data, status_data, path_data, mode_data, style=f"{status_color}")
-                self.output.update_live(table, padding=(0, 0, 0, 0))
-
-            except FileNotFoundError as e:
-                self.output.warning(f"[red][bold]{bench_name}[/bold][/red] : Bench config not found at {e.filename}")
+            blocks.append(fact("apps", ", ".join(row["apps"]) or "-"))
+            if row["deployed_tag"]:
+                blocks.append(fact("tag", row["deployed_tag"]))
+            if row["base_image"]:
+                blocks.append(fact("base", row["base_image"]))
+            if row["seed_image"]:
+                blocks.append(fact("seeded", row["seed_image"]))
+            if row["alias_domains"]:
+                blocks.append(fact("domains", ", ".join(row["alias_domains"])))
+            blocks.append(fact("dir", f"[dim]{row['path']}[/dim]"))
+            blocks.append(" ")
 
         self.output.stop()
-        return table
+        if blocks and blocks[-1] == " ":
+            blocks.pop()  # no trailing blank line
+        return Group(*blocks)
 
     def _create_cleanup_bench(self, bench_name: str) -> Bench:
         """
