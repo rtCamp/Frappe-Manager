@@ -16,6 +16,7 @@ from frappe_manager.docker import ComposeFile, DockerClient, DockerException
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.site_manager.bench_config import BenchRuntime
 from frappe_manager.site_manager.exceptions import (
     BenchOperationException,
     BenchWorkersSupervisorConfigurtionNotFoundError,
@@ -208,6 +209,18 @@ class BenchWorkers:
                 get_container_name_prefix(self.bench.name),
                 "site-network",
             ).with_version(get_current_fm_version()).with_restart(self.bench.bench_config.restart_policy.value).commit()
+
+            # Image runtime: the template yields the base fm image + full ./workspace bind.
+            # Re-pin to the deployed app image with data-only binds so EVERY regen
+            # (create/update/restart/reconfigure) produces a correct image-mode workers
+            # compose -- callers can't forget and leave workers on the base image.
+            if self.bench.bench_config.runtime == BenchRuntime.image:
+                from frappe_manager.site_manager.modules.deploy_orchestrator import pin_workers_to_image
+
+                deploy_state = self.bench.bench_config.deploy_state
+                tag = deploy_state.current_tag if deploy_state else None
+                if tag:
+                    pin_workers_to_image(self, self.bench.name, tag)
 
             self.output.print(f"{' '.join(workers_expected_service_names)} configurations generated")
             return True

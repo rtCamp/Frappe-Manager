@@ -118,6 +118,16 @@ class DockerComposeWrapper:
             self.compose_file_path.as_posix(),
         ]
 
+        # User-owned override: an adjacent `<name>.override.yml` (fm never writes it) is
+        # deep-merged by Docker after the base, so hand-authored customizations survive every
+        # fm regeneration of the base compose. Appended after the base so the override wins,
+        # and inherited by every subcommand via this shared command prefix.
+        override_path = self.compose_file_path.with_name(
+            f"{self.compose_file_path.stem}.override{self.compose_file_path.suffix}"
+        )
+        if override_path.exists():
+            self.docker_compose_cmd += ["-f", override_path.as_posix()]
+
         self._context_services: list[str] | None = None
 
     @overload
