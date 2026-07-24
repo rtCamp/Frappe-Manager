@@ -55,12 +55,15 @@ def test_config_rejects_typo_strings():
 # ------------------------------------------------------------------ hook env
 
 
-def _orch(probe=None):
+def _orch(probe=None, status=None, log=None):
     o = object.__new__(DeployOrchestrator)  # bypass __init__ (no bench/docker needed)
     o.site = "s.localhost"
     o.bench_path = Path("/b")
     o.switch_config = SwitchConfig()
     o._probe_result = probe  # noqa: SLF001
+    o._migrate_status = status  # noqa: SLF001
+    o._migrate_log_container = log  # noqa: SLF001
+    o._migrate_log_host = Path("/b/workspace/frappe-bench/logs/m.log") if log else None  # noqa: SLF001
     return o
 
 
@@ -84,3 +87,17 @@ def test_hook_env_probe_unknowns():
 def test_hook_env_without_probe_has_no_probe_vars():
     script = _orch()._hook_script("echo hi", "repo:t1")  # noqa: SLF001
     assert "MIGRATE_PROBE" not in script
+
+
+def test_hook_env_exports_migrate_status_and_log():
+    o = _orch(status="failed", log="/workspace/frappe-bench/logs/deploy-migrate-1.log")
+    script = o._hook_script("echo hi", "repo:t1")  # noqa: SLF001
+    assert "export MIGRATE_STATUS=failed" in script
+    assert "export MIGRATE_LOG_FILE=/workspace/frappe-bench/logs/deploy-migrate-1.log" in script
+    assert "export MIGRATE_LOG_FILE_HOST=/b/workspace/frappe-bench/logs/m.log" in script
+
+
+def test_hook_env_without_migrate_has_no_status_vars():
+    script = _orch()._hook_script("echo hi", "repo:t1")  # noqa: SLF001
+    assert "MIGRATE_STATUS" not in script
+    assert "MIGRATE_LOG_FILE" not in script

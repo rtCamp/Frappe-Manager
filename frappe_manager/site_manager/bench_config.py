@@ -968,7 +968,11 @@ class SwitchHookScripts(BaseModel):
     before_restart: str | None = Field(None, description="Before the container swap.")
     after_restart: str | None = Field(None, description="After the swap (finalize).")
     before_migrate: str | None = Field(None, description="Before `bench migrate`.")
-    after_migrate: str | None = Field(None, description="After `bench migrate`.")
+    after_migrate: str | None = Field(
+        None,
+        description="After `bench migrate` -- runs on success AND failure "
+        "(hook env: MIGRATE_STATUS=migrated|failed, full log at MIGRATE_LOG_FILE[_HOST]).",
+    )
 
 
 class SwitchHooks(SwitchHookScripts):

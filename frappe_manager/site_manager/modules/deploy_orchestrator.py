@@ -164,6 +164,11 @@ class DeployOrchestrator:
         self.docker = bench.docker_client
         # migrate='auto' probe details (verdict/pending/drift); exported to hook env.
         self._probe_result: dict | None = None
+        # bench-migrate outcome + persisted log paths; exported to hook env so
+        # after_migrate hooks (which also run on FAILURE) can ship notifications.
+        self._migrate_status: str | None = None
+        self._migrate_log_host: Path | None = None
+        self._migrate_log_container: str | None = None
         self.compose = bench.compose_file_manager
         self.docker_ops = bench.docker_ops
         self.output = output_handler or RichOutputHandler()
@@ -650,6 +655,11 @@ class DeployOrchestrator:
             pending = self._probe_result["pending"]
             core["MIGRATE_PENDING_PATCHES"] = "unknown" if pending is None else str(pending)
             core["MIGRATE_APP_DRIFT"] = ",".join(self._probe_result["drift"]) or "none"
+        if self._migrate_status is not None:
+            core["MIGRATE_STATUS"] = self._migrate_status
+        if self._migrate_log_container is not None:
+            core["MIGRATE_LOG_FILE"] = self._migrate_log_container
+            core["MIGRATE_LOG_FILE_HOST"] = str(self._migrate_log_host)
         env = hook_env(core, self.switch_config)
         return hook_script(value, env)
 
@@ -704,19 +714,51 @@ class DeployOrchestrator:
                 host_script.unlink()
 
     def _migrate(self, deploy_tag: str) -> bool:
-        """Run bench migrate in a one-shot container from the newly-pinned image."""
+        """Run bench migrate in a one-shot container from the newly-pinned image.
+
+        The full migrate output is persisted to ``logs/deploy-migrate-<ts>.log``
+        (bind-mounted: readable by host AND container hooks) and exported to hook
+        env as MIGRATE_LOG_FILE / MIGRATE_LOG_FILE_HOST -- on failure too, so
+        after_migrate notification hooks can ship the log."""
         self.output.change_head("Running migrations (one-shot new-image container)")
         command = self.switch_config.migrate_command or f"--site {self.site} migrate"
-        self.docker.compose.run(
-            service=FRAPPE_SERVICE,
-            entrypoint=BENCH_BIN,
-            command=command,
-            user="frappe",
-            rm=True,
-            stream=False,
-        )
+        log_name = f"deploy-migrate-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}.log"
+        self._migrate_log_host = self.bench_path / "workspace" / "frappe-bench" / "logs" / log_name
+        self._migrate_log_container = f"/workspace/frappe-bench/logs/{log_name}"
+
+        def _persist(lines) -> None:
+            with contextlib.suppress(OSError):
+                self._migrate_log_host.write_text("\n".join(ln.rstrip("\n") for ln in lines or []))
+
+        try:
+            result = self.docker.compose.run(
+                service=FRAPPE_SERVICE,
+                entrypoint=BENCH_BIN,
+                command=command,
+                user="frappe",
+                rm=True,
+                stream=False,
+            )
+        except DockerException as e:
+            out = getattr(e, "output", None)
+            _persist(getattr(out, "combined", None) or [str(e)])
+            raise
+        _persist(getattr(result, "combined", None))
         self.output.print("Migrations applied")
         return True
+
+    def _notify_after_migrate(self, new_tag: str) -> None:
+        """Failure-path after_migrate hooks (notifications): best-effort, container
+        then host, with MIGRATE_STATUS=failed and the persisted migrate log in the
+        hook env. A broken notification hook must never mask the migrate error."""
+        for value, phase, runner in (
+            (self._switch_hook("after_migrate"), "after_migrate", self._run_container_hook),
+            (self._switch_hook("after_migrate", host=True), "host_after_migrate", self._run_host_hook),
+        ):
+            try:
+                runner(value, phase, new_tag)
+            except Exception as e:
+                self.output.warning(f"{phase} hook failed on the migrate-failure path (continuing): {e}")
 
     def _probe_migrate_needed(self, new_tag: str) -> bool:
         """``migrate = "auto"``: probe the NEW image against the live site DB.
@@ -886,10 +928,12 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
                 self._run_container_hook(self._switch_hook("before_migrate"), "before_migrate", new_tag)
                 try:
                     self._migrate(new_tag)
-                    migrate_status = "migrated"
+                    migrate_status = self._migrate_status = "migrated"
                 except DockerException as e:
                     # Migrate failure: NO swap. Keep old tag + report. migrate is
                     # transactional/resumable so default is keep-old (re-runnable).
+                    migrate_status = self._migrate_status = "failed"  # noqa: F841
+                    self._notify_after_migrate(new_tag)
                     if self.switch_config.rollback_db and db_dump:
                         self._restore_db(db_dump)
                     raise DeployError(
