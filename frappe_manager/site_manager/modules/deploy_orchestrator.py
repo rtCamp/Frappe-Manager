@@ -3,9 +3,10 @@
 Implements the decomposed image deploy (recreate-swap) that ``fmx restart
 --migrate`` cannot express in image mode:
 
-    fetch -> pre-flight -> backup -> maintenance(if migrate) -> drain(old)
-    -> render image compose(new tag) -> migrate(one-shot, new image)
-    -> recreate-swap(compose up -d --wait) -> finalize(resume + site DB ops +
+    fetch -> pre-flight -> render image compose(new tag) -> resolve migrate
+    (probe when 'auto') -> maintenance(if migrate) -> drain(old) -> backup (at
+    the quiesced point) -> migrate(one-shot, new image) -> swap (rolling when
+    the overlap is safe, else recreate) -> finalize(resume + site DB ops +
     maintenance off) -> record deploy_state
 
 Rolling (blue-green) scale-2 is the default web swap whenever the overlap is
@@ -85,14 +86,25 @@ def rolling_eligible(
 MIGRATE_PROBE_MARKER = "FM-MIGRATE-PROBE"
 
 
-def parse_migrate_probe(lines) -> bool | None:
-    """Verdict from the migrate-probe marker line.
+def parse_migrate_probe(lines) -> dict | None:
+    """Structured verdict from the migrate-probe marker line, or None.
 
-    True = migrate needed, False = clean (no pending patches / version drift),
-    None = no verdict found in the output."""
+    ``{"needed": bool, "pending": int | None, "drift": [app, ...]}`` -- the
+    pending patch count and drifted-app names feed the migrate/backup
+    decisions and are exported to hook env (MIGRATE_PROBE /
+    MIGRATE_PENDING_PATCHES / MIGRATE_APP_DRIFT)."""
     for line in lines or []:
-        if MIGRATE_PROBE_MARKER in line:
-            return "clean" not in line.split(MIGRATE_PROBE_MARKER, 1)[1]
+        if MIGRATE_PROBE_MARKER not in line:
+            continue
+        tail = line.split(MIGRATE_PROBE_MARKER, 1)[1]
+        pending_m = re.search(r"pending=(\d+)", tail)
+        drift_m = re.search(r"drift=(\S+)", tail)
+        drift = [] if not drift_m or drift_m.group(1) == "none" else drift_m.group(1).split(",")
+        return {
+            "needed": "clean" not in tail,
+            "pending": int(pending_m.group(1)) if pending_m else None,
+            "drift": drift,
+        }
     return None
 
 
@@ -150,6 +162,8 @@ class DeployOrchestrator:
         self.site = bench.name
         self.bench_path = Path(bench.path)
         self.docker = bench.docker_client
+        # migrate='auto' probe details (verdict/pending/drift); exported to hook env.
+        self._probe_result: dict | None = None
         self.compose = bench.compose_file_manager
         self.docker_ops = bench.docker_ops
         self.output = output_handler or RichOutputHandler()
@@ -629,10 +643,14 @@ class DeployOrchestrator:
 
     def _hook_script(self, value: str, deploy_tag: str) -> str:
         """``set -e`` + exported env + resolved content, so no exec env passthrough is needed."""
-        env = hook_env(
-            {"SITE_NAME": self.site, "BENCH_PATH": str(self.bench_path), "DEPLOY_TAG": deploy_tag},
-            self.switch_config,
-        )
+        core = {"SITE_NAME": self.site, "BENCH_PATH": str(self.bench_path), "DEPLOY_TAG": deploy_tag}
+        if self._probe_result is not None:
+            # migrate='auto' probe details, for hooks concerned with schema state.
+            core["MIGRATE_PROBE"] = self._probe_result["verdict"]
+            pending = self._probe_result["pending"]
+            core["MIGRATE_PENDING_PATCHES"] = "unknown" if pending is None else str(pending)
+            core["MIGRATE_APP_DRIFT"] = ",".join(self._probe_result["drift"]) or "none"
+        env = hook_env(core, self.switch_config)
         return hook_script(value, env)
 
     def _run_host_hook(self, value: str | None, phase: str, deploy_tag: str) -> None:
@@ -730,6 +748,7 @@ status = "needed" if (pending or drift) else "clean"
 print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" % (",".join(drift) or "none"))
 """
         encoded = base64.b64encode(probe.encode()).decode()
+        assumed = {"needed": True, "pending": None, "drift": [], "verdict": "assumed-needed"}
         try:
             result = self.docker.compose.run(
                 service=FRAPPE_SERVICE,
@@ -741,15 +760,19 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
             )
         except DockerException as e:
             self.output.warning(f"Migrate probe failed ({e}); assuming migrate is needed.")
+            self._probe_result = assumed
             return True
         lines = list(getattr(result, "stdout", None) or []) + list(getattr(result, "stderr", None) or [])
-        needed = parse_migrate_probe(lines)
-        if needed is None:
+        parsed = parse_migrate_probe(lines)
+        if parsed is None:
             self.output.warning("Migrate probe produced no verdict; assuming migrate is needed.")
+            self._probe_result = assumed
             return True
+        parsed["verdict"] = "needed" if parsed["needed"] else "clean"
+        self._probe_result = parsed
         marker = next(ln.strip() for ln in lines if MIGRATE_PROBE_MARKER in ln)
         self.output.print(f"Migrate probe: {marker}")
-        return needed
+        return parsed["needed"]
 
     def _current_deployed_tag(self) -> str | None:
         state = self.config.deploy_state
@@ -802,20 +825,15 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         backup_dir = self.bench_path / "backups" / f"deploy-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
         db_dump: Path | None = None
 
-        # 3. Backup (pre-change state)
-        if self.switch_config.backup_db:
-            self.output.change_head("Backing up DB + site config")
-            db_dump = self._backup(backup_dir)
-
         snaps = self._snapshot_compose()
 
-        # 4. Render the image-mode compose pinned to the new tag. From here until
+        # 3. Render the image-mode compose pinned to the new tag. From here until
         # the swap, every abort path restores the snapshots (old stack serving).
         self.output.change_head("Rendering image-mode compose")
         self.docker_ops.render_image_compose(new_tag)
         self._pin_workers(new_tag)
 
-        # 5. Resolve migrate: explicit bool, or 'auto' -> probe the NEW image
+        # 4. Resolve migrate: explicit bool, or 'auto' -> probe the NEW image
         # against the live DB (pending patches / app-version drift).
         requested = self.switch_config.migrate
         if requested == "auto":
@@ -842,13 +860,25 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
 
         migrate_status = "skipped"
         try:
-            # 6. Maintenance ON (only when migrating)
+            # 5. Maintenance ON (only when migrating)
             if maintenance and self._frappe_running():
                 self.output.change_head("Enabling maintenance mode")
                 self._set_maintenance(1)
 
-            # 7. Drain workers (old container)
+            # 6. Drain workers (old container)
             self._drain_workers()
+
+            # 7. Backup at the quiesced point: requests are already 503'd (when
+            # migrating) and drained workers have finished writing, so the dump
+            # is the exact pre-migrate state -- a rollback_db restore loses
+            # nothing written between dump and migrate.
+            requested_backup = self.switch_config.backup_db
+            do_backup = migrate if requested_backup == "auto" else bool(requested_backup)
+            if do_backup:
+                self.output.change_head("Backing up DB + site config")
+                db_dump = self._backup(backup_dir)
+            elif requested_backup == "auto":
+                self.output.print("Backup skipped (backup_db=auto: no schema change)")
 
             # 8. Migrate in a one-shot new-image container.
             if migrate:

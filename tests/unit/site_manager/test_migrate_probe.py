@@ -1,31 +1,42 @@
-"""migrate='auto' probe: marker parsing + config acceptance."""
+"""migrate='auto' probe: marker parsing, config acceptance, rolling gate, hook env."""
+
+from pathlib import Path
 
 import pytest
 
 from frappe_manager.site_manager.bench_config import SwitchConfig
 from frappe_manager.site_manager.modules.deploy_orchestrator import (
     MIGRATE_PROBE_MARKER,
+    DeployOrchestrator,
     parse_migrate_probe,
 )
 
+# ------------------------------------------------------------------ parsing
+
 
 def test_parse_needed():
-    assert parse_migrate_probe([f"{MIGRATE_PROBE_MARKER} needed pending=3 drift=none"]) is True
+    r = parse_migrate_probe([f"{MIGRATE_PROBE_MARKER} needed pending=3 drift=none"])
+    assert r == {"needed": True, "pending": 3, "drift": []}
 
 
 def test_parse_clean():
     lines = ["console noise", f"{MIGRATE_PROBE_MARKER} clean pending=0 drift=none", "more noise"]
-    assert parse_migrate_probe(lines) is False
+    assert parse_migrate_probe(lines) == {"needed": False, "pending": 0, "drift": []}
 
 
-def test_parse_drift_marks_needed():
-    assert parse_migrate_probe([f"{MIGRATE_PROBE_MARKER} needed pending=0 drift=erpnext"]) is True
+def test_parse_drift_apps():
+    r = parse_migrate_probe([f"{MIGRATE_PROBE_MARKER} needed pending=0 drift=erpnext,hrms"])
+    assert r["needed"] is True
+    assert r["drift"] == ["erpnext", "hrms"]
 
 
 def test_parse_no_verdict():
     assert parse_migrate_probe(["no marker here"]) is None
     assert parse_migrate_probe([]) is None
     assert parse_migrate_probe(None) is None
+
+
+# ------------------------------------------------------------------ config
 
 
 def test_config_accepts_auto():
@@ -41,12 +52,35 @@ def test_config_rejects_typo_strings():
     assert SwitchConfig(migrate="yes").migrate is True  # boolish string coerces, documented
 
 
-def test_rolling_eligible_matrix():
-    from frappe_manager.site_manager.modules.deploy_orchestrator import rolling_eligible
+# ------------------------------------------------------------------ hook env
 
-    assert rolling_eligible(False, True, ["migrate"]) is True  # no migrate
-    assert rolling_eligible(True, True, ["migrate"]) is True  # migrate covered by maintenance 503
-    assert rolling_eligible(True, False, []) is True  # operator asserts additive
-    assert rolling_eligible(True, False, ["migrate"]) is False  # migrate, window disabled -> recreate
-    assert rolling_eligible(True, False, ["migrate"], override=True) is True  # CLI forces
-    assert rolling_eligible(False, True, ["migrate"], override=False) is False  # CLI disables
+
+def _orch(probe=None):
+    o = object.__new__(DeployOrchestrator)  # bypass __init__ (no bench/docker needed)
+    o.site = "s.localhost"
+    o.bench_path = Path("/b")
+    o.switch_config = SwitchConfig()
+    o._probe_result = probe  # noqa: SLF001
+    return o
+
+
+def test_hook_env_exports_probe_details():
+    o = _orch({"needed": True, "pending": 3, "drift": ["erpnext"], "verdict": "needed"})
+    script = o._hook_script("echo hi", "repo:t1")  # noqa: SLF001
+    assert "export MIGRATE_PROBE=needed" in script
+    assert "export MIGRATE_PENDING_PATCHES=3" in script
+    assert "export MIGRATE_APP_DRIFT=erpnext" in script
+    assert "export DEPLOY_TAG=repo:t1" in script
+
+
+def test_hook_env_probe_unknowns():
+    o = _orch({"needed": True, "pending": None, "drift": [], "verdict": "assumed-needed"})
+    script = o._hook_script("echo hi", "repo:t1")  # noqa: SLF001
+    assert "export MIGRATE_PROBE=assumed-needed" in script
+    assert "export MIGRATE_PENDING_PATCHES=unknown" in script
+    assert "export MIGRATE_APP_DRIFT=none" in script
+
+
+def test_hook_env_without_probe_has_no_probe_vars():
+    script = _orch()._hook_script("echo hi", "repo:t1")  # noqa: SLF001
+    assert "MIGRATE_PROBE" not in script

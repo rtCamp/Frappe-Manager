@@ -28,3 +28,12 @@ def test_old_field_names_are_rejected():
         SwitchConfig(backups=True)
     with pytest.raises(ValueError):
         SwitchConfig(restore_on_failure=True)
+
+
+def test_backup_db_auto_accepted():
+    assert SwitchConfig(backup_db="auto").backup_db == "auto"
+
+
+def test_rollback_db_allows_auto_backup():
+    # 'auto' dumps exactly when migrate runs -- the only time a restore is needed.
+    assert SwitchConfig(backup_db="auto", rollback_db=True).rollback_db is True

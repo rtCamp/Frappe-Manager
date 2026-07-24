@@ -994,7 +994,11 @@ class SwitchConfig(BaseModel):
         default_factory=lambda: ["migrate"],
         description="Phases with maintenance page: 'migrate'. [] asserts a backward-compatible migration (no page).",
     )
-    backup_db: bool = Field(True, description="Dump the DB (+ site-config snapshot) before the switch.")
+    backup_db: bool | Literal["auto"] = Field(
+        True,
+        description="Dump the DB (+ site-config snapshot) before the switch: true, false, or "
+        "'auto' (dump only when the deploy will run bench migrate).",
+    )
     rollback_image: bool = Field(
         True,
         description="On failure: re-pin the previous image tag and recreate (code only, never touches the DB).",
@@ -1019,7 +1023,7 @@ class SwitchConfig(BaseModel):
 
     @model_validator(mode="after")
     def _rollback_db_requires_backup_db(self):
-        if self.rollback_db and not self.backup_db:
+        if self.rollback_db and self.backup_db is False:
             raise ValueError("switch.rollback_db = true requires switch.backup_db = true (there is no dump to restore).")
         return self
 
