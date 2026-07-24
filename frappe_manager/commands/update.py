@@ -311,7 +311,10 @@ def update(
                 # CURRENTLY DEPLOYED tag -- code on disk == running code, so no
                 # migrate is needed; site data already lives host-side and is untouched.
                 from frappe_manager.site_manager.modules.transport import fetch_image
-                from frappe_manager.site_manager.modules.workspace_seed import materialize_workspace_from_image
+                from frappe_manager.site_manager.modules.workspace_seed import (
+                    materialize_workspace_from_image,
+                    stash_conflicting_seed_paths,
+                )
 
                 deploy_state = bench.bench_config.deploy_state
                 tag = deploy_state.current_tag if deploy_state else None
@@ -323,6 +326,14 @@ def update(
                 output.change_head(f"Materializing editable workspace from {tag}")
                 fetch_image(bench.docker_client, bench.bench_config.registry, tag, output=output)
                 frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
+                # Leftover code trees from an earlier mount life are STALE vs the
+                # deployed tag; keeping them would break "code on disk == running
+                # code". Stash them aside (never delete) and extract fresh.
+                stash = stash_conflicting_seed_paths(frappe_bench_dir, output=output)
+                if stash:
+                    output.warning(
+                        f"Existing workspace code was stale vs {tag}; moved to {stash} -- review and delete it.",
+                    )
                 extracted = materialize_workspace_from_image(bench.docker_client, tag, frappe_bench_dir, output=output)
                 output.print(f"Extracted from image: {', '.join(extracted) if extracted else 'nothing (already present)'}")
 

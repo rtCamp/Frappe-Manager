@@ -10,7 +10,7 @@ image mode, else None.
 import pytest
 import typer
 
-from frappe_manager.commands.create import _has_explicit_tag, _resolve_deploy_options
+from frappe_manager.commands.create import _has_explicit_tag, _resolve_deploy_options, _validate_from_image
 from frappe_manager.site_manager.bench_config import (
     BenchConfig,
     BenchRuntime,
@@ -135,3 +135,30 @@ def test_created_mount_bench_persists_base_image(tmp_path):
     assert reloaded.runtime == BenchRuntime.mount
     assert reloaded.image is None
     assert reloaded.base_image == "local/frappe-base:test"
+
+
+# ------------------------------------------------------------ --from-image
+
+
+def test_from_image_rejects_image_runtime():
+    with pytest.raises(typer.BadParameter, match="MOUNT"):
+        _validate_from_image("r:t", BenchRuntime.image, [], None, None)
+
+
+def test_from_image_rejects_provisioning_flags():
+    # apps / python / node come from the image.
+    with pytest.raises(typer.BadParameter, match="--apps"):
+        _validate_from_image("r:t", BenchRuntime.mount, ["erpnext"], None, None)
+    with pytest.raises(typer.BadParameter):
+        _validate_from_image("r:t", BenchRuntime.mount, [], "3.12", None)
+    with pytest.raises(typer.BadParameter):
+        _validate_from_image("r:t", BenchRuntime.mount, [], None, "20")
+
+
+def test_from_image_requires_explicit_tag():
+    with pytest.raises(typer.BadParameter, match="tag"):
+        _validate_from_image("localhost:5000/repo", BenchRuntime.mount, [], None, None)
+
+
+def test_from_image_valid_contract_passes():
+    _validate_from_image("ghcr.io/acme/erp:jun01", BenchRuntime.mount, [], None, None)

@@ -156,3 +156,8 @@ def test_apply_specs_switch_image_to_mount_restores_workspace(tmp_path):
     fr = [str(v) for v in cfm.get_service_volumes("frappe")]
     assert "./workspace:/workspace" in fr
     assert not any("/workspace/frappe-bench/logs" in v for v in fr)  # data binds stripped
+    ng = [str(v) for v in cfm.get_service_volumes("nginx")]
+    # nginx serves assets from the workspace in mount mode; conf binds pass through.
+    assert "./workspace:/workspace" in ng
+    assert "./configs/nginx/conf:/etc/nginx" in ng
+    assert cfm.yml["services"]["nginx"]["image"] == default_nginx_image()

@@ -92,6 +92,26 @@ def _resolve_deploy_options(
     return resolved, repo, image, None
 
 
+def _validate_from_image(
+    from_image: str,
+    resolved_runtime: BenchRuntime,
+    apps: list,
+    python_version: str | None,
+    node_version: str | None,
+) -> None:
+    """``--from-image`` contract: mount-only, the image supplies apps/runtimes, explicit tag."""
+    if resolved_runtime == BenchRuntime.image:
+        raise typer.BadParameter(
+            "--from-image seeds a MOUNT workspace; image runtime already runs the image (use --image).",
+        )
+    if apps or python_version or node_version:
+        raise typer.BadParameter(
+            "--from-image seeds apps and Python/Node from the image; --apps/--python/--node are not allowed.",
+        )
+    if not _has_explicit_tag(from_image):
+        raise typer.BadParameter("--from-image requires an explicit ':tag' (e.g. local/myapp:20260724-abc).")
+
+
 def _ensure_frappe_first(apps: list[AppConfig]) -> list[AppConfig]:
     """Frappe present and first (create's app-ordering rule)."""
     frappe_app = None
@@ -470,16 +490,7 @@ def create(
             runtime, image, apps, python_version, node_version
         )
         if from_image:
-            if resolved_runtime == BenchRuntime.image:
-                raise typer.BadParameter(
-                    "--from-image seeds a MOUNT workspace; image runtime already runs the image (use --image).",
-                )
-            if apps or python_version or node_version:
-                raise typer.BadParameter(
-                    "--from-image seeds apps and Python/Node from the image; --apps/--python/--node are not allowed.",
-                )
-            if not _has_explicit_tag(from_image):
-                raise typer.BadParameter("--from-image requires an explicit ':tag' (e.g. local/myapp:20260724-abc).")
+            _validate_from_image(from_image, resolved_runtime, apps, python_version, node_version)
             output.print(
                 f"Mount bench: seeding workspace from baked image [blue]{from_image}[/blue].",
                 emoji_code=":package:",
