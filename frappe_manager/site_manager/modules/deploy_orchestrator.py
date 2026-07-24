@@ -756,31 +756,38 @@ class DeployOrchestrator:
 
         # 6. Migrate in a one-shot new-image container.
         migrate_status = "skipped"
-        if migrate:
-            self._run_host_hook(self._switch_hook("before_migrate", host=True), "host_before_migrate", new_tag)
-            self._run_container_hook(self._switch_hook("before_migrate"), "before_migrate", new_tag)
-            try:
-                self._migrate(new_tag)
-                migrate_status = "migrated"
-            except DockerException as e:
-                # Migrate failure: NO swap. Keep old tag + report. migrate is
-                # transactional/resumable so default is keep-old (re-runnable).
-                self._restore_compose(snaps)
-                if self.switch_config.restore_on_failure and db_dump:
-                    self._restore_db(db_dump)
-                if self._frappe_running():
-                    with contextlib.suppress(Exception):
-                        self._set_maintenance(0)
-                raise DeployError(
-                    f"Migration failed; kept old image ({old_tag or 'dev/mount'}). "
-                    f"Compose reverted, no swap performed. Re-run deploy after fixing: {e}",
-                ) from e
-            self._run_container_hook(self._switch_hook("after_migrate"), "after_migrate", new_tag)
-            self._run_host_hook(self._switch_hook("after_migrate", host=True), "host_after_migrate", new_tag)
+        try:
+            if migrate:
+                self._run_host_hook(self._switch_hook("before_migrate", host=True), "host_before_migrate", new_tag)
+                self._run_container_hook(self._switch_hook("before_migrate"), "before_migrate", new_tag)
+                try:
+                    self._migrate(new_tag)
+                    migrate_status = "migrated"
+                except DockerException as e:
+                    # Migrate failure: NO swap. Keep old tag + report. migrate is
+                    # transactional/resumable so default is keep-old (re-runnable).
+                    if self.switch_config.restore_on_failure and db_dump:
+                        self._restore_db(db_dump)
+                    raise DeployError(
+                        f"Migration failed; kept old image ({old_tag or 'dev/mount'}). "
+                        f"Compose reverted, no swap performed. Re-run deploy after fixing: {e}",
+                    ) from e
+                self._run_container_hook(self._switch_hook("after_migrate"), "after_migrate", new_tag)
+                self._run_host_hook(self._switch_hook("after_migrate", host=True), "host_after_migrate", new_tag)
 
-        # Switch hooks (pre-restart): host first, then the still-running old container.
-        self._run_host_hook(self._switch_hook("before_restart", host=True), "host_before_restart", new_tag)
-        self._run_container_hook(self._switch_hook("before_restart"), "before_restart", new_tag)
+            # Switch hooks (pre-restart): host first, then the still-running old container.
+            self._run_host_hook(self._switch_hook("before_restart", host=True), "host_before_restart", new_tag)
+            self._run_container_hook(self._switch_hook("before_restart"), "before_restart", new_tag)
+        except DeployError:
+            # Abort BEFORE the swap (hook or migrate failure): the OLD stack is still
+            # the live one. Revert the compose re-pin and drop maintenance so an
+            # aborted deploy never leaves the site dark or the compose half-switched
+            # toward the new tag (a later plain `compose up` must not jump tags).
+            self._restore_compose(snaps)
+            if self._frappe_running():
+                with contextlib.suppress(Exception):
+                    self._set_maintenance(0)
+            raise
 
         # 7b. Swap. Rolling (blue-green) when eligible -> zero dropped requests;
         # otherwise recreate-swap (the maintenance window covers the brief blip).
@@ -821,9 +828,18 @@ class DeployOrchestrator:
             self._exec_frappe(f"{BENCH_BIN} --site {self.site} clear-cache")
         except Exception as e:
             self.output.warning(f"clear-cache failed (continuing): {e}")
-        # Switch hooks (post-restart): new container first, then host.
-        self._run_container_hook(self._switch_hook("after_restart"), "after_restart", new_tag)
-        self._run_host_hook(self._switch_hook("after_restart", host=True), "host_after_restart", new_tag)
+        # Switch hooks (post-restart): new container first, then host. The swap has
+        # already happened -- a failing post hook must not leave the site in
+        # maintenance or the deploy unrecorded (rollback bookkeeping stays truthful).
+        try:
+            self._run_container_hook(self._switch_hook("after_restart"), "after_restart", new_tag)
+            self._run_host_hook(self._switch_hook("after_restart", host=True), "host_after_restart", new_tag)
+        except DeployError:
+            if maintenance:
+                with contextlib.suppress(Exception):
+                    self._set_maintenance(0)
+            self._record(new_tag, migrate_status)
+            raise
 
         if maintenance:
             self._set_maintenance(0)
