@@ -7,8 +7,27 @@ Tracks migration version for individual benches.
 from datetime import datetime
 from pathlib import Path
 
+import tomlkit
+
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.site_manager.bench_config import BenchConfig, MigrationState
+
+
+def _read_migration_state(bench_config_path: Path) -> dict:
+    """Raw-TOML read of ``[migration_state]`` (schema-tolerant).
+
+    Deliberately NOT via the BenchConfig model: the version probe runs before
+    every command, and a config that fails schema validation must still report
+    its real version -- otherwise validation errors get masked as a bogus
+    "migration required (v0.0.0)" prompt. The actual command's config load
+    surfaces the real error.
+    """
+    try:
+        data = tomlkit.parse(bench_config_path.read_text())
+    except Exception:
+        return {}
+    state = data.get("migration_state")
+    return dict(state) if isinstance(state, dict) else {}
 
 
 def get_bench_migration_version(bench_path: Path) -> Version:
@@ -26,12 +45,9 @@ def get_bench_migration_version(bench_path: Path) -> Version:
     if not bench_config_path.exists():
         return Version("0.0.0")
 
-    try:
-        config = BenchConfig.import_from_toml(bench_config_path)
-        if config.migration_state and config.migration_state.migrated_to:
-            return Version(config.migration_state.migrated_to)
-    except Exception:
-        pass
+    migrated_to = _read_migration_state(bench_config_path).get("migrated_to")
+    if migrated_to:
+        return Version(str(migrated_to))
 
     return Version("0.0.0")
 
@@ -87,11 +103,4 @@ def get_bench_migration_date(bench_path: Path) -> str | None:
     if not bench_config_path.exists():
         return None
 
-    try:
-        config = BenchConfig.import_from_toml(bench_config_path)
-        if config.migration_state:
-            return config.migration_state.last_migration_date
-    except Exception:
-        return None
-
-    return None
+    return _read_migration_state(bench_config_path).get("last_migration_date")

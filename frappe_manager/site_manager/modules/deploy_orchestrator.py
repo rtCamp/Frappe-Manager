@@ -735,7 +735,7 @@ class DeployOrchestrator:
             )
 
         # 3. Backup
-        if self.switch_config.backups:
+        if self.switch_config.backup_db:
             self.output.change_head("Backing up DB + site config")
             db_dump = self._backup(backup_dir)
 
@@ -766,7 +766,7 @@ class DeployOrchestrator:
                 except DockerException as e:
                     # Migrate failure: NO swap. Keep old tag + report. migrate is
                     # transactional/resumable so default is keep-old (re-runnable).
-                    if self.switch_config.restore_on_failure and db_dump:
+                    if self.switch_config.rollback_db and db_dump:
                         self._restore_db(db_dump)
                     raise DeployError(
                         f"Migration failed; kept old image ({old_tag or 'dev/mount'}). "
@@ -805,9 +805,9 @@ class DeployOrchestrator:
         # Health gate (503 = maintenance page = server up; finalize clears it).
         self.output.change_head("Health-gating new containers")
         if not self._health_check():
-            if self.switch_config.rollback and old_tag:
+            if self.switch_config.rollback_image and old_tag:
                 self.output.warning("New image unhealthy; rolling back to previous tag.")
-                self.rollback(old_tag, _restore_db_dump=db_dump if self.switch_config.restore_on_failure else None)
+                self.rollback(old_tag, _restore_db_dump=db_dump if self.switch_config.rollback_db else None)
                 raise DeployError(
                     f"Deploy of {new_tag} failed health check; rolled back to {old_tag}.",
                 )

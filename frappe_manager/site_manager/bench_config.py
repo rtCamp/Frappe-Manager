@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import tomlkit
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
 from tomlkit.items import Array as TOMLArray
 
 from frappe_manager import CLI_DEFAULT_DELIMETER
@@ -990,11 +990,14 @@ class SwitchConfig(BaseModel):
         default_factory=lambda: ["migrate"],
         description="Phases with maintenance page: 'migrate'. [] asserts a backward-compatible migration (no page).",
     )
-    backups: bool = Field(True, description="Take DB + config backup before switch.")
-    rollback: bool = Field(True, description="Re-pin the previous tag on failure.")
-    restore_on_failure: bool = Field(
+    backup_db: bool = Field(True, description="Dump the DB (+ site-config snapshot) before the switch.")
+    rollback_image: bool = Field(
+        True,
+        description="On failure: re-pin the previous image tag and recreate (code only, never touches the DB).",
+    )
+    rollback_db: bool = Field(
         False,
-        description="Also restore the DB backup on failed migrate/switch (default off; migrate is resumable).",
+        description="On failure: also restore the DB dump (requires backup_db; default off -- migrate is resumable).",
     )
     search_replace: bool = Field(True, description="Run search-and-replace in DB after restore.")
     install_apps: bool = Field(True, description="Install new apps to the site during finalize.")
@@ -1009,6 +1012,12 @@ class SwitchConfig(BaseModel):
     common_site_config: dict[str, Any] | None = Field(None, description="Keys to merge into common_site_config.json.")
     site_config: dict[str, Any] | None = Field(None, description="Keys to merge into site_config.json.")
     hooks: SwitchHooks | None = Field(None, description="Switch-phase hooks (restart/migrate, container + host).")
+
+    @model_validator(mode="after")
+    def _rollback_db_requires_backup_db(self):
+        if self.rollback_db and not self.backup_db:
+            raise ValueError("switch.rollback_db = true requires switch.backup_db = true (there is no dump to restore).")
+        return self
 
 
 class BuildConfig(BaseModel):

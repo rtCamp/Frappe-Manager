@@ -1,0 +1,30 @@
+"""SwitchConfig safety-flag contract: backup_db / rollback_image / rollback_db."""
+
+import pytest
+
+from frappe_manager.site_manager.bench_config import SwitchConfig
+
+
+def test_defaults():
+    sc = SwitchConfig()
+    assert sc.backup_db is True  # dump taken by default (insurance)
+    assert sc.rollback_image is True  # code-level rollback on failed health gate
+    assert sc.rollback_db is False  # DB never auto-restored unless opted in
+
+
+def test_rollback_db_requires_backup_db():
+    with pytest.raises(ValueError, match="backup_db"):
+        SwitchConfig(backup_db=False, rollback_db=True)
+
+
+def test_rollback_db_with_backup_db_is_valid():
+    sc = SwitchConfig(backup_db=True, rollback_db=True)
+    assert sc.rollback_db is True
+
+
+def test_old_field_names_are_rejected():
+    # extra="forbid": stale keys fail loudly instead of being silently ignored.
+    with pytest.raises(ValueError):
+        SwitchConfig(backups=True)
+    with pytest.raises(ValueError):
+        SwitchConfig(restore_on_failure=True)

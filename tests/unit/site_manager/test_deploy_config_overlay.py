@@ -26,10 +26,10 @@ def test_resolve_source_reads_file(tmp_path):
 
 
 def test_deep_merge_later_wins_preserves_siblings():
-    merged = merge_overlays('[switch]\nmigrate = true\nbackups = true\n', ['[switch]\nmigrate = false\n'])
+    merged = merge_overlays('[switch]\nmigrate = true\nbackup_db = true\n', ['[switch]\nmigrate = false\n'])
     doc = tomlkit.parse(merged)
     assert doc["switch"]["migrate"] is False  # overridden
-    assert doc["switch"]["backups"] is True  # deep-merge preserved the sibling
+    assert doc["switch"]["backup_db"] is True  # deep-merge preserved the sibling
 
 
 def test_multiple_overlays_apply_in_order():
