@@ -1,4 +1,4 @@
-"""Contract tests for the rolling (blue-green) deploy eligibility gate.
+"""Contract tests for the rolling deploy eligibility gate.
 
 Defends: auto-mode picks rolling whenever the replica overlap is safe -- a
 no-migrate deploy, an operator-asserted additive migration (empty

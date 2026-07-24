@@ -1,7 +1,7 @@
 ## `fm switch`
 
-Switch a bench to an existing image tag (no bake). Rolling (blue-green) web
-swap when eligible, else recreate-swap.
+Switch a bench to an existing image tag (no bake). Rolling web swap when
+eligible, else recreate-swap.
 
 **Usage**:
 
@@ -16,7 +16,7 @@ $ fm switch BENCHNAME TAG [OPTIONS]
 
 **Options**:
 
-* `--rolling/--no-rolling`: Force/disable the rolling (blue-green) web swap. Default: auto (rolling when the deploy is no-migrate or asserts an additive migration).
+* `--rolling/--no-rolling`: Force/disable the rolling web swap. Default: auto (rolling whenever the overlap is safe: no migrate, additive-asserted, or migrate under a maintenance window).
 
 
 ## Examples

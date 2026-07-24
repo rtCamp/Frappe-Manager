@@ -27,7 +27,7 @@ $ fm deploy BENCHNAME [OPTIONS]
 * `--tag`: Full image tag to build (overrides the auto-generated tag).
 * `--remote`: Deploy to a remote daemon over SSH (DOCKER_HOST=ssh://<user>@<host>:<port>). Falls back to [deploy].ssh_server when omitted.
 * `--push/--no-push`: Push the baked image to the registry (default: push when [registry] is configured for 'registry').
-* `--rolling/--no-rolling`: Force/disable the rolling (blue-green) web swap. Default: auto (rolling when the deploy is no-migrate or asserts an additive migration).
+* `--rolling/--no-rolling`: Force/disable the rolling web swap. Default: auto (rolling whenever the overlap is safe: no migrate, additive-asserted, or migrate under a maintenance window).
 * `--config`: TOML config overlay: a file path or inline TOML content, deep-merged into the bench config before deploy. Repeatable; later --config wins.
 
 

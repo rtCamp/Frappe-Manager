@@ -9,7 +9,7 @@ Implements the decomposed image deploy (recreate-swap) that ``fmx restart
     the overlap is safe, else recreate) -> finalize(resume + site DB ops +
     maintenance off) -> record deploy_state
 
-Rolling (blue-green) scale-2 is the default web swap whenever the overlap is
+Rolling scale-2 is the default web swap whenever the overlap is
 safe (no migrate, additive-asserted, or a maintenance window covering the
 migrate); recreate-swap remains for migrate deploys that disable the
 maintenance window. Supervisor stays.
@@ -60,7 +60,7 @@ def rolling_eligible(
     maintenance_mode_phases: list[str],
     override: bool | None = None,
 ) -> bool:
-    """Decide whether a deploy may use the rolling (blue-green) web swap.
+    """Decide whether a deploy may use the rolling web swap.
 
     ``override`` is the CLI ``--rolling/--no-rolling`` flag (None = auto). In
     auto mode a deploy is rolling-eligible whenever the replica overlap cannot
@@ -376,7 +376,7 @@ class DeployOrchestrator:
             self._pin_workers(old_tag)
 
     def _rolling_swap(self, new_tag: str, old_tag: str | None, snaps: dict[Path, bytes]) -> None:
-        """Blue-green web swap: run new + old web replicas concurrently, drain old,
+        """Rolling web swap: run new + old web replicas concurrently, drain old,
         then reduce to the new replica -- zero dropped requests for a no-migrate
         deploy (vs the recreate-swap's brief blip). Recreate-swap stays the
         migrate/fallback path.
@@ -837,7 +837,7 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
     def deploy(self, new_tag: str, rolling: bool | None = None) -> None:
         """Run the image deploy to ``new_tag``.
 
-        Uses the rolling (blue-green) web swap when eligible (see
+        Uses the rolling web swap when eligible (see
         ``rolling_eligible``) and the old stack is up; otherwise the
         recreate-swap. ``rolling`` is the ``--rolling/--no-rolling`` override."""
         self._require_image_mode()
@@ -957,10 +957,10 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
                     self._set_maintenance(0)
             raise
 
-        # 7b. Swap. Rolling (blue-green) when eligible -> zero dropped requests;
+        # 7b. Swap. Rolling when eligible -> zero dropped requests;
         # otherwise recreate-swap (the maintenance window covers the brief blip).
         if do_rolling:
-            self.output.change_head("Rolling (blue-green) web swap")
+            self.output.change_head("Rolling web swap")
             self._rolling_swap(new_tag, old_tag, snaps)
         else:
             # Recreate-swap. No ``--wait``: nginx emerg-exits on the frappe:80

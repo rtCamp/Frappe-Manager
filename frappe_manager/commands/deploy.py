@@ -86,8 +86,8 @@ def deploy(
         bool | None,
         typer.Option(
             "--rolling/--no-rolling",
-            help="Force/disable the rolling (blue-green) web swap. Default: auto "
-            "(rolling when the deploy is no-migrate or asserts an additive migration).",
+            help="Force/disable the rolling web swap. Default: auto (rolling whenever the overlap "
+            "is safe: no migrate, additive-asserted, or migrate under a maintenance window).",
             show_default=False,
         ),
     ] = None,
@@ -179,15 +179,15 @@ def switch(
         bool | None,
         typer.Option(
             "--rolling/--no-rolling",
-            help="Force/disable the rolling (blue-green) web swap. Default: auto "
-            "(rolling when the deploy is no-migrate or asserts an additive migration).",
+            help="Force/disable the rolling web swap. Default: auto (rolling whenever the overlap "
+            "is safe: no migrate, additive-asserted, or migrate under a maintenance window).",
             show_default=False,
         ),
     ] = None,
 ):
     """
-    Switch a bench to an existing image tag (no bake). Rolling (blue-green) web
-    swap when eligible, else recreate-swap.
+    Switch a bench to an existing image tag (no bake). Rolling web swap when
+    eligible, else recreate-swap.
     """
     output = get_global_output_handler()
     logger = ctx.obj.get("logger") if ctx.obj else None

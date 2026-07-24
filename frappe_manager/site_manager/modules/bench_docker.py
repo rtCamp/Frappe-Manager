@@ -204,7 +204,7 @@ class BenchDockerOps:
         specs = bench_service_specs(self.config, RenderContext(deploy_tag=deploy_tag, rolling=rolling))
         apply_specs(self.compose_file_manager, specs, self.config.name)
 
-        # Rolling (blue-green) swap: shed container_name on the scaled web
+        # Rolling swap: shed container_name on the scaled web
         # services so `compose up --scale <svc>=2` is accepted; the canonical
         # (non-rolling) render restores them so get_container_names() keeps
         # working between deploys. The fm-sockets mount stays: the entrypoint

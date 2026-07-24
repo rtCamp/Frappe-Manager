@@ -19,7 +19,7 @@ Architecture (functional core, imperative shell):
   which fm never writes and Docker merges on top.
 * ``RenderContext.deploy_tag`` lets deploy/switch/rollback shape a CANDIDATE tag
   without mutating ``deploy_state`` mid-pipeline; ``rolling`` marks the
-  blue-green swap (handled by the bench renderer via ``ServiceSpec.rolling``).
+  rolling swap (handled by the bench renderer via ``ServiceSpec.rolling``).
 * ``ServiceSpec.enabled`` is the seam for a future per-bench ``[services]``
   toggle; always True today. (Disabling a service also needs bench-nginx
   upstream + supervisor changes -- this is the hook, not the whole feature.)
@@ -31,7 +31,7 @@ from typing import Protocol
 from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
 
 # Registry of fm bench code services and their mode-varying roles.
-# rolling: web services scaled 2->1 during the blue-green swap (shed container_name).
+# rolling: web services scaled 2->1 during the rolling swap (shed container_name).
 BENCH_CODE_SERVICES: dict[str, dict] = {
     "frappe": {"rolling": True},
     "nginx": {"rolling": True},
@@ -45,7 +45,7 @@ class RenderContext:
     """Operation context for a projection.
 
     deploy_tag: candidate app tag for deploy/switch/rollback (None = the
-    recorded ``deploy_state.current_tag``). rolling: blue-green swap render.
+    recorded ``deploy_state.current_tag``). rolling: rolling-swap render.
     """
 
     deploy_tag: str | None = None
@@ -67,7 +67,7 @@ class ServiceSpec:
 
     image: "repo:tag" to pin (None = keep the skeleton/template default).
     managed_binds: the mode-owned binds (managed targets are stripped + re-added).
-    rolling: web service scaled during blue-green (container_name handling).
+    rolling: web service scaled during the rolling swap (container_name handling).
     enabled: future per-bench service toggle seam; always True today.
     """
 
