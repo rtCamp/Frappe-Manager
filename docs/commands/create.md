@@ -9,9 +9,9 @@ development, and --image overrides the base frappe image. 'image' runs a pre-bui
 app image (built by `fm bake` or otherwise present/pullable) given via --image and
 does not accept --apps/--python/--node -- those are baked into the image.
 
---config supplies a TOML base (file or inline) for the bench config (e.g. [deploy],
-[registry], [remote], [build], hooks); explicit CLI flags override it. Repeatable,
-later --config wins.
+--config supplies a TOML base (file or inline) for the bench config (e.g. [switch],
+[registry], [deploy], [build], [monitoring], per-app hooks); explicit CLI flags
+override it. Repeatable, later --config wins.
 
 **Usage**:
 

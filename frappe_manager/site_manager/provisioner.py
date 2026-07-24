@@ -8,10 +8,11 @@ running bench, ``True`` = ``docker compose run --rm`` in a fresh container) and
 the target frappe-bench directory. Extracted from
 ``BenchOrchestrator._phase2_initialize_bench`` so image bake reuses it verbatim.
 
-Build hooks (``[deploy].{before,after}_{python_install,bench_build}`` + host
-variants) run here when configured — around dependency install and asset build,
-shared by create and bake (see ``frappe_manager.site_manager.hooks``). When no
-build hook is set the untouched ``install_apps(skip_clone=True)`` fast path runs.
+Per-app build hooks (``[[apps.hooks]]`` / ``[[apps.hooks.host]]`` with
+``{before,after}_{deps,build}``) run here when any app configures them — around
+that app's dependency install and asset build, shared by create and bake (see
+``frappe_manager.site_manager.hooks``). When no app has build hooks the untouched
+``install_apps(skip_clone=True)`` fast path runs.
 """
 
 import contextlib
@@ -26,7 +27,7 @@ from frappe_manager.site_manager.bench_config import (
     extract_node_version_requirement,
     extract_python_version_requirement,
 )
-from frappe_manager.site_manager.hooks import has_build_hooks, hook_env, hook_script
+from frappe_manager.site_manager.hooks import app_has_build_hooks, hook_env, hook_script
 from frappe_manager.site_manager.modules.bench_app import BenchAppManager
 
 
@@ -43,15 +44,14 @@ def provision(
     github_token: str | None = None,
     use_run: bool = True,
     detect_versions: bool = True,
-    deploy_config=None,
 ) -> list[AppConfig]:
     """Clone apps -> detect/setup Python+Node runtimes -> install deps + build.
 
     Mutates ``app_manager.bench_config.python_version``/``node_version`` when
     ``detect_versions`` is set and they are unset. Returns the (possibly
-    module-name-corrected) app list from the final install pass. When
-    ``deploy_config`` carries build hooks they are run around the install/build
-    steps; otherwise the untouched ``install_apps`` fast path runs.
+    module-name-corrected) app list from the final install pass. When any app
+    configures build hooks they are run around that app's install/build steps;
+    otherwise the untouched ``install_apps`` fast path runs.
     """
     output.change_head("Cloning apps")
     app_manager.install_apps(
@@ -81,10 +81,8 @@ def provision(
     if bench_config.python_version or bench_config.node_version:
         app_manager.setup_python_and_node_environments(use_run=use_run, recreate_python_env=True)
 
-    if has_build_hooks(deploy_config):
-        return _install_with_build_hooks(
-            app_manager, apps, deploy_config, use_uv=use_uv, use_run=use_run, output=output
-        )
+    if any(app.hooks and app_has_build_hooks(app.hooks) for app in apps):
+        return _install_with_app_hooks(app_manager, apps, use_uv=use_uv, use_run=use_run, output=output)
 
     output.change_head("Installing dependencies for all apps")
     return app_manager.install_apps(
@@ -96,28 +94,23 @@ def provision(
     )
 
 
-def _build_hook_env(app_manager: BenchAppManager, deploy_config) -> dict[str, str]:
-    apps_dir = app_manager.frappe_bench_dir / "apps"
-    apps = ",".join(sorted(d.name for d in apps_dir.iterdir() if d.is_dir())) if apps_dir.exists() else ""
-    return hook_env(deploy_config, {"BENCH_PATH": str(app_manager.frappe_bench_dir), "APPS": apps})
-
-
 def _run_build_hook(
     app_manager: BenchAppManager,
     value: str | None,
     phase: str,
+    env: dict[str, str],
     *,
-    deploy_config,
     on_host: bool,
     use_run: bool,
     output: OutputHandler,
 ) -> None:
     """Run one build hook on the host (bash subprocess in the bench dir) or in the
     provisioning container (temp script on the logs mount via ``_container_run``).
-    A non-zero exit raises ``ProvisionHookError``, failing the provision/bake."""
+    ``None``/empty values are skipped. A non-zero exit raises ``ProvisionHookError``,
+    failing the provision/bake."""
     if not value:
         return
-    script = hook_script(value, _build_hook_env(app_manager, deploy_config))
+    script = hook_script(value, env)
     output.change_head(f"Running {phase} hook ({'host' if on_host else 'container'})")
     if on_host:
         with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as fh:
@@ -145,7 +138,8 @@ def _run_build_hook(
 
     logs_dir = app_manager.frappe_bench_dir / "logs"
     logs_dir.mkdir(parents=True, exist_ok=True)
-    name = f".fm_build_hook_{phase}_{int(time.time())}.sh"
+    safe_phase = phase.replace(" ", "_").replace("/", "_")
+    name = f".fm_build_hook_{safe_phase}_{int(time.time())}.sh"
     host_script = logs_dir / name
     container_script = f"/workspace/frappe-bench/logs/{name}"
     host_script.write_text(script)
@@ -161,45 +155,60 @@ def _run_build_hook(
             host_script.unlink()
 
 
-def _install_with_build_hooks(
+def _install_with_app_hooks(
     app_manager: BenchAppManager,
     apps: list[AppConfig],
-    deploy_config,
     *,
     use_uv: bool,
     use_run: bool,
     output: OutputHandler,
 ) -> list[AppConfig]:
-    """``install_apps(skip_clone=True)`` (python deps -> node deps -> build) with
-    build hooks interleaved around python-install and bench-build, host then
-    container (fmd order)."""
+    """Per-app install with build hooks: for each app run its deps hooks (host then
+    container) around ``uv`` python-deps install, then one global node-deps install,
+    then for each app run its build hooks around ``bench build --app <name>``."""
+    app_names = ",".join(app.name for app in apps)
 
-    def run(field: str, *, on_host: bool) -> None:
+    def app_env(app: AppConfig) -> dict[str, str]:
+        return hook_env(
+            {
+                "BENCH_PATH": str(app_manager.frappe_bench_dir),
+                "APPS": app_names,
+                "APP": app.name,
+            }
+        )
+
+    def run(app: AppConfig, value: str | None, phase: str, *, on_host: bool) -> None:
         _run_build_hook(
             app_manager,
-            getattr(deploy_config, field),
-            field,
-            deploy_config=deploy_config,
+            value,
+            phase,
+            app_env(app),
             on_host=on_host,
             use_run=use_run,
             output=output,
         )
 
-    run("host_before_python_install", on_host=True)
-    run("before_python_install", on_host=False)
-    output.change_head("Installing Python dependencies")
-    app_manager._install_python_deps_with_uv(apps, use_uv=use_uv, use_run=use_run)  # noqa: SLF001
-    run("after_python_install", on_host=False)
-    run("host_after_python_install", on_host=True)
+    for app in apps:
+        hooks = app.hooks
+        host = hooks.host if hooks else None
+        run(app, host.before_deps if host else None, f"{app.name} before_deps", on_host=True)
+        run(app, hooks.before_deps if hooks else None, f"{app.name} before_deps", on_host=False)
+        output.change_head(f"Installing Python dependencies for {app.name}")
+        app_manager._install_python_deps_with_uv([app], use_uv=use_uv, use_run=use_run)  # noqa: SLF001
+        run(app, hooks.after_deps if hooks else None, f"{app.name} after_deps", on_host=False)
+        run(app, host.after_deps if host else None, f"{app.name} after_deps", on_host=True)
 
     output.change_head("Installing Node dependencies")
     app_manager._install_node_deps(use_run=use_run)  # noqa: SLF001
 
-    run("host_before_bench_build", on_host=True)
-    run("before_bench_build", on_host=False)
-    output.change_head("Building frontend assets")
-    app_manager.build(use_run=use_run)
-    run("after_bench_build", on_host=False)
-    run("host_after_bench_build", on_host=True)
+    for app in apps:
+        hooks = app.hooks
+        host = hooks.host if hooks else None
+        run(app, host.before_build if host else None, f"{app.name} before_build", on_host=True)
+        run(app, hooks.before_build if hooks else None, f"{app.name} before_build", on_host=False)
+        output.change_head(f"Building frontend assets for {app.name}")
+        app_manager.build(app_list=[app.name], use_run=use_run)
+        run(app, hooks.after_build if hooks else None, f"{app.name} after_build", on_host=False)
+        run(app, host.after_build if host else None, f"{app.name} after_build", on_host=True)
 
     return apps

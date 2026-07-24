@@ -1,8 +1,9 @@
 """Contract tests for `fm create --config` (precedence B).
 
-`_build_overlay_bench_config` layers inputs: create defaults < `--config` overlay
-< explicit CLI flags. `explicit` is the set of parameter names the user actually
-passed. These defend the precedence and the runtime resolution.
+Precedence B: explicit CLI flags > --config overlays > create defaults. The
+overlay is imported into a BenchConfig; the top-level image identity lives on
+`image`, the switch pipeline under `[switch]`, and image-runtime tag resolution
+records `[deploy_state].current_tag`.
 """
 
 from pathlib import Path
@@ -21,14 +22,14 @@ from frappe_manager.site_manager.bench_config import (
 _ROOT = Path("build") / "x" / "bench_config.toml"
 
 _CFG = """
-environment_type = "prod"
+environment = "prod"
 restart_policy = "always"
-[[apps_list]]
+image = "ghcr.io/acme/app"
+[[apps]]
 name = "frappe"
 repo = "frappe/frappe"
 ref = "version-15"
-[deploy]
-image = "ghcr.io/acme/app"
+[switch]
 backups = true
 [registry]
 registry = "ghcr.io/acme"
@@ -73,8 +74,8 @@ def test_config_supplies_fields_when_no_flags():
     bc, apps_from_user = _build([_CFG])
     assert bc.environment_type == FMBenchEnvType.prod
     assert bc.restart_policy == RestartPolicyEnum.always
-    assert bc.deploy.image == "ghcr.io/acme/app"
-    assert bc.deploy.backups is True
+    assert bc.image == "ghcr.io/acme/app"
+    assert bc.switch.backups is True
     assert bc.registry.registry == "ghcr.io/acme"
     assert apps_from_user is True
     assert [a.name for a in bc.apps_list] == ["frappe"]
@@ -95,7 +96,7 @@ def test_explicit_restart_overrides_config():
 
 def test_restart_default_from_env_when_unset():
     # Neither config nor flag sets restart -> BenchConfig validator derives from env.
-    bc, _ = _build(['environment_type = "prod"\n[deploy]\nimage = "r/x"\n'])
+    bc, _ = _build(['environment = "prod"\nimage = "r/x"\n'])
     assert bc.restart_policy == RestartPolicyEnum.unless_stopped
 
 
@@ -107,27 +108,26 @@ def test_explicit_apps_override_config_apps_frappe_first():
 
 
 def test_name_and_root_are_authoritative():
-    bc, _ = _build(['name = "ignored"\n[deploy]\nimage = "r/x"\n'])
+    bc, _ = _build(['name = "ignored"\nimage = "r/x"\n'])
     assert bc.name == "x.localhost"
     assert bc.root_path == _ROOT
 
 
 def test_image_runtime_via_flags_resolves_tag():
     bc, _ = _build(
-        ['environment_type = "prod"\n'],
+        ['environment = "prod"\n'],
         explicit={"runtime", "image"},
         runtime=BenchRuntime.image,
         image="ghcr.io/acme/app:fm-1",
     )
     assert bc.runtime == BenchRuntime.image
-    assert bc.deploy.image == "ghcr.io/acme/app"  # tag stripped for [deploy].image
+    assert bc.image == "ghcr.io/acme/app"  # tag stripped for top-level image
     assert bc.deploy_state.current_tag == "ghcr.io/acme/app:fm-1"
 
 
 def test_image_runtime_purely_from_config():
     cfg = """
 runtime = "image"
-[deploy]
 image = "ghcr.io/acme/app"
 [deploy_state]
 current_tag = "ghcr.io/acme/app:fm-9"

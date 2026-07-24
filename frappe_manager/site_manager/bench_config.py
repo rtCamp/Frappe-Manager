@@ -416,6 +416,7 @@ class AppConfig(BaseModel):
     shallow_clone: bool = Field(True, description="Use shallow clone (depth=1)")
     subdir_path: str | None = Field(None, description="Subdirectory path for monorepo apps")
     symlink: bool = Field(False, description="Use symlink for subdirectory apps")
+    hooks: "AppBuildHooks | None" = Field(None, description="Per-app build hooks (deps/build, container + host).")
 
     @property
     def is_commit(self) -> bool:
@@ -942,25 +943,58 @@ class BenchRuntime(str, Enum):
     image = "image"
 
 
-class DeployConfig(BaseModel):
-    """Image-based deploy configuration (`[deploy]` in bench_config.toml)."""
+class BuildHookScripts(BaseModel):
+    """Per-app build hooks for a single location (container or host)."""
 
     model_config = ConfigDict(extra="forbid")
 
-    image: str | None = Field(None, description="Image repo; fm manages the :tag.")
-    migrate: bool = Field(True, description="Run bench migrate during deploy.")
+    before_deps: str | None = Field(None, description="Before this app's dependency install (uv pip install -e).")
+    after_deps: str | None = Field(None, description="After this app's dependency install.")
+    before_build: str | None = Field(None, description="Before this app's `bench build --app`.")
+    after_build: str | None = Field(None, description="After this app's `bench build --app`.")
+
+
+class AppBuildHooks(BuildHookScripts):
+    """Per-app build hooks: container scripts + a nested ``host`` set."""
+
+    host: BuildHookScripts | None = Field(None, description="Host-side build hooks for this app.")
+
+
+class SwitchHookScripts(BaseModel):
+    """Switch-phase hooks for a single location (container or host)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    before_restart: str | None = Field(None, description="Before the container swap.")
+    after_restart: str | None = Field(None, description="After the swap (finalize).")
+    before_migrate: str | None = Field(None, description="Before `bench migrate`.")
+    after_migrate: str | None = Field(None, description="After `bench migrate`.")
+
+
+class SwitchHooks(SwitchHookScripts):
+    """Switch hooks: container scripts + a nested ``host`` set."""
+
+    host: SwitchHookScripts | None = Field(None, description="Host-side switch hooks.")
+
+
+class SwitchConfig(BaseModel):
+    """Switch/migrate pipeline configuration (`[switch]` in bench_config.toml)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    migrate: bool = Field(True, description="Run bench migrate during switch.")
     migrate_timeout: int = Field(300, description="Migrate timeout in seconds.")
     migrate_command: str | None = Field(None, description="Custom migrate command override.")
     maintenance_mode: bool = Field(True, description="Show maintenance page during schema-changing steps.")
     maintenance_mode_phases: list[str] = Field(
         default_factory=lambda: ["migrate"],
-        description="Phases with maintenance page: 'migrate' (schema change). [] asserts a backward-compatible migration (no page).",
+        description="Phases with maintenance page: 'migrate'. [] asserts a backward-compatible migration (no page).",
     )
     backups: bool = Field(True, description="Take DB + config backup before switch.")
     rollback: bool = Field(True, description="Re-pin the previous tag on failure.")
     restore_on_failure: bool = Field(
         False,
-        description="Also restore the DB backup on failed migrate/switch (default off; migrate is transactional/resumable).",
+        description="Also restore the DB backup on failed migrate/switch (default off; migrate is resumable).",
     )
     search_replace: bool = Field(True, description="Run search-and-replace in DB after restore.")
     install_apps: bool = Field(True, description="Install new apps to the site during finalize.")
@@ -974,22 +1008,11 @@ class DeployConfig(BaseModel):
     worker_kill_poll: float = Field(3.0, description="Poll interval in seconds while waiting to kill workers.")
     common_site_config: dict[str, Any] | None = Field(None, description="Keys to merge into common_site_config.json.")
     site_config: dict[str, Any] | None = Field(None, description="Keys to merge into site_config.json.")
-    before_restart: str | None = Field(None, description="Script inside container before restart.")
-    after_restart: str | None = Field(None, description="Script inside container after restart.")
-    host_before_restart: str | None = Field(None, description="Script on host before restart.")
-    host_after_restart: str | None = Field(None, description="Script on host after restart.")
-    before_bench_build: str | None = Field(None, description="Script inside container before bench build.")
-    after_bench_build: str | None = Field(None, description="Script inside container after bench build.")
-    host_before_bench_build: str | None = Field(None, description="Script on host before bench build.")
-    host_after_bench_build: str | None = Field(None, description="Script on host after bench build.")
-    before_python_install: str | None = Field(None, description="Script inside container before pip install.")
-    after_python_install: str | None = Field(None, description="Script inside container after pip install.")
-    host_before_python_install: str | None = Field(None, description="Script on host before pip install.")
-    host_after_python_install: str | None = Field(None, description="Script on host after pip install.")
+    hooks: SwitchHooks | None = Field(None, description="Switch-phase hooks (restart/migrate, container + host).")
 
 
-class DeployBuildConfig(BaseModel):
-    """Image build configuration for `fm bake`."""
+class BuildConfig(BaseModel):
+    """Image build configuration for `fm bake` (`[build]`)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -1000,7 +1023,7 @@ class DeployBuildConfig(BaseModel):
 
 
 class RegistryConfig(BaseModel):
-    """Image registry / transport configuration."""
+    """Image registry / transport configuration (`[registry]`)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -1012,8 +1035,8 @@ class RegistryConfig(BaseModel):
     )
 
 
-class RemoteConfig(BaseModel):
-    """Remote deploy target (`DOCKER_HOST=ssh://` primary; ssh-fallback fields)."""
+class DeployConfig(BaseModel):
+    """Remote ship target for `fm deploy --remote` (`[deploy]`; `DOCKER_HOST=ssh://` primary)."""
 
     model_config = ConfigDict(extra="forbid")
 
@@ -1024,25 +1047,56 @@ class RemoteConfig(BaseModel):
     benches_root: str | None = Field(None, description="Root directory for benches on the remote host.")
 
 
+class NewRelicConfig(BaseModel):
+    """NewRelic APM settings (`[monitoring.newrelic]`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = Field(False, description="Enable NewRelic APM monitoring for the web process.")
+    license_key: str | None = Field(None, description="NewRelic ingest license key.")
+
+
+class MonitoringConfig(BaseModel):
+    """Observability integrations (`[monitoring]`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    newrelic: NewRelicConfig | None = Field(None, description="NewRelic APM.")
+
+
+class SSLConfig(BaseModel):
+    """TLS configuration (`[ssl]`)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    dns_challenge_providers: dict[str, DNSProviderConfig] | None = Field(
+        None, description="DNS provider credentials for the DNS-01 challenge (e.g. {'cloudflare': {...}})."
+    )
+    certificates: list[SSLCertificate] = Field(default_factory=list, description="SSL certificates for this bench.")
+
+AppConfig.model_rebuild()
+
+
 class BenchConfig(BaseModel):
     name: str = Field(..., description="The name of the bench")
     developer_mode: bool = Field(..., description="Whether developer mode is enabled")
     admin_tools: bool = Field(..., description="Whether admin tools are enabled")
     environment_type: FMBenchEnvType = Field(..., description="The type of environment")
 
-    # Two-axis deploy model (#323): runtime (mount|image) + image-based deploy config
+    # Deploy model (#323): runtime + image identity + config tables
     runtime: BenchRuntime = Field(
         BenchRuntime.mount,
         description="Runtime: 'mount' (live-mounted code) or 'image' (immutable app image). Default 'mount'.",
     )
-    deploy: DeployConfig | None = Field(None, description="Image-based deploy configuration (required for image mode).")
-    build: DeployBuildConfig | None = Field(None, description="Image build configuration for bake.")
-    registry: RegistryConfig | None = Field(None, description="Image registry / transport configuration.")
+    image: str | None = Field(None, description="App image repo (image runtime); fm manages the :tag.")
+    switch: SwitchConfig | None = Field(None, description="Switch/migrate pipeline configuration ([switch]).")
+    build: BuildConfig | None = Field(None, description="Image build configuration for bake ([build]).")
+    registry: RegistryConfig | None = Field(None, description="Image registry / transport configuration ([registry]).")
     base_image: str | None = Field(
         None,
         description="Mount mode: override the base frappe image (repo:tag) for frappe/socketio/schedule/workers. None = default fm image.",
     )
-    remote: RemoteConfig | None = Field(None, description="Remote deploy target configuration.")
+    deploy: DeployConfig | None = Field(None, description="Remote ship target for --remote deploys ([deploy]).")
 
     # Multi-certificate support
     ssl_certificates: list[SSLCertificate] = Field(default=[], description="List of SSL certificates for this bench")
@@ -1203,9 +1257,7 @@ class BenchConfig(BaseModel):
         return all_domains
 
     def export_to_toml(self, path: Path) -> bool:
-        """
-        Export bench configuration to TOML file.
-        """
+        """Export to TOML: `environment`, [[apps]], [monitoring], [switch], [build], [registry], [deploy], [ssl]."""
         exclude = {
             "root_path",
             "mariadb_root_pass",
@@ -1215,87 +1267,90 @@ class BenchConfig(BaseModel):
             "apps_list",
             "frappe_branch",
             "admin_pass",
+            "use_uv",                # always uv + pip fallback; not a config option
+            "environment_type",      # written as `environment`
+            "newrelic_enabled",      # written under [monitoring.newrelic]
+            "newrelic_license_key",
+            "ssl_certificates",      # written under [ssl]
+            "dns_providers",
         }
-
-        # Convert the BenchConfig instance to a dictionary
         bench_dict = self.model_dump(exclude=exclude, exclude_none=True)
 
-        # Handle SSL certificates
-        if self.ssl_certificates:
-            # Export as array
-            certs_array = ssl_certificates_to_toml_array(self.ssl_certificates)
-            if len(certs_array) > 0:
-                bench_dict["ssl_certificates"] = certs_array
-            else:
-                # No active certificates, remove the key
-                bench_dict.pop("ssl_certificates", None)
-        else:
-            # No certificates at all
-            bench_dict.pop("ssl_certificates", None)
-
-        # Handle DNS providers (convert to nested tables)
-        if self.dns_providers:
-            dns_providers_toml = tomlkit.table()
-            for provider_name, provider_config in self.dns_providers.items():
-                if provider_config.exists:
-                    dns_providers_toml[provider_name] = provider_config.get_toml_doc()
-            if len(dns_providers_toml) > 0:
-                bench_dict["dns_providers"] = dns_providers_toml
-            else:
-                bench_dict.pop("dns_providers", None)
-        else:
-            bench_dict.pop("dns_providers", None)
-
-        # Serialize the dictionary to a TOML string
         toml_doc = tomlkit.document()
+        toml_doc["name"] = self.name
+        toml_doc["environment"] = self.environment_type.value
 
+        # Scalars first, then tables — so bare top-level keys don't fall under a table header.
+        tables = {}
         for key, value in bench_dict.items():
-            if isinstance(value, Path):
+            if key == "name":
+                continue
+            if isinstance(value, dict):
+                tables[key] = value
+            elif isinstance(value, Path):
                 toml_doc[key] = str(value.absolute())
             else:
                 toml_doc[key] = value
+        for key, value in tables.items():
+            toml_doc[key] = value
+
+        # [monitoring.newrelic]
+        if self.newrelic_enabled or self.newrelic_license_key:
+            newrelic = tomlkit.table()
+            newrelic["enabled"] = self.newrelic_enabled
+            if self.newrelic_license_key:
+                newrelic["license_key"] = self.newrelic_license_key
+            monitoring = tomlkit.table()
+            monitoring["newrelic"] = newrelic
+            toml_doc["monitoring"] = monitoring
+
+        # [ssl]
+        ssl_table = tomlkit.table()
+        if self.dns_providers:
+            dns = tomlkit.table()
+            for provider_name, provider_config in self.dns_providers.items():
+                if provider_config.exists:
+                    dns[provider_name] = provider_config.get_toml_doc()
+            if len(dns) > 0:
+                ssl_table["dns_challenge_providers"] = dns
+        if self.ssl_certificates:
+            certs_array = ssl_certificates_to_toml_array(self.ssl_certificates)
+            if len(certs_array) > 0:
+                ssl_table["certificates"] = certs_array
+        if len(ssl_table) > 0:
+            toml_doc["ssl"] = ssl_table
 
         try:
             with open(path, "w") as f:
                 f.write(tomlkit.dumps(toml_doc))
             return True
-        except Exception as e:
+        except Exception:
             return False
 
     @classmethod
     def import_from_toml(cls, path: Path) -> "BenchConfig":
-        """
-        Import bench configuration from TOML file.
-
-        Uses the multi-certificate format (ssl_certificates array).
-        """
+        """Import from TOML (new schema; see export_to_toml)."""
         data = tomlkit.parse(path.read_text())
         data["root_path"] = str(path)
-
         domain: str = data.get("name", "")
+
+        # [ssl] → ssl_certificates + dns_providers (internal fields)
+        ssl_data = data.get("ssl") or {}
         ssl_certificates_list: list[SSLCertificate] = []
-
-        # Parse multi-certificate format
-        ssl_certificates_data = data.get("ssl_certificates", None)
-        if ssl_certificates_data and isinstance(ssl_certificates_data, list):
-            for cert_data in ssl_certificates_data:
-                cert_domain = cert_data.get("domain", domain)
-                ssl_cert = ssl_certificate_from_toml_data(cert_data, cert_domain)
-                ssl_certificates_list.append(ssl_cert)
-
-        # If no certificates found, start with empty list
-        # (default cert will be created via get_primary_certificate() when needed)
-
-        # Read alias_domains from root level only
-        alias_domains_list = data.get("alias_domains", [])
-
-        # Parse DNS providers (nested tables)
+        for cert_data in ssl_data.get("certificates") or []:
+            if isinstance(cert_data, dict):
+                ssl_certificates_list.append(ssl_certificate_from_toml_data(cert_data, cert_data.get("domain", domain)))
         dns_providers_dict = {}
-        dns_providers_data = data.get("dns_providers", None)
-        if dns_providers_data and isinstance(dns_providers_data, dict):
-            for provider_name, provider_data in dns_providers_data.items():
-                if isinstance(provider_data, dict):
-                    dns_providers_dict[provider_name] = DNSProviderConfig.import_from_toml_doc(provider_data)
+        for provider_name, provider_data in (ssl_data.get("dns_challenge_providers") or {}).items():
+            if isinstance(provider_data, dict):
+                dns_providers_dict[provider_name] = DNSProviderConfig.import_from_toml_doc(provider_data)
+
+        # [monitoring.newrelic]
+        newrelic_data = (data.get("monitoring") or {}).get("newrelic") or {}
+        newrelic_enabled = newrelic_data.get("enabled", False)
+        newrelic_license_key = newrelic_data.get("license_key", None)
+
+        alias_domains_list = data.get("alias_domains", [])
 
         migration_state_data = data.get("migration_state", None)
         migration_state_obj = None
@@ -1314,11 +1369,16 @@ class BenchConfig(BaseModel):
                 history=history,
             )
 
+        apps_data = data.get("apps")
+        if apps_data is None:
+            apps_data = data.get("apps_list", [])
+        apps_list = [AppConfig(**dict(app)) for app in (apps_data or []) if isinstance(app, dict)]
+
         input_data = {
             "name": data.get("name", None),
             "developer_mode": data.get("developer_mode", None),
             "admin_tools": data.get("admin_tools", False),
-            "environment_type": data.get("environment_type", None),
+            "environment_type": data.get("environment", data.get("environment_type", None)),
             "root_path": data.get("root_path", None),
             "ssl_certificates": ssl_certificates_list,
             "dns_providers": dns_providers_dict if dns_providers_dict else None,
@@ -1327,27 +1387,26 @@ class BenchConfig(BaseModel):
             "admin_tools_username": data.get("admin_tools_username", None),
             "admin_tools_password": data.get("admin_tools_password", None),
             "admin_pass": data.get("admin_pass", "admin"),
-            "apps_list": data.get("apps_list", []),
+            "apps_list": apps_list,
             "github_token": data.get("github_token", None),
-            "use_uv": data.get("use_uv", True),
             "python_version": data.get("python_version", None),
             "node_version": data.get("node_version", None),
             "db_name": data.get("db_name"),
             "restart_policy": data.get("restart_policy", None),
             "migration_state": migration_state_obj,
             "deploy_state": deploy_state_obj,
-            "newrelic_enabled": data.get("newrelic_enabled", False),
-            "newrelic_license_key": data.get("newrelic_license_key", None),
+            "newrelic_enabled": newrelic_enabled,
+            "newrelic_license_key": newrelic_license_key,
             "runtime": data.get("runtime", "mount"),
+            "image": data.get("image", None),
             "base_image": data.get("base_image", None),
-            "deploy": DeployConfig(**data["deploy"]) if data.get("deploy") else None,
-            "build": DeployBuildConfig(**data["build"]) if data.get("build") else None,
-            "registry": RegistryConfig(**data["registry"]) if data.get("registry") else None,
-            "remote": RemoteConfig(**data["remote"]) if data.get("remote") else None,
+            "switch": SwitchConfig(**dict(data["switch"])) if data.get("switch") else None,
+            "build": BuildConfig(**dict(data["build"])) if data.get("build") else None,
+            "registry": RegistryConfig(**dict(data["registry"])) if data.get("registry") else None,
+            "deploy": DeployConfig(**dict(data["deploy"])) if data.get("deploy") else None,
         }
 
-        bench_config_instance = cls(**input_data)
-        return bench_config_instance
+        return cls(**input_data)
 
     def get_commmon_site_config_data(self, db_server_info: DatabaseServerServiceInfo) -> dict[str, Any]:
         common_site_config_data = get_bench_connection_config(

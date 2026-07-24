@@ -23,9 +23,9 @@ $ fm deploy BENCHNAME [OPTIONS]
 
 **Options**:
 
-* `--image`: Image repository to bake into (overrides [deploy].image).
+* `--image`: Image repository to bake into (sets the top-level image).
 * `--tag`: Full image tag to build (overrides the auto-generated tag).
-* `--remote`: Deploy to a remote daemon over SSH (DOCKER_HOST=ssh://<user>@<host>:<port>). Falls back to [remote].ssh_server when omitted.
+* `--remote`: Deploy to a remote daemon over SSH (DOCKER_HOST=ssh://<user>@<host>:<port>). Falls back to [deploy].ssh_server when omitted.
 * `--push/--no-push`: Push the baked image to the registry (default: push when [registry] is configured for 'registry').
 * `--rolling/--no-rolling`: Force/disable the rolling (blue-green) web swap. Default: auto (rolling when the deploy is no-migrate or asserts an additive migration).
 * `--config`: TOML config overlay: a file path or inline TOML content, deep-merged into the bench config before deploy. Repeatable; later --config wins.
@@ -43,7 +43,7 @@ fm deploy mybench
 
 ### Deploy into a specific image repository
 
-Overrides [deploy].image for this bake+deploy.
+Sets the top-level image for this bake+deploy.
 
 ```bash
 fm deploy mybench --image local/mybench

@@ -122,9 +122,9 @@ def present_tags(docker: DockerClient, tags: list[str]) -> list[str]:
 
 
 def ssh_target(remote_config) -> tuple[str, int]:
-    """``(user@host, port)`` from a ``RemoteConfig``."""
+    """``(user@host, port)`` from a ``DeployConfig`` (remote target)."""
     if remote_config is None or not remote_config.ssh_server:
-        raise TransportError("Remote transport requires [remote].ssh_server.")
+        raise TransportError("Remote transport requires [deploy].ssh_server.")
     user = remote_config.ssh_user or "frappe"
     return f"{user}@{remote_config.ssh_server}", int(remote_config.ssh_port or 22)
 
@@ -163,7 +163,7 @@ def transport_save_load(tags: list[str], remote_config, output=None) -> None:
 
 def build_docker_host(host: str, remote_config=None) -> str:
     """Build ``ssh://<user>@<host>:<port>`` from an explicit host, using the
-    ``RemoteConfig`` for the user/port defaults when present."""
+    ``DeployConfig`` (remote target) for the user/port defaults when present."""
     user = "frappe"
     port = 22
     if remote_config is not None:
@@ -173,8 +173,8 @@ def build_docker_host(host: str, remote_config=None) -> str:
 
 
 def remote_docker_host(remote_config) -> str | None:
-    """``ssh://<user>@<host>:<port>`` from a ``RemoteConfig``, or ``None`` when
-    no ``ssh_server`` is configured."""
+    """``ssh://<user>@<host>:<port>`` from a ``DeployConfig`` (remote target), or
+    ``None`` when no ``ssh_server`` is configured."""
     if remote_config is None or not remote_config.ssh_server:
         return None
     return build_docker_host(remote_config.ssh_server, remote_config)

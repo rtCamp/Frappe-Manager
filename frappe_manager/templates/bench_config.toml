@@ -9,14 +9,16 @@ developer_mode = false
 admin_tools = false
 
 # Sets the bench environment to either "prod" (production) or "dev" (development).
-environment_type = "prod"
+environment = "prod"
 
 # SSL certificates configuration
 # Certificates are managed via: fm ssl add <bench> <domain>
 # Let's Encrypt discontinued email notifications in June 2025
 #
-# Example SSL certificate configuration:
-# [[ssl_certificates]]
+# Example SSL configuration:
+# [ssl.dns_challenge_providers.cloudflare]
+# api_token = "${CF_DNS_TOKEN}"
+# [[ssl.certificates]]
 # domain = "fm.com"
 # ssl_type = "letsencrypt"
 # challenge_type = "http01"

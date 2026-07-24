@@ -1,10 +1,10 @@
 """Contract tests for `fm create`'s runtime wiring (#323).
 
-Covers `_resolve_deploy_options` — the pure resolver that turns the create CLI
-flags (--runtime/--image) into the runtime + [deploy] config + current tag +
-mount base-image override. The runtime is selected only by --runtime (default
-mount); --image is mode-scoped. Also a full BenchConfig export/import round-trip
-proving persisted deploy fields survive.
+`_resolve_deploy_options` selects the runtime (mount vs image) from --runtime
+only; --image is mode-scoped (mount: base-image override; image: the pre-built
+app image). It returns (resolved_mode, image_repo, current_tag, base_image);
+image_repo is the tag-stripped app image repo (top-level BenchConfig.image) in
+image mode, else None.
 """
 
 import pytest
@@ -24,19 +24,19 @@ def _resolve(runtime=None, image=None, apps=None, python=None, node=None):
 
 
 def test_default_is_mount_backward_compatible():
-    # Plain `fm create` stays mount with no deploy/tag/override.
-    mode, deploy, current_tag, base_image = _resolve()
+    # Plain `fm create` stays mount with no image/tag/override.
+    mode, image_repo, current_tag, base_image = _resolve()
     assert mode == BenchRuntime.mount
-    assert deploy is None
+    assert image_repo is None
     assert current_tag is None
     assert base_image is None
 
 
 def test_image_flag_does_not_imply_image_runtime():
     # --image alone no longer flips the runtime; it's a mount base-image override.
-    mode, deploy, current_tag, base_image = _resolve(image="ghcr.io/acme/frappe-custom:v15")
+    mode, image_repo, current_tag, base_image = _resolve(image="ghcr.io/acme/frappe-custom:v15")
     assert mode == BenchRuntime.mount
-    assert deploy is None
+    assert image_repo is None
     assert current_tag is None
     assert base_image == "ghcr.io/acme/frappe-custom:v15"
 
@@ -72,12 +72,11 @@ def test_image_runtime_rejects_node():
 
 
 def test_image_runtime_splits_repo_and_keeps_tag():
-    mode, deploy, current_tag, base_image = _resolve(
+    mode, image_repo, current_tag, base_image = _resolve(
         runtime=BenchRuntime.image, image="ghcr.io/acme/mybench:fm-1"
     )
     assert mode == BenchRuntime.image
-    assert deploy is not None
-    assert deploy.image == "ghcr.io/acme/mybench"
+    assert image_repo == "ghcr.io/acme/mybench"
     assert current_tag == "ghcr.io/acme/mybench:fm-1"
     assert base_image is None
 
@@ -93,7 +92,7 @@ def test_has_explicit_tag_ignores_host_port():
 def test_created_image_bench_persists_deploy_fields(tmp_path):
     # The full path a created image bench takes: resolver -> BenchConfig -> TOML -> reload.
     path = tmp_path / "bench_config.toml"
-    mode, deploy, current_tag, base_image = _resolve(
+    mode, image_repo, current_tag, base_image = _resolve(
         runtime=BenchRuntime.image, image="ghcr.io/acme/mybench:fm-1"
     )
     bc = BenchConfig(
@@ -103,7 +102,7 @@ def test_created_image_bench_persists_deploy_fields(tmp_path):
         environment_type=FMBenchEnvType.prod,
         root_path=path,
         runtime=mode,
-        deploy=deploy,
+        image=image_repo,
         base_image=base_image,
         deploy_state=DeployState(current_tag=current_tag),
     )
@@ -111,8 +110,7 @@ def test_created_image_bench_persists_deploy_fields(tmp_path):
 
     reloaded = BenchConfig.import_from_toml(path)
     assert reloaded.runtime == BenchRuntime.image
-    assert reloaded.deploy is not None
-    assert reloaded.deploy.image == "ghcr.io/acme/mybench"
+    assert reloaded.image == "ghcr.io/acme/mybench"
     assert reloaded.deploy_state is not None
     assert reloaded.deploy_state.current_tag == "ghcr.io/acme/mybench:fm-1"
     assert reloaded.base_image is None
@@ -120,7 +118,7 @@ def test_created_image_bench_persists_deploy_fields(tmp_path):
 
 def test_created_mount_bench_persists_base_image(tmp_path):
     path = tmp_path / "bench_config.toml"
-    mode, deploy, _current_tag, base_image = _resolve(image="local/frappe-base:test")
+    mode, image_repo, _current_tag, base_image = _resolve(image="local/frappe-base:test")
     bc = BenchConfig(
         name="ovr.localhost",
         developer_mode=True,
@@ -128,12 +126,12 @@ def test_created_mount_bench_persists_base_image(tmp_path):
         environment_type=FMBenchEnvType.dev,
         root_path=path,
         runtime=mode,
-        deploy=deploy,
+        image=image_repo,
         base_image=base_image,
     )
     assert bc.export_to_toml(path) is True
 
     reloaded = BenchConfig.import_from_toml(path)
     assert reloaded.runtime == BenchRuntime.mount
-    assert reloaded.deploy is None
+    assert reloaded.image is None
     assert reloaded.base_image == "local/frappe-base:test"

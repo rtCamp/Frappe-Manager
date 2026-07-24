@@ -12,7 +12,7 @@ from frappe_manager import (
     STABLE_APP_BRANCH_MAPPING_LIST,
 )
 from frappe_manager.output_manager import get_global_output_handler
-from frappe_manager.site_manager.bench_config import AppConfig, BenchConfig, DeployConfig
+from frappe_manager.site_manager.bench_config import AppConfig, BenchConfig
 from frappe_manager.site_manager.deploy_config_overlay import (
     ConfigOverlayError,
     apply_config_overlays,
@@ -68,7 +68,7 @@ def _build_standalone_config(
     doc["name"] = _bake_name(image)
     doc["developer_mode"] = False
     doc["admin_tools"] = False
-    doc["environment_type"] = "prod"
+    doc["environment"] = "prod"
     doc["use_uv"] = True
     if github_token:
         doc["github_token"] = github_token
@@ -80,7 +80,7 @@ def _build_standalone_config(
             for key, value in app.model_dump(exclude_none=True).items():
                 table[key] = value
             apps_aot.append(table)
-        doc["apps_list"] = apps_aot
+        doc["apps"] = apps_aot
 
     if python_version or node_version:
         build_table = tomlkit.table()
@@ -104,13 +104,13 @@ def _build_standalone_config(
 @example(
     "Bake an image from an existing bench",
     "{benchname}",
-    detail="Provisions the bench's apps into a build context and builds a runtime image tagged from [deploy].image.",
+    detail="Provisions the bench's apps into a build context and builds a runtime image tagged from the top-level image.",
     benchname="mybench",
 )
 @example(
     "Bake with an explicit image repository",
     "{benchname} --image local/mybench",
-    detail="Overrides [deploy].image for this bake. The tag is derived automatically as <repo>:<timestamp>-<git sha>.",
+    detail="Sets the top-level image for this bake. The tag is derived automatically as <repo>:<timestamp>-<git sha>.",
     benchname="mybench",
 )
 @example(
@@ -121,7 +121,7 @@ def _build_standalone_config(
 @example(
     "Standalone bake from a config file",
     "--config ci/build.toml",
-    detail="The config supplies [deploy].image, apps_list and [build]; nothing else on disk is needed.",
+    detail="The config supplies top-level image, [[apps]] and [build]; nothing else on disk is needed.",
 )
 def bake(
     ctx: typer.Context,
@@ -136,7 +136,7 @@ def bake(
         str | None,
         typer.Option(
             "--image",
-            help="Image repository to bake into (overrides [deploy].image).",
+            help="Image repository to bake into (sets the top-level image).",
             show_default=False,
         ),
     ] = None,
@@ -229,7 +229,7 @@ def bake(
             output.display_error(str(e))
             raise typer.Exit(1) from e
         if not bench_config.apps_list:
-            output.display_error("Standalone bake needs apps: pass --apps or a --config providing apps_list.")
+            output.display_error("Standalone bake needs apps: pass --apps or a --config providing [[apps]].")
             raise typer.Exit(1)
     else:
         if apps_config or python_version or node_version:
@@ -248,10 +248,7 @@ def bake(
         bench_config = BenchConfig.import_from_toml(bench_config_path)
 
     if image:
-        if bench_config.deploy is None:
-            bench_config.deploy = DeployConfig(image=image)
-        else:
-            bench_config.deploy.image = image
+        bench_config.image = image
 
     logger = ctx.obj.get("logger") if ctx.obj else None
 

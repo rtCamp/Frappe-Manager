@@ -8,7 +8,7 @@ missing field leaves the existing version untouched. A non-default
 
 from frappe_manager.site_manager.bench_config import (
     BenchConfig,
-    DeployBuildConfig,
+    BuildConfig,
     FMBenchEnvType,
 )
 from frappe_manager.site_manager.modules.bake import BakeManager
@@ -34,7 +34,7 @@ def _bench(tmp_path, build=None):
 
 
 def test_build_versions_override_bench(tmp_path):
-    bc = _bench(tmp_path, build=DeployBuildConfig(python_version="3.12", node_version="20"))
+    bc = _bench(tmp_path, build=BuildConfig(python_version="3.12", node_version="20"))
     bc.python_version = "3.11"  # create-time value
     bc.node_version = "18"
     BakeManager.apply_build_overrides(bc)
@@ -50,7 +50,7 @@ def test_no_build_is_noop(tmp_path):
 
 
 def test_partial_build_leaves_unset_field(tmp_path):
-    bc = _bench(tmp_path, build=DeployBuildConfig(python_version="3.12"))  # node_version None
+    bc = _bench(tmp_path, build=BuildConfig(python_version="3.12"))  # node_version None
     bc.node_version = "18"
     BakeManager.apply_build_overrides(bc)
     assert bc.python_version == "3.12"
@@ -59,12 +59,12 @@ def test_partial_build_leaves_unset_field(tmp_path):
 
 def test_default_platforms_no_warning(tmp_path):
     out = _Out()
-    BakeManager.apply_build_overrides(_bench(tmp_path, build=DeployBuildConfig(platforms=["linux/amd64"])), out)
+    BakeManager.apply_build_overrides(_bench(tmp_path, build=BuildConfig(platforms=["linux/amd64"])), out)
     assert out.warnings == []
 
 
 def test_custom_platforms_warns(tmp_path):
     out = _Out()
-    BakeManager.apply_build_overrides(_bench(tmp_path, build=DeployBuildConfig(platforms=["linux/arm64"])), out)
+    BakeManager.apply_build_overrides(_bench(tmp_path, build=BuildConfig(platforms=["linux/arm64"])), out)
     assert len(out.warnings) == 1
     assert "not yet honored" in out.warnings[0]

@@ -249,7 +249,6 @@ class BenchOrchestrator:
             use_uv=bench.bench_config.use_uv,
             github_token=bench.bench_config.github_token,
             use_run=True,
-            deploy_config=bench.bench_config.deploy,
         )
 
     def _phase3_start_and_verify_bench(self) -> None:

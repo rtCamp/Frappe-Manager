@@ -25,7 +25,7 @@ def _seq(am):
 def test_clone_then_setup_then_install_when_version_set():
     am = _app_manager(python_version="3.11")
 
-    provision(am, [MagicMock()], output=MagicMock(), use_run=True, detect_versions=False)
+    provision(am, [MagicMock(hooks=None)], output=MagicMock(), use_run=True, detect_versions=False)
 
     assert _seq(am) == ["install_apps", "setup_python_and_node_environments", "install_apps"]
 
@@ -45,7 +45,7 @@ def test_clone_then_setup_then_install_when_version_set():
 def test_env_setup_skipped_when_no_version():
     am = _app_manager(python_version=None, node_version=None)
 
-    provision(am, [MagicMock()], output=MagicMock(), use_run=True, detect_versions=False)
+    provision(am, [MagicMock(hooks=None)], output=MagicMock(), use_run=True, detect_versions=False)
 
     assert _seq(am) == ["install_apps", "install_apps"]
     am.setup_python_and_node_environments.assert_not_called()
@@ -56,7 +56,7 @@ def test_forwards_use_uv_token_and_run_flag():
 
     provision(
         am,
-        [MagicMock()],
+        [MagicMock(hooks=None)],
         output=MagicMock(),
         use_uv=False,
         github_token="tok",  # noqa: S106

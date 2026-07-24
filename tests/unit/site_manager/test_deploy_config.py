@@ -1,8 +1,9 @@
 """Contract tests for the image-based deploy config on BenchConfig.
 
-Defends: the `runtime` two-axis default, the TOML round-trip of the nested
-`deploy`/`build`/`registry`/`remote` tables, `extra="forbid"` on the deploy models,
-and backward compatibility (a bench_config.toml with no deploy keys loads as mount).
+The new schema splits the old monolithic deploy config into a top-level image
+identity, a `[switch]` migrate pipeline (SwitchConfig), a `[build]` image build
+config (BuildConfig), a `[registry]` transport config, and a `[deploy]` remote
+ship target (DeployConfig). These tests lock the round-trip of each.
 """
 
 import pytest
@@ -12,11 +13,11 @@ from pydantic import ValidationError
 from frappe_manager.site_manager.bench_config import (
     BenchConfig,
     BenchRuntime,
-    DeployBuildConfig,
+    BuildConfig,
     DeployConfig,
     FMBenchEnvType,
     RegistryConfig,
-    RemoteConfig,
+    SwitchConfig,
 )
 
 
@@ -38,17 +39,18 @@ def _image_bench(path):
         environment_type=FMBenchEnvType.prod,
         root_path=path,
         runtime=BenchRuntime.image,
-        deploy=DeployConfig(image="ghcr.io/acme/x", maintenance_mode_phases=["migrate"]),
-        build=DeployBuildConfig(base_image="ghcr.io/rtcamp/frappe-manager-frappe", python_version="3.11"),
+        image="ghcr.io/acme/x",
+        switch=SwitchConfig(maintenance_mode_phases=["migrate"]),
+        build=BuildConfig(base_image="ghcr.io/rtcamp/frappe-manager-frappe", python_version="3.11"),
         registry=RegistryConfig(registry="ghcr.io/acme", username="u", distribution="save_load"),
-        remote=RemoteConfig(ssh_server="host.example", ssh_user="frappe", ssh_port=2222),
+        deploy=DeployConfig(ssh_server="host.example", ssh_user="frappe", ssh_port=2222),
     )
 
 
 def test_runtime_defaults_to_mount(tmp_path):
     bc = _mount_bench(tmp_path / "bench_config.toml")
     assert bc.runtime == BenchRuntime.mount
-    assert bc.deploy is None
+    assert bc.switch is None
 
 
 def test_missing_deploy_keys_loads_as_mount(tmp_path):
@@ -58,15 +60,16 @@ def test_missing_deploy_keys_loads_as_mount(tmp_path):
     doc["name"] = "legacy.localhost"
     doc["developer_mode"] = True
     doc["admin_tools"] = True
-    doc["environment_type"] = "dev"
+    doc["environment"] = "dev"
     path.write_text(tomlkit.dumps(doc))
 
     bc = BenchConfig.import_from_toml(path)
     assert bc.runtime == BenchRuntime.mount
-    assert bc.deploy is None
+    assert bc.image is None
+    assert bc.switch is None
     assert bc.build is None
     assert bc.registry is None
-    assert bc.remote is None
+    assert bc.deploy is None
 
 
 def test_image_deploy_roundtrip(tmp_path):
@@ -75,16 +78,16 @@ def test_image_deploy_roundtrip(tmp_path):
 
     bc = BenchConfig.import_from_toml(path)
     assert bc.runtime == BenchRuntime.image
-    assert bc.deploy is not None
-    assert bc.deploy.image == "ghcr.io/acme/x"
-    assert bc.deploy.maintenance_mode_phases == ["migrate"]
-    assert bc.deploy.migrate is True
+    assert bc.image == "ghcr.io/acme/x"
+    assert bc.switch is not None
+    assert bc.switch.maintenance_mode_phases == ["migrate"]
+    assert bc.switch.migrate is True
     assert bc.build is not None
     assert bc.build.python_version == "3.11"
     assert bc.registry is not None
     assert bc.registry.distribution == "save_load"
-    assert bc.remote is not None
-    assert bc.remote.ssh_port == 2222
+    assert bc.deploy is not None
+    assert bc.deploy.ssh_port == 2222
 
 
 def test_additive_optout_empty_phases_roundtrip(tmp_path):
@@ -98,18 +101,19 @@ def test_additive_optout_empty_phases_roundtrip(tmp_path):
         environment_type=FMBenchEnvType.prod,
         root_path=path,
         runtime=BenchRuntime.image,
-        deploy=DeployConfig(image="ghcr.io/acme/a", maintenance_mode_phases=[]),
+        image="ghcr.io/acme/a",
+        switch=SwitchConfig(maintenance_mode_phases=[]),
     )
     bc.export_to_toml(path)
 
     reloaded = BenchConfig.import_from_toml(path)
-    assert reloaded.deploy is not None
-    assert reloaded.deploy.maintenance_mode_phases == []
+    assert reloaded.switch is not None
+    assert reloaded.switch.maintenance_mode_phases == []
 
 
-def test_deploy_config_forbids_unknown_keys():
+def test_switch_config_forbids_unknown_keys():
     with pytest.raises(ValidationError):
-        DeployConfig(image="ghcr.io/acme/x", bogus_key=True)
+        SwitchConfig(migrate=True, bogus_key=True)
 
 
 def test_registry_config_forbids_unknown_keys():

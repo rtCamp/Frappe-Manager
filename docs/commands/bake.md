@@ -24,7 +24,7 @@ $ fm bake BENCHNAME [OPTIONS]
 
 **Options**:
 
-* `--image`: Image repository to bake into (overrides [deploy].image).
+* `--image`: Image repository to bake into (sets the top-level image).
 * `--tag`: Full image tag to build (overrides the auto-generated <repo>:<timestamp>-<sha>).
 * `--push/--no-push`: Push the baked image to the registry (default: push when [registry] is configured for 'registry').
 * `--config`: TOML config overlay: a file path or inline TOML content, deep-merged into the config before baking. Repeatable; later --config wins.
@@ -38,7 +38,7 @@ $ fm bake BENCHNAME [OPTIONS]
 
 ### Bake an image from an existing bench
 
-Provisions the bench's apps into a build context and builds a runtime image tagged from [deploy].image.
+Provisions the bench's apps into a build context and builds a runtime image tagged from the top-level image.
 
 ```bash
 fm bake mybench
@@ -46,7 +46,7 @@ fm bake mybench
 
 ### Bake with an explicit image repository
 
-Overrides [deploy].image for this bake. The tag is derived automatically as <repo>:<timestamp>-<git sha>.
+Sets the top-level image for this bake. The tag is derived automatically as <repo>:<timestamp>-<git sha>.
 
 ```bash
 fm bake mybench --image local/mybench
@@ -62,7 +62,7 @@ fm bake --apps erpnext:version-15 --image ghcr.io/acme/mysite --push
 
 ### Standalone bake from a config file
 
-The config supplies [deploy].image, apps_list and [build]; nothing else on disk is needed.
+The config supplies top-level image, [[apps]] and [build]; nothing else on disk is needed.
 
 ```bash
 fm bake --config ci/build.toml

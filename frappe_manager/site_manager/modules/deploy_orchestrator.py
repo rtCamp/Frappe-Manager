@@ -35,6 +35,7 @@ from frappe_manager.site_manager.bench_config import (
     BenchRuntime,
     DeployState,
     DeployStateEntry,
+    SwitchConfig,
 )
 from frappe_manager.site_manager.hooks import hook_env, hook_script
 from frappe_manager.utils.docker import run_command_with_exit_code
@@ -129,7 +130,7 @@ class DeployOrchestrator:
     def __init__(self, bench, output_handler: OutputHandler | None = None, logger: ContextualLogger | None = None):
         self.bench = bench
         self.config = bench.bench_config
-        self.deploy_config = self.config.deploy
+        self.switch_config = self.config.switch
         self.site = bench.name
         self.bench_path = Path(bench.path)
         self.docker = bench.docker_client
@@ -149,8 +150,15 @@ class DeployOrchestrator:
                 f"Bench '{self.site}' is not in image runtime "
                 f"(runtime={self.config.runtime.value}). Set runtime = 'image'.",
             )
-        if self.deploy_config is None or not self.deploy_config.image:
-            raise DeployError("No [deploy].image configured; cannot deploy an image.")
+        if not self.config.image:
+            raise DeployError("No image configured; set top-level image (or --image).")
+        self.switch_config = self.config.switch or SwitchConfig()
+
+    def _switch_hook(self, name, host=False):
+        hooks = self.switch_config.hooks
+        if hooks is None:
+            return None
+        return getattr(hooks.host if host else hooks, name, None)
 
     def _config_path(self) -> Path:
         return Path(self.config.root_path)
@@ -513,12 +521,12 @@ class DeployOrchestrator:
         manager.db_import(db_name, db_dump, force=True)
 
     def _drain_workers(self) -> None:
-        if not (self.deploy_config.drain_workers and self._frappe_running()):
+        if not (self.switch_config.drain_workers and self._frappe_running()):
             return
         self.output.change_head("Draining RQ workers")
-        timeout = self.deploy_config.drain_workers_timeout
-        poll = self.deploy_config.drain_workers_poll
-        skip_stale = self.deploy_config.skip_stale_workers
+        timeout = self.switch_config.drain_workers_timeout
+        poll = self.switch_config.drain_workers_poll
+        skip_stale = self.switch_config.skip_stale_workers
         py = (
             "from fmx.rq_controller import control_rq_workers, ActionEnum, wait_for_rq_workers_suspended; "
             "control_rq_workers(ActionEnum.suspend); "
@@ -531,7 +539,7 @@ class DeployOrchestrator:
             self.output.warning(f"Worker drain did not complete cleanly (continuing): {e}")
 
     def _resume_workers(self) -> None:
-        if not self.deploy_config.drain_workers:
+        if not self.switch_config.drain_workers:
             return
         py = (
             "from fmx.rq_controller import control_rq_workers, ActionEnum; "
@@ -564,7 +572,7 @@ class DeployOrchestrator:
         maintenance when migrating). Defensive: only installs when the installed
         set is read reliably (must contain ``frappe``) so a parse failure skips
         rather than blindly reinstalling every app."""
-        if not self.deploy_config.install_apps:
+        if not self.switch_config.install_apps:
             return
         wanted = [a.name for a in (self.config.apps_list or [])]
         if not wanted:
@@ -594,8 +602,8 @@ class DeployOrchestrator:
         Both files are host-mounted data, so the new container picks up the merge
         immediately (clear-cache follows in finalize). ``save_dict_to_file``
         merges, so unrelated keys are preserved."""
-        common = self.deploy_config.common_site_config
-        site = self.deploy_config.site_config
+        common = self.switch_config.common_site_config
+        site = self.switch_config.site_config
         if common:
             self.output.change_head("Merging common_site_config keys")
             self.bench.set_common_bench_config(common)
@@ -606,8 +614,8 @@ class DeployOrchestrator:
     def _hook_script(self, value: str, deploy_tag: str) -> str:
         """``set -e`` + exported env + resolved content, so no exec env passthrough is needed."""
         env = hook_env(
-            self.deploy_config,
             {"SITE_NAME": self.site, "BENCH_PATH": str(self.bench_path), "DEPLOY_TAG": deploy_tag},
+            self.switch_config,
         )
         return hook_script(value, env)
 
@@ -664,7 +672,7 @@ class DeployOrchestrator:
     def _migrate(self, deploy_tag: str) -> bool:
         """Run bench migrate in a one-shot container from the newly-pinned image."""
         self.output.change_head("Running migrations (one-shot new-image container)")
-        command = self.deploy_config.migrate_command or f"--site {self.site} migrate"
+        command = self.switch_config.migrate_command or f"--site {self.site} migrate"
         self.docker.compose.run(
             service=FRAPPE_SERVICE,
             entrypoint=BENCH_BIN,
@@ -724,13 +732,13 @@ class DeployOrchestrator:
             raise DeployError(f"Pre-flight boot check failed for {new_tag}; aborting deploy: {e}") from e
         self.output.print("Pre-flight boot check passed")
 
-        migrate = bool(self.deploy_config.migrate)
-        maintenance = migrate and self.deploy_config.maintenance_mode
+        migrate = bool(self.switch_config.migrate)
+        maintenance = migrate and self.switch_config.maintenance_mode
         backup_dir = self.bench_path / "backups" / f"deploy-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}"
         db_dump: Path | None = None
 
         do_rolling = (
-            rolling_eligible(migrate, self.deploy_config.maintenance_mode_phases, rolling)
+            rolling_eligible(migrate, self.switch_config.maintenance_mode_phases, rolling)
             and self._frappe_running()
         )
         if (rolling or do_rolling) and not self._frappe_running():
@@ -739,7 +747,7 @@ class DeployOrchestrator:
             )
 
         # 3. Backup
-        if self.deploy_config.backups:
+        if self.switch_config.backups:
             self.output.change_head("Backing up DB + site config")
             db_dump = self._backup(backup_dir)
 
@@ -761,6 +769,8 @@ class DeployOrchestrator:
         # 6. Migrate in a one-shot new-image container.
         migrate_status = "skipped"
         if migrate:
+            self._run_host_hook(self._switch_hook("before_migrate", host=True), "host_before_migrate", new_tag)
+            self._run_container_hook(self._switch_hook("before_migrate"), "before_migrate", new_tag)
             try:
                 self._migrate(new_tag)
                 migrate_status = "migrated"
@@ -768,7 +778,7 @@ class DeployOrchestrator:
                 # Migrate failure: NO swap. Keep old tag + report. migrate is
                 # transactional/resumable so default is keep-old (re-runnable).
                 self._restore_compose(snaps)
-                if self.deploy_config.restore_on_failure and db_dump:
+                if self.switch_config.restore_on_failure and db_dump:
                     self._restore_db(db_dump)
                 if self._frappe_running():
                     with contextlib.suppress(Exception):
@@ -777,10 +787,12 @@ class DeployOrchestrator:
                     f"Migration failed; kept old image ({old_tag or 'dev/mount'}). "
                     f"Compose reverted, no swap performed. Re-run deploy after fixing: {e}",
                 ) from e
+            self._run_container_hook(self._switch_hook("after_migrate"), "after_migrate", new_tag)
+            self._run_host_hook(self._switch_hook("after_migrate", host=True), "host_after_migrate", new_tag)
 
         # Switch hooks (pre-restart): host first, then the still-running old container.
-        self._run_host_hook(self.deploy_config.host_before_restart, "host_before_restart", new_tag)
-        self._run_container_hook(self.deploy_config.before_restart, "before_restart", new_tag)
+        self._run_host_hook(self._switch_hook("before_restart", host=True), "host_before_restart", new_tag)
+        self._run_container_hook(self._switch_hook("before_restart"), "before_restart", new_tag)
 
         # 7b. Swap. Rolling (blue-green) when eligible -> zero dropped requests;
         # otherwise recreate-swap (the maintenance window covers the brief blip).
@@ -798,9 +810,9 @@ class DeployOrchestrator:
         # Health gate (503 = maintenance page = server up; finalize clears it).
         self.output.change_head("Health-gating new containers")
         if not self._health_check():
-            if self.deploy_config.rollback and old_tag:
+            if self.switch_config.rollback and old_tag:
                 self.output.warning("New image unhealthy; rolling back to previous tag.")
-                self.rollback(old_tag, _restore_db_dump=db_dump if self.deploy_config.restore_on_failure else None)
+                self.rollback(old_tag, _restore_db_dump=db_dump if self.switch_config.restore_on_failure else None)
                 raise DeployError(
                     f"Deploy of {new_tag} failed health check; rolled back to {old_tag}.",
                 )
@@ -822,8 +834,8 @@ class DeployOrchestrator:
         except Exception as e:
             self.output.warning(f"clear-cache failed (continuing): {e}")
         # Switch hooks (post-restart): new container first, then host.
-        self._run_container_hook(self.deploy_config.after_restart, "after_restart", new_tag)
-        self._run_host_hook(self.deploy_config.host_after_restart, "host_after_restart", new_tag)
+        self._run_container_hook(self._switch_hook("after_restart"), "after_restart", new_tag)
+        self._run_host_hook(self._switch_hook("after_restart", host=True), "host_after_restart", new_tag)
 
         if maintenance:
             self._set_maintenance(0)

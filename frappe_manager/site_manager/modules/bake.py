@@ -85,16 +85,16 @@ class BakeManager:
     def resolve_tag(self) -> str:
         """``<repo>:<UTC timestamp>-<git short sha|nogit>``.
 
-        ``<repo>`` comes from ``[deploy].image`` and is required.
+        ``<repo>`` comes from the top-level ``image`` and is required.
         """
-        deploy = self.bench_config.deploy
-        if deploy is None or not deploy.image:
+        repo = self.bench_config.image
+        if not repo:
             raise BakeError(
-                "No deploy image configured. Set [deploy].image in the bench "
-                "config (or pass --image) before baking.",
+                "No image configured. Set top-level image (or pass --image) "
+                "before baking.",
             )
         timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
-        return f"{deploy.image}:{timestamp}-{self._git_short_sha()}"
+        return f"{repo}:{timestamp}-{self._git_short_sha()}"
 
     def _git_short_sha(self) -> str:
         try:
@@ -298,7 +298,6 @@ class BakeManager:
                 use_uv=self.bench_config.use_uv,
                 github_token=self.bench_config.github_token,
                 use_run=True,
-                deploy_config=self.bench_config.deploy,
             )
 
             self.output.change_head(f"Building runtime image {tag}")
@@ -334,7 +333,7 @@ class BakeManager:
         """Resolve the push decision: explicit flag wins; otherwise push when a
         ``[registry]`` table is configured with ``distribution == 'registry'``.
 
-        The registry host is normally encoded in ``[deploy].image`` (e.g.
+        The registry host is normally encoded in the top-level ``image`` (e.g.
         ``localhost:5000/rtest``); a separate ``[registry].registry`` is only
         needed for ``docker login``.
         """

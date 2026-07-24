@@ -29,7 +29,7 @@ def _load_image_bench(ctx: typer.Context, benchname: str) -> Bench:
     if bench.bench_config.runtime != BenchRuntime.image:
         output.display_error(
             f"Bench '{benchname}' is not in image runtime. "
-            f"Set runtime = 'image' and [deploy].image in its bench_config.toml first.",
+            f"Set runtime = 'image' and a top-level image in its bench_config.toml first.",
         )
         raise typer.Exit(1)
     return bench
@@ -44,7 +44,7 @@ def _load_image_bench(ctx: typer.Context, benchname: str) -> Bench:
 @example(
     "Deploy into a specific image repository",
     "{benchname} --image local/mybench",
-    detail="Overrides [deploy].image for this bake+deploy.",
+    detail="Sets the top-level image for this bake+deploy.",
     benchname="mybench",
 )
 def deploy(
@@ -59,7 +59,7 @@ def deploy(
     ],
     image: Annotated[
         str | None,
-        typer.Option("--image", help="Image repository to bake into (overrides [deploy].image).", show_default=False),
+        typer.Option("--image", help="Image repository to bake into (sets the top-level image).", show_default=False),
     ] = None,
     tag: Annotated[
         str | None,
@@ -70,7 +70,7 @@ def deploy(
         typer.Option(
             "--remote",
             help="Deploy to a remote daemon over SSH (DOCKER_HOST=ssh://<user>@<host>:<port>). "
-            "Falls back to [remote].ssh_server when omitted.",
+            "Falls back to [deploy].ssh_server when omitted.",
             show_default=False,
         ),
     ] = None,
@@ -124,10 +124,10 @@ def deploy(
     bench = _load_image_bench(ctx, benchname)
 
     if image:
-        bench.bench_config.deploy.image = image
+        bench.bench_config.image = image
 
     registry = bench.bench_config.registry
-    remote_config = bench.bench_config.remote
+    remote_config = bench.bench_config.deploy
     distribution = registry.distribution if registry else "registry"
 
     docker_host = build_docker_host(remote, remote_config) if remote else remote_docker_host(remote_config)

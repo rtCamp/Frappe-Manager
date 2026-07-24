@@ -42,18 +42,17 @@ def test_explicit_frappe_not_duplicated():
     assert bc.build is None  # no --python/--node
 
 
-def test_config_overlay_supplies_deploy_and_apps():
+def test_config_overlay_supplies_image_and_apps():
     inline = """
-[deploy]
 image = "ghcr.io/acme/fromconfig"
-[[apps_list]]
+[[apps]]
 name = "frappe"
 repo = "frappe/frappe"
 ref = "version-16"
 """
     bc = _build_standalone_config([], None, None, None, None, [inline])
-    assert bc.deploy is not None
-    assert bc.deploy.image == "ghcr.io/acme/fromconfig"
+    assert bc.image is not None
+    assert bc.image == "ghcr.io/acme/fromconfig"
     assert [a.name for a in bc.apps_list] == ["frappe"]
 
 
@@ -73,7 +72,7 @@ def test_resolve_bake_apps_prefers_explicit_list():
 
 def test_resolve_bake_apps_derives_when_empty(tmp_path):
     # Empty apps_list + no live bench dir -> derivation fails (bench-mode contract).
-    inline = '[deploy]\nimage = "r/x"\n'
+    inline = 'image = "r/x"\n'
     bc = _build_standalone_config([], None, None, None, None, [inline])
     bc.root_path = tmp_path / "bench_config.toml"  # parent has no workspace/apps
     manager = BakeManager(bc, output_handler=None)

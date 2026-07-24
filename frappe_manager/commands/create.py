@@ -21,7 +21,6 @@ from frappe_manager.site_manager.bench_config import (
     AppConfig,
     BenchConfig,
     BenchRuntime,
-    DeployConfig,
     DeployState,
     FMBenchEnvType,
     RestartPolicyEnum,
@@ -52,13 +51,13 @@ def _resolve_deploy_options(
     apps: list,
     python_version: str | None,
     node_version: str | None,
-) -> tuple[BenchRuntime, DeployConfig | None, str | None, str | None]:
+) -> tuple[BenchRuntime, str | None, str | None, str | None]:
     """Resolve the deploy model (#323) for ``fm create``.
 
     Mode is selected only by ``--runtime`` (default ``mount``); ``--image``
     no longer implies image mode. ``--image`` is mode-scoped: in mount mode it
     overrides the base frappe image, in image mode it is the pre-built app image
-    to run. Returns ``(resolved_mode, deploy_config, current_tag, base_image_override)``.
+    to run. Returns ``(resolved_mode, image_repo, current_tag, base_image_override)``.
     """
     resolved = runtime or BenchRuntime.mount
 
@@ -90,7 +89,7 @@ def _resolve_deploy_options(
         raise typer.BadParameter("--node is not supported in image mode; the Node version is baked into the image.")
 
     repo = image.rpartition(":")[0]
-    return resolved, DeployConfig(image=repo), image, None
+    return resolved, repo, image, None
 
 
 def _ensure_frappe_first(apps: list[AppConfig]) -> list[AppConfig]:
@@ -139,7 +138,7 @@ def _build_overlay_bench_config(
     seed["name"] = benchname
     seed["developer_mode"] = False
     seed["admin_tools"] = False
-    seed["environment_type"] = FMBenchEnvType.dev.value
+    seed["environment"] = FMBenchEnvType.dev.value
     merged = merge_overlays(tomlkit.dumps(seed), config)
 
     handle = tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False)  # noqa: SIM115
@@ -192,7 +191,7 @@ def _build_overlay_bench_config(
     # Runtime/image selection: explicit --runtime/--image re-resolve (flag path);
     # otherwise keep whatever the config declared ([runtime]/[deploy]/[deploy_state]).
     if "runtime" in explicit or "image" in explicit:
-        r_runtime, r_deploy, r_tag, r_base = _resolve_deploy_options(
+        r_runtime, r_image, r_tag, r_base = _resolve_deploy_options(
             runtime if "runtime" in explicit else bc.runtime,
             image if "image" in explicit else None,
             apps if "apps" in explicit else [],
@@ -200,7 +199,7 @@ def _build_overlay_bench_config(
             node_version if "node_version" in explicit else None,
         )
         bc.runtime = r_runtime
-        bc.deploy = r_deploy
+        bc.image = r_image
         bc.base_image = r_base
         bc.deploy_state = DeployState(current_tag=r_tag) if r_runtime == BenchRuntime.image else None
 
@@ -385,9 +384,9 @@ def create(
     app image (built by `fm bake` or otherwise present/pullable) given via --image and
     does not accept --apps/--python/--node -- those are baked into the image.
 
-    --config supplies a TOML base (file or inline) for the bench config (e.g. [deploy],
-    [registry], [remote], [build], hooks); explicit CLI flags override it. Repeatable,
-    later --config wins.
+    --config supplies a TOML base (file or inline) for the bench config (e.g. [switch],
+    [registry], [deploy], [build], [monitoring], per-app hooks); explicit CLI flags
+    override it. Repeatable, later --config wins.
     """
 
     services_manager: ServicesManager = ctx.obj["services"]
@@ -445,7 +444,7 @@ def create(
             if not current_tag:
                 output.display_error(
                     "Image runtime needs a pre-built image: pass --image <repo:tag>, or set "
-                    "[deploy].image + [deploy_state].current_tag in --config.",
+                    "top-level image + [deploy_state].current_tag in --config.",
                 )
                 raise typer.Exit(1)
             output.print(
@@ -456,7 +455,7 @@ def create(
         final_apps_list = _ensure_frappe_first(apps_config)
 
         # Deploy model (#323): resolve runtime (mount|image) + mode-scoped --image.
-        resolved_runtime, deploy_config, deploy_current_tag, base_image_override = _resolve_deploy_options(
+        resolved_runtime, image_repo, deploy_current_tag, base_image_override = _resolve_deploy_options(
             runtime, image, apps, python_version, node_version
         )
         if resolved_runtime == BenchRuntime.image:
@@ -486,7 +485,7 @@ def create(
             newrelic_enabled=newrelic,
             newrelic_license_key=newrelic_license_key,
             runtime=resolved_runtime,
-            deploy=deploy_config,
+            image=image_repo,
             base_image=base_image_override,
             deploy_state=DeployState(current_tag=deploy_current_tag)
             if resolved_runtime == BenchRuntime.image
