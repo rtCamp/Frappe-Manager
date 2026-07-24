@@ -39,3 +39,14 @@ def test_config_rejects_typo_strings():
     with pytest.raises(ValueError):
         SwitchConfig(migrate="atuo")
     assert SwitchConfig(migrate="yes").migrate is True  # boolish string coerces, documented
+
+
+def test_rolling_eligible_matrix():
+    from frappe_manager.site_manager.modules.deploy_orchestrator import rolling_eligible
+
+    assert rolling_eligible(False, True, ["migrate"]) is True  # no migrate
+    assert rolling_eligible(True, True, ["migrate"]) is True  # migrate covered by maintenance 503
+    assert rolling_eligible(True, False, []) is True  # operator asserts additive
+    assert rolling_eligible(True, False, ["migrate"]) is False  # migrate, window disabled -> recreate
+    assert rolling_eligible(True, False, ["migrate"], override=True) is True  # CLI forces
+    assert rolling_eligible(False, True, ["migrate"], override=False) is False  # CLI disables

@@ -8,8 +8,10 @@ Implements the decomposed image deploy (recreate-swap) that ``fmx restart
     -> recreate-swap(compose up -d --wait) -> finalize(resume + site DB ops +
     maintenance off) -> record deploy_state
 
-v1 uses recreate-swap (the maintenance window covers the brief web restart);
-rolling scale-2 is deferred to Phase 4b. Supervisor stays.
+Rolling (blue-green) scale-2 is the default web swap whenever the overlap is
+safe (no migrate, additive-asserted, or a maintenance window covering the
+migrate); recreate-swap remains for migrate deploys that disable the
+maintenance window. Supervisor stays.
 """
 
 import base64
@@ -53,20 +55,31 @@ class DeployError(Exception):
 
 def rolling_eligible(
     migrate: bool,
+    maintenance_mode: bool,
     maintenance_mode_phases: list[str],
     override: bool | None = None,
 ) -> bool:
     """Decide whether a deploy may use the rolling (blue-green) web swap.
 
-    ``override`` is the CLI ``--rolling/--no-rolling`` flag (None = auto). In auto
-    mode a deploy is rolling-eligible only when it cannot break old code that
-    shares the DB during the overlap: either it does not migrate at all, or the
-    operator has asserted a backward-compatible (additive) migration by clearing
-    ``maintenance_mode_phases``. Migrate deploys with a maintenance window keep
-    the existing recreate-swap path (Decision 1)."""
+    ``override`` is the CLI ``--rolling/--no-rolling`` flag (None = auto). In
+    auto mode a deploy is rolling-eligible whenever the replica overlap cannot
+    break old code that shares the DB:
+
+    * no migrate at all, or
+    * the operator asserted a backward-compatible (additive) migration by
+      clearing ``maintenance_mode_phases``, or
+    * the migrate runs under an active maintenance window -- both replicas
+      serve the maintenance 503 (``maintenance_mode`` lives in the shared
+      ``common_site_config.json``), so old code never executes real requests
+      against the migrated schema.
+
+    Only a migrate deploy with the maintenance window disabled must recreate.
+    """
     if override is not None:
         return override
-    return migrate is False or maintenance_mode_phases == []
+    if migrate is False or maintenance_mode_phases == []:
+        return True
+    return maintenance_mode
 
 
 MIGRATE_PROBE_MARKER = "FM-MIGRATE-PROBE"
@@ -814,7 +827,12 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         maintenance = migrate and self.switch_config.maintenance_mode
 
         do_rolling = (
-            rolling_eligible(migrate, self.switch_config.maintenance_mode_phases, rolling)
+            rolling_eligible(
+                migrate,
+                self.switch_config.maintenance_mode,
+                self.switch_config.maintenance_mode_phases,
+                rolling,
+            )
             and self._frappe_running()
         )
         if (rolling or do_rolling) and not self._frappe_running():
