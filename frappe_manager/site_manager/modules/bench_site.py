@@ -196,7 +196,7 @@ class BenchSiteManager:
             ),
         )
 
-    def create_bench_site(self, admin_pass: str | None = None) -> None:
+    def create_bench_site(self, admin_pass: str | None = None, force: bool = False) -> None:
         """
         Create a new Frappe site in the bench.
 
@@ -226,6 +226,10 @@ class BenchSiteManager:
         new_site_command += ["--admin-password", admin_pass]
         new_site_command += ["--db-port", str(self.services.database_manager.database_server_info.port)]
         new_site_command += ["--verbose", "--mariadb-user-host-login-scope", "%"]
+        if force:
+            # Image runtime pre-binds sites/<site>, so `compose up` created an empty dir;
+            # --force lets new-site populate that existing (empty) dir instead of aborting.
+            new_site_command += ["--force"]
         new_site_command += [self.bench_name]
 
         new_site_command = " ".join(new_site_command)

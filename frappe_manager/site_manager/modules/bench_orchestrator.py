@@ -173,10 +173,13 @@ class BenchOrchestrator:
         baked = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
         bench.bench_config.apps_list = [AppConfig.from_string(n) for n in baked]
 
-        # Pin the bench compose to the image and start.
+        # Pin the bench compose to the image. Pre-create the site dir (frappe-owned) so the
+        # per-site bind isn't auto-created root-owned by `compose up`; new-site --force then
+        # populates that existing empty dir.
+        (bench.path / "workspace" / "frappe-bench" / "sites" / bench.name).mkdir(parents=True, exist_ok=True)
         bench.docker_ops.render_image_compose(tag)
         self._phase3_start_and_verify_bench()
-        self._phase4_create_site()
+        self._phase4_create_site(force=True)
 
         apps_installed = self._phase6_install_apps()
 
@@ -301,12 +304,12 @@ class BenchOrchestrator:
 
         raise Exception("Bench server not responding after 60 seconds")
 
-    def _phase4_create_site(self) -> None:
+    def _phase4_create_site(self, force: bool = False) -> None:
         """Phase 4: Create empty site (no apps installed yet)"""
         bench = self.bench
 
         self.output.change_head(f"Creating bench site {bench.name}")
-        bench.site_manager.create_bench_site()
+        bench.site_manager.create_bench_site(force=force)
 
         bench.set_bench_site_config({"admin_password": bench.bench_config.admin_pass})
         bench.sync_bench_config_configuration()

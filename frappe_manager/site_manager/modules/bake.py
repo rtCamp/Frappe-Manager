@@ -454,25 +454,64 @@ class BakeManager:
         nginx_dockerfile = self._nginx_dockerfile()
         nginx_tag = self.nginx_image_tag(tag)
 
-        # Stage the nginx base-stage build files into the frappe-bench context.
-        for fname in ("template.conf", "502.html", "entrypoint.sh"):
-            src = nginx_dockerfile.parent / fname
-            if not src.exists():
-                raise BakeError(f"Missing nginx build file: {src}")
-            shutil.copy2(src, frappe_bench_dir / fname)
+        # Build from a staging context with app assets resolved to REAL files. Each
+        # `sites/assets/<app>` symlinks into `apps/<app>/.../public`, but the nginx image
+        # has no `apps/`, so the symlink would dangle at runtime (assets 404).
+        staging = Path(tempfile.mkdtemp(prefix="fm-bake-nginx-"))
+        try:
+            self._materialize_assets(assets_dir, frappe_bench_dir, staging / "sites" / "assets")
+            for fname in ("template.conf", "502.html", "entrypoint.sh"):
+                src = nginx_dockerfile.parent / fname
+                if not src.exists():
+                    raise BakeError(f"Missing nginx build file: {src}")
+                shutil.copy2(src, staging / fname)
 
-        self.output.change_head(f"Building app-nginx image {nginx_tag}")
-        build_cmd = [
-            "docker",
-            "build",
-            "-f",
-            str(nginx_dockerfile),
-            "--target",
-            "app-assets",
-            "-t",
-            nginx_tag,
-            str(frappe_bench_dir),
-        ]
-        run_command_with_exit_code(build_cmd, stream=False, capture_output=False)
+            self.output.change_head(f"Building app-nginx image {nginx_tag}")
+            build_cmd = [
+                "docker",
+                "build",
+                "-f",
+                str(nginx_dockerfile),
+                "--target",
+                "app-assets",
+                "-t",
+                nginx_tag,
+                str(staging),
+            ]
+            run_command_with_exit_code(build_cmd, stream=False, capture_output=False)
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
         self.output.print(f"Built image: {nginx_tag}", emoji_code=":white_check_mark:")
         return nginx_tag
+
+    def _materialize_assets(self, assets_dir: Path, frappe_bench_dir: Path, dest: Path) -> None:
+        """Copy ``sites/assets`` into ``dest`` with app symlinks resolved to real files.
+
+        Each ``sites/assets/<app>`` is a symlink to an absolute *container* path
+        (``/workspace/frappe-bench/apps/<app>/.../public``) that does not exist on the
+        host, so a naive dereference yields nothing. Remap that container path back to the
+        provisioned host tree so the built bundles land as real files (the nginx image has
+        no ``apps/`` for the symlink to resolve at runtime).
+        """
+        container_root = "/workspace/frappe-bench"
+        dest.mkdir(parents=True, exist_ok=True)
+        for entry in assets_dir.iterdir():
+            out = dest / entry.name
+            if entry.is_symlink():
+                link = str(entry.readlink())
+                if link.startswith(container_root):
+                    real = frappe_bench_dir / link[len(container_root):].lstrip("/")
+                elif Path(link).is_absolute():
+                    real = Path(link)
+                else:
+                    real = entry.parent / link
+                if not real.exists():
+                    continue
+                if real.is_dir():
+                    shutil.copytree(real, out, symlinks=False, ignore_dangling_symlinks=True)
+                else:
+                    shutil.copy2(real, out)
+            elif entry.is_dir():
+                shutil.copytree(entry, out, symlinks=False, ignore_dangling_symlinks=True)
+            else:
+                shutil.copy2(entry, out)
