@@ -6,8 +6,17 @@ This module provides fixtures that are automatically available to all unit tests
 
 import pytest
 
+from frappe_manager.logger import reset_context
 from frappe_manager.output_manager import set_global_output_handler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
+
+
+@pytest.fixture(autouse=True)
+def clean_ambient_log_context():
+    """Ambient logging context is process-global state; never bleed across tests."""
+    reset_context()
+    yield
+    reset_context()
 
 
 @pytest.fixture(autouse=True)

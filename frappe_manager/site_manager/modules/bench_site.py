@@ -16,7 +16,7 @@ from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.docker import DOCKER_LINE_NOISE, DockerClient, DockerException
 from frappe_manager.docker.compose_file import ComposeFile
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.logger.contextual import ContextualLogger
+from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.services import ServicesManager
@@ -69,7 +69,6 @@ class BenchSiteManager:
 
     def __init__(
         self,
-        logger: ContextualLogger,
         bench_name: str,
         bench_path: Path,
         docker_client: DockerClient,
@@ -82,7 +81,6 @@ class BenchSiteManager:
         Initialize BenchSiteManager.
 
         Args:
-            logger: Contextual logger for audit/debug logging
             bench_name: Name of the bench (typically the site domain)
             bench_path: Path to the bench directory on host
             docker_client: Docker client for container operations
@@ -95,7 +93,7 @@ class BenchSiteManager:
                 to always perform all health checks regardless of service profiles.
             output_handler: Optional output handler for displaying information
         """
-        self.logger = logger.child(component="site_manager")
+        self.logger = get_logger(component="site_manager")
         self.bench_name = bench_name
         self.bench_path = bench_path
         self.docker_client = docker_client

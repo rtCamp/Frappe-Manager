@@ -112,7 +112,8 @@ class TestLoggingOutputHandlerPromptFuzzy:
         mock_delegate.prompt_fuzzy.return_value = "bench1"
         mock_logger = MagicMock()
 
-        handler = LoggingOutputHandler(delegate=mock_delegate, logger=mock_logger)
+        handler = LoggingOutputHandler(delegate=mock_delegate)
+        handler.logger = mock_logger
 
         result = handler.prompt_fuzzy(
             prompt="Select bench",
@@ -134,7 +135,8 @@ class TestLoggingOutputHandlerPromptFuzzy:
         mock_delegate.prompt_fuzzy.return_value = "bench1"
         mock_logger = MagicMock()
 
-        handler = LoggingOutputHandler(delegate=mock_delegate, logger=mock_logger)
+        handler = LoggingOutputHandler(delegate=mock_delegate)
+        handler.logger = mock_logger
 
         result = handler.prompt_fuzzy(prompt="Select bench", choices=["bench1", "bench2"], default="bench1")
 

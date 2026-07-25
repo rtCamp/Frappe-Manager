@@ -12,7 +12,6 @@ from typing import Any
 
 import typer
 
-from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager.base import OutputHandler
 
 
@@ -23,30 +22,23 @@ class LoggingOutputHandler(OutputHandler):
     This handler wraps another OutputHandler and logs all method calls
     to a Python logger, providing automatic logging of user-facing messages.
 
-    Supports both standard logging.Logger and ContextualLogger for automatic
-    context inclusion in log messages.
+    Context (correlation id, bench, operation) is ambient -- read at emit time
+    by the file handler's ContextInjectFilter (see logger.log) -- so mirror
+    lines are tagged without any logger being passed in.
 
     Usage:
-        # With standard logger
-        logger = get_logger()
         rich = RichOutputHandler(verbose=True)
-        output = LoggingOutputHandler(rich, logger)
+        output = LoggingOutputHandler(rich)
 
-        # With contextual logger
-        context = LoggerContext(bench="mybench", operation="create")
-        contextual_logger = ContextualLogger(logger, context)
-        output = LoggingOutputHandler(rich, contextual_logger)
-
-        # Now all output calls are automatically logged with context
+        # Now all output calls are automatically logged with ambient context
         output.print("Creating bench..")
         # User sees: ⚡ Creating bench...
-        # Log file: [2024-01-07 12:00:00] INFO: [bench=mybench] [op=create] [OUTPUT] Creating bench...
+        # Log file: [2024-01-07 12:00:00] INFO: [corr=550e8400] [component=output] [OUTPUT] Creating bench...
     """
 
     def __init__(
         self,
         delegate: OutputHandler,
-        logger: logging.Logger | ContextualLogger,
         log_prefix: str = "[OUTPUT]",
     ):
         """
@@ -54,17 +46,14 @@ class LoggingOutputHandler(OutputHandler):
 
         Args:
             delegate: OutputHandler to wrap and delegate to
-            logger: Python logger or ContextualLogger for file logging
             log_prefix: Prefix for log messages (default: "[OUTPUT]")
         """
         super().__init__(delegate.verbose)
         self.delegate = delegate
 
-        if isinstance(logger, logging.Logger):
-            self.logger = ContextualLogger(logger)
-        else:
-            self.logger = logger
+        from frappe_manager.logger import get_logger
 
+        self.logger = get_logger(component="output")
         self.log_prefix = log_prefix
 
     def _log_message(self, level: int, message: str) -> None:
@@ -315,8 +304,29 @@ class LoggingOutputHandler(OutputHandler):
     def should_stream_docker(self) -> bool:
         return self.delegate.should_stream_docker
 
+    def _format_data_for_log(self, data: Any) -> str:
+        """Rich renderables -> plain text for the file log (never their repr)."""
+        if isinstance(data, str):
+            return data
+        if hasattr(data, "__rich__") or hasattr(data, "__rich_console__"):
+            try:
+                from rich.console import Console
+
+                from frappe_manager.output_manager.console_singleton import _default_theme
+
+                # Default theme so fm.* style tokens resolve; no_color -> plain text.
+                console = Console(width=120, no_color=True, force_terminal=False, theme=_default_theme())
+                with console.capture() as capture:
+                    console.print(data)
+                text = capture.get().rstrip()
+                # Multi-line renders start on their own line so the log stays scannable.
+                return f"\n{text}" if "\n" in text else text
+            except Exception:  # logging must never break the command
+                return str(data)
+        return str(data)
+
     def print_data(self, data: Any, **kwargs) -> None:
-        self._log_message(logging.INFO, f"DATA: {data}")
+        self._log_message(logging.INFO, f"DATA: {self._format_data_for_log(data)}")
         self.delegate.print_data(data, **kwargs)
 
     def print_status(self, text: str, emoji_code: str = ":zap:", **kwargs) -> None:

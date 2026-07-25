@@ -10,7 +10,7 @@ import shutil
 import subprocess
 from pathlib import Path
 
-from frappe_manager.logger.contextual import ContextualLogger
+from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.ssl_manager.certificate import SSLCertificate
@@ -42,13 +42,12 @@ class AcmeShCertificateService:
 
     def __init__(
         self,
-        logger: ContextualLogger,
         ssl_service_dir: Path,
         webroot_dir: Path,
         acmesh_home: Path | None = None,
         output_handler: OutputHandler | None = None,
     ):
-        self.logger = logger.child(component="acmesh")
+        self.logger = get_logger(component="acmesh")
         self.webroot_dir = webroot_dir
         self.root_dir = ssl_service_dir / "acmesh"
         self.acmesh_home = acmesh_home or (ssl_service_dir / "acmesh" / ".acme.sh")

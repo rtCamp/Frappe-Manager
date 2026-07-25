@@ -16,7 +16,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from frappe_manager import SSL_RENEW_BEFORE_DAYS
-from frappe_manager.logger.contextual import ContextualLogger
+from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import (
@@ -54,7 +54,6 @@ class SSLCertificateManager:
 
     def __init__(
         self,
-        logger: ContextualLogger,
         certificates: list[SSLCertificate],
         service_factory: Callable[[SSLCertificate, SSLStorageConfig, OutputHandler], SSLCertificateService],
         link_manager: CertificateLinkManager,
@@ -67,7 +66,6 @@ class SSLCertificateManager:
         Initialize the SSL certificate manager.
 
         Args:
-            logger: Contextual logger for audit/debug logging
             certificates: List of SSL certificate configurations to manage
             service_factory: Factory function to create certificate services
             link_manager: Manager for certificate symlink operations
@@ -79,8 +77,6 @@ class SSLCertificateManager:
         Raises:
             ValueError: If any required dependency is None or invalid
         """
-        if logger is None:
-            raise ValueError("Logger is required")
         if certificates is None:
             raise ValueError("Certificate configuration is required")
         if service_factory is None:
@@ -94,7 +90,7 @@ class SSLCertificateManager:
         if output_handler is None:
             raise ValueError("Output handler is required")
 
-        self.logger = logger.child(component="ssl_manager")
+        self.logger = get_logger(component="ssl_manager")
         self.certificates: list[SSLCertificate] = certificates if isinstance(certificates, list) else [certificates]
         self.service_factory = service_factory
         self.storage_config = storage_config

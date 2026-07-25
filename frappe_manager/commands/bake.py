@@ -287,10 +287,8 @@ def bake(
             bench_config.build = BuildConfig()
         bench_config.build.include = [*bench_config.build.include, *include]
 
-    logger = ctx.obj.get("logger") if ctx.obj else None
-
     try:
-        bake_manager = BakeManager(bench_config, output_handler=output, logger=logger)
+        bake_manager = BakeManager(bench_config, output_handler=output)
         built_tag = bake_manager.bake(tag=tag, push=push)
     except BakeError as e:
         output.display_error(str(e))

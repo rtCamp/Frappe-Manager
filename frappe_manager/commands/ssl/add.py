@@ -5,7 +5,6 @@ from typing import Annotated
 import typer
 from typer_examples import example
 
-from frappe_manager.logger.context import LoggerContext
 from frappe_manager.output_manager import temporary_stop
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
 from frappe_manager.utils.callbacks import prompt_for_bench_selection, sites_autocompletion_callback
@@ -106,8 +105,7 @@ def add_certificate(
     """
 
     if dev and standalone:
-        context = LoggerContext(operation="ssl-add")
-        output = get_output_handler(ctx, context=context)
+        output = get_output_handler(ctx)
         output.display_error("--dev cannot be used with --standalone mode")
         raise typer.Exit(1)
 
@@ -116,16 +114,14 @@ def add_certificate(
         actual_domain = domain if domain else benchname
 
         if not actual_domain:
-            context = LoggerContext(operation="ssl-add-external")
-            output = get_output_handler(ctx, context=context)
+            output = get_output_handler(ctx)
             output.display_error("Domain is required in standalone mode")
             with temporary_stop(output):
                 typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
         if benchname and domain:
-            context = LoggerContext(operation="ssl-add-external")
-            output = get_output_handler(ctx, context=context)
+            output = get_output_handler(ctx)
             output.display_error("Cannot specify both benchname and domain in standalone mode")
             with temporary_stop(output):
                 typer.echo(ctx.get_help())
@@ -136,8 +132,7 @@ def add_certificate(
         benchname = prompt_for_bench_selection(benchname)
 
         if not benchname or not domain:
-            context = LoggerContext(operation="ssl-add")
-            output = get_output_handler(ctx, context=context)
+            output = get_output_handler(ctx)
             output.display_error("Both benchname and domain are required in bench mode")
             with temporary_stop(output):
                 typer.echo(ctx.get_help())

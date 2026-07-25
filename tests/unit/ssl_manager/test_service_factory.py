@@ -19,7 +19,6 @@ class TestCreateCertificateService:
 
     def test_returns_noop_service_for_ssl_type_none(self, tmp_path, mock_output_handler, mocker):
         """Test that NoOpCertificateService is returned when ssl_type is 'none'."""
-        mock_logger = mocker.MagicMock()
         certificate = SSLCertificate(
             domain="example.com",
             ssl_type=SUPPORTED_SSL_TYPES.none,
@@ -29,13 +28,12 @@ class TestCreateCertificateService:
         storage_config.ssl_dir = tmp_path / "ssl"
         storage_config.webroot_dir = tmp_path / "webroot"
 
-        service = create_certificate_service(mock_logger, certificate, storage_config, mock_output_handler)
+        service = create_certificate_service(certificate, storage_config, mock_output_handler)
 
         assert isinstance(service, NoOpCertificateService)
 
     def test_returns_noop_service_when_enabled_false(self, tmp_path, mock_output_handler, mock_letsencrypt_certificate_http01, mocker):
         """Test that NoOpCertificateService is returned when enabled=False."""
-        mock_logger = mocker.MagicMock()
         certificate = mock_letsencrypt_certificate_http01
         certificate.enabled = False
 
@@ -43,13 +41,12 @@ class TestCreateCertificateService:
         storage_config.ssl_dir = tmp_path / "ssl"
         storage_config.webroot_dir = tmp_path / "webroot"
 
-        service = create_certificate_service(mock_logger, certificate, storage_config, mock_output_handler)
+        service = create_certificate_service(certificate, storage_config, mock_output_handler)
 
         assert isinstance(service, NoOpCertificateService)
 
     def test_returns_acmesh_service_for_letsencrypt_http01(self, tmp_path, mock_output_handler, mock_letsencrypt_certificate_http01, mocker):
         """Test that AcmeShCertificateService is returned for Let's Encrypt HTTP-01."""
-        mock_logger = mocker.MagicMock()
         certificate = mock_letsencrypt_certificate_http01
 
         storage_config = Mock()
@@ -58,13 +55,12 @@ class TestCreateCertificateService:
 
         mocker.patch.object(AcmeShCertificateService, "_ensure_acmesh_installed")
 
-        service = create_certificate_service(mock_logger, certificate, storage_config, mock_output_handler)
+        service = create_certificate_service(certificate, storage_config, mock_output_handler)
 
         assert isinstance(service, AcmeShCertificateService)
 
     def test_returns_acmesh_service_for_letsencrypt_dns01(self, tmp_path, mock_output_handler, mock_letsencrypt_certificate_dns01, mocker):
         """Test that AcmeShCertificateService is returned for Let's Encrypt DNS-01."""
-        mock_logger = mocker.MagicMock()
         certificate = mock_letsencrypt_certificate_dns01
 
         storage_config = Mock()
@@ -73,13 +69,12 @@ class TestCreateCertificateService:
 
         mocker.patch.object(AcmeShCertificateService, "_ensure_acmesh_installed")
 
-        service = create_certificate_service(mock_logger, certificate, storage_config, mock_output_handler)
+        service = create_certificate_service(certificate, storage_config, mock_output_handler)
 
         assert isinstance(service, AcmeShCertificateService)
 
     def test_acmesh_service_receives_correct_paths(self, tmp_path, mock_output_handler, mock_letsencrypt_certificate_http01, mocker):
         """Test that AcmeShCertificateService receives correct directory paths."""
-        mock_logger = mocker.MagicMock()
         certificate = mock_letsencrypt_certificate_http01
 
         ssl_dir = tmp_path / "ssl"
@@ -91,14 +86,13 @@ class TestCreateCertificateService:
 
         mocker.patch.object(AcmeShCertificateService, "_ensure_acmesh_installed")
 
-        service = create_certificate_service(mock_logger, certificate, storage_config, mock_output_handler)
+        service = create_certificate_service(certificate, storage_config, mock_output_handler)
 
         assert service.root_dir == ssl_dir / "acmesh"
         assert service.webroot_dir == webroot_dir
 
     def test_enabled_field_takes_precedence_over_ssl_type(self, tmp_path, mock_output_handler, mock_letsencrypt_certificate_http01, mocker):
         """Test that enabled=False takes precedence even if ssl_type is 'letsencrypt'."""
-        mock_logger = mocker.MagicMock()
         certificate = mock_letsencrypt_certificate_http01
         certificate.enabled = False
 
@@ -106,7 +100,7 @@ class TestCreateCertificateService:
         storage_config.ssl_dir = tmp_path / "ssl"
         storage_config.webroot_dir = tmp_path / "webroot"
 
-        service = create_certificate_service(mock_logger, certificate, storage_config, mock_output_handler)
+        service = create_certificate_service(certificate, storage_config, mock_output_handler)
 
         assert isinstance(service, NoOpCertificateService)
 
@@ -116,7 +110,6 @@ class TestServiceFactoryIntegration:
 
     def test_factory_handles_certificate_without_enabled_field(self, tmp_path, mock_output_handler, mocker):
         """Test that factory handles certificates without enabled field."""
-        mock_logger = mocker.MagicMock()
         certificate = SSLCertificate(
             domain="example.com",
             ssl_type=SUPPORTED_SSL_TYPES.le,
@@ -129,13 +122,12 @@ class TestServiceFactoryIntegration:
 
         mocker.patch.object(AcmeShCertificateService, "_ensure_acmesh_installed")
 
-        service = create_certificate_service(mock_logger, certificate, storage_config, mock_output_handler)
+        service = create_certificate_service(certificate, storage_config, mock_output_handler)
 
         assert isinstance(service, AcmeShCertificateService)
 
     def test_factory_with_custom_acme_client_field(self, tmp_path, mock_output_handler, mock_letsencrypt_certificate_http01, mocker):
         """Test that factory works with certificates that have acme_client field."""
-        mock_logger = mocker.MagicMock()
         certificate = mock_letsencrypt_certificate_http01
         certificate.acme_client = "acme.sh"
 
@@ -145,6 +137,6 @@ class TestServiceFactoryIntegration:
 
         mocker.patch.object(AcmeShCertificateService, "_ensure_acmesh_installed")
 
-        service = create_certificate_service(mock_logger, certificate, storage_config, mock_output_handler)
+        service = create_certificate_service(certificate, storage_config, mock_output_handler)
 
         assert isinstance(service, AcmeShCertificateService)

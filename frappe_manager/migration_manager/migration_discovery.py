@@ -7,7 +7,7 @@ import pkgutil
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from frappe_manager.logger import log
+from frappe_manager.logger import get_logger
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.utils.helpers import capture_and_format_exception
 
@@ -26,7 +26,7 @@ class MigrationDiscovery:
     def __init__(self, migrations_path: Path, output_handler: "OutputHandler"):
         self.migrations_path = migrations_path
         self.output = output_handler
-        self.logger = log.get_logger()
+        self.logger = get_logger(component="migration")
 
     def discover_migrations(
         self,

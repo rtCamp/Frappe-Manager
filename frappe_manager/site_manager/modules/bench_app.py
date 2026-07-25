@@ -16,7 +16,7 @@ from typing import cast
 
 from frappe_manager.docker import DOCKER_LINE_NOISE, DockerClient, DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.logger.contextual import ContextualLogger
+from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.bench_config import AppConfig, BenchConfig
@@ -82,7 +82,6 @@ class BenchAppManager:
 
     def __init__(
         self,
-        logger: ContextualLogger,
         bench_name: str,
         bench_path: Path,
         docker_client: DockerClient,
@@ -94,7 +93,6 @@ class BenchAppManager:
         Initialize BenchAppManager.
 
         Args:
-            logger: Contextual logger for audit/debug logging
             bench_name: Name of the bench
             bench_path: Path to the bench directory on host
             docker_client: Docker client for container operations
@@ -103,7 +101,7 @@ class BenchAppManager:
             provision_image: If set, provisioning runs via plain ``docker run``
                 against this image (bake/image mode) instead of ``docker compose``.
         """
-        self.logger = logger.child(component="app_manager")
+        self.logger = get_logger(component="app_manager")
         self.bench_name = bench_name
         self.bench_path = bench_path
         self.docker_client = docker_client
@@ -543,7 +541,6 @@ fi
             self.output.change_head(f"Cloning {len(apps_config)} apps in parallel")
             try:
                 cloner = AppCloner(
-                    logger=self.logger,
                     apps_dir=self.frappe_bench_dir / "apps",
                     github_token=github_token,
                     output_handler=self.output,
@@ -624,7 +621,6 @@ fi
         self.output.change_head(f"Cloning {len(overrides)} override app(s)")
         try:
             cloner = AppCloner(
-                logger=self.logger,
                 apps_dir=tmp_dir,
                 github_token=self.bench_config.github_token,
                 output_handler=self.output,

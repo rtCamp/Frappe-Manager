@@ -8,8 +8,7 @@ import typer
 from rich.table import Table
 
 from frappe_manager import CLI_BENCHES_DIRECTORY, SSL_RENEW_BEFORE_DAYS
-from frappe_manager.logger import ContextualLogger, log
-from frappe_manager.logger.context import LoggerContext
+from frappe_manager.logger import get_logger, set_context
 from frappe_manager.output_manager import spinner, temporary_stop
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
 from frappe_manager.site_manager.bench_service import BenchService
@@ -26,6 +25,8 @@ from frappe_manager.utils.helpers import get_certificate_expiry_date
 
 from .helpers import get_output_handler
 
+logger = get_logger(component="ssl_external")
+
 
 def _add_external_certificate(
     ctx: typer.Context,
@@ -39,9 +40,8 @@ def _add_external_certificate(
     """Add SSL certificate for external (non-bench) domain."""
 
     services_manager = ctx.obj["services"]
-    context = LoggerContext(operation="ssl-add-external")
-    logger = ContextualLogger(log.get_logger(), context)
-    output = get_output_handler(ctx, context=context)
+    set_context(operation="ssl-add-external")
+    output = get_output_handler(ctx)
 
     external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
     external_manager = ExternalDomainConfigManager(external_config_path)
@@ -184,10 +184,9 @@ def _add_external_certificate(
         output.print("Nginx reloaded successfully", emoji_code=":white_check_mark:")
 
         def certificate_service_factory(cert, storage_cfg, output_handler):
-            return create_certificate_service(logger, cert, storage_cfg, output_handler)
+            return create_certificate_service(cert, storage_cfg, output_handler)
 
         cert_manager = SSLCertificateManager(
-            logger=logger,
             certificates=[],  # Start with empty list, we'll add the cert next
             service_factory=certificate_service_factory,
             link_manager=link_manager,
@@ -282,9 +281,8 @@ def _add_external_certificate(
 
 def _remove_external_certificate(ctx: typer.Context, domain: str, yes: bool):
     services_manager = ctx.obj["services"]
-    context = LoggerContext(operation="ssl-remove-external")
-    logger = ContextualLogger(log.get_logger(), context)
-    output = get_output_handler(ctx, context=context)
+    set_context(operation="ssl-remove-external")
+    output = get_output_handler(ctx)
 
     external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
     external_manager = ExternalDomainConfigManager(external_config_path)
@@ -339,10 +337,9 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, yes: bool):
         )
 
         def certificate_service_factory(cert, storage_cfg, output_handler):
-            return create_certificate_service(logger, cert, storage_cfg, output_handler)
+            return create_certificate_service(cert, storage_cfg, output_handler)
 
         cert_manager = SSLCertificateManager(
-            logger=logger,
             certificates=[cert],
             service_factory=certificate_service_factory,
             link_manager=link_manager,
@@ -419,9 +416,10 @@ def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
         for bench_name in benches:
             try:
                 output = SilentOutputHandler()
-                bench = Bench.get_object(bench_name, services_manager, logger=None, output_handler=output)
+                bench = Bench.get_object(bench_name, services_manager, output_handler=output)
                 bench_domains.update(bench.bench_config.get_all_domains())
-            except Exception:
+            except Exception as e:
+                logger.debug(f"cert scan skipped {bench_name}: {e}")
                 continue
 
         # Return only non-bench domains
@@ -437,8 +435,7 @@ def _list_external_certificates(ctx: typer.Context):
     """List all external domain SSL certificates and detected non-SSL domains."""
 
     services_manager = ctx.obj["services"]
-    context = LoggerContext(operation="ssl-list-external")
-    output = get_output_handler(ctx, context=context)
+    output = get_output_handler(ctx)
 
     external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
     external_manager = ExternalDomainConfigManager(external_config_path)
@@ -524,9 +521,8 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool, 
     """Renew SSL certificate for a specific external domain."""
 
     services_manager = ctx.obj["services"]
-    context = LoggerContext(operation="ssl-renew-external")
-    logger = ContextualLogger(log.get_logger(), context)
-    output = get_output_handler(ctx, context=context)
+    set_context(operation="ssl-renew-external")
+    output = get_output_handler(ctx)
 
     external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
     external_manager = ExternalDomainConfigManager(external_config_path)
@@ -558,10 +554,9 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool, 
         nginx_controller = services_manager.nginx_controller
 
         def certificate_service_factory(cert, storage_cfg, output_handler):
-            return create_certificate_service(logger, cert, storage_cfg, output_handler)
+            return create_certificate_service(cert, storage_cfg, output_handler)
 
         cert_manager = SSLCertificateManager(
-            logger=logger,
             certificates=[cert],
             service_factory=certificate_service_factory,
             link_manager=link_manager,
@@ -584,8 +579,8 @@ def _renew_all_external_certificates(ctx: typer.Context, dry_run: bool, force: b
     """Renew all external domain SSL certificates."""
 
     services_manager = ctx.obj["services"]
-    context = LoggerContext(operation="ssl-renew-external-all")
-    output = get_output_handler(ctx, context=context)
+    set_context(operation="ssl-renew-external-all")
+    output = get_output_handler(ctx)
 
     external_config_path = services_manager.path / "nginx-proxy" / "external_domains.toml"
     external_manager = ExternalDomainConfigManager(external_config_path)

@@ -37,6 +37,58 @@ class FMLOGGER(logging.Logger):
             self._log(CLEANUP, msg, args, **kwargs)
 
 
+class FMLogger(logging.LoggerAdapter):
+    """Context-aware logger facade.
+
+    ``component`` is the only static axis (who is logging); bench / operation /
+    correlation id are ambient (see logger.ambient) and stamped at emit time by
+    ``ContextInjectFilter``. Per-call ``extra_fields`` ride along the record.
+    """
+
+    def __init__(self, logger: logging.Logger, component: str | None = None):
+        super().__init__(logger, {})
+        self.component = component
+
+    def process(self, msg, kwargs):
+        extra_fields = kwargs.pop("extra_fields", None)
+        extra = dict(kwargs.get("extra") or {})
+        if self.component:
+            extra["fm_component"] = self.component
+        if extra_fields:
+            extra["fm_extra"] = extra_fields
+        kwargs["extra"] = extra
+        return msg, kwargs
+
+    def cleanup(self, msg, *args, **kwargs):
+        """Custom CLEANUP level pass-through (utils/helpers.py process-kill traces)."""
+        if self.isEnabledFor(CLEANUP):
+            self.log(CLEANUP, msg, *args, **kwargs)
+
+
+class ContextInjectFilter(logging.Filter):
+    """Stamp the ambient LoggerContext onto every record as ``fm_ctx``.
+
+    Handler-level: ANY record passing the handler gets the token -- including
+    records from bare ``logging.getLogger()`` users -- so the file formatter's
+    ``%(fm_ctx)s`` never KeyErrors.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        from frappe_manager.logger.ambient import current_context
+
+        ctx = current_context()
+        overrides = {}
+        component = getattr(record, "fm_component", None)
+        extra_fields = getattr(record, "fm_extra", None)
+        if component:
+            overrides["component"] = component
+        if extra_fields:
+            overrides["extra"] = extra_fields
+        rendered = (ctx.child(**overrides) if overrides else ctx).format()
+        record.fm_ctx = f" {rendered}" if rendered else ""
+        return True
+
+
 class ConsoleLogFilter(logging.Filter):
     """
     Filter to clean up log messages for console display.
@@ -55,8 +107,6 @@ class ConsoleLogFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         msg = str(record.getMessage())
-
-        msg = re.sub(r"\[corr=[^\]]+\]\s*", "", msg)
 
         if msg.strip() == "- -- -- -- -- -- -- -- -- -- -":
             record.msg = "[dim]---[/dim]"
@@ -202,6 +252,7 @@ def _add_console_handler(logger: logging.Logger, console_level: str) -> None:
         )
 
     console_handler.setFormatter(logging.Formatter("%(message)s"))
+    console_handler.addFilter(ContextInjectFilter())
     console_handler.addFilter(ConsoleLogFilter())
     logger.addHandler(console_handler)
 
@@ -222,11 +273,22 @@ def _update_console_handler(logger: logging.Logger, console_level: str | None) -
                 logger.removeHandler(handler)
 
 
+def _resolve_level(name: str) -> int:
+    """Level name -> stdlib constant; loud failure on typos in fm_config.toml."""
+    level = getattr(logging, name.upper(), None)
+    if not isinstance(level, int):
+        raise ConfigurationError(
+            f"Invalid log level: {name!r}",
+            details={"valid": "DEBUG, INFO, WARNING, ERROR, CRITICAL"},
+        )
+    return level
+
+
 def get_logger(
     log_dir=CLI_LOG_DIRECTORY,
     log_file_name="fm",
     console_level: str | None = None,
-    file_level: str = "DEBUG",
+    file_level: str | None = None,
 ) -> FMLOGGER:
     """
     Creates a Log File and returns Logger object.
@@ -235,7 +297,9 @@ def get_logger(
         log_dir: Directory to store log files (default: CLI_LOG_DIRECTORY)
         log_file_name: Name of the log file without extension (default: 'fm')
         console_level: If specified, enables console logging at this level (DEBUG, INFO, WARNING, ERROR)
-        file_level: Log level for file handler (default: DEBUG)
+        file_level: File handler level. Applied on creation (default DEBUG) AND
+            on the cached logger when explicitly passed -- so the config value
+            loaded after logger creation still takes effect.
 
     Returns:
         FMLOGGER instance configured with file handler and optional console handler
@@ -254,16 +318,22 @@ def get_logger(
     logger_exists = loggers.get(log_file_name) is not None
     if logger_exists:
         logger: logging.Logger | None = loggers.get(log_file_name)
+        if file_level is not None:
+            for handler in logger.handlers:
+                if isinstance(handler, logging.handlers.RotatingFileHandler):
+                    handler.setLevel(_resolve_level(file_level))
     else:
         logging.setLoggerClass(FMLOGGER)
         logger: logging.Logger | None = logging.getLogger(log_file_name)
         logger.setLevel(logging.DEBUG)
 
-        # configured to roatate after 10 mb
+        # configured to rotate after 10 mb; backups are gzipped (namer adds .gz)
         handler = logging.handlers.RotatingFileHandler(logPath, "a+", maxBytes=10485760, backupCount=3)
-        handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s: %(message)s"))
-        handler.setLevel(getattr(logging, file_level.upper()))
+        handler.setFormatter(logging.Formatter("[%(asctime)s] %(levelname)s:%(fm_ctx)s %(message)s"))
+        handler.setLevel(_resolve_level(file_level or "DEBUG"))
         handler.rotator = rotator
+        handler.namer = namer
+        handler.addFilter(ContextInjectFilter())
         logger.addHandler(handler)
 
         # save logger to dict loggers

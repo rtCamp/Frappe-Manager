@@ -5,7 +5,6 @@ from typing import Annotated
 import typer
 from typer_examples import example
 
-from frappe_manager.logger.context import LoggerContext
 from frappe_manager.output_manager import temporary_stop
 from frappe_manager.utils.callbacks import prompt_for_bench_selection, sites_autocompletion_callback
 
@@ -61,8 +60,7 @@ def remove_certificate(
         actual_domain = domain if domain else benchname
 
         if not actual_domain:
-            context = LoggerContext(operation="ssl-remove-external")
-            output = get_output_handler(ctx, context=context)
+            output = get_output_handler(ctx)
             output.display_error("Domain is required in standalone mode")
             with temporary_stop(output):
                 typer.echo(ctx.get_help())
@@ -73,8 +71,7 @@ def remove_certificate(
         benchname = prompt_for_bench_selection(benchname)
 
         if not benchname or not domain:
-            context = LoggerContext(operation="ssl-remove")
-            output = get_output_handler(ctx, context=context)
+            output = get_output_handler(ctx)
             output.display_error("Both benchname and domain are required in bench mode")
             with temporary_stop(output):
                 typer.echo(ctx.get_help())

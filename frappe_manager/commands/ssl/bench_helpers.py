@@ -3,7 +3,6 @@
 import typer
 from rich.table import Table
 
-from frappe_manager.logger.context import LoggerContext
 from frappe_manager.output_manager import spinner
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
@@ -27,10 +26,8 @@ def _add_bench_certificate(
 
     services_manager = ctx.obj["services"]
 
-    context = LoggerContext(bench=benchname, operation="ssl-add")
-    output = get_output_handler(ctx, context=context)
-    logger = ctx.obj.get("logger")
-    bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
+    output = get_output_handler(ctx)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     allowed_domains = bench.bench_config.get_all_domains()
     if domain not in allowed_domains:
@@ -92,10 +89,8 @@ def _add_bench_certificate(
 def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, yes: bool):
     services_manager = ctx.obj["services"]
 
-    context = LoggerContext(bench=benchname, operation="ssl-remove")
-    output = get_output_handler(ctx, context=context)
-    logger = ctx.obj.get("logger")
-    bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
+    output = get_output_handler(ctx)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     domains = bench.bench_config.get_all_domains()
     if domain not in domains:
@@ -144,10 +139,8 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
 
     services_manager = ctx.obj["services"]
 
-    context = LoggerContext(bench=benchname, operation="ssl-list")
-    output = get_output_handler(ctx, context=context)
-    logger = ctx.obj.get("logger")
-    bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
+    output = get_output_handler(ctx)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     all_domains = bench.bench_config.get_all_domains()
 

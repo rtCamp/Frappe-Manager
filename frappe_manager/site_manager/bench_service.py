@@ -15,7 +15,7 @@ Benefits:
 from pathlib import Path
 
 from frappe_manager.docker import ComposeFile, DockerClient
-from frappe_manager.logger import log
+from frappe_manager.logger import bind, get_logger, set_context
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.services import ServicesManager
@@ -61,7 +61,7 @@ class BenchService:
         self.services = services
         self.verbose = verbose
         self.output = output_handler or RichOutputHandler()
-        self.logger = log.get_logger()
+        self.logger = get_logger(component="bench_service")
 
     def get_bench(
         self,
@@ -132,13 +132,8 @@ class BenchService:
         compose_file_manager = ComposeFile(compose_path)
         docker_client = DockerClient(compose_file_path=compose_path, output=self.output)
 
-        from frappe_manager.logger.context import LoggerContext
-        from frappe_manager.logger.contextual import ContextualLogger
-
-        bench_logger = ContextualLogger(self.logger, context=LoggerContext(bench=bench_name, operation="create"))
-
+        set_context(bench=bench_name, operation="create")
         bench = Bench(
-            logger=bench_logger,
             path=bench_path,
             name=bench_name,
             bench_config=bench_config,
@@ -233,35 +228,39 @@ class BenchService:
         rows: list[dict] = []
         for bench_name in self.discover_benches():
             try:
-                bench = self.get_bench(bench_name, workers_check=False, admin_tools_check=False)
-                config = bench.bench_config
+                # Scoped: the bench tag applies to this bench's own records only
+                # (incl. the liveness check's subprocess traces), not to whatever
+                # the invocation logs after the loop.
+                with bind(bench=bench_name):
+                    bench = self.get_bench(bench_name, workers_check=False, admin_tools_check=False)
+                    config = bench.bench_config
 
-                apps_txt = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
-                if apps_txt.exists():
-                    apps = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
-                else:
-                    apps = [a.name for a in config.apps_list]
+                    apps_txt = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
+                    if apps_txt.exists():
+                        apps = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
+                    else:
+                        apps = [a.name for a in config.apps_list]
 
-                deploy_state = config.deploy_state
-                rows.append(
-                    {
-                        "name": bench.name,
-                        "status": "active" if bench.running else "inactive",
-                        "runtime": config.runtime.value,
-                        "environment": config.environment_type.value,
-                        "apps": apps,
-                        "deployed_tag": deploy_state.current_tag if deploy_state else None,
-                        "previous_tag": deploy_state.previous_tag if deploy_state else None,
-                        "base_image": config.base_image,
-                        "seed_image": config.seed_image,
-                        "alias_domains": list(config.alias_domains or []),
-                        "developer_mode": config.developer_mode,
-                        "admin_tools": config.admin_tools,
-                        "restart_policy": config.restart_policy.value,
-                        "path": str(bench.path),
-                        "error": None,
-                    }
-                )
+                    deploy_state = config.deploy_state
+                    rows.append(
+                        {
+                            "name": bench.name,
+                            "status": "active" if bench.running else "inactive",
+                            "runtime": config.runtime.value,
+                            "environment": config.environment_type.value,
+                            "apps": apps,
+                            "deployed_tag": deploy_state.current_tag if deploy_state else None,
+                            "previous_tag": deploy_state.previous_tag if deploy_state else None,
+                            "base_image": config.base_image,
+                            "seed_image": config.seed_image,
+                            "alias_domains": list(config.alias_domains or []),
+                            "developer_mode": config.developer_mode,
+                            "admin_tools": config.admin_tools,
+                            "restart_policy": config.restart_policy.value,
+                            "path": str(bench.path),
+                            "error": None,
+                        }
+                    )
             except FileNotFoundError as e:
                 rows.append(
                     {
@@ -363,13 +362,8 @@ class BenchService:
             migration_state=None,
         )
 
-        from frappe_manager.logger.context import LoggerContext
-        from frappe_manager.logger.contextual import ContextualLogger
-
-        cleanup_logger = ContextualLogger(self.logger, context=LoggerContext(bench=bench_name, operation="cleanup"))
-
+        set_context(bench=bench_name, operation="cleanup")
         return Bench(
-            logger=cleanup_logger,
             path=bench_path,
             name=bench_name,
             bench_config=fake_config,

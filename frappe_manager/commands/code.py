@@ -85,8 +85,7 @@ def code(
     verbose = ctx.obj["verbose"]
 
     output = get_global_output_handler()
-    logger = ctx.obj.get("logger")
-    bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     if bench.bench_config.runtime == BenchRuntime.image:
         output.warning(

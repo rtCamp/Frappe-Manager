@@ -26,9 +26,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from frappe_manager.docker import DockerException
-from frappe_manager.logger import log
-from frappe_manager.logger.context import LoggerContext
-from frappe_manager.logger.contextual import ContextualLogger
+from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.database_service_manager import (
@@ -155,7 +153,7 @@ def _new_apps(wanted: list[str], installed: set[str]) -> list[str]:
 class DeployOrchestrator:
     """Runs the image deploy / rollback pipeline for a single bench."""
 
-    def __init__(self, bench, output_handler: OutputHandler | None = None, logger: ContextualLogger | None = None):
+    def __init__(self, bench, output_handler: OutputHandler | None = None):
         self.bench = bench
         self.config = bench.bench_config
         self.switch_config = self.config.switch
@@ -172,10 +170,7 @@ class DeployOrchestrator:
         self.compose = bench.compose_file_manager
         self.docker_ops = bench.docker_ops
         self.output = output_handler or RichOutputHandler()
-        self.logger = logger or ContextualLogger(
-            log.get_logger(),
-            context=LoggerContext(bench=bench.name, operation="deploy"),
-        )
+        self.logger = get_logger(component="deploy")
 
     # ------------------------------------------------------------------ helpers
 

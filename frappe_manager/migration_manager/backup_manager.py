@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import ClassVar
 
 from frappe_manager import CLI_BENCHES_DIRECTORY, CLI_DIR
-from frappe_manager.logger import log
+from frappe_manager.logger import get_logger
 from frappe_manager.migration_manager.migration_constants import TIMESTAMP_COLLISION_RETRY_DELAY_SECONDS
 
 
@@ -76,7 +76,7 @@ class BackupManager:
         self.bench_backup_dir: Path = Path("backups") / backup_group_name / self.migration_timestamp
         self.backups = []
         self.new_files = []  # Track newly created files for cleanup on rollback
-        self.logger = log.get_logger()
+        self.logger = get_logger(component="migration")
 
         self.backup_dir.mkdir(parents=True, exist_ok=True)
 

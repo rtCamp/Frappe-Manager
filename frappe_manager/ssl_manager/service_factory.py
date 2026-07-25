@@ -5,7 +5,6 @@ This module provides a factory function that creates the appropriate SSL certifi
 service based on certificate configuration, following the dependency injection pattern.
 """
 
-from frappe_manager.logger.contextual import ContextualLogger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.acmesh_certificate_service import AcmeShCertificateService
@@ -16,7 +15,6 @@ from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
 
 
 def create_certificate_service(
-    logger: ContextualLogger,
     certificate: SSLCertificate,
     storage_config: SSLStorageConfig,
     output_handler: OutputHandler,
@@ -39,14 +37,12 @@ def create_certificate_service(
     """
     if hasattr(certificate, "ssl_type") and certificate.ssl_type == SUPPORTED_SSL_TYPES.none:
         return NoOpCertificateService(
-            logger=logger,
             root_dir=storage_config.ssl_dir,
             output_handler=output_handler,
         )
 
     if hasattr(certificate, "enabled") and not certificate.enabled:
         return NoOpCertificateService(
-            logger=logger,
             root_dir=storage_config.ssl_dir,
             output_handler=output_handler,
         )
@@ -55,13 +51,11 @@ def create_certificate_service(
         from frappe_manager.ssl_manager.dev_certificate_service import DevCertificateService
 
         return DevCertificateService(
-            logger=logger,
             ssl_service_dir=storage_config.ssl_dir,
             output_handler=output_handler,
         )
 
     return AcmeShCertificateService(
-        logger=logger,
         ssl_service_dir=storage_config.ssl_dir,
         webroot_dir=storage_config.webroot_dir,
         output_handler=output_handler,

@@ -66,9 +66,9 @@ def docker_command(
                 full_cmd = self.docker_compose_cmd + cmd
 
             if should_stream:
-                from frappe_manager.logger import log
+                from frappe_manager.logger import get_logger
 
-                logger = log.get_logger()
+                logger = get_logger(component="docker_compose")
                 logger.debug(
                     f"[docker_command] Auto-streaming: should_stream={should_stream}, stream_param={stream_param}, output={self.output is not None}",
                 )

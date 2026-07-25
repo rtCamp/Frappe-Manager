@@ -568,9 +568,9 @@ class AppConfig(BaseModel):
         """
         import subprocess
 
-        from frappe_manager.logger import log
+        from frappe_manager.logger import get_logger
 
-        logger = log.get_logger()
+        logger = get_logger(component="bench_config")
 
         try:
             cmd = ["git", "ls-remote", f"https://{github_token}@github.com/octocat/hello-world.git", "HEAD"]
@@ -653,9 +653,9 @@ class AppConfig(BaseModel):
         Returns:
             AppValidationResult with success status, auth method used, and validated URL
         """
-        from frappe_manager.logger import log
+        from frappe_manager.logger import get_logger
 
-        logger = log.get_logger()
+        logger = get_logger(component="bench_config")
 
         if github_token and self._is_github_repo():
             is_valid, error_msg = AppConfig.validate_github_token(github_token)
@@ -792,10 +792,12 @@ class AppConfig(BaseModel):
         Returns:
             AppBatchValidationResult with all individual results
         """
+        from frappe_manager.logger import ctx_submit
+
         results = []
 
         with ThreadPoolExecutor(max_workers=min(max_workers, len(apps))) as executor:
-            futures = [executor.submit(app.validate_repo_exists, github_token) for app in apps]
+            futures = [ctx_submit(executor, app.validate_repo_exists, github_token) for app in apps]
             for future in as_completed(futures):
                 result = future.result()
                 results.append(result)

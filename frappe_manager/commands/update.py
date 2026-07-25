@@ -298,8 +298,7 @@ def update(
     fm_config: FMConfigManager = ctx.obj["fm_config_manager"]
 
     output = get_global_output_handler()
-    logger = ctx.obj.get("logger")
-    bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     demoting_to_mount = runtime == BenchRuntime.mount
     if (

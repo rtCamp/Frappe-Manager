@@ -2,7 +2,6 @@
 
 import typer
 
-from frappe_manager.logger.context import LoggerContext
 from frappe_manager.metadata_manager import FMCloudflareConfig, FMConfigManager
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_config import DNSProviderConfig
@@ -17,10 +16,8 @@ def _show_dns_credentials(ctx: typer.Context, provider_name: str, benchname: str
     if benchname:
         # Show bench-level config
         services_manager = ctx.obj["services"]
-        context = LoggerContext(bench=benchname, operation="dns-config-show")
-        output = get_output_handler(ctx, context=context)
-        logger = ctx.obj.get("logger")
-        bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
+        output = get_output_handler(ctx)
+        bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
         if bench.bench_config.dns_providers and provider_name in bench.bench_config.dns_providers:
             config = bench.bench_config.dns_providers[provider_name]
@@ -62,10 +59,8 @@ def _remove_dns_credentials(ctx: typer.Context, provider_name: str, benchname: s
     """Remove DNS credentials for a provider."""
     if benchname:
         services_manager = ctx.obj["services"]
-        context = LoggerContext(bench=benchname, operation="dns-config-remove")
-        output = get_output_handler(ctx, context=context)
-        logger = ctx.obj.get("logger")
-        bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
+        output = get_output_handler(ctx)
+        bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
         if bench.bench_config.dns_providers and provider_name in bench.bench_config.dns_providers:
             bench.bench_config.dns_providers.pop(provider_name)
@@ -101,10 +96,8 @@ def _configure_dns_credentials(
     """Configure DNS credentials for a provider."""
     if benchname:
         services_manager = ctx.obj["services"]
-        context = LoggerContext(bench=benchname, operation="dns-config")
-        output = get_output_handler(ctx, context=context)
-        logger = ctx.obj.get("logger")
-        bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
+        output = get_output_handler(ctx)
+        bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
         output.change_head(f"Configuring {provider_name} credentials for bench '{benchname}'")
 

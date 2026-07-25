@@ -11,7 +11,7 @@ class TestMigrationExecutorVersionEnforcement:
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
-            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
         ):
             executor = MigrationExecutor(mock_fm_config)
             result = executor.execute()
@@ -24,7 +24,7 @@ class TestMigrationExecutorVersionEnforcement:
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.18.0"),
-            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
         ):
             executor = MigrationExecutor(mock_fm_config)
             result = executor.execute()
@@ -46,7 +46,7 @@ class TestMigrationExecutorVersionEnforcement:
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
-            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
         ):
             mock_output = Mock()
             executor = MigrationExecutor(
@@ -75,7 +75,7 @@ class TestMigrationExecutorVersionEnforcement:
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
-            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
         ):
             executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True)
             result = executor.execute()
@@ -87,7 +87,7 @@ class TestMigrationExecutorVersionEnforcement:
         """Constructor default for rerun must be False to preserve existing behaviour."""
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
-            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
         ):
             executor = MigrationExecutor(mock_fm_config)
             assert executor.rerun is False
@@ -97,7 +97,7 @@ class TestMigrationExecutorVersionEnforcement:
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
-            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
         ):
             mock_output = Mock()
             executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True, output_handler=mock_output)
@@ -115,7 +115,7 @@ class TestMigrationExecutorVersionEnforcement:
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
-            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
             patch("frappe_manager.migration_manager.migration_discovery.pkgutil.iter_modules", return_value=[]),
         ):
             mock_output = Mock()
@@ -132,7 +132,7 @@ class TestMigrationExecutorVersionEnforcement:
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
-            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
         ):
             executor = MigrationExecutor(mock_fm_config)
 
@@ -148,7 +148,7 @@ class TestMigrationExecutorMigrationDiscovery:
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
-            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
         ):
             mock_output = Mock()
             executor = MigrationExecutor(mock_fm_config, output_handler=mock_output)
@@ -175,7 +175,7 @@ class TestMigrationExecutorMigrationDiscovery:
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
-            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
             patch(
                 "frappe_manager.migration_manager.migration_discovery.pkgutil.iter_modules",
                 return_value=[(None, "migrate_0_20_0", None)],
@@ -205,7 +205,7 @@ class TestMigrationExecutorMigrationDiscovery:
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
-            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
             patch(
                 "frappe_manager.migration_manager.migration_discovery.pkgutil.iter_modules",
                 return_value=[(None, "migrate_0_0_0", None)],
@@ -233,7 +233,7 @@ class TestMigrationExecutorUserPrompt:
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
-            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
         ):
             mock_output = Mock()
             executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True, output_handler=mock_output)
@@ -258,7 +258,7 @@ class TestMigrationExecutorUserPrompt:
 
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
-            patch("frappe_manager.migration_manager.migration_executor.log.get_logger"),
+            patch("frappe_manager.migration_manager.migration_executor.get_logger"),
         ):
             mock_output = Mock()
             executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True, output_handler=mock_output)

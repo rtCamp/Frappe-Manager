@@ -61,8 +61,7 @@ def logs(
     verbose = ctx.obj["verbose"]
 
     output = get_global_output_handler()
-    logger = ctx.obj.get("logger")
-    bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     if service:
         available_services = bench.get_available_services()

@@ -23,8 +23,7 @@ from frappe_manager.commands.self import self_app
 from frappe_manager.commands.services import services_app
 from frappe_manager.commands.ssl import ssl_app
 from frappe_manager.docker import ComposeFile, DockerClient
-from frappe_manager.logger import log
-from frappe_manager.logger.context import LoggerContext
+from frappe_manager.logger import log, set_context
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.migration_manager.bench_migration_state import (
     bench_needs_migration,
@@ -145,8 +144,9 @@ def app_callback(
     """
     ctx.obj = {}
 
-    correlation_id = str(uuid.uuid4())
-    ctx.obj["correlation_id"] = correlation_id
+    # Ambient logging context: every record this invocation emits -- from any
+    # module, thread (via ctx_submit), or the output mirror -- carries these.
+    set_context(correlation_id=str(uuid.uuid4()), operation=ctx.invoked_subcommand)
 
     # Import early for validation error reporting
     from frappe_manager.output_manager import get_global_output_handler, set_global_output_handler
@@ -175,15 +175,9 @@ def app_callback(
     ctx.obj["non_interactive"] = non_interactive
 
     # Upgrade global output handler to LoggingOutputHandler now that we have CLI args
-    from frappe_manager.logger import ContextualLogger
-
     basic_handler = get_global_output_handler()
-    logger_context = LoggerContext(correlation_id=correlation_id)
-    contextual_logger = ContextualLogger(log.get_logger(file_level="DEBUG"), context=logger_context)
-    upgraded_handler = LoggingOutputHandler(basic_handler, contextual_logger)
+    upgraded_handler = LoggingOutputHandler(basic_handler)
     set_global_output_handler(upgraded_handler)
-
-    ctx.obj["logger"] = contextual_logger
 
     output = get_global_output_handler()
     output.set_interactive_mode(non_interactive_flag=non_interactive)
@@ -218,8 +212,6 @@ def app_callback(
                 output.warning(f"Output theme/style config: {e} -- using defaults.")
 
             logger = log.get_logger(console_level=console_level, file_level=file_level)
-
-            contextual_logger.logger = logger
 
             logger.info("")
             logger.info(f"{':' * 20}FM Invoked{':' * 20}")

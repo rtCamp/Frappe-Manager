@@ -16,10 +16,8 @@ class TestNoOpCertificateServiceInitialization:
     def test_init_stores_root_dir_and_output_handler(self, tmp_path, mock_output_handler, mocker):
         """Test that initialization stores root directory and output handler."""
         root_dir = tmp_path / "ssl"
-        mock_logger = mocker.MagicMock()
 
         service = NoOpCertificateService(
-            logger=mock_logger,
             root_dir=root_dir,
             output_handler=mock_output_handler,
         )
@@ -29,8 +27,7 @@ class TestNoOpCertificateServiceInitialization:
 
     def test_init_with_defaults(self, mocker):
         """Test that initialization works with default values."""
-        mock_logger = mocker.MagicMock()
-        service = NoOpCertificateService(logger=mock_logger)
+        service = NoOpCertificateService()
 
         assert service.root_dir == Path("/dev/null")
         assert service.output is not None
@@ -41,9 +38,7 @@ class TestNoOpCertificateServiceGenerateCertificate:
 
     def test_generate_certificate_returns_dev_null_paths(self, tmp_path, mock_output_handler, mock_certificate, mocker):
         """Test that generate_certificate returns /dev/null paths."""
-        mock_logger = mocker.MagicMock()
         service = NoOpCertificateService(
-            logger=mock_logger,
             root_dir=tmp_path / "ssl",
             output_handler=mock_output_handler,
         )
@@ -56,10 +51,8 @@ class TestNoOpCertificateServiceGenerateCertificate:
         """Test that generate_certificate doesn't create any files."""
         root_dir = tmp_path / "ssl"
         root_dir.mkdir()
-        mock_logger = mocker.MagicMock()
 
         service = NoOpCertificateService(
-            logger=mock_logger,
             root_dir=root_dir,
             output_handler=mock_output_handler,
         )
@@ -71,9 +64,7 @@ class TestNoOpCertificateServiceGenerateCertificate:
 
     def test_generate_certificate_with_dry_run(self, tmp_path, mock_output_handler, mock_certificate, mocker):
         """Test that generate_certificate handles dry_run parameter."""
-        mock_logger = mocker.MagicMock()
         service = NoOpCertificateService(
-            logger=mock_logger,
             root_dir=tmp_path / "ssl",
             output_handler=mock_output_handler,
         )
@@ -88,9 +79,7 @@ class TestNoOpCertificateServiceRenewCertificate:
 
     def test_renew_certificate_returns_true(self, tmp_path, mock_output_handler, mock_certificate, mocker):
         """Test that renew_certificate returns True."""
-        mock_logger = mocker.MagicMock()
         service = NoOpCertificateService(
-            logger=mock_logger,
             root_dir=tmp_path / "ssl",
             output_handler=mock_output_handler,
         )
@@ -105,9 +94,7 @@ class TestNoOpCertificateServiceRemoveCertificate:
 
     def test_remove_certificate_shows_warning(self, tmp_path, mock_output_handler, mock_certificate, mocker):
         """Test that remove_certificate shows a warning message."""
-        mock_logger = mocker.MagicMock()
         service = NoOpCertificateService(
-            logger=mock_logger,
             root_dir=tmp_path / "ssl",
             output_handler=mock_output_handler,
         )
@@ -129,9 +116,7 @@ class TestNoOpCertificateServiceRemoveCertificate:
         dummy_file = root_dir / "test.txt"
         dummy_file.write_text("test")
 
-        mock_logger = mocker.MagicMock()
         service = NoOpCertificateService(
-            logger=mock_logger,
             root_dir=root_dir,
             output_handler=mock_output_handler,
         )
@@ -147,9 +132,7 @@ class TestNoOpCertificateServiceIntegration:
 
     def test_all_methods_are_safe_to_call(self, tmp_path, mock_output_handler, mock_certificate, mocker):
         """Test that all methods can be called without side effects."""
-        mock_logger = mocker.MagicMock()
         service = NoOpCertificateService(
-            logger=mock_logger,
             root_dir=tmp_path / "ssl",
             output_handler=mock_output_handler,
         )
@@ -164,9 +147,7 @@ class TestNoOpCertificateServiceIntegration:
 
     def test_service_works_with_letsencrypt_certificate(self, tmp_path, mock_output_handler, mock_letsencrypt_certificate_http01, mocker):
         """Test that service works with Let's Encrypt certificate types."""
-        mock_logger = mocker.MagicMock()
         service = NoOpCertificateService(
-            logger=mock_logger,
             root_dir=tmp_path / "ssl",
             output_handler=mock_output_handler,
         )

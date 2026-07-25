@@ -15,7 +15,7 @@ from frappe_manager import CLI_DEFAULT_DELIMETER, CLI_SERVICES_DIRECTORY
 from frappe_manager.docker import DOCKER_LINE_NOISE, DockerClient, DockerException
 from frappe_manager.docker.compose_file import ComposeFile
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.logger.contextual import ContextualLogger
+from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager import NON_BASH_SUPPORTED_SERVICES
@@ -30,7 +30,6 @@ class BenchDockerOps:
 
     def __init__(
         self,
-        logger: ContextualLogger,
         docker_client: DockerClient,
         compose_file_manager: ComposeFile,
         config: BenchConfig,
@@ -41,14 +40,13 @@ class BenchDockerOps:
         Initialize BenchDockerOps.
 
         Args:
-            logger: Contextual logger for audit/debug logging
             docker_client: Docker client for operations
             compose_file_manager: Compose file manager
             config: Bench configuration
             path: Path to bench directory
             output_handler: Handler for output operations
         """
-        self.logger = logger.child(component="docker")
+        self.logger = get_logger(component="docker")
         self.docker_client = docker_client
         self.compose_file_manager = compose_file_manager
         self.config = config

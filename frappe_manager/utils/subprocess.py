@@ -5,13 +5,16 @@ This module provides generic command execution with real-time output streaming
 that works for any subprocess (Docker, acme.sh, git, npm, etc.).
 """
 
+import contextvars
 import os
 from collections.abc import Iterator
 from queue import Queue
 from subprocess import PIPE, Popen
 from threading import Thread
 
-from frappe_manager.logger import log
+from frappe_manager.logger import get_logger
+
+logger = get_logger(component="subprocess")
 
 
 def reader(pipe, pipe_name: str, queue: Queue):
@@ -26,7 +29,6 @@ def reader(pipe, pipe_name: str, queue: Queue):
         pipe_name: Name identifier ("stdout" or "stderr")
         queue: Queue to put the lines into
     """
-    logger = log.get_logger()
     try:
         buf = b""
         with pipe:
@@ -95,7 +97,6 @@ def stream_command_output(
         This function uses daemon threads to read from stdout/stderr pipes,
         preventing deadlocks when the process produces large amounts of output.
     """
-    logger = log.get_logger()
     logger.debug("- -" * 10)
     logger.debug(f"COMMAND: {' '.join(cmd)}")
 
@@ -116,11 +117,15 @@ def stream_command_output(
     q = Queue()
 
     # Use daemon threads to avoid hanging on ctrl+c
-    stdout_thread = Thread(target=reader, args=[process.stdout, "stdout", q])
+    # Copy the ambient logging context into the daemon reader threads so their
+    # per-line debug traces stay corr/bench/op-tagged (contextvars don't cross
+    # thread boundaries by themselves).
+    ctx = contextvars.copy_context()
+    stdout_thread = Thread(target=ctx.run, args=[reader, process.stdout, "stdout", q])
     stdout_thread.daemon = True
     stdout_thread.start()
 
-    stderr_thread = Thread(target=reader, args=[process.stderr, "stderr", q])
+    stderr_thread = Thread(target=contextvars.copy_context().run, args=[reader, process.stderr, "stderr", q])
     stderr_thread.daemon = True
     stderr_thread.start()
 

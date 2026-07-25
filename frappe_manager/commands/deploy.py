@@ -24,8 +24,7 @@ from frappe_manager.utils.callbacks import sitename_callback, sites_autocompleti
 def _load_image_bench(ctx: typer.Context, benchname: str) -> Bench:
     services_manager = ctx.obj["services"]
     output = get_global_output_handler()
-    logger = ctx.obj.get("logger") if ctx.obj else None
-    bench = Bench.get_object(benchname, services_manager, logger=logger, output_handler=output)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
     if bench.bench_config.runtime != BenchRuntime.image:
         output.display_error(
             f"Bench '{benchname}' is not in image runtime. To convert it: set runtime = 'image' "
@@ -116,7 +115,6 @@ def deploy(
     ``DOCKER_HOST``.
     """
     output = get_global_output_handler()
-    logger = ctx.obj.get("logger") if ctx.obj else None
     if config:
         try:
             apply_config_overlays(CLI_BENCHES_DIRECTORY / benchname / CLI_BENCH_CONFIG_FILE_NAME, config)
@@ -135,7 +133,7 @@ def deploy(
     docker_host = build_docker_host(remote, remote_config) if remote else remote_docker_host(remote_config)
 
     try:
-        bake_manager = BakeManager(bench.bench_config, output_handler=output, logger=logger)
+        bake_manager = BakeManager(bench.bench_config, output_handler=output)
         built_tag = bake_manager.bake(tag=tag, push=push)
     except BakeError as e:
         output.display_error(str(e))
@@ -153,7 +151,7 @@ def deploy(
 
     try:
         with docker_host_env(docker_host):
-            orchestrator = DeployOrchestrator(bench, output_handler=output, logger=logger)
+            orchestrator = DeployOrchestrator(bench, output_handler=output)
             orchestrator.deploy(built_tag, rolling=rolling)
     except DeployError as e:
         output.display_error(str(e))
@@ -192,11 +190,10 @@ def switch(
     eligible, else recreate-swap.
     """
     output = get_global_output_handler()
-    logger = ctx.obj.get("logger") if ctx.obj else None
     bench = _load_image_bench(ctx, benchname)
 
     try:
-        orchestrator = DeployOrchestrator(bench, output_handler=output, logger=logger)
+        orchestrator = DeployOrchestrator(bench, output_handler=output)
         orchestrator.deploy(tag, rolling=rolling)
     except DeployError as e:
         output.display_error(str(e))
@@ -224,7 +221,6 @@ def rollback(
     Roll back the bench to the previously deployed image tag (no migrate).
     """
     output = get_global_output_handler()
-    logger = ctx.obj.get("logger") if ctx.obj else None
     bench = _load_image_bench(ctx, benchname)
 
     state = bench.bench_config.deploy_state
@@ -236,7 +232,7 @@ def rollback(
         raise typer.Exit(1)
 
     try:
-        orchestrator = DeployOrchestrator(bench, output_handler=output, logger=logger)
+        orchestrator = DeployOrchestrator(bench, output_handler=output)
         orchestrator.rollback(previous)
     except DeployError as e:
         output.display_error(str(e))

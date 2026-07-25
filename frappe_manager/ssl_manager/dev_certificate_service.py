@@ -14,7 +14,7 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
-from frappe_manager.logger.contextual import ContextualLogger
+from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.ssl_manager.certificate import SSLCertificate
@@ -32,11 +32,10 @@ class DevCertificateService:
 
     def __init__(
         self,
-        logger: ContextualLogger,
         ssl_service_dir: Path,
         output_handler: OutputHandler | None = None,
     ):
-        self.logger = logger.child(component="dev_ssl")
+        self.logger = get_logger(component="dev_ssl")
         self.root_dir = ssl_service_dir / "dev"
         self.ca_dir = self.root_dir / "ca"
         self.ca_key_path = self.ca_dir / "rootCA-key.pem"

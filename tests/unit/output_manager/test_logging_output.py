@@ -13,7 +13,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from frappe_manager.exceptions import ValidationError
-from frappe_manager.logger.contextual import ContextualLogger
+from frappe_manager.logger.log import FMLogger
 from frappe_manager.output_manager.logging_output import LoggingOutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
@@ -45,6 +45,13 @@ def test_logger(temp_log_dir):
     return logger, log_file
 
 
+def make_handler(delegate, logger, log_prefix="[OUTPUT]"):
+    """LoggingOutputHandler wired to a test logger (ambient API takes none)."""
+    handler = LoggingOutputHandler(delegate, log_prefix=log_prefix)
+    handler.logger = FMLogger(logger, component="output")
+    return handler
+
+
 class TestLoggingOutputHandlerBasics:
     """Test basic functionality of LoggingOutputHandler."""
 
@@ -52,12 +59,12 @@ class TestLoggingOutputHandlerBasics:
         """Test initialization with verbose=True."""
         logger, _ = test_logger
         rich = RichOutputHandler(verbose=True)
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         assert output.verbose is True
         assert output.delegate == rich
         # Logger is now wrapped in ContextualLogger
-        assert isinstance(output.logger, ContextualLogger)
+        assert isinstance(output.logger, FMLogger)
         assert output.logger.logger == logger
         assert output.log_prefix == "[OUTPUT]"
 
@@ -65,7 +72,7 @@ class TestLoggingOutputHandlerBasics:
         """Test initialization with verbose=False."""
         logger, _ = test_logger
         rich = RichOutputHandler(verbose=False)
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         assert output.verbose is False
 
@@ -73,7 +80,7 @@ class TestLoggingOutputHandlerBasics:
         """Test initialization with custom log prefix."""
         logger, _ = test_logger
         rich = RichOutputHandler()
-        output = LoggingOutputHandler(rich, logger, log_prefix="[CUSTOM]")
+        output = make_handler(rich, logger, log_prefix="[CUSTOM]")
 
         assert output.log_prefix == "[CUSTOM]"
 
@@ -86,7 +93,7 @@ class TestLoggingOutputHandlerDelegation:
         logger, _ = test_logger
         mock_handler = MagicMock(spec=RichOutputHandler)
         mock_handler.verbose = False
-        output = LoggingOutputHandler(mock_handler, logger)
+        output = make_handler(mock_handler, logger)
 
         output.start("Starting operation")
 
@@ -97,7 +104,7 @@ class TestLoggingOutputHandlerDelegation:
         logger, _ = test_logger
         mock_handler = MagicMock(spec=RichOutputHandler)
         mock_handler.verbose = False
-        output = LoggingOutputHandler(mock_handler, logger)
+        output = make_handler(mock_handler, logger)
 
         output.print("Test message", emoji_code=":rocket:")
 
@@ -109,7 +116,7 @@ class TestLoggingOutputHandlerDelegation:
         mock_handler = MagicMock(spec=RichOutputHandler)
         mock_handler.verbose = False
         mock_handler.error.side_effect = ValidationError("Test error")
-        output = LoggingOutputHandler(mock_handler, logger)
+        output = make_handler(mock_handler, logger)
 
         with pytest.raises(ValidationError, match="Test error"):
             output.error("Error occurred", ValidationError("Test error"))
@@ -124,7 +131,7 @@ class TestLoggingOutputHandlerFileLogging:
         """Test that print() logs at INFO level."""
         logger, log_file = test_logger
         rich = SilentOutputHandler()
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         output.print("Test message")
 
@@ -135,7 +142,7 @@ class TestLoggingOutputHandlerFileLogging:
         """Test that debug() logs at DEBUG level."""
         logger, log_file = test_logger
         rich = SilentOutputHandler(verbose=True)
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         output.debug("Debug information")
 
@@ -146,7 +153,7 @@ class TestLoggingOutputHandlerFileLogging:
         """Test that info() logs at INFO level."""
         logger, log_file = test_logger
         rich = SilentOutputHandler(verbose=True)
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         output.info("Info message")
 
@@ -157,7 +164,7 @@ class TestLoggingOutputHandlerFileLogging:
         """Test that warning() logs at WARNING level."""
         logger, log_file = test_logger
         rich = SilentOutputHandler()
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         output.warning("Warning message")
 
@@ -168,7 +175,7 @@ class TestLoggingOutputHandlerFileLogging:
         """Test that display_error() logs at ERROR level."""
         logger, log_file = test_logger
         rich = SilentOutputHandler()
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         output.display_error("Error message")
 
@@ -179,7 +186,7 @@ class TestLoggingOutputHandlerFileLogging:
         """Test that error() logs exception details."""
         logger, log_file = test_logger
         rich = SilentOutputHandler()
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         exc = ValidationError("Invalid input")
 
@@ -199,7 +206,7 @@ class TestLoggingOutputHandlerWithPrefix:
         """Test that print() with prefix logs the full message."""
         logger, log_file = test_logger
         rich = SilentOutputHandler()
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         output.print("Creating bench", prefix="✓")
 
@@ -210,7 +217,7 @@ class TestLoggingOutputHandlerWithPrefix:
         """Test custom log prefix in messages."""
         logger, log_file = test_logger
         rich = SilentOutputHandler()
-        output = LoggingOutputHandler(rich, logger, log_prefix="[CUSTOM]")
+        output = make_handler(rich, logger, log_prefix="[CUSTOM]")
 
         output.print("Test")
 
@@ -225,7 +232,7 @@ class TestLoggingOutputHandlerOperationMethods:
         """Test that start() logs at INFO level."""
         logger, log_file = test_logger
         rich = SilentOutputHandler()
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         output.start("Starting operation")
 
@@ -236,7 +243,7 @@ class TestLoggingOutputHandlerOperationMethods:
         """Test that change_head() logs at DEBUG level."""
         logger, log_file = test_logger
         rich = SilentOutputHandler()
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         output.change_head("New status")
 
@@ -247,7 +254,7 @@ class TestLoggingOutputHandlerOperationMethods:
         """Test that update_head() logs at DEBUG level."""
         logger, log_file = test_logger
         rich = SilentOutputHandler()
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         output.update_head("Updated status")
 
@@ -258,7 +265,7 @@ class TestLoggingOutputHandlerOperationMethods:
         """Test that stop() logs at DEBUG level."""
         logger, log_file = test_logger
         rich = SilentOutputHandler()
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         output.stop()
 
@@ -273,7 +280,7 @@ class TestLoggingOutputHandlerLiveLines:
         """Test that live_lines() logs start and completion."""
         logger, log_file = test_logger
         rich = SilentOutputHandler()
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         # Create iterator with sample data
         data = iter([("stdout", b"line 1\n"), ("stdout", b"line 2\n")])
@@ -294,7 +301,7 @@ class TestLoggingOutputHandlerPromptSecurity:
         rich = MagicMock(spec=RichOutputHandler)
         rich.verbose = False
         rich.prompt_ask.return_value = "user_input"
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         result = output.prompt_ask(prompt="Enter username: ")
 
@@ -309,7 +316,7 @@ class TestLoggingOutputHandlerPromptSecurity:
         rich = MagicMock(spec=RichOutputHandler)
         rich.verbose = False
         rich.prompt_ask.return_value = "secret123"
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         result = output.prompt_ask(prompt="Enter password: ")
 
@@ -327,7 +334,7 @@ class TestLoggingOutputHandlerDisplayError:
         """Test that display_error() logs message without raising exception."""
         logger, log_file = test_logger
         rich = SilentOutputHandler()
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         # Call display_error (should not raise)
         output.display_error("Error occurred")
@@ -343,7 +350,7 @@ class TestLoggingOutputHandlerInteractiveMode:
         """Test that set_interactive_mode is forwarded to the delegate RichOutputHandler."""
         logger, _ = test_logger
         rich = RichOutputHandler()
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         output.set_interactive_mode(non_interactive_flag=True)
 
@@ -354,7 +361,7 @@ class TestLoggingOutputHandlerInteractiveMode:
         """Test that wrapper respects non_interactive_flag."""
         logger, _ = test_logger
         rich = RichOutputHandler()
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         output.set_interactive_mode(non_interactive_flag=False)
 
@@ -365,7 +372,7 @@ class TestLoggingOutputHandlerInteractiveMode:
         """Test that delegate's spinner behavior respects forwarded interactive flag."""
         logger, _ = test_logger
         rich = RichOutputHandler()
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         output.set_interactive_mode(non_interactive_flag=True)
 
@@ -377,7 +384,7 @@ class TestLoggingOutputHandlerExit:
     def test_exit_delegates_to_rich_handler(self, test_logger):
         logger, log_file = test_logger
         rich = RichOutputHandler()
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         with pytest.raises(Exception):
             output.exit("Test error message")
@@ -388,7 +395,7 @@ class TestLoggingOutputHandlerExit:
     def test_exit_with_error_msg(self, test_logger):
         logger, log_file = test_logger
         rich = RichOutputHandler()
-        output = LoggingOutputHandler(rich, logger)
+        output = make_handler(rich, logger)
 
         with pytest.raises(Exception):
             output.exit("Test error", error_msg="Additional details")
@@ -399,7 +406,7 @@ class TestLoggingOutputHandlerExit:
     def test_exit_with_silent_handler_fallback(self, test_logger):
         logger, log_file = test_logger
         silent = SilentOutputHandler()
-        output = LoggingOutputHandler(silent, logger)
+        output = make_handler(silent, logger)
 
         with pytest.raises(Exception):
             output.exit("Test error message")

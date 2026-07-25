@@ -6,7 +6,6 @@ import typer
 from typer_examples import example
 
 from frappe_manager import CLI_BENCHES_DIRECTORY
-from frappe_manager.logger.context import LoggerContext
 from frappe_manager.output_manager import temporary_stop
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.utils.callbacks import prompt_for_bench_selection, sites_autocompletion_callback
@@ -64,8 +63,7 @@ def list_certificates(
         benchname = prompt_for_bench_selection(benchname)
 
         if not benchname:
-            context = LoggerContext(operation="ssl-list")
-            output = get_output_handler(ctx, context=context)
+            output = get_output_handler(ctx)
             output.display_error("Benchname required in bench mode")
             with temporary_stop(output):
                 typer.echo(ctx.get_help())
@@ -78,8 +76,7 @@ def _list_all_certificates(ctx: typer.Context):
     """List all SSL certificates (bench + external)."""
 
     services_manager = ctx.obj["services"]
-    context = LoggerContext(operation="ssl-list-all")
-    output = get_output_handler(ctx, context=context)
+    output = get_output_handler(ctx)
 
     output.print("\n[fm.accent]═══ External Certificates ═══[/fm.accent]\n", emoji_code="")
     _list_external_certificates(ctx)

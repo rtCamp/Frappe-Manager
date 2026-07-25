@@ -32,14 +32,11 @@ class TestSSLCertificateManagerInitialization:
         mock_output_handler,
     ):
         """Test that initialization stores all dependencies."""
-        mock_logger = mocker.MagicMock()
-        mock_logger.child.return_value = mock_logger
 
         def service_factory(cert, storage_cfg, output_handler):
             return mock_ssl_service
 
         manager = SSLCertificateManager(
-            logger=mock_logger,
             certificates=[mock_certificate],
             service_factory=service_factory,
             link_manager=mock_link_manager,
@@ -58,14 +55,11 @@ class TestSSLCertificateManagerInitialization:
         self, mocker, mock_ssl_service, mock_storage_config, mock_link_manager, mock_nginx_controller, mock_output_handler,
     ):
         """Test that initialization works with empty certificate list."""
-        mock_logger = mocker.MagicMock()
-        mock_logger.child.return_value = mock_logger
 
         def service_factory(cert, storage_cfg, output_handler):
             return mock_ssl_service
 
         manager = SSLCertificateManager(
-            logger=mock_logger,
             certificates=[],
             service_factory=service_factory,
             link_manager=mock_link_manager,
@@ -81,15 +75,12 @@ class TestSSLCertificateManagerInitialization:
         self, mocker, mock_certificate, mock_ssl_service, mock_storage_config, mock_nginx_controller, mock_output_handler,
     ):
         """Test that initialization raises ValueError if link_manager is None."""
-        mock_logger = mocker.MagicMock()
-        mock_logger.child.return_value = mock_logger
 
         def service_factory(cert, storage_cfg, output_handler):
             return mock_ssl_service
 
         with pytest.raises(ValueError, match="Certificate link manager is required"):
             SSLCertificateManager(
-                logger=mock_logger,
                 certificates=[mock_certificate],
                 service_factory=service_factory,
                 link_manager=None,
@@ -102,15 +93,12 @@ class TestSSLCertificateManagerInitialization:
         self, mocker, mock_certificate, mock_ssl_service, mock_storage_config, mock_link_manager, mock_output_handler,
     ):
         """Test that initialization raises ValueError if nginx_controller is None."""
-        mock_logger = mocker.MagicMock()
-        mock_logger.child.return_value = mock_logger
 
         def service_factory(cert, storage_cfg, output_handler):
             return mock_ssl_service
 
         with pytest.raises(ValueError, match="Nginx controller is required"):
             SSLCertificateManager(
-                logger=mock_logger,
                 certificates=[mock_certificate],
                 service_factory=service_factory,
                 link_manager=mock_link_manager,

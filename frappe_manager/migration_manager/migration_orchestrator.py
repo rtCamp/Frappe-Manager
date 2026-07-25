@@ -7,7 +7,7 @@ and service management during migrations.
 
 from typing import TYPE_CHECKING
 
-from frappe_manager.logger import log
+from frappe_manager.logger import bind, get_logger
 from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
 from frappe_manager.utils.helpers import capture_and_format_exception
 
@@ -30,7 +30,7 @@ class MigrationOrchestrator:
 
     def __init__(self, executor: "MigrationExecutor"):
         self.executor = executor
-        self.logger = log.get_logger()
+        self.logger = get_logger(component="migration")
         self.undo_stack: list[MigrationBase] = []
         self.exception_in_bench_occurred = False
 
@@ -55,7 +55,8 @@ class MigrationOrchestrator:
 
             try:
                 self.undo_stack.append(migration)
-                migration.up()
+                with bind(operation=f"migrate-{migration.version}"):
+                    migration.up()
 
                 prev_migration = migration
                 if not self.exception_in_bench_occurred:

@@ -4,7 +4,7 @@ import signal
 from frappe_manager import CLI_LOG_DIRECTORY
 from frappe_manager.commands import app
 from frappe_manager.exceptions import FrappeManagerException
-from frappe_manager.logger import log
+from frappe_manager.logger import get_logger, log
 from frappe_manager.output_manager.globals import get_global_output_handler, set_global_output_handler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.utils.docker import process_opened
@@ -56,7 +56,8 @@ def cli_entrypoint():
         except Exception:
             file_level = "DEBUG"
 
-        logger = log.get_logger(file_level=file_level)
+        log.get_logger(file_level=file_level)  # apply configured file log level
+        logger = get_logger(component="main")
         output = get_global_output_handler()
 
         output.display_error(f"[fm.error]Error Occurred[/fm.error] {str(e).strip()}")
@@ -81,7 +82,8 @@ def cli_entrypoint():
         except Exception:
             file_level = "DEBUG"
 
-        logger = log.get_logger(file_level=file_level)
+        log.get_logger(file_level=file_level)  # apply configured file log level
+        logger = get_logger(component="main")
         output = get_global_output_handler()
 
         output.display_error(f"[fm.error]Unexpected Error[/fm.error] {str(e).strip()}")

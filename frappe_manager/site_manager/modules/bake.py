@@ -23,9 +23,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from frappe_manager.docker import DockerClient
-from frappe_manager.logger import log
-from frappe_manager.logger.context import LoggerContext
-from frappe_manager.logger.contextual import ContextualLogger
+from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.bench_config import AppConfig, BenchConfig
@@ -47,14 +45,10 @@ class BakeManager:
         self,
         bench_config: BenchConfig,
         output_handler: OutputHandler | None = None,
-        logger: ContextualLogger | None = None,
     ):
         self.bench_config = bench_config
         self.output = output_handler or RichOutputHandler()
-        self.logger = logger or ContextualLogger(
-            log.get_logger(),
-            context=LoggerContext(bench=bench_config.name, operation="bake"),
-        )
+        self.logger = get_logger(component="bake")
         self.docker_client = DockerClient()
 
     def resolve_base_image(self) -> str:
@@ -366,7 +360,6 @@ class BakeManager:
                 self._seed_bench_skeleton(frappe_bench_dir, base_image)
 
                 app_manager = BenchAppManager(
-                    logger=self.logger,
                     bench_name=self.bench_config.name,
                     bench_path=context_dir,
                     docker_client=self.docker_client,

@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from frappe_manager import CLI_BENCHES_DIRECTORY
-from frappe_manager.logger import log
+from frappe_manager.logger import get_logger
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
 from frappe_manager.migration_manager.migration_constants import MINIMUM_SUPPORTED_VERSION
@@ -76,7 +76,7 @@ class MigrationExecutor:
         self.rollback_version = self.fm_config_manager.version
         self.current_version = Version(get_current_fm_version())
         self.migrations_path = Path(__file__).parent / "migrations"
-        self.logger = log.get_logger()
+        self.logger = get_logger(component="migration")
         self.migrations = []
         self.undo_stack = []
         self.migrate_benches = {}

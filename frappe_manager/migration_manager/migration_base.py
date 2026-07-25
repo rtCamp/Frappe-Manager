@@ -1,9 +1,8 @@
 from abc import ABC
-from logging import Logger
 from pathlib import Path
 
 from frappe_manager import CLI_DIR
-from frappe_manager.logger import log
+from frappe_manager.logger import get_logger
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
 from frappe_manager.migration_manager.migration_constants import DOCKER_COMPOSE_DOWN_TIMEOUT_SECONDS
@@ -27,10 +26,10 @@ class MigrationBase(ABC):
     benches_dir: Path = CLI_DIR / "sites"
     skip: bool = False
     migration_executor = None
-    logger: Logger = log.get_logger()
 
     def __init__(self, output_handler: OutputHandler | None = None):
         self.output = output_handler or RichOutputHandler()
+        self.logger = get_logger(component="migration")
 
         from frappe_manager.utils.helpers import get_current_fm_version, get_docker_image_tag
 

@@ -1,15 +1,16 @@
 import os
 import shlex
 from collections.abc import Iterable
-from logging import Logger
 from pathlib import Path
 from subprocess import run
 
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.logger import log
+from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.utils.subprocess import stream_command_output
+
+logger = get_logger(component="docker")
 
 process_opened = []
 
@@ -17,7 +18,6 @@ process_opened = []
 def stream_stdout_and_stderr(
     full_cmd: list,
     cwd: str | None = None,
-    logger: Logger | None = None,
     env: dict[str, str] | None = None,
 ) -> Iterable[tuple[str, bytes]]:
     """
@@ -29,7 +29,6 @@ def stream_stdout_and_stderr(
     Args:
         full_cmd (list): The Docker command to be executed.
         cwd (Optional[str]): Working directory for command execution.
-        logger (Optional[Logger]): Logger instance (unused, kept for compatibility).
         env (Dict[str, str], optional): Environment variables. Defaults to None.
 
     Yields:
@@ -76,7 +75,6 @@ def run_command_with_exit_code(
     """
     if not stream:
         if not capture_output:
-            logger = log.get_logger()
             logger.debug("- -" * 10)
             logger.debug(f"COMMAND: {' '.join(full_cmd)}")
 

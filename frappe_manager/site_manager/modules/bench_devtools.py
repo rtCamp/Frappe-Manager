@@ -14,9 +14,10 @@ import shutil
 import subprocess
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from frappe_manager.docker.docker_exceptions import DockerException
+from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager import (
@@ -65,7 +66,7 @@ class BenchDevTools:
         self.bench_name = bench_name
         self._is_running = is_running_fn
         self.output = output_handler or RichOutputHandler()
-        self.logger: Any | None = None  # Set externally if needed
+        self.logger = get_logger(component="devtools")
 
     def get_apps_dev_requirements(self) -> list[str]:
         """
@@ -260,8 +261,7 @@ class BenchDevTools:
                 stream=True,
             )
         except DockerException as e:
-            if self.logger:
-                self.logger.error(f"ruff installation exception: {capture_and_format_exception()}")
+            self.logger.error(f"ruff installation exception: {capture_and_format_exception()}")
             self.output.warning("Not able to install ruff in env")
 
     def _attach_to_container(self, vscode_cmd: str) -> None:

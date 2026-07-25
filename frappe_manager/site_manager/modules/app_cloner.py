@@ -18,7 +18,7 @@ from pathlib import Path
 
 from git import GitCommandError, Repo  # type: ignore
 
-from frappe_manager.logger.contextual import ContextualLogger
+from frappe_manager.logger import ctx_submit, get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.site_manager.bench_config import AppConfig, extract_app_python_module_name
 
@@ -44,7 +44,6 @@ class AppCloner:
 
     def __init__(
         self,
-        logger: ContextualLogger,
         apps_dir: Path,
         github_token: str | None = None,
         output_handler: OutputHandler | None = None,
@@ -53,12 +52,11 @@ class AppCloner:
         Initialize AppCloner.
 
         Args:
-            logger: Contextual logger for audit/debug logging
             apps_dir: Path to bench apps directory (e.g., /benches/mybench/workspace/frappe-bench/apps)
             github_token: Optional GitHub personal access token for private repos
             output_handler: Optional output handler for progress updates
         """
-        self.logger = logger.child(component="app_cloner")
+        self.logger = get_logger(component="app_cloner")
         self.apps_dir = Path(apps_dir)
         self.github_token = github_token
         self.output = output_handler
@@ -108,7 +106,7 @@ class AppCloner:
         # Clone standalone apps in parallel
         if standalone_apps:
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_app = {executor.submit(self._clone_app, app): app for app in standalone_apps}
+                future_to_app = {ctx_submit(executor, self._clone_app, app): app for app in standalone_apps}
 
                 for future in as_completed(future_to_app):
                     app = future_to_app[future]

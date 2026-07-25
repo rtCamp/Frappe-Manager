@@ -14,14 +14,14 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from frappe_manager.logger.contextual import ContextualLogger
+from frappe_manager.logger import FMLogger, current_context, reset_context
 from frappe_manager.site_manager.site import Bench
 
 
 @pytest.fixture
 def mock_logger():
     """Create a mock ContextualLogger for testing."""
-    logger = MagicMock(spec=ContextualLogger)
+    logger = MagicMock(spec=FMLogger)
     logger.debug = MagicMock()
     logger.info = MagicMock()
     logger.warning = MagicMock()
@@ -44,7 +44,6 @@ def mock_bench_dependencies():
         "admin_tools_check": False,
         "verbose": False,
         "output_handler": MagicMock(),
-        "logger": None,
     }
 
     # Setup nested mocks to prevent AttributeErrors
@@ -57,32 +56,24 @@ def mock_bench_dependencies():
     return deps
 
 
-class TestBenchLoggerStorage:
-    """Test logger parameter handling in Bench.__init__()."""
+class TestBenchAmbientContext:
+    """Bench logging is ambient: self-acquired component logger + bench tag via set_context."""
 
-    def test_bench_accepts_custom_logger(self, mock_bench_dependencies, mocker):
-        """Bench should accept and store custom logger."""
-        custom_logger = MagicMock(spec=ContextualLogger)
-        mock_bench_dependencies["logger"] = custom_logger
+    def test_bench_init_signature_takes_no_logger(self):
+        import inspect
 
-        # Mock all required initializations
-        mocker.patch.object(Bench, "__init__", lambda *args, **kwargs: None)
-        bench = Bench.__new__(Bench)
-        bench.logger = custom_logger
+        from frappe_manager.site_manager.site import Bench as B
 
-        assert bench.logger is custom_logger
+        assert "logger" not in inspect.signature(B.__init__).parameters
+        assert "logger" not in inspect.signature(B.get_object).parameters
 
-    def test_bench_defaults_to_plain_logger_when_none(self, mock_bench_dependencies, mocker):
-        """Bench should use log.get_logger() when logger=None."""
-        mock_get_logger = mocker.patch("frappe_manager.logger.log.get_logger")
-        mock_plain_logger = MagicMock()
-        mock_get_logger.return_value = mock_plain_logger
+    def test_set_context_bench_tag_shape(self):
+        from frappe_manager.logger import set_context
 
-        mocker.patch.object(Bench, "__init__", lambda *args, **kwargs: None)
-        bench = Bench.__new__(Bench)
-        bench.logger = mock_bench_dependencies.get("logger") or mock_plain_logger
-
-        assert bench.logger is mock_plain_logger
+        reset_context()
+        set_context(bench="test.localhost")
+        assert current_context().bench == "test.localhost"
+        reset_context()
 
 
 class TestLifecycleOperationLogging:

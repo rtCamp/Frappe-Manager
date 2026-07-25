@@ -17,10 +17,12 @@ from rich.traceback import Traceback
 
 from frappe_manager import CLI_DEFAULT_DELIMETER, CLI_SITE_NAME_DELIMETER
 from frappe_manager.docker import DOCKER_LINE_NOISE
-from frappe_manager.logger import log
+from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager import PREBAKED_SITE_APPS
 from frappe_manager.utils.docker import run_command_with_exit_code
+
+logger = get_logger(component="helpers")
 
 
 def remove_zombie_subprocess_process(process):
@@ -34,7 +36,6 @@ def remove_zombie_subprocess_process(process):
         None
     """
     if process:
-        logger = log.get_logger()
         logger.cleanup("-" * 20)
         logger.cleanup(f"PROCESS: USED PROCESS {process}")
 

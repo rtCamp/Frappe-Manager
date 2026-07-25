@@ -286,7 +286,7 @@ def mock_output_handler(mocker):
 
 @pytest.fixture
 def mock_logger(mocker):
-    """Returns a mock ContextualLogger."""
+    """Returns a mock FMLogger."""
     mock_log = mocker.MagicMock()
     mock_log.child.return_value = mock_log
     return mock_log
@@ -310,14 +310,11 @@ def ssl_certificate_manager(
     """Returns a fully initialized SSLCertificateManager for testing (multi-cert API)."""
     from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
 
-    mock_logger = mocker.MagicMock()
-    mock_logger.child.return_value = mock_logger
 
     def certificate_service_factory(cert, storage_cfg, output_handler):
         return mock_ssl_service
 
     return SSLCertificateManager(
-        logger=mock_logger,
         certificates=[mock_certificate],
         service_factory=certificate_service_factory,
         link_manager=mock_link_manager,

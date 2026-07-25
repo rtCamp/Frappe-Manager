@@ -10,7 +10,7 @@ from frappe_manager import (
     SiteServicesEnum,
 )
 from frappe_manager.docker import DOCKER_LINE_NOISE, ComposeFile, DockerClient, DockerException
-from frappe_manager.logger import ContextualLogger
+from frappe_manager.logger import get_logger, set_context
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
@@ -48,7 +48,6 @@ from frappe_manager.utils.site import domain_level
 class Bench:
     def __init__(
         self,
-        logger: ContextualLogger,
         path: Path,
         name: str,
         bench_config: BenchConfig,
@@ -66,14 +65,13 @@ class Bench:
         self.services = services
         self.backup_path = self.path / "backups"
         self.bench_config: BenchConfig = bench_config
-        self.logger = logger.child(bench=name)
+        self.logger = get_logger(component="bench")
 
         self.compose_file_manager = compose_file_manager
         self.docker_client = docker_client
 
         # Initialize specialized modules
         self.docker_ops = BenchDockerOps(
-            logger=self.logger,
             docker_client=docker_client,
             compose_file_manager=compose_file_manager,
             config=bench_config,
@@ -81,7 +79,6 @@ class Bench:
             output_handler=self.output,
         )
         self.supervisor = BenchSupervisor(
-            logger=self.logger,
             docker_client=docker_client,
             config=bench_config,
             bench_name=name,
@@ -122,10 +119,9 @@ class Bench:
         link_manager = CertificateLinkManager(ssl_storage_config)
 
         def certificate_service_factory(cert, storage_cfg, output_handler):
-            return create_certificate_service(self.logger, cert, storage_cfg, output_handler)
+            return create_certificate_service(cert, storage_cfg, output_handler)
 
         self.certificate_manager = SSLCertificateManager(
-            logger=self.logger,
             certificates=self.bench_config.ssl_certificates,
             service_factory=certificate_service_factory,
             link_manager=link_manager,
@@ -149,7 +145,6 @@ class Bench:
             is_running_fn=lambda: self.running,
             output_handler=self.output,
         )
-        self.devtools.logger = self.logger
 
         self.database = BenchDatabase(
             bench_name=name,
@@ -160,7 +155,6 @@ class Bench:
         )
 
         self.site_manager = BenchSiteManager(
-            logger=self.logger,
             bench_name=name,
             bench_path=path,
             docker_client=docker_client,
@@ -171,7 +165,6 @@ class Bench:
         )
 
         self.app_manager = BenchAppManager(
-            logger=self.logger,
             bench_name=name,
             bench_path=path,
             docker_client=docker_client,
@@ -209,7 +202,7 @@ class Bench:
         )
 
         # For complex workflows
-        self.orchestrator = BenchOrchestrator(logger=self.logger, bench=self, output_handler=self.output)
+        self.orchestrator = BenchOrchestrator(bench=self, output_handler=self.output)
 
         if workers_check:
             self.ensure_workers_running_if_available()
@@ -222,7 +215,6 @@ class Bench:
         cls,
         bench_name: str,
         services: ServicesManager,
-        logger: ContextualLogger | None = None,
         benches_path: Path = CLI_BENCHES_DIRECTORY,
         bench_config_file_name: str = CLI_BENCH_CONFIG_FILE_NAME,
         workers_check: bool = False,
@@ -246,15 +238,10 @@ class Bench:
 
         bench_config: BenchConfig = BenchConfig.import_from_toml(bench_config_path)
 
-        if logger is None:
-            from frappe_manager.logger import log as base_log
-            from frappe_manager.logger.context import LoggerContext
-            from frappe_manager.logger.contextual import ContextualLogger
-
-            logger = ContextualLogger(base_log.get_logger(), context=LoggerContext())
+        # Ambient logging context: every record from here on is bench-tagged.
+        set_context(bench=bench_name)
 
         parms: dict[str, Any] = {
-            "logger": logger,
             "name": bench_name,
             "path": bench_path,
             "bench_config": bench_config,
@@ -666,7 +653,7 @@ class Bench:
             result = self.ssl.update_certificate(certificate, raise_error)
             if result:
                 self.bench_config.set_primary_certificate(certificate)
-            self.logger.info(f"SSL certificate updated: {self.name} (result: {result})", extra=extra)
+            self.logger.info(f"SSL certificate updated: {self.name} (result: {result})", extra_fields=extra)
             return result
         except Exception as e:
             extra["error"] = str(e)
@@ -678,7 +665,7 @@ class Bench:
         self.logger.debug(f"Renewing SSL certificate: {self.name}", extra_fields=extra)
         try:
             result = self.ssl.renew_certificate()
-            self.logger.info(f"SSL certificate renewed: {self.name} (result: {result})", extra=extra)
+            self.logger.info(f"SSL certificate renewed: {self.name} (result: {result})", extra_fields=extra)
             return result
         except Exception as e:
             extra["error"] = str(e)

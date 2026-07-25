@@ -14,10 +14,8 @@ from frappe_manager.ssl_manager.dev_certificate_service import DevCertificateSer
 
 
 def make_service(tmp_path: Path) -> DevCertificateService:
-    logger = MagicMock()
-    logger.child.return_value = MagicMock()
     output = MagicMock()
-    return DevCertificateService(logger=logger, ssl_service_dir=tmp_path, output_handler=output)
+    return DevCertificateService(ssl_service_dir=tmp_path, output_handler=output)
 
 
 def make_cert(domain: str = "test.localhost") -> SSLCertificate:
