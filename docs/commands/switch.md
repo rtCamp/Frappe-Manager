@@ -1,8 +1,8 @@
 ## `fm switch`
 
-Switch a bench to an already-built image tag (no bake). Roll back with --previous: same pipeline pointed at the last deployed tag, with migrate disabled so old code never runs against a newer schema.
+Switch a bench to an already-built image tag, or roll back.
 
-Pipeline: fetch -> pre-flight -> backup -> migrate (per config) -> swap (rolling when safe) -> record.
+Forward deploys and rollbacks are the same pipeline pointed at different tags: fetch -> pre-flight -> backup -> migrate (per config) -> swap (rolling when safe) -> record. With --previous, migrate is disabled so old code never runs against a newer schema.
 
 **Usage**:
 

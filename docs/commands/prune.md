@@ -1,6 +1,8 @@
 ## `fm prune`
 
-Prune old deploy releases: history entries, their recorded DB-dump dirs, and local image tags no kept release references. Current and previous tags are always safe.
+Remove old deploy releases (history, DB dumps, unused image tags).
+
+Keeps the newest N releases per keep_releases in bench config (--keep overrides). Current and previous tags -- and any dump a kept release still references -- are never touched.
 
 **Usage**:
 

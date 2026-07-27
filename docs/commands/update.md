@@ -1,10 +1,8 @@
 ## `fm update`
 
-Update bench configuration and settings.
+Change bench settings and runtime.
 
-Settings (SSL/env/domains/policy/monitoring) apply to BOTH runtimes. Code-affecting
-options -- --python/--node/--developer-mode -- need an editable workspace (mount);
-on an image bench ship changes with 'fm deploy', or demote first via --runtime mount.
+Not `bench update`: app code ships via fm deploy/switch. Settings (SSL/env/domains/policy/monitoring) apply to both runtimes. Code-affecting options -- --python/--node/--apps/--developer-mode -- need an editable workspace (mount); on an image bench demote first via --runtime mount.
 
 **Usage**:
 

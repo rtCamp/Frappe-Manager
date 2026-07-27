@@ -295,9 +295,9 @@ def switch(
     ] = None,
 ):
     """
-    Switch a bench to an already-built image tag (no bake). Roll back with --previous: same pipeline pointed at the last deployed tag, with migrate disabled so old code never runs against a newer schema.
+    Switch a bench to an already-built image tag, or roll back.
 
-    Pipeline: fetch -> pre-flight -> backup -> migrate (per config) -> swap (rolling when safe) -> record.
+    Forward deploys and rollbacks are the same pipeline pointed at different tags: fetch -> pre-flight -> backup -> migrate (per config) -> swap (rolling when safe) -> record. With --previous, migrate is disabled so old code never runs against a newer schema.
     """
     output = get_global_output_handler()
     bench = _load_image_bench(ctx, benchname)
@@ -373,7 +373,9 @@ def prune(
     ] = False,
 ):
     """
-    Prune old deploy releases: history entries, their recorded DB-dump dirs, and local image tags no kept release references. Current and previous tags are always safe.
+    Remove old deploy releases (history, DB dumps, unused image tags).
+
+    Keeps the newest N releases per keep_releases in bench config (--keep overrides). Current and previous tags -- and any dump a kept release still references -- are never touched.
     """
     output = get_global_output_handler()
     bench = _load_image_bench(ctx, benchname)
