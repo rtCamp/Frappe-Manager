@@ -1,15 +1,10 @@
 ## `fm deploy`
 
-Bake an immutable image from the bench and deploy it (recreate-swap).
+Bake an immutable image from the bench and deploy it.
 
-Runs the image pipeline: fetch -> pre-flight -> backup -> maintenance ->
-drain -> migrate (one-shot new image) -> recreate-swap -> finalize -> record.
+Bake + switch in one command: builds the image, transports it if configured, then runs the same deploy pipeline as fm switch -- fetch -> pre-flight -> backup -> maintenance -> drain -> migrate (one-shot new image) -> swap (rolling when safe) -> finalize -> record.
 
-Transport (Phase 5): in registry mode the image is pushed after bake and the
-(possibly remote) daemon pulls it during fetch; in save_load mode the image
-is streamed to the remote via ``docker save | ssh docker load`` before deploy.
-With ``--remote`` the local orchestrator drives the remote daemon via
-``DOCKER_HOST``.
+Transport: in registry mode the image is pushed after bake and the (possibly remote) daemon pulls it during fetch; in save_load mode the image is streamed to the remote via ``docker save | ssh docker load`` before deploy. With ``--remote`` the local orchestrator drives the remote daemon via ``DOCKER_HOST``.
 
 **Usage**:
 
@@ -36,7 +31,7 @@ $ fm deploy BENCHNAME [OPTIONS]
 
 ### Bake and deploy the current bench code
 
-Bakes a fresh immutable image from the bench and deploys it via recreate-swap.
+Bakes a fresh immutable image from the bench and deploys it (same pipeline as fm switch).
 
 ```bash
 fm deploy mybench
