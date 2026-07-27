@@ -870,6 +870,7 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         rolling: bool | None = None,
         migrate_override: bool | None = None,
         restore_db_dump: Path | None = None,
+        prune_keep: int | None = None,
     ) -> None:
         """Run the image deploy to ``new_tag``.
 
@@ -1067,10 +1068,13 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         self._record(new_tag, migrate_status, backup=db_dump)
         self.output.print(f"Deployed {new_tag}", emoji_code=":rocket:")
 
-        try:
-            self.prune_releases()
-        except Exception as e:  # housekeeping must never fail a successful deploy
-            self.output.warning(f"Release prune failed (continuing): {e}")
+        # Opt-in housekeeping: prune old releases only when the caller asked
+        # (--keep N); never by default, and never failing a successful deploy.
+        if prune_keep is not None:
+            try:
+                self.prune_releases(keep=prune_keep)
+            except Exception as e:
+                self.output.warning(f"Release prune failed (continuing): {e}")
 
     def prune_releases(self, keep: int | None = None, dry_run: bool = False) -> dict:
         """Prune old releases: history rows, recorded DB-dump dirs, local image tags.
@@ -1081,8 +1085,8 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         no kept row references it; an image tag is rmi'd (app + paired -nginx,
         best-effort) only when neither a kept row nor the protected set
         (current/previous/seed/base) references it.
-        Runs automatically after every successful deploy; ``fm prune`` invokes
-        it manually. ``dry_run`` only reports.
+        Invoked by ``fm prune``, or after a successful deploy/switch when
+        ``--keep N`` was passed. ``dry_run`` only reports.
         """
         state = self.config.deploy_state
         summary: dict = {"entries": 0, "backups": [], "images": [], "kept": 0}

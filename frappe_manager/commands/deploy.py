@@ -124,6 +124,14 @@ def deploy(
             show_default=False,
         ),
     ] = None,
+    keep: Annotated[
+        int | None,
+        typer.Option(
+            "--keep",
+            help="After a successful deploy, prune old releases keeping the newest N (see fm prune).",
+            show_default=False,
+        ),
+    ] = None,
     config: Annotated[
         list[str],
         typer.Option(
@@ -184,7 +192,7 @@ def deploy(
     try:
         with docker_host_env(docker_host):
             orchestrator = DeployOrchestrator(bench, output_handler=output)
-            orchestrator.deploy(built_tag, rolling=rolling)
+            orchestrator.deploy(built_tag, rolling=rolling, prune_keep=keep)
     except DeployError as e:
         output.display_error(str(e))
         raise typer.Exit(1) from e
@@ -269,6 +277,14 @@ def switch(
         bool,
         typer.Option("--restore-db", help="Also restore the DB dump recorded during the current deploy."),
     ] = False,
+    keep: Annotated[
+        int | None,
+        typer.Option(
+            "--keep",
+            help="After a successful deploy, prune old releases keeping the newest N (see fm prune).",
+            show_default=False,
+        ),
+    ] = None,
     rolling: Annotated[
         bool | None,
         typer.Option(
@@ -312,7 +328,7 @@ def switch(
 
     try:
         orchestrator = DeployOrchestrator(bench, output_handler=output)
-        orchestrator.deploy(target, rolling=rolling, migrate_override=migrate, restore_db_dump=dump)
+        orchestrator.deploy(target, rolling=rolling, migrate_override=migrate, restore_db_dump=dump, prune_keep=keep)
     except DeployError as e:
         output.display_error(str(e))
         raise typer.Exit(1) from e

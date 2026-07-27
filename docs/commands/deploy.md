@@ -28,6 +28,7 @@ $ fm deploy BENCHNAME [OPTIONS]
 * `--remote`: Deploy to a remote daemon over SSH (DOCKER_HOST=ssh://<user>@<host>:<port>). Falls back to [deploy].ssh_server when omitted.
 * `--push/--no-push`: Push the baked image to the registry (default: push when [registry] is configured for 'registry').
 * `--rolling/--no-rolling`: Force/disable the rolling web swap. Default: auto (rolling whenever the overlap is safe: no migrate, additive-asserted, or migrate under a maintenance window).
+* `--keep`: After a successful deploy, prune old releases keeping the newest N (see fm prune).
 * `--config`: TOML config overlay: a file path or inline TOML content, deep-merged into the bench config before deploy. Repeatable; later --config wins.
 
 

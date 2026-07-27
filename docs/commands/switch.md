@@ -20,6 +20,7 @@ $ fm switch BENCHNAME TAG [OPTIONS]
 * `--previous`: Roll back to the previously deployed tag (disables migrate).
 * `--migrate/--no-migrate`: Force or skip bench migrate for this run (overrides bench config).
 * `--restore-db`: Also restore the DB dump recorded during the current deploy.
+* `--keep`: After a successful deploy, prune old releases keeping the newest N (see fm prune).
 * `--rolling/--no-rolling`: Force/disable the rolling web swap (default: auto when the overlap is safe).
 
 
