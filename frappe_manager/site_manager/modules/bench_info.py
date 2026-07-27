@@ -9,6 +9,7 @@ Handles information retrieval and display for the bench including:
 """
 
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -140,6 +141,14 @@ class BenchInfo:
                 return []
         return read_bench_app_refs(self.bench_path / "workspace" / "frappe-bench")
 
+    @staticmethod
+    def _short_ts(iso: str) -> str:
+        """ISO deploy timestamp -> 'YYYY-MM-DD HH:MM' (raw string on parse failure)."""
+        try:
+            return datetime.fromisoformat(str(iso)).strftime("%Y-%m-%d %H:%M")
+        except (ValueError, TypeError):
+            return str(iso)
+
     def get_python_version(self) -> str:
         """Active Python version.
 
@@ -244,13 +253,28 @@ class BenchInfo:
             card.fact("tag", tag or "[fm.muted]N/A (not yet deployed)[/fm.muted]")
             if deploy_state and deploy_state.previous_tag:
                 card.fact("previous", deploy_state.previous_tag)
-            if deploy_state and deploy_state.last_deploy_at:
-                card.fact("deployed", str(deploy_state.last_deploy_at))
         else:
             if config.base_image:
                 card.fact("base", config.base_image)
             if config.seed_image:
                 card.fact("seeded", config.seed_image)
+
+        # ---- deploys (image deploy history, newest first)
+        deploy_state = config.deploy_state if config.runtime == BenchRuntime.image else None
+        if deploy_state and deploy_state.history:
+            card.section("deploys")
+            current_marked = False
+            for i, entry in enumerate(reversed(deploy_state.history)):
+                label = "history" if i == 0 else ""
+                status = entry.migrate_status
+                status_markup = f"[fm.error]{status}[/fm.error]" if status == "failed" else status
+                dump = "  [fm.muted]·[/fm.muted] db-dump" if entry.backup else ""
+                marker = ""
+                if not current_marked and entry.tag == deploy_state.current_tag:
+                    marker = "  [fm.ok]● current[/fm.ok]"
+                    current_marked = True
+                when = self._short_ts(entry.deployed_at)
+                card.fact(label, f"{entry.tag}  [fm.muted]{when} · {status_markup}{dump}[/fm.muted]{marker}")
 
         # ---- access
         card.section("access")
