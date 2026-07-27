@@ -150,6 +150,34 @@ def _new_apps(wanted: list[str], installed: set[str]) -> list[str]:
     return [a for a in wanted if a not in installed]
 
 
+
+def plan_release_prune(history: list, keep: int) -> tuple[list, list]:
+    """Split deploy history into ``(kept, pruned)`` -- pure newest-``keep`` rows.
+
+    Rows are audit lines only; artifact safety (images/dumps a live tag still
+    needs) is decided separately by :func:`plan_artifact_removal`.
+    """
+    keep = max(1, keep)
+    if len(history) <= keep:
+        return list(history), []
+    return list(history[-keep:]), list(history[:-keep])
+
+
+def plan_artifact_removal(kept: list, pruned: list, protected_tags: set[str]) -> tuple[list[str], list[str]]:
+    """``(backup_paths, image_tags)`` safe to delete for the pruned rows.
+
+    A backup survives while ANY kept row references it; an image tag survives
+    while any kept row OR the protected set (current / previous / seed / base)
+    references it -- pruning must never orphan a tag the bench can still
+    switch back to.
+    """
+    kept_backups = {entry.backup for entry in kept if entry.backup}
+    backups = sorted({entry.backup for entry in pruned if entry.backup} - kept_backups)
+    kept_tags = {entry.tag for entry in kept} | protected_tags
+    tags = sorted({entry.tag for entry in pruned} - kept_tags)
+    return backups, tags
+
+
 class DeployOrchestrator:
     """Runs the image deploy / rollback pipeline for a single bench."""
 
@@ -1038,6 +1066,75 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         # 9. Record.
         self._record(new_tag, migrate_status, backup=db_dump)
         self.output.print(f"Deployed {new_tag}", emoji_code=":rocket:")
+
+        try:
+            self.prune_releases()
+        except Exception as e:  # housekeeping must never fail a successful deploy
+            self.output.warning(f"Release prune failed (continuing): {e}")
+
+    def prune_releases(self, keep: int | None = None, dry_run: bool = False) -> dict:
+        """Prune old releases: history rows, recorded DB-dump dirs, local image tags.
+
+        History rows: keep the newest ``keep`` (default
+        ``[switch].releases_retain_limit``). Artifacts are refcounted
+        separately: a recorded backup's ``deploy-*`` dir is deleted only when
+        no kept row references it; an image tag is rmi'd (app + paired -nginx,
+        best-effort) only when neither a kept row nor the protected set
+        (current/previous/seed/base) references it.
+        Runs automatically after every successful deploy; ``fm prune`` invokes
+        it manually. ``dry_run`` only reports.
+        """
+        state = self.config.deploy_state
+        summary: dict = {"entries": 0, "backups": [], "images": [], "kept": 0}
+        if not state or not state.history:
+            return summary
+
+        limit = self.switch_config.releases_retain_limit if keep is None else keep
+        protected = {
+            tag
+            for tag in (
+                state.current_tag,
+                state.previous_tag,
+                self.config.seed_image,
+                getattr(self.config, "base_image", None),
+            )
+            if tag
+        }
+        kept, pruned = plan_release_prune(state.history, limit)
+        summary["kept"] = len(kept)
+        if not pruned:
+            return summary
+        summary["entries"] = len(pruned)
+
+        backups, tags = plan_artifact_removal(kept, pruned, protected)
+        for backup in backups:
+            backup_dir = Path(backup).parent
+            if backup_dir.name.startswith("deploy-") and backup_dir.exists():
+                summary["backups"].append(str(backup_dir))
+
+        from frappe_manager.site_manager.modules.bake import BakeManager
+
+        for tag in tags:
+            summary["images"].extend([tag, BakeManager.nginx_image_tag(tag)])
+
+        if dry_run:
+            return summary
+
+        for backup_dir in summary["backups"]:
+            shutil.rmtree(backup_dir, ignore_errors=True)
+        for image in summary["images"]:
+            with contextlib.suppress(DockerException):
+                self.docker.rmi(image, stream=False)
+
+        state.history = kept
+        self.config.deploy_state = state
+        self.config.export_to_toml(self._config_path())
+        self.output.print(
+            f"Pruned {summary['entries']} old release(s): {len(summary['backups'])} backup dir(s), "
+            f"{len(summary['images'])} image tag(s); kept {summary['kept']}.",
+            emoji_code=":broom:",
+        )
+        return summary
 
     def rollback(self, previous_tag: str, restore_db_dump: Path | None = None) -> None:
         """INTERNAL health-gate recovery: re-pin to ``previous_tag`` and recreate.

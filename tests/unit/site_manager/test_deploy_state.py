@@ -156,3 +156,68 @@ class TestSwitchResolvers:
         dump, error = _find_current_deploy_backup(None)
         assert dump is None
         assert "No current deploy recorded" in error
+
+
+class TestReleasePrunePlanner:
+    """Retention + artifact-safety contracts (pure fns in deploy_orchestrator)."""
+
+    def _hist(self, *tags, backups=None):
+        backups = backups or {}
+        return [
+            DeployStateEntry(tag=t, deployed_at=f"d{i}", migrate_status="skipped", backup=backups.get(i))
+            for i, t in enumerate(tags)
+        ]
+
+    def test_rows_keep_newest_n(self):
+        from frappe_manager.site_manager.modules.deploy_orchestrator import plan_release_prune
+
+        kept, pruned = plan_release_prune(self._hist("a", "b", "c", "d", "e"), 2)
+        assert [e.tag for e in kept] == ["d", "e"]
+        assert [e.tag for e in pruned] == ["a", "b", "c"]
+
+    def test_rows_keep_clamped_to_at_least_one(self):
+        from frappe_manager.site_manager.modules.deploy_orchestrator import plan_release_prune
+
+        kept, pruned = plan_release_prune(self._hist("a", "b"), 0)
+        assert [e.tag for e in kept] == ["b"]
+
+    def test_rows_short_history_prunes_nothing(self):
+        from frappe_manager.site_manager.modules.deploy_orchestrator import plan_release_prune
+
+        kept, pruned = plan_release_prune(self._hist("a", "b"), 7)
+        assert len(kept) == 2 and pruned == []
+
+    def test_pingpong_rows_prune_even_when_tags_protected(self):
+        # The 33-entry ping-pong bench: rows go, artifacts stay.
+        from frappe_manager.site_manager.modules.deploy_orchestrator import (
+            plan_artifact_removal,
+            plan_release_prune,
+        )
+
+        history = self._hist("x", "y", "x", "y", "x")
+        kept, pruned = plan_release_prune(history, 2)
+        assert len(pruned) == 3  # rows DO prune
+        backups, tags = plan_artifact_removal(kept, pruned, {"x", "y"})
+        assert tags == []  # protected tags never rmi'd
+        assert backups == []
+
+    def test_unreferenced_tag_is_removable_protected_is_not(self):
+        from frappe_manager.site_manager.modules.deploy_orchestrator import (
+            plan_artifact_removal,
+            plan_release_prune,
+        )
+
+        kept, pruned = plan_release_prune(self._hist("old1", "old2", "cur"), 1)
+        backups, tags = plan_artifact_removal(kept, pruned, {"cur", "old2"})  # old2 = previous
+        assert tags == ["old1"]
+
+    def test_backup_survives_while_a_kept_row_references_it(self):
+        from frappe_manager.site_manager.modules.deploy_orchestrator import (
+            plan_artifact_removal,
+            plan_release_prune,
+        )
+
+        history = self._hist("a", "b", "c", backups={0: "/b/one.sql", 1: "/b/shared.sql", 2: "/b/shared.sql"})
+        kept, pruned = plan_release_prune(history, 1)
+        backups, _tags = plan_artifact_removal(kept, pruned, {"c"})
+        assert backups == ["/b/one.sql"]  # shared.sql referenced by kept row -> safe

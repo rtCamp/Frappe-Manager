@@ -318,3 +318,63 @@ def switch(
         raise typer.Exit(1) from e
 
 
+@example(
+    "Preview what a prune would remove",
+    "{benchname} --dry-run",
+    detail="Lists the history entries, backup dirs, and local image tags that would go. Nothing is touched.",
+    benchname="mybench",
+)
+@example(
+    "Prune old releases now",
+    "{benchname}",
+    detail="Keeps the newest releases per [switch].releases_retain_limit (default 7) plus whatever is "
+    "current/previous. Also runs automatically after every successful deploy.",
+    benchname="mybench",
+)
+@example(
+    "Keep only the last 3 releases",
+    "{benchname} --keep 3",
+    detail="One-off override of the configured retention.",
+    benchname="mybench",
+)
+def prune(
+    ctx: typer.Context,
+    benchname: Annotated[
+        str,
+        typer.Argument(
+            help="Name of the bench.",
+            autocompletion=sites_autocompletion_callback,
+            callback=sitename_callback,
+        ),
+    ],
+    keep: Annotated[
+        int | None,
+        typer.Option("--keep", help="Retain this many releases (overrides bench config).", show_default=False),
+    ] = None,
+    dry_run: Annotated[
+        bool,
+        typer.Option("--dry-run", help="Report what would be pruned without deleting anything."),
+    ] = False,
+):
+    """
+    Prune old deploy releases: history entries, their recorded DB-dump dirs, and local image tags no kept release references. Current and previous tags are always safe.
+    """
+    output = get_global_output_handler()
+    bench = _load_image_bench(ctx, benchname)
+
+    try:
+        orchestrator = DeployOrchestrator(bench, output_handler=output)
+        summary = orchestrator.prune_releases(keep=keep, dry_run=dry_run)
+    except DeployError as e:
+        output.display_error(str(e))
+        raise typer.Exit(1) from e
+
+    if not summary["entries"]:
+        output.print(f"Nothing to prune ({summary['kept']} release(s) recorded, all within retention).")
+        return
+    if dry_run:
+        output.print(f"Would prune {summary['entries']} release(s), keep {summary['kept']}:")
+        for backup_dir in summary["backups"]:
+            output.print(f"backup dir  {backup_dir}", emoji_code="", prefix="  ")
+        for image in summary["images"]:
+            output.print(f"image tag   {image}", emoji_code="", prefix="  ")
