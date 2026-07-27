@@ -37,3 +37,14 @@ def test_backup_db_auto_accepted():
 def test_rollback_db_allows_auto_backup():
     # 'auto' dumps exactly when migrate runs -- the only time a restore is needed.
     assert SwitchConfig(backup_db="auto", rollback_db=True).rollback_db is True
+
+
+def test_keep_releases_default():
+    assert SwitchConfig().keep_releases == 7
+
+
+def test_old_keep_releases_name_is_rejected():
+    # Renamed from releases_retain_limit; extra="forbid" fails loudly so users
+    # fix their config instead of the key being silently ignored.
+    with pytest.raises(ValueError):
+        SwitchConfig(releases_retain_limit=3)

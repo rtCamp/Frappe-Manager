@@ -32,7 +32,7 @@ rollback = true                     # auto re-pin previous tag on failure
 restore_on_failure = false          # opt-in: also restore the DB backup on failed migrate/switch (default off — migrate is transactional/resumable)
 search_replace = true
 install_apps = true
-releases_retain_limit = 7           # prune old image tags; always keeps current + previous
+keep_releases = 7                   # releases `fm prune` keeps; always keeps current + previous
 
 # worker drain → in-container fmx RQ suspend/poll-until-idle, invoked via exec + compose stop_grace_period
 drain_workers = true

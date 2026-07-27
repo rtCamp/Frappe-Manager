@@ -421,7 +421,7 @@ class BakeManager:
             if self._should_push(push):
                 self._push_images([t for t in (tag, nginx_tag) if t])
 
-            # NOTE: local tag pruning to releases_retain_limit is deferred.
+            # NOTE: local tag pruning is opt-in via `fm prune` / `--keep N` on deploy/switch.
             return tag
         finally:
             shutil.rmtree(context_dir, ignore_errors=True)

@@ -1020,7 +1020,11 @@ class SwitchConfig(BaseModel):
     )
     search_replace: bool = Field(True, description="Run search-and-replace in DB after restore.")
     install_apps: bool = Field(True, description="Install new apps to the site during finalize.")
-    releases_retain_limit: int = Field(7, description="Prune old image tags; always keeps current + previous.")
+    keep_releases: int = Field(
+        7,
+        description="Releases `fm prune` keeps (history rows + dumps + local tags); "
+        "current + previous are always safe.",
+    )
     drain_workers: bool = Field(True, description="Drain RQ workers before migrate/restart.")
     drain_workers_timeout: int = Field(300, description="Seconds to wait for workers to drain.")
     drain_workers_poll: int = Field(5, description="Poll interval in seconds while draining.")

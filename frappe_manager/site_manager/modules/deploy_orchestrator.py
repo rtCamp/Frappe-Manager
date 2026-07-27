@@ -1080,7 +1080,7 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         """Prune old releases: history rows, recorded DB-dump dirs, local image tags.
 
         History rows: keep the newest ``keep`` (default
-        ``[switch].releases_retain_limit``). Artifacts are refcounted
+        ``[switch] keep_releases``). Artifacts are refcounted
         separately: a recorded backup's ``deploy-*`` dir is deleted only when
         no kept row references it; an image tag is rmi'd (app + paired -nginx,
         best-effort) only when neither a kept row nor the protected set
@@ -1093,7 +1093,7 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         if not state or not state.history:
             return summary
 
-        limit = self.switch_config.releases_retain_limit if keep is None else keep
+        limit = self.switch_config.keep_releases if keep is None else keep
         protected = {
             tag
             for tag in (

@@ -343,8 +343,8 @@ def switch(
 @example(
     "Prune old releases now",
     "{benchname}",
-    detail="Keeps the newest releases per [switch].releases_retain_limit (default 7) plus whatever is "
-    "current/previous. Also runs automatically after every successful deploy.",
+    detail="Keeps the newest releases per keep_releases in bench config (default 7); current and "
+    "previous tags are always safe. Also available inline: --keep N on fm deploy/switch.",
     benchname="mybench",
 )
 @example(
