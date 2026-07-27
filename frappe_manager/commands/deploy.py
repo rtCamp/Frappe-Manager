@@ -36,6 +36,38 @@ def _load_image_bench(ctx: typer.Context, benchname: str) -> Bench:
     return bench
 
 
+def _resolve_switch_tag(state, tag: str | None, previous: bool) -> tuple[str | None, str | None]:
+    """(target_tag, error) for ``fm switch``: explicit TAG xor ``--previous``."""
+    if tag and previous:
+        return None, "Pass either an explicit TAG or --previous, not both."
+    if previous:
+        prev = state.previous_tag if state else None
+        if not prev:
+            return None, "No previous image tag recorded; nothing to roll back to (pass an explicit TAG)."
+        return prev, None
+    if not tag:
+        return None, "Missing target: pass an image TAG or --previous."
+    return tag, None
+
+
+def _find_current_deploy_backup(state) -> "tuple[str | None, str | None]":
+    """(dump_path, error) -- the pre-migrate DB dump recorded for the CURRENT deploy.
+
+    The dump taken while deploying the current (bad) tag is the exact pre-migrate
+    state; restoring it alongside the code rollback undoes a bad migrate.
+    """
+    current = state.current_tag if state else None
+    if not current:
+        return None, "No current deploy recorded; nothing to restore."
+    entries = [e for e in (state.history or []) if e.tag == current and e.backup]
+    if not entries:
+        return None, (
+            f"No DB backup recorded for the current deploy ({current}). "
+            f"Dumps live under <bench>/backups/deploy-*/ -- restore manually if one exists."
+        )
+    return entries[-1].backup, None
+
+
 @example(
     "Bake and deploy the current bench code",
     "{benchname}",
@@ -161,7 +193,22 @@ def deploy(
 @example(
     "Switch a bench to an already-built image tag",
     "{benchname} local/mybench:20260721-abc123",
-    detail="Deploys an existing image tag without baking. Runs the full recreate-swap pipeline.",
+    detail="Deploys an existing image tag without baking. Full pipeline: migrate per [switch] config, "
+    "hooks, backup, rolling web swap when eligible.",
+    benchname="mybench",
+)
+@example(
+    "Roll back to the previously deployed image",
+    "{benchname} --previous",
+    detail="Full pipeline pointed backwards. --previous defaults migrate OFF (old code must never "
+    "migrate a newer schema); rolling zero-drop swap when eligible.",
+    benchname="mybench",
+)
+@example(
+    "Roll back code AND database",
+    "{benchname} --previous --restore-db",
+    detail="Also restores the pre-migrate DB dump recorded during the current deploy -- undoes a bad "
+    "migrate. Runs under the maintenance window like a migrate.",
     benchname="mybench",
 )
 def switch(
@@ -174,66 +221,86 @@ def switch(
             callback=sitename_callback,
         ),
     ],
-    tag: Annotated[str, typer.Argument(help="Full image tag to switch to (e.g. local/mybench:20260721-abc123).")],
+    tag: Annotated[
+        str | None,
+        typer.Argument(
+            help="Full image tag to switch to (e.g. local/mybench:20260721-abc123). "
+            "Omit with --previous to roll back.",
+            show_default=False,
+        ),
+    ] = None,
+    previous: Annotated[
+        bool,
+        typer.Option(
+            "--previous",
+            help="Target the previously deployed tag (rollback). Implies --no-migrate unless "
+            "--migrate is passed explicitly.",
+        ),
+    ] = False,
+    migrate: Annotated[
+        bool | None,
+        typer.Option(
+            "--migrate/--no-migrate",
+            help="Override the migrate setting from bench config (\\[switch] table) for this run only (config supports true/false/'auto').",
+            show_default=False,
+        ),
+    ] = None,
+    restore_db: Annotated[
+        bool,
+        typer.Option(
+            "--restore-db",
+            help="Restore the pre-migrate DB dump recorded for the current deploy before the swap "
+            "(code and data go back together).",
+        ),
+    ] = False,
     rolling: Annotated[
         bool | None,
         typer.Option(
             "--rolling/--no-rolling",
             help="Force/disable the rolling web swap. Default: auto (rolling whenever the overlap "
-            "is safe: no migrate, additive-asserted, or migrate under a maintenance window).",
+            "is safe: no migrate/restore, additive-asserted, or under a maintenance window).",
             show_default=False,
         ),
     ] = None,
 ):
     """
-    Switch a bench to an existing image tag (no bake). Rolling web swap when
-    eligible, else recreate-swap.
-    """
-    output = get_global_output_handler()
-    bench = _load_image_bench(ctx, benchname)
-
-    try:
-        orchestrator = DeployOrchestrator(bench, output_handler=output)
-        orchestrator.deploy(tag, rolling=rolling)
-    except DeployError as e:
-        output.display_error(str(e))
-        raise typer.Exit(1) from e
-
-
-@example(
-    "Roll back to the previously deployed image",
-    "{benchname}",
-    detail="Re-pins the compose to the previous tag and recreates (no migrate).",
-    benchname="mybench",
-)
-def rollback(
-    ctx: typer.Context,
-    benchname: Annotated[
-        str,
-        typer.Argument(
-            help="Name of the bench.",
-            autocompletion=sites_autocompletion_callback,
-            callback=sitename_callback,
-        ),
-    ],
-):
-    """
-    Roll back the bench to the previously deployed image tag (no migrate).
+    Switch a bench to an existing image tag (no bake) -- forward deploys and
+    rollbacks are the same full pipeline pointed at different tags. --previous
+    targets the last deployed tag with migrate defaulted OFF; --restore-db also
+    restores the recorded pre-migrate dump.
     """
     output = get_global_output_handler()
     bench = _load_image_bench(ctx, benchname)
 
     state = bench.bench_config.deploy_state
-    previous = state.previous_tag if state else None
-    if not previous:
-        output.display_error(
-            f"Bench '{benchname}' has no previous image tag recorded; nothing to roll back to.",
-        )
+    target, error = _resolve_switch_tag(state, tag, previous)
+    if error:
+        output.display_error(error)
         raise typer.Exit(1)
+
+    # Rollback safety default: old code must never migrate a newer schema.
+    if previous and migrate is None:
+        migrate = False
+        output.print("Rollback: migrate disabled for this run (override with --migrate).")
+
+    dump = None
+    if restore_db:
+        from pathlib import Path
+
+        dump_path, error = _find_current_deploy_backup(state)
+        if error:
+            output.display_error(error)
+            raise typer.Exit(1)
+        dump = Path(dump_path)
+        if not dump.exists():
+            output.display_error(f"Recorded DB backup is missing on disk: {dump}")
+            raise typer.Exit(1)
 
     try:
         orchestrator = DeployOrchestrator(bench, output_handler=output)
-        orchestrator.rollback(previous)
+        orchestrator.deploy(target, rolling=rolling, migrate_override=migrate, restore_db_dump=dump)
     except DeployError as e:
         output.display_error(str(e))
         raise typer.Exit(1) from e
+
+

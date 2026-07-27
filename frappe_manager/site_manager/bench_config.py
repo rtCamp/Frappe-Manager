@@ -925,6 +925,11 @@ class DeployStateEntry(BaseModel):
     tag: str = Field(..., description="Image tag deployed.")
     deployed_at: str = Field(..., description="ISO timestamp of the deploy.")
     migrate_status: str = Field(..., description="Migrate outcome: 'migrated', 'skipped', 'failed', or 'rollback'.")
+    backup: str | None = Field(
+        None,
+        description="Host path of the pre-migrate DB dump taken during this deploy, if any "
+        "(consumed by `fm rollback --restore-db`).",
+    )
 
 
 class DeployState(BaseModel):

@@ -817,24 +817,43 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
             return state.current_tag
         return None
 
-    def _record(self, new_tag: str, migrate_status: str) -> None:
+    def _record(self, new_tag: str, migrate_status: str, backup: Path | None = None) -> None:
         now = datetime.now(UTC).isoformat()
         state = self.config.deploy_state or DeployState()
         state.previous_tag = state.current_tag
         state.current_tag = new_tag
         state.last_deploy_at = now
-        state.history.append(DeployStateEntry(tag=new_tag, deployed_at=now, migrate_status=migrate_status))
+        state.history.append(
+            DeployStateEntry(
+                tag=new_tag,
+                deployed_at=now,
+                migrate_status=migrate_status,
+                backup=str(backup) if backup else None,
+            ),
+        )
         self.config.deploy_state = state
         self.config.export_to_toml(self._config_path())
 
     # ------------------------------------------------------------------ public
 
-    def deploy(self, new_tag: str, rolling: bool | None = None) -> None:
+    def deploy(
+        self,
+        new_tag: str,
+        rolling: bool | None = None,
+        migrate_override: bool | None = None,
+        restore_db_dump: Path | None = None,
+    ) -> None:
         """Run the image deploy to ``new_tag``.
 
-        Uses the rolling web swap when eligible (see
-        ``rolling_eligible``) and the old stack is up; otherwise the
-        recreate-swap. ``rolling`` is the ``--rolling/--no-rolling`` override."""
+        Uses the rolling web swap when eligible (see ``rolling_eligible``) and
+        the old stack is up; otherwise the recreate-swap. ``rolling`` is the
+        ``--rolling/--no-rolling`` override.
+
+        ``migrate_override`` overrides ``[switch].migrate`` for THIS run only
+        (rollbacks pass False: old code must never migrate a newer schema).
+        ``restore_db_dump`` imports the given dump at the quiesced point before
+        the swap -- code and data go back together. A restore is a schema-grade
+        step: it gates maintenance/rolling exactly like a migrate."""
         self._require_image_mode()
         old_tag = self._current_deployed_tag()
 
@@ -870,20 +889,24 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         self.docker_ops.render_image_compose(new_tag)
         self._pin_workers(new_tag)
 
-        # 4. Resolve migrate: explicit bool, or 'auto' -> probe the NEW image
-        # against the live DB (pending patches / app-version drift).
-        requested = self.switch_config.migrate
+        # 4. Resolve migrate: runtime override first, else config: explicit bool,
+        # or 'auto' -> probe the NEW image against the live DB (pending patches /
+        # app-version drift).
+        requested = self.switch_config.migrate if migrate_override is None else migrate_override
         if requested == "auto":
             self.output.change_head("Probing new image for pending migrations")
             migrate = self._probe_migrate_needed(new_tag)
             self.output.print(f"Migrate probe verdict: {'migrate needed' if migrate else 'no migration needed'}")
         else:
             migrate = bool(requested)
-        maintenance = migrate and self.switch_config.maintenance_mode
+        # A DB restore changes schema/data under running code the same way a
+        # migrate does: same maintenance window, same rolling-eligibility rules.
+        schema_step = migrate or restore_db_dump is not None
+        maintenance = schema_step and self.switch_config.maintenance_mode
 
         do_rolling = (
             rolling_eligible(
-                migrate,
+                schema_step,
                 self.switch_config.maintenance_mode,
                 self.switch_config.maintenance_mode_phases,
                 rolling,
@@ -897,7 +920,7 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
 
         migrate_status = "skipped"
         try:
-            # 5. Maintenance ON (only when migrating)
+            # 5. Maintenance ON (only for schema-grade steps: migrate/restore)
             if maintenance and self._frappe_running():
                 self.output.change_head("Enabling maintenance mode")
                 self._set_maintenance(1)
@@ -910,12 +933,17 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
             # is the exact pre-migrate state -- a rollback_db restore loses
             # nothing written between dump and migrate.
             requested_backup = self.switch_config.backup_db
-            do_backup = migrate if requested_backup == "auto" else bool(requested_backup)
+            do_backup = schema_step if requested_backup == "auto" else bool(requested_backup)
             if do_backup:
                 self.output.change_head("Backing up DB + site config")
                 db_dump = self._backup(backup_dir)
             elif requested_backup == "auto":
                 self.output.print("Backup skipped (backup_db=auto: no schema change)")
+
+            # 7b. Restore a recorded dump (rollback path): after the insurance
+            # backup of the CURRENT state, before migrate/swap.
+            if restore_db_dump is not None:
+                self._restore_db(restore_db_dump)
 
             # 8. Migrate in a one-shot new-image container.
             if migrate:
@@ -970,7 +998,7 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         if not self._health_check():
             if self.switch_config.rollback_image and old_tag:
                 self.output.warning("New image unhealthy; rolling back to previous tag.")
-                self.rollback(old_tag, _restore_db_dump=db_dump if self.switch_config.rollback_db else None)
+                self.rollback(old_tag, restore_db_dump=db_dump if self.switch_config.rollback_db else None)
                 raise DeployError(
                     f"Deploy of {new_tag} failed health check; rolled back to {old_tag}.",
                 )
@@ -1001,18 +1029,25 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
             if maintenance:
                 with contextlib.suppress(Exception):
                     self._set_maintenance(0)
-            self._record(new_tag, migrate_status)
+            self._record(new_tag, migrate_status, backup=db_dump)
             raise
 
         if maintenance:
             self._set_maintenance(0)
 
         # 9. Record.
-        self._record(new_tag, migrate_status)
+        self._record(new_tag, migrate_status, backup=db_dump)
         self.output.print(f"Deployed {new_tag}", emoji_code=":rocket:")
 
-    def rollback(self, previous_tag: str, _restore_db_dump: Path | None = None) -> None:
-        """Re-pin the compose to ``previous_tag`` and recreate (no migrate)."""
+    def rollback(self, previous_tag: str, restore_db_dump: Path | None = None) -> None:
+        """INTERNAL health-gate recovery: re-pin to ``previous_tag`` and recreate.
+
+        Called only from ``deploy()`` when the new stack fails its health gate
+        (``rollback_image``) -- deliberately minimal (no probe/hooks/backup/drain)
+        because it runs mid-failure. User-facing rollback is ``fm switch
+        --previous`` (the full pipeline pointed backwards). ``restore_db_dump``
+        (``rollback_db``) is imported BEFORE the swap.
+        """
         self._require_image_mode()
         self.output.change_head(f"Rolling back to {previous_tag}")
 
@@ -1021,10 +1056,16 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         self.docker_ops.render_image_compose(previous_tag)
         self._pin_workers(previous_tag)
 
+        if restore_db_dump is not None:
+            self._restore_db(restore_db_dump)
+
         self.docker.compose.up(services=[], detach=True, pull="never", stream=False)
         self._up_workers()
 
         if not self._health_check():
+            # The compose IS pinned to previous_tag at this point; record reality
+            # so deploy_state matches what a later `compose up` would run.
+            self._record(previous_tag, "rollback")
             raise DeployError(
                 f"Rollback to {previous_tag} failed health check; bench halted. Investigate the containers.",
             )
@@ -1037,4 +1078,10 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
             self.output.warning(f"Could not clear maintenance mode (continuing): {e}")
 
         self._record(previous_tag, "rollback")
-        self.output.print(f"Rolled back to {previous_tag}", emoji_code=":leftwards_arrow:")
+        state = self.config.deploy_state
+        if state and state.previous_tag:
+            self.output.print(
+                f"Previous tag is now {state.previous_tag} -- running `fm rollback` again would re-deploy it.",
+                emoji_code=":information:",
+            )
+        self.output.print(f"Rolled back to {previous_tag}", emoji_code=":rewind:")

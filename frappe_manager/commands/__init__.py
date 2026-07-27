@@ -484,7 +484,7 @@ from frappe_manager.commands.code import code
 # Import extracted complex commands (Step 5)
 from frappe_manager.commands.create import create
 from frappe_manager.commands.delete import delete
-from frappe_manager.commands.deploy import deploy, rollback, switch
+from frappe_manager.commands.deploy import deploy, switch
 from frappe_manager.commands.info import info
 from frappe_manager.commands.list import list as list_benches
 from frappe_manager.commands.logs import logs
@@ -517,7 +517,6 @@ app.command(name="migrate")(migrate)
 app.command(name="bake", no_args_is_help=True)(bake)
 app.command(name="deploy", no_args_is_help=True)(deploy)
 app.command(name="switch", no_args_is_help=True)(switch)
-app.command(name="rollback", no_args_is_help=True)(rollback)
 
 # Export app and helpers for backward compatibility
 __all__ = ["app", "app_callback", "check_bench_migration_required", "get_bench_arg_from_context"]
