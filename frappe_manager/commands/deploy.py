@@ -191,24 +191,52 @@ def deploy(
 
 
 @example(
-    "Switch a bench to an already-built image tag",
+    "Deploy a tag you baked earlier",
     "{benchname} local/mybench:20260721-abc123",
-    detail="Deploys an existing image tag without baking. Full pipeline: migrate per [switch] config, "
-    "hooks, backup, rolling web swap when eligible.",
+    detail="The everyday forward deploy: `fm bake` printed this tag (also in `fm list`). Runs backup, "
+    "migrate per config, swap, and records the tag in deploy history.",
     benchname="mybench",
 )
 @example(
-    "Roll back to the previously deployed image",
+    "Deploy a tag from a registry",
+    "{benchname} ghcr.io/acme/mybench:v15.2.1",
+    detail="Pulls with your ambient docker login if the image is not local. Typical on a prod box "
+    "where CI pushed the image.",
+    benchname="mybench",
+)
+@example(
+    "Roll back a bad deploy",
     "{benchname} --previous",
-    detail="Full pipeline pointed backwards. --previous defaults migrate OFF (old code must never "
-    "migrate a newer schema); rolling zero-drop swap when eligible.",
+    detail="The 3am command. Returns to the last deployed tag with migrate disabled automatically "
+    "(old code must never migrate a newer schema). Run it again to undo the rollback.",
     benchname="mybench",
 )
 @example(
-    "Roll back code AND database",
+    "Roll back further than one release",
+    "{benchname} local/mybench:20260718-9f21e0 --no-migrate",
+    detail="--previous only knows the last tag; for anything older pass the tag explicitly "
+    "(recorded in bench_config.toml deploy history) and keep migrate off.",
+    benchname="mybench",
+)
+@example(
+    "Undo a bad migration (code AND database)",
     "{benchname} --previous --restore-db",
-    detail="Also restores the pre-migrate DB dump recorded during the current deploy -- undoes a bad "
-    "migrate. Runs under the maintenance window like a migrate.",
+    detail="Also restores the DB dump recorded during the current deploy, so code and schema go back "
+    "together. Runs under the maintenance window like a migrate.",
+    benchname="mybench",
+)
+@example(
+    "Ship a code-only hotfix without the migrate ceremony",
+    "{benchname} local/mybench:20260721-hotfix1 --no-migrate",
+    detail="Skips migrate, and with it the maintenance window -- which makes the zero-downtime "
+    "rolling swap eligible. Fastest safe path for template/py-only fixes.",
+    benchname="mybench",
+)
+@example(
+    "Force the zero-downtime rolling swap",
+    "{benchname} local/mybench:20260722-def456 --rolling",
+    detail="Old and new web replicas serve side by side, then the old drains away. Only force it when "
+    "both versions work against the same DB schema; --no-rolling forces the plain recreate instead.",
     benchname="mybench",
 )
 def switch(
@@ -223,51 +251,37 @@ def switch(
     ],
     tag: Annotated[
         str | None,
-        typer.Argument(
-            help="Full image tag to switch to (e.g. local/mybench:20260721-abc123). "
-            "Omit with --previous to roll back.",
-            show_default=False,
-        ),
+        typer.Argument(help="Image tag to switch to. Omit when using --previous.", show_default=False),
     ] = None,
     previous: Annotated[
         bool,
-        typer.Option(
-            "--previous",
-            help="Target the previously deployed tag (rollback). Implies --no-migrate unless "
-            "--migrate is passed explicitly.",
-        ),
+        typer.Option("--previous", help="Roll back to the previously deployed tag (disables migrate)."),
     ] = False,
     migrate: Annotated[
         bool | None,
         typer.Option(
             "--migrate/--no-migrate",
-            help="Override the migrate setting from bench config (\\[switch] table) for this run only (config supports true/false/'auto').",
+            help="Force or skip bench migrate for this run (overrides bench config).",
             show_default=False,
         ),
     ] = None,
     restore_db: Annotated[
         bool,
-        typer.Option(
-            "--restore-db",
-            help="Restore the pre-migrate DB dump recorded for the current deploy before the swap "
-            "(code and data go back together).",
-        ),
+        typer.Option("--restore-db", help="Also restore the DB dump recorded during the current deploy."),
     ] = False,
     rolling: Annotated[
         bool | None,
         typer.Option(
             "--rolling/--no-rolling",
-            help="Force/disable the rolling web swap. Default: auto (rolling whenever the overlap "
-            "is safe: no migrate/restore, additive-asserted, or under a maintenance window).",
+            help="Force/disable the rolling web swap (default: auto when the overlap is safe).",
             show_default=False,
         ),
     ] = None,
 ):
     """
-    Switch a bench to an existing image tag (no bake) -- forward deploys and
-    rollbacks are the same full pipeline pointed at different tags. --previous
-    targets the last deployed tag with migrate defaulted OFF; --restore-db also
-    restores the recorded pre-migrate dump.
+    Switch a bench to an already-built image tag (no bake). Roll back with --previous: same pipeline pointed at the last deployed tag, with migrate disabled so old code never runs against a newer schema.
+
+    Pipeline: fetch -> pre-flight -> backup -> migrate (per config) -> swap (rolling when safe) -> record.
     """
     output = get_global_output_handler()
     bench = _load_image_bench(ctx, benchname)
