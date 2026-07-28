@@ -38,9 +38,15 @@ Everyday bench workflows. They apply to any bench - dev or prod, on your laptop 
 
 </div>
 
-## Security & data
+## Domains, security & data
 
 <div class="grid cards" markdown>
+
+-   :lucide-globe-2:{ .lg .middle } &nbsp; **[Domains & Remote Access](domains.md)**
+
+    ---
+
+    How routing works, serving a bench on multiple domains, and tunneling a local bench to the internet.
 
 -   :lucide-shield-check:{ .lg .middle } &nbsp; **[SSL / HTTPS](./ssl.md)**
 

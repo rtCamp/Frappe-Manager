@@ -278,3 +278,15 @@ fm info mybench
     - [Admin Tools](admin-tools.md) - Mailpit and Adminer details
     - [Workers & Background Jobs](../reference/workers.md) - customize Gunicorn workers
     - [SSL Guide](ssl.md) - secure production benches with HTTPS
+
+## Monitoring (New Relic)
+
+Production web processes can report to New Relic APM:
+
+```bash
+fm update mybench --newrelic --newrelic-license-key YOUR_INGEST_KEY
+fm update mybench --no-newrelic
+```
+
+Enabling wraps the web process with the New Relic agent (the frappe container restarts to apply). Works on both runtimes - it is a settings-level change.
+

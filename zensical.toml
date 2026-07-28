@@ -31,6 +31,7 @@ nav = [
     { "Python & Node Versions" = "guides/python-node-versions.md" },
     { "Admin Tools"            = "guides/admin-tools.md" },
     { "fmx: In-Container Services" = "guides/fmx.md" },
+    { "Domains & Remote Access" = "guides/domains.md" },
     { "SSL / HTTPS"            = "guides/ssl.md" },
     { "Backup & Restore"       = "guides/backup-restore.md" },
     { "Upload Limits"          = "guides/upload-limits.md" },
