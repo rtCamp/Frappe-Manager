@@ -31,8 +31,7 @@ def stop(
     """
     Stop everything managed by FM.
 
-    Stops all running benches and global services (global-db, global-nginx-proxy).
-    Use --global-only or --benches-only to stop only a subset.
+    Stops all running benches and global services (global-db, global-nginx-proxy). Use --global-only or --benches-only to stop only a subset.
     """
     services_manager: ServicesManager = ctx.obj["services"]
     verbose = ctx.obj["verbose"]

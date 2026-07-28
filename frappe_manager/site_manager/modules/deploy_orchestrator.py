@@ -578,7 +578,7 @@ class DeployOrchestrator:
         self.output.change_head("Restoring database backup")
         manager.db_import(db_name, db_dump, force=True)
 
-    def _drain_workers(self) -> None:
+    def drain_workers(self) -> None:
         if not (self.switch_config.drain_workers and self._frappe_running()):
             return
         self.output.change_head("Draining RQ workers")
@@ -596,7 +596,7 @@ class DeployOrchestrator:
             # Draining is best-effort; recreate-swap recreates workers regardless.
             self.output.warning(f"Worker drain did not complete cleanly (continuing): {e}")
 
-    def _resume_workers(self) -> None:
+    def resume_workers(self) -> None:
         if not self.switch_config.drain_workers:
             return
         py = (
@@ -955,7 +955,7 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
                 self._set_maintenance(1)
 
             # 6. Drain workers (old container)
-            self._drain_workers()
+            self.drain_workers()
 
             # 7. Backup at the quiesced point: requests are already 503'd (when
             # migrating) and drained workers have finished writing, so the dump
@@ -1041,7 +1041,7 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
 
         # 8. Finalize.
         self.output.change_head("Finalizing (resume workers, install new apps, clear cache, maintenance off)")
-        self._resume_workers()
+        self.resume_workers()
         self._install_new_apps()
         self._apply_config_merges()
         try:
@@ -1075,6 +1075,26 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
                 self.prune_releases(keep=prune_keep)
             except Exception as e:
                 self.output.warning(f"Release prune failed (continuing): {e}")
+
+    def rolling_restart(self) -> None:
+        """Zero-downtime web-tier recreate on the CURRENT tag (`fm restart --rolling`).
+
+        Same engine as the deploy swap, pointed at the running tag: new frappe +
+        nginx replicas come up alongside the old ones, health-gate, drain, rename
+        back to canonical. No migrate, no hooks, no record -- nothing about the
+        release changes, only the containers are fresh.
+        """
+        self._require_image_mode()
+        tag = self._current_deployed_tag()
+        if not tag:
+            raise DeployError("No deployed image tag recorded; deploy first (fm deploy / fm switch).")
+        if not self._frappe_running():
+            raise DeployError("Web tier is not running; use a plain start/restart instead of --rolling.")
+
+        snaps = self._snapshot_compose()
+        self._fetch_image(tag)
+        self._rolling_swap(tag, tag, snaps)
+        self.output.print(f"Rolling restart complete on {tag}", emoji_code=":arrows_counterclockwise:")
 
     def prune_releases(self, keep: int | None = None, dry_run: bool = False) -> dict:
         """Prune old releases: history rows, recorded DB-dump dirs, local image tags.
@@ -1172,7 +1192,7 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
             )
         self._ensure_nginx()
 
-        self._resume_workers()
+        self.resume_workers()
         try:
             self._exec_frappe(f"{BENCH_BIN} --site {self.site} set-config -g maintenance_mode 0")
         except Exception as e:

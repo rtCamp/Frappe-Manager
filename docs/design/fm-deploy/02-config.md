@@ -47,7 +47,7 @@ worker_kill_poll = 3.0
 base_image = "debian:bookworm-slim" # thin OS only; NOT a python image
 python_version = "3.12.12"          # uv python install
 node_version = "22.20.0"            # fnm install
-platforms = ["linux/amd64"]         # target platform(s); cross-arch needs provisioning under emulation
+platform = "linux/amd64"            # target platform; None = native (fm deploy auto-detects the remote arch); cross-arch via emulation
 build_args = {}
 
 [deploy.registry]

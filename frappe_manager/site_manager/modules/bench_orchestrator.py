@@ -353,9 +353,9 @@ class BenchOrchestrator:
 
         bench.site_manager.wait_for_required_services()
 
-        self._verify_bench_server_responding()
+        self.verify_bench_server_responding()
 
-    def _verify_bench_server_responding(self) -> None:
+    def verify_bench_server_responding(self) -> None:
         """Verify bench server is working before site creation"""
         bench = self.bench
 

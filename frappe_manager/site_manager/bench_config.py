@@ -1056,7 +1056,12 @@ class BuildConfig(BaseModel):
     )
     python_version: str | None = Field(None, description="Python version (uv) baked into the image.")
     node_version: str | None = Field(None, description="Node version (fnm) baked into the image.")
-    platforms: list[str] = Field(default_factory=lambda: ["linux/amd64"], description="Target build platform(s).")
+    platform: str | None = Field(
+        None,
+        description="Target build platform (e.g. 'linux/amd64'). None = the build daemon's "
+        "native arch -- except in `fm deploy` with a remote target, which auto-detects the "
+        "remote daemon's arch. Cross-arch bakes run under emulation (needs binfmt/Rosetta).",
+    )
     include: list[str] = Field(
         default_factory=list,
         description="Extra host paths baked into the image: 'src' or 'src:dest' (dest relative to "

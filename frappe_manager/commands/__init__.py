@@ -139,8 +139,7 @@ def app_callback(
     """
     Docker Compose based CLI for managing Frappe benches.
 
-    Create, manage, and develop isolated Frappe environments using containers.
-    Each bench runs independently with its own apps, database, and configuration.
+    Create, manage, and develop isolated Frappe environments using containers. Each bench runs independently with its own apps, database, and configuration.
     """
     ctx.obj = {}
 

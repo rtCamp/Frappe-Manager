@@ -4,10 +4,7 @@ Create a new bench with apps.
 
 Creates a bench directory, config, and installs requested apps. If not specified, Frappe is included by default.
 
-Runtime (--runtime): 'mount' (default) live-mounts code for local
-development, and --image overrides the base frappe image. 'image' runs a pre-built
-app image (built by `fm bake` or otherwise present/pullable) given via --image and
-does not accept --apps/--python/--node -- those are baked into the image.
+Runtime (--runtime): 'mount' (default) live-mounts code for local development, and --image overrides the base frappe image. 'image' runs a pre-built app image (built by `fm bake` or otherwise present/pullable) given via --image and does not accept --apps/--python/--node -- those are baked into the image.
 
 --config supplies a TOML base (file or inline) for the bench config (e.g. [switch],
 [registry], [deploy], [build], [monitoring], per-app hooks); explicit CLI flags

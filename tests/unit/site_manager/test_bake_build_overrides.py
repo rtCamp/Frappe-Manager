@@ -2,8 +2,7 @@
 
 [build].python_version / node_version must override the bench's create-time /
 detected versions before provisioning bakes the image; a missing [build] or
-missing field leaves the existing version untouched. A non-default
-[build].platforms warns (multi/cross-arch not yet honored).
+missing field leaves the existing version untouched.
 """
 
 from frappe_manager.site_manager.bench_config import (
@@ -57,14 +56,15 @@ def test_partial_build_leaves_unset_field(tmp_path):
     assert bc.node_version == "18"  # untouched
 
 
-def test_default_platforms_no_warning(tmp_path):
+def test_default_platform_no_warning(tmp_path):
     out = _Out()
-    BakeManager.apply_build_overrides(_bench(tmp_path, build=BuildConfig(platforms=["linux/amd64"])), out)
+    BakeManager.apply_build_overrides(_bench(tmp_path, build=BuildConfig(platform="linux/amd64")), out)
     assert out.warnings == []
 
 
-def test_custom_platforms_warns(tmp_path):
+def test_apply_build_overrides_never_warns_on_platform(tmp_path):
+    # Platform handling lives at bake-time (resolve_target_platform /
+    # effective_platform); overrides application is warning-free.
     out = _Out()
-    BakeManager.apply_build_overrides(_bench(tmp_path, build=BuildConfig(platforms=["linux/arm64"])), out)
-    assert len(out.warnings) == 1
-    assert "not yet honored" in out.warnings[0]
+    BakeManager.apply_build_overrides(_bench(tmp_path, build=BuildConfig(platform="linux/arm64")), out)
+    assert out.warnings == []

@@ -16,6 +16,7 @@ The provisioning step is the exact same shared path used by ``fm create``
 
 import importlib.metadata
 import json
+import os
 import shutil
 import subprocess
 import tempfile
@@ -62,9 +63,7 @@ class BakeManager:
     def apply_build_overrides(bench_config, output=None) -> None:
         """Apply ``[build].python_version``/``node_version`` onto the bench config
         so provisioning bakes with them (they take precedence over the
-        create-time / auto-detected versions). ``[build].platforms`` (multi- or
-        cross-arch) is not yet honored: provision-then-COPY bakes host-arch
-        binaries, so a foreign-arch image needs emulated provisioning."""
+        create-time / auto-detected versions)."""
         build = bench_config.build
         if not build:
             return
@@ -72,11 +71,59 @@ class BakeManager:
             bench_config.python_version = build.python_version
         if build.node_version:
             bench_config.node_version = build.node_version
-        if output and build.platforms and build.platforms != ["linux/amd64"]:
-            output.warning(
-                f"[build].platforms={build.platforms} is not yet honored; building for the host "
-                f"architecture only (multi/cross-arch needs emulated provisioning).",
+
+    @staticmethod
+    def effective_platform(configured: str | None, deploy_target: str | None) -> tuple[str | None, str | None]:
+        """``(platform, mismatch_warning)`` -- precedence for the bake target.
+
+        Explicit ``[build].platform`` always wins; the deploy target's detected
+        arch fills in only when nothing is configured. A configured platform
+        that differs from the deploy target gets a warning (the operator said
+        so; fm says what that means).
+        """
+        if configured:
+            warning = None
+            if deploy_target and deploy_target != configured:
+                warning = (
+                    f"build.platform={configured} differs from the deploy target's architecture "
+                    f"({deploy_target}); baking {configured} per config -- it will fail the "
+                    f"deploy's pre-flight boot check unless the target can emulate it."
+                )
+            return configured, warning
+        return deploy_target, None
+
+    @staticmethod
+    def resolve_target_platform(platform: str | None, daemon_arch: str | None, source: str) -> tuple[str | None, str | None]:
+        """``(platform, cross_info)`` for a bake.
+
+        ``None`` = build native (no --platform, no message). Otherwise honored;
+        when it differs from the daemon's arch the bake cross-builds under
+        emulation -- only valid with the ``provision`` source (a ``workspace``
+        snapshot contains host-arch binaries) and requires binfmt/Rosetta on
+        the daemon.
+        """
+        if not platform:
+            return None, None
+        cross = daemon_arch is not None and platform.split("/")[-1] != daemon_arch
+        if not cross:
+            return platform, None
+        if source == "workspace":
+            raise BakeError(
+                f"build.platform={platform} differs from the daemon arch (linux/{daemon_arch}) "
+                f"but build.source='workspace' snapshots host-arch binaries. Cross-arch bakes "
+                f"need source='provision'.",
             )
+        return platform, (
+            f"Cross-building for {platform} on a linux/{daemon_arch} daemon via emulation "
+            f"(slower; requires binfmt/QEMU or Rosetta on the build daemon)."
+        )
+
+    def _daemon_arch(self) -> str | None:
+        """The build daemon's native architecture (e.g. 'amd64', 'arm64'), or None."""
+        try:
+            return self.docker_client.version().get("Server", {}).get("Arch")
+        except Exception:
+            return None
 
     def resolve_tag(self) -> str:
         """``<repo>:<UTC timestamp>-<git short sha|nogit>``.
@@ -324,12 +371,70 @@ class BakeManager:
                 shutil.copy2(src, dest)
             self.output.print(f"Included {src_str} -> frappe-bench/{dest_rel}")
 
-    def bake(self, tag: str | None = None, push: bool | None = None) -> str:
+    @staticmethod
+    def parse_manifest_architectures(manifest_json: str) -> set[str] | None:
+        """Architectures offered by a ``docker manifest inspect`` output.
+
+        None when undeterminable (single image manifest, garbage) -- callers
+        must treat that as "cannot prove unsupported", never as a failure.
+        Buildx attestation entries (architecture "unknown") are ignored.
+        """
+        try:
+            data = json.loads(manifest_json)
+        except (ValueError, TypeError):
+            return None
+        manifests = data.get("manifests") if isinstance(data, dict) else None
+        if not manifests:
+            return None
+        arches = {
+            entry.get("platform", {}).get("architecture")
+            for entry in manifests
+            if isinstance(entry, dict)
+        }
+        arches -= {None, "unknown"}
+        return arches or None
+
+    def _check_base_image_platform(self, base_image: str, platform: str) -> None:
+        """Fail fast when the base image provably lacks the target platform.
+
+        A local copy of the right arch satisfies (offline-friendly). Otherwise
+        the registry manifest list decides: target arch missing -> BakeError
+        BEFORE provisioning starts, instead of docker's mid-bake 'no matching
+        manifest' error. Inspection failures stay silent (docker will enforce
+        reality later anyway).
+        """
+        want = platform.split("/")[-1]
+        try:
+            result = run_command_with_exit_code(
+                ["docker", "image", "inspect", base_image, "--format", "{{.Architecture}}"],
+                stream=False,
+            )
+            if "".join(result.stdout).strip() == want:
+                return
+        except Exception:
+            pass
+        try:
+            result = run_command_with_exit_code(["docker", "manifest", "inspect", base_image], stream=False)
+            arches = self.parse_manifest_architectures("".join(result.stdout))
+        except Exception:
+            return
+        if arches and want not in arches:
+            raise BakeError(
+                f"Base image {base_image} is not available for {platform} "
+                f"(published architectures: {', '.join(sorted(arches))}). "
+                f"Every bake starts FROM this image, so a {platform} build of it must exist first: "
+                f"either target one of the published architectures via build.platform, or build/push "
+                f"the base for {platform} yourself and point build.base_image at it.",
+            )
+
+    def bake(self, tag: str | None = None, push: bool | None = None, deploy_platform: str | None = None) -> str:
         """Provision -> build the runtime image (+ optional registry push). Returns the built tag.
 
         ``tag`` overrides the auto-generated ``<repo>:<ts>-<sha>`` when given.
         ``push`` forces (``True``) or suppresses (``False``) the registry push;
         ``None`` (default) pushes when ``[registry].distribution == 'registry'``.
+        ``deploy_platform`` is the deploy target's detected arch (fm deploy
+        with a remote): used when ``[build].platform`` is unset.
         """
         base_image = self.resolve_base_image()
         tag = tag or self.resolve_tag()
@@ -337,6 +442,28 @@ class BakeManager:
 
         self.output.print(f"Baking image {tag}")
         self.output.print(f"Base image: {base_image}")
+
+        build_config = self.bench_config.build
+        source_kind = (build_config.source if build_config else None) or "provision"
+        configured = build_config.platform if build_config else None
+        requested, mismatch = self.effective_platform(configured, deploy_platform)
+        if mismatch:
+            self.output.warning(mismatch)
+        platform, cross_info = self.resolve_target_platform(requested, self._daemon_arch(), source_kind)
+        if platform:
+            origin = "from config" if configured else "auto-detected from deploy target"
+            self.output.print(f"Target platform: {platform} ({origin})")
+        if cross_info:
+            self.output.warning(cross_info)
+        if platform:
+            self._check_base_image_platform(base_image, platform)
+
+        # DOCKER_DEFAULT_PLATFORM steers every docker run/build/pull in this bake
+        # (provisioning containers AND both image builds) -- one lever, no
+        # parameter threading through the provision stack. Restored in finally.
+        prior_platform = os.environ.get("DOCKER_DEFAULT_PLATFORM")
+        if platform:
+            os.environ["DOCKER_DEFAULT_PLATFORM"] = platform
 
         context_dir = Path(tempfile.mkdtemp(prefix="fm-bake-"))
         try:
@@ -424,6 +551,11 @@ class BakeManager:
             # NOTE: local tag pruning is opt-in via `fm prune` / `--keep N` on deploy/switch.
             return tag
         finally:
+            if platform:
+                if prior_platform is None:
+                    os.environ.pop("DOCKER_DEFAULT_PLATFORM", None)
+                else:
+                    os.environ["DOCKER_DEFAULT_PLATFORM"] = prior_platform
             shutil.rmtree(context_dir, ignore_errors=True)
 
     def _registry_config(self):

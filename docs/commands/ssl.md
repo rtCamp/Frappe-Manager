@@ -150,8 +150,7 @@ fm ssl list --all
 
 Add an SSL certificate for a domain.
 
-Supports bench mode (adds certificate to a bench) and standalone mode for external Docker projects using FM nginx-proxy.
-Use --dry-run to validate issuance against Let's Encrypt staging first.
+Supports bench mode (adds certificate to a bench) and standalone mode for external Docker projects using FM nginx-proxy. Use --dry-run to validate issuance against Let's Encrypt staging first.
 
 **Usage**:
 

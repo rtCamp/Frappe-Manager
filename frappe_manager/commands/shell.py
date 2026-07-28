@@ -179,8 +179,7 @@ def shell(
     """
     Spawn shell for the bench or execute a command.
 
-    Supports interactive shells, single command execution (-c), heredoc or piped input, and bench-console mode
-    which runs Python code inside an initialized Frappe context.
+    Supports interactive shells, single command execution (-c), heredoc or piped input, and bench-console mode which runs Python code inside an initialized Frappe context.
     """
 
     check_bench_migration_required(benchname)

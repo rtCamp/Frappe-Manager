@@ -2,9 +2,7 @@
 
 List all benches.
 
-Shows a table with status, runtime (mount/image), environment, installed apps,
-the deployed tag / base image, and path. --json emits the full inventory
-(including alias domains, seed provenance, restart policy) for scripting.
+Shows a table with status, runtime (mount/image), environment, installed apps, the deployed tag / base image, and path. --json emits the full inventory (including alias domains, seed provenance, restart policy) for scripting.
 
 **Usage**:
 

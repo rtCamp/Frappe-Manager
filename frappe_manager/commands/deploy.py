@@ -14,6 +14,7 @@ from frappe_manager.site_manager.modules.transport import (
     build_docker_host,
     docker_host_env,
     present_tags,
+    remote_daemon_arch,
     remote_docker_host,
     transport_save_load,
 )
@@ -167,9 +168,17 @@ def deploy(
 
     docker_host = build_docker_host(remote, remote_config) if remote else remote_docker_host(remote_config)
 
+    # Bake for where the image will RUN: a remote target's daemon arch fills
+    # in when [build].platform is unset (explicit config always wins).
+    deploy_platform = None
+    if docker_host:
+        remote_arch = remote_daemon_arch(docker_host)
+        if remote_arch:
+            deploy_platform = f"linux/{remote_arch}"
+
     try:
         bake_manager = BakeManager(bench.bench_config, output_handler=output)
-        built_tag = bake_manager.bake(tag=tag, push=push)
+        built_tag = bake_manager.bake(tag=tag, push=push, deploy_platform=deploy_platform)
     except BakeError as e:
         output.display_error(str(e))
         raise typer.Exit(1) from e

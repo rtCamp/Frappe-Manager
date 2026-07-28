@@ -1,8 +1,8 @@
 ## `fm restart`
 
-Restart bench services (web, workers, redis, nginx).
+Restart bench services. Web and workers by default; redis/nginx are opt-in: rarely needed, and a redis restart briefly disconnects every consumer (in-flight jobs can fail; data itself persists via volumes + RDB).
 
-Choose between container-level restarts or supervisor-level restarts for faster in-container restarts.
+Three modes: in-container process restart via supervisor (default, fastest), --container (full container stop/start, thorough), --rolling (zero-downtime web recreate; image benches).
 
 **Usage**:
 
@@ -21,8 +21,10 @@ $ fm restart BENCHNAME [OPTIONS]
 * `--redis`: Restart redis services.
 * `--nginx`: Restart nginx service.
 * `--container`: Restart entire Docker container(s). Stops and starts the container.
-* `--supervisor`: Restart supervisor processes inside container. Faster than container restart.
-* `--force`: Force restart: --supervisor uses stop+start (kills processes), --container uses timeout=0 (immediate kill).
+* `--force`: Force restart: kills processes (default mode) / stops containers with timeout=0 (--container).
+* `--rolling`: Zero-downtime web-tier recreate on the current image tag (image benches only).
+* `--drain`: Wait for in-flight RQ jobs to finish before restarting workers (graceful).
+* `--service`: Restart only the named service(s) (repeatable); overrides the group flags. Any service from the bench or workers compose.
 
 
 ## Examples
@@ -35,6 +37,14 @@ Restarts both web and worker services for the bench. Safe for applying configura
 fm restart mybench
 ```
 
+### Restart one service only
+
+Targets a single service instead of a group; repeat --service for several. Code services restart via supervisor, infra services (nginx, redis) via container.
+
+```bash
+fm restart mybench --service socketio
+```
+
 ### Restart via container restart
 
 Restarts by restarting the entire Docker containers (slower but thorough).
@@ -43,12 +53,12 @@ Restarts by restarting the entire Docker containers (slower but thorough).
 fm restart mybench --container
 ```
 
-### Restart via supervisor (faster)
+### Zero-downtime web restart (image bench)
 
-Uses supervisor to restart processes inside containers for a faster restart without recreating containers.
+Recreates web containers on the current tag via the deploy engine's rolling swap: new replicas serve before old ones drain.
 
 ```bash
-fm restart mybench --supervisor
+fm restart mybench --rolling
 ```
 
 ### Restart web services only

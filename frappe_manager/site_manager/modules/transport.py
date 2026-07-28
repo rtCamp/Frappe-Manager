@@ -180,6 +180,19 @@ def remote_docker_host(remote_config) -> str | None:
     return build_docker_host(remote_config.ssh_server, remote_config)
 
 
+def remote_daemon_arch(docker_host: str | None) -> str | None:
+    """``Server.Arch`` (e.g. 'amd64', 'arm64') of the daemon at ``docker_host``,
+    or None (no host / unreachable). Drives fm deploy's bake-platform
+    auto-detection: the image must match where it will RUN, not where it builds."""
+    if not docker_host:
+        return None
+    with docker_host_env(docker_host):
+        try:
+            return DockerClient().version().get("Server", {}).get("Arch")
+        except Exception:
+            return None
+
+
 @contextlib.contextmanager
 def docker_host_env(docker_host: str | None) -> Iterator[None]:
     """Temporarily set ``os.environ['DOCKER_HOST']`` for the block, restoring the

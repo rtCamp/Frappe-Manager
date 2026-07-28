@@ -9,8 +9,7 @@ Two modes:
 - Standalone: `fm bake --apps ... --image ...` (or `--config`) builds an
   image with no bench/compose/site — for CI "build once -> push -> deploy".
 
-Both provision via docker run and COPY the provisioned frappe-bench onto the
-base image (keeping the supervisor entrypoint).
+Both provision via docker run and COPY the provisioned frappe-bench onto the base image (keeping the supervisor entrypoint).
 
 **Usage**:
 

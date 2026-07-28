@@ -154,8 +154,7 @@ fm self compose mybench stats
 
 Stop everything managed by FM.
 
-Stops all running benches and global services (global-db, global-nginx-proxy).
-Use --global-only or --benches-only to stop only a subset.
+Stops all running benches and global services (global-db, global-nginx-proxy). Use --global-only or --benches-only to stop only a subset.
 
 **Usage**:
 

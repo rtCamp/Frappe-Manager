@@ -55,7 +55,7 @@ In `DeployOrchestrator` (mirror `fmd/managers/release.py:432-438`), during the m
 - E2E (needs creds), on `frappe@178.105.214.28`: create a disposable `fctest.localhost` image bench; set `[fc]` + `use_fc_apps`/`use_fc_deps`; `fm deploy` → assert baked apps match FC (commit hashes) + venv python matches FC deps. Then set `use_fc_db`; `fm deploy` → assert the FC DB restored + search-replace rewrote the domain + site pings 200. Clean up bench/images/DB.
 
 ## 20. Remaining minor deferrals (low value)
-- **`[build].platforms` (multi/cross-arch)** — can't be a simple wire: provision-then-COPY bakes host-arch binaries, so a foreign-arch image needs *emulated provisioning* (qemu/buildx + per-arch provision). Currently **warns** when set to a non-default value. Needs its own design pass.
+- **Multi-arch manifests** — deferred (needs per-arch emulated provisioning + buildx imagetools assembly, registry-only). Single-target cross-arch IS wired: `[build].platform` (or fm deploy's remote-arch auto-detection) drives `DOCKER_DEFAULT_PLATFORM` through the whole bake.
 - **SSH-fallback remote** (`ssh <host> fm switch` + `[remote].fm_source`) — `DOCKER_HOST=ssh://` (primary) is wired and sufficient; fallback intentionally deferred (§10).
 - **Worker force-kill timeouts** (`worker_kill_timeout`/`skip_stale_timeout`/`worker_kill_poll`) — vestigial from fmd; fm's drain is best-effort suspend (swap recreates workers). Wiring would add a kill phase; low value.
 - **`search_replace` standalone** — currently a no-op for same-site deploys; becomes meaningful only with `use_fc_db` (19.4).
