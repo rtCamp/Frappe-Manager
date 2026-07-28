@@ -1,6 +1,11 @@
-# Environments
+# Environments: Dev vs Prod
 
-Running a `dev` environment on a production server exposes debug tools, uses a single-threaded web server, and won't auto-restart after crashes. This guide shows you when and how to switch between `dev` (development) and `prod` (production) modes.
+The environment is the **second axis** of a bench: it controls **how the web process runs** - `dev` uses Frappe's auto-reloading development server, `prod` uses Gunicorn - plus the convenience defaults that come with each (restart policy at create time, admin tools, developer mode).
+
+!!! note "Runtime comes first"
+    The environment does not decide where your code lives - that's the [runtime (mount vs image)](../concepts/runtimes.md). A `prod` bench can still be fully editable (`mount`), and an immutable `image` bench can run `dev`. Read [Concepts](../concepts/index.md) first if you haven't.
+
+Running `dev` on a public server exposes debug tools, serves single-threaded, and won't restart after crashes - switch such benches to `prod`.
 
 ## Switching environments
 
@@ -100,7 +105,7 @@ fm update mybench --developer-mode disable
 ```
 
 !!! info "Environment vs developer mode"
-    **Environment** (`dev`/`prod`) controls the web server type and restart policy. **Developer mode** controls Frappe's debug features. They're related but independent — you can run prod environment with developer mode enabled, though this isn't recommended for production servers.
+    **Environment** (`dev`/`prod`) controls the web server type and restart policy. **Developer mode** controls Frappe's debug features. They're related but independent - you can run prod environment with developer mode enabled, though this isn't recommended for production servers.
 
 ---
 
@@ -111,7 +116,7 @@ fm update mybench --developer-mode disable
 | **Mailpit** | Email testing (catches all outgoing emails) | ✅ Enabled | ❌ Disabled | `http://mybench.localhost/mailpit` |
 | **Adminer** | Database web UI | ✅ Enabled | ❌ Disabled | `http://mybench.localhost/adminer` |
 
-These are **create-time defaults** — switching environments later does not enable or disable admin tools.
+These are **create-time defaults** - switching environments later does not enable or disable admin tools.
 
 You can toggle admin tools **independently** of the environment:
 
@@ -268,8 +273,8 @@ fm info mybench
 ---
 
 !!! info "See also"
-    - [VSCode Integration](vscode.md) — attach debugger to dev benches
-    - [Deployment — Image Benches](deployment.md) — ship production code as immutable images
-    - [Admin Tools](admin-tools.md) — Mailpit and Adminer details
-    - [Workers & Background Jobs](../reference/workers.md) — customize Gunicorn workers
-    - [SSL Guide](ssl.md) — secure production benches with HTTPS
+    - [VSCode Integration](vscode.md) - attach debugger to dev benches
+    - [Deployment - Image Benches](deployment.md) - ship production code as immutable images
+    - [Admin Tools](admin-tools.md) - Mailpit and Adminer details
+    - [Workers & Background Jobs](../reference/workers.md) - customize Gunicorn workers
+    - [SSL Guide](ssl.md) - secure production benches with HTTPS

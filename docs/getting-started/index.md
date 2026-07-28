@@ -8,7 +8,7 @@ Everything you need to go from zero to a running Frappe bench.
 
     ---
 
-    Check what you need before installing — Python, Docker, and a few minutes.
+    Check what you need before installing - Python, Docker, and a few minutes.
 
 -   :lucide-package:{ .lg .middle } &nbsp; **[Installation](installation.md)**
 
@@ -23,3 +23,9 @@ Everything you need to go from zero to a running Frappe bench.
     Create your first bench step by step, then learn the most common day-to-day commands.
 
 </div>
+
+## After your first bench
+
+- Understand the model (5 minutes): [Concepts - runtimes and environments](../concepts/index.md)
+- Build things daily: [Guides](../guides/index.md)
+- Ready to ship: [Deployment](../guides/deployment.md)

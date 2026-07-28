@@ -7,7 +7,7 @@ Two modes:
 - Bench: `fm bake <bench>` provisions the named bench's apps into a temp
   build context and builds a runtime image.
 - Standalone: `fm bake --apps ... --image ...` (or `--config`) builds an
-  image with no bench/compose/site — for CI "build once -> push -> deploy".
+  image with no bench/compose/site -- for CI "build once -> push -> deploy".
 
 Both provision via docker run and COPY the provisioned frappe-bench onto the base image (keeping the supervisor entrypoint).
 
@@ -55,7 +55,7 @@ fm bake mybench --image local/mybench
 
 ### Standalone bake (no bench) from apps
 
-Builds an image directly from apps — no bench/compose/site. Ideal for CI 'build once -> push -> deploy elsewhere'.
+Builds an image directly from apps -- no bench/compose/site. Ideal for CI 'build once -> push -> deploy elsewhere'.
 
 ```bash
 fm bake --apps erpnext:version-15 --image ghcr.io/acme/mysite --push

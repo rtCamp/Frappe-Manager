@@ -6,9 +6,9 @@ FM provides multiple log streams for debugging bench issues, monitoring service 
 
 Logs are separated into three layers:
 
-1. **CLI logs** — FM command operations (`fm create`, `fm update`, etc.)
-2. **Bench logs** — Frappe application logs (web server, workers, scheduler)
-3. **Service logs** — Global infrastructure (MariaDB, Redis, nginx-proxy)
+1. **CLI logs** - FM command operations (`fm create`, `fm update`, etc.)
+2. **Bench logs** - Frappe application logs (web server, workers, scheduler)
+3. **Service logs** - Global infrastructure (MariaDB, Redis, nginx-proxy)
 
 !!! tip "Quick access"
     **Stream the bench web server log:**
@@ -46,7 +46,7 @@ Logs are separated into three layers:
 
 ### `fm.log` Line Format {#fm-log-format}
 
-Every line in `fm.log` carries ambient context — a correlation id for the CLI invocation, plus the bench, operation, and component when known:
+Every line in `fm.log` carries ambient context - a correlation id for the CLI invocation, plus the bench, operation, and component when known:
 
 ```
 [<timestamp>] LEVEL: [corr=<id>] [bench=<name>] [op=<operation>] [component=<component>] message
@@ -58,9 +58,9 @@ Example:
 [2026-07-27 17:41:12,694] INFO: [corr=5211fa23] [op=list] [component=output] [OUTPUT] DATA:
 ```
 
-- `corr=` — first 8 chars of a per-invocation correlation id; grep it to see everything one command did
-- `bench=` / `op=` — the bench and operation the line belongs to (present when applicable)
-- `component=` — which subsystem logged it (e.g. `docker`, `migration`, `output`)
+- `corr=` - first 8 chars of a per-invocation correlation id; grep it to see everything one command did
+- `bench=` / `op=` - the bench and operation the line belongs to (present when applicable)
+- `component=` - which subsystem logged it (e.g. `docker`, `migration`, `output`)
 
 ```bash
 # Trace a single fm invocation end to end
@@ -70,7 +70,7 @@ grep 'corr=5211fa23' ~/frappe/logs/fm.log
 
 ## Viewing Logs with `fm logs`
 
-`fm logs` shows **bench** logs — not FM's own operation log (that lives in `~/frappe/logs/fm.log`).
+`fm logs` shows **bench** logs - not FM's own operation log (that lives in `~/frappe/logs/fm.log`).
 
 ### Basic Usage
 
@@ -224,7 +224,7 @@ file_level = "DEBUG"
 !!! info "File log vs console output"
     `file_level` only affects `~/frappe/logs/fm.log` (default `DEBUG`). Console output verbosity is controlled by the `--verbose` / `--log-level` flags.
 
-**See also:** [Configuration reference — logs.file_level](/reference/configuration/#logs-file-level)
+**See also:** [Configuration reference - logs.file_level](/reference/configuration/#logs-file-level)
 
 ---
 

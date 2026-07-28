@@ -1,6 +1,6 @@
 [project]
 site_name        = "Frappe Manager"
-site_description = "Documentation for Frappe Manager — simple local Frappe development and deployment"
+site_description = "Documentation for Frappe Manager: simple local Frappe development and deployment"
 site_url         = "https://opensource.rtcamp.com/Frappe-Manager/"
 repo_name        = "rtcamp/frappe-manager"
 repo_url         = "https://github.com/rtcamp/frappe-manager"
@@ -18,22 +18,27 @@ nav = [
     { "Installation"  = "getting-started/installation.md" },
     { "Quick Start"   = "getting-started/quick-start.md" },
   ]},
+  { "Concepts" = [
+    "concepts/index.md",
+    { "Runtimes: Mount vs Image"   = "concepts/runtimes.md" },
+    { "Environments: Dev vs Prod"  = "guides/environments.md" },
+    { "Architecture"                = "reference/architecture.md" },
+  ]},
   { "Guides" = [
     "guides/index.md",
-    { "Environments"           = "guides/environments.md" },
-    { "Deployment (Image Benches)" = "guides/deployment.md" },
-    { "SSL / HTTPS"            = "guides/ssl.md" },
-    { "App Management"         = "guides/app-management.md" },
-    { "Admin Tools"            = "guides/admin-tools.md" },
     { "VSCode Integration"     = "guides/vscode.md" },
-    { "Windows / WSL"          = "guides/wsl.md" },
-    { "External Database"      = "guides/external-database.md" },
+    { "App Management"         = "guides/app-management.md" },
+    { "Python & Node Versions" = "guides/python-node-versions.md" },
+    { "Admin Tools"            = "guides/admin-tools.md" },
+    { "fmx: In-Container Services" = "guides/fmx.md" },
+    { "SSL / HTTPS"            = "guides/ssl.md" },
+    { "Backup & Restore"       = "guides/backup-restore.md" },
     { "Upload Limits"          = "guides/upload-limits.md" },
+    { "External Database"      = "guides/external-database.md" },
     { "Google API Development" = "guides/google-api.md" },
-    { "fmx — In-Container Services" = "guides/fmx.md" },
-    { "Python & Node Versions"      = "guides/python-node-versions.md" },
-    { "Backup & Restore"            = "guides/backup-restore.md" },
+    { "Windows / WSL"          = "guides/wsl.md" },
   ]},
+  { "Deployment" = "guides/deployment.md" },
   { "Commands" = [
     "commands/index.md",
     { "fm create"   = "commands/create.md" },
@@ -63,18 +68,17 @@ nav = [
   ]},
   { "Reference" = [
     "reference/index.md",
-    { "Architecture"              = "reference/architecture.md" },
-    { "Configuration Files"       = "reference/configuration.md" },
+    { "Configuration Files" = "reference/configuration.md" },
     { "Workers & Background Jobs" = "reference/workers.md" },
-    { "Migrations"                = "reference/migrations.md" },
-    { "Logs & Debugging"          = "reference/logs.md" },
+    { "Migrations"          = "reference/migrations.md" },
+    { "Logs & Debugging"    = "reference/logs.md" },
   ]},
   { "FAQ"       = "faq.md" },
   { "Changelog" = "changelog.md" },
 ]
 
 # ---------------------------------------------------------------------------
-# Theme — rtCamp Brand Inspired
+# Theme: rtCamp Brand Inspired
 # ---------------------------------------------------------------------------
 [project.theme]
 variant  = "modern"
@@ -115,7 +119,7 @@ edit     = "lucide/pencil"
 previous = "lucide/chevron-left"
 next     = "lucide/chevron-right"
 
-# Light mode — rtCamp orange + purple accents
+# Light mode: rtCamp orange + purple accents
 [[project.theme.palette]]
 scheme      = "default"
 primary     = "deep-orange"
@@ -125,7 +129,7 @@ accent      = "pink"
   icon = "lucide/moon"
   name = "Switch to dark mode"
 
-# Dark mode — rtCamp orange + purple accents  
+# Dark mode: rtCamp orange + purple accents  
 [[project.theme.palette]]
 scheme      = "slate"
 primary     = "deep-orange"
@@ -149,7 +153,7 @@ link = "https://pypi.org/project/frappe-manager/"
 name = "PyPI"
 
 # ---------------------------------------------------------------------------
-# Versioning — powered by squidfunk/mike fork
+# Versioning: powered by squidfunk/mike fork
 # ---------------------------------------------------------------------------
 [project.extra.version]
 provider = "mike"

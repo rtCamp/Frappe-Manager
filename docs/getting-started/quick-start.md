@@ -44,6 +44,6 @@ See the [Deployment guide](../guides/deployment.md) for the full pipeline.
 
 **Where to go next:**
 
-- [Guides](../guides/index.md) — environments, SSL, app management, VSCode, and more
-- [App Management](../guides/app-management.md) — install ERPNext or other apps
-- [Commands](../commands/index.md) — full reference for every `fm` command
+- [Guides](../guides/index.md) - environments, SSL, app management, VSCode, and more
+- [App Management](../guides/app-management.md) - install ERPNext or other apps
+- [Commands](../commands/index.md) - full reference for every `fm` command

@@ -5,7 +5,7 @@ Use WSL2 with Docker Desktop's WSL2 backend for the best experience on Windows.
 Tips:
 
 - Keep the ~/frappe/ directory on the Linux filesystem (for example, /home/youruser/frappe), not on /mnt/c/.
-- Windows 11: *.localhost usually resolves automatically — no hosts file edit needed.
+- Windows 11: *.localhost usually resolves automatically - no hosts file edit needed.
 - Windows 10: you may need to add an entry to the hosts file at C:\Windows\System32\drivers\etc\hosts:
 
 ```text

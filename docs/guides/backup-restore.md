@@ -1,6 +1,6 @@
 # Backup & Restore
 
-Frappe Manager does not manage your Frappe site data backups directly — that is Frappe's job. FM's role is to make it easy to trigger backups and to keep your bench configuration safe during migrations.
+Frappe Manager does not manage your Frappe site data backups directly - that is Frappe's job. FM's role is to make it easy to trigger backups and to keep your bench configuration safe during migrations.
 
 ## Backing up your site data
 
@@ -76,9 +76,9 @@ Migration backups are stored at:
 
 They include, among others:
 
-- `bench_config.toml` — bench configuration
-- `docker-compose.yml` — container definitions
-- `common_site_config.json` — Frappe site config
+- `bench_config.toml` - bench configuration
+- `docker-compose.yml` - container definitions
+- `common_site_config.json` - Frappe site config
 - a gzipped SQL dump of the site database (for migrations that touch data)
 
 If a migration fails partway through, FM can restore these files automatically (see the `--on-failure` option of `fm migrate`). You can also restore them manually by copying them back to the bench directory.
@@ -106,11 +106,11 @@ If you want to wipe a bench's database and start fresh (keeping the app code), u
 fm reset mybench
 ```
 
-This drops the database and reinstalls all apps. Back up first — this is irreversible.
+This drops the database and reinstalls all apps. Back up first - this is irreversible.
 
 ---
 
 !!! info "See also"
-    - [Deployment guide](deployment.md#releases-history-and-pruning) — image benches keep a pre-migrate DB dump per release; `fm prune` trims old dumps, and `fm switch --previous --restore-db` rolls back to one
-    - [Migrations reference](../reference/migrations.md) — how FM migrations work and how rollbacks are triggered
-    - [fm migrate command](../commands/migrate.md) — all migration flags
+    - [Deployment guide](deployment.md#releases-history-and-pruning) - image benches keep a pre-migrate DB dump per release; `fm prune` trims old dumps, and `fm switch --previous --restore-db` rolls back to one
+    - [Migrations reference](../reference/migrations.md) - how FM migrations work and how rollbacks are triggered
+    - [fm migrate command](../commands/migrate.md) - all migration flags

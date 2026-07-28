@@ -6,14 +6,14 @@ Frappe uses RQ (Redis Queue) to process background jobs in dedicated worker cont
 
 Worker containers run independently from the web server and process jobs asynchronously:
 
-- **Jobs** — Enqueued Python tasks (sending email, generating reports, processing imports)
-- **Queues** — Named channels holding jobs (default, short, long, custom app queues)
-- **Workers** — Container processes that pull jobs from queues and execute them
+- **Jobs** - Enqueued Python tasks (sending email, generating reports, processing imports)
+- **Queues** - Named channels holding jobs (default, short, long, custom app queues)
+- **Workers** - Container processes that pull jobs from queues and execute them
 
 FM runs each worker in its own container:
 
-1. **Built-in workers** — `short-worker` and `long-worker` containers (always present), plus the `schedule` container that runs the scheduler
-2. **Custom queues** — one `<name>-worker` container per entry in the `workers` key of `common_site_config.json`
+1. **Built-in workers** - `short-worker` and `long-worker` containers (always present), plus the `schedule` container that runs the scheduler
+2. **Custom queues** - one `<name>-worker` container per entry in the `workers` key of `common_site_config.json`
 
 !!! tip "Quick operations"
     **Restart workers (leave web running):**
@@ -80,7 +80,7 @@ Handles jobs like:
 
 At each tick it checks the `scheduler_events` declared in every installed app's `hooks.py` (hourly, daily, weekly, monthly, cron expressions) and **enqueues** the due jobs onto the RQ queues.
 
-**Not a queue worker:** It does not execute jobs itself — the short/long workers pick up and run what it enqueues.
+**Not a queue worker:** It does not execute jobs itself - the short/long workers pick up and run what it enqueues.
 
 ---
 
@@ -101,7 +101,7 @@ Define custom queues in `common_site_config.json` under the `workers` key:
 
 FM generates a supervisor program (`bench worker --queue myqueue`) and a dedicated container for each entry when the bench's workers are (re)configured. Container name format: `fm__<benchname>__myqueue-worker` (dots in the bench name become underscores). `timeout` sets the worker's stop grace period; `background_workers` overrides the process count for that queue.
 
-**See also:** [Frappe Framework — Background Jobs](https://frappeframework.com/docs/user/en/python-api/background-jobs)
+**See also:** [Frappe Framework - Background Jobs](https://frappeframework.com/docs/user/en/python-api/background-jobs)
 
 
 ---
@@ -129,7 +129,7 @@ fm restart mybench --drain
 
 **What happens:**
 
-1. Workers are suspended via a Redis flag — they refuse new jobs
+1. Workers are suspended via a Redis flag - they refuse new jobs
 2. FM waits for every in-flight job to finish (stale idle workers are skipped so a hung worker cannot block forever)
 3. Workers restart
 4. Workers resume accepting jobs

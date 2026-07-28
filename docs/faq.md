@@ -71,13 +71,13 @@ Or export `GITHUB_TOKEN` in your shell before running `fm create` and FM will pi
 
 ### How do I change the Administrator password?
 
-**Option A** — reset and reinstall (destructive):
+**Option A** - reset and reinstall (destructive):
 
 ```bash
 fm reset mybench --admin-pass newpass
 ```
 
-**Option B** — change password only, no data loss:
+**Option B** - change password only, no data loss:
 
 ```bash
 fm shell mybench -c "bench set-admin-password newpass"
@@ -85,7 +85,7 @@ fm shell mybench -c "bench set-admin-password newpass"
 
 ### How do I reset a bench to a clean state?
 
-`fm reset mybench` drops the bench database and reinstalls all apps from scratch. This is destructive — back up first.
+`fm reset mybench` drops the bench database and reinstalls all apps from scratch. This is destructive - back up first.
 
 ### How do I back up my bench?
 
@@ -108,7 +108,7 @@ fm shell mybench          # interactive
 
 ### How do I share my bench for testing?
 
-Create a temporary public URL with ngrok. An auth token is required — sign up at [ngrok.com](https://ngrok.com) if you don't have one.
+Create a temporary public URL with ngrok. An auth token is required - sign up at [ngrok.com](https://ngrok.com) if you don't have one.
 
 ```bash
 fm ngrok mybench --auth-token YOUR_TOKEN
@@ -148,7 +148,7 @@ fm shell mybench -c "fmx restart frappe"
 
 ### How do I safely restart during a deployment without losing jobs?
 
-Drain the queues first — workers finish their current jobs before anything restarts:
+Drain the queues first - workers finish their current jobs before anything restarts:
 
 ```bash
 fm restart mybench --drain
@@ -166,7 +166,7 @@ See the [fmx guide](guides/fmx.md) for the full reference including maintenance 
 
 ## Troubleshooting
 
-### My site won't load at mybench.localhost — what should I check?
+### My site won't load at mybench.localhost: what should I check?
 
 Work through these in order:
 

@@ -34,7 +34,7 @@ Install the latest stable release from PyPI. This is the recommended option for 
 === "pip"
 
     ```bash
-    # Not recommended for system installs — prefer uv or pipx
+    # Not recommended for system installs - prefer uv or pipx
     pip install frappe-manager
     ```
 

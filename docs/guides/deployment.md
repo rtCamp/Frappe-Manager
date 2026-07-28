@@ -1,4 +1,4 @@
-# Deployment — Image Benches
+# Deployment: Image Benches
 
 fm runs a bench in one of two **runtimes**:
 
@@ -7,7 +7,7 @@ fm runs a bench in one of two **runtimes**:
 | `mount` | your editable workspace, bind-mounted into containers | development |
 | `image` | an immutable, pre-built app image (code + venv + assets baked in) | production |
 
-This guide covers the image lifecycle: **bake** an image, **deploy** it, **roll back**, keep the release history **pruned** — and how fm moves traffic without dropping requests.
+This guide covers the image lifecycle: **bake** an image, **deploy** it, **roll back**, keep the release history **pruned** - and how fm moves traffic without dropping requests.
 
 ## The lifecycle at a glance
 
@@ -20,11 +20,11 @@ flowchart LR
     R -->|fm prune / --keep N| H[trimmed history,\ndumps, image tags]
 ```
 
-- `fm bake <bench>` — build the image only (prints the tag).
-- `fm deploy <bench>` — bake **and** run the full switch pipeline in one command.
-- `fm switch <bench> <tag>` — deploy an already-built tag (no bake).
-- `fm switch <bench> --previous` — roll back (same pipeline pointed backwards, migrate disabled).
-- `fm prune <bench>` — remove old releases; also available inline as `--keep N` on deploy/switch.
+- `fm bake <bench>` - build the image only (prints the tag).
+- `fm deploy <bench>` - bake **and** run the full switch pipeline in one command.
+- `fm switch <bench> <tag>` - deploy an already-built tag (no bake).
+- `fm switch <bench> --previous` - roll back (same pipeline pointed backwards, migrate disabled).
+- `fm prune <bench>` - remove old releases; also available inline as `--keep N` on deploy/switch.
 
 Every deploy is recorded in the bench's `bench_config.toml` under `[deploy_state]` (current tag, previous tag, full history with migrate status and the DB dump taken). `fm info <bench>` shows the whole history in its **deploys** section.
 
@@ -58,14 +58,14 @@ flowchart TD
 
 Key properties:
 
-- **Aborts are safe.** Any failure before the swap restores the compose snapshot — the old stack never stopped serving, and a later plain `compose up` cannot jump tags.
+- **Aborts are safe.** Any failure before the swap restores the compose snapshot - the old stack never stopped serving, and a later plain `compose up` cannot jump tags.
 - **A failed migrate never swaps.** `bench migrate` is transactional/resumable, so the default is keep-old and re-run after fixing.
 - **The DB dump is exact.** It is taken while requests are already on the maintenance page and workers are drained, so restoring it loses nothing that happened before the migrate.
 - **Drain and dump are not migrate-only.** Workers are drained on every deploy (`drain_workers = true`, the default), and with `backup_db = true` (the default) the DB dump is taken even for `--no-migrate` deploys; set `backup_db = "auto"` to dump only when a schema step (migrate or restore) runs.
 
 ## The rolling web swap
 
-When the version overlap is safe, fm runs old and new web replicas side by side and drains the old — zero dropped requests instead of the recreate blip:
+When the version overlap is safe, fm runs old and new web replicas side by side and drains the old - zero dropped requests instead of the recreate blip:
 
 ```mermaid
 sequenceDiagram
@@ -102,7 +102,7 @@ The stop → reload → remove order exists because app-nginx resolves its `upst
 | migrate/restore **under** the maintenance page (both replicas serve the 503) | rolling |
 | migrate/restore with the maintenance page disabled | recreate |
 
-Honest caveat: rolling is zero-**downtime**, not zero-**skew** — during the overlap a request may see old assets with new code or vice-versa. Eligibility guarantees both versions are DB-compatible, so the skew cannot 500.
+Honest caveat: rolling is zero-**downtime**, not zero-**skew** - during the overlap a request may see old assets with new code or vice-versa. Eligibility guarantees both versions are DB-compatible, so the skew cannot 500.
 
 The same engine powers `fm restart --rolling`: a zero-downtime web-tier recreate on the *current* tag (fresh containers, no release change).
 
@@ -115,10 +115,10 @@ fm switch mybench local/mybench:<older-tag> --no-migrate   # further than one re
 ```
 
 - `--previous` disables migrate for the run (old code must never migrate a newer schema); override with an explicit `--migrate`.
-- `--restore-db` finds the DB dump recorded for the **current** (bad) deploy in the history and imports it before the swap — a restore is schema-grade, so it runs under the maintenance window like a migrate. Rows written after the bad deploy went live are discarded; that is why it is never implicit.
-- After a rollback, `previous_tag` points at the tag you just left — running `fm switch --previous` again re-deploys it (deliberate: rollback of a rollback is a redo).
+- `--restore-db` finds the DB dump recorded for the **current** (bad) deploy in the history and imports it before the swap - a restore is schema-grade, so it runs under the maintenance window like a migrate. Rows written after the bad deploy went live are discarded; that is why it is never implicit.
+- After a rollback, `previous_tag` points at the tag you just left - running `fm switch --previous` again re-deploys it (deliberate: rollback of a rollback is a redo).
 
-## Transports — getting the image to where it runs
+## Transports: getting the image to where it runs
 
 ```mermaid
 flowchart LR
@@ -148,17 +148,17 @@ ssh_user   = "frappe"
 ssh_port   = 22
 ```
 
-With a remote configured, the **entire pipeline** drives the remote daemon over `DOCKER_HOST=ssh://` — no fm needed on the target. Registry mode encodes the registry host in the top-level `image` (e.g. `ghcr.io/acme/mybench`); when `[registry] registry/username/password` are all set they are used for `docker login`, otherwise ambient docker auth applies.
+With a remote configured, the **entire pipeline** drives the remote daemon over `DOCKER_HOST=ssh://` - no fm needed on the target. Registry mode encodes the registry host in the top-level `image` (e.g. `ghcr.io/acme/mybench`); when `[registry] registry/username/password` are all set they are used for `docker login`, otherwise ambient docker auth applies.
 
 ## Platforms (CPU architectures)
 
 Images are architecture-specific. fm resolves the bake target as:
 
 1. `[build].platform` if set (explicit always wins; a mismatch with the deploy target warns),
-2. else, for `fm deploy` with a remote: the **remote daemon's architecture**, auto-detected — the image must match where it *runs*, not where it builds,
+2. else, for `fm deploy` with a remote: the **remote daemon's architecture**, auto-detected - the image must match where it *runs*, not where it builds,
 3. else the build daemon's native arch.
 
-Cross-arch bakes (e.g. building `linux/amd64` on an Apple Silicon Mac) run the whole bake — provisioning containers and image builds — under `DOCKER_DEFAULT_PLATFORM`, which requires emulation (Rosetta/binfmt; Docker Desktop ships it) and only works with `[build].source = "provision"` (a `workspace` snapshot contains host-arch binaries, so fm refuses it). Before provisioning starts, fm verifies the **base image** actually publishes the target architecture and fails fast with the available list if not. Multi-arch manifest lists are not supported — one platform per bake.
+Cross-arch bakes (e.g. building `linux/amd64` on an Apple Silicon Mac) run the whole bake - provisioning containers and image builds - under `DOCKER_DEFAULT_PLATFORM`, which requires emulation (Rosetta/binfmt; Docker Desktop ships it) and only works with `[build].source = "provision"` (a `workspace` snapshot contains host-arch binaries, so fm refuses it). Before provisioning starts, fm verifies the **base image** actually publishes the target architecture and fails fast with the available list if not. Multi-arch manifest lists are not supported - one platform per bake.
 
 ## Releases, history, and pruning
 
@@ -171,8 +171,8 @@ fm deploy mybench --keep 7   # prune inline after a successful deploy (opt-in)
 
 Pruning splits two concerns:
 
-- **History rows** are audit lines — the newest N are kept (`--keep`, default `[switch].keep_releases = 7`).
-- **Artifacts are refcounted** — a DB dump dir is deleted only when no kept row references it; an image tag (and its paired `-nginx` assets image) is removed only when neither a kept row nor the protected set (current, previous, seed, base) references it.
+- **History rows** are audit lines - the newest N are kept (`--keep`, default `[switch].keep_releases = 7`).
+- **Artifacts are refcounted** - a DB dump dir is deleted only when no kept row references it; an image tag (and its paired `-nginx` assets image) is removed only when neither a kept row nor the protected set (current, previous, seed, base) references it.
 
 Nothing a running or rollback-reachable release needs can be pruned.
 
@@ -194,7 +194,7 @@ Nothing a running or rollback-reachable release needs can be pruned.
 |---|---|---|
 | `migrate` | `true` | `true` / `false` / `"auto"` (probe the new image against the live DB) |
 | `migrate_timeout` | `300` | seconds for the one-shot migrate |
-| `migrate_command` | — | custom migrate command override |
+| `migrate_command` | - | custom migrate command override |
 | `maintenance_mode` | `true` | show the maintenance page during schema-changing steps |
 | `maintenance_mode_phases` | `["migrate"]` | `[]` asserts a backward-compatible migration (enables rolling with migrate) |
 | `backup_db` | `true` | `true` / `false` / `"auto"` (dump only when a schema step runs) |
@@ -203,8 +203,8 @@ Nothing a running or rollback-reachable release needs can be pruned.
 | `install_apps` | `true` | install newly-baked apps to the site during finalize |
 | `keep_releases` | `7` | retention used by `fm prune` |
 | `drain_workers` (+ `_timeout`, `_poll`, `skip_stale_*`) | `true` | drain RQ workers before migrate/swap |
-| `common_site_config` / `site_config` | — | keys merged into the site configs during finalize |
-| `hooks` | — | `before/after_migrate`, `before/after_restart` (container + `host.*` variants) |
+| `common_site_config` / `site_config` | - | keys merged into the site configs during finalize |
+| `hooks` | - | `before/after_migrate`, `before/after_restart` (container + `host.*` variants) |
 
 ### `[registry]` and `[deploy]`
 

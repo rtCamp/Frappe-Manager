@@ -6,8 +6,8 @@ When you update FM CLI itself, run `fm migrate` to upgrade your benches and infr
 
 FM migrations operate at two levels:
 
-1. **FM Infrastructure** — Global services (MariaDB, Redis, nginx-proxy) and CLI configuration
-2. **Benches** — Individual bench environments, configurations, and compose files
+1. **FM Infrastructure** - Global services (MariaDB, Redis, nginx-proxy) and CLI configuration
+2. **Benches** - Individual bench environments, configurations, and compose files
 
 Migrations are **version-aware**: FM tracks which version each component is migrated to and only applies necessary upgrade steps.
 
@@ -36,11 +36,11 @@ Migrations are **version-aware**: FM tracks which version each component is migr
 
 ### Migration Process
 
-1. **Pre-flight checks** — Validates current state and determines required migrations
-2. **Backup creation** — Creates backups of config files + MariaDB dump
-3. **Apply migrations** — Executes version-specific upgrade steps
-4. **Verification** — Validates successful migration
-5. **State update** — Records the new version in `[migration_state]`
+1. **Pre-flight checks** - Validates current state and determines required migrations
+2. **Backup creation** - Creates backups of config files + MariaDB dump
+3. **Apply migrations** - Executes version-specific upgrade steps
+4. **Verification** - Validates successful migration
+5. **State update** - Records the new version in `[migration_state]`
 
 ### What Gets Backed Up
 

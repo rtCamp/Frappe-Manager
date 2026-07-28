@@ -62,7 +62,7 @@ def _build_standalone_config(
 
     The flags seed a minimal base config; each ``--config`` overlay deep-merges
     on top (later wins), exactly like the bench-mode overlay. No bench dir is
-    touched — bake provisions the resulting apps into a temp build context.
+    touched -- bake provisions the resulting apps into a temp build context.
     """
     doc = tomlkit.document()
     doc["name"] = _bake_name(image)
@@ -116,7 +116,7 @@ def _build_standalone_config(
 @example(
     "Standalone bake (no bench) from apps",
     "--apps erpnext:version-15 --image ghcr.io/acme/mysite --push",
-    detail="Builds an image directly from apps — no bench/compose/site. Ideal for CI 'build once -> push -> deploy elsewhere'.",
+    detail="Builds an image directly from apps -- no bench/compose/site. Ideal for CI 'build once -> push -> deploy elsewhere'.",
 )
 @example(
     "Standalone bake from a config file",
@@ -228,7 +228,7 @@ def bake(
     - Bench: `fm bake <bench>` provisions the named bench's apps into a temp
       build context and builds a runtime image.
     - Standalone: `fm bake --apps ... --image ...` (or `--config`) builds an
-      image with no bench/compose/site — for CI "build once -> push -> deploy".
+      image with no bench/compose/site -- for CI "build once -> push -> deploy".
 
     Both provision via docker run and COPY the provisioned frappe-bench onto the base image (keeping the supervisor entrypoint).
     """

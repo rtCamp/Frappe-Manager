@@ -222,7 +222,7 @@ def _add_external_certificate(
             nginx_controller.reload()
             output.print("Nginx reloaded with HTTPS enabled", emoji_code=":white_check_mark:")
         except Exception as post_cert_error:
-            # HTTPS config or reload failed — cert was already issued; clean up to avoid orphan
+            # HTTPS config or reload failed -- cert was already issued; clean up to avoid orphan
             output.change_head("Cleaning up after HTTPS configuration failure")
             try:
                 cert_manager.remove_certificate_by_domain(domain)

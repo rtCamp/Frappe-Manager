@@ -1,6 +1,6 @@
 # Reference
 
-Technical reference documentation for Frappe Manager internals. These pages serve lookup — not learning. For how-to guides, see [Guides](../guides/index.md).
+Technical reference documentation for Frappe Manager internals. These pages serve lookup - not learning. For the mental model start at [Concepts](../concepts/index.md); for workflows see the [Guides](../guides/index.md) and [Deployment](../guides/deployment.md).
 
 ---
 
@@ -8,23 +8,17 @@ Technical reference documentation for Frappe Manager internals. These pages serv
 
 <div class="grid cards" markdown>
 
--   :material-sitemap:{ .lg .middle } **[Architecture](architecture.md)**
-
-    ---
-
-    Service topology, container layout, volume/network architecture, Docker Compose structure.
-
--   :material-cog:{ .lg .middle } **[Configuration Files](configuration.md)**
-
-    ---
-
-    Every config key in `fm_config.toml` and `bench_config.toml` — defaults, types, env vars, file locations.
-
 -   :material-run-fast:{ .lg .middle } **[Workers & Background Jobs](workers.md)**
 
     ---
 
     RQ worker architecture, queue types, concurrency tuning, Gunicorn worker configuration.
+
+-   :material-cog:{ .lg .middle } **[Configuration Files](configuration.md)**
+
+    ---
+
+    Every config key in `fm_config.toml` and `bench_config.toml` - defaults, types, env vars, file locations.
 
 </div>
 
@@ -57,8 +51,7 @@ Technical reference documentation for Frappe Manager internals. These pages serv
 
     **Example deep links:**
 
-    - [`configuration.md#restart-policy`](configuration.md#restart-policy) — restart policy options
-    - [`workers.md#short-worker`](workers.md#short-worker) — short worker details
-    - [`architecture.md#global-services`](architecture.md#global-services) — shared MariaDB and nginx-proxy
+    - [`configuration.md#restart-policy`](configuration.md#restart-policy) - restart policy options
+    - [`../guides/deployment.md#configuration-reference`](../guides/deployment.md#configuration-reference) - deploy config tables
 
     **Fast lookup:** Use browser **Ctrl+F** / **Cmd+F** within each page to jump to specific terms.

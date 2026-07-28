@@ -74,7 +74,7 @@ def _resolve_deploy_options(
 
     if not image:
         raise typer.BadParameter(
-            "Image deployment mode requires --image <repo:tag> — an existing image built by 'fm bake' "
+            "Image deployment mode requires --image <repo:tag> -- an existing image built by 'fm bake' "
             "or otherwise present/pullable.",
         )
     if not _has_explicit_tag(image):

@@ -12,13 +12,13 @@ hide:
 
     ---
 
-    Create a fully configured Frappe bench — with Docker, database, and web server — using a single command. No manual setup required.
+    Create a fully configured Frappe bench - with Docker, database, and web server - using a single command. No manual setup required.
 
--   :lucide-layers:{ .lg .middle } &nbsp; **[Manage multiple benches](guides/environments.md)**
+-   :lucide-layers:{ .lg .middle } &nbsp; **[One model, two axes](concepts/index.md)**
 
     ---
 
-    Run as many independent benches as you need on one machine. Switch between development and production, or run them side by side.
+    Every bench is described by its runtime (editable workspace or immutable image) and environment (dev or prod). Run as many as you need, side by side.
 
 -   :lucide-shield-check:{ .lg .middle } &nbsp; **[SSL made automatic](guides/ssl.md)**
 
@@ -42,13 +42,13 @@ hide:
 
     ---
 
-    Inspect emails in Mailpit, browse the database in Adminer, and monitor background jobs — all built in, no configuration needed.
+    Inspect emails in Mailpit, browse the database in Adminer, and monitor background jobs - all built in, no configuration needed.
 
 -   :lucide-ship:{ .lg .middle } &nbsp; **[Ship immutable deploys](guides/deployment.md)**
 
     ---
 
-    Bake your bench into a Docker image and deploy it with zero-downtime rolling swaps. Roll back code — and database — in one command with `fm switch --previous`.
+    Bake your bench into a Docker image and deploy it with zero-downtime rolling swaps. Roll back code - and database - in one command with `fm switch --previous`.
 
 </div>
 
@@ -107,7 +107,7 @@ hide:
 fm create mybench
 ```
 
-Your bench is ready at **http://mybench.localhost** — log in with `Administrator` / `admin`.
+Your bench is ready at **http://mybench.localhost** - log in with `Administrator` / `admin`.
 
 !!! tip "Need ERPNext?"
     ```bash
@@ -124,6 +124,6 @@ Your bench is ready at **http://mybench.localhost** — log in with `Administrat
 
 !!! example "Already installed?"
 
-    Head to the [Guides](guides/index.md) to learn about SSL, app management, VSCode integration, and more.
+    Learn the model in [Concepts](concepts/index.md), work the daily loop in the [Guides](guides/index.md), and ship with the [Deployment guide](guides/deployment.md).
 
 </div>

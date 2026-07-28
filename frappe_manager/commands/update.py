@@ -307,7 +307,7 @@ def update(
         )
     ):
         output.display_error(
-            f"{bench.name} is image runtime; code, apps, Python/Node and developer mode are immutable — "
+            f"{bench.name} is image runtime; code, apps, Python/Node and developer mode are immutable -- "
             "ship changes with 'fm deploy', or demote to an editable workspace "
             f"(add --runtime mount, or run: fm update {bench.name} --runtime mount first). "
             "'fm update' on an image bench changes settings only (SSL/env/domains/policy).",

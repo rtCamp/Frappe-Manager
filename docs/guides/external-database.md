@@ -4,7 +4,7 @@ Use an external database when you need a managed database for production or you 
 
 Requirements:
 
-- A MariaDB user that can connect from the Frappe Manager host (often use `%` as host) — this lets the bench connect remotely.
+- A MariaDB user that can connect from the Frappe Manager host (often use `%` as host) - this lets the bench connect remotely.
 - Database naming and user privileges follow Frappe's rules: create a database and grant a user appropriate rights.
 
 Example SQL (adjust names and password):

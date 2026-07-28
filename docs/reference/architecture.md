@@ -6,15 +6,15 @@ Frappe Manager's service architecture: how containers, networks, volumes, and di
 
 FM uses a **two-tier Docker architecture**:
 
-1. **Global services** — Shared infrastructure (MariaDB database, nginx reverse proxy)
-2. **Per-bench services** — Isolated environments (Frappe app, workers, Redis, nginx)
+1. **Global services** - Shared infrastructure (MariaDB database, nginx reverse proxy)
+2. **Per-bench services** - Isolated environments (Frappe app, workers, Redis, nginx)
 
 This design allows multiple benches to coexist on one machine while sharing database and proxy resources.
 
 Independently of this two-tier layout, each bench runs in one of **two runtimes** (`runtime` in `bench_config.toml`):
 
-- **`mount`** (default) — app code lives on the host in `workspace/frappe-bench/` and is live-mounted into the containers. Editable; built for development.
-- **`image`** — app code is baked into an immutable image (`fm bake`) and deploys happen by switching image tags (`fm deploy` / `fm switch`). The workspace holds only sites/config.
+- **`mount`** (default) - app code lives on the host in `workspace/frappe-bench/` and is live-mounted into the containers. Editable; built for development.
+- **`image`** - app code is baked into an immutable image (`fm bake`) and deploys happen by switching image tags (`fm deploy` / `fm switch`). The workspace holds only sites/config.
 
 The container topology below is identical in both runtimes; only where the app code comes from differs. See the [Deployment guide](../guides/deployment.md).
 
@@ -60,9 +60,9 @@ flowchart TB
 
 **Key concepts:**
 
-- **Global services** (blue) are shared across all benches — one MariaDB instance, one nginx-proxy
+- **Global services** (blue) are shared across all benches - one MariaDB instance, one nginx-proxy
 - **nginx-proxy** routes requests by domain using `VIRTUAL_HOST` environment variable
-- **Bench services** (orange) are created per bench — each bench has its own isolated set of containers
+- **Bench services** (orange) are created per bench - each bench has its own isolated set of containers
 - **Dev vs Prod difference:** Only the frappe container differs:
     - **Dev:** Werkzeug single-threaded server + `bench watch` hot-reload
     - **Prod:** Gunicorn multi-worker server (workers = min(CPU cores, RAM/256MB), threaded) + auto-restart
@@ -93,7 +93,7 @@ FM stores all data under a single root directory (default: `~/frappe/`).
 
 <div class="annotate" markdown>
 
-```tree title="~/frappe/ — Frappe Manager Root"
+```tree title="~/frappe/ - Frappe Manager Root"
 ~/frappe/
 │
 ├── 📄 fm_config.toml                    # (1)
@@ -165,25 +165,25 @@ FM stores all data under a single root directory (default: `~/frappe/`).
 
 </div>
 
-1. **Global configuration** — Machine-wide FM settings (ngrok tokens, DNS credentials, logging level)
-2. **CLI operation log** — All FM command output, auto-rotated at 10MB
-3. **Infrastructure migration backups** — Global config backups; each migration session gets a unique timestamp
-4. **Bench migration backups** — `bench_config.toml`, compose files, and gzipped DB dump per migration session
-5. **Archived benches** — Benches moved aside on migration failure (`--on-failure=archive`)
-6. **Global services** — Shared MariaDB and nginx-proxy containers
-7. **MariaDB data** — Linux only (macOS uses Docker volume `fm-global-db-data`)
-8. **acme.sh installation** — SSL certificate automation tool
-9. **Certificate symlinks** — nginx-proxy reads from here (points to real certs in `ssl/acmesh/certs/`)
-10. **HTTPS redirect configs** — Per-domain nginx redirects (HTTP → HTTPS)
-11. **Standalone nginx blocks** — Custom configs for non-FM Docker projects
-12. **All benches** — Each subdirectory is a bench
-13. **Bench configuration** — Environment, SSL, upload limits, restart policy
-14. **Docker Compose files** — Multi-file compose setup (core + workers + admin tools)
-15. **Frappe workspace** — Standard Frappe bench directory layout
-16. **Installed apps** — Frappe app source code (frappe, erpnext, custom apps)
-17. **Site files** — Frappe site configuration and data
-18. **Application logs** — Frappe/ERPNext runtime logs (split by environment)
-19. **Python virtualenv** — Isolated Python packages for this bench
+1. **Global configuration** - Machine-wide FM settings (ngrok tokens, DNS credentials, logging level)
+2. **CLI operation log** - All FM command output, auto-rotated at 10MB
+3. **Infrastructure migration backups** - Global config backups; each migration session gets a unique timestamp
+4. **Bench migration backups** - `bench_config.toml`, compose files, and gzipped DB dump per migration session
+5. **Archived benches** - Benches moved aside on migration failure (`--on-failure=archive`)
+6. **Global services** - Shared MariaDB and nginx-proxy containers
+7. **MariaDB data** - Linux only (macOS uses Docker volume `fm-global-db-data`)
+8. **acme.sh installation** - SSL certificate automation tool
+9. **Certificate symlinks** - nginx-proxy reads from here (points to real certs in `ssl/acmesh/certs/`)
+10. **HTTPS redirect configs** - Per-domain nginx redirects (HTTP → HTTPS)
+11. **Standalone nginx blocks** - Custom configs for non-FM Docker projects
+12. **All benches** - Each subdirectory is a bench
+13. **Bench configuration** - Environment, SSL, upload limits, restart policy
+14. **Docker Compose files** - Multi-file compose setup (core + workers + admin tools)
+15. **Frappe workspace** - Standard Frappe bench directory layout
+16. **Installed apps** - Frappe app source code (frappe, erpnext, custom apps)
+17. **Site files** - Frappe site configuration and data
+18. **Application logs** - Frappe/ERPNext runtime logs (split by environment)
+19. **Python virtualenv** - Isolated Python packages for this bench
 
 !!! warning "Do not directly edit workspace files"
     Files under `workspace/frappe-bench/` are managed by Frappe/ERPNext. Use `bench` commands inside the container instead of editing directly.
@@ -226,7 +226,7 @@ fm shell mybench -c "bench mariadb"
 ### `global-nginx-proxy` {#global-nginx-proxy}
 
 **Image:** `jwilder/nginx-proxy:1.11`  
-**Ports:** `80` (HTTP), `443` (HTTPS) — **Exposed to host**  
+**Ports:** `80` (HTTP), `443` (HTTPS) - **Exposed to host**  
 **Purpose:** Reverse proxy routing traffic to benches based on hostname
 
 Routes incoming HTTP/HTTPS requests to bench containers using virtual host headers (`VIRTUAL_HOST` env var).
@@ -242,8 +242,8 @@ Routes incoming HTTP/HTTPS requests to bench containers using virtual host heade
 
 **Configuration directories:**
 
-- `vhostd/` — Per-domain HTTPS redirect configs (created by `fm ssl add`)
-- `conf.d/` — Custom nginx server blocks (standalone mode)
+- `vhostd/` - Per-domain HTTPS redirect configs (created by `fm ssl add`)
+- `conf.d/` - Custom nginx server blocks (standalone mode)
 
 **See also:** [SSL guide](/guides/ssl/), [fm ssl commands](/commands/ssl/)
 
@@ -263,7 +263,7 @@ Each bench runs its own isolated service stack. Container names are prefixed wit
 | `frappe` | `ghcr.io/rtcamp/frappe-manager-frappe:<tag>` | Frappe application (Gunicorn or dev server) | 80 (internal) |
 | `nginx` | `ghcr.io/rtcamp/frappe-manager-nginx:<tag>` | Per-bench nginx (static files, proxy to frappe) | 80 (internal) |
 | `socketio` | `ghcr.io/rtcamp/frappe-manager-frappe:<tag>` | Socket.IO server for real-time features | 9000 (internal) |
-| `schedule` | `ghcr.io/rtcamp/frappe-manager-frappe:<tag>` | Frappe scheduler (cron-like background tasks) | — |
+| `schedule` | `ghcr.io/rtcamp/frappe-manager-frappe:<tag>` | Frappe scheduler (cron-like background tasks) | - |
 | `redis-cache` | `redis:8-alpine` | Redis for caching | 6379 (internal) |
 | `redis-queue` | `redis:8-alpine` | Redis for RQ job queue | 6379 (internal) |
 
@@ -399,14 +399,14 @@ See [Logs & Debugging](logs.md) for details.
 ## Port allocation {#ports}
 
 **Global services:**
-- `80` (HTTP) — `global-nginx-proxy`
-- `443` (HTTPS) — `global-nginx-proxy`
-- `3306` (MariaDB) — `global-db` (not exposed to host)
+- `80` (HTTP) - `global-nginx-proxy`
+- `443` (HTTPS) - `global-nginx-proxy`
+- `3306` (MariaDB) - `global-db` (not exposed to host)
 
 **Per-bench services:**
-- `80` (internal) — bench nginx (routed via `global-nginx-proxy`)
-- `8025` (internal) — Mailpit web UI (routed via bench nginx)
-- `8080` (internal) — Adminer web UI (routed via bench nginx)
+- `80` (internal) - bench nginx (routed via `global-nginx-proxy`)
+- `8025` (internal) - Mailpit web UI (routed via bench nginx)
+- `8080` (internal) - Adminer web UI (routed via bench nginx)
 
 All per-bench services are exposed only to Docker networks, not to the host. Traffic reaches benches via `global-nginx-proxy` on ports 80/443.
 
@@ -453,6 +453,6 @@ Each runs a single dedicated Frappe process.
 
 ## See also
 
-- [Configuration Files](configuration.md) — `fm_config.toml` and `bench_config.toml` reference
-- [Workers & Background Jobs](workers.md) — worker queue configuration
-- [Environments](../guides/environments.md) — dev vs prod architecture differences
+- [Configuration Files](configuration.md) - `fm_config.toml` and `bench_config.toml` reference
+- [Workers & Background Jobs](workers.md) - worker queue configuration
+- [Environments](../guides/environments.md) - dev vs prod architecture differences

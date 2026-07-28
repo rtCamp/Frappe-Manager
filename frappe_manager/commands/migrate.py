@@ -116,7 +116,7 @@ def migrate(
     - FM Infrastructure: CLI config + global database services (always checked and migrated if needed)
     - Benches: Individual bench environments (you choose which ones to migrate)
 
-    Without arguments, migrates only FM infrastructure. Specify a benchname to migrate that bench, or use --all-benches to migrate all benches. Use --auto-proceed to skip confirmation prompts. Control failure handling with --on-failure: prompt (ask), archive (save failed), or rollback (revert all). Use --rerun to test idempotency — re-applies all migration steps even when already up to date.
+    Without arguments, migrates only FM infrastructure. Specify a benchname to migrate that bench, or use --all-benches to migrate all benches. Use --auto-proceed to skip confirmation prompts. Control failure handling with --on-failure: prompt (ask), archive (save failed), or rollback (revert all). Use --rerun to test idempotency -- re-applies all migration steps even when already up to date.
     """
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
     output = get_global_output_handler()

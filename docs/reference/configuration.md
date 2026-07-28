@@ -2,8 +2,8 @@
 
 Frappe Manager stores settings in TOML configuration files at two scopes:
 
-- **Global**: `~/frappe/fm_config.toml` — Machine-wide settings (ngrok tokens, DNS credentials, logging)
-- **Per-bench**: `~/frappe/sites/<benchname>/bench_config.toml` — Bench-specific settings (environment, SSL, upload limits)
+- **Global**: `~/frappe/fm_config.toml` - Machine-wide settings (ngrok tokens, DNS credentials, logging)
+- **Per-bench**: `~/frappe/sites/<benchname>/bench_config.toml` - Bench-specific settings (environment, SSL, upload limits)
 
 Changes take effect on next `fm start` or service restart.
 
@@ -121,7 +121,7 @@ ngrok_auth_token = "2abc..."
 **Type:** `boolean`  
 **File key:** `[validation]` → `enforce_domain_uniqueness`
 
-When `true`, FM prevents creating multiple benches with the same domain. When `false`, allows domain conflicts (use with caution — causes nginx proxy conflicts).
+When `true`, FM prevents creating multiple benches with the same domain. When `false`, allows domain conflicts (use with caution - causes nginx proxy conflicts).
 
 ```toml
 [validation]
@@ -178,7 +178,7 @@ api_token = "abc123..."
 
 **Set via:** `fm ssl dns-config cloudflare --api-token YOUR_TOKEN`
 
-**See also:** [SSL guide — DNS-01 setup](/guides/ssl/#dns-01-cloudflare-api-token), [fm ssl dns-config command](/commands/ssl/dns-config/)
+**See also:** [SSL guide - DNS-01 setup](/guides/ssl/#dns-01-cloudflare-api-token), [fm ssl dns-config command](/commands/ssl/dns-config/)
 
 ---
 
@@ -188,7 +188,7 @@ api_token = "abc123..."
 **Type:** `string | null`  
 **File key:** `[cloudflare]` → `api_key`
 
-Legacy Cloudflare Global API Key for DNS-01 challenges. Requires `email` field. Grants full account access — use `api_token` instead.
+Legacy Cloudflare Global API Key for DNS-01 challenges. Requires `email` field. Grants full account access - use `api_token` instead.
 
 ```toml
 [cloudflare]
@@ -245,7 +245,7 @@ Static addressing for the global frontend Docker network: `subnet_cidr` is the C
 
 **File key:** `[migration_state]` → `system_migrated_to`
 
-FM version the global infrastructure was last migrated to. Managed by `fm migrate` — do not edit.
+FM version the global infrastructure was last migrated to. Managed by `fm migrate` - do not edit.
 
 ```toml
 [migration_state]
@@ -293,9 +293,9 @@ developer_mode = true
 ```
 
 !!! tip "Independent from environment type"
-    You can enable developer mode in production environments or disable it in dev — this setting is independent of `environment`.
+    You can enable developer mode in production environments or disable it in dev - this setting is independent of `environment`.
 
-**Change via:** `fm update BENCHNAME --developer-mode enable|disable` (needs an editable workspace — mount runtime)
+**Change via:** `fm update BENCHNAME --developer-mode enable|disable` (needs an editable workspace - mount runtime)
 
 **See also:** [Environments guide](/guides/environments/), [fm update command](/commands/update/)
 
@@ -602,7 +602,7 @@ Bench runtime model:
 
 | Runtime | Behavior |
 |---|---|
-| `mount` | App code lives in `workspace/frappe-bench/` on the host and is live-mounted into the containers. Editable — the default for development. |
+| `mount` | App code lives in `workspace/frappe-bench/` on the host and is live-mounted into the containers. Editable - the default for development. |
 | `image` | App code is baked into an immutable image (built by `fm bake`); the workspace holds only sites/config. Deploys happen by switching image tags. |
 
 **Change via:** `fm update BENCHNAME --runtime mount` (image → mount). Going mount → image is done with `fm switch` onto a baked image.
@@ -628,14 +628,14 @@ Bench runtime model:
 
 Configuration tables for the image build/deploy pipeline (`fm bake`, `fm deploy`, `fm switch`, `fm prune`). Highlights:
 
-- `[switch]` — migrate/rollback behavior during a deploy: `migrate` (`true`/`false`/`"auto"`), `backup_db`, `rollback_image`, `rollback_db`, worker draining, maintenance mode, hooks, and `keep_releases` (retention used by `fm prune`, default 7).
-- `[build]` — `fm bake` inputs: `base_image`, `source` (`provision`/`workspace`), `python_version`, `node_version`, `platform` (single platform string, e.g. `linux/amd64`), `include`.
-- `[registry]` — registry host/credentials and `distribution` (`registry` or `save_load` over SSH).
+- `[switch]` - migrate/rollback behavior during a deploy: `migrate` (`true`/`false`/`"auto"`), `backup_db`, `rollback_image`, `rollback_db`, worker draining, maintenance mode, hooks, and `keep_releases` (retention used by `fm prune`, default 7).
+- `[build]` - `fm bake` inputs: `base_image`, `source` (`provision`/`workspace`), `python_version`, `node_version`, `platform` (single platform string, e.g. `linux/amd64`), `include`.
+- `[registry]` - registry host/credentials and `distribution` (`registry` or `save_load` over SSH).
 
 Full tables with defaults and the pipeline they drive: [Deployment guide](../guides/deployment.md#configuration-reference).
-- `[deploy]` — remote target for `fm deploy --remote`: `ssh_server`, `ssh_user`, `ssh_port`, `benches_root`.
+- `[deploy]` - remote target for `fm deploy --remote`: `ssh_server`, `ssh_user`, `ssh_port`, `benches_root`.
 
-Full key-by-key tables live in the [Deployment guide — Configuration reference](/guides/deployment/#configuration-reference).
+Full key-by-key tables live in the [Deployment guide - Configuration reference](/guides/deployment/#configuration-reference).
 
 ---
 
@@ -643,7 +643,7 @@ Full key-by-key tables live in the [Deployment guide — Configuration reference
 
 **File key:** `[deploy_state]` + `[[deploy_state.history]]`
 
-Image deploy state, managed by `fm deploy`/`fm switch` — do not edit.
+Image deploy state, managed by `fm deploy`/`fm switch` - do not edit.
 
 ```toml
 [deploy_state]
@@ -666,7 +666,7 @@ backup = "/home/user/frappe/sites/mybench/..."  # pre-migrate DB dump, used by `
 
 **File key:** `[migration_state]`
 
-FM version this bench was last migrated to. Managed by `fm migrate` — do not edit.
+FM version this bench was last migrated to. Managed by `fm migrate` - do not edit.
 
 ```toml
 [migration_state]
@@ -738,14 +738,14 @@ fm ssl add mybench.com
 ```
 
 !!! warning "Staging certificates are untrusted"
-    Staging certificates are issued by "Fake LE Intermediate X1" — browsers will show security warnings. Use only for testing.
+    Staging certificates are issued by "Fake LE Intermediate X1" - browsers will show security warnings. Use only for testing.
 
 **Production rate limits:**
 
 - 50 certificates per registered domain per week
 - 5 duplicate certificates per week (same set of names)
 
-**See also:** [SSL guide — Before you start](/guides/ssl/#before-you-start)
+**See also:** [SSL guide - Before you start](/guides/ssl/#before-you-start)
 
 ---
 

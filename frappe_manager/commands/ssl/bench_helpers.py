@@ -80,7 +80,7 @@ def _add_bench_certificate(
             bench.set_bench_site_config({"host_name": f"https://{domain}"})
             output.debug(f"Updated host_name to https://{domain}")
         except Exception as e:
-            # Non-fatal — site config may not exist yet if site isn't created
+            # Non-fatal -- site config may not exist yet if site isn't created
             output.debug(f"Could not update host_name to https://{domain}: {e}")
         output.print(f"SSL certificate added for {domain}", emoji_code=":white_check_mark:")
         output.print("Certificate has been issued and configured.", emoji_code=":zap:")
