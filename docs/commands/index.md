@@ -68,11 +68,11 @@ fm create mybench -e prod
 ### :material-play-circle: [`fm start`](start.md) {.command-heading}
 **Start a bench**
 
-Brings up all containers and services for a stopped bench.
+Brings up all containers and services for a stopped bench, with optional reconfiguration of supervisor and workers.
 
 ```bash
 fm start mybench
-fm start mybench --container-logs
+fm start mybench --force
 ```
 
 ### :material-stop-circle: [`fm stop`](stop.md) {.command-heading}
@@ -87,12 +87,12 @@ fm stop mybench
 ### :material-restart: [`fm restart`](restart.md) {.command-heading}
 **Restart bench services**
 
-Restart web, workers, or specific services using supervisor or container restart.
+Restart web and workers via supervisor (default), the whole containers with `--container`, or do a zero-downtime web swap with `--rolling` on image benches.
 
 ```bash
 fm restart mybench
-fm restart mybench --supervisor
-fm restart mybench --workers --no-web
+fm restart mybench --container
+fm restart mybench --rolling
 ```
 
 ### :material-delete: [`fm delete`](delete.md) {.command-heading}
@@ -112,6 +112,7 @@ List all benches with their status and basic info.
 
 ```bash
 fm list
+fm list --json
 ```
 
 ---
@@ -138,7 +139,7 @@ Launch VSCode with the bench directory and attach to containers for debugging.
 
 ```bash
 fm code mybench
-fm code mybench --stop-before
+fm code mybench --debugger
 ```
 
 ### :material-text-box: [`fm logs`](logs.md) {.command-heading}
@@ -159,7 +160,6 @@ Display comprehensive bench configuration, status, installed apps, and environme
 
 ```bash
 fm info mybench
-fm info mybench --verbose
 ```
 
 ---
@@ -195,6 +195,53 @@ Expose a local bench to the internet via ngrok for webhooks, mobile testing, or 
 
 ```bash
 fm ngrok mybench
+```
+
+---
+
+## Deployment
+
+Bake immutable images and ship them with zero-downtime deploys. See the [Deployment guide](../guides/deployment.md) for the full workflow.
+
+### :material-image-multiple: [`fm bake`](bake.md) {.command-heading}
+**Bake an immutable app image**
+
+Provision a bench's apps into a runtime image, or build standalone from `--apps`/`--config` for CI pipelines.
+
+```bash
+fm bake mybench
+fm bake --apps erpnext:version-15 --image ghcr.io/acme/mysite --push
+```
+
+### :material-rocket-launch: [`fm deploy`](deploy.md) {.command-heading}
+**Bake and deploy in one step**
+
+Builds the image, then runs the full deploy pipeline: backup, migrate, and a rolling web swap when safe.
+
+```bash
+fm deploy mybench
+fm deploy mybench --keep 5
+```
+
+### :material-swap-horizontal: [`fm switch`](switch.md) {.command-heading}
+**Switch to an image tag, or roll back**
+
+Forward deploys and rollbacks are the same pipeline pointed at different tags. `--previous` rolls back with migrate disabled; add `--restore-db` to restore the deploy's DB dump too.
+
+```bash
+fm switch mybench local/mybench:20260721-abc123
+fm switch mybench --previous
+fm switch mybench --previous --restore-db
+```
+
+### :material-broom: [`fm prune`](prune.md) {.command-heading}
+**Remove old deploy releases**
+
+Deletes old deploy history, DB dumps, and unused image tags, keeping the newest N releases (`keep_releases` in bench config, or `--keep`).
+
+```bash
+fm prune mybench --dry-run
+fm prune mybench --keep 3
 ```
 
 ---
@@ -243,22 +290,23 @@ System-level operations and updates.
 ### :material-database-refresh: [`fm migrate`](migrate.md) {.command-heading}
 **Run fm migrations**
 
-Apply database or configuration migrations when upgrading Frappe Manager versions.
+Migrate FM infrastructure and benches when upgrading Frappe Manager versions, with automatic backups and rollback on failure.
 
 ```bash
 fm migrate
-fm migrate --skip-backup
+fm migrate --all-benches
 ```
 
 ### :material-wrench: [`fm self`](self.md) {.command-heading}
 **Manage the tool itself**
 
-Update `fm`, pull latest Docker images, or run raw docker-compose commands on benches.
+Update `fm`, pull latest Docker images, run raw docker-compose commands on benches, or stop everything FM manages.
 
 ```bash
 fm self update
 fm self update-images
 fm self compose mybench ps
+fm self stop
 ```
 
 ---

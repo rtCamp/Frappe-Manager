@@ -10,6 +10,12 @@ In-depth walkthroughs for everything Frappe Manager can do.
 
     Switch between development and production modes. Understand what changes between the two and when to use each.
 
+-   :lucide-rocket:{ .lg .middle } &nbsp; **[Deployment — Image Benches](deployment.md)**
+
+    ---
+
+    Bake your bench into an immutable image, deploy it with zero-downtime rolling swaps, roll back with `fm switch --previous`, and prune old releases.
+
 -   :lucide-shield-check:{ .lg .middle } &nbsp; **[SSL / HTTPS](ssl.md)**
 
     ---
@@ -26,7 +32,7 @@ In-depth walkthroughs for everything Frappe Manager can do.
 
     ---
 
-    Access Mailpit for email testing and Adminer for database inspection — available on every bench by default.
+    Access Mailpit for email testing and Adminer for database inspection — enabled by default on dev benches.
 
 -   :lucide-code-2:{ .lg .middle } &nbsp; **[VSCode Integration](vscode.md)**
 

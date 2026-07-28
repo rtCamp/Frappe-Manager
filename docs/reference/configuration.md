@@ -37,7 +37,11 @@ enforce_domain_uniqueness = true
 [logs]
 file_level = "DEBUG"
 
-[dns_providers.cloudflare]
+[output]
+theme = "default"   # default | mono | high-contrast
+style = "rail"      # rail | box | flat | ascii
+
+[cloudflare]
 api_token = "abc123..."
 ```
 
@@ -49,28 +53,30 @@ Minimal example showing common settings:
 name = "mybench.localhost"
 developer_mode = false
 admin_tools = false
-environment_type = "prod"
+environment = "prod"
+runtime = "mount"
 upload_limit = "50M"
 restart_policy = "unless-stopped"
 alias_domains = ["www.mybench.com"]
-use_uv = true
 db_name = "fm_mybench_a1b2c3d4"
 
 python_version = "3.13"
 node_version = "20"
 
-github_token = "ghp_..."
-
 admin_tools_username = "admin"
 admin_tools_password = "secret123"
 
-[[ssl_certificates]]
+[ssl.dns_challenge_providers.cloudflare]
+api_token = "bench-override-token"
+
+[[ssl.certificates]]
 domain = "mybench.com"
 ssl_type = "letsencrypt"
 challenge_type = "http01"
+acme_client = "acme.sh"
 
-[dns_providers.cloudflare]
-api_token = "bench-override-token"
+[migration_state]
+migrated_to = "0.19.0"
 ```
 
 ---
@@ -146,17 +152,16 @@ file_level = "DEBUG"
 
 ---
 
-### `dns_providers.cloudflare.api_token` {#dns-providers-cloudflare-api-token}
+### `cloudflare.api_token` {#dns-providers-cloudflare-api-token}
 
 **Default:** `null`  
 **Type:** `string | null`  
-**File key:** `[dns_providers.cloudflare]` → `api_token`  
-**Env var:** `FM_CLOUDFLARE_API_TOKEN` (runtime override)
+**File key:** `[cloudflare]` → `api_token`
 
 Global Cloudflare API Token for DNS-01 SSL challenges. **Recommended over Global API Key** (scoped permissions, more secure).
 
 ```toml
-[dns_providers.cloudflare]
+[cloudflare]
 api_token = "abc123..."
 ```
 
@@ -169,52 +174,90 @@ api_token = "abc123..."
     Create at: [Cloudflare Dashboard → My Profile → API Tokens](https://dash.cloudflare.com/profile/api-tokens)
 
 !!! info "Per-bench override available"
-    Bench-specific tokens in `bench_config.toml` take precedence over this global token.
+    Bench-specific tokens in `bench_config.toml` (under `[ssl.dns_challenge_providers.cloudflare]`) take precedence over this global token.
+
+**Set via:** `fm ssl dns-config cloudflare --api-token YOUR_TOKEN`
 
 **See also:** [SSL guide — DNS-01 setup](/guides/ssl/#dns-01-cloudflare-api-token), [fm ssl dns-config command](/commands/ssl/dns-config/)
 
 ---
 
-### `dns_providers.cloudflare.api_key` {#dns-providers-cloudflare-api-key}
+### `cloudflare.api_key` {#dns-providers-cloudflare-api-key}
 
 **Default:** `null`  
 **Type:** `string | null`  
-**File key:** `[dns_providers.cloudflare]` → `api_key`
+**File key:** `[cloudflare]` → `api_key`
 
 Legacy Cloudflare Global API Key for DNS-01 challenges. Requires `email` field. Grants full account access — use `api_token` instead.
 
 ```toml
-[dns_providers.cloudflare]
+[cloudflare]
 api_key = "abc123..."
 email = "you@example.com"
 ```
+
+**Set via:** `fm ssl dns-config cloudflare --api-key YOUR_KEY --email you@example.com`
 
 **See also:** [#dns-providers-cloudflare-api-token](#dns-providers-cloudflare-api-token)
 
 ---
 
-### `dns_providers.cloudflare.email` {#dns-providers-cloudflare-email}
+### `cloudflare.email` {#dns-providers-cloudflare-email}
 
 **Default:** `null`  
 **Type:** `string | null`  
-**File key:** `[dns_providers.cloudflare]` → `email`
+**File key:** `[cloudflare]` → `email`
 
 Cloudflare account email. Required when using `api_key` (not needed for `api_token`).
 
+---
+
+### `output.theme`, `output.style`, `output.colors` {#output}
+
+**Defaults:** `theme = "default"`, `style = "rail"`, `colors = {}`  
+**File key:** `[output]` → `theme` / `style` / `colors`
+
+Terminal output appearance for the `fm` CLI.
+
 ```toml
-[dns_providers.cloudflare]
-api_key = "abc123..."
-email = "you@example.com"
+[output]
+theme = "default"          # default | mono (color-blind safe) | high-contrast
+style = "rail"             # rail | box | flat | ascii
+
+[output.colors]
+"fm.env.prod" = "bold magenta"   # per-token style overrides
 ```
 
+**Env overrides:** `FM_THEME` and `FM_STYLE` win over the config file. `NO_COLOR` is honored automatically.
+
 ---
+
+### `network.subnet_cidr`, `network.proxy_ip` {#network}
+
+**Default:** `null` (auto-managed)  
+**File key:** `[network]` → `subnet_cidr` / `proxy_ip`
+
+Static addressing for the global frontend Docker network: `subnet_cidr` is the CIDR of `fm-global-frontend-network` (e.g. `10.1.0.0/16`), `proxy_ip` the fixed IP of `global-nginx-proxy` on it. Normally written by FM; only set manually if the default subnet collides with your LAN.
+
+---
+
+### `migration_state` {#fm-migration-state}
+
+**File key:** `[migration_state]` → `system_migrated_to`
+
+FM version the global infrastructure was last migrated to. Managed by `fm migrate` — do not edit.
+
+```toml
+[migration_state]
+system_migrated_to = "0.19.0"
+```
 
 ## Bench Configuration
 
 Settings in `~/frappe/sites/<benchname>/bench_config.toml` apply to a single bench.
 
 !!! tip "Quick lookup"
-    Jump to specific settings: [name](#name) · [developer_mode](#developer-mode) · [admin_tools](#admin-tools) · [environment_type](#environment-type) · [upload_limit](#upload-limit) · [restart_policy](#restart-policy) · [ssl_certificates](#ssl-certificates) · [dns_providers](#dns-providers)
+    Jump to specific settings: [name](#name) · [developer_mode](#developer-mode) · [admin_tools](#admin-tools) · [environment](#environment-type) · [runtime](#runtime) · [upload_limit](#upload-limit) · [restart_policy](#restart-policy) · [ssl certificates](#ssl-certificates) · [deploy pipeline tables](#deploy-tables)
 
 ### `name` {#name}
 
@@ -250,9 +293,9 @@ developer_mode = true
 ```
 
 !!! tip "Independent from environment type"
-    You can enable developer mode in production environments or disable it in dev — this setting is independent of `environment_type`.
+    You can enable developer mode in production environments or disable it in dev — this setting is independent of `environment`.
 
-**Change via:** `fm update BENCHNAME --developer-mode enable|disable`
+**Change via:** `fm update BENCHNAME --developer-mode enable|disable` (needs an editable workspace — mount runtime)
 
 **See also:** [Environments guide](/guides/environments/), [fm update command](/commands/update/)
 
@@ -281,21 +324,21 @@ admin_tools = true
 
 ---
 
-### `environment_type` {#environment-type}
+### `environment` {#environment-type}
 
 **Default:** `"dev"`  
 **Type:** `"dev" | "prod"`  
-**File key:** `environment_type`
+**File key:** `environment` (legacy key `environment_type` is still read)
 
 Environment profile determining web server, restart policy, and default settings for `developer_mode` and `admin_tools`.
 
 ```toml
-environment_type = "prod"
+environment = "prod"
 ```
 
 | Aspect | `dev` | `prod` |
 |---|---|---|
-| Web server | Werkzeug (single-threaded) | Gunicorn (`(CPU×2)+1` workers) |
+| Web server | Frappe dev server (Werkzeug, hot reload) | Gunicorn (`gthread`, workers = min(CPU cores, RAM/256MB)) |
 | Restart policy | `no` (manual start) | `unless-stopped` (auto-recovery) |
 | Developer mode | ON by default | OFF by default |
 | Admin tools | ON by default | OFF by default |
@@ -350,7 +393,7 @@ restart_policy = "unless-stopped"
 !!! tip "Recommended: `unless-stopped` for production"
     Provides automatic recovery after crashes or server reboots, but respects intentional `fm stop` commands.
 
-**Change via:** `fm update BENCHNAME --restart-policy unless-stopped`
+**Change via:** `fm update BENCHNAME --restart unless-stopped`
 
 ---
 
@@ -372,32 +415,12 @@ alias_domains = ["www.mybench.com", "alt.mybench.com"]
 - Each alias can have independent SSL configuration
 - Requires DNS A/CNAME records pointing to server
 
-**Change via:** `fm update BENCHNAME --alias-domains www.example.com,alt.example.com`
+**Change via:** `fm update BENCHNAME --add-alias www.example.com,alt.example.com` / `--remove-alias www.example.com`
 
 **See also:** [fm ssl add command](/commands/ssl/add/)
 
 ---
 
-### `use_uv` {#use-uv}
-
-**Default:** `true`  
-**Type:** `boolean`  
-**File key:** `use_uv`
-
-Use `uv` for Python package installation (faster than pip). Falls back to `pip` if `uv` fails.
-
-```toml
-use_uv = true
-```
-
-**Performance impact:**
-
-- `true`: 5-10× faster installs, automatic fallback to pip on failure
-- `false`: Standard pip installs only
-
-**Added in:** FM 0.17.0
-
----
 
 ### `db_name` {#db-name}
 
@@ -432,7 +455,7 @@ github_token = "ghp_..."
 
 **Required permissions:** `repo` (full control of private repositories)
 
-**Set via:** `fm create BENCHNAME --github-token ghp_...`
+**Set via:** `fm create BENCHNAME --github-token ghp_...` or the `GITHUB_TOKEN` environment variable
 
 **See also:** [fm create command](/commands/create/)
 
@@ -511,33 +534,33 @@ admin_tools_password = "secret123"
 
 ---
 
-### `ssl_certificates` {#ssl-certificates}
+### SSL certificates {#ssl-certificates}
 
-**Default:** `[]`  
-**Type:** `array of objects`  
-**File key:** `[[ssl_certificates]]`
+**Default:** (none)  
+**Type:** `array of tables`  
+**File key:** `[[ssl.certificates]]`
 
-List of SSL certificates for primary domain and aliases. Each domain gets individual certificate entry.
+List of SSL certificates for the primary domain and aliases. Each domain gets an individual certificate entry under the `[ssl]` table.
 
 ```toml
-[[ssl_certificates]]
+[[ssl.certificates]]
 domain = "mybench.com"
 ssl_type = "letsencrypt"
 challenge_type = "http01"
 acme_client = "acme.sh"
 
-[[ssl_certificates]]
+[[ssl.certificates]]
 domain = "www.mybench.com"
 ssl_type = "letsencrypt"
 challenge_type = "dns01"
 acme_client = "acme.sh"
 ```
 
-**Certificate object fields:**
+**Certificate fields:**
 
 - `domain`: Hostname for this certificate
-- `ssl_type`: `"letsencrypt"` or `"none"`
-- `challenge_type`: `"http01"` or `"dns01"`
+- `ssl_type`: `"letsencrypt"` (Let's Encrypt), `"dev"` (locally-trusted dev cert via `fm ssl add --dev`), or `"disable"`
+- `challenge_type`: `"http01"` or `"dns01"` (Let's Encrypt only)
 - `acme_client`: Always `"acme.sh"`
 
 **Managed by:** `fm ssl add`, `fm ssl remove`, `fm ssl renew` commands
@@ -546,16 +569,15 @@ acme_client = "acme.sh"
 
 ---
 
-### `dns_providers` {#dns-providers}
+### DNS challenge providers {#dns-providers}
 
 **Default:** (inherits from global config)  
-**Type:** `object | null`  
-**File key:** `[dns_providers]`
+**File key:** `[ssl.dns_challenge_providers.<provider>]`
 
-Bench-specific DNS provider credentials. Overrides global `fm_config.toml` DNS settings.
+Bench-specific DNS provider credentials for DNS-01 challenges. Overrides the global `[cloudflare]` table in `fm_config.toml`.
 
 ```toml
-[dns_providers.cloudflare]
+[ssl.dns_challenge_providers.cloudflare]
 api_token = "bench-specific-token"
 ```
 
@@ -564,9 +586,110 @@ api_token = "bench-specific-token"
 - If set: Uses bench-specific credentials for DNS-01 challenges
 - If not set: Falls back to global `fm_config.toml` credentials
 
-**Set via:** `fm ssl dns-config cloudflare BENCHNAME`
+**Set via:** `fm ssl dns-config cloudflare BENCHNAME --api-token TOKEN`
 
 **See also:** [#dns-providers-cloudflare-api-token](#dns-providers-cloudflare-api-token), [fm ssl dns-config command](/commands/ssl/dns-config/)
+
+---
+
+### `runtime` {#runtime}
+
+**Default:** `"mount"`  
+**Type:** `"mount" | "image"`  
+**File key:** `runtime`
+
+Bench runtime model:
+
+| Runtime | Behavior |
+|---|---|
+| `mount` | App code lives in `workspace/frappe-bench/` on the host and is live-mounted into the containers. Editable — the default for development. |
+| `image` | App code is baked into an immutable image (built by `fm bake`); the workspace holds only sites/config. Deploys happen by switching image tags. |
+
+**Change via:** `fm update BENCHNAME --runtime mount` (image → mount). Going mount → image is done with `fm switch` onto a baked image.
+
+**See also:** [Deployment guide](/guides/deployment/)
+
+---
+
+### `image`, `base_image`, `seed_image` {#images}
+
+**Default:** `null`  
+**Type:** `string | null`
+
+| Key | Applies to | Meaning |
+|---|---|---|
+| `image` | image runtime | App image repository (FM manages the `:tag`, pinned in `[deploy_state]`) |
+| `base_image` | mount runtime | Override the base frappe image (`repo:tag`) used for frappe/socketio/schedule/workers |
+| `seed_image` | mount runtime | Provenance record: the baked image the workspace was seeded from at create (`fm create --from-image`) |
+
+---
+
+### `[switch]`, `[build]`, `[registry]`, `[deploy]` {#deploy-tables}
+
+Configuration tables for the image build/deploy pipeline (`fm bake`, `fm deploy`, `fm switch`, `fm prune`). Highlights:
+
+- `[switch]` — migrate/rollback behavior during a deploy: `migrate` (`true`/`false`/`"auto"`), `backup_db`, `rollback_image`, `rollback_db`, worker draining, maintenance mode, hooks, and `keep_releases` (retention used by `fm prune`, default 7).
+- `[build]` — `fm bake` inputs: `base_image`, `source` (`provision`/`workspace`), `python_version`, `node_version`, `platform` (single platform string, e.g. `linux/amd64`), `include`.
+- `[registry]` — registry host/credentials and `distribution` (`registry` or `save_load` over SSH).
+
+Full tables with defaults and the pipeline they drive: [Deployment guide](../guides/deployment.md#configuration-reference).
+- `[deploy]` — remote target for `fm deploy --remote`: `ssh_server`, `ssh_user`, `ssh_port`, `benches_root`.
+
+Full key-by-key tables live in the [Deployment guide — Configuration reference](/guides/deployment/#configuration-reference).
+
+---
+
+### `[deploy_state]` {#deploy-state}
+
+**File key:** `[deploy_state]` + `[[deploy_state.history]]`
+
+Image deploy state, managed by `fm deploy`/`fm switch` — do not edit.
+
+```toml
+[deploy_state]
+current_tag = "20260728-1030"
+previous_tag = "20260721-0915"
+last_deploy_at = "2026-07-28T10:31:02"
+
+[[deploy_state.history]]
+tag = "20260728-1030"
+deployed_at = "2026-07-28T10:31:02"
+migrate_status = "migrated"      # migrated | skipped | failed | rollback
+backup = "/home/user/frappe/sites/mybench/..."  # pre-migrate DB dump, used by `fm switch --previous --restore-db`
+```
+
+`fm prune` trims old history rows and their dumps/tags, keeping the newest `keep_releases` (current + previous are always safe).
+
+---
+
+### `[migration_state]` {#migration-state}
+
+**File key:** `[migration_state]`
+
+FM version this bench was last migrated to. Managed by `fm migrate` — do not edit.
+
+```toml
+[migration_state]
+migrated_to = "0.19.0"
+last_migration_date = "2026-04-12T14:30:45"
+```
+
+---
+
+### `[monitoring.newrelic]` {#monitoring-newrelic}
+
+**Default:** disabled  
+**File key:** `[monitoring.newrelic]` → `enabled` / `license_key`
+
+NewRelic APM for the web (Gunicorn) process.
+
+```toml
+[monitoring.newrelic]
+enabled = true
+license_key = "eu01xx..."
+```
+
+**Change via:** `fm update BENCHNAME --newrelic --newrelic-license-key KEY` / `--no-newrelic`
 
 ---
 
@@ -626,20 +749,36 @@ fm ssl add mybench.com
 
 ---
 
+### Other recognized variables {#env-other}
+
+| Variable | Effect |
+|---|---|
+| `FM_THEME` | Output color theme override (`default`, `mono`, `high-contrast`); wins over `[output] theme` |
+| `FM_STYLE` | Output layout override (`rail`, `box`, `flat`, `ascii`); wins over `[output] style` |
+| `NO_COLOR` | Disables colored output entirely |
+| `GITHUB_TOKEN` | GitHub token for private app repos (`fm create` / `fm bake`) |
+| `NGROK_AUTHTOKEN` | ngrok auth token for `fm ngrok` |
+| `FM_DOCKER_IMAGE_TAG` | Override the FM stack image tag (testing only) |
+
+---
+
 ## Directory Layout
 
 ```
 ~/frappe/                                    ← FRAPPE_MANAGER_HOME
 ├── fm_config.toml                           ← Global config
 ├── logs/
-│   └── fm.log                               ← CLI log (rotated daily)
+│   └── fm.log                               ← CLI log (10MB rotation, gzipped backups fm.log.1.gz–.3.gz)
+├── backups/
+│   └── migrations/                          ← Infrastructure migration backups
+├── archived/                                ← Benches archived on migration failure
 ├── services/
 │   ├── docker-compose.yml                   ← Global services compose
 │   ├── nginx-proxy/
 │   │   └── ssl/
 │   │       └── acmesh/                      ← acme.sh certificate store
-│   ├── global-db/                           ← MariaDB data
-│   └── global-redis-*/                      ← Redis data
+│   ├── mariadb/                             ← MariaDB conf + logs (+ data on Linux)
+│   └── secrets/                             ← DB root/user password files
 └── sites/
     └── <benchname>/
         ├── bench_config.toml                ← Bench config

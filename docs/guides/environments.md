@@ -25,9 +25,9 @@ fm update mybench --environment dev
 | | `dev` | `prod` |
 |---|---|---|
 | **Web server** | Werkzeug (single-threaded) | Gunicorn (multi-worker) |
-| **Restart on crash** | ❌ No | ✅ Yes (`unless-stopped`) |
+| **Restart on crash** | ❌ No (default policy `no`) | ✅ Yes (default policy `unless-stopped`) |
 | **Hot-reload** | ✅ Assets + Python | ❌ Disabled |
-| **Debug tools** | ✅ Mailpit, Adminer | ❌ Disabled |
+| **Admin tools at create** | ✅ Mailpit, Adminer | ❌ Disabled |
 | **Performance** | Slower (for DX) | Optimized for load |
 | **Use for** | Local development | Staging, production servers |
 
@@ -49,24 +49,30 @@ Single-threaded. Changes to Python/JS/CSS reload automatically. Intended for one
 **Production (`prod`):**
 
 ```bash
-gunicorn -b 0.0.0.0:80 -w 9 --max-requests 1000 --preload frappe.app:application
+gunicorn -b 0.0.0.0:80 -w <workers> --worker-class=gthread --threads <threads> --max-requests 1000 --preload frappe.app:application
 ```
 
-Multi-worker WSGI server. Worker count defaults to `(CPU count × 2) + 1` (e.g., 9 workers on a 4-core machine). No auto-reload. See [Workers & Background Jobs](../reference/workers.md) to customize worker count.
+Multi-worker WSGI server. The worker count defaults to the smaller of the CPU count and a RAM-based cap (one worker per 256 MB); threads default to 2–4 per worker. No auto-reload. See [Workers & Background Jobs](../reference/workers.md) to customize via `common_site_config.json`.
 
 ---
 
 ### 2. Restart policy
 
-| Environment | Docker restart policy | Behavior |
+The Docker restart policy is a **per-bench setting** (`restart_policy` in `bench_config.toml`), applied to the `frappe` container, workers, and all bench services. The environment only picks the *default at create time*:
+
+| Created as | Default policy | Behavior |
 |-------------|----------------------|----------|
-| `dev` | `no` | Containers **do not** restart after crash or host reboot. Run `fm start mybench` manually. |
+| `dev` | `no` | Containers **do not** restart after a crash or host reboot. Run `fm start mybench` manually. |
 | `prod` | `unless-stopped` | Containers **auto-restart** after crashes or reboots, unless you explicitly stopped them with `fm stop`. |
 
-This applies to the `frappe` container, workers, and all bench services.
+Change it any time, independently of the environment:
 
-!!! warning "Moving to production"
-    When switching to `prod`, the restart policy changes to `unless-stopped`. If the server reboots, your bench will auto-start. If you don't want this, explicitly stop the bench with `fm stop mybench` before rebooting.
+```bash
+fm update mybench --restart unless-stopped   # no | always | on-failure | unless-stopped
+```
+
+!!! warning "Switching environments does not change the restart policy"
+    `fm update mybench --environment prod` switches the serving mode but keeps the bench's existing restart policy. A bench created as `dev` keeps policy `no` until you set `--restart unless-stopped` yourself. FM warns if you set policy `no` on a production bench.
 
 ---
 
@@ -105,6 +111,8 @@ fm update mybench --developer-mode disable
 | **Mailpit** | Email testing (catches all outgoing emails) | ✅ Enabled | ❌ Disabled | `http://mybench.localhost/mailpit` |
 | **Adminer** | Database web UI | ✅ Enabled | ❌ Disabled | `http://mybench.localhost/adminer` |
 
+These are **create-time defaults** — switching environments later does not enable or disable admin tools.
+
 You can toggle admin tools **independently** of the environment:
 
 ```bash
@@ -120,20 +128,20 @@ See [Admin Tools](admin-tools.md) for details.
 
 | Environment | Log file(s) |
 |-------------|------------|
-| `dev` | `logs/web.dev.log` (combined) |
+| `dev` | `logs/web.dev.log` (web server, combined) + `logs/watch.dev.log` (asset watcher) |
 | `prod` | `logs/web.log` (stdout) + `logs/web.error.log` (stderr) |
 
 Stream logs from the CLI:
 
 ```bash
-# Watch live logs
+# Show frappe server logs
 fm logs mybench
 
-# Show last 100 lines
-fm logs mybench --tail 100
-
-# Follow logs from all services
+# Follow logs in real-time
 fm logs mybench --follow
+
+# Logs from a specific container
+fm logs mybench --service nginx
 ```
 
 ---
@@ -192,16 +200,14 @@ When deploying a bench to production, follow this sequence:
    fm update mybench --developer-mode disable
    ```
 
-3. **Verify restart policy:**
+3. **Set the restart policy** (env switch keeps the old one):
    ```bash
-   fm info mybench
-   # Look for "Restart Policy: unless-stopped"
+   fm update mybench --restart unless-stopped
    ```
 
-4. **Check admin tools are disabled:**
+4. **Disable admin tools** (they stay enabled from the dev defaults):
    ```bash
-   fm info mybench
-   # Ensure Mailpit/Adminer are not listed in services
+   fm update mybench --admin-tools disable
    ```
 
 5. **Remove dev packages:**
@@ -249,6 +255,9 @@ fm update mybench --developer-mode disable
 fm update mybench --admin-tools enable
 fm update mybench --admin-tools disable
 
+# Set the Docker restart policy
+fm update mybench --restart unless-stopped
+
 # Sync dev packages
 fm start mybench --sync-dev-packages
 
@@ -260,6 +269,7 @@ fm info mybench
 
 !!! info "See also"
     - [VSCode Integration](vscode.md) — attach debugger to dev benches
+    - [Deployment — Image Benches](deployment.md) — ship production code as immutable images
     - [Admin Tools](admin-tools.md) — Mailpit and Adminer details
     - [Workers & Background Jobs](../reference/workers.md) — customize Gunicorn workers
     - [SSL Guide](ssl.md) — secure production benches with HTTPS

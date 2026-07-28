@@ -11,17 +11,17 @@ Logs are separated into three layers:
 3. **Service logs** — Global infrastructure (MariaDB, Redis, nginx-proxy)
 
 !!! tip "Quick access"
-    **Stream live bench logs:**
+    **Stream the bench web server log:**
     ```bash
     fm logs mybench --follow
     ```
     
-    **View specific service:**
+    **View a specific container:**
     ```bash
     fm logs mybench --service frappe --follow
     ```
     
-    **Check CLI operation history:**
+    **Check FM's own operation log:**
     ```bash
     tail -f ~/frappe/logs/fm.log
     ```
@@ -32,7 +32,7 @@ Logs are separated into three layers:
 
 | Log Type | Location | Description |
 |---|---|---|
-| **CLI operations** | `~/frappe/logs/fm.log` | All `fm` command output (auto-rotated) |
+| **CLI operations** | `~/frappe/logs/fm.log` | Everything every `fm` command did (auto-rotated, gzipped backups) |
 | **Bench web server** | `~/frappe/sites/<bench>/workspace/frappe-bench/logs/` | Frappe web logs (`web.log`, `web.error.log`, `web.dev.log`) |
 | **Bench workers** | Same as bench web server | Worker logs (`worker.log`, `worker.error.log`) |
 | **Bench scheduler** | Same as bench web server | Scheduled job logs (`schedule.log`) |
@@ -41,27 +41,52 @@ Logs are separated into three layers:
 | **nginx-proxy** | Container logs (Docker) | HTTP access logs, SSL validation logs |
 
 !!! info "CLI log rotation"
-    `fm.log` rotates automatically when it exceeds 10MB. Older files: `fm.log.1`, `fm.log.2`, etc. (up to 5 backups).
+    `fm.log` rotates automatically when it exceeds 10MB. Rotated files are gzipped: `fm.log.1.gz`, `fm.log.2.gz`, `fm.log.3.gz` (3 backups kept).
 
+
+### `fm.log` Line Format {#fm-log-format}
+
+Every line in `fm.log` carries ambient context — a correlation id for the CLI invocation, plus the bench, operation, and component when known:
+
+```
+[<timestamp>] LEVEL: [corr=<id>] [bench=<name>] [op=<operation>] [component=<component>] message
+```
+
+Example:
+
+```
+[2026-07-27 17:41:12,694] INFO: [corr=5211fa23] [op=list] [component=output] [OUTPUT] DATA:
+```
+
+- `corr=` — first 8 chars of a per-invocation correlation id; grep it to see everything one command did
+- `bench=` / `op=` — the bench and operation the line belongs to (present when applicable)
+- `component=` — which subsystem logged it (e.g. `docker`, `migration`, `output`)
+
+```bash
+# Trace a single fm invocation end to end
+grep 'corr=5211fa23' ~/frappe/logs/fm.log
+```
 ---
 
 ## Viewing Logs with `fm logs`
 
+`fm logs` shows **bench** logs — not FM's own operation log (that lives in `~/frappe/logs/fm.log`).
+
 ### Basic Usage
 
 ```bash
-# View all bench container logs (combined)
+# View the bench web server log
+# (web.dev.log in dev; web.log + web.error.log in prod)
 fm logs mybench
 
 # Stream live (follow mode)
 fm logs mybench --follow
 
-# View specific service
+# View a specific container's logs instead
 fm logs mybench --service frappe
-
-# Limit to last 50 lines
-fm logs mybench --tail 50
 ```
+
+Without `--service`, `fm logs` reads the Frappe web server **file** logs from the bench workspace. With `--service`, it shows that container's Docker logs (the service must be running).
 
 ### Available Services {#available-services}
 
@@ -85,13 +110,13 @@ fm logs mybench --tail 50
 
 ```bash
 # Debug web server errors
-fm logs mybench --service frappe --tail 100
+fm logs mybench --service frappe
 
 # Monitor worker job processing
 fm logs mybench --service short-worker --follow
 
 # Check nginx routing issues
-fm logs mybench --service nginx --tail 50
+fm logs mybench --service nginx
 
 # View scheduler execution
 fm logs mybench --service schedule --follow
@@ -137,7 +162,7 @@ Control CLI output verbosity globally (applies to all `fm` commands):
 
 ### `--verbose` / `-v` {#verbose-flag}
 
-Enable info-level verbose output (shows additional operation details).
+Sets console output to `INFO` level (shows additional operation details). Default console level is `WARNING`.
 
 ```bash
 fm --verbose create mybench
@@ -146,7 +171,7 @@ fm -v start mybench
 
 ### `--log-level` {#log-level-flag}
 
-Override log level explicitly.
+Override the console log level explicitly (takes precedence over `--verbose`).
 
 ```bash
 # Debug level (most verbose)
@@ -156,7 +181,7 @@ fm --log-level debug create mybench
 fm --log-level warning restart mybench
 ```
 
-**Valid levels:** `debug`, `info`, `warning`, `error`, `critical`
+**Valid levels:** `debug`, `info`, `warning`, `error`
 
 ### `--non-interactive` / `-n` {#non-interactive-flag}
 
@@ -197,7 +222,7 @@ file_level = "DEBUG"
 **Valid levels:** `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
 
 !!! info "File log vs console output"
-    `file_level` only affects `~/frappe/logs/fm.log`. Console output verbosity is controlled by `--verbose` / `--log-level` flags.
+    `file_level` only affects `~/frappe/logs/fm.log` (default `DEBUG`). Console output verbosity is controlled by the `--verbose` / `--log-level` flags.
 
 **See also:** [Configuration reference — logs.file_level](/reference/configuration/#logs-file-level)
 
@@ -210,8 +235,8 @@ file_level = "DEBUG"
 **Automatic rotation:**
 
 - Max size: 10 MB per file
-- Backup count: 5 files (`fm.log.1` through `fm.log.5`)
-- Rotation trigger: On next write after exceeding 10 MB
+- Backup count: 3 gzipped files (`fm.log.1.gz` through `fm.log.3.gz`)
+- Rotation trigger: On next write after exceeding 10 MB; the rotated file is gzip-compressed
 
 **Disable rotation:** Not supported (prevents disk exhaustion).
 
@@ -228,13 +253,10 @@ Frappe does not auto-rotate logs. For production deployments, configure logrotat
     delaycompress
     missingok
     notifempty
-    create 0644 user user
-    sharedscripts
-    postrotate
-        # Restart benches to reopen log files
-        /usr/local/bin/fm restart --all > /dev/null 2>&1 || true
-    endscript
+    copytruncate
 }
 ```
+
+`copytruncate` avoids having to restart the bench processes to reopen log files.
 
 **See also:** [logrotate documentation](https://linux.die.net/man/8/logrotate)

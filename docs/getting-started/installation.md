@@ -2,18 +2,6 @@
 
 This page shows how to install Frappe Manager. Choose the installation method that matches your needs.
 
-<div class="admonition tip" markdown>
-<p class="admonition-title">📌 Version-Specific Installation</p>
-<div markdown>
-
-Since mkdocs-macros-plugin isn't yet supported by Zensical, both install methods are shown below. Use:
-
-- **Stable Release (PyPI)** for production use
-- **Development Version (Git)** for testing new features
-
-</div>
-</div>
-
 ## Stable Release (Recommended)
 
 📦 **For production use and general development**

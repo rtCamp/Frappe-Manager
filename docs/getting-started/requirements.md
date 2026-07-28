@@ -2,7 +2,7 @@
 
 This page lists what you need before installing fm.
 
-- Python 3.13+ — required only to install the fm tool itself.
+- Python 3.13 — required only to run the fm tool itself (fm needs `>=3.13,<3.14`; `uv tool install --python 3.13` downloads it for you). Benches use their own Python inside containers.
 - Docker Desktop (Mac/Windows) or Docker Engine (Linux) — benches run inside Docker containers.
 - Git — required to clone Frappe apps during bench creation.
 - A non-root user with permission to use Docker.
@@ -17,4 +17,4 @@ This page lists what you need before installing fm.
     git --version
     ```
 
-See the WSL guide if you are on Windows: guides/wsl.md
+On Windows, see the [WSL guide](../guides/wsl.md).

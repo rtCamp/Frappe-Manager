@@ -30,6 +30,18 @@ Notes:
 
 ---
 
+**Ready to ship?** fm can bake your bench into an immutable Docker image and deploy it with a zero-downtime rolling swap:
+
+```bash
+fm deploy mybench             # bake an image from the bench and deploy it
+fm switch mybench --previous  # roll back if anything goes wrong
+fm prune mybench              # clean up old releases
+```
+
+See the [Deployment guide](../guides/deployment.md) for the full pipeline.
+
+---
+
 **Where to go next:**
 
 - [Guides](../guides/index.md) — environments, SSL, app management, VSCode, and more

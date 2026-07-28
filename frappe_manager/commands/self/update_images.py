@@ -10,11 +10,6 @@ from frappe_manager.utils.site import pull_docker_images
     "",
     detail="Pulls the latest Docker images used by FM to keep runtime images up to date.",
 )
-@example(
-    "Update images in verbose mode",
-    "--verbose",
-    detail="Shows detailed pull progress for each Docker image layer.",
-)
 def update_images(ctx: typer.Context):
     """Pull latest FM stack docker images."""
     with spinner(get_global_output_handler(), "Pulling latest Docker images"):

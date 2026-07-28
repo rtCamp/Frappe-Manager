@@ -27,7 +27,7 @@ Go to **Setup → Download Backup** from inside your Frappe site. This triggers 
 Bench backups land inside the container at `/workspace/frappe-bench/sites/<sitename>/private/backups/`. On the host that maps to:
 
 ```
-~/frappe/<benchname>/workspace/frappe-bench/sites/<sitename>/private/backups/
+~/frappe/sites/<benchname>/workspace/frappe-bench/sites/<sitename>/private/backups/
 ```
 
 Each backup is a set of three files:
@@ -62,7 +62,7 @@ bench --site mybench.localhost restore \
 ```
 
 !!! tip
-    You can copy backup files from outside the container into `~/frappe/<benchname>/workspace/frappe-bench/sites/<sitename>/private/backups/` on the host. They appear at the same path inside the container.
+    You can copy backup files from outside the container into `~/frappe/sites/<benchname>/workspace/frappe-bench/sites/<sitename>/private/backups/` on the host. They appear at the same path inside the container.
 
 ## FM migration backups (automatic)
 
@@ -71,17 +71,17 @@ When you run `fm migrate`, FM automatically backs up your bench's configuration 
 Migration backups are stored at:
 
 ```
-~/frappe/<benchname>/backups/migrations/<timestamp>/
+~/frappe/sites/<benchname>/backups/migrations/<timestamp>/
 ```
 
-They include:
+They include, among others:
 
 - `bench_config.toml` — bench configuration
 - `docker-compose.yml` — container definitions
 - `common_site_config.json` — Frappe site config
-- `<sitename>/site_config.json` — per-site config
+- a gzipped SQL dump of the site database (for migrations that touch data)
 
-If a migration fails partway through, FM attempts to restore these files automatically. You can also restore them manually by copying them back to the bench directory.
+If a migration fails partway through, FM can restore these files automatically (see the `--on-failure` option of `fm migrate`). You can also restore them manually by copying them back to the bench directory.
 
 ### Skipping backup during migration
 
@@ -111,5 +111,6 @@ This drops the database and reinstalls all apps. Back up first — this is irrev
 ---
 
 !!! info "See also"
+    - [Deployment guide](deployment.md#releases-history-and-pruning) — image benches keep a pre-migrate DB dump per release; `fm prune` trims old dumps, and `fm switch --previous --restore-db` rolls back to one
     - [Migrations reference](../reference/migrations.md) — how FM migrations work and how rollbacks are triggered
     - [fm migrate command](../commands/migrate.md) — all migration flags

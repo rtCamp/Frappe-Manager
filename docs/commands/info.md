@@ -25,11 +25,3 @@ Displays bench status, environment type, apps installed, and other configuration
 fm info mybench
 ```
 
-### View info in verbose mode
-
-Shows additional diagnostic information including container states and compose file paths.
-
-```bash
-fm info mybench --verbose
-```
-

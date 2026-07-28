@@ -126,17 +126,24 @@ fm ngrok mybench
 
 ### How do I restart just the web server or just the workers?
 
-Use [`fmx`](guides/fmx.md) inside the container. It controls individual services without touching the rest of the bench:
+From the host, `fm restart` takes group flags and a `--service` selector:
 
 ```bash
-# Restart only the web server (Gunicorn)
-fm shell mybench -c "fmx restart frappe"
+# Web only (frappe + socketio)
+fm restart mybench --no-workers
 
-# Restart only the workers
-fm shell mybench -c "fmx restart short-worker long-worker"
+# Workers only (schedule + all workers)
+fm restart mybench --no-web
 
-# Check what is currently running
+# One specific service (repeatable)
+fm restart mybench --service short-worker --service long-worker
+```
+
+Inside the container, [`fmx`](guides/fmx.md) gives the same control over individual supervisor processes:
+
+```bash
 fm shell mybench -c "fmx status"
+fm shell mybench -c "fmx restart frappe"
 ```
 
 ### How do I safely restart during a deployment without losing jobs?
@@ -144,10 +151,10 @@ fm shell mybench -c "fmx status"
 Drain the queues first — workers finish their current jobs before anything restarts:
 
 ```bash
-fm shell mybench -c "fmx restart --drain-workers"
+fm restart mybench --drain
 ```
 
-To also run `bench migrate` as part of the same step:
+To also run `bench migrate` as part of the same step, use fmx inside the container:
 
 ```bash
 fm shell mybench -c "fmx restart --drain-workers --migrate"

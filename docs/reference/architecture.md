@@ -11,6 +11,13 @@ FM uses a **two-tier Docker architecture**:
 
 This design allows multiple benches to coexist on one machine while sharing database and proxy resources.
 
+Independently of this two-tier layout, each bench runs in one of **two runtimes** (`runtime` in `bench_config.toml`):
+
+- **`mount`** (default) — app code lives on the host in `workspace/frappe-bench/` and is live-mounted into the containers. Editable; built for development.
+- **`image`** — app code is baked into an immutable image (`fm bake`) and deploys happen by switching image tags (`fm deploy` / `fm switch`). The workspace holds only sites/config.
+
+The container topology below is identical in both runtimes; only where the app code comes from differs. See the [Deployment guide](../guides/deployment.md).
+
 !!! tip "Quick navigation"
     Jump to: [Global Services](#global-services) · [Per-Bench Services](#per-bench-services) · [Networks](#networks) · [Volumes](#volumes) · [File Layout](#workspace-layout)
 
@@ -58,7 +65,7 @@ flowchart TB
 - **Bench services** (orange) are created per bench — each bench has its own isolated set of containers
 - **Dev vs Prod difference:** Only the frappe container differs:
     - **Dev:** Werkzeug single-threaded server + `bench watch` hot-reload
-    - **Prod:** Gunicorn multi-worker server (CPU×2+1 workers) + auto-restart
+    - **Prod:** Gunicorn multi-worker server (workers = min(CPU cores, RAM/256MB), threaded) + auto-restart
 - All benches share the same **MariaDB** database (red) but use separate databases within it
 
 **Traffic flow:**
@@ -96,19 +103,15 @@ FM stores all data under a single root directory (default: `~/frappe/`).
 │
 ├── 📁 backups/
 │   └── migrations/
-│       └── 12-Apr-26--14-30-45/         # (3)
-│           ├── mybench/
-│           │   ├── bench_config.toml
-│           │   ├── docker-compose.yml
-│           │   └── database.sql.gz      # (4)
+│       └── 12-Apr-26--14-30-45/             # (3)
 │           └── fm_config.toml
 │
-├── 📁 archived-sites/                   # (5)
+├── 📁 archived/                             # (5)
 │
 ├── 📁 services/                         # (6)
 │   ├── docker-compose.yml
-│   ├── global-db/
-│   │   └── data/                        # (7)
+│   ├── mariadb/
+│   │   └── data/                            # (7)
 │   └── nginx-proxy/
 │       ├── ssl/
 │       │   └── acmesh/
@@ -128,9 +131,11 @@ FM stores all data under a single root directory (default: `~/frappe/`).
 └── 📁 sites/                            # (12)
     ├── mybench.localhost/
     │   ├── 📄 bench_config.toml         # (13)
-    │   ├── docker-compose.yml           # (14)
+    │   ├── docker-compose.yml               # (14)
     │   ├── docker-compose.workers.yml
     │   ├── docker-compose.admin-tools.yml
+    │   ├── backups/
+    │   │   └── migrations/                  # (4)
     │   ├── logs/
     │   └── workspace/
     │       └── frappe-bench/            # (15)
@@ -162,9 +167,9 @@ FM stores all data under a single root directory (default: `~/frappe/`).
 
 1. **Global configuration** — Machine-wide FM settings (ngrok tokens, DNS credentials, logging level)
 2. **CLI operation log** — All FM command output, auto-rotated at 10MB
-3. **Migration backup timestamp** — Each migration session gets unique timestamp
-4. **Database dump** — Gzipped MariaDB SQL dump (restore with `bench restore`)
-5. **Archived benches** — Failed bench creation attempts or archived migrations
+3. **Infrastructure migration backups** — Global config backups; each migration session gets a unique timestamp
+4. **Bench migration backups** — `bench_config.toml`, compose files, and gzipped DB dump per migration session
+5. **Archived benches** — Benches moved aside on migration failure (`--on-failure=archive`)
 6. **Global services** — Shared MariaDB and nginx-proxy containers
 7. **MariaDB data** — Linux only (macOS uses Docker volume `fm-global-db-data`)
 8. **acme.sh installation** — SSL certificate automation tool
@@ -198,23 +203,21 @@ Shared infrastructure started once by FM, remain running across all benches.
 Each bench gets its own database in this shared instance. Database name format: `fm_<benchname>_<random>`.
 
 !!! info "Platform-specific storage"
-    **Linux:** Bind-mounted from `~/frappe/services/global-db/data/` (direct filesystem access)  
+    **Linux:** Bind-mounted from `~/frappe/services/mariadb/data/` (direct filesystem access)  
     **macOS:** Named Docker volume `fm-global-db-data` (avoids macOS bind-mount slowness)
 
 **Credentials:**
 
-- Root password: Auto-generated on first start
-- Stored in: `services/docker-compose.yml` (environment variable `MYSQL_ROOT_PASSWORD`)
+- Root and per-bench passwords: auto-generated, stored as files in `~/frappe/services/secrets/` (mounted as Docker secrets)
 - Per-bench users: Auto-created with database-specific privileges
 
 **Management:**
 
 ```bash
-# View database list
-fm services db-console
-> SHOW DATABASES;
+# Shell into the database service
+fm services shell global-db
 
-# Access specific bench database
+# Access a specific bench database
 fm shell mybench -c "bench mariadb"
 ```
 
@@ -222,7 +225,7 @@ fm shell mybench -c "bench mariadb"
 
 ### `global-nginx-proxy` {#global-nginx-proxy}
 
-**Image:** `jwilder/nginx-proxy:1.6`  
+**Image:** `jwilder/nginx-proxy:1.11`  
 **Ports:** `80` (HTTP), `443` (HTTPS) — **Exposed to host**  
 **Purpose:** Reverse proxy routing traffic to benches based on hostname
 
@@ -248,21 +251,10 @@ Routes incoming HTTP/HTTPS requests to bench containers using virtual host heade
 
 ## Per-Bench Services
 
-Each bench runs its own isolated service stack. Container names prefixed with `fm-<benchname>-`.
+Each bench runs its own isolated service stack. Container names are prefixed with `fm__<benchname>__` (dots in the bench name become underscores).
 
 !!! info "Service lifecycle"
     All bench services start/stop together with `fm start`/`fm stop`. Restart policy controls auto-recovery (see [restart_policy config](/reference/configuration/#restart-policy)).
-**Purpose:** Reverse proxy that routes traffic to benches based on `Host` header
-
-Automatically detects running benches via Docker labels (`VIRTUAL_HOST`, `VIRTUAL_PORT`) and generates nginx configuration dynamically.
-
-SSL certificates are stored under `services/nginx-proxy/ssl/` and automatically picked up via symlinks in `certs/`.
-
----
-
-## Per-bench services
-
-Each bench is a separate Docker Compose project. Services are isolated per bench.
 
 ### Core services (always present) {#core-services}
 
@@ -300,11 +292,11 @@ Enabled by default in `dev` environment. Toggle with `fm update <bench> --admin-
 
 **Pattern:** `fm__<bench-name>__<service>`
 
-Dots in bench names are replaced with double underscores.
+Dots in bench names are replaced with underscores.
 
 **Examples:**
 - Bench `mybench` → `fm__mybench__frappe`, `fm__mybench__nginx`
-- Bench `mybench.localhost` → `fm__mybench__localhost__frappe`
+- Bench `mybench.localhost` → `fm__mybench_localhost__frappe`
 
 ---
 
@@ -314,7 +306,7 @@ Dots in bench names are replaced with double underscores.
 |---------|-------|---------|
 | `fm-global-frontend-network` | Global (external) | Connects per-bench nginx to `global-nginx-proxy` |
 | `fm-global-backend-network` | Global (external) | Connects per-bench services to `global-db` |
-| `fm__<bench>__site-network` | Per-bench (internal) | Connects all services within a single bench |
+| `fm__<bench>__network` | Per-bench (internal) | Connects all services within a single bench |
 
 **Network isolation:** Benches cannot communicate with each other directly. They only share access to `global-db` and `global-nginx-proxy`.
 
@@ -326,13 +318,15 @@ Dots in bench names are replaced with double underscores.
 
 | Volume | Purpose |
 |--------|---------|
-| `fm-global-db-data` | MariaDB data (macOS only; Linux uses bind-mount) |
-| `fm-sockets` | Unix sockets for supervisorctl communication via [`fmx`](../guides/fmx.md) |
+| `fm-global-db-data` | MariaDB data (macOS only; Linux uses a bind-mount at `services/mariadb/data/`) |
 
 ### Per-bench volumes
 
 | Volume | Purpose |
 |--------|---------|
+| `fm__<bench>__fm-sockets` | Unix sockets for supervisorctl communication via [`fmx`](../guides/fmx.md) |
+| `fm__<bench>__redis-cache-data` | Redis cache persistence |
+| `fm__<bench>__redis-queue-data` | Redis queue persistence (RDB snapshots) |
 | `fm__<bench>__mailpit-data` | Mailpit email database |
 | Workspace bind-mount | `~/frappe/sites/<bench>/workspace/` mounted into containers at `/workspace` |
 
@@ -366,13 +360,15 @@ docker compose -f docker-compose.yml -f docker-compose.workers.yml -f docker-com
 
 ## Image tags {#image-tags}
 
-Frappe Manager images use version-based tags:
+FM stack images are tagged with the FM version:
 
-**Pattern:** `ghcr.io/rtcamp/frappe-manager-<service>:<frappe-version>-<fm-version>`
+**Pattern:** `ghcr.io/rtcamp/frappe-manager-<service>:v<fm-version>`
 
 **Examples:**
-- `ghcr.io/rtcamp/frappe-manager-frappe:v15-0.19.0` — Frappe v15, FM 0.19.0
-- `ghcr.io/rtcamp/frappe-manager-nginx:v15-0.19.0`
+- `ghcr.io/rtcamp/frappe-manager-frappe:v0.19.0`
+- `ghcr.io/rtcamp/frappe-manager-nginx:v0.19.0`
+
+Image-runtime benches run their own baked app image instead: the repo comes from `image` in `bench_config.toml` and the tag is pinned in `[deploy_state]`.
 
 Check current images:
 
@@ -386,7 +382,7 @@ fm info <bench>
 
 | Log type | Location | Rotation |
 |----------|----------|----------|
-| FM CLI logs | `~/frappe/logs/fm.log` | Automatic (10 files, 10MB each) |
+| FM CLI logs | `~/frappe/logs/fm.log` | Automatic (10MB per file, 3 gzipped backups) |
 | Frappe app logs | `~/frappe/sites/<bench>/workspace/frappe-bench/logs/` | Manual (via Frappe) |
 | Container stdout/stderr | Docker daemon | Via Docker log driver |
 
@@ -430,10 +426,10 @@ supervisord
 **Production mode:**
 ```
 supervisord
-└── gunicorn -w <N> frappe.app:application (port 80)
+└── gunicorn -w <N> --worker-class gthread frappe.app:application (port 80)
 ```
 
-Worker count `<N>` defaults to `(CPU count × 2) + 1`.
+Worker count `<N>` defaults to `min(CPU cores, RAM_MB / 256)` with 2–4 threads per worker; override with `gunicorn_workers` / `gunicorn_threads` in `common_site_config.json`.
 
 ### Worker containers
 

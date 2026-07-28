@@ -1,6 +1,6 @@
 # App Management
 
-Install apps when you create a bench or later from a bench shell.
+Install apps when you create a bench, or add and update them later with `fm update --apps`.
 
 Install during create:
 
@@ -8,11 +8,16 @@ Install during create:
 fm create mybench --apps erpnext
 ```
 
-Install after creation (example for ERPNext):
+Add an app to an existing bench with `fm update --apps`:
 
 ```bash
-fm shell mybench -c "bench get-app erpnext && bench --site mybench.localhost install-app erpnext"
+fm update mybench --apps erpnext
 ```
+
+FM clones the app, installs its dependencies, installs it to the site, builds its assets, and runs `bench migrate`.
+
+!!! note "Mount benches only"
+    `--apps` needs an editable workspace (the default `mount` runtime). On an `image` bench, app code is baked into the image — ship changes with `fm deploy`, or demote first with `fm update mybench --runtime mount`. See the [Deployment guide](deployment.md).
 
 Install a private app (pass a GitHub URL or org/repo and a token):
 
@@ -29,7 +34,7 @@ frappe/erpnext:version-15                  -> organization/repo and branch
 https://github.com/org/repo:main           -> full GitHub URL
 git@github.com:org/repo:main               -> SSH URL for private repos
 frappe/frappe:version-15#apps/frappe       -> monorepo subdirectory (repo#path/to/subdir)
-frappe/erpnext:a1b2c3d                     -> specific commit SHA as the ref
+frappe/erpnext:<40-char-sha>               -> full commit SHA as the ref
 ```
 
 !!! tip "Monorepo apps"
@@ -44,22 +49,22 @@ fm shell mybench -c "bench --site mybench.localhost remove-app erpnext"
 !!! tip
     `fm info mybench` shows the list of installed apps and their versions.
 
-## Updating an app
+## Updating or switching an app's version
 
-Apps are updated through the standard Frappe `bench update` workflow inside the bench container:
+`fm update --apps` also works for apps that are already installed — it grafts the requested ref onto the running bench:
 
 ```bash
-# Update all apps
-fm shell mybench -c "bench update"
+# Move an installed app to another branch or tag
+fm update mybench --apps erpnext:version-15
 
-# Update a specific app only
-fm shell mybench -c "bench update --app erpnext"
+# Several apps at once (repeatable)
+fm update mybench --apps erpnext:version-15 --apps hrms:version-15
 ```
 
-`bench update` pulls the latest code, runs migrations, and rebuilds assets. This can take a few minutes.
+For each app FM replaces the app's code with a fresh clone at the requested ref — the old code is **stashed, never deleted** — then reinstalls dependencies, rebuilds that app's assets, and runs `bench migrate`.
 
 !!! tip
-    For a safer update in production, drain workers before running `bench update` so no jobs are interrupted. See the [fmx guide](fmx.md) for how to do this.
+    For a safer update in production, drain in-flight jobs first: `fm restart mybench --drain` waits for running background jobs to finish. See the [fmx guide](fmx.md) for finer-grained control from inside the container.
 
 ## Opening an interactive shell
 

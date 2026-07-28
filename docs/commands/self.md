@@ -77,14 +77,6 @@ Pulls the latest Docker images used by FM to keep runtime images up to date.
 fm self update-images
 ```
 
-### Update images in verbose mode
-
-Shows detailed pull progress for each Docker image layer.
-
-```bash
-fm self update-images --verbose
-```
-
 
 ### `fm self compose`
 

@@ -44,6 +44,12 @@ hide:
 
     Inspect emails in Mailpit, browse the database in Adminer, and monitor background jobs — all built in, no configuration needed.
 
+-   :lucide-ship:{ .lg .middle } &nbsp; **[Ship immutable deploys](guides/deployment.md)**
+
+    ---
+
+    Bake your bench into a Docker image and deploy it with zero-downtime rolling swaps. Roll back code — and database — in one command with `fm switch --previous`.
+
 </div>
 
 ## Install

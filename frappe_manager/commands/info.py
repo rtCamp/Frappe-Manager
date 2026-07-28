@@ -18,12 +18,6 @@ from frappe_manager.utils.callbacks import (
     detail="Displays bench status, environment type, apps installed, and other configuration details useful for debugging and documentation.",
     benchname="mybench",
 )
-@example(
-    "View info in verbose mode",
-    "{benchname} --verbose",
-    detail="Shows additional diagnostic information including container states and compose file paths.",
-    benchname="mybench",
-)
 def info(
     ctx: typer.Context,
     benchname: Annotated[

@@ -57,7 +57,7 @@ Technical reference documentation for Frappe Manager internals. These pages serv
 
     **Example deep links:**
 
-    - [`configuration.md#restart_policy`](configuration.md#restart_policy) — restart policy options
+    - [`configuration.md#restart-policy`](configuration.md#restart-policy) — restart policy options
     - [`workers.md#short-worker`](workers.md#short-worker) — short worker details
     - [`architecture.md#global-services`](architecture.md#global-services) — shared MariaDB and nginx-proxy
 

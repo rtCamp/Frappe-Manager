@@ -10,20 +10,20 @@ Worker containers run independently from the web server and process jobs asynchr
 - **Queues** — Named channels holding jobs (default, short, long, custom app queues)
 - **Workers** — Container processes that pull jobs from queues and execute them
 
-FM automatically creates worker containers based on:
+FM runs each worker in its own container:
 
-1. **Built-in workers** — `short-worker`, `long-worker`, `schedule` (always present)
-2. **Custom app queues** — Defined in app `hooks.py` (e.g., `background_jobs` dict)
+1. **Built-in workers** — `short-worker` and `long-worker` containers (always present), plus the `schedule` container that runs the scheduler
+2. **Custom queues** — one `<name>-worker` container per entry in the `workers` key of `common_site_config.json`
 
 !!! tip "Quick operations"
-    **Restart workers:**
+    **Restart workers (leave web running):**
     ```bash
-    fm restart mybench --workers
+    fm restart mybench --workers --no-web
     ```
     
-    **View worker logs:**
+    **View worker logs** (all workers share `logs/worker.log` in the bench workspace):
     ```bash
-    fm logs mybench --service short-worker --follow
+    fm shell mybench -c "tail -f logs/worker.log"
     ```
     
     **Check job status inside bench:**
@@ -39,8 +39,8 @@ FM creates these worker containers for every bench:
 
 ### `short-worker` {#short-worker}
 
-**Queue:** `short`, `default`  
-**Concurrency:** 4 processes  
+**Queues:** `short`, `default`  
+**Concurrency:** `background_workers` processes (default 1)  
 **Purpose:** Quick background tasks (seconds to few minutes)
 
 Handles jobs like:
@@ -56,9 +56,9 @@ Handles jobs like:
 
 ### `long-worker` {#long-worker}
 
-**Queue:** `long`  
-**Concurrency:** 2 processes  
-**Purpose:** Long-running background tasks (minutes to hours)
+**Queues:** `long`, `default`, `short`  
+**Concurrency:** `background_workers` processes (default 1)  
+**Purpose:** Long-running background tasks (minutes to hours); also picks up `default`/`short` jobs when `long` is empty
 
 Handles jobs like:
 
@@ -68,7 +68,7 @@ Handles jobs like:
 - Backup operations
 
 !!! warning "Interrupting long jobs"
-    `fm restart` kills worker processes immediately. Any in-flight job is interrupted mid-execution. Use [safe restart workflow](#safe-worker-restarts) for production.
+    A plain `fm restart` does not wait for in-flight jobs. Use `fm restart mybench --drain` (see [safe restart workflow](#safe-worker-restarts)) for production.
 
 ---
 
@@ -76,47 +76,33 @@ Handles jobs like:
 
 **Queue:** N/A (cron-like scheduler)  
 **Concurrency:** 1 process  
-**Purpose:** Runs Frappe's scheduled tasks
+**Purpose:** Runs `bench schedule`, Frappe's scheduler tick
 
-Executes functions decorated with `@frappe.whitelist(allow_schedule=True)` based on their schedule (every hour, daily, weekly, cron expression).
+At each tick it checks the `scheduler_events` declared in every installed app's `hooks.py` (hourly, daily, weekly, monthly, cron expressions) and **enqueues** the due jobs onto the RQ queues.
 
-**Not a queue worker:** Does not pull from RQ queues. Directly executes scheduled functions.
+**Not a queue worker:** It does not execute jobs itself — the short/long workers pick up and run what it enqueues.
 
 ---
 
 ### Custom App Workers {#custom-app-workers}
 
-Apps can define custom queues in `hooks.py`:
+Define custom queues in `common_site_config.json` under the `workers` key:
 
-```python
-# hooks.py
-background_jobs = {
-    "my_custom_queue": {
-        "timeout": 600,
+```json
+{
+    "workers": {
+        "myqueue": {
+            "timeout": 5000,
+            "background_workers": 1
+        }
     }
 }
 ```
 
-FM automatically creates worker containers for custom queues. Container name format: `fm-<benchname>-my-custom-queue-1`
+FM generates a supervisor program (`bench worker --queue myqueue`) and a dedicated container for each entry when the bench's workers are (re)configured. Container name format: `fm__<benchname>__myqueue-worker` (dots in the bench name become underscores). `timeout` sets the worker's stop grace period; `background_workers` overrides the process count for that queue.
 
 **See also:** [Frappe Framework — Background Jobs](https://frappeframework.com/docs/user/en/python-api/background-jobs)
 
-`fm restart` kills worker processes immediately. Any in-flight job is interrupted.
-
-For production — or any time you are running an email send, file import, or report that takes minutes — drain the queues first using [`fmx`](../guides/fmx.md):
-
-```bash
-# Wait for all in-flight jobs to finish, then restart
-fm shell mybench -c "fmx restart --drain-workers"
-```
-
-To also run a database migration as part of the same step:
-
-```bash
-fm shell mybench -c "fmx restart --drain-workers --migrate"
-```
-
-See the [fmx guide](../guides/fmx.md) for the full list of restart options including maintenance mode and per-service restarts.
 
 ---
 
@@ -124,7 +110,7 @@ See the [fmx guide](../guides/fmx.md) for the full list of restart options inclu
 
 ### The Problem
 
-`fm restart mybench --workers` kills worker processes immediately, interrupting any in-flight job mid-execution.
+`fm restart` (with or without `--workers`) restarts worker processes without waiting for in-flight jobs, interrupting any running job mid-execution.
 
 **Consequences:**
 
@@ -135,27 +121,27 @@ See the [fmx guide](../guides/fmx.md) for the full list of restart options inclu
 
 ### Solution: Drain Workers First
 
-Use `fmx restart --drain-workers` to wait for jobs to complete before restarting:
+Use `fm restart mybench --drain` to wait for in-flight jobs to complete before restarting the workers:
 
 ```bash
-fm shell mybench -c "fmx restart --drain-workers"
+fm restart mybench --drain
 ```
 
 **What happens:**
 
-1. Workers finish current jobs
-2. Workers refuse new jobs
-3. All workers idle → restart triggered
-4. Workers resume accepting jobs after restart
+1. Workers are suspended via a Redis flag — they refuse new jobs
+2. FM waits for every in-flight job to finish (stale idle workers are skipped so a hung worker cannot block forever)
+3. Workers restart
+4. Workers resume accepting jobs
 
 !!! tip "Combine with database migrations"
     ```bash
-    fm shell mybench -c "fmx restart --drain-workers --migrate"
+    fm shell mybench -c "fmx restart --migrate"
     ```
-    
-    Drains workers → migrates database → restarts all services.
 
-**See also:** [fmx guide](../guides/fmx.md) for full restart options
+    Drains workers (fmx drains by default) → migrates database → restarts all services.
+
+**See also:** [fmx guide](../guides/fmx.md) for the in-container restart options (maintenance mode, per-service restarts, drain tuning)
 
 ---
 
@@ -187,14 +173,16 @@ The production web server (Gunicorn) runs multiple worker processes to handle co
 FM sizes Gunicorn workers automatically:
 
 ```
-workers = (CPU count × 2) + 1
+workers = min(CPU count, RAM in MB / 256)
 ```
+
+i.e. one worker per CPU core, capped so each worker has roughly 256 MB of RAM available. Workers use the `gthread` class, so each worker additionally serves multiple concurrent requests via threads (default threads: `max(2, min(CPU count, 4))`, overridable with `gunicorn_threads` in `common_site_config.json`).
 
 **Examples:**
 
-- 2-core machine → 5 workers
-- 4-core machine → 9 workers
-- 8-core machine → 17 workers
+- 4-core machine, 8 GB RAM → 4 workers (CPU-bound)
+- 8-core machine, 1 GB RAM → 4 workers (RAM-bound: 1024 MB / 256)
+- 2-core machine, 512 MB RAM → 2 workers
 
 ### Overriding Worker Count
 
@@ -215,19 +203,19 @@ fm restart mybench
 
 ## RQ Worker Concurrency
 
-The `background_workers` setting (defaults to `1`) controls how many RQ worker processes handle each queue.
+The `background_workers` setting in `common_site_config.json` (defaults to `1`) controls how many RQ worker processes run inside each worker container.
 
 ```bash
 # Increase concurrency for all workers
 fm shell mybench -c "bench set-config -g background_workers 2"
-fm restart mybench --workers
+fm restart mybench --workers --no-web
 ```
 
 **Effect:**
 
-- `short-worker` runs 2 processes (4 with default `multi_queue_consumption`)
+- `short-worker` runs 2 processes
 - `long-worker` runs 2 processes
-- Custom app workers run 2 processes each
+- Custom workers run 2 processes each, unless they set their own `background_workers` in the `workers` dict
 
 !!! tip "When to increase"
     Increase if you see job queues building up during peak hours. Monitor with:
