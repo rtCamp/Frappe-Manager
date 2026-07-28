@@ -69,3 +69,6 @@ The config supplies top-level image, [[apps]] and [build]; nothing else on disk 
 fm bake --config ci/build.toml
 ```
 
+## Related
+
+- [Deployment guide](../deploy/index.md)

@@ -43,3 +43,5 @@ fm start mybench
 
 !!! warning
     Always test restores on a non-production bench first. Mistakes can overwrite data.
+
+See also: [Configuration](../reference/configuration.md) for where `site_config.json` and other config files live, and [Architecture](../reference/architecture.md) for how benches reach the database.

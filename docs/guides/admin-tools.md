@@ -34,3 +34,5 @@ If you need the SMTP endpoint manually (inside the Docker network): host `fm__<b
 
 !!! warning
     Admin tools are enabled by default on `dev` benches and disabled on `prod` benches at create time. Switching environments later does not toggle them - disable explicitly before going live.
+
+See also: [Environments](environments.md) for the dev/prod defaults behind these tools, and [Architecture](../reference/architecture.md) for how they are routed inside the bench.

@@ -125,3 +125,7 @@ Sets the maximum file upload size for the bench (useful for large attachments).
 fm update mybench --upload-limit 100M
 ```
 
+## Related
+
+- [App Management](../guides/app-management.md)
+- [Python & Node Versions](../guides/python-node-versions.md)

@@ -201,7 +201,7 @@ fm ngrok mybench
 
 ## Deployment
 
-Bake immutable images and ship them with zero-downtime deploys. See the [Deployment guide](../guides/deployment.md) for the full workflow.
+Bake immutable images and ship them with zero-downtime deploys. See the [Deployment guide](../deploy/index.md) for the full workflow.
 
 ### :material-image-multiple: [`fm bake`](bake.md) {.command-heading}
 **Bake an immutable app image**

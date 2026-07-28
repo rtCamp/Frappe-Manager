@@ -30,11 +30,10 @@ fm create prodbench --runtime image --image repo:tag   # or create a bench direc
 
 Code, venv, and built assets are inside the image; the bench only holds data (sites, DB, logs, config). There is nothing to edit - and that's the point:
 
-- deploys are atomic and repeatable: `fm switch <bench> <tag>`
-- rollback is one command: `fm switch <bench> --previous`
+- deploys are atomic and repeatable, and rollback is one command away - see [Deployment](../deploy/index.md) and [Rolling back](../deploy/rollback.md)
 - `fm update` accepts settings only (SSL, domains, policies); `--apps`/`--python`/`--node` are refused - those are baked in
 
-The full pipeline - baking, zero-downtime rolling swaps, rollbacks with DB restore, release pruning - is covered in the [Deployment guide](../guides/deployment.md).
+The full pipeline - baking, zero-downtime rolling swaps, rollbacks with DB restore, release pruning - is covered in the [Deployment guide](../deploy/index.md).
 
 ## Moving between runtimes
 
@@ -56,16 +55,11 @@ Both directions preserve your site and database:
 
 ## How runtime and environment combine
 
-Runtime says where code lives; [environment](../guides/environments.md) says how the web process runs. All four combinations are valid:
-
-| | `dev` | `prod` |
-|---|---|---|
-| **`mount`** | **The default.** Edit-reload loop, debugger, admin tools | Editable code under Gunicorn - the simple VPS setup |
-| **`image`** | Try a release image locally before shipping it | **The deployment target.** Immutable releases, rolling swaps |
+Runtime says where code lives; [environment](../guides/environments.md) says how the web process runs. All four combinations are valid - see the [Concepts overview](index.md) for the 2x2 matrix.
 
 One flag worth knowing changes meaning with the runtime: on a mount bench `--image` overrides the *base* frappe image the workspace runs on; on an image bench it names the *app image to run*.
 
 ## Where to next
 
 - Daily work on a mount bench → [Guides](../guides/index.md)
-- Shipping an image bench → [Deployment](../guides/deployment.md)
+- Shipping an image bench → [Deployment](../deploy/index.md)

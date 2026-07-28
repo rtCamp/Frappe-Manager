@@ -1,6 +1,9 @@
-# Workers & Background Jobs
+# Background Jobs & Workers
 
 Frappe uses RQ (Redis Queue) to process background jobs in dedicated worker containers. Each worker type pulls from specific queues to handle different job workloads.
+
+!!! note "Not web workers"
+    RQ workers execute queued jobs. The *web* process has its own, unrelated worker model (Gunicorn): [Web Serving & Concurrency](web-serving.md).
 
 ## Overview
 
@@ -161,45 +164,6 @@ fm shell mybench -c "fmx rq resume"
 
 !!! info "Existing jobs complete"
     Suspended workers finish their current job, then wait. They don't interrupt in-flight work.
-
----
-
-## Gunicorn Web Workers
-
-The production web server (Gunicorn) runs multiple worker processes to handle concurrent HTTP requests. **This is different from RQ background workers.**
-
-### Worker Count Formula
-
-FM sizes Gunicorn workers automatically:
-
-```
-workers = min(CPU count, RAM in MB / 256)
-```
-
-i.e. one worker per CPU core, capped so each worker has roughly 256 MB of RAM available. Workers use the `gthread` class, so each worker additionally serves multiple concurrent requests via threads (default threads: `max(2, min(CPU count, 4))`, overridable with `gunicorn_threads` in `common_site_config.json`).
-
-**Examples:**
-
-- 4-core machine, 8 GB RAM → 4 workers (CPU-bound)
-- 8-core machine, 1 GB RAM → 4 workers (RAM-bound: 1024 MB / 256)
-- 2-core machine, 512 MB RAM → 2 workers
-
-### Overriding Worker Count
-
-Set `gunicorn_workers` in `common_site_config.json`:
-
-```bash
-fm shell mybench -c "bench set-config -g gunicorn_workers 4"
-fm restart mybench
-```
-
-!!! warning "Too few = slow, too many = OOM"
-    - **Too few workers:** Requests queue up, slow response times
-    - **Too many workers:** Excessive RAM usage, potential OOM kills
-    
-    The default formula balances CPU utilization and memory.
-
----
 
 ## RQ Worker Concurrency
 

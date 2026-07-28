@@ -1,6 +1,6 @@
 # Guides
 
-Everyday bench workflows. They apply to any bench - dev or prod, on your laptop or a server. (New here? Read [Concepts](../concepts/index.md) first: five minutes, and everything below makes sense. Shipping immutable releases is its own journey: [Deployment](deployment.md).)
+Everyday bench workflows. They apply to any bench - dev or prod, on your laptop or a server. (New here? Read [Concepts](../concepts/index.md) first: five minutes, and everything below makes sense. Shipping immutable releases is its own journey: [Deployment](../deploy/index.md).)
 
 ## The daily loop
 
@@ -48,6 +48,12 @@ Everyday bench workflows. They apply to any bench - dev or prod, on your laptop 
 
     How routing works, serving a bench on multiple domains, and tunneling a local bench to the internet.
 
+-   :lucide-server:{ .lg .middle } &nbsp; **[Hosting on a Server](hosting.md)**
+
+    ---
+
+    The end-to-end runbook: fresh server to HTTPS-served production benches, one domain per client.
+
 -   :lucide-shield-check:{ .lg .middle } &nbsp; **[SSL / HTTPS](./ssl.md)**
 
     ---
@@ -77,12 +83,6 @@ Everyday bench workflows. They apply to any bench - dev or prod, on your laptop 
     ---
 
     Raise the maximum file upload size for a bench.
-
--   :lucide-globe:{ .lg .middle } &nbsp; **[Google API Development](google-api.md)**
-
-    ---
-
-    Configure OAuth credentials so your bench can use Google APIs during local development.
 
 -   :lucide-monitor:{ .lg .middle } &nbsp; **[Windows / WSL](wsl.md)**
 

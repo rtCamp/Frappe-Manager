@@ -44,7 +44,7 @@ hide:
 
     Inspect emails in Mailpit, browse the database in Adminer, and monitor background jobs - all built in, no configuration needed.
 
--   :lucide-ship:{ .lg .middle } &nbsp; **[Ship immutable deploys](guides/deployment.md)**
+-   :lucide-ship:{ .lg .middle } &nbsp; **[Ship immutable deploys](deploy/index.md)**
 
     ---
 
@@ -54,52 +54,11 @@ hide:
 
 ## Install
 
-<div class="admonition tip" markdown>
-<p class="admonition-title">📌 Version-Specific Installation</p>
-<div markdown>
+```bash
+uv tool install --python 3.13 frappe-manager
+```
 
-- View [stable docs](latest/) for production PyPI install
-- View [dev docs](dev/) for development Git install
-
-</div>
-</div>
-
-=== "Stable (Recommended)"
-
-    📦 **Production ready** • Install from PyPI
-
-    ```bash
-    uv tool install --python 3.13 frappe-manager
-    ```
-
-    Using pipx:
-
-    ```bash
-    pipx install frappe-manager
-    ```
-
-=== "Development"
-
-    🚧 **For testing** • Install from GitHub
-
-    !!! warning
-        Development builds may be unstable. Use for testing only.
-
-    ```bash
-    uv tool install git+https://github.com/rtcamp/frappe-manager@develop
-    ```
-
-    Using pipx:
-
-    ```bash
-    pipx install git+https://github.com/rtcamp/frappe-manager@develop
-    ```
-
-=== "Try without installing"
-
-    ```bash
-    uvx --from frappe-manager fm --help
-    ```
+Other methods (pipx, uvx, dev builds): see the [Installation guide](getting-started/installation.md).
 
 ## Create your first bench
 
@@ -120,10 +79,10 @@ Your bench is ready at **http://mybench.localhost** - log in with `Administrator
 
 !!! info "New to Frappe Manager?"
 
-    Start with [Requirements](getting-started/requirements.md), then follow the [Installation guide](getting-started/installation.md) and [Quick Start](getting-started/quick-start.md).
+    Start with the [Installation guide](getting-started/installation.md) (prerequisites in [Before you install](getting-started/installation.md#before-you-install)), then follow the [Quick Start](getting-started/quick-start.md).
 
 !!! example "Already installed?"
 
-    Learn the model in [Concepts](concepts/index.md), work the daily loop in the [Guides](guides/index.md), and ship with the [Deployment guide](guides/deployment.md).
+    Learn the model in [Concepts](concepts/index.md), work the daily loop in the [Guides](guides/index.md), and ship with the [Deployment guide](deploy/index.md).
 
 </div>

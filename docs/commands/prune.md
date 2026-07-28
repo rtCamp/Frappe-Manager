@@ -46,3 +46,6 @@ One-off override of the configured retention.
 fm prune mybench --keep 3
 ```
 
+## Related
+
+- [Deployment guide](../deploy/index.md)

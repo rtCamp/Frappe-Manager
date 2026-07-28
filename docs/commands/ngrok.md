@@ -38,3 +38,6 @@ Uses an auth token stored in FM configuration to create the tunnel without passi
 fm ngrok mybench
 ```
 
+## Related
+
+- [Domains & Remote Access](../guides/domains.md)

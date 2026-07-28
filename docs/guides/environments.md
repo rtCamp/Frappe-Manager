@@ -57,7 +57,7 @@ Single-threaded. Changes to Python/JS/CSS reload automatically. Intended for one
 gunicorn -b 0.0.0.0:80 -w <workers> --worker-class=gthread --threads <threads> --max-requests 1000 --preload frappe.app:application
 ```
 
-Multi-worker WSGI server. The worker count defaults to the smaller of the CPU count and a RAM-based cap (one worker per 256 MB); threads default to 2–4 per worker. No auto-reload. See [Workers & Background Jobs](../reference/workers.md) to customize via `common_site_config.json`.
+Multi-worker WSGI server. The worker count defaults to the smaller of the CPU count and a RAM-based cap (one worker per 256 MB); threads default to 2–4 per worker. No auto-reload. See [Web Serving & Concurrency](../concepts/web-serving.md) to customize via `common_site_config.json`.
 
 ---
 
@@ -193,51 +193,8 @@ Example dev dependencies: `pytest`, `black`, `mypy`, `ipdb`.
 
 ## Switching guide: Dev to production checklist
 
-When deploying a bench to production, follow this sequence:
-
-1. **Switch environment:**
-   ```bash
-   fm update mybench --environment prod
-   ```
-
-2. **Disable developer mode** (if not already disabled):
-   ```bash
-   fm update mybench --developer-mode disable
-   ```
-
-3. **Set the restart policy** (env switch keeps the old one):
-   ```bash
-   fm update mybench --restart unless-stopped
-   ```
-
-4. **Disable admin tools** (they stay enabled from the dev defaults):
-   ```bash
-   fm update mybench --admin-tools disable
-   ```
-
-5. **Remove dev packages:**
-   ```bash
-   fm stop mybench
-   fm start mybench --sync-dev-packages
-   ```
-
-6. **Set up SSL** (if not already done):
-   ```bash
-   fm ssl add mybench yourdomain.com
-   ```
-   See [SSL Guide](ssl.md) for details.
-
-7. **Configure automated renewals:**
-   ```bash
-   # Add to crontab
-   0 3 * * * fm ssl renew --all
-   ```
-
-8. **Verify the bench is running:**
-   ```bash
-   fm list
-   curl -I https://yourdomain.com
-   ```
+The full go-live sequence (environment switch, developer mode, restart policy, admin tools, dev packages, SSL, verification) now lives in the [Hosting on a Server](hosting.md) runbook.
+The environment-specific step is `fm update mybench --environment prod` - the sections above explain exactly what that does and does not change.
 
 ---
 
@@ -274,9 +231,9 @@ fm info mybench
 
 !!! info "See also"
     - [VSCode Integration](vscode.md) - attach debugger to dev benches
-    - [Deployment - Image Benches](deployment.md) - ship production code as immutable images
+    - [Deployment - Image Benches](../deploy/index.md) - ship production code as immutable images
     - [Admin Tools](admin-tools.md) - Mailpit and Adminer details
-    - [Workers & Background Jobs](../reference/workers.md) - customize Gunicorn workers
+    - [Web Serving & Concurrency](../concepts/web-serving.md) - Gunicorn workers and threads
     - [SSL Guide](ssl.md) - secure production benches with HTTPS
 
 ## Monitoring (New Relic)

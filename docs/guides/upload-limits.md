@@ -18,3 +18,5 @@ Both nginx layers are reloaded automatically; no restart needed.
 
 !!! tip
     Avoid editing proxy or nginx files by hand - `fm update` writes all three layers consistently and reloads nginx for you. Frappe's own **System Settings → Max Attachment Size** can still impose a lower limit from inside the application.
+
+See also: [Configuration](../reference/configuration.md) for the config files this command writes.

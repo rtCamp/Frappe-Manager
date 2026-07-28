@@ -1,18 +1,12 @@
 # Reference
 
-Technical reference documentation for Frappe Manager internals. These pages serve lookup - not learning. For the mental model start at [Concepts](../concepts/index.md); for workflows see the [Guides](../guides/index.md) and [Deployment](../guides/deployment.md).
+Technical reference documentation for Frappe Manager internals. These pages serve lookup - not learning. For the mental model start at [Concepts](../concepts/index.md); for workflows see the [Guides](../guides/index.md) and [Deployment](../deploy/index.md).
 
 ---
 
 ## Core Reference
 
 <div class="grid cards" markdown>
-
--   :material-run-fast:{ .lg .middle } **[Workers & Background Jobs](workers.md)**
-
-    ---
-
-    RQ worker architecture, queue types, concurrency tuning, Gunicorn worker configuration.
 
 -   :material-cog:{ .lg .middle } **[Configuration Files](configuration.md)**
 
@@ -52,6 +46,6 @@ Technical reference documentation for Frappe Manager internals. These pages serv
     **Example deep links:**
 
     - [`configuration.md#restart-policy`](configuration.md#restart-policy) - restart policy options
-    - [`../guides/deployment.md#configuration-reference`](../guides/deployment.md#configuration-reference) - deploy config tables
+    - [`../deploy/config.md`](../deploy/config.md) - deploy config tables
 
     **Fast lookup:** Use browser **Ctrl+F** / **Cmd+F** within each page to jump to specific terms.

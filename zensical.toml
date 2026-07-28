@@ -14,7 +14,6 @@ nav = [
   { "Home" = "index.md" },
   { "Getting Started" = [
     "getting-started/index.md",
-    { "Requirements"  = "getting-started/requirements.md" },
     { "Installation"  = "getting-started/installation.md" },
     { "Quick Start"   = "getting-started/quick-start.md" },
   ]},
@@ -22,6 +21,8 @@ nav = [
     "concepts/index.md",
     { "Runtimes: Mount vs Image"   = "concepts/runtimes.md" },
     { "Environments: Dev vs Prod"  = "guides/environments.md" },
+    { "Web Serving & Concurrency"  = "concepts/web-serving.md" },
+    { "Background Jobs & Workers"  = "concepts/background-jobs.md" },
     { "Architecture"                = "reference/architecture.md" },
   ]},
   { "Guides" = [
@@ -32,14 +33,19 @@ nav = [
     { "Admin Tools"            = "guides/admin-tools.md" },
     { "fmx: In-Container Services" = "guides/fmx.md" },
     { "Domains & Remote Access" = "guides/domains.md" },
+    { "Hosting on a Server"    = "guides/hosting.md" },
     { "SSL / HTTPS"            = "guides/ssl.md" },
     { "Backup & Restore"       = "guides/backup-restore.md" },
     { "Upload Limits"          = "guides/upload-limits.md" },
     { "External Database"      = "guides/external-database.md" },
-    { "Google API Development" = "guides/google-api.md" },
     { "Windows / WSL"          = "guides/wsl.md" },
   ]},
-  { "Deployment" = "guides/deployment.md" },
+  { "Deployment" = [
+    "deploy/index.md",
+    { "Rollback"               = "deploy/rollback.md" },
+    { "Transports & Platforms" = "deploy/transports.md" },
+    { "Configuration"          = "deploy/config.md" },
+  ]},
   { "Commands" = [
     "commands/index.md",
     { "fm create"   = "commands/create.md" },
@@ -70,7 +76,6 @@ nav = [
   { "Reference" = [
     "reference/index.md",
     { "Configuration Files" = "reference/configuration.md" },
-    { "Workers & Background Jobs" = "reference/workers.md" },
     { "Migrations"          = "reference/migrations.md" },
     { "Logs & Debugging"    = "reference/logs.md" },
   ]},

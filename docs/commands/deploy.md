@@ -45,3 +45,6 @@ Sets the top-level image for this bake+deploy.
 fm deploy mybench --image local/mybench
 ```
 
+## Related
+
+- [Deployment guide](../deploy/index.md)

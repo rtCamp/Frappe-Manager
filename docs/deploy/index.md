@@ -1,4 +1,4 @@
-# Deployment: Image Benches
+# Deployment
 
 fm runs a bench in one of two **runtimes**:
 
@@ -7,7 +7,31 @@ fm runs a bench in one of two **runtimes**:
 | `mount` | your editable workspace, bind-mounted into containers | development |
 | `image` | an immutable, pre-built app image (code + venv + assets baked in) | production |
 
-This guide covers the image lifecycle: **bake** an image, **deploy** it, **roll back**, keep the release history **pruned** - and how fm moves traffic without dropping requests.
+This section covers the image lifecycle: **bake** an image, **deploy** it, **roll back**, keep the release history **pruned** - and how fm moves traffic without dropping requests.
+
+## Your first deploy
+
+1. **Start from a working bench** in the default `mount` runtime - the dev workspace you already use. If you don't have one yet, the [Quick Start](../getting-started/quick-start.md) gets you there.
+
+2. **Run the deploy:**
+
+    ```bash
+    fm deploy mybench
+    ```
+
+    `fm deploy` is bake **and** switch in one command: it builds an immutable image from your bench, then runs the full switch pipeline against it.
+
+3. **What you'll see:** the bake prints the new image tag (`repo:timestamp-sha`), then the pipeline steps run in order - fetch, a pre-flight boot check, the migrate decision, the swap, a health gate, and finalize. If anything fails before the swap, the old stack never stopped serving.
+
+4. **Verify it:**
+
+    ```bash
+    fm info mybench
+    ```
+
+    The **deploys** section lists every release, newest first, with its migrate status and the DB dump taken.
+
+That's the whole loop. The rest of this page explains what happened underneath; the pages linked at the bottom cover [rolling back](rollback.md), [remote targets and architectures](transports.md), and [every config key](config.md).
 
 ## The lifecycle at a glance
 
@@ -106,60 +130,6 @@ Honest caveat: rolling is zero-**downtime**, not zero-**skew** - during the over
 
 The same engine powers `fm restart --rolling`: a zero-downtime web-tier recreate on the *current* tag (fresh containers, no release change).
 
-## Rolling back
-
-```bash
-fm switch mybench --previous                 # code rollback; migrate disabled automatically
-fm switch mybench --previous --restore-db    # code AND database back together
-fm switch mybench local/mybench:<older-tag> --no-migrate   # further than one release
-```
-
-- `--previous` disables migrate for the run (old code must never migrate a newer schema); override with an explicit `--migrate`.
-- `--restore-db` finds the DB dump recorded for the **current** (bad) deploy in the history and imports it before the swap - a restore is schema-grade, so it runs under the maintenance window like a migrate. Rows written after the bad deploy went live are discarded; that is why it is never implicit.
-- After a rollback, `previous_tag` points at the tag you just left - running `fm switch --previous` again re-deploys it (deliberate: rollback of a rollback is a redo).
-
-## Transports: getting the image to where it runs
-
-```mermaid
-flowchart LR
-    subgraph build [build machine]
-        B[fm bake] --> LI[local image]
-    end
-    subgraph target [target daemon]
-        RD[docker daemon] --> RUN[bench containers]
-    end
-    LI -->|same machine| RD
-    LI -->|registry: docker push| REG[(registry)] -->|fetch: docker pull| RD
-    LI -->|save_load: docker save over ssh docker load| RD
-    B -.->|every pipeline step| DH[DOCKER_HOST=ssh://user@host]
-    DH -.-> RD
-```
-
-Configured in `bench_config.toml`:
-
-```toml
-[registry]
-distribution = "registry"    # push after bake; the target pulls during fetch
-# distribution = "save_load" # airgap: docker save | ssh <target> docker load
-
-[deploy]
-ssh_server = "prod.example.com"   # remote daemon; or pass --remote on fm deploy
-ssh_user   = "frappe"
-ssh_port   = 22
-```
-
-With a remote configured, the **entire pipeline** drives the remote daemon over `DOCKER_HOST=ssh://` - no fm needed on the target. Registry mode encodes the registry host in the top-level `image` (e.g. `ghcr.io/acme/mybench`); when `[registry] registry/username/password` are all set they are used for `docker login`, otherwise ambient docker auth applies.
-
-## Platforms (CPU architectures)
-
-Images are architecture-specific. fm resolves the bake target as:
-
-1. `[build].platform` if set (explicit always wins; a mismatch with the deploy target warns),
-2. else, for `fm deploy` with a remote: the **remote daemon's architecture**, auto-detected - the image must match where it *runs*, not where it builds,
-3. else the build daemon's native arch.
-
-Cross-arch bakes (e.g. building `linux/amd64` on an Apple Silicon Mac) run the whole bake - provisioning containers and image builds - under `DOCKER_DEFAULT_PLATFORM`, which requires emulation (Rosetta/binfmt; Docker Desktop ships it) and only works with `[build].source = "provision"` (a `workspace` snapshot contains host-arch binaries, so fm refuses it). Before provisioning starts, fm verifies the **base image** actually publishes the target architecture and fails fast with the available list if not. Multi-arch manifest lists are not supported - one platform per bake.
-
 ## Releases, history, and pruning
 
 ```bash
@@ -176,40 +146,26 @@ Pruning splits two concerns:
 
 Nothing a running or rollback-reachable release needs can be pruned.
 
-## Configuration reference
+## Go deeper
 
-### `[build]`
+<div class="grid cards" markdown>
 
-| Key | Default | Meaning |
-|---|---|---|
-| `source` | `"provision"` | `provision` = clone + install fresh (reproducible); `workspace` = snapshot the bench's on-disk workspace |
-| `base_image` | fm's published base | the `FROM` / provisioning image |
-| `python_version` / `node_version` | auto-detected | toolchain baked into the image |
-| `platform` | native / auto-detected | target architecture (see Platforms) |
-| `include` | `[]` | extra host paths baked in (`src` or `src:dest`) |
+-   :lucide-undo-2:{ .lg .middle } &nbsp; **[Rollback](rollback.md)**
 
-### `[switch]`
+    ---
 
-| Key | Default | Meaning |
-|---|---|---|
-| `migrate` | `true` | `true` / `false` / `"auto"` (probe the new image against the live DB) |
-| `migrate_timeout` | `300` | seconds for the one-shot migrate |
-| `migrate_command` | - | custom migrate command override |
-| `maintenance_mode` | `true` | show the maintenance page during schema-changing steps |
-| `maintenance_mode_phases` | `["migrate"]` | `[]` asserts a backward-compatible migration (enables rolling with migrate) |
-| `backup_db` | `true` | `true` / `false` / `"auto"` (dump only when a schema step runs) |
-| `rollback_image` | `true` | auto-rollback to the previous tag on a failed health gate |
-| `rollback_db` | `false` | also restore the dump during that auto-rollback (requires `backup_db`) |
-| `install_apps` | `true` | install newly-baked apps to the site during finalize |
-| `keep_releases` | `7` | retention used by `fm prune` |
-| `drain_workers` (+ `_timeout`, `_poll`, `skip_stale_*`) | `true` | drain RQ workers before migrate/swap |
-| `common_site_config` / `site_config` | - | keys merged into the site configs during finalize |
-| `hooks` | - | `before/after_migrate`, `before/after_restart` (container + `host.*` variants) |
+    The 3am page: two commands to get back to the previous release, with or without the database.
 
-### `[registry]` and `[deploy]`
+-   :lucide-truck:{ .lg .middle } &nbsp; **[Transports & Platforms](transports.md)**
 
-| Key | Meaning |
-|---|---|
-| `registry.distribution` | `"registry"` (push/pull) or `"save_load"` (airgap over SSH) |
-| `registry.registry` / `username` / `password` | registry host + `docker login` credentials (env-substituted); omit to use ambient auth |
-| `deploy.ssh_server` / `ssh_user` / `ssh_port` | remote daemon target (`--remote` overrides) |
+    ---
+
+    Getting the image to where it runs: registry, airgapped save/load, remote daemons over SSH, and CPU architectures.
+
+-   :lucide-settings-2:{ .lg .middle } &nbsp; **[Configuration](config.md)**
+
+    ---
+
+    Every `[build]`, `[switch]`, `[registry]`, and `[deploy]` key with its default.
+
+</div>

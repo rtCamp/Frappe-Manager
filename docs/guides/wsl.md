@@ -14,3 +14,5 @@ Tips:
 
 !!! tip
     Install fm from inside WSL exactly as you would on Linux. Run `uv tool install --python 3.13 frappe-manager` or use pipx inside WSL.
+
+See also: [Installation](../getting-started/installation.md) for the full install options and prerequisites.

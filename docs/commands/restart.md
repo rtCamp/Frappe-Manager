@@ -101,3 +101,6 @@ Restarts the nginx service for the bench, useful after configuration changes to 
 fm restart mybench --nginx
 ```
 
+## Related
+
+- [fmx: In-Container Service Manager](../guides/fmx.md)

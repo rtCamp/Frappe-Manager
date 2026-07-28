@@ -54,3 +54,6 @@ Displays logs from redis-cache service; helpful when debugging caching or queuin
 fm logs mybench --service redis-cache
 ```
 
+## Related
+
+- [Logs & Debugging](../reference/logs.md)

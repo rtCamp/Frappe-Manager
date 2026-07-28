@@ -607,7 +607,7 @@ Bench runtime model:
 
 **Change via:** `fm update BENCHNAME --runtime mount` (image → mount). Going mount → image is done with `fm switch` onto a baked image.
 
-**See also:** [Deployment guide](/guides/deployment/)
+**See also:** [Deployment](../deploy/index.md)
 
 ---
 
@@ -632,10 +632,9 @@ Configuration tables for the image build/deploy pipeline (`fm bake`, `fm deploy`
 - `[build]` - `fm bake` inputs: `base_image`, `source` (`provision`/`workspace`), `python_version`, `node_version`, `platform` (single platform string, e.g. `linux/amd64`), `include`.
 - `[registry]` - registry host/credentials and `distribution` (`registry` or `save_load` over SSH).
 
-Full tables with defaults and the pipeline they drive: [Deployment guide](../guides/deployment.md#configuration-reference).
 - `[deploy]` - remote target for `fm deploy --remote`: `ssh_server`, `ssh_user`, `ssh_port`, `benches_root`.
 
-Full key-by-key tables live in the [Deployment guide - Configuration reference](/guides/deployment/#configuration-reference).
+Full key-by-key tables with defaults and the pipeline they drive: [Deployment configuration reference](../deploy/config.md).
 
 ---
 

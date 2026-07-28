@@ -46,4 +46,18 @@ For webhooks, mobile testing, or sharing work in progress, tunnel a local bench 
 fm ngrok mybench    # prints a public URL tunneled to the bench
 ```
 
-Requires an ngrok auth token (flag or config; see `fm ngrok --help`). The tunnel lives while the command runs - it is a development convenience, not a deployment mechanism. To actually host a bench publicly, use a server with real DNS and the [Deployment guide](deployment.md).
+Requires an ngrok auth token (flag or config; see `fm ngrok --help`). The tunnel lives while the command runs - it is a development convenience, not a deployment mechanism. To actually host a bench publicly, use a server with real DNS and the [Hosting guide](hosting.md) or the [Deployment guide](../deploy/index.md).
+
+## Google OAuth during local development
+
+Google OAuth requires a public HTTPS redirect URI - a local `http://mybench.localhost` URL will not be accepted. Tunnel the bench through ngrok to get one:
+
+```bash
+fm ngrok mybench --auth-token YOUR_TOKEN --save-token   # first run: save the token
+fm ngrok mybench                                        # later runs reuse the saved token
+```
+
+Copy the public HTTPS URL that ngrok prints and add it as an **Authorized Redirect URI** in the Google Cloud Console.
+
+!!! tip
+    ngrok URLs are ephemeral unless you have a paid ngrok account. Update the redirect URIs in Google Cloud each time the URL changes.

@@ -83,3 +83,7 @@ After configuring credentials, issue certificates with:
 ```bash
 fm ssl add mybench example.com --challenge dns01
 ```
+
+## Related
+
+- [SSL / HTTPS guide](../guides/ssl.md)

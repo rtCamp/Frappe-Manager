@@ -13,6 +13,34 @@ sys.path.insert(0, str(project_root))
 
 console = Console()
 
+# Related-guide links appended to generated command pages.
+# Keyed by the output file stem in docs/commands/; URLs are relative to docs/commands/.
+RELATED_GUIDES: dict[str, list[tuple[str, str]]] = {
+    "deploy": [("Deployment guide", "../deploy/index.md")],
+    "switch": [("Deployment guide", "../deploy/index.md"), ("Rolling back", "../deploy/rollback.md")],
+    "bake": [("Deployment guide", "../deploy/index.md")],
+    "prune": [("Deployment guide", "../deploy/index.md")],
+    "ssl": [("SSL / HTTPS guide", "../guides/ssl.md")],
+    "ssl-dns-config-cloudflare": [("SSL / HTTPS guide", "../guides/ssl.md")],
+    "ngrok": [("Domains & Remote Access", "../guides/domains.md")],
+    "create": [("Runtimes: Mount vs Image", "../concepts/runtimes.md")],
+    "restart": [("fmx: In-Container Service Manager", "../guides/fmx.md")],
+    "update": [
+        ("App Management", "../guides/app-management.md"),
+        ("Python & Node Versions", "../guides/python-node-versions.md"),
+    ],
+    "migrate": [("Migrations", "../reference/migrations.md")],
+    "logs": [("Logs & Debugging", "../reference/logs.md")],
+}
+
+
+def append_related_section(md: str, name: str) -> str:
+    links = RELATED_GUIDES.get(name)
+    if not links:
+        return md
+    lines = "".join(f"- [{label}]({url})\n" for label, url in links)
+    return md.rstrip("\n") + f"\n\n## Related\n\n{lines}"
+
 
 def load_examples(app: typer.Typer) -> dict:
     try:
@@ -491,6 +519,7 @@ def generate_all_docs(output_dir: Path, update_readme: bool = False) -> dict:
     for cmd_info in structure["commands"]:
         cmd_name = cmd_info["name"]
         md_content = generate_command_markdown(cmd_info, examples_data, level=2)
+        md_content = append_related_section(md_content, cmd_name)
 
         output_file = commands_dir / f"{cmd_name}.md"
         output_file.write_text(md_content)
@@ -500,6 +529,7 @@ def generate_all_docs(output_dir: Path, update_readme: bool = False) -> dict:
     for group_info in structure["groups"]:
         group_name = group_info["name"]
         md_content = generate_group_markdown(group_info, examples_data, level=2)
+        md_content = append_related_section(md_content, group_name)
 
         output_file = commands_dir / f"{group_name}.md"
         output_file.write_text(md_content)

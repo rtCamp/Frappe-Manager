@@ -18,7 +18,7 @@ The axes combine freely:
 | **`mount`** | The daily development loop - edit code, see it live | Simple production: editable code, production web server |
 | **`image`** | Testing a release image locally | Immutable production - deploys, rollbacks, rolling swaps |
 
-Read them in this order:
+Read the two axes first, then the machinery:
 
 <div class="grid cards" markdown>
 
@@ -33,6 +33,18 @@ Read them in this order:
     ---
 
     The web-process mode: auto-reloading dev server vs Gunicorn, and the defaults that come with each.
+
+-   :lucide-globe:{ .lg .middle } &nbsp; **[Web Serving & Concurrency](web-serving.md)**
+
+    ---
+
+    The request path and the web process: dev server vs Gunicorn, workers and threads, when to tune.
+
+-   :lucide-list-checks:{ .lg .middle } &nbsp; **[Background Jobs & Workers](background-jobs.md)**
+
+    ---
+
+    RQ queues, the worker containers, the scheduler, safe restarts and draining.
 
 -   :lucide-network:{ .lg .middle } &nbsp; **[Architecture](../reference/architecture.md)**
 

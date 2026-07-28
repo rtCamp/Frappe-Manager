@@ -2,6 +2,22 @@
 
 This page shows how to install Frappe Manager. Choose the installation method that matches your needs.
 
+## Before you install
+
+- [ ] **Python 3.13** - required only to run the fm tool itself (fm needs `>=3.13,<3.14`; `uv tool install --python 3.13` downloads it for you). Benches use their own Python inside containers.
+- [ ] **Docker** - Docker Desktop (Mac/Windows) or Docker Engine (Linux). Benches run inside Docker containers, and your user needs permission to use Docker (non-root).
+- [ ] **Git** - required to clone Frappe apps during bench creation.
+- [ ] **Ports 80 and 443 free** - the global nginx proxy uses them.
+
+!!! tip "Quick checks"
+    ```bash
+    python3 --version
+    docker --version
+    git --version
+    ```
+
+On Windows, see the [WSL guide](../guides/wsl.md).
+
 ## Stable Release (Recommended)
 
 📦 **For production use and general development**
@@ -98,5 +114,18 @@ Frappe Manager uses `~/frappe/` as its workspace. After you create your first be
 | `~/frappe/backups/` | Migration backups |
 | `~/frappe/archived/` | Archived/failed benches moved by fm migrate |
 
-!!! note "Next step"
-    Head to [Quick Start](quick-start.md) to create your first bench.
+## Upgrading fm
+
+Run these two commands, in this order. The first updates the CLI; the second updates your benches and infrastructure to match.
+
+```bash
+fm self update
+fm migrate --all-benches
+```
+
+See [Migrations](../reference/migrations.md) for what `fm migrate` does and how backups and rollback work.
+
+## Next steps
+
+- [Quick Start](quick-start.md) - create your first bench.
+- [Concepts](../concepts/index.md) - five minutes on the mental model.

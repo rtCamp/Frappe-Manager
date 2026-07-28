@@ -82,3 +82,7 @@ Old and new web replicas serve side by side, then the old drains away. Only forc
 fm switch mybench local/mybench:20260722-def456 --rolling
 ```
 
+## Related
+
+- [Deployment guide](../deploy/index.md)
+- [Rolling back](../deploy/rollback.md)

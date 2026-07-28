@@ -4,7 +4,7 @@ Everything you need to go from zero to a running Frappe bench.
 
 <div class="grid cards" markdown>
 
--   :lucide-clipboard-list:{ .lg .middle } &nbsp; **[Requirements](requirements.md)**
+-   :lucide-clipboard-list:{ .lg .middle } &nbsp; **[Before you install](installation.md#before-you-install)**
 
     ---
 
@@ -28,4 +28,4 @@ Everything you need to go from zero to a running Frappe bench.
 
 - Understand the model (5 minutes): [Concepts - runtimes and environments](../concepts/index.md)
 - Build things daily: [Guides](../guides/index.md)
-- Ready to ship: [Deployment](../guides/deployment.md)
+- Ready to ship: [Deployment](../deploy/index.md)

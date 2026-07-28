@@ -95,3 +95,6 @@ Excludes specific benches from a full migration run.
 fm migrate --all-benches --exclude-bench mybench1,mybench2
 ```
 
+## Related
+
+- [Migrations](../reference/migrations.md)

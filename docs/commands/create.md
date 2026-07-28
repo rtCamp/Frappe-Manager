@@ -99,3 +99,6 @@ Adds alias domains to the bench configuration. Use 'fm ssl add' to provision cer
 fm create mybench --alias-domains www.example.com,api.example.com
 ```
 
+## Related
+
+- [Runtimes: Mount vs Image](../concepts/runtimes.md)

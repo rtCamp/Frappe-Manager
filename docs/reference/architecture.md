@@ -16,7 +16,7 @@ Independently of this two-tier layout, each bench runs in one of **two runtimes*
 - **`mount`** (default) - app code lives on the host in `workspace/frappe-bench/` and is live-mounted into the containers. Editable; built for development.
 - **`image`** - app code is baked into an immutable image (`fm bake`) and deploys happen by switching image tags (`fm deploy` / `fm switch`). The workspace holds only sites/config.
 
-The container topology below is identical in both runtimes; only where the app code comes from differs. See the [Deployment guide](../guides/deployment.md).
+The container topology below is identical in both runtimes; only where the app code comes from differs. See the [Deployment guide](../deploy/index.md).
 
 !!! tip "Quick navigation"
     Jump to: [Global Services](#global-services) · [Per-Bench Services](#per-bench-services) · [Networks](#networks) · [Volumes](#volumes) · [File Layout](#workspace-layout)
@@ -275,7 +275,7 @@ Each bench runs its own isolated service stack. Container names are prefixed wit
 | `long-worker` | `ghcr.io/rtcamp/frappe-manager-frappe:<tag>` | Handles `long`, `default`, `short` queues (fallback) | Configurable (default: 1) |
 | Custom workers | `ghcr.io/rtcamp/frappe-manager-frappe:<tag>` | App-defined queues from `hooks.py` | Per app config |
 
-See [Workers & Background Jobs](workers.md) for details.
+See [Workers & Background Jobs](../concepts/background-jobs.md) for details.
 
 ### Admin tools (optional, separate compose file) {#admin-tools}
 
@@ -454,5 +454,5 @@ Each runs a single dedicated Frappe process.
 ## See also
 
 - [Configuration Files](configuration.md) - `fm_config.toml` and `bench_config.toml` reference
-- [Workers & Background Jobs](workers.md) - worker queue configuration
+- [Workers & Background Jobs](../concepts/background-jobs.md) - worker queue configuration
 - [Environments](../guides/environments.md) - dev vs prod architecture differences

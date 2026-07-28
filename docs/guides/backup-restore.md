@@ -111,6 +111,6 @@ This drops the database and reinstalls all apps. Back up first - this is irrever
 ---
 
 !!! info "See also"
-    - [Deployment guide](deployment.md#releases-history-and-pruning) - image benches keep a pre-migrate DB dump per release; `fm prune` trims old dumps, and `fm switch --previous --restore-db` rolls back to one
+    - [Deployment](../deploy/index.md#releases-history-and-pruning) - image benches keep a pre-migrate DB dump per release; `fm prune` trims old dumps, and `fm switch --previous --restore-db` rolls back to one
     - [Migrations reference](../reference/migrations.md) - how FM migrations work and how rollbacks are triggered
     - [fm migrate command](../commands/migrate.md) - all migration flags
