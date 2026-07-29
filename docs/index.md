@@ -12,7 +12,7 @@ hide:
 
     ---
 
-    Create a fully configured Frappe bench - with Docker, database, and web server - using a single command. No manual setup required.
+    Create a fully configured Frappe bench (with Docker, database, and web server) using a single command. No manual setup required.
 
 -   :lucide-layers:{ .lg .middle } &nbsp; **[One model, two axes](concepts/index.md)**
 
@@ -42,13 +42,13 @@ hide:
 
     ---
 
-    Inspect emails in Mailpit, browse the database in Adminer, and monitor background jobs - all built in, no configuration needed.
+    Inspect emails in Mailpit, browse the database in Adminer, and monitor background jobs, all built in, no configuration needed.
 
 -   :lucide-ship:{ .lg .middle } &nbsp; **[Ship immutable deploys](deploy/index.md)**
 
     ---
 
-    Bake your bench into a Docker image and deploy it with zero-downtime rolling swaps. Roll back code - and database - in one command with `fm switch --previous`.
+    Bake your bench into a Docker image and deploy it with zero-downtime rolling swaps. Roll back code (and database) in one command with `fm switch --previous`.
 
 </div>
 
@@ -66,7 +66,7 @@ Other methods (pipx, uvx, dev builds): see the [Installation guide](getting-star
 fm create mybench
 ```
 
-Your bench is ready at **http://mybench.localhost** - log in with `Administrator` / `admin`.
+Your bench is ready at **http://mybench.localhost**; log in with `Administrator` / `admin`.
 
 !!! tip "Need ERPNext?"
     ```bash

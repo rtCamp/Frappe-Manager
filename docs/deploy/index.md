@@ -7,31 +7,53 @@ fm runs a bench in one of two **runtimes**:
 | `mount` | your editable workspace, bind-mounted into containers | development |
 | `image` | an immutable, pre-built app image (code + venv + assets baked in) | production |
 
-This section covers the image lifecycle: **bake** an image, **deploy** it, **roll back**, keep the release history **pruned** - and how fm moves traffic without dropping requests.
+This section covers the image lifecycle: **bake** an image, **deploy** it, **roll back**, keep the release history **pruned**, and how fm moves traffic without dropping requests.
 
 ## Your first deploy
 
-1. **Start from a working bench** in the default `mount` runtime - the dev workspace you already use. If you don't have one yet, the [Quick Start](../getting-started/quick-start.md) gets you there.
+`fm deploy`, `fm switch`, and `fm prune` operate on a bench in the **image runtime**. A `mount` bench (the default dev workspace) is converted once; after that, every release is one command.
 
-2. **Run the deploy:**
+1. **One-time conversion** of your working mount bench (if you don't have one yet, the [Quick Start](../getting-started/quick-start.md) gets you there). Give the bench a release image repo and flip its runtime in `bench_config.toml`:
+
+    ```toml
+    image   = "local/mybench"   # where releases are tagged; a registry host prefix + [registry] enables push/pull
+    runtime = "image"
+    ```
+
+2. **Bake the first image:**
+
+    ```bash
+    fm bake mybench
+    ```
+
+    Prints the new tag: `local/mybench:<timestamp>-<git sha>`.
+
+3. **Switch onto it.** This is the conversion moment; the deploy pipeline migrates your existing site onto the image (site data and DB carry over):
+
+    ```bash
+    fm switch mybench local/mybench:<tag>
+    ```
+
+4. **Every release after that is one command:**
 
     ```bash
     fm deploy mybench
     ```
 
-    `fm deploy` is bake **and** switch in one command: it builds an immutable image from your bench, then runs the full switch pipeline against it.
+    `fm deploy` is bake **and** switch in one: it builds a fresh image from the bench's app config, then runs the full switch pipeline against it. You'll see the bake print the tag, then the pipeline steps in order: fetch, a pre-flight boot check, the migrate decision, the swap, a health gate, and finalize. If anything fails before the swap, the old stack never stopped serving.
 
-3. **What you'll see:** the bake prints the new image tag (`repo:timestamp-sha`), then the pipeline steps run in order - fetch, a pre-flight boot check, the migrate decision, the swap, a health gate, and finalize. If anything fails before the swap, the old stack never stopped serving.
-
-4. **Verify it:**
+5. **Verify it:**
 
     ```bash
     fm info mybench
     ```
 
-    The **deploys** section lists every release, newest first, with its migrate status and the DB dump taken.
+    The **deploys** section lists every release, newest first, with its migrate status and whether a DB dump was taken.
 
 That's the whole loop. The rest of this page explains what happened underneath; the pages linked at the bottom cover [rolling back](rollback.md), [remote targets and architectures](transports.md), and [every config key](config.md).
+
+!!! tip "Starting fresh in image runtime"
+    A bench can also be *born* deployed: `fm create prodbench --runtime image --image <repo:tag>` creates the site directly from a pre-built image (baked elsewhere, e.g. CI via `fm bake --apps ... --image ... --push`). No conversion needed.
 
 ## The lifecycle at a glance
 
@@ -44,11 +66,11 @@ flowchart LR
     R -->|fm prune / --keep N| H[trimmed history,\ndumps, image tags]
 ```
 
-- `fm bake <bench>` - build the image only (prints the tag).
-- `fm deploy <bench>` - bake **and** run the full switch pipeline in one command.
-- `fm switch <bench> <tag>` - deploy an already-built tag (no bake).
-- `fm switch <bench> --previous` - roll back (same pipeline pointed backwards, migrate disabled).
-- `fm prune <bench>` - remove old releases; also available inline as `--keep N` on deploy/switch.
+- `fm bake <bench>`: build the image only (prints the tag).
+- `fm deploy <bench>`: bake **and** run the full switch pipeline in one command.
+- `fm switch <bench> <tag>`: deploy an already-built tag (no bake).
+- `fm switch <bench> --previous`: roll back (same pipeline pointed backwards, migrate disabled).
+- `fm prune <bench>`: remove old releases; also available inline as `--keep N` on deploy/switch.
 
 Every deploy is recorded in the bench's `bench_config.toml` under `[deploy_state]` (current tag, previous tag, full history with migrate status and the DB dump taken). `fm info <bench>` shows the whole history in its **deploys** section.
 
@@ -62,18 +84,19 @@ flowchart TD
     PF --> SNAP[snapshot compose\nevery pre-swap abort restores it]
     SNAP --> PIN[re-render compose + workers\npinned to the new tag]
     PIN --> M{migrate?}
-    M -->|config true| MAINT
+    M -->|config true| MAINT[maintenance page ON\nwhen maintenance_mode = true]
     M -->|config auto| PROBE[probe new image vs live DB:\npending patches + version drift]
-    M -->|false / --no-migrate| SWAP
-    PROBE -->|clean| SWAP
-    PROBE -->|needed| MAINT[maintenance page ON]
+    M -->|false / --no-migrate| DRAIN
+    PROBE -->|clean| DRAIN
+    PROBE -->|needed| MAINT
     MAINT --> DRAIN[drain RQ workers]
-    DRAIN --> BK[DB dump at the quiesced point\npath recorded in history]
-    BK --> MIG[bench migrate\none-shot new-image container]
+    DRAIN --> BK[DB dump per backup_db\npath recorded in history]
+    BK -->|migrate on| MIG[bench migrate\none-shot new-image container]
+    BK -->|migrate off| SWAP
     MIG -->|ok| SWAP{swap}
     MIG -->|fail| KEEP[no swap -- old stack still live,\ncompose reverted, optional rollback_db]
     SWAP -->|rolling eligible| ROLL[rolling web swap\nzero dropped requests]
-    SWAP -->|else| REC[recreate swap\nbrief blip, covered by maintenance page]
+    SWAP -->|else| REC[recreate swap\nbrief blip]
     ROLL --> GATE{health gate}
     REC --> GATE
     GATE -->|healthy| FIN[finalize: resume workers, install new apps,\nclear cache, maintenance OFF, record release]
@@ -82,14 +105,14 @@ flowchart TD
 
 Key properties:
 
-- **Aborts are safe.** Any failure before the swap restores the compose snapshot - the old stack never stopped serving, and a later plain `compose up` cannot jump tags.
+- **Aborts are safe.** Any failure before the swap restores the compose snapshot: the old stack never stopped serving, and a later plain `compose up` cannot jump tags.
 - **A failed migrate never swaps.** `bench migrate` is transactional/resumable, so the default is keep-old and re-run after fixing.
 - **The DB dump is exact.** It is taken while requests are already on the maintenance page and workers are drained, so restoring it loses nothing that happened before the migrate.
 - **Drain and dump are not migrate-only.** Workers are drained on every deploy (`drain_workers = true`, the default), and with `backup_db = true` (the default) the DB dump is taken even for `--no-migrate` deploys; set `backup_db = "auto"` to dump only when a schema step (migrate or restore) runs.
 
 ## The rolling web swap
 
-When the version overlap is safe, fm runs old and new web replicas side by side and drains the old - zero dropped requests instead of the recreate blip:
+When the version overlap is safe, fm runs old and new web replicas side by side and drains the old (zero dropped requests instead of the recreate blip):
 
 ```mermaid
 sequenceDiagram
@@ -126,7 +149,9 @@ The stop → reload → remove order exists because app-nginx resolves its `upst
 | migrate/restore **under** the maintenance page (both replicas serve the 503) | rolling |
 | migrate/restore with the maintenance page disabled | recreate |
 
-Honest caveat: rolling is zero-**downtime**, not zero-**skew** - during the overlap a request may see old assets with new code or vice-versa. Eligibility guarantees both versions are DB-compatible, so the skew cannot 500.
+In every case rolling also needs the old web tier running to swap alongside; when nothing is serving, fm falls back to the recreate swap even if `--rolling` was passed (with a warning).
+
+Honest caveat: rolling is zero-**downtime**, not zero-**skew**; during the overlap a request may see old assets with new code or vice-versa. Eligibility guarantees both versions are DB-compatible, so the skew cannot 500.
 
 The same engine powers `fm restart --rolling`: a zero-downtime web-tier recreate on the *current* tag (fresh containers, no release change).
 
@@ -141,8 +166,8 @@ fm deploy mybench --keep 7   # prune inline after a successful deploy (opt-in)
 
 Pruning splits two concerns:
 
-- **History rows** are audit lines - the newest N are kept (`--keep`, default `[switch].keep_releases = 7`).
-- **Artifacts are refcounted** - a DB dump dir is deleted only when no kept row references it; an image tag (and its paired `-nginx` assets image) is removed only when neither a kept row nor the protected set (current, previous, seed, base) references it.
+- **History rows** are audit lines: the newest N are kept (`--keep`, default `[switch].keep_releases = 7`).
+- **Artifacts are refcounted**: a DB dump dir is deleted only when no kept row references it; an image tag (and its paired `-nginx` assets image) is removed only when neither a kept row nor the protected set (current, previous, seed, base) references it.
 
 Nothing a running or rollback-reachable release needs can be pruned.
 

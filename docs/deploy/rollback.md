@@ -13,13 +13,13 @@ Need to go further back than one release?
 fm switch mybench local/mybench:<older-tag> --no-migrate   # further than one release
 ```
 
-Rollbacks run the same [switch pipeline](index.md#the-switch-pipeline) as forward deploys, pointed backwards - the same snapshots, health gate, and abort safety apply.
+Rollbacks run the same [switch pipeline](index.md#the-switch-pipeline) as forward deploys, pointed backwards: the same snapshots, health gate, and abort safety apply.
 
 ## What the flags do
 
 - `--previous` disables migrate for the run (old code must never migrate a newer schema); override with an explicit `--migrate`.
-- `--restore-db` finds the DB dump recorded for the **current** (bad) deploy in the history and imports it before the swap - a restore is schema-grade, so it runs under the maintenance window like a migrate. Rows written after the bad deploy went live are discarded; that is why it is never implicit.
-- After a rollback, `previous_tag` points at the tag you just left - running `fm switch --previous` again re-deploys it (deliberate: rollback of a rollback is a redo).
+- `--restore-db` finds the DB dump recorded for the **current** (bad) deploy in the history and imports it before the swap; a restore is schema-grade, so it runs under the maintenance window like a migrate. Rows written after the bad deploy went live are discarded; that is why it is never implicit.
+- After a rollback, `previous_tag` points at the tag you just left; running `fm switch --previous` again re-deploys it (deliberate: rollback of a rollback is a redo).
 
 ## What to check after
 

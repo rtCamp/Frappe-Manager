@@ -1,13 +1,13 @@
 # Python & Node Versions
 
-Every Frappe bench needs a specific Python version for its virtual environment and a specific Node version for asset compilation. Frappe Manager handles both automatically - but you can pin exact versions if you need to.
+Every Frappe bench needs a specific Python version for its virtual environment and a specific Node version for asset compilation. Frappe Manager handles both automatically, but you can pin exact versions if you need to.
 
 ## How it works
 
 Inside each bench container, FM uses two modern version managers:
 
-- **uv** - manages Python and virtual environments
-- **fnm** - manages Node
+- **uv**: manages Python and virtual environments
+- **fnm**: manages Node
 
 When you create a bench, FM reads the `frappe` app's `pyproject.toml` (`requires-python`) and `package.json` (`engines.node`) to find out which versions Frappe needs, then installs them automatically. You do not need to do anything for a standard Frappe or ERPNext bench.
 
@@ -40,7 +40,7 @@ fm update mybench --node 20
 ```
 
 !!! note "Mount benches only"
-    Changing Python/Node needs an editable workspace (the default `mount` runtime). On an `image` bench the toolchain is baked into the image - rebuild and ship it with `fm deploy` (see the [Deployment guide](../deploy/index.md)), or demote first with `fm update mybench --runtime mount`.
+    Changing Python/Node needs an editable workspace (the default `mount` runtime). On an `image` bench the toolchain is baked into the image; rebuild and ship it with `fm deploy` (see the [Deployment guide](../deploy/index.md)), or demote first with `fm update mybench --runtime mount`.
 
 **What happens when you update Python:**
 
@@ -74,7 +74,7 @@ fm update mybench --python 3.10 --skip-version-check
 ```
 
 !!! danger
-    Using an incompatible Python or Node version can break your bench. Only use `--skip-version-check` if you know what you are doing - for example, testing a new Frappe branch that has not yet updated its declared requirements.
+    Using an incompatible Python or Node version can break your bench. Only use `--skip-version-check` if you know what you are doing; for example, testing a new Frappe branch that has not yet updated its declared requirements.
 
 ## Checking current versions
 
@@ -93,7 +93,7 @@ fm shell mybench -c "node --version"
 
 ## Package management with uv
 
-All benches use `uv` for Python package management (with pip as an automatic fallback for packages uv cannot handle). This is built in and not configurable - there is no `use_uv` setting in `bench_config.toml`.
+All benches use `uv` for Python package management (with pip as an automatic fallback for packages uv cannot handle). This is built in and not configurable; there is no `use_uv` setting in `bench_config.toml`.
 
 !!! info "See also"
-    [App Management](app-management.md) - the same `fm update` command also adds apps or switches an app to another branch/ref.
+    [App Management](app-management.md): the same `fm update` command also adds apps or switches an app to another branch/ref.

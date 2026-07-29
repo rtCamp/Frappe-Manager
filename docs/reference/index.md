@@ -1,6 +1,6 @@
 # Reference
 
-Technical reference documentation for Frappe Manager internals. These pages serve lookup - not learning. For the mental model start at [Concepts](../concepts/index.md); for workflows see the [Guides](../guides/index.md) and [Deployment](../deploy/index.md).
+Technical reference documentation for Frappe Manager internals. These pages serve lookup, not learning. For the mental model start at [Concepts](../concepts/index.md); for workflows see the [Guides](../guides/index.md) and [Deployment](../deploy/index.md).
 
 ---
 
@@ -12,7 +12,7 @@ Technical reference documentation for Frappe Manager internals. These pages serv
 
     ---
 
-    Every config key in `fm_config.toml` and `bench_config.toml` - defaults, types, env vars, file locations.
+    Every config key in `fm_config.toml` and `bench_config.toml`: defaults, types, env vars, file locations.
 
 </div>
 
@@ -45,7 +45,7 @@ Technical reference documentation for Frappe Manager internals. These pages serv
 
     **Example deep links:**
 
-    - [`configuration.md#restart-policy`](configuration.md#restart-policy) - restart policy options
-    - [`../deploy/config.md`](../deploy/config.md) - deploy config tables
+    - [`configuration.md#restart-policy`](configuration.md#restart-policy): restart policy options
+    - [`../deploy/config.md`](../deploy/config.md): deploy config tables
 
     **Fast lookup:** Use browser **Ctrl+F** / **Cmd+F** within each page to jump to specific terms.

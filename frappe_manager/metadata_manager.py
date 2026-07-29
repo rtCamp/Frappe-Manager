@@ -12,8 +12,8 @@ class FMCloudflareConfig(BaseModel):
     """Cloudflare DNS API credentials for DNS-01 challenge."""
 
     email: EmailStr | None = Field(None, description="Cloudflare account email (required for Global API Key).")
-    api_token: str | None = Field(None, description="Cloudflare API Token (recommended - scoped permissions).")
-    api_key: str | None = Field(None, description="Cloudflare Global API Key (legacy - full account access).")
+    api_token: str | None = Field(None, description="Cloudflare API Token (recommended; scoped permissions).")
+    api_key: str | None = Field(None, description="Cloudflare Global API Key (legacy; full account access).")
 
     @property
     def exists(self) -> bool:

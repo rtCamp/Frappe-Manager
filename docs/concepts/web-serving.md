@@ -49,10 +49,10 @@ fm restart mybench
 ```
 
 !!! warning "Too few = slow, too many = OOM"
-    Too few workers and requests queue up; too many and RAM runs out. The default formula balances CPU utilization and memory - override only with a measured reason.
+    Too few workers and requests queue up; too many and RAM runs out. The default formula balances CPU utilization and memory; override only with a measured reason.
 
 ## See also
 
-- [Background Jobs & Workers](background-jobs.md) - the other kind of "worker"
-- [Environments](../guides/environments.md) - switching dev/prod
-- [Architecture](../reference/architecture.md) - containers and networking
+- [Background Jobs & Workers](background-jobs.md): the other kind of "worker"
+- [Environments](../guides/environments.md): switching dev/prod
+- [Architecture](../reference/architecture.md): containers and networking

@@ -7,8 +7,8 @@ Every key that drives the bake/switch pipeline, set in the bench's `bench_config
 | Key | Default | Meaning |
 |---|---|---|
 | `source` | `"provision"` | `provision` = clone + install fresh (reproducible); `workspace` = snapshot the bench's on-disk workspace |
-| `base_image` | fm's published base | the `FROM` / provisioning image |
-| `python_version` / `node_version` | auto-detected | toolchain baked into the image |
+| `base_image` | fm's published base (`ghcr.io/rtcamp/frappe-manager-frappe:v<fm version>`) | the `FROM` / provisioning image |
+| `python_version` / `node_version` | the bench's create-time / auto-detected versions | toolchain (uv / fnm) baked into the image |
 | `platform` | native / auto-detected | target architecture (see [Platforms](transports.md#platforms-cpu-architectures)) |
 | `include` | `[]` | extra host paths baked in (`src` or `src:dest`) |
 
@@ -23,7 +23,7 @@ Every key that drives the bake/switch pipeline, set in the bench's `bench_config
 | `maintenance_mode_phases` | `["migrate"]` | `[]` asserts a backward-compatible migration (enables rolling with migrate) |
 | `backup_db` | `true` | `true` / `false` / `"auto"` (dump only when a schema step runs) |
 | `rollback_image` | `true` | auto-rollback to the previous tag on a failed health gate |
-| `rollback_db` | `false` | also restore the dump during that auto-rollback (requires `backup_db`) |
+| `rollback_db` | `false` | also restore the dump when the deploy fails (failed migrate, or alongside the image rollback; requires `backup_db`) |
 | `install_apps` | `true` | install newly-baked apps to the site during finalize |
 | `keep_releases` | `7` | retention used by `fm prune` |
 | `drain_workers` (+ `_timeout`, `_poll`, `skip_stale_*`) | `true` | drain RQ workers before migrate/swap |
@@ -36,4 +36,14 @@ Every key that drives the bake/switch pipeline, set in the bench's `bench_config
 |---|---|
 | `registry.distribution` | `"registry"` (push/pull) or `"save_load"` (airgap over SSH) |
 | `registry.registry` / `username` / `password` | registry host + `docker login` credentials (env-substituted); omit to use ambient auth |
-| `deploy.ssh_server` / `ssh_user` / `ssh_port` | remote daemon target (`--remote` overrides) |
+| `deploy.ssh_server` / `ssh_user` / `ssh_port` | remote daemon target, read only by `fm deploy`; `ssh_user` defaults to `frappe`, `ssh_port` to `22` (`--remote` overrides) |
+
+## `[deploy_state]`
+
+Written by `fm deploy` / `fm switch` and trimmed by `fm prune`; do not edit by hand. `fm info <bench>` renders the history.
+
+| Key | Meaning |
+|---|---|
+| `current_tag` / `previous_tag` | deployed image tag (full `repo:tag`) / the rollback target |
+| `last_deploy_at` | ISO timestamp of the last successful deploy |
+| `history` | one entry per deploy: `tag`, `deployed_at`, `migrate_status` (`migrated` / `skipped` / `failed` / `rollback`), `backup` (host path of the pre-migrate DB dump, used by `fm switch --previous --restore-db`) |

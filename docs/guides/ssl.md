@@ -56,7 +56,7 @@ FM supports two ways to prove domain ownership to Let's Encrypt:
 **Quick decision guide:**
 - ✅ Use **HTTP-01** if your domain points to the server and ports 80/443 are open (simplest, default)
 - ✅ Use **DNS-01** if port 80 is blocked, you need wildcard certificates, or testing on internal networks
-- ✅ Use `--dev` for local development - issues a locally-trusted certificate from a local CA, no internet or public DNS required (see [below](#local-development-certificates-dev))
+- ✅ Use `--dev` for local development: issues a locally-trusted certificate from a local CA, no internet or public DNS required (see [below](#local-development-certificates-dev))
 
 ---
 
@@ -77,7 +77,7 @@ FM supports two ways to prove domain ownership to Let's Encrypt:
 FM validates that the domain's DNS resolves before issuing. If you intend to configure DNS later, pass `--skip-dns-check` to `fm ssl add`.
 
 !!! warning "Always dry-run first"
-    Run with `--dry-run` before issuing real certificates. The dry-run uses the Let's Encrypt **staging** server - it validates your setup without consuming your [rate limit quota](https://letsencrypt.org/docs/rate-limits/) (50 certificates per registered domain per week, 5 per identical set of names per week).
+    Run with `--dry-run` before issuing real certificates. The dry-run uses the Let's Encrypt **staging** server; it validates your setup without consuming your [rate limit quota](https://letsencrypt.org/docs/rate-limits/) (50 certificates per registered domain per week, 5 per identical set of names per week).
 
 ---
 
@@ -135,7 +135,7 @@ openssl s_client -connect example.com:443 -servername example.com < /dev/null 2>
 1. Go to <https://dash.cloudflare.com/profile/api-tokens>
 2. Click **Create Token** → use the **Edit zone DNS** template
 3. Set **Zone Resources** to the specific zone(s) you need
-4. Copy the token - you will not see it again
+4. Copy the token; you will not see it again
 
 !!! tip "API Token vs Global API Key"
     Always prefer the API Token. The Global API Key grants full account access and is a higher-risk credential. If you must use it, pass `--api-key` and `--email` instead of `--api-token`.
@@ -270,7 +270,7 @@ Add:
 This runs at 3 am every day. FM skips benches that don't need renewal, so running it daily is safe.
 
 !!! warning "Certificate lifetime is shrinking"
-    Under the CA/Browser Forum schedule adopted in 2025, maximum certificate validity drops to **200 days** for certificates issued from March 2026, **100 days** from March 2027, and **47 days** from March 2029. Automated renewal is no longer optional - manual renewal will become impractical. Set up the cron job now.
+    Under the CA/Browser Forum schedule adopted in 2025, maximum certificate validity drops to **200 days** for certificates issued from March 2026, **100 days** from March 2027, and **47 days** from March 2029. Automated renewal is no longer optional; manual renewal will become impractical. Set up the cron job now.
 
 ---
 
@@ -337,11 +337,11 @@ fm list
 | Symptom | Cause | Fix |
 |---|---|---|
 | `NET::ERR_CERT_DATE_INVALID` | Certificate expired | Run `fm ssl renew mybench` |
-| `NET::ERR_CERT_AUTHORITY_INVALID` | Self-signed or incomplete chain | FM uses Let's Encrypt - check that `fullchain.pem` is served, not just `cert.pem` |
+| `NET::ERR_CERT_AUTHORITY_INVALID` | Self-signed or incomplete chain | FM uses Let's Encrypt; check that `fullchain.pem` is served, not just `cert.pem` |
 | `NET::ERR_CERT_COMMON_NAME_INVALID` | Domain mismatch | Confirm the cert's SANs cover the domain you're accessing: `openssl x509 -noout -ext subjectAltName` |
 | Clock skew warning | Server time is wrong | Run `timedatectl` or `date -u`; sync NTP: `sudo timedatectl set-ntp true` |
 
-!!! warning "Incomplete chain - the silent failure"
+!!! warning "Incomplete chain: the silent failure"
     Chrome auto-fetches missing intermediate certificates via the AIA extension, so a site may appear valid in Chrome but fail in `curl`, Firefox, and API clients. Always make sure nginx is serving `fullchain.pem` (which includes the intermediates), not just `cert.pem`. FM handles this automatically, but if you have manually customised nginx config, verify with:
 
     ```bash
@@ -407,11 +407,11 @@ fm ssl acme-sh --upgrade
 - **Credentials**: Cloudflare API credentials are stored globally in `~/frappe/fm_config.toml` (bench-specific overrides live in the bench's `bench_config.toml`). Restrict file permissions: `chmod 600 ~/frappe/fm_config.toml`. Remove saved credentials with `fm ssl dns-config cloudflare --remove`.
 - **Token scope**: Use a per-zone API Token, not the Global API Key. If the token is compromised, you can revoke it without rotating your entire Cloudflare account.
 - **Certs in version control**: Never commit `*.pem` or `*.key` files. Add them to `.gitignore`.
-- **Staging vs production**: Use `--dry-run` (staging) during setup and testing. Production rate limits are shared across all users of a domain - hitting them blocks certificate issuance for everyone on that domain for up to a week.
+- **Staging vs production**: Use `--dry-run` (staging) during setup and testing. Production rate limits are shared across all users of a domain; hitting them blocks certificate issuance for everyone on that domain for up to a week.
 
 ---
 
 !!! info "See also"
-    - [fm ssl command reference](../commands/ssl.md) - all flags and subcommands
-    - [Cloudflare DNS Config](../commands/ssl-dns-config-cloudflare.md) - detailed Cloudflare token setup
-    - [Environments](environments.md) - prod vs dev environment differences
+    - [fm ssl command reference](../commands/ssl.md): all flags and subcommands
+    - [Cloudflare DNS Config](../commands/ssl-dns-config-cloudflare.md): detailed Cloudflare token setup
+    - [Environments](environments.md): prod vs dev environment differences

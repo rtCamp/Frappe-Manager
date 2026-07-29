@@ -58,11 +58,11 @@ def dns_config_cloudflare(
     ] = None,
     api_token: Annotated[
         str | None,
-        typer.Option("--api-token", help="Cloudflare API Token (recommended - scoped permissions)"),
+        typer.Option("--api-token", help="Cloudflare API Token (recommended; scoped permissions)"),
     ] = None,
     api_key: Annotated[
         str | None,
-        typer.Option("--api-key", help="Cloudflare Global API Key (legacy - full account access)"),
+        typer.Option("--api-key", help="Cloudflare Global API Key (legacy; full account access)"),
     ] = None,
     email: Annotated[
         str | None,

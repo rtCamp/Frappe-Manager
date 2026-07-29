@@ -4,7 +4,7 @@ How requests reach a bench, how to serve it on more than one domain, and how to 
 
 ## How routing works
 
-Every bench registers its domains with the shared **nginx-proxy** (one per machine, listening on ports 80/443). The proxy routes each request by its `Host:` header - no per-bench ports, no manual proxy config. See [Architecture](../reference/architecture.md) for the full topology.
+Every bench registers its domains with the shared **nginx-proxy** (one per machine, listening on ports 80/443). The proxy routes each request by its `Host:` header: no per-bench ports, no manual proxy config. See [Architecture](../reference/architecture.md) for the full topology.
 
 `*.localhost` names resolve to `127.0.0.1` automatically on modern systems, so a bench named `mybench.localhost` works in the browser with zero DNS setup.
 
@@ -28,13 +28,13 @@ fm update mybench --remove-alias shop.example.com
 
 - Aliases are registered with the proxy and land on the same site.
 - fm validates that no other bench on the machine claims the same domain (`--allow-domain-conflicts` skips the check; not recommended).
-- HTTPS for aliases: certificates are per-domain - see the [SSL guide](./ssl.md).
+- HTTPS for aliases: certificates are per-domain; see the [SSL guide](./ssl.md).
 
 ## Making a domain resolve
 
 | Where the bench runs | What you need |
 |---|---|
-| your machine, `*.localhost` name | nothing - resolves automatically |
+| your machine, `*.localhost` name | nothing (resolves automatically) |
 | your machine, real domain name | an `/etc/hosts` entry: `127.0.0.1 shop.example.com` |
 | a server | real DNS: point an `A`/`AAAA` (or `CNAME`) record at the server, then `fm ssl add` for HTTPS |
 
@@ -46,11 +46,11 @@ For webhooks, mobile testing, or sharing work in progress, tunnel a local bench 
 fm ngrok mybench    # prints a public URL tunneled to the bench
 ```
 
-Requires an ngrok auth token (flag or config; see `fm ngrok --help`). The tunnel lives while the command runs - it is a development convenience, not a deployment mechanism. To actually host a bench publicly, use a server with real DNS and the [Hosting guide](hosting.md) or the [Deployment guide](../deploy/index.md).
+Requires an ngrok auth token (flag or config; see `fm ngrok --help`). The tunnel lives while the command runs; it is a development convenience, not a deployment mechanism. To actually host a bench publicly, use a server with real DNS and the [Hosting guide](hosting.md) or the [Deployment guide](../deploy/index.md).
 
 ## Google OAuth during local development
 
-Google OAuth requires a public HTTPS redirect URI - a local `http://mybench.localhost` URL will not be accepted. Tunnel the bench through ngrok to get one:
+Google OAuth requires a public HTTPS redirect URI; a local `http://mybench.localhost` URL will not be accepted. Tunnel the bench through ngrok to get one:
 
 ```bash
 fm ngrok mybench --auth-token YOUR_TOKEN --save-token   # first run: save the token

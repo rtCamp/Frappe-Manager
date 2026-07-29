@@ -78,7 +78,7 @@ def migrate(
     ] = False,
     skip_backup: Annotated[
         bool,
-        typer.Option("--skip-all-backup", help="Skip all backups (DANGEROUS - use only if backups fail)"),
+        typer.Option("--skip-all-backup", help="Skip all backups (DANGEROUS; use only if backups fail)"),
     ] = False,
     skip_backup_for: Annotated[
         str | None,

@@ -383,8 +383,8 @@ $ fm ssl dns-config cloudflare BENCHNAME [OPTIONS]
 
 **Options**:
 
-* `--api-token`: Cloudflare API Token (recommended - scoped permissions)
-* `--api-key`: Cloudflare Global API Key (legacy - full account access)
+* `--api-token`: Cloudflare API Token (recommended; scoped permissions)
+* `--api-key`: Cloudflare Global API Key (legacy; full account access)
 * `--email`: Cloudflare account email (required with Global API Key)
 * `-s, --show`: Show current Cloudflare DNS credentials
 * `-r, --remove`: Remove Cloudflare DNS credentials

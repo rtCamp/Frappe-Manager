@@ -1,6 +1,6 @@
 # Guides
 
-Everyday bench workflows. They apply to any bench - dev or prod, on your laptop or a server. (New here? Read [Concepts](../concepts/index.md) first: five minutes, and everything below makes sense. Shipping immutable releases is its own journey: [Deployment](../deploy/index.md).)
+Everyday bench workflows. They apply to any bench: dev or prod, on your laptop or a server. (New here? Read [Concepts](../concepts/index.md) first: five minutes, and everything below makes sense. Shipping immutable releases is its own journey: [Deployment](../deploy/index.md).)
 
 ## The daily loop
 
@@ -16,7 +16,7 @@ Everyday bench workflows. They apply to any bench - dev or prod, on your laptop 
 
     ---
 
-    Install, update, and pin Frappe apps - at create time or any time after with `fm update --apps`.
+    Install, update, and pin Frappe apps, at create time or any time after with `fm update --apps`.
 
 -   :lucide-package:{ .lg .middle } &nbsp; **[Python & Node Versions](python-node-versions.md)**
 
@@ -28,7 +28,7 @@ Everyday bench workflows. They apply to any bench - dev or prod, on your laptop 
 
     ---
 
-    Mailpit for email testing and Adminer for database inspection - enabled by default on dev benches.
+    Mailpit for email testing and Adminer for database inspection, enabled by default on dev benches.
 
 -   :lucide-cpu:{ .lg .middle } &nbsp; **[fmx: In-Container Services](fmx.md)**
 

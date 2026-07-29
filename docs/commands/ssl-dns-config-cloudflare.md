@@ -12,8 +12,8 @@ Options:
 
 | Flag | Description |
 |---|---|
-| `--api-token` | Cloudflare API Token (recommended - scoped permissions) |
-| `--api-key` | Cloudflare Global API Key (legacy - full account access) |
+| `--api-token` | Cloudflare API Token (recommended; scoped permissions) |
+| `--api-key` | Cloudflare Global API Key (legacy; full account access) |
 | `--email` | Cloudflare account email (required when using `--api-key`) |
 | `-s, --show` | Display the current stored credentials |
 | `-r, --remove` | Delete the stored credentials |
@@ -22,8 +22,8 @@ Options:
 
 Credentials can be stored at two levels:
 
-- **Global** (omit `BENCHNAME`) - used as the fallback for all benches
-- **Bench-specific** (provide `BENCHNAME`) - overrides global credentials for that bench only
+- **Global** (omit `BENCHNAME`): used as the fallback for all benches
+- **Bench-specific** (provide `BENCHNAME`): overrides global credentials for that bench only
 
 Bench-specific credentials take priority over global ones when both are configured.
 

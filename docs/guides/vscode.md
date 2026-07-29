@@ -39,10 +39,10 @@ When you run `fm code mybench --debugger`, FM writes a `.vscode/tasks.json` into
 fmx stop frappe && sleep 2
 ```
 
-This is necessary because the debug configuration launches its own `bench serve` under `debugpy`, which needs to bind to port 80 - the same port the supervised web server is using. When you end the debug session, the supervised web server stays stopped; bring it back with:
+This is necessary because the debug configuration launches its own `bench serve` under `debugpy`, which needs to bind to port 80, the same port the supervised web server is using. When you end the debug session, the supervised web server stays stopped; bring it back with:
 
 ```bash
 fm shell mybench -c "fmx start frappe"
 ```
 
-The `fmx stop frappe` command talks directly to supervisord inside the container via a Unix socket - it is faster and cleaner than restarting the whole bench. See the [fmx guide](./fmx.md) for more on what fmx can do.
+The `fmx stop frappe` command talks directly to supervisord inside the container via a Unix socket; it is faster and cleaner than restarting the whole bench. See the [fmx guide](./fmx.md) for more on what fmx can do.

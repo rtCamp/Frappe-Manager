@@ -17,7 +17,7 @@ fm update mybench --apps erpnext
 FM clones the app, installs its dependencies, installs it to the site, builds its assets, and runs `bench migrate`.
 
 !!! note "Mount benches only"
-    `--apps` needs an editable workspace (the default `mount` runtime). On an `image` bench, app code is baked into the image - ship changes with `fm deploy`, or demote first with `fm update mybench --runtime mount`. See the [Deployment guide](../deploy/index.md).
+    `--apps` needs an editable workspace (the default `mount` runtime). On an `image` bench, app code is baked into the image: ship changes with `fm deploy`, or demote first with `fm update mybench --runtime mount`. See the [Deployment guide](../deploy/index.md).
 
 Install a private app (pass a GitHub URL or org/repo and a token):
 
@@ -51,7 +51,7 @@ fm shell mybench -c "bench --site mybench.localhost remove-app erpnext"
 
 ## Updating or switching an app's version
 
-`fm update --apps` also works for apps that are already installed - it grafts the requested ref onto the running bench:
+`fm update --apps` also works for apps that are already installed; it grafts the requested ref onto the running bench:
 
 ```bash
 # Move an installed app to another branch or tag
@@ -61,7 +61,7 @@ fm update mybench --apps erpnext:version-15
 fm update mybench --apps erpnext:version-15 --apps hrms:version-15
 ```
 
-For each app FM replaces the app's code with a fresh clone at the requested ref - the old code is **stashed, never deleted** - then reinstalls dependencies, rebuilds that app's assets, and runs `bench migrate`.
+For each app FM replaces the app's code with a fresh clone at the requested ref (the old code is **stashed, never deleted**), then reinstalls dependencies, rebuilds that app's assets, and runs `bench migrate`.
 
 !!! tip
     For a safer update in production, drain in-flight jobs first: `fm restart mybench --drain` waits for running background jobs to finish. See the [fmx guide](fmx.md) for finer-grained control from inside the container.

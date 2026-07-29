@@ -49,13 +49,13 @@ Pass `--github-token YOUR_TOKEN` at create time, or export `GITHUB_TOKEN` in you
 
 ### How do I change the Administrator password?
 
-**Option A** - reset and reinstall (destructive):
+**Option A**, reset and reinstall (destructive):
 
 ```bash
 fm reset mybench --admin-pass newpass
 ```
 
-**Option B** - change password only, no data loss:
+**Option B**, change password only (no data loss):
 
 ```bash
 fm shell mybench -c "bench set-admin-password newpass"
@@ -63,7 +63,7 @@ fm shell mybench -c "bench set-admin-password newpass"
 
 ### How do I reset a bench to a clean state?
 
-`fm reset mybench` drops the bench database and reinstalls all apps from scratch. This is destructive - back up first. See [fm reset](commands/reset.md).
+`fm reset mybench` drops the bench database and reinstalls all apps from scratch. This is destructive; back up first. See [fm reset](commands/reset.md).
 
 ### How do I back up my bench?
 
@@ -80,7 +80,7 @@ fm shell mybench          # interactive
 
 ### How do I share my bench for testing?
 
-Create a temporary public URL with ngrok. An auth token is required - sign up at [ngrok.com](https://ngrok.com) if you don't have one.
+Create a temporary public URL with ngrok. An auth token is required; sign up at [ngrok.com](https://ngrok.com) if you don't have one.
 
 ```bash
 fm ngrok mybench --auth-token YOUR_TOKEN
@@ -104,7 +104,7 @@ From the host: `fm restart mybench --no-workers` (web only), `fm restart mybench
 
 ### How do I safely restart during a deployment without losing jobs?
 
-Use `fm restart mybench --drain` - workers finish their current jobs before anything restarts. See [fm restart](commands/restart.md) and the [fmx guide](guides/fmx.md) for drain plus migrate and maintenance mode.
+Use `fm restart mybench --drain`: workers finish their current jobs before anything restarts. See [fm restart](commands/restart.md) and the [fmx guide](guides/fmx.md) for drain plus migrate and maintenance mode.
 
 ---
 

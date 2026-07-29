@@ -33,6 +33,6 @@ If you need the SMTP endpoint manually (inside the Docker network): host `fm__<b
     Mailpit keeps up to 5,000 messages. Older messages are automatically deleted when the limit is reached.
 
 !!! warning
-    Admin tools are enabled by default on `dev` benches and disabled on `prod` benches at create time. Switching environments later does not toggle them - disable explicitly before going live.
+    Admin tools are enabled by default on `dev` benches and disabled on `prod` benches at create time. Switching environments later does not toggle them; disable explicitly before going live.
 
 See also: [Environments](environments.md) for the dev/prod defaults behind these tools, and [Architecture](../reference/architecture.md) for how they are routed inside the bench.

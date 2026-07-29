@@ -16,7 +16,7 @@ Tested on:
 
 The install script sets up all dependencies needed for Frappe Manager (fm), including:
 - Docker Engine & Docker Compose
-- [uv](https://docs.astral.sh/uv/) (Python package manager — also manages Python 3.13)
+- [uv](https://docs.astral.sh/uv/) (Python package manager - also manages Python 3.13)
 - Frappe Manager CLI tool (`fm`)
 
 ---
@@ -103,11 +103,11 @@ Every flag has an equivalent environment variable. CLI flags take precedence ove
 |------|---------|---------|-------------|
 | `--username <name>` | `FM_USERNAME` | `frappe` | User to create or configure (root only) |
 | `--password <pass>` | `FM_PASSWORD` | `frappemanager` | Password for the user (root only). Alias: `--pass` |
-| `--dev` | `FM_DEV` | — | Install from the `develop` branch instead of PyPI |
+| `--dev` | `FM_DEV` | - | Install from the `develop` branch instead of PyPI |
 | `--branch <name>` | `FM_BRANCH` | `develop` | Install from a specific git branch (implies `--dev`). Also controls which branch the install script is downloaded from on pipe execution |
-| `--force` | `FM_FORCE` | — | Force reinstall/update of all components |
-| `--non-interactive` | `FM_NON_INTERACTIVE` | — | Skip all prompts, use provided or default values |
-| `--help` | — | — | Show help message |
+| `--force` | `FM_FORCE` | - | Force reinstall/update of all components |
+| `--non-interactive` | `FM_NON_INTERACTIVE` | - | Skip all prompts, use provided or default values |
+| `--help` | - | - | Show help message |
 
 ---
 
@@ -116,7 +116,7 @@ Every flag has an equivalent environment variable. CLI flags take precedence ove
 - **Ubuntu**: Log out and back in after installation for Docker group changes to take effect.
 - **macOS**: Complete Docker Desktop setup before using `fm`.
 - Installation log is written to the directory where the script was invoked (e.g. `/root/fm-install-<timestamp>.log` for root, or the current working directory for non-root). The child re-run (as the created user) writes its log to that user's home directory (e.g. `/home/frappe/fm-install-<timestamp>.log`).
-- The script is idempotent — safe to re-run. Steps already up-to-date are skipped.
+- The script is idempotent - safe to re-run. Steps already up-to-date are skipped.
 
 ---
 
@@ -187,8 +187,8 @@ The script picks an output directory in this order:
 
 1. `--output-dir <path>` CLI flag
 2. `WIKI_DIR` environment variable
-3. `/tmp/frappe-manager-wiki` — if that path exists (convenient for a local wiki clone)
-4. `docs/cli/` inside the project root — created automatically if nothing else matches
+3. `/tmp/frappe-manager-wiki` - if that path exists (convenient for a local wiki clone)
+4. `docs/cli/` inside the project root - created automatically if nothing else matches
 
 ### Typical wiki update workflow
 

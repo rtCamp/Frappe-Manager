@@ -21,7 +21,7 @@ $ fm migrate BENCHNAME [OPTIONS]
 **Options**:
 
 * `--all-benches`: Migrate all benches
-* `--skip-all-backup`: Skip all backups (DANGEROUS - use only if backups fail)
+* `--skip-all-backup`: Skip all backups (DANGEROUS; use only if backups fail)
 * `--skip-backup-for`: Skip backup for specific benches (comma-separated)
 * `--exclude-bench`: Exclude specific benches from migration (only with --all-benches)
 * `--auto-proceed`: Skip migration confirmation prompt (proceed automatically)

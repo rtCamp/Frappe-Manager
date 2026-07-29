@@ -60,7 +60,7 @@ All notable changes to Frappe Manager are documented here.
 - Update oh-my-zsh location and bump versions ([`0d0f16c`](https://github.com/rtCamp/Frappe-Manager/commit/0d0f16c6360b994bffa85321932b515d16a45b2c))
 - Use fnm-managed node path for node-socketio ([`68f783c`](https://github.com/rtCamp/Frappe-Manager/commit/68f783cc60e1029af5e3192f139315b99c7e354a))
 - Handle UV Python platform-specific versions and update default symlink ([`4290e01`](https://github.com/rtCamp/Frappe-Manager/commit/4290e0112154dd885be64a99b8145fb5404703cf))
-- Complete type safety improvements - achieve 0 errors ([`2e3c1f3`](https://github.com/rtCamp/Frappe-Manager/commit/2e3c1f3fafdd00bfab367ee1ce2423fbcf9d6125))
+- Complete type safety improvements: achieve 0 errors ([`2e3c1f3`](https://github.com/rtCamp/Frappe-Manager/commit/2e3c1f3fafdd00bfab367ee1ce2423fbcf9d6125))
 - Add type safety improvements and docker type stub ([`b0a1791`](https://github.com/rtCamp/Frappe-Manager/commit/b0a1791e800f050a027b275ffabeb75eec28b926))
 - Correct certificate manager method calls ([`aaed8dc`](https://github.com/rtCamp/Frappe-Manager/commit/aaed8dc33cc51bab720258952d3a899114557c98))
 - Use newline separator for alias domains in output ([`2e2a68f`](https://github.com/rtCamp/Frappe-Manager/commit/2e2a68fe172a71739e3647a6cad9e61bab7a8ef6))
