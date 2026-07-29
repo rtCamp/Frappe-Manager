@@ -12,8 +12,10 @@ Worker containers run independently from the web server and process jobs asynchr
 
 FM runs each worker in its own container:
 
-1. **Built-in workers**: `short-worker` and `long-worker` containers (always present), plus the `schedule` container that runs the scheduler
+1. **Built-in workers**: `short-worker` and `long-worker` containers (always present)
 2. **Custom queues**: one `<name>-worker` container per entry in the `workers` key of `common_site_config.json`
+
+A separate `schedule` container runs [Frappe's scheduler](#the-scheduler); it enqueues jobs but is not a worker itself.
 
 !!! tip "Quick operations"
     **Restart workers (leave web running):**
@@ -72,18 +74,6 @@ Handles jobs like:
 
 ---
 
-### `schedule` {#schedule}
-
-**Queue:** N/A (cron-like scheduler)  
-**Concurrency:** 1 process  
-**Purpose:** Runs `bench schedule`, Frappe's scheduler tick
-
-At each tick it checks the `scheduler_events` declared in every installed app's `hooks.py` (hourly, daily, weekly, monthly, cron expressions) and **enqueues** the due jobs onto the RQ queues.
-
-**Not a queue worker:** It does not execute jobs itself; the short/long workers pick up and run what it enqueues.
-
----
-
 ### Custom App Workers {#custom-app-workers}
 
 Define custom queues in `common_site_config.json` under the `workers` key:
@@ -103,6 +93,13 @@ FM generates a supervisor program (`bench worker --queue myqueue`) and a dedicat
 
 **See also:** [Frappe Framework: Background Jobs](https://frappeframework.com/docs/user/en/python-api/background-jobs)
 
+---
+
+## The Scheduler {#the-scheduler}
+
+The `schedule` container runs `bench schedule`, Frappe's scheduler tick (a single process; it is not a queue worker).
+
+At each tick it checks the `scheduler_events` declared in every installed app's `hooks.py` (hourly, daily, weekly, monthly, cron expressions) and **enqueues** the due jobs onto the RQ queues. The short/long workers pick up and run what it enqueues.
 
 ---
 

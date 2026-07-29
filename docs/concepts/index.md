@@ -18,7 +18,11 @@ The axes combine freely:
 | **`mount`** | The daily development loop: edit code, see it live | Simple production: editable code, production web server |
 | **`image`** | Testing a release image locally | Immutable production: deploys, rollbacks, rolling swaps |
 
-Read the two axes first, then the machinery:
+---
+
+## The Model
+
+Read the two axes first:
 
 <div class="grid cards" markdown>
 
@@ -33,6 +37,16 @@ Read the two axes first, then the machinery:
     ---
 
     The web-process mode: auto-reloading dev server vs Gunicorn, and the defaults that come with each.
+
+</div>
+
+---
+
+## The Machinery
+
+Then how a bench actually runs:
+
+<div class="grid cards" markdown>
 
 -   :lucide-globe:{ .lg .middle } &nbsp; **[Web Serving & Concurrency](web-serving.md)**
 
