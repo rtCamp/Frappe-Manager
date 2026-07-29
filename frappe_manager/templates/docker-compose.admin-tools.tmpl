@@ -17,15 +17,16 @@ services:
       MP_SMTP_AUTH_ALLOW_INSECURE: 1
 
   adminer:
-    image: adminer:4
+    image: adminer:5
     container_name: REPLACE_ME_WITH_CONTAINER_NAME
     expose:
       - 8080
     networks:
       site-network:
       global-backend-network:
-    environment:
-      ADMINER_DEFAULT_SERVER: global-db
+    volumes:
+      - ./workspace/frappe-bench/sites:/fm-sites:ro
+      - ./configs/adminer:/var/www/html/plugins-enabled:ro
 
 volumes:
   mailpit-data:

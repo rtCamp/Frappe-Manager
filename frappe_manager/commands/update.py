@@ -422,8 +422,7 @@ def update(
                     bench.workers.generate_compose()
 
                 if bench.admin_tools.compose_file_manager.compose_path.exists():
-                    db_host = bench.services.database_manager.database_server_info.host
-                    bench.admin_tools.generate_compose(db_host)
+                    bench.admin_tools.generate_compose()
 
                 output.print("Restarting containers to apply restart policy..")
                 bench.docker_client.compose.up(detach=True, force_recreate=True)

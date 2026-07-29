@@ -3,6 +3,7 @@ Bench Admin Tools Module
 
 Handles admin tools (Mailpit, Adminer) management including:
 - Docker compose generation and lifecycle
+- Adminer login plugin (one-click cards for site DB and redis) placement
 - Nginx location configuration
 - HTTP authentication setup
 - Mailpit integration with Frappe
@@ -52,24 +53,38 @@ class BenchAdminTools:
         self.nginx_proxy = nginx_proxy
         self.nginx_config_location_path: Path = self.nginx_proxy.dirs.conf.host / "custom" / "admin-tools.conf"
         self.http_auth_path: Path = self.nginx_proxy.dirs.conf.host / "http_auth"
+        self.adminer_config_path: Path = bench.path / "configs" / "adminer"
 
-    def generate_compose(self, db_host: str):
+    def generate_compose(self):
         self.compose_file_manager.yml = self.compose_file_manager.load_template()
 
         self.compose_file_manager.configure_bench(
             prefix=get_container_name_prefix(self.bench_name),
             version=get_current_fm_version(),
-            envs={"adminer": {"ADMINER_DEFAULT_SERVER": db_host}},
             network_name="site-network",
             auto_save=False,
         )
 
         self.compose_file_manager.set_all_services_restart(self.bench.bench_config.restart_policy.value)
         self.compose_file_manager.write_to_file()
+        self.sync_adminer_plugin()
 
-    def create(self, db_host: str):
+    def sync_adminer_plugin(self):
+        """Place (or refresh) the Adminer login plugin in the bench config dir.
+
+        The plugin is a static asset bind-mounted read-only over the adminer
+        container's plugins-enabled directory. It reads site credentials and
+        redis hosts live from the mounted sites directory on every request, so
+        no bench-specific rendering is required. Always overwritten so fm
+        upgrades propagate plugin changes on the next enable/sync.
+        """
+        self.adminer_config_path.mkdir(parents=True, exist_ok=True)
+        plugin_template = get_template_path("adminer/000-fm-login.php")
+        (self.adminer_config_path / "000-fm-login.php").write_bytes(plugin_template.read_bytes())
+
+    def create(self):
         self.output.change_head("Generating admin tools configuration")
-        self.generate_compose(db_host)
+        self.generate_compose()
         self.output.print("Generating admin tools configuration: Done")
 
     def _generate_credentials(self) -> tuple[str, str]:
@@ -221,6 +236,10 @@ class BenchAdminTools:
 
     def enable(self, force_recreate_container: bool = False, force_configure: bool = False):
         """Enable admin tools by starting services."""
+        # Ensure the adminer plugin exists before compose up: the bind mount
+        # source must be present (docker would create it root-owned otherwise)
+        # and this refreshes the plugin after fm upgrades.
+        self.sync_adminer_plugin()
         # Use docker_client directly instead of compose_project wrapper
         try:
             self.docker_client.compose.up(
@@ -261,6 +280,11 @@ class BenchAdminTools:
         self.nginx_proxy.reload()
 
         self.remove_mailpit_as_default_server()
+
+        if self.adminer_config_path.exists():
+            import shutil
+
+            shutil.rmtree(self.adminer_config_path)
 
     def is_running(self) -> bool:
         """Check if all admin tools services are running."""

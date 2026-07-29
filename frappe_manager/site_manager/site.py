@@ -997,7 +997,7 @@ class Bench:
         extra = {"operation": "admin_tools_sync_compose", "bench_name": self.name}
         self.logger.debug(f"Syncing admin tools compose for bench: {self.name}", extra_fields=extra)
         try:
-            self.admin_tools.generate_compose(self.services.database_manager.database_server_info.host)
+            self.admin_tools.generate_compose()
             restart_required = self.admin_tools.enable(force_recreate_container=True)
             self.logger.info(f"Admin tools compose synced for bench: {self.name}", extra_fields=extra)
             return restart_required
