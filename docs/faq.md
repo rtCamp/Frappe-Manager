@@ -104,7 +104,7 @@ From the host: `fm restart mybench --no-workers` (web only), `fm restart mybench
 
 ### How do I safely restart during a deployment without losing jobs?
 
-Use `fm restart mybench --drain`: workers finish their current jobs before anything restarts. See [fm restart](commands/restart.md) and the [fmx guide](guides/fmx.md) for drain plus migrate and maintenance mode.
+`fm restart mybench` already does this: workers drain by default, so in-flight jobs finish before anything restarts, and the restart aborts rather than kill a job that exceeds the drain budget. See [fm restart](commands/restart.md) and the [fmx guide](guides/fmx.md) for drain plus migrate and maintenance mode.
 
 ---
 

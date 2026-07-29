@@ -653,10 +653,6 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm deploy`, `fm swit
 | `rollback_db` | `false` | also restore the dump when the deploy fails (failed migrate, or alongside the image rollback; requires `backup_db`) |
 | `install_apps` | `true` | install newly-baked apps to the site during finalize |
 | `keep_releases` | `7` | retention used by `fm prune` |
-| `drain_workers` | `true` | drain RQ workers before migrate/swap |
-| `drain_workers_timeout` | `300` | seconds to wait for workers to drain |
-| `drain_workers_poll` | `5` | poll interval in seconds while draining |
-| `skip_stale_workers` | `true` | skip stale workers when draining (a hung worker cannot block the deploy) |
 | `common_site_config` | - | keys merged into `common_site_config.json` during finalize |
 | `site_config` | - | keys merged into `site_config.json` during finalize |
 | `hooks` | - | `before/after_migrate`, `before/after_restart` (container + `host.*` variants) |
@@ -677,6 +673,22 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm deploy`, `fm swit
 | `ssh_server` | - | remote host to deploy to over `DOCKER_HOST=ssh://` |
 | `ssh_user` | `"frappe"` | SSH user |
 | `ssh_port` | `22` | SSH port |
+
+---
+
+### `[workers]` {#workers}
+
+Worker care: how `fm restart` and the `fm switch` pipeline treat RQ workers and their in-flight jobs.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `drain` | `true` | drain RQ workers before cycling (fm restart and fm switch) |
+| `drain_timeout` | `300` | seconds to wait for in-flight jobs; restart and switch abort when exceeded |
+| `drain_poll` | `5` | poll interval while draining |
+| `skip_stale` | `true` | skip idle workers that stop responding |
+| `stale_timeout` | `15` | seconds an idle unresponsive worker may block the drain wait |
+| `kill_timeout` | `15` | seconds after SIGUSR1 before escalating to a supervisor stop (no-drain path) |
+| `kill_poll` | `3.0` | poll interval during the kill wait |
 
 ---
 

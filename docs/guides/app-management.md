@@ -64,7 +64,7 @@ fm update mybench --apps erpnext:version-15 --apps hrms:version-15
 For each app FM replaces the app's code with a fresh clone at the requested ref (the old code is **stashed, never deleted**), then reinstalls dependencies, rebuilds that app's assets, and runs `bench migrate`.
 
 !!! tip
-    For a safer update in production, drain in-flight jobs first: `fm restart mybench --drain` waits for running background jobs to finish. See the [fmx guide](fmx.md) for finer-grained control from inside the container.
+    In production, `fm restart mybench` drains by default: it waits for running background jobs to finish and aborts rather than kill one that overruns the drain budget. See the [fmx guide](fmx.md) for finer-grained control from inside the container.
 
 ## Opening an interactive shell
 

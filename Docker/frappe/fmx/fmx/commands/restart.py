@@ -30,6 +30,9 @@ command_name = "restart"
 
 ServiceNamesEnum = ServiceNameEnumFactory()
 
+# Rich help panel for rarely-touched knobs.
+_PANEL_TUNING = "Advanced tuning"
+
 
 def set_maintenance_mode(display: DisplayManager, enabled: bool) -> None:
     """Enable or disable maintenance mode in common_site_config.json.
@@ -341,9 +344,9 @@ def _handle_migrate_failure(
     "",
     detail=(
         "Workers stop picking up new jobs (a Redis suspend flag is set), then fmx polls until "
-        "every worker is idle. No timeout by default — waits indefinitely for jobs to finish. "
-        "This is the safest default for production use. Use whenever workers may be executing jobs "
-        "you cannot afford to lose, e.g. email sends, report generation, or file imports."
+        "every worker is idle, bounded at 300 seconds by default (--drain-workers-timeout; set 0 "
+        "to wait indefinitely). This is the safest default for production use. Use whenever workers "
+        "may be executing jobs you cannot afford to lose, e.g. email sends, report generation, or file imports."
     ),
 )
 @_example(
@@ -361,8 +364,8 @@ def _handle_migrate_failure(
     "--drain-workers-timeout 600",
     detail=(
         "Wait up to 10 minutes for workers to finish, then abort the restart if any are still busy. "
-        "Useful in automated deployments where you want a bounded wait time rather than the default "
-        "infinite wait. The restart is aborted (not forced) if the timeout expires — no jobs are killed."
+        "Raises the default 300 second bound; set 0 to wait indefinitely. "
+        "The restart is aborted (not forced) if the timeout expires — no jobs are killed."
     ),
 )
 @_example(
@@ -449,6 +452,7 @@ def command(
         typer.Option(
             "--wait/--no-wait",
             help="Wait for the final supervisor restart operations to complete before returning.",
+            rich_help_panel=_PANEL_TUNING,
         ),
     ] = True,
     drain_workers: Annotated[
@@ -466,15 +470,15 @@ def command(
         typer.Option(
             "--drain-workers-timeout",
             help="Timeout in seconds to wait for in-progress RQ jobs to finish after workers are suspended. "
-            "Set to 0 (default) to wait indefinitely. Set a specific value (e.g., 300, 600) if you want "
-            "the restart to abort after that many seconds.",
+            "Default 300; set 0 to wait indefinitely.",
         ),
-    ] = 0,
+    ] = 300,
     drain_workers_poll: Annotated[
         int,
         typer.Option(
             "--drain-workers-poll",
             help="Polling interval in seconds when checking whether all RQ workers have become idle.",
+            rich_help_panel=_PANEL_TUNING,
         ),
     ] = 5,
     skip_stale_workers: Annotated[
@@ -483,6 +487,7 @@ def command(
             "--skip-stale-workers/--no-skip-stale-workers",
             help="With --drain-workers, treat workers that have been idle for longer than --skip-stale-timeout "
             "as stale and skip waiting for them. Prevents a hung or crashed worker from blocking the restart.",
+            rich_help_panel=_PANEL_TUNING,
         ),
     ] = True,
     skip_stale_timeout: Annotated[
@@ -491,6 +496,7 @@ def command(
             "--skip-stale-timeout",
             help="Seconds of idleness after which a post-suspension worker is considered stale and skipped. "
             "Only used with --skip-stale-workers.",
+            rich_help_panel=_PANEL_TUNING,
         ),
     ] = 15,
     migrate_command: Annotated[
@@ -517,6 +523,7 @@ def command(
         typer.Option(
             "--worker-kill-timeout",
             help="Timeout in seconds to wait for a worker process to exit after SIGUSR1 before falling back to stopProcess.",
+            rich_help_panel=_PANEL_TUNING,
         ),
     ] = 15,
     worker_kill_poll: Annotated[
@@ -524,6 +531,7 @@ def command(
         typer.Option(
             "--worker-kill-poll",
             help="Polling interval in seconds when waiting for a worker to exit after SIGUSR1.",
+            rich_help_panel=_PANEL_TUNING,
         ),
     ] = 3.0,
 ):

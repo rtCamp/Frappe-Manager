@@ -38,6 +38,7 @@ from frappe_manager.site_manager.bench_config import (
     DeployState,
     DeployStateEntry,
     SwitchConfig,
+    WorkersConfig,
 )
 from frappe_manager.site_manager.hooks import hook_env, hook_script
 from frappe_manager.utils.docker import run_command_with_exit_code
@@ -185,6 +186,7 @@ class DeployOrchestrator:
         self.bench = bench
         self.config = bench.bench_config
         self.switch_config = self.config.switch
+        self.workers_config = self.config.workers or WorkersConfig()
         self.site = bench.name
         self.bench_path = Path(bench.path)
         self.docker = bench.docker_client
@@ -211,6 +213,7 @@ class DeployOrchestrator:
         if not self.config.image:
             raise DeployError("No image configured; set top-level image (or --image).")
         self.switch_config = self.config.switch or SwitchConfig()
+        self.workers_config = self.config.workers or WorkersConfig()
 
     def _switch_hook(self, name, host=False):
         hooks = self.switch_config.hooks
@@ -578,26 +581,34 @@ class DeployOrchestrator:
         self.output.change_head("Restoring database backup")
         manager.db_import(db_name, db_dump, force=True)
 
-    def drain_workers(self) -> None:
-        if not (self.switch_config.drain_workers and self._frappe_running()):
-            return
+    def drain_workers(self) -> bool:
+        """Suspend RQ workers and wait for in-flight jobs.
+
+        Returns True when it is safe to restart (fully drained, drain disabled,
+        or frappe not running); False on drain timeout or error."""
+        if not (self.workers_config.drain and self._frappe_running()):
+            return True
         self.output.change_head("Draining RQ workers")
-        timeout = self.switch_config.drain_workers_timeout
-        poll = self.switch_config.drain_workers_poll
-        skip_stale = self.switch_config.skip_stale_workers
+        timeout = self.workers_config.drain_timeout
+        poll = self.workers_config.drain_poll
+        skip_stale = self.workers_config.skip_stale
+        stale_timeout = self.workers_config.stale_timeout
         py = (
+            "import sys; "
             "from fmx.rq_controller import control_rq_workers, ActionEnum, wait_for_rq_workers_suspended; "
             "control_rq_workers(ActionEnum.suspend); "
-            f"wait_for_rq_workers_suspended({timeout}, {poll}, skip_stale={skip_stale})"
+            f"sys.exit(0 if wait_for_rq_workers_suspended({timeout}, {poll}, "
+            f"skip_stale={skip_stale}, stale_timeout={stale_timeout}) else 3)"
         )
         try:
             self._exec_frappe(f'{FMX_PYTHON} -c "{py}"')
-        except Exception as e:
-            # Draining is best-effort; recreate-swap recreates workers regardless.
-            self.output.warning(f"Worker drain did not complete cleanly (continuing): {e}")
+        except Exception:
+            # Timeout (exit 3) or exec failure; callers decide abort vs proceed.
+            return False
+        return True
 
     def resume_workers(self) -> None:
-        if not self.switch_config.drain_workers:
+        if not self.workers_config.drain:
             return
         py = (
             "from fmx.rq_controller import control_rq_workers, ActionEnum; "
@@ -954,8 +965,19 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
                 self.output.change_head("Enabling maintenance mode")
                 self._set_maintenance(1)
 
-            # 6. Drain workers (old container)
-            self.drain_workers()
+            # 6. Drain workers (old container). A gate, like `fm restart`:
+            # proceeding past a timed-out drain would take the backup while a
+            # still-busy worker keeps writing, so the dump would no longer be
+            # the exact quiesced state step 7 documents. Nothing irreversible
+            # has happened yet (maintenance is unwound below): resume + abort.
+            if not self.drain_workers():
+                self.resume_workers()
+                raise DeployError(
+                    f"Drain timed out after {self.workers_config.drain_timeout}s: workers still busy. "
+                    "Deploy aborted before backup/migrate/swap; workers resumed, the old stack keeps serving. "
+                    "Raise \\[workers].drain_timeout, or set \\[workers].drain = false to deploy without "
+                    "waiting (in-flight jobs die when the worker containers are replaced)."
+                )
 
             # 7. Backup at the quiesced point: requests are already 503'd (when
             # migrating) and drained workers have finished writing, so the dump

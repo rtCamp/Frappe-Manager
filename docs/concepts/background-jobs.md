@@ -70,7 +70,7 @@ Handles jobs like:
 - Backup operations
 
 !!! warning "Interrupting long jobs"
-    A plain `fm restart` does not wait for in-flight jobs. Use `fm restart mybench --drain` (see [safe restart workflow](#safe-worker-restarts)) for production.
+    A plain `fm restart` drains workers first and aborts rather than kill a long job that exceeds the drain budget. If you must restart immediately, `--no-drain` interrupts the job (see [safe restart workflow](#safe-worker-restarts)).
 
 ---
 
@@ -89,7 +89,7 @@ Define custom queues in `common_site_config.json` under the `workers` key:
 }
 ```
 
-FM generates a supervisor program (`bench worker --queue myqueue`) and a dedicated container for each entry when the bench's workers are (re)configured. Container name format: `fm__<benchname>__myqueue-worker` (dots in the bench name become underscores). `timeout` sets the worker's stop grace period; `background_workers` overrides the process count for that queue.
+FM generates a supervisor program (`bench worker --queue myqueue`) and a dedicated container for each entry when the bench's workers are (re)configured. Container name format: `fm__<benchname>__myqueue-worker` (dots in the bench name become underscores). `timeout` sets the worker's stop grace period; `background_workers` overrides the process count for that queue. `timeout` also serves as the supervisor stop grace for that worker's container-level restarts.
 
 **See also:** [Frappe Framework: Background Jobs](https://frappeframework.com/docs/user/en/python-api/background-jobs)
 
@@ -105,38 +105,26 @@ At each tick it checks the `scheduler_events` declared in every installed app's 
 
 ## Safe Worker Restarts
 
-### The Problem
+`fm restart` treats in-flight jobs explicitly. Workers drain by default:
 
-`fm restart` (with or without `--workers`) restarts worker processes without waiting for in-flight jobs, interrupting any running job mid-execution.
+| Mode | What happens to a running job | Speed |
+|---|---|---|
+| `fm restart mybench` (default) | never killed: workers are suspended via a Redis flag, fm waits for every in-flight job to finish (stale workers skipped, bounded at 300 seconds), then restarts and resumes; if jobs are still running when the budget expires, fm resumes the workers and aborts the restart (exit 1, nothing restarted) | normal |
+| `fm restart mybench --no-drain` | interrupted, and fm says so: SIGUSR1 to each worker; a worker that has not exited after 15 seconds (tunable via `[workers].kill_timeout`) is escalated to a supervisor stop (SIGTERM, then SIGKILL when the stop grace expires); the job is marked failed or retried | fast, lossy |
+| `fm restart mybench --force` | killed immediately along with everything else (supervisor stop + start) | fastest, lossiest |
 
-**Consequences:**
+If the drain wait exceeds its 300 second budget, fm does not kill anything: it resumes the workers and aborts the restart, so either raise `[workers].drain_timeout` in the [configuration reference](../reference/configuration.md#workers) or rerun with `--no-drain`. Only genuinely busy workers count against the gate: a worker holding no job that stops responding is declared stale after 15 seconds (`[workers].stale_timeout`) and skipped, so a dead worker cannot block restarts. The supervisor stop grace (stopwaitsecs: 360 seconds short queue, 1560 seconds long and default queues) is a separate safety net that only applies when a still-busy worker receives a stop signal (`--no-drain`, `--force`): SIGKILL ends the worker at that ceiling.
 
-- Half-sent email batches
-- Incomplete data imports
-- Corrupted report generation
-- Transaction rollbacks
+**Where docker fits.** These paths restart processes inside running containers. Only `fm restart mybench --container` recreates containers; there docker's stop timeout (then SIGKILL) applies to everything inside.
 
-### Solution: Drain Workers First
-
-Use `fm restart mybench --drain` to wait for in-flight jobs to complete before restarting the workers:
-
-```bash
-fm restart mybench --drain
-```
-
-**What happens:**
-
-1. Workers are suspended via a Redis flag; they refuse new jobs
-2. FM waits for every in-flight job to finish (stale idle workers are skipped so a hung worker cannot block forever)
-3. Workers restart
-4. Workers resume accepting jobs
+**Interrupted jobs are visible.** A job killed by `--no-drain`/`--force` lands in the failed-jobs registry; inspect with `fm shell mybench -c "fmx rq status"`.
 
 !!! tip "Combine with database migrations"
     ```bash
     fm shell mybench -c "fmx restart --migrate"
     ```
 
-    Drains workers (fmx drains by default) → migrates database → restarts all services.
+    Drains workers (fmx drains by default, bounded at 300 seconds), migrates the database, then restarts all services.
 
 **See also:** [fmx guide](../guides/fmx.md) for the in-container restart options (maintenance mode, per-service restarts, drain tuning)
 

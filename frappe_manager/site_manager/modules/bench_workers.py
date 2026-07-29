@@ -16,6 +16,7 @@ from frappe_manager.docker import ComposeFile, DockerClient, DockerException
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
+from frappe_manager.site_manager.bench_config import WorkersConfig
 from frappe_manager.site_manager.exceptions import (
     BenchOperationException,
     BenchWorkersSupervisorConfigurtionNotFoundError,
@@ -27,6 +28,10 @@ from frappe_manager.utils.site import is_default_worker
 
 if TYPE_CHECKING:
     from frappe_manager.site_manager.site import Bench
+
+
+# fmx ships inside the frappe image; used for the worker-cycle kill ladder.
+FMX_BIN = "/opt/uv-tools/fmx/bin/fmx"
 
 
 class BenchWorkers:
@@ -377,6 +382,31 @@ class BenchWorkerCoordinator:
                         force_recreate=False,
                     )
 
+    def _fmx_cycle(self, service: str, docker_client_obj) -> None:
+        """Restart this container's supervisor programs via fmx's kill ladder
+        (SIGUSR1, then stopProcess after [workers].kill_timeout). Drain/
+        suspend is handled globally by the caller, so fmx's own drain is
+        disabled to avoid a second wait."""
+        wc = self.workers.bench.bench_config.workers or WorkersConfig()
+        cmd = (
+            f"{FMX_BIN} restart --no-drain-workers --wait"
+            f" --worker-kill-timeout {wc.kill_timeout}"
+            f" --worker-kill-poll {wc.kill_poll}"
+        )
+        docker_client_obj.compose.exec(service=service, user="frappe", command=cmd, stream=False)
+
+    def _cycle_supervisor_programs(self, service: str, docker_client_obj=None) -> None:
+        """Non-force worker cycle: fmx's SIGUSR1 ladder, falling back to
+        supervisorctl on images that predate fmx."""
+        try:
+            self._fmx_cycle(service, docker_client_obj or self.docker_ops.docker_client)
+            self.output.print(f"Restarted supervisor processes - {service}")
+        except Exception:
+            self.output.warning(f"fmx restart unavailable in {service} (old image?); falling back to supervisorctl")
+            is_restarted = self.restart_supervisor_service(service, docker_client_obj=docker_client_obj, force=False)
+            if is_restarted:
+                self.output.print(f"Restarted supervisor processes - {service}")
+
     def restart_workers_containers_services(self, use_container_restart: bool = False, force: bool = False):
         """
         Restart workers and schedule containers.
@@ -392,10 +422,12 @@ class BenchWorkerCoordinator:
         else:
             for service in scheduler_service:
                 self.output.change_head(f"Restarting worker service - {service}")
-                is_restarted = self.restart_supervisor_service(service, force=force)
-                if is_restarted:
-                    action = "Stopped and started" if force else "Restarted"
-                    self.output.print(f"{action} supervisor processes - {service}")
+                if force:
+                    is_restarted = self.restart_supervisor_service(service, force=force)
+                    if is_restarted:
+                        self.output.print(f"Stopped and started supervisor processes - {service}")
+                else:
+                    self._cycle_supervisor_programs(service)
 
         worker_services = self.workers.compose_file_manager.get_services_list()
         for service in worker_services:
@@ -406,12 +438,13 @@ class BenchWorkerCoordinator:
                 self.workers.docker_client.compose.restart(services=[service], timeout=timeout)
                 action = "Force restarted" if force else "Restarted"
                 self.output.print(f"{action} container - {service}")
-            else:
+            elif force:
                 is_restarted = self.restart_supervisor_service(
                     service,
                     docker_client_obj=self.workers.docker_client,
                     force=force,
                 )
                 if is_restarted:
-                    action = "Stopped and started" if force else "Restarted"
-                    self.output.print(f"{action} supervisor processes - {service}")
+                    self.output.print(f"Stopped and started supervisor processes - {service}")
+            else:
+                self._cycle_supervisor_programs(service, docker_client_obj=self.workers.docker_client)

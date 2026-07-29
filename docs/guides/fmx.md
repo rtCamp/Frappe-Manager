@@ -120,7 +120,7 @@ fmx stop --drain-workers --drain-workers-poll 10
 
 ### `fmx restart`: restart services
 
-This is the most-used `fmx` command. It stops and then starts the targeted services in parallel. **Draining is the default**: workers stop picking up new jobs, fmx waits for in-flight jobs to finish (indefinitely, unless `--drain-workers-timeout` is set; stale idle workers are skipped after 15 s), then restarts.
+This is the most-used `fmx` command. It stops and then starts the targeted services in parallel. **Draining is the default**: workers stop picking up new jobs, fmx waits for in-flight jobs to finish (bounded at 300 seconds by default; `--drain-workers-timeout` tunes it, 0 waits indefinitely; stale idle workers are skipped after 15 s), then restarts.
 
 === "Safe (default)"
 
@@ -201,8 +201,8 @@ fmx rq resume
     Before running a manual SQL migration or patching a custom app, suspend workers first so no background job touches the database while you are making changes.
 
 !!! info "The same mechanism powers `fm`"
-    The host-side CLI reuses this suspend/resume flow: `fm restart --drain` and the
-    `fm deploy` / `fm switch` pipeline (via [`[switch] drain_workers`](../reference/configuration.md#deploy-tables)) call
+    The host-side CLI reuses this suspend/resume flow: `fm restart` (drains by default) and the
+    `fm deploy` / `fm switch` pipeline (via [`[workers] drain`](../reference/configuration.md#workers)) call
     fmx's RQ controller inside the container to suspend workers, wait for in-flight jobs
     to finish, and resume them afterwards. The suspend flag lives in Redis, so workers
     restarted mid-drain come back suspended until the resume; ordering is safe even

@@ -988,6 +988,21 @@ class SwitchHooks(SwitchHookScripts):
     host: SwitchHookScripts | None = Field(None, description="Host-side switch hooks.")
 
 
+class WorkersConfig(BaseModel):
+    """Worker-care configuration (``[workers]``): how ``fm restart`` and the ``fm switch``
+    pipeline treat RQ workers and their in-flight jobs."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    drain: bool = Field(True, description="Drain RQ workers (suspend + wait for in-flight jobs) before cycling them.")
+    drain_timeout: int = Field(300, description="Seconds to wait for in-flight jobs; restart and switch abort when exceeded.")
+    drain_poll: int = Field(5, description="Poll interval in seconds while draining.")
+    skip_stale: bool = Field(True, description="Skip idle workers that stop responding while draining.")
+    stale_timeout: int = Field(15, description="Seconds an idle unresponsive worker may block the drain wait.")
+    kill_timeout: int = Field(15, description="Seconds after SIGUSR1 before escalating to a supervisor stop (no-drain path).")
+    kill_poll: float = Field(3.0, description="Poll interval while waiting for a killed worker to exit.")
+
+
 class SwitchConfig(BaseModel):
     """Switch/migrate pipeline configuration (`[switch]` in bench_config.toml)."""
 
@@ -1025,13 +1040,6 @@ class SwitchConfig(BaseModel):
         description="Releases `fm prune` keeps (history rows + dumps + local tags); "
         "current + previous are always safe.",
     )
-    drain_workers: bool = Field(True, description="Drain RQ workers before migrate/restart.")
-    drain_workers_timeout: int = Field(300, description="Seconds to wait for workers to drain.")
-    drain_workers_poll: int = Field(5, description="Poll interval in seconds while draining.")
-    skip_stale_workers: bool = Field(True, description="Skip stale workers when draining.")
-    skip_stale_timeout: int = Field(15, description="Seconds before a worker is considered stale.")
-    worker_kill_timeout: int = Field(15, description="Seconds before force-killing workers.")
-    worker_kill_poll: float = Field(3.0, description="Poll interval in seconds while waiting to kill workers.")
     common_site_config: dict[str, Any] | None = Field(None, description="Keys to merge into common_site_config.json.")
     site_config: dict[str, Any] | None = Field(None, description="Keys to merge into site_config.json.")
     hooks: SwitchHooks | None = Field(None, description="Switch-phase hooks (restart/migrate, container + host).")
@@ -1137,6 +1145,7 @@ class BenchConfig(BaseModel):
     )
     image: str | None = Field(None, description="App image repo (image runtime); fm manages the :tag.")
     switch: SwitchConfig | None = Field(None, description="Switch/migrate pipeline configuration ([switch]).")
+    workers: WorkersConfig | None = Field(None, description="Worker-care configuration for restart and switch ([workers]).")
     build: BuildConfig | None = Field(None, description="Image build configuration for bake ([build]).")
     registry: RegistryConfig | None = Field(None, description="Image registry / transport configuration ([registry]).")
     base_image: str | None = Field(
@@ -1454,6 +1463,7 @@ class BenchConfig(BaseModel):
             "base_image": data.get("base_image", None),
             "seed_image": data.get("seed_image", None),
             "switch": SwitchConfig(**dict(data["switch"])) if data.get("switch") else None,
+            "workers": WorkersConfig(**dict(data["workers"])) if data.get("workers") else None,
             "build": BuildConfig(**dict(data["build"])) if data.get("build") else None,
             "registry": RegistryConfig(**dict(data["registry"])) if data.get("registry") else None,
             "deploy": DeployConfig(**dict(data["deploy"])) if data.get("deploy") else None,

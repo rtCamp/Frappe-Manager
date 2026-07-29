@@ -108,7 +108,7 @@ Key properties:
 - **Aborts are safe.** Any failure before the swap restores the compose snapshot: the old stack never stopped serving, and a later plain `compose up` cannot jump tags.
 - **A failed migrate never swaps.** `bench migrate` is transactional/resumable, so the default is keep-old and re-run after fixing.
 - **The DB dump is exact.** It is taken while requests are already on the maintenance page and workers are drained, so restoring it loses nothing that happened before the migrate.
-- **Drain and dump are not migrate-only.** By default workers are drained and the DB dump is taken on every deploy, even with `--no-migrate`; `drain_workers` and `backup_db` (including its `"auto"` mode) are tuned in the [`[switch]` table](../reference/configuration.md#deploy-tables).
+- **Drain and dump are not migrate-only.** By default workers are drained and the DB dump is taken on every deploy, even with `--no-migrate`; if in-flight jobs do not finish within `[workers].drain_timeout` the deploy aborts before backup/migrate/swap (workers resumed, old stack still serving), so the dump is never taken while a worker is mid-write. The drain is tuned in the [`[workers]` table](../reference/configuration.md#workers) and `backup_db` (including its `"auto"` mode) in the [`[switch]` table](../reference/configuration.md#deploy-tables).
 
 ## The rolling web swap
 
