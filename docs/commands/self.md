@@ -18,6 +18,7 @@ $ fm self [OPTIONS] COMMAND [ARGS]...
 * `update-images`: Pull latest FM stack docker images.
 * `compose`: Run docker compose commands with auto-detected compose files.
 * `stop`: Stop everything managed by FM.
+* `real-ip`: Restore real client IPs at the global nginx proxy when it sits behind a CDN or load balancer.
 
 
 ### `fm self update`
@@ -179,5 +180,55 @@ Stops only benches, leaves global services running.
 
 ```bash
 fm self stop --benches-only
+```
+
+
+### `fm self real-ip`
+
+Restore real client IPs at the global nginx proxy when it sits behind a CDN or load balancer.
+
+Without this, everything behind a CDN appears to come from the CDN's edge IPs: proxy logs, fm maintenance --allow-ip, and frappe's per-IP rate limiting all see the edge instead of the visitor. This writes an nginx real_ip configuration trusting exactly the given ranges and reloads the proxy without downtime.
+
+Only trust ranges you actually sit behind: any trusted source fully controls the client IP you observe. The bench-level half (bench nginx trusting fm's internal frontend network) is automatic and needs no command.
+
+**Usage**:
+
+```console
+$ fm self real-ip [OPTIONS]
+```
+
+**Options**:
+
+* `--cdn`: Trust a known CDN's published ranges. Supported: cloudflare (uses the CF-Connecting-IP header).
+* `--trust`: CIDR range (or single IP) of a proxy/LB in front of fm to trust (repeatable). Client IP is taken from X-Forwarded-For.
+* `--header`: Override the header the client IP is restored from (default: CF-Connecting-IP for --cdn cloudflare, X-Forwarded-For otherwise).
+* `--off`: Remove the real-ip configuration from the global proxy.
+* `--status`: Show the active real-ip configuration without changing anything.
+
+
+## Examples
+
+### Trust Cloudflare
+
+The global proxy restores the visitor's real IP from CF-Connecting-IP for requests arriving from Cloudflare's published ranges (fetched live, vendored fallback). Logs, fm maintenance --allow-ip, and frappe rate limiting then see real client IPs.
+
+```bash
+fm self real-ip --cdn cloudflare
+```
+
+### Trust a custom load balancer
+
+Restores the client IP from X-Forwarded-For for requests arriving from the given ranges (repeatable). Only list proxies you control: a trusted source controls the IP you see.
+
+```bash
+fm self real-ip --trust 203.0.113.0/24
+```
+
+### Show or remove the configuration
+
+Shows the active real-ip configuration; --off removes it and reloads the proxy without downtime.
+
+```bash
+fm self real-ip --status
 ```
 
