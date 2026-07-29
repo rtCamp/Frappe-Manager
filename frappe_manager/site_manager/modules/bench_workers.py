@@ -128,12 +128,21 @@ class BenchWorkers:
             # get custom workers from common_site_config.json
             common_site_config_data = self.bench.get_common_bench_config()
 
-            if "workers" in common_site_config_data:
-                custom_workers: list[str] = common_site_config_data["workers"].keys()
-                for worker in custom_workers:
-                    worker = f"{worker}-worker"
-                    if worker not in prev_workers:
-                        return False
+            custom_workers = common_site_config_data.get("workers") or {}
+            if not isinstance(custom_workers, dict):
+                # Malformed key: treat as changed so the regen path surfaces the
+                # validation error instead of silently reporting "unchanged".
+                return False
+            expected_custom = {f"{name}-worker" for name in custom_workers}
+
+            # A queue added to the config must appear in the compose...
+            for worker in expected_custom:
+                if worker not in prev_workers:
+                    return False
+            # ...and a queue removed from the config must disappear from it.
+            for worker in prev_workers:
+                if not is_default_worker(worker) and worker not in expected_custom:
+                    return False
             return prev_workers == expected_workers
 
         return False
@@ -151,10 +160,15 @@ class BenchWorkers:
         """
         self.output.change_head("Generating workers compose configuration")
 
+        prev_services: list[str] = []
         if not self.compose_path.exists():
             self.output.print("Workers compose not present. Generating new configuration..")
         else:
             self.output.print("Workers configuration changed. Recreating compose..")
+            try:
+                prev_services = self.compose_file_manager.get_services_list()
+            except Exception:
+                prev_services = []
 
         self.compose_file_manager.yml = self.compose_file_manager.load_template()
 
@@ -165,6 +179,18 @@ class BenchWorkers:
             include_default_workers=include_default_workers,
             include_custom_workers=include_custom_workers,
         )
+
+        # Remove dropped workers while the OLD compose file still defines them.
+        # NEVER use `up/down --remove-orphans` for this: all bench compose files
+        # share one directory and therefore one compose project, so orphan
+        # removal on the workers file removes every main-stack container too.
+        removed_services = sorted(set(prev_services) - set(workers_expected_service_names))
+        if removed_services:
+            self.output.print(f"Removing dropped worker service(s): {', '.join(removed_services)}")
+            try:
+                self.docker_client.compose.rm(services=removed_services, stop=True, force=True, stream=False)
+            except DockerException as e:
+                self.output.warning(f"Could not remove dropped worker container(s) ({e}); remove manually")
 
         if len(workers_expected_service_names) > 0:
             import os
@@ -230,7 +256,8 @@ class BenchWorkers:
 
         if self.compose_file_manager.exists():
             self.output.print("No workers found, cleaning up existing configuration")
-            self.docker_client.compose.down(remove_orphans=True, volumes=False, timeout=5, stream=True)
+            # Plain down (NO remove_orphans: shared compose project, see above).
+            self.docker_client.compose.down(volumes=False, timeout=5, stream=True)
             self.compose_file_manager.compose_path.unlink()
 
         return False
@@ -301,8 +328,11 @@ class BenchWorkerCoordinator:
             workers_backup_manager = self.backup_workers_supervisor_conf()
             try:
                 self.supervisor.setup_supervisor(self.bench_path, force=True)
-            except BenchOperationException as e:
+            except BenchOperationException:
                 self.backup_restore_workers_supervisor(workers_backup_manager)
+                # A failed regen (e.g. invalid common_site_config workers entry)
+                # must fail the sync loudly, not fall through as "unchanged".
+                raise
 
         are_workers_not_changed = self.workers.is_new_workers_added(include_default_workers=include_default_workers)
 

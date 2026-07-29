@@ -5,20 +5,83 @@ This module handles Supervisor process management for bench services.
 Extracted from the monolithic Bench class for better separation of concerns.
 """
 
-import time
 import json
 import multiprocessing
+import re
+import time
+
 from jinja2 import Template
-from frappe_manager.utils.helpers import get_template_path
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
+
 from frappe_manager.docker import DockerClient, DockerException
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.bench_config import BenchConfig
 from frappe_manager.site_manager.exceptions import BenchOperationException
+from frappe_manager.utils.helpers import get_template_path
 
 CONTAINER_BENCH_DIR = "/workspace/frappe-bench"
 COMMON_SITE_CONFIG_FILE = "common_site_config.json"
+
+# Custom worker queue names become supervisor program names
+# (<bench>-frappe-<name>-worker) and compose services (<name>-worker); these
+# would collide with the built-in programs.
+_RESERVED_QUEUE_NAMES = {"default", "short", "long", "schedule"}
+_QUEUE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+
+
+class CustomWorkerSpec(BaseModel):
+    """Shape of one ``workers.<queue>`` entry in common_site_config.json."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    timeout: int = Field(300, ge=1, description="RQ queue timeout; also the worker's supervisor stop grace (stopwaitsecs).")
+    background_workers: int | None = Field(None, ge=1, description="Process count override for this queue.")
+
+
+def validate_custom_workers(raw) -> dict[str, dict]:
+    """Validate common_site_config.json's ``workers`` key before it reaches the
+    supervisor template, which subscripts entries blindly (a malformed entry
+    otherwise crashes the render with a template traceback, or worse, renders a
+    broken conf that only fails inside the container).
+
+    Returns a normalized ``{queue: {"timeout": int, "background_workers": int | None}}``
+    mapping. Raises ``ValueError`` naming the offending queue and key.
+    """
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise ValueError(
+            f"common_site_config.json 'workers' must be an object of queue -> settings, got {type(raw).__name__}"
+        )
+    normalized: dict[str, dict] = {}
+    for name, entry in raw.items():
+        if not isinstance(name, str) or not _QUEUE_NAME_RE.match(name):
+            raise ValueError(
+                f"invalid custom worker queue name {name!r} in common_site_config.json 'workers' "
+                "(allowed: letters, digits, '-' and '_', starting with a letter or digit)"
+            )
+        if name in _RESERVED_QUEUE_NAMES:
+            raise ValueError(
+                f"custom worker queue name {name!r} is reserved: it collides with the built-in "
+                f"{name} worker/scheduler programs"
+            )
+        if not isinstance(entry, dict):
+            raise ValueError(
+                f'common_site_config.json workers.{name} must be an object like {{"timeout": 300}}, '
+                f"got {type(entry).__name__}"
+            )
+        try:
+            spec = CustomWorkerSpec(**entry)
+        except ValidationError as e:
+            first = e.errors()[0]
+            loc = ".".join(str(p) for p in first.get("loc", ())) or "?"
+            raise ValueError(
+                f"common_site_config.json workers.{name}.{loc}: {first.get('msg', 'invalid value')}"
+            ) from e
+        normalized[name] = {"timeout": spec.timeout, "background_workers": spec.background_workers}
+    return normalized
 
 
 class BenchSupervisor:
@@ -228,7 +291,7 @@ class BenchSupervisor:
             "bench_name": "frappe-bench",
             "background_workers": config.get("background_workers") or 1,
             "bench_cmd": "/opt/user/.bin/bench",
-            "workers": config.get("workers", {}),
+            "workers": validate_custom_workers(config.get("workers")),
             "multi_queue_consumption": self._can_enable_multi_queue_consumption(bench_path),
             "supervisor_startretries": 10,
         }
@@ -291,6 +354,7 @@ class BenchSupervisor:
         import io
         from pathlib import Path
 
+        written_files: set[str] = set()
         for section_name in config.sections():
             if section_name.startswith("group:"):
                 continue
@@ -311,7 +375,16 @@ class BenchSupervisor:
             buf = io.StringIO()
             section_config.write(buf)
             Path(config_dir / file_name).write_text(buf.getvalue())
+            written_files.add(file_name)
             self.logger.info(f"Split supervisor conf {section_name} => {file_name}")
+
+        # Reconcile removals: a queue deleted from common_site_config.json must
+        # not leave its old conf behind, because the workers compose (and thus
+        # the running containers) is generated from these files.
+        for stale in Path(config_dir).glob("*.workers.fm.supervisor.conf"):
+            if stale.name not in written_files:
+                stale.unlink()
+                self.logger.info(f"Removed stale supervisor conf {stale.name}")
 
     def _write_newrelic_config(self, config_dir) -> None:
         import configparser

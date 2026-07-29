@@ -307,6 +307,34 @@ class DockerComposeWrapper:
 
         return self.docker_compose_cmd + stop_cmd
 
+    @docker_command(subcommand="rm", use_original_implementation=True)
+    def rm(
+        self,
+        services: None | list[str] = None,
+        force: bool = False,
+        stop: bool = False,
+        volumes: bool = False,
+        stream: bool | None = None,
+    ) -> Iterable[tuple[str, bytes]] | SubprocessOutput:
+        """Remove stopped (or, with ``stop=True``, running) service containers.
+
+        Unlike ``down --remove-orphans`` this touches ONLY the named services,
+        which matters because fm's bench compose files share one directory and
+        therefore one compose project: orphan removal on any of them removes
+        every other file's containers.
+        """
+        parameters: dict = locals()
+
+        rm_cmd: list[str] = ["rm"]
+        remove_parameters = ["services", "stream", "self"]
+
+        rm_cmd += parameters_to_options(parameters, exclude=remove_parameters)
+
+        if type(services) == list:
+            rm_cmd.extend(services)
+
+        return self.docker_compose_cmd + rm_cmd
+
     @overload
     def exec(
         self,
