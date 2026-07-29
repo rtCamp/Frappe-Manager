@@ -2,9 +2,6 @@
 
 How a request reaches your site, and how many requests a bench can handle at once.
 
-!!! note "Not background jobs"
-    This page is about the **web process** serving HTTP requests. Emails, reports, and queued tasks run in a different machine entirely: [Background Jobs & Workers](background-jobs.md).
-
 ## The request path
 
 Every request hits the machine-wide `nginx-proxy` (ports 80/443), which routes by the `Host:` header to the right bench's own nginx, which proxies to the bench's web process. Full topology: [Architecture](../reference/architecture.md).

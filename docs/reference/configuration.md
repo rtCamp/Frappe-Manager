@@ -634,7 +634,8 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm deploy`, `fm swit
 |---|---|---|
 | `source` | `"provision"` | `provision` = clone + install fresh (reproducible); `workspace` = snapshot the bench's on-disk workspace |
 | `base_image` | fm's published base (`ghcr.io/rtcamp/frappe-manager-frappe:v<fm version>`) | the `FROM` / provisioning image |
-| `python_version` / `node_version` | the bench's create-time / auto-detected versions | toolchain (uv / fnm) baked into the image |
+| `python_version` | the bench's create-time / auto-detected version | Python toolchain (uv) baked into the image |
+| `node_version` | the bench's create-time / auto-detected version | Node toolchain (fnm) baked into the image |
 | `platform` | native / auto-detected | target architecture (see [Platforms](../deploy/transports.md#platforms-cpu-architectures)) |
 | `include` | `[]` | extra host paths baked in (`src` or `src:dest`) |
 
@@ -652,17 +653,30 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm deploy`, `fm swit
 | `rollback_db` | `false` | also restore the dump when the deploy fails (failed migrate, or alongside the image rollback; requires `backup_db`) |
 | `install_apps` | `true` | install newly-baked apps to the site during finalize |
 | `keep_releases` | `7` | retention used by `fm prune` |
-| `drain_workers` (+ `_timeout`, `_poll`, `skip_stale_*`) | `true` | drain RQ workers before migrate/swap |
-| `common_site_config` / `site_config` | - | keys merged into the site configs during finalize |
+| `drain_workers` | `true` | drain RQ workers before migrate/swap |
+| `drain_workers_timeout` | `300` | seconds to wait for workers to drain |
+| `drain_workers_poll` | `5` | poll interval in seconds while draining |
+| `skip_stale_workers` | `true` | skip stale workers when draining (a hung worker cannot block the deploy) |
+| `common_site_config` | - | keys merged into `common_site_config.json` during finalize |
+| `site_config` | - | keys merged into `site_config.json` during finalize |
 | `hooks` | - | `before/after_migrate`, `before/after_restart` (container + `host.*` variants) |
 
-**`[registry]` and `[deploy]`**:
+**`[registry]`** (image transport):
 
-| Key | Meaning |
-|---|---|
-| `registry.distribution` | `"registry"` (push/pull) or `"save_load"` (airgap over SSH) |
-| `registry.registry` / `username` / `password` | registry host + `docker login` credentials (env-substituted); omit to use ambient auth |
-| `deploy.ssh_server` / `ssh_user` / `ssh_port` | remote daemon target, read only by `fm deploy`; `ssh_user` defaults to `frappe`, `ssh_port` to `22` (`--remote` overrides) |
+| Key | Default | Meaning |
+|---|---|---|
+| `distribution` | `"registry"` | `"registry"` (push/pull) or `"save_load"` (airgap over SSH) |
+| `registry` | - | registry host for `docker login`; omit to use ambient auth |
+| `username` | - | login username (env-substituted, e.g. `"${REGISTRY_USER}"`) |
+| `password` | - | login password/token (env-substituted, e.g. `"${REGISTRY_TOKEN}"`) |
+
+**`[deploy]`** (remote daemon target, read only by `fm deploy`; `--remote` overrides):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `ssh_server` | - | remote host to deploy to over `DOCKER_HOST=ssh://` |
+| `ssh_user` | `"frappe"` | SSH user |
+| `ssh_port` | `22` | SSH port |
 
 ---
 

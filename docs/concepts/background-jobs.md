@@ -2,9 +2,6 @@
 
 Frappe uses RQ (Redis Queue) to process background jobs in dedicated worker containers. Each worker type pulls from specific queues to handle different job workloads.
 
-!!! note "Not web workers"
-    RQ workers execute queued jobs. The *web* process has its own, unrelated worker model (Gunicorn): [Web Serving & Concurrency](web-serving.md).
-
 ## Overview
 
 Worker containers run independently from the web server and process jobs asynchronously:
