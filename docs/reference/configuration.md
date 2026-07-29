@@ -626,15 +626,43 @@ Bench runtime model:
 
 ### `[switch]`, `[build]`, `[registry]`, `[deploy]` {#deploy-tables}
 
-Configuration tables for the image build/deploy pipeline (`fm bake`, `fm deploy`, `fm switch`, `fm prune`). Highlights:
+Every key that drives the bake/switch pipeline (`fm bake`, `fm deploy`, `fm switch`, `fm prune`). For what the pipeline does with them, see the [Deployment overview](../deploy/index.md).
 
-- `[switch]`: migrate/rollback behavior during a deploy: `migrate` (`true`/`false`/`"auto"`), `backup_db`, `rollback_image`, `rollback_db`, worker draining, maintenance mode, hooks, and `keep_releases` (retention used by `fm prune`, default 7).
-- `[build]`: `fm bake` inputs: `base_image`, `source` (`provision`/`workspace`), `python_version`, `node_version`, `platform` (single platform string, e.g. `linux/amd64`), `include`.
-- `[registry]`: registry host/credentials and `distribution` (`registry` or `save_load` over SSH).
+**`[build]`** (read by `fm bake`):
 
-- `[deploy]`: remote target for `fm deploy --remote`: `ssh_server`, `ssh_user`, `ssh_port`.
+| Key | Default | Meaning |
+|---|---|---|
+| `source` | `"provision"` | `provision` = clone + install fresh (reproducible); `workspace` = snapshot the bench's on-disk workspace |
+| `base_image` | fm's published base (`ghcr.io/rtcamp/frappe-manager-frappe:v<fm version>`) | the `FROM` / provisioning image |
+| `python_version` / `node_version` | the bench's create-time / auto-detected versions | toolchain (uv / fnm) baked into the image |
+| `platform` | native / auto-detected | target architecture (see [Platforms](../deploy/transports.md#platforms-cpu-architectures)) |
+| `include` | `[]` | extra host paths baked in (`src` or `src:dest`) |
 
-Full key-by-key tables with defaults and the pipeline they drive: [Deployment configuration reference](../deploy/config.md).
+**`[switch]`** (read by `fm deploy` / `fm switch`):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `migrate` | `true` | `true` / `false` / `"auto"` (probe the new image against the live DB) |
+| `migrate_timeout` | `300` | seconds for the one-shot migrate |
+| `migrate_command` | - | custom migrate command override |
+| `maintenance_mode` | `true` | show the maintenance page during schema-changing steps |
+| `maintenance_mode_phases` | `["migrate"]` | `[]` asserts a backward-compatible migration (enables rolling with migrate) |
+| `backup_db` | `true` | `true` / `false` / `"auto"` (dump only when a schema step runs) |
+| `rollback_image` | `true` | auto-rollback to the previous tag on a failed health gate |
+| `rollback_db` | `false` | also restore the dump when the deploy fails (failed migrate, or alongside the image rollback; requires `backup_db`) |
+| `install_apps` | `true` | install newly-baked apps to the site during finalize |
+| `keep_releases` | `7` | retention used by `fm prune` |
+| `drain_workers` (+ `_timeout`, `_poll`, `skip_stale_*`) | `true` | drain RQ workers before migrate/swap |
+| `common_site_config` / `site_config` | - | keys merged into the site configs during finalize |
+| `hooks` | - | `before/after_migrate`, `before/after_restart` (container + `host.*` variants) |
+
+**`[registry]` and `[deploy]`**:
+
+| Key | Meaning |
+|---|---|
+| `registry.distribution` | `"registry"` (push/pull) or `"save_load"` (airgap over SSH) |
+| `registry.registry` / `username` / `password` | registry host + `docker login` credentials (env-substituted); omit to use ambient auth |
+| `deploy.ssh_server` / `ssh_user` / `ssh_port` | remote daemon target, read only by `fm deploy`; `ssh_user` defaults to `frappe`, `ssh_port` to `22` (`--remote` overrides) |
 
 ---
 

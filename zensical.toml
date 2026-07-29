@@ -44,7 +44,6 @@ nav = [
     "deploy/index.md",
     { "Rollback"               = "deploy/rollback.md" },
     { "Transports & Platforms" = "deploy/transports.md" },
-    { "Configuration"          = "deploy/config.md" },
   ]},
   { "Commands" = [
     "commands/index.md",

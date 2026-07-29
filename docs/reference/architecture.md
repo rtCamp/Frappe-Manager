@@ -65,7 +65,7 @@ flowchart TB
 - **Bench services** (orange) are created per bench: each bench has its own isolated set of containers
 - **Dev vs Prod difference:** Only the frappe container differs:
     - **Dev:** Werkzeug single-threaded server + `bench watch` hot-reload
-    - **Prod:** Gunicorn multi-worker server (workers = min(CPU cores, RAM/256MB), threaded) + auto-restart
+    - **Prod:** Gunicorn multi-worker server (worker and thread counts sized automatically; see [Web Serving & Concurrency](../concepts/web-serving.md#gunicorn-workers-and-threads)) + auto-restart
 - All benches share the same **MariaDB** database (red) but use separate databases within it
 
 **Traffic flow:**
@@ -429,7 +429,7 @@ supervisord
 └── gunicorn -w <N> --worker-class gthread frappe.app:application (port 80)
 ```
 
-Worker count `<N>` defaults to `min(CPU cores, RAM_MB / 256)` with 2–4 threads per worker; override with `gunicorn_workers` / `gunicorn_threads` in `common_site_config.json`.
+Worker count `<N>` and threads per worker are sized automatically and can be overridden in `common_site_config.json`; see [Web Serving & Concurrency](../concepts/web-serving.md#gunicorn-workers-and-threads).
 
 ### Worker containers
 

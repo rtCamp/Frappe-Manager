@@ -34,7 +34,7 @@ ssh_user   = "frappe"
 ssh_port   = 22
 ```
 
-With a remote configured, `fm deploy` bakes on the local daemon, then drives every deploy step (fetch, pre-flight, migrate, swap, finalize) on the remote daemon over `DOCKER_HOST=ssh://`; the fm CLI is not used on the target. Only `fm deploy` reads `[deploy]`; `fm switch` and `fm prune` act on whatever daemon fm itself talks to. Registry mode encodes the registry host in the top-level `image` (e.g. `ghcr.io/acme/mybench`); `[registry] registry` exists only for `docker login`: when `registry`, `username` and `password` are all set fm logs in first (`username`/`password` are env-substituted, so `password = "${REGISTRY_TOKEN}"` works), otherwise ambient docker auth applies.
+With a remote configured, `fm deploy` bakes on the local daemon, then drives every deploy step (fetch, pre-flight, migrate, swap, finalize) on the remote daemon over `DOCKER_HOST=ssh://`; the fm CLI is not used on the target. Only `fm deploy` reads `[deploy]`; `fm switch` and `fm prune` act on whatever daemon fm itself talks to. Registry mode encodes the registry host in the top-level `image` (e.g. `ghcr.io/acme/mybench`); `[registry] registry` exists only for `docker login` (fm logs in first when credentials are set, otherwise ambient docker auth applies). Every `[registry]` and `[deploy]` key with its default is in the [configuration reference](../reference/configuration.md#deploy-tables).
 
 ## Platforms (CPU architectures)
 

@@ -50,7 +50,7 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
 
     The **deploys** section lists every release, newest first, with its migrate status and whether a DB dump was taken.
 
-That's the whole loop. The rest of this page explains what happened underneath; the pages linked at the bottom cover [rolling back](rollback.md), [remote targets and architectures](transports.md), and [every config key](config.md).
+That's the whole loop. The rest of this page explains what happened underneath; the pages linked at the bottom cover [rolling back](rollback.md), [remote targets and architectures](transports.md), and [every config key](../reference/configuration.md#deploy-tables).
 
 !!! tip "Starting fresh in image runtime"
     A bench can also be *born* deployed: `fm create prodbench --runtime image --image <repo:tag>` creates the site directly from a pre-built image (baked elsewhere, e.g. CI via `fm bake --apps ... --image ... --push`). No conversion needed.
@@ -108,7 +108,7 @@ Key properties:
 - **Aborts are safe.** Any failure before the swap restores the compose snapshot: the old stack never stopped serving, and a later plain `compose up` cannot jump tags.
 - **A failed migrate never swaps.** `bench migrate` is transactional/resumable, so the default is keep-old and re-run after fixing.
 - **The DB dump is exact.** It is taken while requests are already on the maintenance page and workers are drained, so restoring it loses nothing that happened before the migrate.
-- **Drain and dump are not migrate-only.** Workers are drained on every deploy (`drain_workers = true`, the default), and with `backup_db = true` (the default) the DB dump is taken even for `--no-migrate` deploys; set `backup_db = "auto"` to dump only when a schema step (migrate or restore) runs.
+- **Drain and dump are not migrate-only.** By default workers are drained and the DB dump is taken on every deploy, even with `--no-migrate`; `drain_workers` and `backup_db` (including its `"auto"` mode) are tuned in the [`[switch]` table](../reference/configuration.md#deploy-tables).
 
 ## The rolling web swap
 
@@ -166,7 +166,7 @@ fm deploy mybench --keep 7   # prune inline after a successful deploy (opt-in)
 
 Pruning splits two concerns:
 
-- **History rows** are audit lines: the newest N are kept (`--keep`, default `[switch].keep_releases = 7`).
+- **History rows** are audit lines: the newest N are kept (`--keep`, or [`[switch].keep_releases`](../reference/configuration.md#deploy-tables)).
 - **Artifacts are refcounted**: a DB dump dir is deleted only when no kept row references it; an image tag (and its paired `-nginx` assets image) is removed only when neither a kept row nor the protected set (current, previous, seed, base) references it.
 
 Nothing a running or rollback-reachable release needs can be pruned.
@@ -187,7 +187,7 @@ Nothing a running or rollback-reachable release needs can be pruned.
 
     Getting the image to where it runs: registry, airgapped save/load, remote daemons over SSH, and CPU architectures.
 
--   :lucide-settings-2:{ .lg .middle } &nbsp; **[Configuration](config.md)**
+-   :lucide-settings-2:{ .lg .middle } &nbsp; **[Configuration](../reference/configuration.md#deploy-tables)**
 
     ---
 

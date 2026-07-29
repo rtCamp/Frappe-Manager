@@ -202,7 +202,7 @@ fmx rq resume
 
 !!! info "The same mechanism powers `fm`"
     The host-side CLI reuses this suspend/resume flow: `fm restart --drain` and the
-    `fm deploy` / `fm switch` pipeline (with `[switch] drain_workers`, the default) call
+    `fm deploy` / `fm switch` pipeline (via [`[switch] drain_workers`](../reference/configuration.md#deploy-tables)) call
     fmx's RQ controller inside the container to suspend workers, wait for in-flight jobs
     to finish, and resume them afterwards. The suspend flag lives in Redis, so workers
     restarted mid-drain come back suspended until the resume; ordering is safe even

@@ -46,6 +46,5 @@ Technical reference documentation for Frappe Manager internals. These pages serv
     **Example deep links:**
 
     - [`configuration.md#restart-policy`](configuration.md#restart-policy): restart policy options
-    - [`../deploy/config.md`](../deploy/config.md): deploy config tables
 
     **Fast lookup:** Use browser **Ctrl+F** / **Cmd+F** within each page to jump to specific terms.

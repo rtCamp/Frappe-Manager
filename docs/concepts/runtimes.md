@@ -53,6 +53,8 @@ Both directions preserve your site and database:
 - **mount → image**: a one-time config edit (`runtime = "image"` + a top-level `image` repo in `bench_config.toml`), then `fm switch <bench> <tag>` runs the full deploy pipeline: the site is migrated onto the image and the workspace stops being the source of truth. The [Deployment guide](../deploy/index.md) walks through it.
 - **image → mount** (demotion): `fm update <bench> --runtime mount` extracts an editable workspace from the *currently deployed* image; code on disk equals running code, so no migrate is needed; any stale workspace leftovers are stashed, never deleted.
 
+The backing keys ([`runtime`](../reference/configuration.md#runtime), [`image` and friends](../reference/configuration.md#images)) are documented in the configuration reference.
+
 ## How runtime and environment combine
 
 Runtime says where code lives; [environment](../guides/environments.md) says how the web process runs. All four combinations are valid; see the [Concepts overview](index.md) for the 2x2 matrix.

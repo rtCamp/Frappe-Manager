@@ -404,7 +404,7 @@ fm ssl acme-sh --upgrade
 
 ## Security notes
 
-- **Credentials**: Cloudflare API credentials are stored globally in `~/frappe/fm_config.toml` (bench-specific overrides live in the bench's `bench_config.toml`). Restrict file permissions: `chmod 600 ~/frappe/fm_config.toml`. Remove saved credentials with `fm ssl dns-config cloudflare --remove`.
+- **Credentials**: Cloudflare API credentials are stored globally in `~/frappe/fm_config.toml` (bench-specific overrides live in the bench's `bench_config.toml`); key reference: [DNS challenge providers](../reference/configuration.md#dns-providers). Restrict file permissions: `chmod 600 ~/frappe/fm_config.toml`. Remove saved credentials with `fm ssl dns-config cloudflare --remove`.
 - **Token scope**: Use a per-zone API Token, not the Global API Key. If the token is compromised, you can revoke it without rotating your entire Cloudflare account.
 - **Certs in version control**: Never commit `*.pem` or `*.key` files. Add them to `.gitignore`.
 - **Staging vs production**: Use `--dry-run` (staging) during setup and testing. Production rate limits are shared across all users of a domain; hitting them blocks certificate issuance for everyone on that domain for up to a week.
@@ -415,3 +415,4 @@ fm ssl acme-sh --upgrade
     - [fm ssl command reference](../commands/ssl.md): all flags and subcommands
     - [Cloudflare DNS Config](../commands/ssl-dns-config-cloudflare.md): detailed Cloudflare token setup
     - [Environments](environments.md): prod vs dev environment differences
+    - [Configuration reference](../reference/configuration.md#ssl-certificates): how issued certificates are recorded in `bench_config.toml`

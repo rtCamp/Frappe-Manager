@@ -30,7 +30,7 @@ fm update mybench --environment dev
 | | `dev` | `prod` |
 |---|---|---|
 | **Web server** | Werkzeug (single-threaded) | Gunicorn (multi-worker) |
-| **Restart on crash** | ❌ No (default policy `no`) | ✅ Yes (default policy `unless-stopped`) |
+| **Restart on crash** | ❌ No | ✅ Yes |
 | **Hot-reload** | ✅ Assets + Python | ❌ Disabled |
 | **Admin tools at create** | ✅ Mailpit, Adminer | ❌ Disabled |
 | **Performance** | Slower (for DX) | Optimized for load |
@@ -57,18 +57,13 @@ Single-threaded. Changes to Python/JS/CSS reload automatically. Intended for one
 gunicorn -b 0.0.0.0:80 -w <workers> --worker-class=gthread --threads <threads> --max-requests 1000 --preload frappe.app:application
 ```
 
-Multi-worker WSGI server. The worker count defaults to the smaller of the CPU count and a RAM-based cap (one worker per 256 MB); threads default to 2–4 per worker. No auto-reload. See [Web Serving & Concurrency](../concepts/web-serving.md) to customize via `common_site_config.json`.
+Multi-worker WSGI server. Worker and thread counts are sized automatically from CPU and RAM; no auto-reload. See [Web Serving & Concurrency](../concepts/web-serving.md) for the sizing formula and how to override it via `common_site_config.json`.
 
 ---
 
 ### 2. Restart policy
 
-The Docker restart policy is a **per-bench setting** (`restart_policy` in `bench_config.toml`), applied to the `frappe` container, workers, and all bench services. The environment only picks the *default at create time*:
-
-| Created as | Default policy | Behavior |
-|-------------|----------------------|----------|
-| `dev` | `no` | Containers **do not** restart after a crash or host reboot. Run `fm start mybench` manually. |
-| `prod` | `unless-stopped` | Containers **auto-restart** after crashes or reboots, unless you explicitly stopped them with `fm stop`. |
+The Docker restart policy is a **per-bench setting** (`restart_policy` in `bench_config.toml`), applied to the `frappe` container, workers, and all bench services. The environment only picks the *default at create time*: a `dev` bench's containers stay down after a crash or host reboot (run `fm start mybench` manually), while a `prod` bench's containers auto-restart unless you explicitly stopped them with `fm stop`. Accepted values and defaults: [`restart_policy` reference](../reference/configuration.md#restart-policy).
 
 Change it any time, independently of the environment:
 
@@ -89,10 +84,7 @@ fm update mybench --restart unless-stopped   # no | always | on-failure | unless
 - Full Python tracebacks in the browser
 - Hot-reloading of Python changes without restart
 
-| Environment | Default `developer_mode` |
-|-------------|-------------------------|
-| `dev` | **On** (`1`) |
-| `prod` | **Off** (`0`) |
+It is on by default in `dev` benches and off in `prod` ones; see the [`developer_mode` reference](../reference/configuration.md#developer-mode).
 
 You can toggle `developer_mode` **independently** of the environment:
 
@@ -111,12 +103,12 @@ fm update mybench --developer-mode disable
 
 ### 4. Admin tools (Mailpit & Adminer)
 
-| Tool | Purpose | Dev default | Prod default | Access URL |
-|------|---------|-------------|--------------|------------|
-| **Mailpit** | Email testing (catches all outgoing emails) | ✅ Enabled | ❌ Disabled | `http://mybench.localhost/mailpit` |
-| **Adminer** | Database web UI | ✅ Enabled | ❌ Disabled | `http://mybench.localhost/adminer` |
+| Tool | Purpose | Access URL |
+|------|---------|------------|
+| **Mailpit** | Email testing (catches all outgoing emails) | `http://mybench.localhost/mailpit` |
+| **Adminer** | Database web UI | `http://mybench.localhost/adminer` |
 
-These are **create-time defaults**: switching environments later does not enable or disable admin tools.
+Both are enabled at create time on `dev` benches and disabled on `prod` ones. These are **create-time defaults** (switching environments later does not enable or disable admin tools); see the [`admin_tools` reference](../reference/configuration.md#admin-tools).
 
 You can toggle admin tools **independently** of the environment:
 
@@ -245,5 +237,5 @@ fm update mybench --newrelic --newrelic-license-key YOUR_INGEST_KEY
 fm update mybench --no-newrelic
 ```
 
-Enabling wraps the web process with the New Relic agent (the frappe container restarts to apply). Works on both runtimes; it is a settings-level change.
+Enabling wraps the web process with the New Relic agent (the frappe container restarts to apply). Works on both runtimes; it is a settings-level change. The stored keys live under [`[monitoring.newrelic]`](../reference/configuration.md#monitoring-newrelic) in `bench_config.toml`.
 
