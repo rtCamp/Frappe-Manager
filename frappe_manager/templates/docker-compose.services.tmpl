@@ -40,6 +40,7 @@ services:
       - "./nginx-proxy/confd:/etc/nginx/conf.d"
       - "./nginx-proxy/htpasswd:/etc/nginx/htpasswd"
       - "./nginx-proxy/vhostd:/etc/nginx/vhost.d"
+      - "./nginx-proxy/html:/usr/share/nginx/html"
       - "./nginx-proxy/logs:/var/log/nginx"
       - "./nginx-proxy/run:/var/run"
       - "./nginx-proxy/ssl:/usr/share/nginx/ssl"

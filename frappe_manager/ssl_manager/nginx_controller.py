@@ -5,7 +5,9 @@ This module separates nginx control operations from configuration reading,
 following the Single Responsibility Principle and improving testability.
 """
 
-from frappe_manager.docker import ComposeFile, DockerClient
+import time
+
+from frappe_manager.docker import ComposeFile, DockerClient, DockerException
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 
@@ -48,14 +50,43 @@ class NginxController:
         """
         Reload nginx configuration without stopping the service.
 
-        jwilder/nginx-proxy requires SIGHUP to PID 1 for docker-gen regeneration.
-        Regular nginx uses standard reload signal.
+        For jwilder/nginx-proxy, PID 1 is forego, which treats SIGHUP as
+        shutdown: signaling it restarts the whole container and drops every
+        bench it fronts for seconds. Instead, signal docker-gen directly (it
+        re-renders default.conf and notifies nginx when the render changed)
+        and follow with a graceful nginx reload to also cover vhost.d
+        content-only edits, which leave default.conf byte-identical.
+        Regular nginx uses the standard reload signal.
         """
         self.output.change_head("Reloading nginx")
 
         if self.docker_client.compose.is_service_running(self.service_name):
             if self.service_name == "global-nginx-proxy":
-                self.docker_client.compose.exec(service=self.service_name, command="sh -c 'kill -HUP 1'", stream=False)
+                self.docker_client.compose.exec(
+                    service=self.service_name,
+                    command="sh -c 'kill -HUP $(pidof docker-gen)'",
+                    stream=False,
+                )
+                # Follow-up graceful reload for vhost.d content-only edits
+                # (those leave default.conf byte-identical, so docker-gen sends
+                # no notify). When default.conf DID change, docker-gen may be
+                # mid-write here and the reload fails its config read; that is
+                # harmless (nginx keeps the old config and docker-gen's own
+                # notify reloads it), so retry briefly and then let it go.
+                for attempt in range(3):
+                    try:
+                        self.docker_client.compose.exec(
+                            service=self.service_name, command="nginx -s reload", stream=False
+                        )
+                        break
+                    except DockerException:
+                        if attempt == 2:
+                            self.output.warning(
+                                "nginx reload raced the docker-gen render; "
+                                "docker-gen's own notify completes the reload"
+                            )
+                        else:
+                            time.sleep(0.5)
             else:
                 self.docker_client.compose.exec(service=self.service_name, command="nginx -s reload", stream=False)
             self.output.print("Reloaded nginx")

@@ -52,8 +52,13 @@ class TestNginxControllerReload:
             stream=False,
         )
 
-    def test_reload_uses_hup_for_global_nginx_proxy(self, mocker, mock_compose_file_manager, mock_docker_client):
-        """Test that reload uses kill -HUP 1 for global-nginx-proxy to trigger docker-gen."""
+    def test_reload_signals_dockergen_then_nginx_for_global_proxy(
+        self, mocker, mock_compose_file_manager, mock_docker_client
+    ):
+        """The global proxy must NEVER be reloaded via PID 1: forego treats
+        HUP as shutdown and the whole container restarts, dropping every
+        bench. docker-gen gets the HUP (re-render), then nginx reloads
+        gracefully to cover vhost.d content-only edits."""
         mock_output = mocker.Mock()
 
         controller = NginxController(
@@ -67,11 +72,48 @@ class TestNginxControllerReload:
         mock_output.change_head.assert_called_once_with("Reloading nginx")
         mock_output.print.assert_called_once_with("Reloaded nginx")
 
-        mock_docker_client.compose.exec.assert_called_once_with(
-            service="global-nginx-proxy",
-            command="sh -c 'kill -HUP 1'",
-            stream=False,
+        calls = mock_docker_client.compose.exec.call_args_list
+        assert len(calls) == 2
+        assert calls[0].kwargs == {
+            "service": "global-nginx-proxy",
+            "command": "sh -c 'kill -HUP $(pidof docker-gen)'",
+            "stream": False,
+        }
+        assert calls[1].kwargs == {
+            "service": "global-nginx-proxy",
+            "command": "nginx -s reload",
+            "stream": False,
+        }
+
+    def test_reload_retries_when_nginx_reload_races_dockergen(
+        self, mocker, mock_compose_file_manager, mock_docker_client
+    ):
+        """A follow-up nginx reload can catch docker-gen mid-write of
+        default.conf and fail its config read; reload() must retry instead of
+        raising (docker-gen's own notify covers the changed-file case)."""
+        from frappe_manager.docker import DockerException
+        from frappe_manager.docker.subprocess_output import SubprocessOutput
+
+        mocker.patch("frappe_manager.ssl_manager.nginx_controller.time.sleep")
+        mock_output = mocker.Mock()
+        raced = DockerException(
+            ["docker", "compose", "exec"],
+            SubprocessOutput(stdout=[], stderr=["pread() returned only 2195 bytes"], combined=[], exit_code=1),
         )
+        mock_docker_client.compose.exec.side_effect = [None, raced, None]
+
+        controller = NginxController(
+            "global-nginx-proxy",
+            mock_compose_file_manager,
+            mock_docker_client,
+            output_handler=mock_output,
+        )
+        controller.reload()
+
+        # HUP + failed reload + successful retry
+        assert mock_docker_client.compose.exec.call_count == 3
+        mock_output.warning.assert_not_called()
+        mock_output.print.assert_called_once_with("Reloaded nginx")
 
     def test_reload_does_not_execute_when_not_running(self, mocker, mock_compose_file_manager, mock_docker_client):
         """Test that reload does not execute docker command when compose is not running."""

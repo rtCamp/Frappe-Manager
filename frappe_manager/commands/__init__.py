@@ -491,6 +491,7 @@ from frappe_manager.commands.migrate import migrate
 from frappe_manager.commands.ngrok import ngrok
 from frappe_manager.commands.reset import reset
 from frappe_manager.commands.restart import restart
+from frappe_manager.commands.maintenance import maintenance
 from frappe_manager.commands.shell import shell
 
 # Import extracted lifecycle commands (Step 4)
@@ -511,6 +512,7 @@ app.command(name="info")(info)
 app.command(name="update", no_args_is_help=True)(update)
 app.command(name="reset")(reset)
 app.command(name="restart")(restart)
+app.command(name="maintenance")(maintenance)
 app.command(name="ngrok")(ngrok)
 app.command(name="migrate")(migrate)
 app.command(name="bake", no_args_is_help=True)(bake)

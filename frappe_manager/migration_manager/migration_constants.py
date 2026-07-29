@@ -27,4 +27,4 @@ MIGRATION_CHECK_WHITELIST_COMMANDS: list[str] = [
     "rollback",
 ]
 
-MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS: list[str] = []
+MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS: list[str] = ["maintenance"]
