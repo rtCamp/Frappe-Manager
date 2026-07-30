@@ -28,22 +28,74 @@ HTTP basic auth (bench nginx):
   single credential pair that now drives both auth surfaces
 - drops the renamed configs/nginx/conf/http_auth/<bench>-admin-tools.htpasswd;
   the new <bench>.htpasswd is written on the next start
+
+Global database engine:
+
+- moves global-db from mariadb:10.6, which reached end of life on 2026-07-06, to
+  the tag frappe's own CI tests against, and lets the image entrypoint upgrade the
+  system tables via MARIADB_AUTO_UPGRADE
 """
 
+
+import gzip
 import shutil
+from collections.abc import MutableMapping
+from pathlib import Path
 
 import tomlkit
 from ruamel.yaml import YAML
 
+from frappe_manager import GLOBAL_DB_IMAGE
 from frappe_manager.migration_manager.migration_base import MigrationBase
 from frappe_manager.migration_manager.migration_helpers import MigrationBench
 from frappe_manager.migration_manager.version import Version
+from frappe_manager.output_manager.context_managers import spinner
+from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo, MariaDBManager
 from frappe_manager.utils.helpers import get_template_path
+
+# Dropped from the engine command list: it was only ever needed on MariaDB
+# 10.6.1 to 10.6.5, where innodb_read_only_compressed defaulted to ON and frappe's
+# COMPRESSED core tables became read-only. The engine defaults it off again from
+# 10.6.6 onward, so on any tag fm now pins it is a no-op.
+STALE_ENGINE_FLAG = "--skip-innodb-read-only-compressed"
+
+# Scratch path INSIDE the engine container, not on the host: the dump is written
+# there and copied out with `compose cp`, which needs no extra bind mount and
+# leaves nothing behind once the container is recreated.
+CONTAINER_TMP = Path("/tmp")  # noqa: S108
 
 ADMINER_VOLUMES = [
     "./workspace/frappe-bench/sites:/fm-sites:ro",
     "./configs/adminer:/var/www/html/plugins-enabled:ro",
 ]
+
+
+def rewrite_global_db_service(engine: MutableMapping, image: str = GLOBAL_DB_IMAGE) -> None:
+    """Point a global-db compose service at ``image``, in place.
+
+    Pure and idempotent so the compose surgery can be reasoned about (and tested)
+    without Docker: applying it twice is the same as applying it once.
+
+    - the stale compressed-tables flag goes, since the engine defaults it off from
+      10.6.6 onward
+    - MARIADB_AUTO_UPGRADE is added, but never overwritten: an operator who set it
+      to 0 deliberately keeps that choice
+    - every other key is left exactly as found
+    """
+    engine["image"] = image
+
+    command = engine.get("command")
+    if command and STALE_ENGINE_FLAG in command:
+        command.remove(STALE_ENGINE_FLAG)
+
+    environment = engine.get("environment")
+    if environment is None:
+        # Without an environment mapping there is nowhere to put the auto-upgrade
+        # switch, and the engine would boot on the new version with the previous
+        # one's system tables. Create it rather than silently skip.
+        environment = {}
+        engine["environment"] = environment
+    environment.setdefault("MARIADB_AUTO_UPGRADE", 1)
 
 
 class MigrationV0200(MigrationBase):
@@ -173,6 +225,126 @@ class MigrationV0200(MigrationBase):
 
         config_path.write_text(tomlkit.dumps(doc))
         self.output.print(f"Moved admin tools credentials into [auth] for {bench.name}")
+
+    def migrate_services(self):
+        self._upgrade_global_db_engine()
+
+    def _upgrade_global_db_engine(self):
+        """Move global-db onto the engine tag frappe tests against.
+
+        New installs get it straight from the services template. Existing ones are
+        only ever moved here, deliberately and once, because an InnoDB datadir
+        upgrade cannot be undone: a downgrade needs the dump this step takes first.
+        A direct 10.6 to 11.x jump is supported for a single node (the one-major-at-
+        a-time rule applies to rolling Galera upgrades), and the engine's own
+        MARIADB_AUTO_UPGRADE handles the system tables on first boot.
+        """
+        compose_file_manager = self.services_manager.compose_file_manager
+
+        if not compose_file_manager.exists():
+            self.logger.debug("[_upgrade_global_db_engine] services compose not found, skipping")
+            return
+
+        services = compose_file_manager.yml.get("services") or {}
+        engine = services.get("global-db")
+
+        if not engine or "image" not in engine:
+            self.logger.debug("[_upgrade_global_db_engine] no global-db image to upgrade, skipping")
+            return
+
+        current_image = str(engine["image"])
+
+        if current_image == GLOBAL_DB_IMAGE:
+            self.logger.debug(f"[_upgrade_global_db_engine] already on {GLOBAL_DB_IMAGE}")
+            return
+
+        self.output.print(f"Upgrading global database engine: {current_image} -> {GLOBAL_DB_IMAGE}")
+
+        database_manager = MariaDBManager(
+            DatabaseServerServiceInfo.import_from_compose_file("global-db", compose_file_manager),
+            compose_file_manager,
+            self.services_manager.docker,
+            output_handler=self.output,
+        )
+
+        dump_path = self._dump_whole_engine(database_manager)
+
+        # A version change is only safe from a clean shutdown; crash recovery across
+        # engine versions is not supported. compose stop sends SIGTERM, which is what
+        # the server treats as a graceful shutdown request.
+        with spinner(self.output, "Stopping global-db for the engine upgrade"):  # type: ignore[arg-type]
+            self.services_manager.compose.stop(services=["global-db"], timeout=120)
+
+        rewrite_global_db_service(engine)
+
+        compose_file_manager.write_to_file()
+
+        with spinner(self.output, f"Starting global-db on {GLOBAL_DB_IMAGE}"):  # type: ignore[arg-type]
+            self.services_manager.compose.up(
+                services=["global-db"],
+                force_recreate=True,
+                detach=True,
+                pull="missing",
+            )
+            database_manager.wait_till_db_start()
+
+        self.output.print(f"Global database engine is now {GLOBAL_DB_IMAGE}")
+        self.output.print(f"Pre-upgrade dump of every database kept at {dump_path}")
+        self.output.warning(
+            f"{GLOBAL_DB_IMAGE} is the engine frappe v16 tests against. Benches still on frappe v15 will print a "
+            "MariaDB version warning when creating or restoring a site, because v15 is tested on 10.6 and warns from "
+            "10.9 up. Nothing else changes for them, and a v15 bench that needs an older engine can be pointed at its "
+            "own database server instead of the shared one.",
+        )
+
+    def _dump_whole_engine(self, database_manager: MariaDBManager) -> Path:
+        """Logical backup of the entire server, taken while the old engine still runs.
+
+        This is the rollback path: the datadir upgrade is one way, so without this
+        there is no route back to the previous engine.
+        """
+        # Same timestamp the migration's other backups use, so one run's artifacts
+        # group together instead of drifting by a second.
+        dump_name = f"global-db-all-databases-{self.backup_manager.migration_timestamp}.sql"
+
+        container_dump_path = CONTAINER_TMP / dump_name
+        host_dump_path = self.backup_manager.backup_dir / dump_name
+
+        with spinner(self.output, "Backing up every database before the engine upgrade"):  # type: ignore[arg-type]
+            database_manager.db_export_all(container_dump_path)
+            self.services_manager.compose.cp(
+                f"global-db:{container_dump_path}",
+                str(host_dump_path),
+                stream=False,
+            )
+
+            compressed_dump_path = host_dump_path.with_suffix(".sql.gz")
+            with host_dump_path.open("rb") as plain, gzip.open(compressed_dump_path, "wb") as compressed:
+                shutil.copyfileobj(plain, compressed)
+            host_dump_path.unlink()
+
+        return compressed_dump_path
+
+    def undo_services_migrate(self):
+        """Put the compose file back; the datadir stays on the newer engine.
+
+        A restored compose alone would point an older engine at a datadir it cannot
+        read, so this only rewinds the file and tells the operator where the dump is.
+        Rolling the data back is a deliberate restore, not something to do implicitly
+        during a rollback.
+        """
+        compose_path = self.services_manager.compose_file_manager.compose_path
+
+        for backup in self.backup_manager.backups:
+            if backup.src == compose_path:
+                self.backup_manager.restore(backup, force=True)
+                self.output.print("Restored the services compose file")
+                break
+
+        self.output.warning(
+            "The global database datadir was upgraded in place and is NOT rolled back. To return to the previous "
+            f"engine, restore the dump in {self.backup_manager.backup_dir} into a fresh datadir.",
+        )
 
     def undo_bench_migrate(self, bench: MigrationBench):
         compose_path = bench.path / "docker-compose.admin-tools.yml"

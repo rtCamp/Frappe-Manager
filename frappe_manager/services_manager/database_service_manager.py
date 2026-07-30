@@ -151,8 +151,18 @@ class MariaDBManager(DatabaseServiceManager):
         else:
             self.run_on_compose_service: str = run_on_compose_service
 
+        # Canonical client names only. MariaDB 11.x images no longer ship the legacy
+        # mysql/mysqladmin/mysqldump symlinks (verified absent in mariadb:11.8), while
+        # mariadb, mariadb-admin and mariadb-dump exist in both the engine image and
+        # the bench image.
         self.base_command = f"/usr/bin/mariadb -u{self.database_server_info.user} -p'{self.database_server_info.password}' -P{self.database_server_info.port} -h{self.database_server_info.host} "
         self.base_query = "-e "
+
+        # `compose run` needs a user that exists in the TARGET image. The bench image
+        # has frappe; the engine image does not (`unable to find user frappe`), which
+        # broke every fallback call against a stopped global-db. `compose exec` ignores
+        # this, so only the run path was affected.
+        self._run_user: str | None = "frappe" if self.run_on_compose_service == "frappe" else None
 
     def _is_service_running(self, service: str) -> bool:
         """Check if a service is running."""
@@ -205,7 +215,7 @@ class MariaDBManager(DatabaseServiceManager):
             output = self._compose_exec_or_run(
                 db_query,
                 stream=not capture_output,
-                user="frappe",
+                user=self._run_user,
                 rm=True,
             )
             if capture_output:
@@ -226,12 +236,12 @@ class MariaDBManager(DatabaseServiceManager):
         raise DatabaseServiceStartTimeout(total_timeout, self.run_on_compose_service)
 
     def is_db_running(self) -> bool:
-        db_started_command = f"mysqladmin  -P{self.database_server_info.port} -h{self.database_server_info.host} -u'{self.database_server_info.user}' -p'{self.database_server_info.password}' ping"
+        db_started_command = f"mariadb-admin -P{self.database_server_info.port} -h{self.database_server_info.host} -u'{self.database_server_info.user}' -p'{self.database_server_info.password}' ping"
         try:
             output = self._compose_exec_or_run(
                 db_started_command,
                 stream=False,
-                user="frappe",
+                user=self._run_user,
                 rm=True,
                 entrypoint=None,
             )
@@ -327,18 +337,46 @@ class MariaDBManager(DatabaseServiceManager):
         if isinstance(export_file_path, Path):
             export_file_path = str(export_file_path.absolute())
 
-        db_export_command = f"mysqldump -u'{self.database_server_info.user}' -p'{self.database_server_info.password}' -h'{self.database_server_info.host}' -P{self.database_server_info.port} {db_name} --result-file={export_file_path}"
+        db_export_command = f"mariadb-dump -u'{self.database_server_info.user}' -p'{self.database_server_info.password}' -h'{self.database_server_info.host}' -P{self.database_server_info.port} {db_name} --result-file={export_file_path}"
 
         try:
             output = self._compose_exec_or_run(
                 db_export_command,
                 stream=False,
-                user="frappe",
+                user=self._run_user,
                 rm=True,
                 entrypoint=db_export_command,
             )
         except DockerException:
             raise DatabaseServiceDBExportFailed(self.run_on_compose_service, db_name)
+
+    def db_export_all(self, export_file_path: str | Path):
+        """Dump every database, including the mysql schema, into one file.
+
+        db_export covers a single schema, which is the right unit for a bench. An
+        engine-level operation needs the whole server: without the grant tables a
+        restore would come back with no users, so the sites could not connect.
+        """
+        if isinstance(export_file_path, Path):
+            export_file_path = str(export_file_path.absolute())
+
+        db_export_command = (
+            f"mariadb-dump -u'{self.database_server_info.user}' -p'{self.database_server_info.password}' "
+            f"-h'{self.database_server_info.host}' -P{self.database_server_info.port} "
+            "--all-databases --single-transaction --quick --routines --events --triggers "
+            f"--result-file={export_file_path}"
+        )
+
+        try:
+            self._compose_exec_or_run(
+                db_export_command,
+                stream=False,
+                user=self._run_user,
+                rm=True,
+                entrypoint=db_export_command,
+            )
+        except DockerException:
+            raise DatabaseServiceDBExportFailed(self.run_on_compose_service, "--all-databases")
 
     def db_create(self, db_name):
         create_db_command = f"'CREATE DATABASE IF NOT EXISTS `{db_name}`';"
@@ -363,7 +401,7 @@ class MariaDBManager(DatabaseServiceManager):
             output = self._compose_exec_or_run(
                 db_import_command,
                 stream=False,
-                user="frappe",
+                user=self._run_user,
                 rm=True,
                 entrypoint=None,
             )

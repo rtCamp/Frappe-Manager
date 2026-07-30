@@ -1,15 +1,21 @@
 services:
   global-db:
     container_name: fm_global-db
-    image: mariadb:10.6
+    image: mariadb:11.8
     user: REPLACE_WITH_CURRENT_USER:REPLACE_WITH_CURRENT_USER_GROUP
     restart: always
+    # frappe declares utf8mb4/utf8mb4_unicode_ci per connection and per table; the
+    # server defaults still matter when restoring dumps that omit charset clauses.
+    # skip-character-set-client-handshake makes the server ignore a client that asks
+    # for something else.
     command:
     - --character-set-server=utf8mb4
     - --collation-server=utf8mb4_unicode_ci
     - --skip-character-set-client-handshake
-    - --skip-innodb-read-only-compressed
     environment:
+      # Runs mariadb-upgrade automatically when the engine version changes, so a tag
+      # bump does not leave the system tables behind.
+      MARIADB_AUTO_UPGRADE: 1
       MYSQL_ROOT_PASSWORD_FILE: REPLACE_WITH_DB_ROOT_PASSWORD_SECRET_FILE
       MYSQL_DATABASE: REPLACE_WITH_DB_NAME
       MYSQL_USER: REPLACE_WITH_DB_USER

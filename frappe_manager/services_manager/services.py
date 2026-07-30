@@ -7,7 +7,7 @@ from typing import Any
 
 from jinja2 import Template
 
-from frappe_manager import CLI_DIR, CLI_SERVICES_DIRECTORY
+from frappe_manager import CLI_DIR, CLI_SERVICES_DIRECTORY, GLOBAL_DB_IMAGE
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import OutputHandler
@@ -287,7 +287,7 @@ class ServicesManager:
         mariadb_conf = self.path / "mariadb/conf"
         mariadb_conf = str(mariadb_conf.absolute())
         host_run_cp(
-            image="mariadb:10.6",
+            image=GLOBAL_DB_IMAGE,
             source="/etc/mysql/.",
             destination=mariadb_conf,
             docker=self.docker_client,
