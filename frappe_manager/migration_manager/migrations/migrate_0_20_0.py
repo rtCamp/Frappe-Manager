@@ -12,11 +12,14 @@ Admin tools: Adminer 4 → 5 with the FM login plugin.
 - places configs/adminer/000-fm-login.php — one-click login cards for each
   site database and the bench redis instances, plus the stock manual form
 
-Real client IPs (bench nginx):
+Real client IPs + JSON access logs (bench nginx):
 
 - places configs/nginx/conf/custom/real-ip.conf so bench nginx restores the
   visitor's address from X-Real-IP for traffic arriving from the fm frontend
   network, instead of logging and rate limiting everything as the proxy's IP
+- deletes the generated configs/nginx/conf/conf.d/default.conf so the nginx
+  entrypoint re-renders it from the new image template, which logs JSON in the
+  same format as the global proxy
 """
 
 import shutil
@@ -38,9 +41,10 @@ class MigrationV0200(MigrationBase):
     version = Version("0.20.0")
 
     def migrate_bench(self, bench: MigrationBench):
-        # Real-ip conf applies to every bench, before the admin-tools early
-        # returns below.
+        # Bench nginx config applies to every bench, before the admin-tools
+        # early returns below.
         self._place_realip_conf(bench)
+        self._refresh_nginx_default_conf(bench)
 
         compose_path = bench.path / "docker-compose.admin-tools.yml"
         if not compose_path.exists():
@@ -107,6 +111,18 @@ class MigrationV0200(MigrationBase):
         conf_dir.mkdir(parents=True, exist_ok=True)
         (conf_dir / "real-ip.conf").write_text(build_bench_realip_conf(str(subnet)))
         self.output.print(f"Placed bench nginx real-ip conf for {bench.name}")
+
+    def _refresh_nginx_default_conf(self, bench: MigrationBench):
+        """Drop the generated default.conf so the entrypoint re-renders it from
+        the new image template (JSON access log). Regenerating it is routine in
+        fm (see bench_orchestrator), and every host-side addition lives in
+        conf.d/ or custom/ instead of in this file."""
+        default_conf = bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
+        if not default_conf.exists():
+            return
+        self.backup_manager.backup(default_conf, bench_name=bench.name)
+        default_conf.unlink()
+        self.output.print(f"Removed generated nginx default.conf for {bench.name} (re-rendered on start)")
 
     def undo_bench_migrate(self, bench: MigrationBench):
         compose_path = bench.path / "docker-compose.admin-tools.yml"

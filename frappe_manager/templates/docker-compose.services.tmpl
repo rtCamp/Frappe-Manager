@@ -30,6 +30,10 @@ services:
     image: jwilder/nginx-proxy:1.11
     environment:
       ACME_HTTP_CHALLENGE_LOCATION: false
+      LOG_FORMAT_ESCAPE: json
+      # Kept in sync with FM_JSON_LOG_FORMAT (nginx_logging.py); $$ escapes $
+      # from docker compose interpolation.
+      LOG_FORMAT: '{"time":"$$time_iso8601","request_id":"$$request_id","client":"$$remote_addr","xff":"$$http_x_forwarded_for","host":"$$host","scheme":"$$scheme","method":"$$request_method","path":"$$request_uri","status":$$status,"bytes":$$body_bytes_sent,"request_time":$$request_time,"upstream":"$$upstream_addr","upstream_status":"$$upstream_status","upstream_time":"$$upstream_response_time","referer":"$$http_referer","ua":"$$http_user_agent"}'
     ports:
       - "80:80"
       - "443:443"

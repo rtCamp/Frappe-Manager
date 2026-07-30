@@ -399,9 +399,9 @@ class Bench:
         self.docker_ops.generate_compose(inputs)
         # Compose generation is the event where fm materializes network
         # topology into bench config (extra_hosts carries the proxy IP from
-        # the same frontend network); refresh the bench nginx real-ip conf in
-        # the same breath so both always describe the same network.
-        self.ensure_realip_nginx_config()
+        # the same frontend network); refresh the fm-managed bench nginx confs
+        # (real client IP restoration) in the same breath.
+        self.ensure_fm_nginx_confs()
 
     def sync_bench_common_site_config(self, services_db_host: str, services_db_port: int):
         """
@@ -1209,35 +1209,40 @@ class Bench:
         except Exception:
             return None
 
-    def ensure_realip_nginx_config(self) -> None:
-        """Restore the real client IP at bench nginx.
+    def ensure_fm_nginx_confs(self) -> None:
+        """Materialize the fm-managed bench nginx confs, reloading once when
+        anything changed (graceful; no-op when nginx is not up yet).
 
-        Every request reaches bench nginx from the global proxy's address on
-        the fm frontend network, so logs, frappe's request_ip, and per-IP rate
-        limiting otherwise see one IP for the whole internet. The frontend
-        network is the only route in (bench nginx publishes no ports), so
-        trusting its subnet is safe. Refreshed whenever the bench compose is
-        generated, the same event that materializes the proxy IP into
-        extra_hosts from the same network.
+        Only runtime-dependent config lives here. The JSON access-log format is
+        static and ships in the nginx image template instead.
+
+        - real-ip: every request reaches bench nginx from the global proxy's
+          address on the fm frontend network, so logs, frappe's request_ip and
+          per-IP rate limiting otherwise see one IP for the whole internet.
+          The frontend network is the only route in (bench nginx publishes no
+          ports), so trusting its subnet is safe.
         """
         from frappe_manager.site_manager.modules.realip import build_bench_realip_conf
 
+        conf_dir = self.path / "configs" / "nginx" / "conf"
+        wanted: dict[Path, str] = {}
         subnet = self._frontend_network_subnet()
-        if not subnet:
-            return
+        if subnet:
+            wanted[conf_dir / "custom" / "real-ip.conf"] = build_bench_realip_conf(subnet)
 
-        conf = build_bench_realip_conf(subnet)
-        conf_path = self.path / "configs" / "nginx" / "conf" / "custom" / "real-ip.conf"
-        if conf_path.exists() and conf_path.read_text() == conf:
-            return
-        conf_path.parent.mkdir(parents=True, exist_ok=True)
-        conf_path.write_text(conf)
-        # An already-running nginx keeps its loaded config; reload gracefully
-        # (no-op when the container is not up yet, e.g. at bench create).
-        try:
-            self.bench_nginx_controller.reload()
-        except Exception:
-            pass
+        changed = False
+        for path, content in wanted.items():
+            if path.exists() and path.read_text() == content:
+                continue
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content)
+            changed = True
+
+        if changed:
+            try:
+                self.bench_nginx_controller.reload()
+            except Exception:
+                pass
 
     def _parse_size_to_bytes(self, size_str: str) -> int:
         """
