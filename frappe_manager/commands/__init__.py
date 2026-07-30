@@ -477,6 +477,7 @@ def app_callback(
 
 # Import extracted read-only commands (Step 3)
 # Import extracted remaining commands (Step 6)
+from frappe_manager.commands.auth import auth
 from frappe_manager.commands.bake import bake
 from frappe_manager.commands.code import code
 
@@ -513,6 +514,7 @@ app.command(name="update", no_args_is_help=True)(update)
 app.command(name="reset")(reset)
 app.command(name="restart")(restart)
 app.command(name="maintenance")(maintenance)
+app.command(name="auth")(auth)
 app.command(name="ngrok")(ngrok)
 app.command(name="migrate")(migrate)
 app.command(name="bake", no_args_is_help=True)(bake)

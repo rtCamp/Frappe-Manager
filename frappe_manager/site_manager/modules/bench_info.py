@@ -17,7 +17,7 @@ from typing import TYPE_CHECKING
 from frappe_manager.docker import DockerException
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.site_manager.bench_config import BenchRuntime
+from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime
 from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
@@ -148,6 +148,38 @@ class BenchInfo:
             return datetime.fromisoformat(str(iso)).strftime("%Y-%m-%d %H:%M")
         except (ValueError, TypeError):
             return str(iso)
+
+    @staticmethod
+    def _compact_list(label: str, items: list[str], limit: int = 3) -> str:
+        """``label a, b +2`` so a long allow list still fits on one line ('' when empty)."""
+        if not items:
+            return ""
+        extra = len(items) - limit
+        shown = ", ".join(items[:limit])
+        return f"{label} {shown}" + (f" +{extra}" if extra > 0 else "")
+
+    @classmethod
+    def _auth_fact(cls, auth: AuthConfig | None) -> str:
+        """Basic auth summary: which nginx surfaces prompt, the credentials, the allow lists.
+
+        ``None`` is a config written before ``[auth]`` existed, so the model defaults
+        apply (tools prompt, web does not, password minted on the next start).
+        """
+        auth = auth or AuthConfig()
+        surfaces = [name for name, enabled in (("web", auth.web), ("tools", auth.tools)) if enabled]
+        if not surfaces:
+            return "[fm.muted]off[/fm.muted]"
+        if auth.password:
+            creds = f"{auth.user} [fm.muted]/[/fm.muted] [fm.secret]{auth.password}[/fm.secret]"
+        else:
+            creds = f"{auth.user} [fm.muted]/ password minted on next start[/fm.muted]"
+        extras = [
+            part
+            for part in (cls._compact_list("allow", auth.allow_ips), cls._compact_list("open", auth.allow_paths))
+            if part
+        ]
+        tail = f"  [fm.muted]· {' · '.join(extras)}[/fm.muted]" if extras else ""
+        return f"[fm.ok]{' + '.join(surfaces)}[/fm.ok]  [fm.muted]·[/fm.muted] {creds}{tail}"
 
     def get_python_version(self) -> str:
         """Active Python version.
@@ -288,15 +320,13 @@ class BenchInfo:
             f"[fm.muted]@[/fm.muted] {services_db_info.host}",
         )
         if config.admin_tools:
-            username = config.admin_tools_username or "admin"
-            password = config.admin_tools_password or "protected"
             card.fact(
                 "tools",
-                f"{protocol}://{self.bench_name}/mailpit [fm.muted]·[/fm.muted] {protocol}://{self.bench_name}/adminer"
-                f"  [fm.muted]({username} / {password})[/fm.muted]",
+                f"{protocol}://{self.bench_name}/mailpit [fm.muted]·[/fm.muted] {protocol}://{self.bench_name}/adminer",
             )
         else:
             card.fact("tools", "[fm.muted]not enabled[/fm.muted]")
+        card.fact("auth", self._auth_fact(config.auth))
 
         # ---- services (live container state)
         def dots(statuses: dict) -> str:

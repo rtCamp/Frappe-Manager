@@ -988,6 +988,30 @@ class SwitchHooks(SwitchHookScripts):
     host: SwitchHookScripts | None = Field(None, description="Host-side switch hooks.")
 
 
+class AuthConfig(BaseModel):
+    """HTTP basic auth configuration (``[auth]``): which of the bench's two nginx
+    surfaces prompt for a password, and the single credential pair both use.
+
+    Both are enforced by the bench nginx, the only route into the bench (it publishes
+    no host ports), against one host-side htpasswd file.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    user: str = Field("admin", description="Basic auth username, shared by both surfaces.")
+    password: str | None = Field(None, description="Basic auth password; generated on first enable when unset.")
+    web: bool = Field(False, description="Prompt on the frappe + socketio surface (every path bar the admin tools).")
+    tools: bool = Field(True, description="Prompt on the admin tools paths (/adminer/, /mailpit/).")
+    allow_ips: list[str] = Field(
+        default_factory=list,
+        description="Addresses/CIDRs that skip the prompt wherever auth applies (satisfy any).",
+    )
+    allow_paths: list[str] = Field(
+        default_factory=list,
+        description="Path prefixes served without a prompt; applies to the web surface.",
+    )
+
+
 class WorkersConfig(BaseModel):
     """Worker-care configuration (``[workers]``): how ``fm restart`` and the ``fm switch``
     pipeline treat RQ workers and their in-flight jobs."""
@@ -1146,6 +1170,7 @@ class BenchConfig(BaseModel):
     image: str | None = Field(None, description="App image repo (image runtime); fm manages the :tag.")
     switch: SwitchConfig | None = Field(None, description="Switch/migrate pipeline configuration ([switch]).")
     workers: WorkersConfig | None = Field(None, description="Worker-care configuration for restart and switch ([workers]).")
+    auth: AuthConfig | None = Field(None, description="HTTP basic auth configuration ([auth]).")
     build: BuildConfig | None = Field(None, description="Image build configuration for bake ([build]).")
     registry: RegistryConfig | None = Field(None, description="Image registry / transport configuration ([registry]).")
     base_image: str | None = Field(
@@ -1177,8 +1202,6 @@ class BenchConfig(BaseModel):
     apps_list: list["AppConfig"] = Field(default=[], description="List of apps")
     userid: int = Field(default_factory=os.getuid, description="The user ID of the current process")
     usergroup: int = Field(default_factory=os.getgid, description="The group ID of the current process")
-    admin_tools_username: str | None = Field(None, description="Username for admin tools basic auth")
-    admin_tools_password: str | None = Field(None, description="Password for admin tools basic auth")
 
     # NEW: GitHub token for private repositories
     github_token: str | None = Field(None, description="GitHub personal access token for private repositories")
@@ -1445,8 +1468,7 @@ class BenchConfig(BaseModel):
             "dns_providers": dns_providers_dict if dns_providers_dict else None,
             "alias_domains": alias_domains_list,
             "upload_limit": data.get("upload_limit", "50M"),
-            "admin_tools_username": data.get("admin_tools_username", None),
-            "admin_tools_password": data.get("admin_tools_password", None),
+            "auth": AuthConfig(**dict(data["auth"])) if data.get("auth") else None,
             "admin_pass": data.get("admin_pass", "admin"),
             "apps_list": apps_list,
             "github_token": data.get("github_token", None),

@@ -20,10 +20,19 @@ Real client IPs + JSON access logs (bench nginx):
 - deletes the generated configs/nginx/conf/conf.d/default.conf so the nginx
   entrypoint re-renders it from the new image template, which logs JSON in the
   same format as the global proxy
+
+HTTP basic auth (bench nginx):
+
+- moves the old top-level admin_tools_username / admin_tools_password keys in
+  bench_config.toml into the new [auth] table (web = false, tools = true), the
+  single credential pair that now drives both auth surfaces
+- drops the renamed configs/nginx/conf/http_auth/<bench>-admin-tools.htpasswd;
+  the new <bench>.htpasswd is written on the next start
 """
 
 import shutil
 
+import tomlkit
 from ruamel.yaml import YAML
 
 from frappe_manager.migration_manager.migration_base import MigrationBase
@@ -45,6 +54,7 @@ class MigrationV0200(MigrationBase):
         # early returns below.
         self._place_realip_conf(bench)
         self._refresh_nginx_default_conf(bench)
+        self._move_admin_tools_credentials(bench)
 
         compose_path = bench.path / "docker-compose.admin-tools.yml"
         if not compose_path.exists():
@@ -123,6 +133,46 @@ class MigrationV0200(MigrationBase):
         self.backup_manager.backup(default_conf, bench_name=bench.name)
         default_conf.unlink()
         self.output.print(f"Removed generated nginx default.conf for {bench.name} (re-rendered on start)")
+
+    def _move_admin_tools_credentials(self, bench: MigrationBench):
+        """Move the old top-level admin tools credentials into the [auth] table.
+
+        The per-bench htpasswd file was renamed to <bench>.htpasswd, so the
+        admin-tools one is dropped here; Bench.ensure_fm_nginx_confs() writes
+        the new one on the next start or compose regeneration.
+        """
+        old_htpasswd = bench.path / "configs" / "nginx" / "conf" / "http_auth" / f"{bench.name}-admin-tools.htpasswd"
+        if old_htpasswd.exists():
+            old_htpasswd.unlink()
+
+        config_path = bench.path / "bench_config.toml"
+        if not config_path.exists():
+            return
+
+        doc = tomlkit.parse(config_path.read_text())
+        if "admin_tools_username" not in doc and "admin_tools_password" not in doc:
+            return
+
+        old_user = doc.get("admin_tools_username")
+        old_password = doc.get("admin_tools_password")
+
+        if "admin_tools_username" in doc:
+            del doc["admin_tools_username"]
+        if "admin_tools_password" in doc:
+            del doc["admin_tools_password"]
+
+        # An [auth] table already present wins: it is the newer format.
+        if "auth" not in doc:
+            auth = tomlkit.table()
+            auth["user"] = str(old_user) if old_user else "admin"
+            if old_password:
+                auth["password"] = str(old_password)
+            auth["web"] = False
+            auth["tools"] = True
+            doc["auth"] = auth
+
+        config_path.write_text(tomlkit.dumps(doc))
+        self.output.print(f"Moved admin tools credentials into [auth] for {bench.name}")
 
     def undo_bench_migrate(self, bench: MigrationBench):
         compose_path = bench.path / "docker-compose.admin-tools.yml"

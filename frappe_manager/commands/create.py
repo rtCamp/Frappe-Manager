@@ -558,8 +558,6 @@ def create(
             python_version=python_version,
             node_version=node_version,
             db_name=db_name,
-            admin_tools_username=None,
-            admin_tools_password=None,
             restart_policy=restart,
             newrelic_enabled=newrelic,
             newrelic_license_key=newrelic_license_key,

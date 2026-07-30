@@ -352,8 +352,6 @@ class BenchService:
             admin_pass="pass",
             environment_type=FMBenchEnvType.dev,
             root_path=bench_path / "bench_config.toml",
-            admin_tools_username=None,
-            admin_tools_password=None,
             github_token=None,
             use_uv=True,
             python_version=None,

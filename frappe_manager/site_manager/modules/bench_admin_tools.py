@@ -52,7 +52,6 @@ class BenchAdminTools:
 
         self.nginx_proxy = nginx_proxy
         self.nginx_config_location_path: Path = self.nginx_proxy.dirs.conf.host / "custom" / "admin-tools.conf"
-        self.http_auth_path: Path = self.nginx_proxy.dirs.conf.host / "http_auth"
         self.adminer_config_path: Path = bench.path / "configs" / "adminer"
 
     def generate_compose(self):
@@ -87,44 +86,27 @@ class BenchAdminTools:
         self.generate_compose()
         self.output.print("Generating admin tools configuration: Done")
 
-    def _generate_credentials(self) -> tuple[str, str]:
-        """Generate or retrieve admin credentials"""
-        import secrets
-
-        # Use existing credentials from bench config or generate new ones
-        username = self.bench.bench_config.admin_tools_username or "admin"
-        password = self.bench.bench_config.admin_tools_password
-
-        if not password:
-            password = secrets.token_urlsafe(16)
-            # Store new credentials in bench config
-            self.bench.bench_config.admin_tools_username = username
-            self.bench.bench_config.admin_tools_password = password
-            self.bench.save_bench_config(print_message=False)
-
-        return username, password
-
     def save_nginx_location_config(self):
-        # Ensure http auth directory exists
-        self.http_auth_path.mkdir(exist_ok=True)
+        """Render custom/admin-tools.conf.
 
-        # Generate and save htpasswd file
-        from passlib.apache import HtpasswdFile
+        The htpasswd file and the server-level auth conf belong to
+        Bench.ensure_fm_nginx_confs(); this only renders the per-location auth
+        directives that follow from the state of both surfaces.
+        """
+        from frappe_manager.site_manager.bench_config import AuthConfig
+        from frappe_manager.site_manager.modules.auth import build_tools_auth_block, container_htpasswd_path
 
-        auth_file = self.http_auth_path / f"{self.bench_name}-admin-tools.htpasswd"
-
-        if not self.http_auth_path.exists():
-            self.http_auth_path.mkdir(exist_ok=True)
-
-        username, password = self._generate_credentials()
-        ht = HtpasswdFile(str(auth_file), new=True)
-        ht.set_password(username, password)
-        ht.save()
+        auth = self.bench.bench_config.auth or AuthConfig()
 
         data = {
             "mailpit_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}mailpit",
             "adminer_host": f"{get_container_name_prefix(self.bench_name)}{CLI_DEFAULT_DELIMETER}adminer",
-            "auth_file": f"/etc/nginx/http_auth/{auth_file.name}",
+            "auth_block": build_tools_auth_block(
+                web=auth.web,
+                tools=auth.tools,
+                auth_file=container_htpasswd_path(self.bench_name),
+                allow_ips=auth.allow_ips,
+            ),
         }
 
         from jinja2 import Template
@@ -140,18 +122,14 @@ class BenchAdminTools:
         self.nginx_config_location_path.write_text(output)
 
     def remove_nginx_location_config(self):
+        """Drop the tool locations only.
+
+        The credentials and the htpasswd file are shared with the web surface, so
+        disabling admin tools must not destroy them; ensure_fm_nginx_confs()
+        removes the htpasswd when no surface is left wanting it.
+        """
         if self.nginx_config_location_path.exists():
             self.nginx_config_location_path.unlink()
-
-        # Remove htpasswd file if exists
-        auth_file = self.http_auth_path / f"{self.bench_name}-admin-tools.htpasswd"
-        if auth_file.exists():
-            auth_file.unlink()
-
-        # Remove credentials from bench config
-        self.bench.bench_config.admin_tools_username = None
-        self.bench.bench_config.admin_tools_password = None
-        self.bench.save_bench_config(print_message=False)
 
     def _get_common_site_config_path(self) -> Path:
         return self.compose_path.parent / "workspace/frappe-bench/sites/common_site_config.json"

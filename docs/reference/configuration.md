@@ -63,8 +63,11 @@ db_name = "fm_mybench_a1b2c3d4"
 python_version = "3.13"
 node_version = "20"
 
-admin_tools_username = "admin"
-admin_tools_password = "secret123"
+[auth]
+user = "admin"
+password = "secret123"
+web = true
+tools = true
 
 [ssl.dns_challenge_providers.cloudflare]
 api_token = "bench-override-token"
@@ -320,7 +323,7 @@ admin_tools = true
 
 **Change via:** `fm update BENCHNAME --admin-tools enable|disable`
 
-**See also:** [#admin-tools-username](#admin-tools-username), [#admin-tools-password](#admin-tools-password)
+**See also:** [#auth](#auth)
 
 ---
 
@@ -497,37 +500,37 @@ node_version = "20"
 
 ---
 
-### `admin_tools_username` {#admin-tools-username}
+### `[auth]` {#auth}
 
-**Default:** `null` (generated on enable)  
-**Type:** `string | null`  
-**File key:** `admin_tools_username`
+**Default:** admin tools protected, site open  
+**File key:** `[auth]`
 
-HTTP Basic Auth username for Mailpit and Adminer. Auto-generated when `admin_tools` enabled.
+HTTP basic auth for the bench's two nginx surfaces: `web` (frappe and socketio, every path bar the admin tools) and `tools` (`/adminer/` and `/mailpit/`). One credential pair serves both, and the bench nginx enforces both.
 
-```toml
-admin_tools_username = "admin"
-```
-
-**See also:** [#admin-tools](#admin-tools), [#admin-tools-password](#admin-tools-password)
-
----
-
-### `admin_tools_password` {#admin-tools-password}
-
-**Default:** `null` (generated on enable)  
-**Type:** `string | null`  
-**File key:** `admin_tools_password`
-
-HTTP Basic Auth password for Mailpit and Adminer. Auto-generated when `admin_tools` enabled.
+| Key | Default | Meaning |
+|---|---|---|
+| `user` | `admin` | basic auth username shared by both surfaces |
+| `password` | generated | basic auth password; minted on first enable |
+| `web` | `false` | prompt on the frappe and socketio surface |
+| `tools` | `true` | prompt on the admin tools paths |
+| `allow_ips` | `[]` | addresses or CIDRs that skip the prompt |
+| `allow_paths` | `[]` | path prefixes served without a prompt, web surface only |
 
 ```toml
-admin_tools_password = "secret123"
+[auth]
+user = "admin"
+password = "secret123"
+web = true
+tools = true
+allow_ips = ["203.0.113.0/24"]
+allow_paths = ["/api/method/payment_webhook"]
 ```
+
+**Change via:** `fm auth BENCHNAME --protect web --protect tools`; `fm auth BENCHNAME --status` reports the current state.
 
 !!! warning "Stored in plaintext"
-    This password is stored unencrypted in the TOML file. Restrict file permissions:
-    
+    The password is stored unencrypted in the TOML file, and basic auth sends it base64-encoded on every request. Restrict file permissions and only enable a surface on a bench with TLS:
+
     ```bash
     chmod 600 ~/frappe/sites/<benchname>/bench_config.toml
     ```

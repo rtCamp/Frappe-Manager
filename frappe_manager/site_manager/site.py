@@ -15,7 +15,7 @@ from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.services import ServicesManager
-from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
+from frappe_manager.site_manager.bench_config import AuthConfig, BenchConfig, FMBenchEnvType
 from frappe_manager.site_manager.exceptions import (
     BenchException,
     BenchRemoveDirectoryError,
@@ -1221,7 +1221,29 @@ class Bench:
           per-IP rate limiting otherwise see one IP for the whole internet.
           The frontend network is the only route in (bench nginx publishes no
           ports), so trusting its subnet is safe.
+        - auth: one htpasswd file backs both basic auth surfaces. ``auth.web``
+          renders a server-context include, which every location inherits, plus
+          the realm map that backs ``allow_paths``; ``auth.tools`` is carried by
+          the admin tools locations themselves, so a scope change is pushed into
+          admin-tools.conf here too. The credentials are minted on the first
+          pass that needs them.
+
+        The three auth paths are fm-owned, so they are also removed again once
+        no surface wants them, unless the file on disk was hand written.
+        real-ip.conf is never removed: it is deliberately left in place when the
+        subnet cannot be detected.
         """
+        from frappe_manager.site_manager.modules.auth import (
+            MAP_CONF_NAME,
+            SERVER_CONF_NAME,
+            build_auth_map_conf,
+            build_server_auth_conf,
+            container_htpasswd_path,
+            generate_password,
+            htpasswd_name,
+            is_fm_auth_conf,
+            write_htpasswd,
+        )
         from frappe_manager.site_manager.modules.realip import build_bench_realip_conf
 
         conf_dir = self.path / "configs" / "nginx" / "conf"
@@ -1230,13 +1252,56 @@ class Bench:
         if subnet:
             wanted[conf_dir / "custom" / "real-ip.conf"] = build_bench_realip_conf(subnet)
 
+        auth = self.bench_config.auth or AuthConfig()
+        needs_auth = auth.web or (auth.tools and bool(self.bench_config.admin_tools))
+
+        if needs_auth and auth.password is None:
+            auth.password = generate_password()
+            self.bench_config.auth = auth
+            self.save_bench_config(print_message=False)
+
+        htpasswd_path = conf_dir / "http_auth" / htpasswd_name(self.name)
+        server_conf_path = conf_dir / "custom" / SERVER_CONF_NAME
+        map_conf_path = conf_dir / "conf.d" / MAP_CONF_NAME
+
+        if auth.web:
+            wanted[server_conf_path] = build_server_auth_conf(
+                container_htpasswd_path(self.name), auth.allow_ips, auth.allow_paths
+            )
+            if auth.allow_paths:
+                wanted[map_conf_path] = build_auth_map_conf(auth.allow_paths)
+
         changed = False
+
+        if needs_auth and auth.password:
+            changed |= write_htpasswd(htpasswd_path, auth.user, auth.password)
+        elif htpasswd_path.exists():
+            htpasswd_path.unlink()
+            changed = True
+
+        for path in (server_conf_path, map_conf_path):
+            if path in wanted or not path.exists():
+                continue
+            if not is_fm_auth_conf(path.read_text()):
+                continue
+            path.unlink()
+            changed = True
+
         for path, content in wanted.items():
             if path.exists() and path.read_text() == content:
                 continue
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(content)
             changed = True
+
+        admin_tools_conf = conf_dir / "custom" / "admin-tools.conf"
+        if self.bench_config.admin_tools and admin_tools_conf.exists():
+            try:
+                before = admin_tools_conf.read_text()
+                self.admin_tools.save_nginx_location_config()
+                changed = changed or admin_tools_conf.read_text() != before
+            except Exception:
+                pass
 
         if changed:
             try:
