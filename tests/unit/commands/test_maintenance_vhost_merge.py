@@ -5,11 +5,19 @@ limit feature (plus hand-written directives) already lives there. Maintenance
 owns a marked block inside it; enable/disable must never destroy the rest.
 """
 
+from importlib import import_module
+
 from frappe_manager.commands.maintenance import (
+    _bench_domains,
     _has_fm_block,
     _strip_fm_block,
     _vhost_conf,
 )
+
+# frappe_manager.commands re-exports the `maintenance` FUNCTION under the same
+# name, shadowing the submodule attribute, so plain `import ... as` binds the
+# function. import_module resolves through sys.modules and returns the module.
+maintenance_cmd = import_module("frappe_manager.commands.maintenance")
 
 FOREIGN = "client_max_body_size 50m;\n"
 
@@ -41,3 +49,77 @@ def test_reenable_replaces_block_without_duplicating_foreign_lines():
     remerged = _block() + _strip_fm_block(merged).strip("\n") + "\n"
     assert remerged.count("client_max_body_size") == 1
     assert remerged.count("# fm:maintenance BEGIN") == 1
+
+
+def _write_bench_config(root, benchname: str, body: str) -> None:
+    bench_dir = root / benchname
+    bench_dir.mkdir(parents=True)
+    (bench_dir / "bench_config.toml").write_text(f'name = "{benchname}"\n{body}')
+
+
+def test_tls_is_read_from_the_per_certificate_ssl_type(tmp_path, monkeypatch):
+    # Regression: the probe used to read a top-level `ssl.ssl_type`, a key
+    # export_to_toml never writes, so every bench looked like plain http and the
+    # bypass cookie never got its Secure flag. ssl_type lives one level deeper.
+    monkeypatch.setattr(maintenance_cmd, "CLI_BENCHES_DIRECTORY", tmp_path)
+    _write_bench_config(
+        tmp_path,
+        "mybench.localhost",
+        '\n[[ssl.certificates]]\ndomain = "mybench.localhost"\nssl_type = "letsencrypt"\n',
+    )
+
+    domains, domain_ssl = _bench_domains("mybench.localhost")
+
+    assert domains == ["mybench.localhost"]
+    assert domain_ssl == {"mybench.localhost": True}
+
+
+def test_tls_state_is_tracked_per_domain_not_per_bench(tmp_path, monkeypatch):
+    # A certificate covers one domain, so an alias without one must stay http:
+    # handing it a Secure-only cookie would make its bypass link silently fail.
+    monkeypatch.setattr(maintenance_cmd, "CLI_BENCHES_DIRECTORY", tmp_path)
+    _write_bench_config(
+        tmp_path,
+        "mybench.localhost",
+        'alias_domains = ["secure.example.com", "plain.example.com"]\n'
+        '\n[[ssl.certificates]]\ndomain = "secure.example.com"\nssl_type = "letsencrypt"\n',
+    )
+
+    domains, domain_ssl = _bench_domains("mybench.localhost")
+
+    assert domains == ["mybench.localhost", "secure.example.com", "plain.example.com"]
+    assert domain_ssl == {
+        "mybench.localhost": False,
+        "secure.example.com": True,
+        "plain.example.com": False,
+    }
+
+
+def test_a_disabled_certificate_entry_is_not_tls(tmp_path, monkeypatch):
+    monkeypatch.setattr(maintenance_cmd, "CLI_BENCHES_DIRECTORY", tmp_path)
+    _write_bench_config(
+        tmp_path,
+        "mybench.localhost",
+        '\n[[ssl.certificates]]\ndomain = "mybench.localhost"\nssl_type = "none"\n',
+    )
+
+    _, domain_ssl = _bench_domains("mybench.localhost")
+
+    assert domain_ssl == {"mybench.localhost": False}
+
+
+def test_no_ssl_table_at_all_is_not_tls(tmp_path, monkeypatch):
+    monkeypatch.setattr(maintenance_cmd, "CLI_BENCHES_DIRECTORY", tmp_path)
+    _write_bench_config(tmp_path, "mybench.localhost", "admin_tools = true\n")
+
+    _, domain_ssl = _bench_domains("mybench.localhost")
+
+    assert domain_ssl == {"mybench.localhost": False}
+
+
+def test_secure_cookie_follows_the_domain():
+    # The per-domain flag has to reach the rendered block, which is what actually
+    # sets Secure on the bypass cookie.
+    args = ("mybench", "a" * 32, "/usr/share/nginx/html", 503, 300, [], [])
+    assert "; Secure" in _vhost_conf(*args, secure_cookie=True)
+    assert "; Secure" not in _vhost_conf(*args, secure_cookie=False)

@@ -138,15 +138,22 @@ location = /fm-bypass/off {{
 """
 
 
-def _bench_domains(benchname: str) -> tuple[list[str], bool]:
-    """(primary + alias domains, has_ssl) read straight from bench_config.toml,
-    so maintenance works even when the bench itself is stopped or broken."""
+def _bench_domains(benchname: str) -> tuple[list[str], dict[str, bool]]:
+    """(primary + alias domains, per-domain TLS state) read straight from
+    bench_config.toml, so maintenance works even when the bench itself is stopped
+    or broken.
+
+    Certificates are per domain: every ``[[ssl.certificates]]`` entry carries its
+    own ``ssl_type``, so a bench can serve its primary domain over TLS and an alias
+    over plain http. A top-level ``ssl.ssl_type`` would always read as absent,
+    because export_to_toml never writes that key.
+    """
     config_path = CLI_BENCHES_DIRECTORY / benchname / "bench_config.toml"
     data = tomlkit.parse(config_path.read_text())
     domains = [benchname, *list(data.get("alias_domains", []) or [])]
-    ssl = data.get("ssl") or {}
-    has_ssl = bool(ssl) and str(ssl.get("ssl_type", "none")) != "none"
-    return domains, has_ssl
+    certificates = (data.get("ssl") or {}).get("certificates") or []
+    secured = {str(cert.get("domain")) for cert in certificates if str(cert.get("ssl_type", "none")) != "none"}
+    return domains, {domain: domain in secured for domain in domains}
 
 
 def _extract_token(conf_text: str) -> str | None:
@@ -361,8 +368,10 @@ def maintenance(
                 exception=typer.Exit(code=1),
             )
 
-    domains, has_ssl = _bench_domains(benchname)
-    scheme = "https" if has_ssl else "http"
+    domains, domain_ssl = _bench_domains(benchname)
+
+    def scheme_for(domain: str) -> str:
+        return "https" if domain_ssl.get(domain) else "http"
 
     def conf_path(domain: str) -> Path:
         return vhostd_dir / domain
@@ -377,7 +386,7 @@ def maintenance(
                 text = path.read_text()
                 output.print(
                     f"{domain}: maintenance ON "
-                    f"(code {_extract_code(text)}, bypass: {scheme}://{domain}/fm-bypass/{_extract_token(text)})"
+                    f"(code {_extract_code(text)}, bypass: {scheme_for(domain)}://{domain}/fm-bypass/{_extract_token(text)})"
                 )
             elif path.exists():
                 output.print(f"{domain}: custom vhost config present (no fm maintenance block)")
@@ -419,9 +428,21 @@ def maintenance(
     html_host_dir.mkdir(parents=True, exist_ok=True)
     (html_host_dir / _page_filename(benchname)).write_text(_resolve_page_html(benchname, page, message))
     vhostd_dir.mkdir(parents=True, exist_ok=True)
-    block = _vhost_conf(benchname, token, html_container_dir, response_code, retry_after, allow_ip, allow_path, has_ssl)
     for domain in domains:
         path = conf_path(domain)
+        # The Secure flag on the bypass cookie is decided per domain: an alias
+        # served over plain http must not be handed a cookie the browser will
+        # only ever send back over TLS.
+        block = _vhost_conf(
+            benchname,
+            token,
+            html_container_dir,
+            response_code,
+            retry_after,
+            allow_ip,
+            allow_path,
+            domain_ssl[domain],
+        )
         # Prepend our block, preserving whatever else shares the file
         # (upload limits, hand-written directives).
         remainder = _strip_fm_block(path.read_text()).strip("\n") if path.exists() else ""
@@ -434,5 +455,7 @@ def maintenance(
         output.print(f"Allowed IPs: {', '.join(allow_ip)}")
     if allow_path:
         output.print(f"Allowed paths: {', '.join(allow_path)}")
-    output.print(f"Bypass (sets a cookie so you see the real site): {scheme}://{domains[0]}/fm-bypass/{token}")
-    output.print(f"Drop the bypass again: {scheme}://{domains[0]}/fm-bypass/off")
+    output.print(
+        f"Bypass (sets a cookie so you see the real site): {scheme_for(domains[0])}://{domains[0]}/fm-bypass/{token}"
+    )
+    output.print(f"Drop the bypass again: {scheme_for(domains[0])}://{domains[0]}/fm-bypass/off")
