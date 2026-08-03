@@ -30,7 +30,7 @@ dependencies = [
     "typer>=0.26.0",
     "rich>=15.0.0,<16.0.0",
     "supervisor>=4.3.0,<5.0.0",
-    "redis>=8.0.0",
+    "redis>=8.1.0",
     "rq>=2.10.0",
     "typer-examples",
 ]
