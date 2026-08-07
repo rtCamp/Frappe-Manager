@@ -42,7 +42,7 @@ jobs:
             --pattern "*.whl" \
             --pattern "*.tar.gz"
 
-      - uses: astral-sh/setup-uv@v8.2.0
+      - uses: astral-sh/setup-uv@v9.0.0
 
       - name: Publish to PyPI
         run: uv publish
