@@ -48,6 +48,27 @@ jobs:
           GITHUB_REPO: ${{ github.repository }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # hatchling reads the package version from this file, and bake-images.yml
+      # derives the published image tag from it, so a release branch left at
+      # develop's dev version would publish images under the dev tag.
+      - name: Set release version
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          sed -i "s/^__version__ = \".*\"/__version__ = \"${VERSION}\"/" frappe_manager/__about__.py
+
+          DECLARED=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' frappe_manager/__about__.py)
+          if [ "$DECLARED" != "$VERSION" ]; then
+            echo "::error::failed to set version in frappe_manager/__about__.py (got '$DECLARED')"
+            exit 1
+          fi
+          echo "frappe_manager/__about__.py -> $DECLARED"
+
+      - name: Verify changelog contains the new section
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: python3 scripts/release_notes.py "$VERSION" >/dev/null
+
       - name: Open release PR
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -57,7 +78,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git checkout -b "$BRANCH"
-          git add docs/changelog.md
+          git add docs/changelog.md frappe_manager/__about__.py
           git commit -m "chore(release): prepare for v${VERSION}"
           git push origin "$BRANCH"
           gh pr create \
@@ -67,7 +88,11 @@ jobs:
             --body "## Release v${VERSION}
 
           Review the generated changelog entries below before merging.
-          Merging this PR will automatically create the \`v${VERSION}\` tag and trigger the publish workflow.
+          Merging this PR creates the \`v${VERSION}\` tag, which triggers the draft
+          release and the image build.
 
-          - [ ] Changelog entries look correct
-          - [ ] Version in \`pyproject.toml\` is \`${VERSION}\`"
+          \`docs/changelog.md\` is based on main's copy and \`frappe_manager/__about__.py\`
+          has been set to \`${VERSION}\` automatically.
+
+          - [ ] Changelog entries look correct and complete
+          - [ ] No entries from previous releases have been duplicated"
