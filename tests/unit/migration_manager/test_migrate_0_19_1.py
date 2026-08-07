@@ -248,6 +248,71 @@ class TestMigrationV0191PullFailure:
         bench.compose.pull.assert_called_once_with(stream=False)
 
 
+class TestMigrationV0191Recreate:
+    """Containers already up must end on the new image without a manual restart."""
+
+    @staticmethod
+    def _mark_running(bench, *, nginx="running"):
+        """Report every main-compose service as up, nginx overridable."""
+        bench.compose_file_manager.get_services_list.return_value = ["frappe", "nginx"]
+        bench.compose_file_manager.get_container_names.return_value = {
+            "frappe": "fm__test__frappe",
+            "nginx": "fm__test__nginx",
+        }
+        bench.docker.compose.get_all_services_status.return_value = [
+            {"Name": "fm__test__frappe", "Service": "frappe", "State": "running"},
+            {"Name": "fm__test__nginx", "Service": "nginx", "State": nginx},
+        ]
+
+    def test_running_bench_is_recreated_after_the_pull(self, make_migration, make_bench):
+        migration = make_migration()
+        bench = make_bench()
+        self._mark_running(bench)
+
+        migration.migrate_bench(bench)
+
+        bench.compose.up.assert_any_call(detach=True, pull="never")
+
+    def test_stopped_bench_is_left_stopped(self, make_migration, make_bench):
+        migration = make_migration()
+        bench = make_bench()
+
+        migration.migrate_bench(bench)
+
+        bench.compose.up.assert_not_called()
+        bench.workers_docker.compose.up.assert_not_called()
+
+    def test_no_recreate_when_images_did_not_move(self, make_migration, make_bench):
+        migration = make_migration()
+        bench = make_bench()
+        self._mark_running(bench)
+
+        migration.migrate_bench(bench)
+        bench.compose.up.reset_mock()
+
+        migration.migrate_bench(bench)
+
+        bench.compose.up.assert_not_called()
+
+    def test_nginx_killed_by_the_recreate_race_is_brought_back(self, make_migration, make_bench):
+        migration = make_migration()
+        bench = make_bench()
+        self._mark_running(bench, nginx="exited")
+
+        migration._ensure_nginx_running(bench)
+
+        bench.compose.up.assert_called_once_with(services=["nginx"], detach=True, pull="never")
+
+    def test_surviving_nginx_is_left_alone(self, make_migration, make_bench):
+        migration = make_migration()
+        bench = make_bench()
+        self._mark_running(bench)
+
+        migration._ensure_nginx_running(bench)
+
+        bench.compose.up.assert_not_called()
+
+
 class TestManagedComposePaths:
     def test_returns_generated_files_in_declared_order_and_ignores_override(self, make_bench):
         bench = make_bench(override=True)

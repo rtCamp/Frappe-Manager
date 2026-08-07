@@ -3,7 +3,8 @@ Migration for v0.19.1 - move benches onto the v0.19.1 images.
 
 v0.19.1 carries no structural changes. Its only job is to re-tag each bench's
 compose images so they pick up the frappe image that ships Chromium's shared
-libraries, without which Frappe v16's chrome PDF generator cannot start.
+libraries, without which Frappe v16's chrome PDF generator cannot start, and to
+recreate already-running containers so they run off the new image immediately.
 """
 
 import re
@@ -24,8 +25,11 @@ class MigrationV0191(MigrationBase):
     version = Version("0.19.1")
 
     def migrate_bench(self, bench: MigrationBench):
-        """Re-tag fm images across every compose file, then pull if anything moved."""
+        """Re-tag fm images across every compose file, then pull and recreate if anything moved."""
         self._images_updated = False
+
+        bench_was_running = bench.running
+        workers_were_running = bench.workers_running
 
         with spinner(self.output, f"Updating image tags for {bench.name}"):  # type: ignore[arg-type]
             for compose_path in bench.managed_compose_paths:
@@ -35,6 +39,7 @@ class MigrationV0191(MigrationBase):
             # already-correct bench cannot fail on a transient registry error.
             if self._images_updated:
                 self._pull_bench_images(bench)
+                self._recreate_services(bench, bench_was_running, workers_were_running)
 
         if not self._images_updated:
             self.output.print(f"{bench.name} already on {self.version.version_string()} images")
@@ -98,3 +103,45 @@ class MigrationV0191(MigrationBase):
             raise MigrationExceptionInBench(f"Failed to pull images for {bench.name}. Docker pull failed.")
 
         self.output.print("✓ Images ready", emoji_code="✅")
+
+    def _recreate_services(self, bench: MigrationBench, bench_was_running: bool, workers_were_running: bool):
+        """Recreate containers that were already up, so they run off the re-tagged image.
+
+        Re-tagging compose alone leaves a running bench on the old image until the
+        next stop/start — which is exactly the image missing Chromium's libraries.
+        """
+        if not (bench_was_running or workers_were_running):
+            return
+
+        self.output.print("Recreating containers on the new images...", emoji_code="🔄")
+
+        try:
+            # pull="never": _pull_bench_images already fetched the new tags.
+            if bench_was_running:
+                bench.compose.up(detach=True, pull="never")
+                self._ensure_nginx_running(bench)
+
+            if workers_were_running:
+                bench.workers_docker.compose.up(detach=True, pull="never")
+
+            self.output.print("✓ Containers recreated", emoji_code="✅")
+        except Exception as e:
+            self.output.warning(f"Container recreation failed: {e}")
+            self.output.warning(f"Run 'fm restart {bench.name}' to start using the new images.")
+
+    def _ensure_nginx_running(self, bench: MigrationBench):
+        """Bring nginx back up if the parallel recreate raced it past frappe.
+
+        nginx declares no depends_on and sets ``restart: no``, so a recreate that
+        starts it before frappe rejoins the network kills it for good:
+
+            nginx: [emerg] host not found in upstream "frappe:80"
+
+        The bench then answers nothing until the next ``fm start``. That command
+        guards the same race in start_bench(), so this mirrors it.
+        """
+        if bench.get_services_running_status().get("nginx") == "running":
+            return
+
+        self.output.print("nginx lost the race with frappe, restarting it", emoji_code="🔄")
+        bench.compose.up(services=["nginx"], detach=True, pull="never")
