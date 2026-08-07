@@ -5,6 +5,42 @@ All notable changes to Frappe Manager are documented here.
 > Versions prior to v0.19.0 were released without structured changelogs.
 > See the [GitHub Releases page](https://github.com/rtCamp/Frappe-Manager/releases) for historical notes.
 
+## v0.19.1 - 2026-08-07
+
+### Bug Fixes
+
+- Recreate running containers in v0.19.1 migration ([`2d248d3`](https://github.com/rtCamp/Frappe-Manager/commit/2d248d360fca4bd3945f83fbc961ff2201b5847b))
+- **migrate:** Stamp bench migration state even when the release ships no migration ([`450ce22`](https://github.com/rtCamp/Frappe-Manager/commit/450ce22d01cd7c0677994f234dbd0295432f03d6))
+- **migration:** Back up every compose file fm manages, not just docker-compose.yml ([`15f4aeb`](https://github.com/rtCamp/Frappe-Manager/commit/15f4aebcf0a227d51a96248684cdcbb3e6a08772))
+- **migration:** Add v0.19.1 migration so benches receive the new images ([`23cc8ca`](https://github.com/rtCamp/Frappe-Manager/commit/23cc8ca6e710d7da1d5c472a45d9e5a5ca7c2920))
+- **ci:** Push release tags with a PAT and drop the duplicated release steps ([`37c6845`](https://github.com/rtCamp/Frappe-Manager/commit/37c68459ab9cffa215d1add5a23630ccdaf353fa))
+- **ci:** Set the release version automatically and guard it against the tag ([`12132f0`](https://github.com/rtCamp/Frappe-Manager/commit/12132f02078d9178029840a63a3b7c06a4ac6c08))
+- **ci:** Base release changelog on main to stop dropping released sections ([`0b72a31`](https://github.com/rtCamp/Frappe-Manager/commit/0b72a3167e10336b24d5f1d98f7d1464c59aacee))
+- **docker:** Add chromium runtime libraries for chrome PDF generator ([`c3f9547`](https://github.com/rtCamp/Frappe-Manager/commit/c3f9547fb86179152e8aecff5a442fab195a7cd2))
+- Add workflow_dispatch to publish-pypi for manual retry ([`e7122f0`](https://github.com/rtCamp/Frappe-Manager/commit/e7122f08832bf3ee9b69bd82ad4dcc3d0ee02145))
+
+### CI
+
+- Build arm64 on GitHub-hosted runners and scope build cache per ref ([`e4a3e1d`](https://github.com/rtCamp/Frappe-Manager/commit/e4a3e1d91d76d460896eeb4aa446440998a44c65))
+- Add draft release automation and update actions ([`c6b6d22`](https://github.com/rtCamp/Frappe-Manager/commit/c6b6d22d8c692a3065665887fc931e830fee5bce))
+
+### Chores
+
+- Remove issue reference from Dockerfile comment ([`c637c5d`](https://github.com/rtCamp/Frappe-Manager/commit/c637c5d8df3360cd1af19e40e00026b0acaf1693))
+
+### Documentation
+
+- Add changelog preview recipes to the justfile ([`c49eebb`](https://github.com/rtCamp/Frappe-Manager/commit/c49eebbd2714edfb141fe0cfaf7441d2bc1e130a))
+
+### Features
+
+- **ci:** Add shared release-notes extraction script ([`3c86163`](https://github.com/rtCamp/Frappe-Manager/commit/3c8616330e5570350b5c935572b39148dac94039))
+
+### Testing
+
+- **migration:** Quiet unused-arg lint in the v0.19.1 compose fixture ([`74e76c1`](https://github.com/rtCamp/Frappe-Manager/commit/74e76c1b95a6ad3ae12dd33e4ea010e309bb459c))
+- **migration:** Cover the v0.19.1 migration and bench stamping ([`606b0c4`](https://github.com/rtCamp/Frappe-Manager/commit/606b0c47f139ae12b91084d585d2a822de94b570))
+
 ## v0.19.0 - 2026-07-02
 
 ### Bug Fixes

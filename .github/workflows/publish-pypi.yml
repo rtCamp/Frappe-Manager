@@ -3,6 +3,11 @@ name: Publish to PyPI
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v0.19.0)'
+        required: true
 
 jobs:
   publish:
@@ -12,18 +17,32 @@ jobs:
       id-token: write
       contents: read
     steps:
+      - name: Set tag
+        id: tag
+        env:
+          TRIGGER: ${{ github.event_name }}
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if [ "$TRIGGER" = "workflow_dispatch" ]; then
+            echo "value=$INPUT_TAG" >> "$GITHUB_OUTPUT"
+          else
+            echo "value=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download dist from release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.tag.outputs.value }}
         run: |
           mkdir dist
-          gh release download "${{ github.event.release.tag_name }}" \
+          gh release download "$TAG" \
             --repo "${{ github.repository }}" \
             --dir dist/ \
             --pattern "*.whl" \
             --pattern "*.tar.gz"
 
-      - uses: astral-sh/setup-uv@v8
+      - uses: astral-sh/setup-uv@v8.2.0
 
       - name: Publish to PyPI
         run: uv publish
