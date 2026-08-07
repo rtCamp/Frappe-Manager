@@ -7,7 +7,6 @@ on:
 
 permissions:
   contents: write
-  actions: write
 
 jobs:
   tag:
@@ -17,49 +16,34 @@ jobs:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+          # A tag pushed with the default GITHUB_TOKEN does not start new workflow
+          # runs, which would leave draft-release.yml and bake-images.yml unfired.
+          token: ${{ secrets.RELEASE_PAT || secrets.GITHUB_TOKEN }}
 
+      # Tagging only. draft-release.yml owns building and creating the release off
+      # the resulting tag push.
       - name: Create and push tag
         env:
           HEAD_REF: ${{ github.head_ref }}
+          HAS_PAT: ${{ secrets.RELEASE_PAT != '' }}
         run: |
           VERSION=$(echo "$HEAD_REF" | sed 's|^release/||')
 
           if ! echo "$VERSION" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "Error: branch '$HEAD_REF' does not match release/vX.Y.Z — aborting."
+            echo "Error: branch '$HEAD_REF' does not match release/vX.Y.Z. Aborting."
+            exit 1
+          fi
+
+          DECLARED=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' frappe_manager/__about__.py)
+          if [ "v$DECLARED" != "$VERSION" ]; then
+            echo "::error::tag $VERSION does not match frappe_manager/__about__.py ($DECLARED). Images would publish under the wrong tag."
             exit 1
           fi
 
           git tag "$VERSION"
           git push origin "$VERSION"
+          echo "Pushed $VERSION"
 
-      - uses: astral-sh/setup-uv@v8.2.0
-
-      - name: Build
-        run: uv build
-
-      - name: Extract release notes from changelog
-        env:
-          HEAD_REF: ${{ github.head_ref }}
-        run: |
-          VERSION=$(echo "$HEAD_REF" | sed 's|^release/||;s|^v||')
-          python3 -c "
-          import re, sys
-          with open('docs/changelog.md') as f:
-              content = f.read()
-          pattern = rf'(## v{re.escape(sys.argv[1])}.*?)(?=\n## v|\Z)'
-          match = re.search(pattern, content, re.DOTALL)
-          print(match.group(1).strip() if match else f'Release {sys.argv[1]}')
-          " "$VERSION" > release-notes.md
-
-      - name: Create draft GitHub Release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HEAD_REF: ${{ github.head_ref }}
-        run: |
-          VERSION=$(echo "$HEAD_REF" | sed 's|^release/||')
-          gh release create "$VERSION" \
-            --title "$VERSION" \
-            --notes-file release-notes.md \
-            --verify-tag \
-            --draft \
-            dist/*
+          if [ "$HAS_PAT" != "true" ]; then
+            echo "::warning::RELEASE_PAT is not configured, so this tag was pushed with GITHUB_TOKEN and will NOT trigger draft-release.yml or bake-images.yml. Run both manually via workflow_dispatch against the $VERSION tag."
+          fi

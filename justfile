@@ -120,6 +120,22 @@ check-actions:
         echo "All actions up to date."
     fi
 
+# ── Changelog ─────────────────────────────────────────────────────────────────
+# docs/changelog.md is generated output, not a file to hand-edit. These recipes
+# preview what the Prepare Release workflow would produce.
+
+# Preview the unreleased section that the next release would add
+changelog:
+    uvx git-cliff --config cliff.toml --unreleased
+
+# Preview the section as it would be titled for a specific version
+changelog-for VERSION:
+    uvx git-cliff --config cliff.toml --unreleased --tag v{{VERSION}}
+
+# Show the release notes that would be published for an already-generated version
+release-notes VERSION:
+    uv run python scripts/release_notes.py {{VERSION}}
+
 # ── Docs generation ──────────────────────────────────────────────────────────
 
 # Generate command reference docs from the live CLI

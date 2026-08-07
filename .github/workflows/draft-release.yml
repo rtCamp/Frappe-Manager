@@ -58,17 +58,18 @@ jobs:
           name: dist
           path: dist/
 
-      - name: Extract release notes from changelog
+      # The tag drives the package version and the published image tag.
+      - name: Verify version matches tag
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          python3 -c "
-          import re, sys
-          with open('docs/changelog.md') as f:
-              content = f.read()
-          pattern = rf'(## v{re.escape(sys.argv[1])}.*?)(?=\n## v|\Z)'
-          match = re.search(pattern, content, re.DOTALL)
-          print(match.group(1).strip() if match else f'Release {sys.argv[1]}')
-          " "$VERSION" > release-notes.md
+          DECLARED=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' frappe_manager/__about__.py)
+          if [ "$DECLARED" != "$VERSION" ]; then
+            echo "::error::tag ${GITHUB_REF_NAME} does not match frappe_manager/__about__.py ($DECLARED)"
+            exit 1
+          fi
+
+      - name: Extract release notes from changelog
+        run: python3 scripts/release_notes.py "${GITHUB_REF_NAME#v}" --output release-notes.md
 
       - name: Create draft GitHub Release
         env:
