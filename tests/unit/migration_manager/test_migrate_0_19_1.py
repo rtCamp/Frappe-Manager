@@ -88,7 +88,7 @@ def make_bench(tmp_path):
         if override:
             (bench_path / "docker-compose.override.yml").write_text(COMPOSE_OVERRIDE)
 
-        def make_compose_file_manager(compose_path, *args, **kwargs):
+        def make_compose_file_manager(compose_path, *_args, **_kwargs):
             manager = MagicMock()
             manager.compose_path = compose_path
             manager.get_services_list.return_value = ["frappe"]
@@ -98,7 +98,7 @@ def make_bench(tmp_path):
         with (
             patch(
                 "frappe_manager.migration_manager.migration_helpers.DockerClient",
-                side_effect=lambda *args, **kwargs: MagicMock(),
+                side_effect=lambda *_args, **_kwargs: MagicMock(),
             ),
             patch(
                 "frappe_manager.migration_manager.migration_helpers.ComposeFile",
