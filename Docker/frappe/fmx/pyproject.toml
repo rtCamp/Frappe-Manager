@@ -27,7 +27,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "typer>=0.26.0",
+    "typer>=0.27.1",
     "rich>=15.0.0,<16.0.0",
     "supervisor>=4.3.0,<5.0.0",
     "redis>=8.0.0",
