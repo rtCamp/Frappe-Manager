@@ -23,31 +23,12 @@ FM_IMAGE_PATTERN = re.compile(r"(ghcr\.io/rtcamp/frappe-manager-[^:]+):v[0-9]+\.
 class MigrationV0191(MigrationBase):
     version = Version("0.19.1")
 
-    def bench_basic_backup(self, bench: MigrationBench):
-        """Back up every compose file this migration rewrites.
-
-        The parent only backs up docker-compose.yml, but the worker and
-        admin-tools compose files reference the same images and are rewritten
-        here too, so they have to be recoverable for the rollback in
-        MigrationBase.migrate_benches() to be complete.
-        """
-        super().bench_basic_backup(bench)
-
-        if self.migration_executor.skip_backup or bench.name in self.migration_executor.skip_backup_for:
-            return
-
-        for compose_path in self._compose_files(bench):
-            if compose_path.name == "docker-compose.yml":
-                continue  # already handled by the parent
-            self.backup_manager.backup(compose_path, bench_name=bench.name)
-            self.output.print(f"Backed up {compose_path.name}")
-
     def migrate_bench(self, bench: MigrationBench):
         """Re-tag fm images across every compose file, then pull if anything moved."""
         self._images_updated = False
 
         with spinner(self.output, f"Updating image tags for {bench.name}"):  # type: ignore[arg-type]
-            for compose_path in self._compose_files(bench):
+            for compose_path in bench.managed_compose_paths:
                 self._migrate_compose_file(compose_path)
 
             # Skip the pull when nothing changed, so re-running on an
@@ -59,10 +40,6 @@ class MigrationV0191(MigrationBase):
             self.output.print(f"{bench.name} already on {self.version.version_string()} images")
 
         self.output.print(f"Successfully migrated {bench.name} to {self.version.version_string()}")
-
-    def _compose_files(self, bench: MigrationBench) -> list[Path]:
-        """Every compose file in the bench, so a new one cannot be silently missed."""
-        return sorted(p for p in bench.path.glob("docker-compose*.yml") if p.is_file())
 
     def _migrate_compose_file(self, compose_path: Path):
         yaml = YAML(typ="rt")
