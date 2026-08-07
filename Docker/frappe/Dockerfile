@@ -66,7 +66,7 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install --no-instal
     unzip \
     # Chromium runtime libs for frappe's chrome PDF generator (frappe downloads
     # headless_shell itself). jammy has no chromium-headless-shell package and
-    # chromium-browser is a snap stub, so the libs are listed individually. #452
+    # chromium-browser is a snap stub, so the libs are listed individually
     libnss3 \
     libnspr4 \
     libatk1.0-0 \
