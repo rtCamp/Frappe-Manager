@@ -29,6 +29,16 @@ jobs:
             exit 1
           fi
 
+      # The cumulative changelog is only ever committed to main, so develop's copy
+      # is stale. Prepending onto it would drop every section main has since
+      # accumulated, and then conflict with main at merge time.
+      - name: Base changelog on main
+        run: |
+          git fetch origin main
+          git checkout origin/main -- docs/changelog.md
+          echo "Sections currently in the changelog:"
+          grep -c '^## v' docs/changelog.md
+
       - name: Update changelog
         uses: orhun/git-cliff-action@v4
         with:
