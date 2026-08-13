@@ -218,3 +218,48 @@ class TestStreamCommandOutputQuietRunningChild:
 
         assert items == [("stderr", b"flush"), ("exit_code", b"1")]
         fake_logger.warning.assert_not_called()
+
+
+@pytest.mark.unit
+class TestStreamCommandOutputGraceDeadlineBoundary:
+    """Where exactly the post-exit grace period ends.
+
+    The grace deadline is armed on the first idle poll after the child has exited and
+    is then compared against the clock on every later idle poll. The boundary decides
+    whether a reader that is merely slow (a big final flush) still gets its output
+    delivered, or is declared wedged and truncated: ON the deadline the drain gives up
+    and warns, so anything the reader posts from then on is lost. Poll interval and
+    grace period are exact multiples, so the deadline really is landed on, never
+    stepped over.
+    """
+
+    # First idle poll arms the deadline (clock + grace); this many polls later the
+    # clock reads exactly the deadline.
+    POLLS_TO_DEADLINE = int(subprocess_utils.DRAIN_GRACE_PERIOD_AFTER_EXIT / subprocess_utils.DRAIN_POLL_INTERVAL) + 1
+
+    @pytest.mark.timeout(30)
+    def test_output_posted_at_the_deadline_is_dropped(self):
+        script = [EMPTY] * self.POLLS_TO_DEADLINE + [("stdout", b"too-late"), None, None]
+        items, process, queue, clock, fake_logger = drive(script, returncode=0)
+
+        # Gave up ON the deadline: the queued line is never reached.
+        assert items == [("exit_code", b"0")]
+        assert queue.empty_waits == self.POLLS_TO_DEADLINE
+        assert clock.elapsed == pytest.approx(
+            subprocess_utils.DRAIN_GRACE_PERIOD_AFTER_EXIT + subprocess_utils.DRAIN_POLL_INTERVAL
+        )
+        assert process.waited
+        assert fake_logger.warning.call_count == 1
+        assert "Trailing output may be missing" in fake_logger.warning.call_args.args[0]
+
+    @pytest.mark.timeout(30)
+    def test_output_posted_one_poll_before_the_deadline_is_still_delivered(self):
+        script = [EMPTY] * (self.POLLS_TO_DEADLINE - 1) + [("stdout", b"just-in-time"), None, None]
+        items, process, queue, clock, fake_logger = drive(script, returncode=0)
+
+        assert items == [("stdout", b"just-in-time"), ("exit_code", b"0")]
+        assert queue.empty_waits == self.POLLS_TO_DEADLINE - 1
+        assert clock.elapsed == pytest.approx(subprocess_utils.DRAIN_GRACE_PERIOD_AFTER_EXIT)
+        assert process.waited
+        # Nothing was truncated, so nothing is warned about.
+        fake_logger.warning.assert_not_called()

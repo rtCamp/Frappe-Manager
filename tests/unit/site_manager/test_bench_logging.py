@@ -136,6 +136,9 @@ class TestLifecycleOperationLogging:
         bench = Bench.__new__(Bench)
         bench.name = "test.localhost"
         bench.logger = mock_logger
+        bench.path = Path("/tmp/test-bench")
+        bench.docker_ops = MagicMock()
+        bench.output = MagicMock()
         bench.orchestrator = MagicMock()
         bench.orchestrator.start_bench = MagicMock()
 
@@ -361,7 +364,10 @@ class TestDatabaseOperationLogging:
         assert extra["operation"] == "db_remove"
 
     def test_handle_database_deletion_logs_deletion_handler_operation(
-        self, mock_bench_dependencies, mock_logger, mocker,
+        self,
+        mock_bench_dependencies,
+        mock_logger,
+        mocker,
     ):
         """_handle_database_deletion() should log with operation=db_deletion_handler."""
         mocker.patch.object(Bench, "__init__", lambda *args, **kwargs: None)

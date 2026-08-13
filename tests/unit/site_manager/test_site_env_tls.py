@@ -62,11 +62,11 @@ def manager(tmp_path) -> BenchSiteManager:
 
 
 def test_env_defaults_to_the_benchs_own_site(manager):
-    assert manager._site_env() == {"MYSQL_HOME": db_tls.site_mysql_home(SITE)}  # noqa: SLF001
+    assert manager._site_env() == {"MYSQL_HOME": db_tls.site_mysql_home(SITE)}
 
 
 def test_env_follows_the_site_it_was_asked_about(manager):
-    env = manager._site_env(OTHER)  # noqa: SLF001
+    env = manager._site_env(OTHER)
 
     assert env == {"MYSQL_HOME": db_tls.site_mysql_home(OTHER)}
     # The distinction is the whole point: the two sites have different CAs on disk.
@@ -75,14 +75,14 @@ def test_env_follows_the_site_it_was_asked_about(manager):
 
 def test_a_site_on_the_global_db_container_gets_no_env(manager):
     # No `[database]` entry for it, so there is no CA and no option file to point at.
-    assert manager._site_env(PLAIN) == {}  # noqa: SLF001
+    assert manager._site_env(PLAIN) == {}
 
 
 def test_the_env_reaching_a_command_is_the_one_for_the_site_it_runs_for(manager):
     """End of the wire: `create_site_dirs` is issued per site, so the exec it builds must carry
     that site's `MYSQL_HOME` and no other's."""
     captured: list[dict] = []
-    manager._container_exec_argv = lambda argv, **kw: captured.append({"argv": argv, **kw})  # noqa: SLF001
+    manager._container_exec_argv = lambda argv, **kw: captured.append({"argv": argv, **kw})
 
     manager.create_site_dirs(OTHER)
 

@@ -36,7 +36,7 @@ def _git_app(apps_dir, name, branch="version-15"):
     def g(*a):
         # -c commit.gpgsign=false: never depend on the developer's signing
         # setup (an ssh/gpg signer that prompts would hang or fail the test).
-        subprocess.run(  # noqa: S603, S607
+        subprocess.run(  # noqa: S603
             ["git", "-C", str(path), "-c", "commit.gpgsign=false", *a], check=True, capture_output=True
         )
 

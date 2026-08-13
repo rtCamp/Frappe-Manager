@@ -20,14 +20,14 @@ from frappe_manager.site_manager.exceptions import BenchOperationException
 from frappe_manager.site_manager.modules.bench_site import BenchSiteManager
 
 EXTERNAL_DB = DatabaseConfig(host="mydb.abc.rds.amazonaws.com", name="app_prod")
-ROOT_PASSWORD = "global-db-root-secret"  # noqa: S105
+ROOT_PASSWORD = "global-db-root-secret"
 
 
 def _manager(captured, database_config: DatabaseConfig | None = None):
     m = object.__new__(BenchSiteManager)  # bypass __init__ (no Docker/services setup)
     m.bench_name = "fm.alok.rt.gw"
     m.bench_cli_cmd = ["bench"]
-    m.bench_config = MagicMock(db_name="db1", admin_pass="admin")  # noqa: S106
+    m.bench_config = MagicMock(db_name="db1", admin_pass="admin")
     # No `[database]` entry by default: the global-db container, which is the bench the
     # forcing tests below are about. Left as a bare MagicMock this returns a truthy Mock
     # and every create silently takes the external branch instead.
@@ -41,7 +41,7 @@ def _manager(captured, database_config: DatabaseConfig | None = None):
     def _run(cmd, **_kw):
         captured.append(cmd)
 
-    m._container_run = _run  # type: ignore[method-assign]  # noqa: SLF001
+    m._container_run = _run  # type: ignore[method-assign]
     return m
 
 

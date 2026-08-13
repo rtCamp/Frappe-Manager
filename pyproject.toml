@@ -84,6 +84,27 @@ ignore = [
 fixable = ["ALL"]
 unfixable = []
 
+[tool.ruff.lint.per-file-ignores]
+# Test-only relaxations. These are idioms of the test suite, not defects, and they are scoped to
+# tests/ so the production ruleset above is untouched. Characterization tests in particular exist to
+# pin the behaviour of INTERNAL functions before a refactor, which is what makes SLF001 unavoidable
+# here: asserting only through public surfaces is exactly the gap those tests were written to close.
+"tests/**" = [
+    "SLF001",  # Private member access -- the point of a characterization test
+    "ARG001",  # Unused function argument -- mock/stub signatures must match the real callable
+    "ARG002",  # Unused method argument -- same, for fakes standing in for collaborators
+    "ARG005",  # Unused lambda argument -- same, for inline stubs
+    "FBT003",  # Boolean positional in a call -- mirrors the production signature under test
+    "S105",    # Hardcoded password -- fixture values, never real credentials
+    "S106",    # Hardcoded password argument -- same
+    "S108",    # /tmp path -- asserted against, not written to (writes use tmp_path)
+    "DTZ005",  # datetime.now() without tz -- fine for a fixture timestamp
+    "PT008",   # Mocker patch style -- both styles are used deliberately
+    "RUF012",  # Mutable class default -- test data holders, never shared
+    "RUF059",  # Unused unpacked variable -- documents a tuple's shape at the call site
+    "TRY301",  # Abstract raise to inner function -- noise inside a test body
+]
+
 [tool.ruff.format]
 indent-style = "space"
 skip-magic-trailing-comma = false

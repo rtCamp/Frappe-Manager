@@ -1063,7 +1063,7 @@ def test_nginx_scan_skips_benches_that_fail_to_load_and_keeps_their_domains(h, n
         "ok.localhost",
     ]
 
-    def get_object(name, _services, output_handler):  # noqa: ARG001
+    def get_object(name, _services, output_handler):
         if name == "broken.localhost":
             raise RuntimeError("bench is unreadable")
         return SimpleNamespace(

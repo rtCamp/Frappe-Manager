@@ -18,8 +18,6 @@ Everything below the method is mocked at the seam: ``docker_client``, ``output``
 and ``bench_config``. No docker daemon, no filesystem, no network.
 """
 
-# ruff: noqa: SLF001 -- the units under test are private methods of BenchAppManager.
-
 from unittest.mock import MagicMock
 
 import pytest

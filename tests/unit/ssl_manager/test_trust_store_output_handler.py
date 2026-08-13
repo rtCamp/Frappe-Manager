@@ -80,7 +80,7 @@ class TestTrustStoreManagerOutputHandler:
 
         with patch("frappe_manager.ssl_manager.trust_store_manager.subprocess.run") as mock_run:
             mock_run.return_value = MagicMock(returncode=0, stderr="")
-            mgr._install_macos(ca_cert)  # noqa: SLF001
+            mgr._install_macos(ca_cert)
 
         assert handler.debug.call_count >= 1
         assert any("keychain" in call.args[0] for call in handler.debug.call_args_list)

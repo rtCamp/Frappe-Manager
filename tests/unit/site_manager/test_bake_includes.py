@@ -29,7 +29,7 @@ def test_include_file_with_explicit_dest(tmp_path):
     src.write_text("patch")
     fb = tmp_path / "ctx" / "frappe-bench"
     fb.mkdir(parents=True)
-    _manager(tmp_path)._apply_includes(fb, [f"{src}:sites/patches.txt"])  # noqa: SLF001
+    _manager(tmp_path)._apply_includes(fb, [f"{src}:sites/patches.txt"])
     assert (fb / "sites" / "patches.txt").read_text() == "patch"
 
 
@@ -39,7 +39,7 @@ def test_include_dir_and_default_dest(tmp_path):
     (d / "sub" / "a.json").write_text("{}")
     fb = tmp_path / "ctx" / "frappe-bench"
     fb.mkdir(parents=True)
-    _manager(tmp_path)._apply_includes(fb, [str(d)])  # noqa: SLF001  (dest defaults to basename)
+    _manager(tmp_path)._apply_includes(fb, [str(d)])
     assert (fb / "fixtures" / "sub" / "a.json").read_text() == "{}"
 
 
@@ -49,7 +49,7 @@ def test_include_overrides_existing_file(tmp_path):
     fb = tmp_path / "ctx" / "frappe-bench"
     (fb / "apps" / "erpnext").mkdir(parents=True)
     (fb / "apps" / "erpnext" / "hooks.py").write_text("original")
-    _manager(tmp_path)._apply_includes(fb, [f"{src}:apps/erpnext/hooks.py"])  # noqa: SLF001
+    _manager(tmp_path)._apply_includes(fb, [f"{src}:apps/erpnext/hooks.py"])
     assert (fb / "apps" / "erpnext" / "hooks.py").read_text() == "OVERRIDE"
 
 
@@ -57,7 +57,7 @@ def test_missing_source_errors(tmp_path):
     fb = tmp_path / "ctx" / "frappe-bench"
     fb.mkdir(parents=True)
     with pytest.raises(BakeError):
-        _manager(tmp_path)._apply_includes(fb, [f"{tmp_path / 'nope.txt'}:sites/x"])  # noqa: SLF001
+        _manager(tmp_path)._apply_includes(fb, [f"{tmp_path / 'nope.txt'}:sites/x"])
 
 
 def test_absolute_dest_rejected(tmp_path):
@@ -66,7 +66,7 @@ def test_absolute_dest_rejected(tmp_path):
     fb = tmp_path / "ctx" / "frappe-bench"
     fb.mkdir(parents=True)
     with pytest.raises(BakeError):
-        _manager(tmp_path)._apply_includes(fb, [f"{src}:/etc/passwd"])  # noqa: SLF001
+        _manager(tmp_path)._apply_includes(fb, [f"{src}:/etc/passwd"])
 
 
 def test_parent_escape_dest_rejected(tmp_path):
@@ -75,7 +75,7 @@ def test_parent_escape_dest_rejected(tmp_path):
     fb = tmp_path / "ctx" / "frappe-bench"
     fb.mkdir(parents=True)
     with pytest.raises(BakeError):
-        _manager(tmp_path)._apply_includes(fb, [f"{src}:../../escape"])  # noqa: SLF001
+        _manager(tmp_path)._apply_includes(fb, [f"{src}:../../escape"])
 
 
 def test_include_dest_creates_the_whole_missing_parent_chain(tmp_path):
@@ -91,6 +91,6 @@ def test_include_dest_creates_the_whole_missing_parent_chain(tmp_path):
     fb.mkdir(parents=True)
 
     dest_rel = "apps/erpnext/erpnext/patches/v15_0/fix_stock_ledger.py"
-    _manager(tmp_path)._apply_includes(fb, [f"{src}:{dest_rel}"])  # noqa: SLF001
+    _manager(tmp_path)._apply_includes(fb, [f"{src}:{dest_rel}"])
 
     assert (fb / dest_rel).read_text() == "def execute():\n    pass\n"

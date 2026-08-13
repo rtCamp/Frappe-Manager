@@ -434,6 +434,38 @@ class Bench:
     def create_compose_dirs(self, copy_runtimes: bool = True) -> bool:
         return self.docker_ops.create_compose_dirs(copy_runtimes=copy_runtimes)
 
+    def ensure_nginx_conf_seeded(self) -> None:
+        """Re-seed the bench's nginx config from the image when the base config is missing.
+
+        `create_compose_dirs` runs only at bench creation, so a bench created while the seeding
+        was guarded on `conf/` existing (rather than on the `nginx.conf` marker file) is stuck
+        with fm's two overlay files and none of the image's base config: nginx exits with
+        `/etc/nginx/nginx.conf: No such file or directory` and the site serves 503 forever,
+        because nothing a user runs re-seeds it. Do it here instead, on the way into a start,
+        while the bench directory exists but no container has come up yet.
+
+        The marker check keeps a healthy bench completely untouched, and the seeding itself only
+        fills gaps, so a hand-tuned conf is never overwritten. Runtimes are deliberately not
+        re-copied: `.uv`/`.fnm` are materialized at creation and image-runtime benches keep them
+        inside the image on purpose, so `copy_runtimes=True` would mean a `docker run` and a
+        multi-hundred-megabyte copy out of the frappe image on every start.
+
+        Healing is best effort: a bench that cannot be repaired is still started, but the failure
+        is surfaced as a warning rather than swallowed.
+        """
+        if (self.path / "configs" / "nginx" / "conf" / "nginx.conf").exists():
+            return
+
+        extra = {"operation": "nginx_conf_reseed", "bench_name": self.name}
+        self.logger.debug(f"Re-seeding missing nginx conf for bench: {self.name}", extra_fields=extra)
+        try:
+            self.create_compose_dirs(copy_runtimes=False)
+            self.logger.info(f"Re-seeded nginx conf for bench: {self.name}", extra_fields=extra)
+        except Exception as e:
+            extra["error"] = str(e)
+            self.logger.warning(f"Failed to re-seed nginx conf for bench: {self.name}", extra_fields=extra)
+            self.output.warning(f"Could not repair bench nginx config: {e!s}")
+
     def start(
         self,
         force: bool = False,
@@ -455,6 +487,7 @@ class Bench:
         }
         self.logger.debug(f"Starting bench: {self.name}", extra_fields=extra)
         try:
+            self.ensure_nginx_conf_seeded()
             self.orchestrator.start_bench(
                 force=force,
                 reconfigure_workers=reconfigure_workers,
@@ -527,7 +560,9 @@ class Bench:
         if self.workers.compose_file_manager.exists():
             self.output.change_head("Removing bench workers containers")
             output = self.workers.docker_client.compose.down(remove_orphans=True, volumes=True, timeout=5, stream=True)
-            self.output.live_lines(cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE)
+            self.output.live_lines(
+                cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE
+            )
             self.output.print("Removed bench workers containers")
         else:
             self.output.warning("Bench workers compose file not found. Skipping containers removal.")

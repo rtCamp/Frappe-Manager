@@ -60,16 +60,16 @@ def _orch(probe=None, status=None, log=None):
     o.site = "s.localhost"
     o.bench_path = Path("/b")
     o.switch_config = SwitchConfig()
-    o._probe_result = probe  # noqa: SLF001
-    o._migrate_status = status  # noqa: SLF001
-    o._migrate_log_container = log  # noqa: SLF001
-    o._migrate_log_host = Path("/b/workspace/frappe-bench/logs/m.log") if log else None  # noqa: SLF001
+    o._probe_result = probe
+    o._migrate_status = status
+    o._migrate_log_container = log
+    o._migrate_log_host = Path("/b/workspace/frappe-bench/logs/m.log") if log else None
     return o
 
 
 def test_hook_env_exports_probe_details():
     o = _orch({"needed": True, "pending": 3, "drift": ["erpnext"], "verdict": "needed"})
-    script = o._hook_script("echo hi", "repo:t1")  # noqa: SLF001
+    script = o._hook_script("echo hi", "repo:t1")
     assert "export MIGRATE_PROBE=needed" in script
     assert "export MIGRATE_PENDING_PATCHES=3" in script
     assert "export MIGRATE_APP_DRIFT=erpnext" in script
@@ -78,26 +78,26 @@ def test_hook_env_exports_probe_details():
 
 def test_hook_env_probe_unknowns():
     o = _orch({"needed": True, "pending": None, "drift": [], "verdict": "assumed-needed"})
-    script = o._hook_script("echo hi", "repo:t1")  # noqa: SLF001
+    script = o._hook_script("echo hi", "repo:t1")
     assert "export MIGRATE_PROBE=assumed-needed" in script
     assert "export MIGRATE_PENDING_PATCHES=unknown" in script
     assert "export MIGRATE_APP_DRIFT=none" in script
 
 
 def test_hook_env_without_probe_has_no_probe_vars():
-    script = _orch()._hook_script("echo hi", "repo:t1")  # noqa: SLF001
+    script = _orch()._hook_script("echo hi", "repo:t1")
     assert "MIGRATE_PROBE" not in script
 
 
 def test_hook_env_exports_migrate_status_and_log():
     o = _orch(status="failed", log="/workspace/frappe-bench/logs/deploy-migrate-1.log")
-    script = o._hook_script("echo hi", "repo:t1")  # noqa: SLF001
+    script = o._hook_script("echo hi", "repo:t1")
     assert "export MIGRATE_STATUS=failed" in script
     assert "export MIGRATE_LOG_FILE=/workspace/frappe-bench/logs/deploy-migrate-1.log" in script
     assert "export MIGRATE_LOG_FILE_HOST=/b/workspace/frappe-bench/logs/m.log" in script
 
 
 def test_hook_env_without_migrate_has_no_status_vars():
-    script = _orch()._hook_script("echo hi", "repo:t1")  # noqa: SLF001
+    script = _orch()._hook_script("echo hi", "repo:t1")
     assert "MIGRATE_STATUS" not in script
     assert "MIGRATE_LOG_FILE" not in script

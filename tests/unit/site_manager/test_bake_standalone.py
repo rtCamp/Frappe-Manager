@@ -31,7 +31,7 @@ def test_flags_build_config_with_frappe_first():
     assert bc.build is not None
     assert bc.build.python_version == "3.12"
     assert bc.build.node_version == "20"
-    assert bc.github_token == "gh_tok"  # noqa: S105
+    assert bc.github_token == "gh_tok"
 
 
 def test_explicit_frappe_not_duplicated():
@@ -66,7 +66,7 @@ def test_config_overlay_wins_over_flag_build():
 def test_resolve_bake_apps_prefers_explicit_list():
     bc = _build_standalone_config(_apps("erpnext:version-15"), "r/x", None, None, None, [])
     manager = BakeManager(bc, output_handler=None)
-    resolved = manager._resolve_bake_apps()  # noqa: SLF001
+    resolved = manager._resolve_bake_apps()
     assert [a.name for a in resolved] == [a.name for a in bc.apps_list]
 
 
@@ -77,4 +77,4 @@ def test_resolve_bake_apps_derives_when_empty(tmp_path):
     bc.root_path = tmp_path / "bench_config.toml"  # parent has no workspace/apps
     manager = BakeManager(bc, output_handler=None)
     with pytest.raises(BakeError):
-        manager._resolve_bake_apps()  # noqa: SLF001
+        manager._resolve_bake_apps()

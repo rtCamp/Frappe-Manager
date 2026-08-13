@@ -1,0 +1,1801 @@
+"""Characterization contract for the image deploy / switch / rollback pipeline.
+
+``DeployOrchestrator`` is the highest-consequence module in the product: a bug
+here leaves a customer's bench half-migrated, dark behind a maintenance page, or
+running on the wrong image tag. These tests pin the DECISIONS and the PHASE
+ORDER, not the plumbing:
+
+* what ``__init__`` binds and what ``_require_image_mode`` re-binds / refuses,
+* the maintenance-mode window -- when it opens, which phases it spans, and every
+  path that closes it again,
+* the ``migrate = true | false | 'auto'`` resolution (and how ``'auto'`` probes
+  pending patches / app-version drift, and what it assumes when the probe dies),
+* the backup decision (``backup_db`` true/false/``'auto'``) and the fact that a
+  ``--restore-db`` dump counts as a schema step exactly like a migrate,
+* where ``drain_workers`` sits and that a ``False`` return is an ABORT GATE --
+  workers resumed, nothing backed up, migrated or swapped,
+* the pre-swap abort handler (compose restored, maintenance dropped),
+* the migrate-failure path (no swap, failure notifications, conditional
+  ``rollback_db`` restore) and the health-gate rollback path,
+* every hook invocation point and its host/container ordering + env.
+
+They are characterization tests: they describe TODAY's behaviour so a later
+refactor is provably behaviour-preserving. Where the current behaviour looks
+surprising it is pinned as-is, not fixed.
+"""
+
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from frappe_manager.docker import DockerException
+from frappe_manager.docker.subprocess_output import SubprocessOutput
+from frappe_manager.exceptions import NonInteractiveError
+from frappe_manager.site_manager.bench_config import (
+    BenchRuntime,
+    DeployState,
+    DeployStateEntry,
+    SwitchConfig,
+    SwitchHooks,
+    SwitchHookScripts,
+    WorkersConfig,
+)
+from frappe_manager.site_manager.modules.deploy_orchestrator import (
+    MIGRATE_PROBE_MARKER,
+    DeployError,
+    DeployOrchestrator,
+    RestoreNotConfirmed,
+)
+
+SITE = "shop.localhost"
+NEW_TAG = "reg.example/shop:v2"
+OLD_TAG = "reg.example/shop:v1"
+
+
+# --------------------------------------------------------------------- fakes
+
+
+class FakeConfig:
+    """Duck-typed stand-in for BenchConfig: only what the orchestrator reads."""
+
+    def __init__(self, root_path, switch=None, workers=None, deploy_state=None):
+        self.runtime = BenchRuntime.image
+        self.image = NEW_TAG
+        self.switch = switch if switch is not None else SwitchConfig()
+        self.workers = workers
+        self.root_path = str(root_path)
+        self.deploy_state = deploy_state
+        self.db_name = "_shopdb"
+        self.apps_list = []
+        self.seed_image = None
+        self.base_image = None
+        self.registry = None
+        self.database = {}
+        self.export_to_toml = MagicMock()
+
+    def get_database_config(self, site):
+        return self.database.get(site)
+
+
+def make_bench(tmp_path, config):
+    bench_path = tmp_path / "bench"
+    (bench_path / "workspace" / "frappe-bench" / "logs").mkdir(parents=True, exist_ok=True)
+    return SimpleNamespace(
+        name=SITE,
+        path=bench_path,
+        bench_config=config,
+        docker_client=MagicMock(),
+        compose_file_manager=MagicMock(),
+        docker_ops=MagicMock(),
+        workers=MagicMock(),
+        set_common_bench_config=MagicMock(),
+        set_bench_site_config=MagicMock(),
+    )
+
+
+def make_orch(tmp_path, switch=None, workers=None, deploy_state=None):
+    config = FakeConfig(tmp_path, switch=switch, workers=workers, deploy_state=deploy_state)
+    bench = make_bench(tmp_path, config)
+    return DeployOrchestrator(bench, output_handler=MagicMock())
+
+
+def docker_error(msg="boom", stdout=None):
+    return DockerException(["docker", "compose", "run"], SubprocessOutput(stdout or [msg], [], [msg], 1))
+
+
+# --------------------------------------------------------------- deploy rig
+
+
+#: Everything ``deploy()`` delegates to. Replaced by spies attached to one
+#: parent mock so ``manager.mock_calls`` is a single ordered transcript.
+SPIED = (
+    "_fetch_image",
+    "_snapshot_compose",
+    "_restore_compose",
+    "_pin_workers",
+    "_probe_migrate_needed",
+    "_set_maintenance",
+    "drain_workers",
+    "resume_workers",
+    "_backup",
+    "_restore_db",
+    "_migrate",
+    "_notify_after_migrate",
+    "_run_host_hook",
+    "_run_container_hook",
+    "_rolling_swap",
+    "_up_workers",
+    "_health_check",
+    "_ensure_nginx",
+    "_install_new_apps",
+    "_apply_config_merges",
+    "_exec_frappe",
+    "_record",
+    "rollback",
+    "prune_releases",
+)
+
+DEFAULT_RESULTS = {
+    "_snapshot_compose": {"return_value": {"snap": b"x"}},
+    "drain_workers": {"return_value": True},
+    "_health_check": {"return_value": True},
+    "_probe_migrate_needed": {"return_value": True},
+}
+
+
+class Rig:
+    """A DeployOrchestrator whose collaborators are ordered spies."""
+
+    def __init__(self, orch, manager, backup_path):
+        self.orch = orch
+        self.manager = manager
+        self.backup_path = backup_path
+
+    @property
+    def order(self):
+        """Phase transcript, minus the ``_frappe_running`` gate probes."""
+        return [name for name, _a, _k in self.manager.mock_calls if name != "_frappe_running"]
+
+    def calls(self, name):
+        return [(a, k) for n, a, k in self.manager.mock_calls if n == name]
+
+    def hook_phases(self):
+        return [
+            (name, a[1], a[0])
+            for name, a, _k in self.manager.mock_calls
+            if name in ("_run_host_hook", "_run_container_hook")
+        ]
+
+
+@pytest.fixture
+def rig(tmp_path):
+    """Factory: ``rig(switch=..., running=True, ...)`` -> :class:`Rig`."""
+
+    def _make(switch=None, workers=None, deploy_state=None, running=True, **overrides):
+        orch = make_orch(tmp_path, switch=switch, workers=workers, deploy_state=deploy_state)
+        manager = MagicMock()
+        backup_path = tmp_path / "backups" / "db-shop.sql"
+
+        results = dict(DEFAULT_RESULTS)
+        results["_backup"] = {"return_value": backup_path}
+        for key, value in overrides.items():
+            results[key] = value if isinstance(value, dict) else {"return_value": value}
+
+        for name in SPIED:
+            spy = MagicMock(**results.get(name, {}))
+            manager.attach_mock(spy, name)
+            setattr(orch, name, spy)
+
+        running_spy = MagicMock(return_value=running)
+        manager.attach_mock(running_spy, "_frappe_running")
+        orch._frappe_running = running_spy
+
+        for owner, attr, label in (
+            (orch.docker, "run", "preflight_run"),
+            (orch.docker.compose, "up", "compose_up"),
+            (orch.docker_ops, "render_image_compose", "render_image_compose"),
+        ):
+            spy = MagicMock(**results.get(label, {}))
+            manager.attach_mock(spy, label)
+            setattr(owner, attr, spy)
+
+        return Rig(orch, manager, backup_path)
+
+    return _make
+
+
+# ============================================================== construction
+
+
+class TestBinding:
+    """``switch_config`` / ``workers_config`` bind at ``__init__``."""
+
+    def test_init_binds_switch_and_workers_from_config(self, tmp_path):
+        switch = SwitchConfig(migrate=False, keep_releases=3)
+        workers = WorkersConfig(drain=False, drain_timeout=42)
+        orch = make_orch(tmp_path, switch=switch, workers=workers)
+        assert orch.switch_config is switch
+        assert orch.workers_config is workers
+
+    def test_init_substitutes_default_workers_config_when_absent(self, tmp_path):
+        orch = make_orch(tmp_path, workers=None)
+        assert isinstance(orch.workers_config, WorkersConfig)
+        assert orch.workers_config.drain is True
+        assert orch.workers_config.drain_timeout == 300
+
+    def test_init_leaves_probe_and_migrate_state_unset(self, tmp_path):
+        orch = make_orch(tmp_path)
+        assert orch._probe_result is None
+        assert orch._migrate_status is None
+        assert orch._migrate_log_host is None
+        assert orch._migrate_log_container is None
+
+    def test_require_image_mode_refuses_mount_runtime(self, tmp_path):
+        orch = make_orch(tmp_path)
+        orch.config.runtime = BenchRuntime.mount
+        with pytest.raises(DeployError, match="not in image runtime"):
+            orch._require_image_mode()
+
+    def test_require_image_mode_refuses_missing_image(self, tmp_path):
+        orch = make_orch(tmp_path)
+        orch.config.image = None
+        with pytest.raises(DeployError, match="No image configured"):
+            orch._require_image_mode()
+
+    def test_require_image_mode_rebinds_configs_replaced_after_init(self, tmp_path):
+        """A config reloaded between construction and deploy must win."""
+        orch = make_orch(tmp_path)
+        fresh_switch = SwitchConfig(migrate=False)
+        fresh_workers = WorkersConfig(drain=False)
+        orch.config.switch = fresh_switch
+        orch.config.workers = fresh_workers
+        orch._require_image_mode()
+        assert orch.switch_config is fresh_switch
+        assert orch.workers_config is fresh_workers
+
+    def test_require_image_mode_defaults_configs_that_are_none(self, tmp_path):
+        orch = make_orch(tmp_path)
+        orch.config.switch = None
+        orch.config.workers = None
+        orch._require_image_mode()
+        assert orch.switch_config == SwitchConfig()
+        assert orch.workers_config == WorkersConfig()
+
+
+class TestSwitchHookLookup:
+    def test_no_hooks_configured_yields_none(self, tmp_path):
+        orch = make_orch(tmp_path, switch=SwitchConfig(hooks=None))
+        assert orch._switch_hook("before_restart") is None
+        assert orch._switch_hook("before_restart", host=True) is None
+
+    def test_container_and_host_hooks_are_separate_slots(self, tmp_path):
+        hooks = SwitchHooks(
+            before_restart="echo container",
+            host=SwitchHookScripts(before_restart="echo host"),
+        )
+        orch = make_orch(tmp_path, switch=SwitchConfig(hooks=hooks))
+        assert orch._switch_hook("before_restart") == "echo container"
+        assert orch._switch_hook("before_restart", host=True) == "echo host"
+
+    def test_host_slot_absent_yields_none_not_the_container_value(self, tmp_path):
+        hooks = SwitchHooks(before_restart="echo container", host=None)
+        orch = make_orch(tmp_path, switch=SwitchConfig(hooks=hooks))
+        assert orch._switch_hook("before_restart", host=True) is None
+
+
+# ================================================================ the drain
+
+
+class TestDrainWorkers:
+    """The drain is an abort gate: True == safe to proceed."""
+
+    def _drainable(self, tmp_path, **kw):
+        orch = make_orch(tmp_path, workers=WorkersConfig(**kw))
+        orch._frappe_running = MagicMock(return_value=True)
+        orch._exec_frappe = MagicMock()
+        return orch
+
+    def test_drain_disabled_is_safe_without_touching_the_container(self, tmp_path):
+        orch = self._drainable(tmp_path, drain=False)
+        assert orch.drain_workers() is True
+        orch._exec_frappe.assert_not_called()
+
+    def test_frappe_not_running_is_safe_without_touching_the_container(self, tmp_path):
+        orch = self._drainable(tmp_path)
+        orch._frappe_running = MagicMock(return_value=False)
+        assert orch.drain_workers() is True
+        orch._exec_frappe.assert_not_called()
+
+    def test_drain_suspends_then_waits_with_the_configured_budget(self, tmp_path):
+        orch = self._drainable(
+            tmp_path,
+            drain_timeout=120,
+            drain_poll=7,
+            skip_stale=False,
+            stale_timeout=9,
+        )
+        assert orch.drain_workers() is True
+        (command,), _ = orch._exec_frappe.call_args
+        assert "control_rq_workers(ActionEnum.suspend)" in command
+        assert "wait_for_rq_workers_suspended(120, 7, skip_stale=False, stale_timeout=9)" in command
+        # exit 3 is the timeout signal the wrapper turns into a False return.
+        assert "else 3" in command
+
+    def test_drain_failure_or_timeout_returns_false(self, tmp_path):
+        orch = self._drainable(tmp_path)
+        orch._exec_frappe = MagicMock(side_effect=docker_error("exit 3"))
+        assert orch.drain_workers() is False
+
+    def test_resume_is_a_noop_when_drain_is_disabled(self, tmp_path):
+        orch = self._drainable(tmp_path, drain=False)
+        orch.resume_workers()
+        orch._exec_frappe.assert_not_called()
+
+    def test_resume_issues_the_resume_action(self, tmp_path):
+        orch = self._drainable(tmp_path)
+        orch.resume_workers()
+        (command,), _ = orch._exec_frappe.call_args
+        assert "control_rq_workers(ActionEnum.resume)" in command
+
+    def test_resume_failure_warns_but_never_raises(self, tmp_path):
+        orch = self._drainable(tmp_path)
+        orch._exec_frappe = MagicMock(side_effect=docker_error("no container"))
+        orch.resume_workers()  # must not raise
+        assert orch.output.warning.called
+
+
+# ========================================================= deploy: ordering
+
+
+class TestDeployPhaseOrder:
+    def test_default_migrate_deploy_runs_the_documented_phase_order(self, rig):
+        r = rig()
+        r.orch.deploy(NEW_TAG)
+        assert r.order == [
+            "_fetch_image",
+            "preflight_run",
+            "_snapshot_compose",
+            "render_image_compose",
+            "_pin_workers",
+            "_set_maintenance",  # ON
+            "drain_workers",
+            "_backup",
+            "_run_host_hook",  # host_before_migrate
+            "_run_container_hook",  # before_migrate
+            "_migrate",
+            "_run_container_hook",  # after_migrate
+            "_run_host_hook",  # host_after_migrate
+            "_run_host_hook",  # host_before_restart
+            "_run_container_hook",  # before_restart
+            "_rolling_swap",
+            "_health_check",
+            "resume_workers",
+            "_install_new_apps",
+            "_apply_config_merges",
+            "_exec_frappe",  # clear-cache
+            "_run_container_hook",  # after_restart
+            "_run_host_hook",  # host_after_restart
+            "_set_maintenance",  # OFF
+            "_record",
+        ]
+
+    def test_preflight_boot_check_precedes_every_change(self, rig):
+        r = rig(preflight_run={"side_effect": docker_error("no such image")})
+        with pytest.raises(DeployError, match="Pre-flight boot check failed"):
+            r.orch.deploy(NEW_TAG)
+        assert r.order == ["_fetch_image", "preflight_run"]
+        # Nothing was snapshotted, so nothing had to be restored.
+        r.orch._restore_compose.assert_not_called()
+
+    def test_fetch_failure_aborts_before_the_preflight(self, rig):
+        r = rig(_fetch_image={"side_effect": DeployError("pull refused")})
+        with pytest.raises(DeployError, match="pull refused"):
+            r.orch.deploy(NEW_TAG)
+        assert r.order == ["_fetch_image"]
+
+    def test_compose_is_repinned_to_the_new_tag_before_the_migrate_decision(self, rig):
+        r = rig(switch=SwitchConfig(migrate="auto"))
+        r.orch.deploy(NEW_TAG)
+        r.orch.docker_ops.render_image_compose.assert_called_once_with(NEW_TAG)
+        r.orch._pin_workers.assert_any_call(NEW_TAG)
+        assert r.order.index("render_image_compose") < r.order.index("_probe_migrate_needed")
+
+    def test_backup_is_taken_at_the_quiesced_point(self, rig):
+        """Maintenance on, workers drained, and only THEN the dump."""
+        r = rig()
+        r.orch.deploy(NEW_TAG)
+        order = r.order
+        assert order.index("_set_maintenance") < order.index("drain_workers") < order.index("_backup")
+        assert order.index("_backup") < order.index("_migrate")
+
+    def test_backup_directory_is_a_timestamped_deploy_dir_under_backups(self, rig, tmp_path):
+        r = rig()
+        r.orch.deploy(NEW_TAG)
+        (backup_dir,), _ = r.orch._backup.call_args
+        assert backup_dir.parent == tmp_path / "bench" / "backups"
+        assert backup_dir.name.startswith("deploy-")
+
+
+# =================================================== deploy: migrate decision
+
+
+class TestMigrateDecision:
+    def test_migrate_true_migrates_without_probing(self, rig):
+        r = rig(switch=SwitchConfig(migrate=True))
+        r.orch.deploy(NEW_TAG)
+        r.orch._probe_migrate_needed.assert_not_called()
+        r.orch._migrate.assert_called_once_with(NEW_TAG)
+
+    def test_migrate_false_skips_migrate_and_records_skipped(self, rig):
+        r = rig(switch=SwitchConfig(migrate=False))
+        r.orch.deploy(NEW_TAG)
+        r.orch._migrate.assert_not_called()
+        r.orch._probe_migrate_needed.assert_not_called()
+        assert r.orch._record.call_args.args[1] == "skipped"
+
+    def test_migrate_auto_probes_the_new_tag_and_migrates_when_needed(self, rig):
+        r = rig(switch=SwitchConfig(migrate="auto"), _probe_migrate_needed=True)
+        r.orch.deploy(NEW_TAG)
+        r.orch._probe_migrate_needed.assert_called_once_with(NEW_TAG)
+        r.orch._migrate.assert_called_once_with(NEW_TAG)
+
+    def test_migrate_auto_clean_verdict_skips_migrate_and_maintenance(self, rig):
+        r = rig(switch=SwitchConfig(migrate="auto"), _probe_migrate_needed=False)
+        r.orch.deploy(NEW_TAG)
+        r.orch._probe_migrate_needed.assert_called_once_with(NEW_TAG)
+        r.orch._migrate.assert_not_called()
+        r.orch._set_maintenance.assert_not_called()
+
+    def test_runtime_override_false_beats_auto_and_suppresses_the_probe(self, rig):
+        """Rollbacks pass migrate_override=False: old code must never migrate."""
+        r = rig(switch=SwitchConfig(migrate="auto"))
+        r.orch.deploy(NEW_TAG, migrate_override=False)
+        r.orch._probe_migrate_needed.assert_not_called()
+        r.orch._migrate.assert_not_called()
+
+    def test_runtime_override_false_beats_config_true(self, rig):
+        r = rig(switch=SwitchConfig(migrate=True))
+        r.orch.deploy(NEW_TAG, migrate_override=False)
+        r.orch._migrate.assert_not_called()
+
+    def test_runtime_override_true_beats_config_false(self, rig):
+        r = rig(switch=SwitchConfig(migrate=False))
+        r.orch.deploy(NEW_TAG, migrate_override=True)
+        r.orch._migrate.assert_called_once_with(NEW_TAG)
+        r.orch._probe_migrate_needed.assert_not_called()
+
+
+class TestMigrateProbeVerdict:
+    """``_probe_migrate_needed``: what the one-shot probe decides, and its fallback."""
+
+    def _probing(self, tmp_path, run_result=None, run_error=None):
+        orch = make_orch(tmp_path, switch=SwitchConfig(migrate="auto"))
+        orch.docker.compose.run = MagicMock(
+            side_effect=run_error,
+            return_value=run_result or SimpleNamespace(stdout=[], stderr=[]),
+        )
+        return orch
+
+    def test_probe_runs_a_one_shot_removed_container_from_the_new_image(self, tmp_path):
+        orch = self._probing(
+            tmp_path,
+            SimpleNamespace(stdout=[f"{MIGRATE_PROBE_MARKER} clean pending=0 drift=none"], stderr=[]),
+        )
+        orch._probe_migrate_needed(NEW_TAG)
+        kwargs = orch.docker.compose.run.call_args.kwargs
+        assert kwargs["service"] == "frappe"
+        assert kwargs["entrypoint"] == "/bin/bash"
+        assert kwargs["rm"] is True
+        assert kwargs["user"] == "frappe"
+        assert "base64 -d" in kwargs["command"]
+
+    def test_clean_verdict_returns_false_and_records_the_counts(self, tmp_path):
+        orch = self._probing(
+            tmp_path,
+            SimpleNamespace(stdout=[f"{MIGRATE_PROBE_MARKER} clean pending=0 drift=none"], stderr=[]),
+        )
+        assert orch._probe_migrate_needed(NEW_TAG) is False
+        assert orch._probe_result == {"needed": False, "pending": 0, "drift": [], "verdict": "clean"}
+
+    def test_pending_patches_make_migrate_needed(self, tmp_path):
+        orch = self._probing(
+            tmp_path,
+            SimpleNamespace(stdout=[f"{MIGRATE_PROBE_MARKER} needed pending=4 drift=none"], stderr=[]),
+        )
+        assert orch._probe_migrate_needed(NEW_TAG) is True
+        assert orch._probe_result["pending"] == 4
+        assert orch._probe_result["verdict"] == "needed"
+
+    def test_app_version_drift_makes_migrate_needed(self, tmp_path):
+        orch = self._probing(
+            tmp_path,
+            SimpleNamespace(stdout=[f"{MIGRATE_PROBE_MARKER} needed pending=0 drift=erpnext,hrms"], stderr=[]),
+        )
+        assert orch._probe_migrate_needed(NEW_TAG) is True
+        assert orch._probe_result["drift"] == ["erpnext", "hrms"]
+
+    def test_marker_on_stderr_is_still_a_verdict(self, tmp_path):
+        orch = self._probing(
+            tmp_path,
+            SimpleNamespace(stdout=[], stderr=[f"{MIGRATE_PROBE_MARKER} clean pending=0 drift=none"]),
+        )
+        assert orch._probe_migrate_needed(NEW_TAG) is False
+
+    def test_probe_crash_conservatively_assumes_migrate_is_needed(self, tmp_path):
+        orch = self._probing(tmp_path, run_error=docker_error("image has no python"))
+        assert orch._probe_migrate_needed(NEW_TAG) is True
+        assert orch._probe_result == {
+            "needed": True,
+            "pending": None,
+            "drift": [],
+            "verdict": "assumed-needed",
+        }
+        assert orch.output.warning.called
+
+    def test_verdictless_output_conservatively_assumes_migrate_is_needed(self, tmp_path):
+        orch = self._probing(tmp_path, SimpleNamespace(stdout=["nothing useful"], stderr=[]))
+        assert orch._probe_migrate_needed(NEW_TAG) is True
+        assert orch._probe_result["verdict"] == "assumed-needed"
+
+
+# ==================================================== deploy: maintenance mode
+
+
+class TestMaintenanceWindow:
+    def test_window_opens_before_the_drain_and_closes_after_the_post_hooks(self, rig):
+        r = rig()
+        r.orch.deploy(NEW_TAG)
+        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
+        order = r.order
+        on, off = (i for i, n in enumerate(order) if n == "_set_maintenance")
+        assert on < order.index("drain_workers")
+        assert on < order.index("_migrate")
+        assert order.index("_rolling_swap") < off
+        assert order.index("_health_check") < off
+        assert max(i for i, n in enumerate(order) if n == "_run_host_hook") < off
+        assert off < order.index("_record")
+
+    def test_no_schema_step_means_no_maintenance_page_at_all(self, rig):
+        r = rig(switch=SwitchConfig(migrate=False))
+        r.orch.deploy(NEW_TAG)
+        r.orch._set_maintenance.assert_not_called()
+
+    def test_maintenance_mode_false_migrates_without_the_page(self, rig):
+        r = rig(switch=SwitchConfig(migrate=True, maintenance_mode=False))
+        r.orch.deploy(NEW_TAG)
+        r.orch._set_maintenance.assert_not_called()
+        r.orch._migrate.assert_called_once()
+
+    def test_maintenance_needs_a_running_container_to_switch_on(self, rig):
+        """No web to 503: the page cannot be set, but it is still 'a maintenance
+        deploy' -- the OFF write at the end is issued unconditionally."""
+        r = rig(running=False)
+        r.orch.deploy(NEW_TAG)
+        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [0]
+
+    def test_a_restore_dump_opens_the_window_even_without_a_migrate(self, rig, tmp_path):
+        dump = tmp_path / "old.sql"
+        r = rig(switch=SwitchConfig(migrate=False))
+        r.orch.deploy(NEW_TAG, restore_db_dump=dump)
+        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
+        r.orch._restore_db.assert_called_once_with(dump)
+
+
+# ======================================================== deploy: backup rule
+
+
+class TestBackupDecision:
+    def test_backup_db_true_dumps_even_without_a_schema_step(self, rig):
+        r = rig(switch=SwitchConfig(migrate=False, backup_db=True))
+        r.orch.deploy(NEW_TAG)
+        r.orch._backup.assert_called_once()
+
+    def test_backup_db_false_never_dumps(self, rig):
+        r = rig(switch=SwitchConfig(migrate=True, backup_db=False))
+        r.orch.deploy(NEW_TAG)
+        r.orch._backup.assert_not_called()
+        assert r.orch._record.call_args.kwargs["backup"] is None
+
+    def test_backup_db_auto_dumps_for_a_migrate(self, rig):
+        r = rig(switch=SwitchConfig(migrate=True, backup_db="auto"))
+        r.orch.deploy(NEW_TAG)
+        r.orch._backup.assert_called_once()
+
+    def test_backup_db_auto_skips_a_code_only_deploy_and_says_so(self, rig):
+        r = rig(switch=SwitchConfig(migrate=False, backup_db="auto"))
+        r.orch.deploy(NEW_TAG)
+        r.orch._backup.assert_not_called()
+        printed = " ".join(str(c.args) for c in r.orch.output.print.call_args_list)
+        assert "backup_db=auto: no schema change" in printed
+
+    def test_backup_db_auto_dumps_for_a_restore_only_deploy(self, rig, tmp_path):
+        r = rig(switch=SwitchConfig(migrate=False, backup_db="auto"))
+        r.orch.deploy(NEW_TAG, restore_db_dump=tmp_path / "old.sql")
+        r.orch._backup.assert_called_once()
+
+    def test_backup_db_false_is_silent_not_the_auto_message(self, rig):
+        r = rig(switch=SwitchConfig(migrate=False, backup_db=False))
+        r.orch.deploy(NEW_TAG)
+        printed = " ".join(str(c.args) for c in r.orch.output.print.call_args_list)
+        assert "backup_db=auto" not in printed
+
+    def test_the_insurance_dump_precedes_the_requested_restore(self, rig, tmp_path):
+        """`--restore-db` still gets a dump of the CURRENT state first."""
+        r = rig(switch=SwitchConfig(migrate=False, backup_db="auto"))
+        r.orch.deploy(NEW_TAG, restore_db_dump=tmp_path / "old.sql")
+        assert r.order.index("_backup") < r.order.index("_restore_db")
+
+    def test_no_restore_dump_means_no_restore_call(self, rig):
+        r = rig()
+        r.orch.deploy(NEW_TAG)
+        r.orch._restore_db.assert_not_called()
+
+
+# ==================================================== deploy: the drain gate
+
+
+class TestDrainAbortGate:
+    def test_drain_timeout_aborts_the_deploy_and_resumes_the_workers(self, rig):
+        r = rig(workers=WorkersConfig(drain_timeout=90), drain_workers=False)
+        with pytest.raises(DeployError) as exc:
+            r.orch.deploy(NEW_TAG)
+        assert "Drain timed out after 90s" in str(exc.value)
+        r.orch.resume_workers.assert_called_once()
+
+    def test_drain_timeout_refuses_backup_migrate_and_swap(self, rig):
+        r = rig(drain_workers=False)
+        with pytest.raises(DeployError):
+            r.orch.deploy(NEW_TAG)
+        r.orch._backup.assert_not_called()
+        r.orch._migrate.assert_not_called()
+        r.orch._rolling_swap.assert_not_called()
+        r.orch.docker.compose.up.assert_not_called()
+        r.orch._record.assert_not_called()
+
+    def test_drain_timeout_unwinds_the_compose_repin_and_the_page(self, rig):
+        r = rig(drain_workers=False)
+        with pytest.raises(DeployError):
+            r.orch.deploy(NEW_TAG)
+        r.orch._restore_compose.assert_called_once_with({"snap": b"x"})
+        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
+
+
+# ================================================ deploy: pre-swap abort path
+
+
+class TestPreSwapAbort:
+    def test_a_failing_pre_restart_hook_restores_compose_and_drops_the_page(self, rig):
+        r = rig(_run_container_hook={"side_effect": [None, None, DeployError("hook exploded")]})
+        with pytest.raises(DeployError, match="hook exploded"):
+            r.orch.deploy(NEW_TAG)
+        r.orch._restore_compose.assert_called_once_with({"snap": b"x"})
+        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
+        r.orch._rolling_swap.assert_not_called()
+        r.orch._record.assert_not_called()
+
+    def test_abort_skips_the_maintenance_reset_when_nothing_is_running(self, rig):
+        r = rig(running=False, _run_container_hook={"side_effect": DeployError("hook exploded")})
+        with pytest.raises(DeployError, match="hook exploded"):
+            r.orch.deploy(NEW_TAG)
+        r.orch._restore_compose.assert_called_once()
+        r.orch._set_maintenance.assert_not_called()
+
+    def test_a_failing_backup_is_not_swallowed(self, rig):
+        r = rig(_backup={"side_effect": OSError("disk full")})
+        with pytest.raises(OSError, match="disk full"):
+            r.orch.deploy(NEW_TAG)
+        r.orch._restore_compose.assert_called_once()
+        r.orch._migrate.assert_not_called()
+
+
+# ================================================== deploy: migrate failure
+
+
+class TestMigrateFailure:
+    def test_migrate_failure_keeps_the_old_image_and_never_swaps(self, rig):
+        r = rig(_migrate={"side_effect": docker_error("patch blew up")}, deploy_state=DeployState(current_tag=OLD_TAG))
+        with pytest.raises(DeployError) as exc:
+            r.orch.deploy(NEW_TAG)
+        assert f"kept old image ({OLD_TAG})" in str(exc.value)
+        assert "no swap performed" in str(exc.value)
+        r.orch._rolling_swap.assert_not_called()
+        r.orch._restore_compose.assert_called_once_with({"snap": b"x"})
+        r.orch._record.assert_not_called()
+
+    def test_migrate_failure_without_a_previous_tag_says_dev_mount(self, rig):
+        r = rig(_migrate={"side_effect": docker_error("patch blew up")})
+        with pytest.raises(DeployError, match=r"kept old image \(dev/mount\)"):
+            r.orch.deploy(NEW_TAG)
+
+    def test_migrate_failure_notifies_instead_of_running_success_hooks(self, rig):
+        r = rig(_migrate={"side_effect": docker_error("patch blew up")})
+        with pytest.raises(DeployError):
+            r.orch.deploy(NEW_TAG)
+        r.orch._notify_after_migrate.assert_called_once_with(NEW_TAG)
+        phases = [phase for _n, phase, _v in r.hook_phases()]
+        assert "after_migrate" not in phases
+        assert "host_after_migrate" not in phases
+        assert phases == ["host_before_migrate", "before_migrate"]
+
+    def test_migrate_failure_marks_the_status_for_the_hook_env(self, rig):
+        r = rig(_migrate={"side_effect": docker_error("patch blew up")})
+        with pytest.raises(DeployError):
+            r.orch.deploy(NEW_TAG)
+        assert r.orch._migrate_status == "failed"
+
+    def test_rollback_db_restores_the_insurance_dump_on_migrate_failure(self, rig):
+        r = rig(
+            switch=SwitchConfig(migrate=True, backup_db=True, rollback_db=True),
+            _migrate={"side_effect": docker_error("patch blew up")},
+        )
+        with pytest.raises(DeployError):
+            r.orch.deploy(NEW_TAG)
+        r.orch._restore_db.assert_called_once_with(r.backup_path)
+
+    def test_rollback_db_off_leaves_the_database_alone(self, rig):
+        r = rig(
+            switch=SwitchConfig(migrate=True, rollback_db=False),
+            _migrate={"side_effect": docker_error("patch blew up")},
+        )
+        with pytest.raises(DeployError):
+            r.orch.deploy(NEW_TAG)
+        r.orch._restore_db.assert_not_called()
+
+    def test_rollback_db_with_no_dump_taken_restores_nothing(self, rig):
+        r = rig(
+            switch=SwitchConfig(migrate=True, backup_db="auto", rollback_db=True),
+            _migrate={"side_effect": docker_error("patch blew up")},
+            _backup=None,
+        )
+        with pytest.raises(DeployError):
+            r.orch.deploy(NEW_TAG)
+        r.orch._restore_db.assert_not_called()
+
+    def test_a_declined_external_restore_never_masks_the_migrate_error(self, rig):
+        r = rig(
+            switch=SwitchConfig(migrate=True, backup_db=True, rollback_db=True),
+            _migrate={"side_effect": docker_error("patch blew up")},
+            _restore_db={"side_effect": RestoreNotConfirmed("not typed")},
+        )
+        with pytest.raises(DeployError, match="Migration failed") as exc:
+            r.orch.deploy(NEW_TAG)
+        assert not isinstance(exc.value, RestoreNotConfirmed)
+        assert any("not typed" in str(c.args) for c in r.orch.output.warning.call_args_list)
+
+
+class TestNotifyAfterMigrate:
+    """Failure-path notifications: container then host, never fatal."""
+
+    def _notifier(self, tmp_path):
+        hooks = SwitchHooks(after_migrate="notify-c", host=SwitchHookScripts(after_migrate="notify-h"))
+        orch = make_orch(tmp_path, switch=SwitchConfig(hooks=hooks))
+        orch._run_container_hook = MagicMock()
+        orch._run_host_hook = MagicMock()
+        return orch
+
+    def test_container_hook_runs_before_the_host_hook(self, tmp_path):
+        orch = self._notifier(tmp_path)
+        orch._notify_after_migrate(NEW_TAG)
+        orch._run_container_hook.assert_called_once_with("notify-c", "after_migrate", NEW_TAG)
+        orch._run_host_hook.assert_called_once_with("notify-h", "host_after_migrate", NEW_TAG)
+
+    def test_a_broken_notification_hook_cannot_mask_the_migrate_error(self, tmp_path):
+        orch = self._notifier(tmp_path)
+        orch._run_container_hook = MagicMock(side_effect=DeployError("notifier down"))
+        orch._notify_after_migrate(NEW_TAG)  # must not raise
+        orch._run_host_hook.assert_called_once()
+        assert orch.output.warning.called
+
+
+# ================================================== deploy: hook call points
+
+
+class TestHookInvocationPoints:
+    def test_every_phase_fires_with_its_configured_script_and_the_new_tag(self, rig):
+        hooks = SwitchHooks(
+            before_migrate="c-bm",
+            after_migrate="c-am",
+            before_restart="c-br",
+            after_restart="c-ar",
+            host=SwitchHookScripts(
+                before_migrate="h-bm",
+                after_migrate="h-am",
+                before_restart="h-br",
+                after_restart="h-ar",
+            ),
+        )
+        r = rig(switch=SwitchConfig(hooks=hooks))
+        r.orch.deploy(NEW_TAG)
+        assert r.hook_phases() == [
+            ("_run_host_hook", "host_before_migrate", "h-bm"),
+            ("_run_container_hook", "before_migrate", "c-bm"),
+            ("_run_container_hook", "after_migrate", "c-am"),
+            ("_run_host_hook", "host_after_migrate", "h-am"),
+            ("_run_host_hook", "host_before_restart", "h-br"),
+            ("_run_container_hook", "before_restart", "c-br"),
+            ("_run_container_hook", "after_restart", "c-ar"),
+            ("_run_host_hook", "host_after_restart", "h-ar"),
+        ]
+        assert all(call.args[2] == NEW_TAG for call in r.orch._run_host_hook.call_args_list)
+
+    def test_migrate_hooks_do_not_fire_for_a_code_only_deploy(self, rig):
+        r = rig(switch=SwitchConfig(migrate=False))
+        r.orch.deploy(NEW_TAG)
+        phases = [phase for _n, phase, _v in r.hook_phases()]
+        assert phases == ["host_before_restart", "before_restart", "after_restart", "host_after_restart"]
+
+    def test_after_restart_failure_still_records_and_clears_the_page(self, rig):
+        """Post-swap: the new image IS live, so bookkeeping must stay truthful."""
+        r = rig(_run_container_hook={"side_effect": [None, None, None, DeployError("post hook died")]})
+        with pytest.raises(DeployError, match="post hook died"):
+            r.orch.deploy(NEW_TAG)
+        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
+        r.orch._record.assert_called_once_with(NEW_TAG, "migrated", backup=r.backup_path)
+        r.orch._restore_compose.assert_not_called()
+
+    def test_after_restart_failure_without_a_window_skips_the_maintenance_write(self, rig):
+        r = rig(
+            switch=SwitchConfig(migrate=False),
+            _run_container_hook={"side_effect": [None, DeployError("post hook died")]},
+        )
+        with pytest.raises(DeployError, match="post hook died"):
+            r.orch.deploy(NEW_TAG)
+        r.orch._set_maintenance.assert_not_called()
+        r.orch._record.assert_called_once()
+
+
+class TestHookRunners:
+    def test_empty_hook_value_is_a_noop_for_both_runners(self, tmp_path):
+        orch = make_orch(tmp_path)
+        orch._frappe_running = MagicMock(return_value=True)
+        orch._exec_frappe = MagicMock()
+        with patch("subprocess.run") as run:
+            orch._run_host_hook(None, "before_restart", NEW_TAG)
+            orch._run_host_hook("", "before_restart", NEW_TAG)
+        run.assert_not_called()
+        orch._run_container_hook(None, "before_restart", NEW_TAG)
+        orch._exec_frappe.assert_not_called()
+
+    def test_host_hook_runs_bash_from_the_bench_directory(self, tmp_path):
+        orch = make_orch(tmp_path)
+        with patch("subprocess.run", return_value=SimpleNamespace(returncode=0, stdout="ok\n", stderr="")) as run:
+            orch._run_host_hook("echo ok", "before_restart", NEW_TAG)
+        (argv,), kwargs = run.call_args
+        assert argv[0] == "bash"
+        assert kwargs["cwd"] == str(orch.bench_path)
+        assert kwargs["check"] is False
+        assert not Path(argv[1]).exists()  # the temp script is always removed
+
+    def test_host_hook_script_carries_the_deploy_env(self, tmp_path):
+        orch = make_orch(tmp_path)
+        written = {}
+
+        def _capture(argv, **_kw):
+            written["body"] = Path(argv[1]).read_text()
+            return SimpleNamespace(returncode=0, stdout="", stderr="")
+
+        with patch("subprocess.run", side_effect=_capture):
+            orch._run_host_hook("echo hi", "before_restart", NEW_TAG)
+        assert f"export SITE_NAME={SITE}" in written["body"]
+        assert f"export DEPLOY_TAG={NEW_TAG}" in written["body"]
+        assert f"export BENCH_PATH={orch.bench_path}" in written["body"]
+
+    def test_host_hook_nonzero_exit_is_a_deploy_error_carrying_stderr(self, tmp_path):
+        orch = make_orch(tmp_path)
+        with (
+            patch("subprocess.run", return_value=SimpleNamespace(returncode=7, stdout="", stderr="nope\n")),
+            pytest.raises(DeployError, match=r"before_restart hook \(host\) failed \(exit 7\): nope"),
+        ):
+            orch._run_host_hook("false", "before_restart", NEW_TAG)
+
+    def test_container_hook_is_skipped_when_no_container_is_running(self, tmp_path):
+        orch = make_orch(tmp_path)
+        orch._frappe_running = MagicMock(return_value=False)
+        orch._exec_frappe = MagicMock()
+        orch._run_container_hook("echo hi", "before_restart", NEW_TAG)
+        orch._exec_frappe.assert_not_called()
+        assert orch.output.warning.called
+
+    def test_container_hook_execs_a_script_dropped_in_the_bind_mounted_logs_dir(self, tmp_path):
+        orch = make_orch(tmp_path)
+        orch._frappe_running = MagicMock(return_value=True)
+        seen = {}
+
+        def _exec(command, **_kw):
+            seen["command"] = command
+            host = orch.bench_path / "workspace" / "frappe-bench" / "logs" / command.split("/")[-1]
+            seen["body"] = host.read_text()
+            return SimpleNamespace(stdout=["done"])
+
+        orch._exec_frappe = MagicMock(side_effect=_exec)
+        orch._run_container_hook("echo hi", "before_restart", NEW_TAG)
+        assert seen["command"].startswith("bash /workspace/frappe-bench/logs/.fm_hook_before_restart_")
+        assert f"export DEPLOY_TAG={NEW_TAG}" in seen["body"]
+        leftovers = list((orch.bench_path / "workspace" / "frappe-bench" / "logs").glob(".fm_hook_*"))
+        assert leftovers == []
+
+    def test_container_hook_failure_is_a_deploy_error_and_still_cleans_up(self, tmp_path):
+        orch = make_orch(tmp_path)
+        orch._frappe_running = MagicMock(return_value=True)
+        orch._exec_frappe = MagicMock(side_effect=docker_error("exit 1"))
+        with pytest.raises(DeployError, match=r"before_restart hook \(container\) failed"):
+            orch._run_container_hook("echo hi", "before_restart", NEW_TAG)
+        leftovers = list((orch.bench_path / "workspace" / "frappe-bench" / "logs").glob(".fm_hook_*"))
+        assert leftovers == []
+
+
+# ========================================================= deploy: the swap
+
+
+class TestSwapSelection:
+    def test_migrate_under_a_maintenance_window_still_rolls(self, rig):
+        r = rig(switch=SwitchConfig(migrate=True, maintenance_mode=True))
+        r.orch.deploy(NEW_TAG)
+        r.orch._rolling_swap.assert_called_once_with(NEW_TAG, None, {"snap": b"x"})
+        r.orch.docker.compose.up.assert_not_called()
+        r.orch._ensure_nginx.assert_not_called()
+
+    def test_migrate_without_the_window_must_recreate(self, rig):
+        r = rig(switch=SwitchConfig(migrate=True, maintenance_mode=False))
+        r.orch.deploy(NEW_TAG)
+        r.orch._rolling_swap.assert_not_called()
+        r.orch.docker.compose.up.assert_called_once_with(services=[], detach=True, pull="never", stream=False)
+        r.orch._up_workers.assert_called_once()
+        r.orch._ensure_nginx.assert_called_once()
+
+    def test_additive_assertion_empty_phases_rolls_without_the_window(self, rig):
+        r = rig(switch=SwitchConfig(migrate=True, maintenance_mode=False, maintenance_mode_phases=[]))
+        r.orch.deploy(NEW_TAG)
+        r.orch._rolling_swap.assert_called_once()
+
+    def test_no_rolling_override_forces_the_recreate_swap(self, rig):
+        r = rig()
+        r.orch.deploy(NEW_TAG, rolling=False)
+        r.orch._rolling_swap.assert_not_called()
+        r.orch.docker.compose.up.assert_called_once()
+
+    def test_rolling_override_forces_rolling_for_a_bare_migrate(self, rig):
+        r = rig(switch=SwitchConfig(migrate=True, maintenance_mode=False))
+        r.orch.deploy(NEW_TAG, rolling=True)
+        r.orch._rolling_swap.assert_called_once()
+
+    def test_rolling_needs_a_running_web_tier_and_says_so(self, rig):
+        r = rig(running=False)
+        r.orch.deploy(NEW_TAG, rolling=True)
+        r.orch._rolling_swap.assert_not_called()
+        r.orch.docker.compose.up.assert_called_once()
+        assert any("no running web to swap alongside" in str(c.args) for c in r.orch.output.warning.call_args_list)
+
+    def test_rolling_swap_is_handed_the_old_tag_and_the_snapshots(self, rig):
+        r = rig(deploy_state=DeployState(current_tag=OLD_TAG))
+        r.orch.deploy(NEW_TAG)
+        r.orch._rolling_swap.assert_called_once_with(NEW_TAG, OLD_TAG, {"snap": b"x"})
+
+
+# =================================================== deploy: the health gate
+
+
+class TestHealthGate:
+    def test_unhealthy_new_image_rolls_back_to_the_previous_tag(self, rig):
+        r = rig(deploy_state=DeployState(current_tag=OLD_TAG), _health_check=False)
+        with pytest.raises(DeployError, match=f"failed health check; rolled back to {OLD_TAG}"):
+            r.orch.deploy(NEW_TAG)
+        r.orch.rollback.assert_called_once_with(OLD_TAG, restore_db_dump=None)
+
+    def test_rollback_db_hands_the_dump_to_the_rollback(self, rig):
+        r = rig(
+            switch=SwitchConfig(backup_db=True, rollback_db=True),
+            deploy_state=DeployState(current_tag=OLD_TAG),
+            _health_check=False,
+        )
+        with pytest.raises(DeployError):
+            r.orch.deploy(NEW_TAG)
+        r.orch.rollback.assert_called_once_with(OLD_TAG, restore_db_dump=r.backup_path)
+
+    def test_no_previous_tag_halts_the_bench_in_maintenance(self, rig):
+        r = rig(_health_check=False)
+        with pytest.raises(DeployError, match="halted in maintenance mode"):
+            r.orch.deploy(NEW_TAG)
+        r.orch.rollback.assert_not_called()
+        r.orch._set_maintenance.assert_called_once_with(1)
+
+    def test_rollback_image_disabled_halts_rather_than_reverting(self, rig):
+        r = rig(
+            switch=SwitchConfig(rollback_image=False),
+            deploy_state=DeployState(current_tag=OLD_TAG),
+            _health_check=False,
+        )
+        with pytest.raises(DeployError, match="halted in maintenance mode"):
+            r.orch.deploy(NEW_TAG)
+        r.orch.rollback.assert_not_called()
+
+    def test_a_failed_health_gate_never_records_the_new_tag(self, rig):
+        r = rig(_health_check=False)
+        with pytest.raises(DeployError):
+            r.orch.deploy(NEW_TAG)
+        r.orch._record.assert_not_called()
+
+    def test_a_failed_health_gate_does_not_restore_the_compose(self, rig):
+        """Post-swap: the compose IS the new tag and the rollback re-pins it."""
+        r = rig(deploy_state=DeployState(current_tag=OLD_TAG), _health_check=False)
+        with pytest.raises(DeployError):
+            r.orch.deploy(NEW_TAG)
+        r.orch._restore_compose.assert_not_called()
+
+    def test_nginx_is_only_nudged_on_the_recreate_path(self, rig):
+        r = rig()
+        r.orch.deploy(NEW_TAG, rolling=False)
+        r.orch._ensure_nginx.assert_called_once()
+
+
+# ====================================================== deploy: finalize/record
+
+
+class TestFinalizeAndRecord:
+    def test_finalize_resumes_installs_merges_then_clears_cache(self, rig):
+        r = rig()
+        r.orch.deploy(NEW_TAG)
+        order = r.order
+        assert (
+            order.index("resume_workers")
+            < order.index("_install_new_apps")
+            < order.index("_apply_config_merges")
+            < order.index("_exec_frappe")
+        )
+        (command,), _ = r.orch._exec_frappe.call_args
+        assert command.endswith(f"--site {SITE} clear-cache")
+
+    def test_a_failing_clear_cache_only_warns(self, rig):
+        r = rig(_exec_frappe={"side_effect": docker_error("no container")})
+        r.orch.deploy(NEW_TAG)
+        r.orch._record.assert_called_once()
+        assert any("clear-cache failed" in str(c.args) for c in r.orch.output.warning.call_args_list)
+
+    def test_record_carries_the_migrate_status_and_the_dump_path(self, rig):
+        r = rig()
+        r.orch.deploy(NEW_TAG)
+        r.orch._record.assert_called_once_with(NEW_TAG, "migrated", backup=r.backup_path)
+
+    def test_prune_only_runs_when_keep_was_asked_for(self, rig):
+        r = rig()
+        r.orch.deploy(NEW_TAG)
+        r.orch.prune_releases.assert_not_called()
+        r.orch.deploy(NEW_TAG, prune_keep=3)
+        r.orch.prune_releases.assert_called_once_with(keep=3)
+
+    def test_prune_zero_is_still_a_request(self, rig):
+        r = rig()
+        r.orch.deploy(NEW_TAG, prune_keep=0)
+        r.orch.prune_releases.assert_called_once_with(keep=0)
+
+    def test_a_failing_prune_never_fails_a_good_deploy(self, rig):
+        r = rig(prune_releases={"side_effect": RuntimeError("rmi refused")})
+        r.orch.deploy(NEW_TAG, prune_keep=1)
+        assert any("Release prune failed" in str(c.args) for c in r.orch.output.warning.call_args_list)
+
+    def test_prune_runs_after_the_deploy_is_recorded(self, rig):
+        r = rig()
+        r.orch.deploy(NEW_TAG, prune_keep=2)
+        assert r.order.index("_record") < r.order.index("prune_releases")
+
+
+class TestRecordBookkeeping:
+    def test_record_rotates_current_into_previous_and_appends_history(self, tmp_path):
+        state = DeployState(
+            current_tag=OLD_TAG,
+            history=[
+                DeployStateEntry(tag=OLD_TAG, deployed_at="t0", migrate_status="migrated"),
+            ],
+        )
+        orch = make_orch(tmp_path, deploy_state=state)
+        orch._record(NEW_TAG, "migrated", backup=Path("/b/db.sql"))
+        result = orch.config.deploy_state
+        assert result.previous_tag == OLD_TAG
+        assert result.current_tag == NEW_TAG
+        assert [e.tag for e in result.history] == [OLD_TAG, NEW_TAG]
+        assert result.history[-1].backup == "/b/db.sql"
+        assert result.history[-1].migrate_status == "migrated"
+        assert result.last_deploy_at == result.history[-1].deployed_at
+        orch.config.export_to_toml.assert_called_once_with(Path(orch.config.root_path))
+
+    def test_record_on_a_virgin_bench_creates_the_state(self, tmp_path):
+        orch = make_orch(tmp_path, deploy_state=None)
+        orch._record(NEW_TAG, "skipped")
+        result = orch.config.deploy_state
+        assert result.previous_tag is None
+        assert result.current_tag == NEW_TAG
+        assert result.history[-1].backup is None
+
+    def test_current_deployed_tag_reads_the_recorded_tag(self, tmp_path):
+        assert make_orch(tmp_path)._current_deployed_tag() is None
+        assert make_orch(tmp_path, deploy_state=DeployState())._current_deployed_tag() is None
+        state = DeployState(current_tag=OLD_TAG)
+        assert make_orch(tmp_path, deploy_state=state)._current_deployed_tag() == OLD_TAG
+
+
+# ================================================================== rollback
+
+
+class TestRollback:
+    """The internal health-gate recovery: minimal by design."""
+
+    def _rollback_rig(self, tmp_path, switch=None, deploy_state=None, healthy=True):
+        orch = make_orch(tmp_path, switch=switch, deploy_state=deploy_state)
+        manager = MagicMock()
+        for name, result in (
+            ("_fetch_image", {}),
+            ("_pin_workers", {}),
+            ("_restore_db", {}),
+            ("_up_workers", {}),
+            ("_health_check", {"return_value": healthy}),
+            ("_ensure_nginx", {}),
+            ("resume_workers", {}),
+            ("_exec_frappe", {}),
+            ("_record", {}),
+            ("drain_workers", {"return_value": True}),
+            ("_backup", {}),
+            ("_run_host_hook", {}),
+            ("_run_container_hook", {}),
+            ("_set_maintenance", {}),
+        ):
+            spy = MagicMock(**result)
+            manager.attach_mock(spy, name)
+            setattr(orch, name, spy)
+        for owner, attr, label in (
+            (orch.docker.compose, "up", "compose_up"),
+            (orch.docker_ops, "render_image_compose", "render_image_compose"),
+        ):
+            spy = MagicMock()
+            manager.attach_mock(spy, label)
+            setattr(owner, attr, spy)
+        return orch, manager
+
+    def test_rollback_repins_the_previous_tag_and_recreates(self, tmp_path):
+        orch, manager = self._rollback_rig(tmp_path)
+        orch.rollback(OLD_TAG)
+        assert [n for n, _a, _k in manager.mock_calls] == [
+            "_fetch_image",
+            "render_image_compose",
+            "_pin_workers",
+            "compose_up",
+            "_up_workers",
+            "_health_check",
+            "_ensure_nginx",
+            "resume_workers",
+            "_exec_frappe",
+            "_record",
+        ]
+        orch.docker_ops.render_image_compose.assert_called_once_with(OLD_TAG)
+        orch._pin_workers.assert_called_once_with(OLD_TAG)
+        orch._record.assert_called_once_with(OLD_TAG, "rollback")
+
+    def test_rollback_never_drains_backs_up_migrates_or_hooks(self, tmp_path):
+        orch, _ = self._rollback_rig(tmp_path)
+        orch.rollback(OLD_TAG)
+        orch.drain_workers.assert_not_called()
+        orch._backup.assert_not_called()
+        orch._run_host_hook.assert_not_called()
+        orch._run_container_hook.assert_not_called()
+
+    def test_rollback_clears_maintenance_mode_globally(self, tmp_path):
+        orch, _ = self._rollback_rig(tmp_path)
+        orch.rollback(OLD_TAG)
+        (command,), _ = orch._exec_frappe.call_args
+        assert command.endswith(f"--site {SITE} set-config -g maintenance_mode 0")
+
+    def test_a_failing_maintenance_clear_only_warns(self, tmp_path):
+        orch, _ = self._rollback_rig(tmp_path)
+        orch._exec_frappe = MagicMock(side_effect=docker_error("gone"))
+        orch.rollback(OLD_TAG)
+        orch._record.assert_called_once_with(OLD_TAG, "rollback")
+        assert any("Could not clear maintenance mode" in str(c.args) for c in orch.output.warning.call_args_list)
+
+    def test_rollback_imports_the_dump_before_the_swap(self, tmp_path):
+        orch, manager = self._rollback_rig(tmp_path)
+        dump = tmp_path / "db.sql"
+        orch.rollback(OLD_TAG, restore_db_dump=dump)
+        names = [n for n, _a, _k in manager.mock_calls]
+        orch._restore_db.assert_called_once_with(dump)
+        assert names.index("_restore_db") < names.index("compose_up")
+
+    def test_a_declined_dump_import_still_rolls_the_image_back(self, tmp_path):
+        orch, _ = self._rollback_rig(tmp_path)
+        orch._restore_db = MagicMock(side_effect=RestoreNotConfirmed("not typed"))
+        orch.rollback(OLD_TAG, restore_db_dump=tmp_path / "db.sql")
+        orch.docker.compose.up.assert_called_once()
+        orch._record.assert_called_once_with(OLD_TAG, "rollback")
+        assert any("not typed" in str(c.args) for c in orch.output.warning.call_args_list)
+
+    def test_an_unhealthy_rollback_still_records_the_pinned_reality(self, tmp_path):
+        orch, _ = self._rollback_rig(tmp_path, healthy=False)
+        with pytest.raises(DeployError, match=f"Rollback to {OLD_TAG} failed health check"):
+            orch.rollback(OLD_TAG)
+        orch._record.assert_called_once_with(OLD_TAG, "rollback")
+        orch.resume_workers.assert_not_called()
+        orch._ensure_nginx.assert_not_called()
+
+    def test_rollback_refuses_a_non_image_bench(self, tmp_path):
+        orch, _ = self._rollback_rig(tmp_path)
+        orch.config.runtime = BenchRuntime.mount
+        with pytest.raises(DeployError, match="not in image runtime"):
+            orch.rollback(OLD_TAG)
+        orch._fetch_image.assert_not_called()
+
+
+class TestRollingRestart:
+    def _restart_rig(self, tmp_path, deploy_state=None, running=True):
+        orch = make_orch(tmp_path, deploy_state=deploy_state)
+        orch._frappe_running = MagicMock(return_value=running)
+        orch._snapshot_compose = MagicMock(return_value={"snap": b"x"})
+        orch._fetch_image = MagicMock()
+        orch._rolling_swap = MagicMock()
+        orch._record = MagicMock()
+        return orch
+
+    def test_rolling_restart_reuses_the_current_tag_on_both_sides(self, tmp_path):
+        orch = self._restart_rig(tmp_path, DeployState(current_tag=OLD_TAG))
+        orch.rolling_restart()
+        orch._fetch_image.assert_called_once_with(OLD_TAG)
+        orch._rolling_swap.assert_called_once_with(OLD_TAG, OLD_TAG, {"snap": b"x"})
+        orch._record.assert_not_called()
+
+    def test_rolling_restart_refuses_an_unrecorded_bench(self, tmp_path):
+        orch = self._restart_rig(tmp_path, DeployState())
+        with pytest.raises(DeployError, match="No deployed image tag recorded"):
+            orch.rolling_restart()
+        orch._rolling_swap.assert_not_called()
+
+    def test_rolling_restart_refuses_a_stopped_web_tier(self, tmp_path):
+        orch = self._restart_rig(tmp_path, DeployState(current_tag=OLD_TAG), running=False)
+        with pytest.raises(DeployError, match="Web tier is not running"):
+            orch.rolling_restart()
+        orch._rolling_swap.assert_not_called()
+
+
+# ======================================== the destructive-restore confirmation
+
+
+class TestRestoreConfirmation:
+    """``_restore_db`` / ``_confirm_external_restore``: what is REFUSED."""
+
+    def _restorer(self, tmp_path, external=True, interactive=True, answer="shopdb"):
+        orch = make_orch(tmp_path)
+        if external:
+            orch.config.database[SITE] = SimpleNamespace(host="db.example", port=3306)
+        manager = MagicMock()
+        manager.database_server_info = SimpleNamespace(host="db.example", port=3306)
+        manager.db_run_query.return_value = SimpleNamespace(stdout=["1\t42"])
+        orch._db_manager = MagicMock(return_value=(manager, "shopdb"))
+        orch.output.is_interactive.return_value = interactive
+        orch.output.prompt_ask.return_value = answer
+        dump = tmp_path / "dump.sql"
+        dump.write_text("-- dump")
+        return orch, manager, dump
+
+    def test_a_missing_dump_is_a_warning_not_an_import(self, tmp_path):
+        orch, manager, _ = self._restorer(tmp_path)
+        orch._restore_db(tmp_path / "absent.sql")
+        manager.db_import.assert_not_called()
+        assert orch.output.warning.called
+
+    def test_an_unresolvable_db_name_refuses_the_import(self, tmp_path):
+        orch, manager, dump = self._restorer(tmp_path)
+        orch._db_manager = MagicMock(return_value=(manager, None))
+        orch._restore_db(dump)
+        manager.db_import.assert_not_called()
+
+    def test_the_global_db_is_restored_without_a_prompt(self, tmp_path):
+        orch, manager, dump = self._restorer(tmp_path, external=False)
+        orch._restore_db(dump)
+        orch.output.prompt_ask.assert_not_called()
+        manager.db_run_query.assert_not_called()
+        manager.db_import.assert_called_once_with("shopdb", dump, force=True)
+
+    def test_typing_the_schema_name_authorises_the_overwrite(self, tmp_path):
+        orch, manager, dump = self._restorer(tmp_path, answer=" shopdb ")
+        orch._restore_db(dump)
+        manager.db_import.assert_called_once_with("shopdb", dump, force=True)
+
+    def test_a_wrong_answer_refuses_the_import_entirely(self, tmp_path):
+        orch, manager, dump = self._restorer(tmp_path, answer="yes")
+        with pytest.raises(RestoreNotConfirmed, match="Nothing was imported"):
+            orch._restore_db(dump)
+        manager.db_import.assert_not_called()
+
+    def test_the_prompt_quotes_the_live_table_count(self, tmp_path):
+        orch, _manager, dump = self._restorer(tmp_path)
+        orch._restore_db(dump)
+        warned = " ".join(str(c.args) for c in orch.output.warning.call_args_list)
+        assert "it holds 42 tables right now" in warned
+
+    def test_an_absent_schema_is_described_as_a_create(self, tmp_path):
+        orch, manager, dump = self._restorer(tmp_path)
+        manager.db_run_query.return_value = SimpleNamespace(stdout=["0\t0"])
+        orch._restore_db(dump)
+        warned = " ".join(str(c.args) for c in orch.output.warning.call_args_list)
+        assert "does not exist on that server yet" in warned
+
+    def test_an_unreadable_count_still_demands_the_typed_name(self, tmp_path):
+        orch, manager, dump = self._restorer(tmp_path, answer="nope")
+        manager.db_run_query.side_effect = RuntimeError("TLS handshake failed")
+        with pytest.raises(RestoreNotConfirmed):
+            orch._restore_db(dump)
+        warned = " ".join(str(c.args) for c in orch.output.warning.call_args_list)
+        assert "could not read how many tables" in warned
+
+    def test_non_interactive_imports_unconfirmed_without_querying(self, tmp_path):
+        orch, manager, dump = self._restorer(tmp_path, interactive=False)
+        orch._restore_db(dump)
+        orch.output.prompt_ask.assert_not_called()
+        manager.db_run_query.assert_not_called()
+        manager.db_import.assert_called_once_with("shopdb", dump, force=True)
+
+    def test_a_promptless_output_mode_imports_unconfirmed(self, tmp_path):
+        orch, manager, dump = self._restorer(tmp_path)
+        orch.output.prompt_ask.side_effect = NonInteractiveError("json mode")
+        orch._restore_db(dump)
+        manager.db_import.assert_called_once_with("shopdb", dump, force=True)
+
+    def test_an_external_import_failure_carries_the_tls_hint(self, tmp_path):
+        orch, manager, dump = self._restorer(tmp_path)
+        manager.db_import.side_effect = RuntimeError("access denied")
+        with pytest.raises(DeployError, match=r"ca-bundle\.pem"):
+            orch._restore_db(dump)
+
+    def test_a_global_db_import_failure_propagates_unwrapped(self, tmp_path):
+        orch, manager, dump = self._restorer(tmp_path, external=False)
+        manager.db_import.side_effect = RuntimeError("access denied")
+        with pytest.raises(RuntimeError, match="access denied"):
+            orch._restore_db(dump)
+
+
+# ============================================================ new-app install
+
+
+class TestInstallNewApps:
+    def _installer(self, tmp_path, switch=None, apps=(), listed=""):
+        orch = make_orch(tmp_path, switch=switch or SwitchConfig())
+        orch.config.apps_list = [SimpleNamespace(name=a) for a in apps]
+        orch._exec_frappe = MagicMock(return_value=SimpleNamespace(stdout=listed.splitlines()))
+        return orch
+
+    def test_install_apps_disabled_reconciles_nothing(self, tmp_path):
+        orch = self._installer(tmp_path, SwitchConfig(install_apps=False), ("erpnext",), "frappe\n")
+        orch._install_new_apps()
+        orch._exec_frappe.assert_not_called()
+
+    def test_an_empty_apps_list_reconciles_nothing(self, tmp_path):
+        orch = self._installer(tmp_path, apps=(), listed="frappe\n")
+        orch._install_new_apps()
+        orch._exec_frappe.assert_not_called()
+
+    def test_an_unreadable_app_list_skips_rather_than_reinstalling(self, tmp_path):
+        """No 'frappe' in the output means the parse is untrustworthy."""
+        orch = self._installer(tmp_path, apps=("erpnext",), listed="Traceback (most recent call last):")
+        orch._install_new_apps()
+        assert orch._exec_frappe.call_count == 1  # the list-apps probe only
+        assert any("Skipping new-app install" in str(c.args) for c in orch.output.warning.call_args_list)
+
+    def test_only_the_missing_apps_are_installed_in_config_order(self, tmp_path):
+        orch = self._installer(tmp_path, apps=("erpnext", "hrms", "payments"), listed="frappe\nerpnext\n")
+        orch._install_new_apps()
+        commands = [c.args[0] for c in orch._exec_frappe.call_args_list[1:]]
+        assert [c.split()[-1] for c in commands] == ["hrms", "payments"]
+        assert all("install-app" in c for c in commands)
+
+    def test_nothing_missing_means_no_install_call(self, tmp_path):
+        orch = self._installer(tmp_path, apps=("erpnext",), listed="frappe\nerpnext\n")
+        orch._install_new_apps()
+        assert orch._exec_frappe.call_count == 1
+
+    def test_a_failed_install_aborts_finalize_loudly(self, tmp_path):
+        orch = self._installer(tmp_path, apps=("hrms",), listed="frappe\n")
+        orch._exec_frappe = MagicMock(
+            side_effect=[SimpleNamespace(stdout=["frappe"]), docker_error("app not found")],
+        )
+        with pytest.raises(DeployError, match="Failed to install new app 'hrms'"):
+            orch._install_new_apps()
+
+
+class TestConfigMerges:
+    def test_no_configured_keys_touches_neither_file(self, tmp_path):
+        orch = make_orch(tmp_path)
+        orch._apply_config_merges()
+        orch.bench.set_common_bench_config.assert_not_called()
+        orch.bench.set_bench_site_config.assert_not_called()
+
+    def test_each_configured_block_is_merged_into_its_own_file(self, tmp_path):
+        orch = make_orch(
+            tmp_path,
+            switch=SwitchConfig(common_site_config={"a": 1}, site_config={"b": 2}),
+        )
+        orch._apply_config_merges()
+        orch.bench.set_common_bench_config.assert_called_once_with({"a": 1})
+        orch.bench.set_bench_site_config.assert_called_once_with({"b": 2})
+
+
+# ============================================================ the rolling swap
+
+
+@pytest.fixture
+def no_sleep():
+    with patch("frappe_manager.site_manager.modules.deploy_orchestrator.time.sleep"):
+        yield
+
+
+@pytest.mark.usefixtures("no_sleep")
+class TestRollingSwap:
+    """Overlap swap: the OLD replica is only torn down once the NEW one is healthy."""
+
+    def _swap(self, tmp_path, frappe_ok=True, nginx_ok=True, new_frappe="newF", new_nginx="newN"):
+        orch = make_orch(tmp_path)
+        orch.compose.get_services_list.return_value = ["frappe", "nginx", "socketio", "schedule"]
+        orch.compose.get_container_names.return_value = {"frappe": "shop-frappe", "nginx": "shop-nginx"}
+        olds = {"frappe": ["oldF"], "nginx": ["oldN"]}
+        news = {"frappe": [new_frappe] if new_frappe else [], "nginx": [new_nginx] if new_nginx else []}
+        seen = {"frappe": 0, "nginx": 0}
+
+        def _ps(service):
+            seen[service] += 1
+            return olds[service] if seen[service] == 1 else olds[service] + news[service]
+
+        orch._compose_ps_ids = MagicMock(side_effect=_ps)
+        orch._scale = MagicMock()
+        orch._container_health = MagicMock(
+            side_effect=lambda cid, **_kw: {"newF": frappe_ok, "newN": nginx_ok}.get(cid, False),
+        )
+        orch._raw_docker = MagicMock()
+        orch._raw_compose = MagicMock()
+        orch._pin_workers = MagicMock()
+        orch._up_workers = MagicMock()
+        orch._restore_compose = MagicMock()
+        return orch
+
+    def _docker_argv(self, orch):
+        """``(verb, container)`` per raw-docker call, ignoring the ``rm -f`` flag."""
+        return [tuple(a for a in c.args if a != "-f")[:2] for c in orch._raw_docker.call_args_list]
+
+    def test_frappe_is_scaled_before_nginx(self, tmp_path):
+        orch = self._swap(tmp_path)
+        orch._rolling_swap(NEW_TAG, OLD_TAG, {})
+        assert [c.args[0] for c in orch._scale.call_args_list] == [
+            {"frappe": 2},
+            {"frappe": 2, "nginx": 2},
+        ]
+
+    def test_scalable_compose_is_rendered_then_the_canonical_one(self, tmp_path):
+        orch = self._swap(tmp_path)
+        orch._rolling_swap(NEW_TAG, OLD_TAG, {})
+        assert [c.kwargs["rolling"] for c in orch.docker_ops.render_image_compose.call_args_list] == [True, False]
+        assert all(c.args[0] == NEW_TAG for c in orch.docker_ops.render_image_compose.call_args_list)
+
+    def test_old_replicas_stop_before_they_are_removed_and_nginx_reloads_between(self, tmp_path):
+        orch = self._swap(tmp_path)
+        orch._rolling_swap(NEW_TAG, OLD_TAG, {})
+        assert self._docker_argv(orch) == [
+            ("stop", "oldN"),
+            ("exec", "newN"),  # reload: survivor re-resolves the frappe upstream
+            ("rm", "oldN"),
+            ("stop", "oldF"),
+            ("exec", "newN"),
+            ("rm", "oldF"),
+            ("exec", "newN"),
+            ("rename", "newF"),
+            ("rename", "newN"),
+        ]
+
+    def test_survivors_are_renamed_back_to_the_canonical_names(self, tmp_path):
+        orch = self._swap(tmp_path)
+        orch._rolling_swap(NEW_TAG, OLD_TAG, {})
+        renames = [c.args for c in orch._raw_docker.call_args_list if c.args[0] == "rename"]
+        assert renames == [("rename", "newF", "shop-frappe"), ("rename", "newN", "shop-nginx")]
+
+    def test_the_non_web_tiers_follow_the_swap(self, tmp_path):
+        orch = self._swap(tmp_path)
+        orch._rolling_swap(NEW_TAG, OLD_TAG, {})
+        orch._raw_compose.assert_called_once_with("up", "-d", "--pull", "never", "socketio", "schedule")
+        orch._up_workers.assert_called_once()
+
+    def test_an_unhealthy_new_frappe_keeps_the_old_one_serving(self, tmp_path):
+        orch = self._swap(tmp_path, frappe_ok=False)
+        with pytest.raises(DeployError, match="new frappe replica failed health check; kept old, no swap"):
+            orch._rolling_swap(NEW_TAG, OLD_TAG, {"p": b"old"})
+        assert ("stop", "oldF") not in self._docker_argv(orch)
+        assert ("rm", "oldF") not in self._docker_argv(orch)
+        orch._restore_compose.assert_called_once_with({"p": b"old"})
+        assert orch._pin_workers.call_args_list[-1].args == (OLD_TAG,)
+
+    def test_an_unhealthy_new_frappe_tears_down_only_the_new_replica(self, tmp_path):
+        orch = self._swap(tmp_path, frappe_ok=False)
+        with pytest.raises(DeployError):
+            orch._rolling_swap(NEW_TAG, OLD_TAG, {})
+        assert ("rm", "newF") in self._docker_argv(orch)
+        orch._raw_compose.assert_not_called()
+
+    def test_a_missing_new_container_is_the_same_refusal_as_an_unhealthy_one(self, tmp_path):
+        orch = self._swap(tmp_path, new_frappe=None)
+        with pytest.raises(DeployError, match="new frappe replica failed health check"):
+            orch._rolling_swap(NEW_TAG, OLD_TAG, {})
+        orch._container_health.assert_not_called()
+
+    def test_an_unhealthy_new_nginx_aborts_after_frappe_came_up(self, tmp_path):
+        orch = self._swap(tmp_path, nginx_ok=False)
+        with pytest.raises(DeployError, match="new nginx replica failed health check; kept old, no swap"):
+            orch._rolling_swap(NEW_TAG, OLD_TAG, {})
+        argv = self._docker_argv(orch)
+        assert ("rm", "newF") in argv
+        assert ("rm", "newN") in argv
+        assert ("stop", "oldN") not in argv
+
+    def test_abort_without_a_previous_tag_leaves_the_worker_pin_alone(self, tmp_path):
+        orch = self._swap(tmp_path, frappe_ok=False)
+        with pytest.raises(DeployError):
+            orch._rolling_swap(NEW_TAG, None, {})
+        assert [c.args for c in orch._pin_workers.call_args_list] == [(NEW_TAG,)]
+
+
+# =================================================================== migrate
+
+
+class TestMigrateStep:
+    def _migrator(self, tmp_path, switch=None, result=None, error=None):
+        orch = make_orch(tmp_path, switch=switch)
+        orch.docker.compose.run = MagicMock(
+            side_effect=error,
+            return_value=result or SimpleNamespace(combined=["ok"]),
+        )
+        return orch
+
+    def test_migrate_runs_a_one_shot_removed_container_with_the_default_command(self, tmp_path):
+        orch = self._migrator(tmp_path)
+        assert orch._migrate(NEW_TAG) is True
+        kwargs = orch.docker.compose.run.call_args.kwargs
+        assert kwargs["command"] == f"--site {SITE} migrate"
+        assert kwargs["entrypoint"].endswith("/bench")
+        assert kwargs["rm"] is True
+        assert kwargs["user"] == "frappe"
+
+    def test_a_configured_migrate_command_replaces_the_default(self, tmp_path):
+        orch = self._migrator(tmp_path, switch=SwitchConfig(migrate_command="--site x migrate --skip-failing"))
+        orch._migrate(NEW_TAG)
+        assert orch.docker.compose.run.call_args.kwargs["command"] == "--site x migrate --skip-failing"
+
+    def test_the_migrate_log_is_persisted_and_exported_to_hook_env(self, tmp_path):
+        orch = self._migrator(tmp_path, result=SimpleNamespace(combined=["line one\n", "line two"]))
+        orch._migrate(NEW_TAG)
+        assert orch._migrate_log_host.read_text() == "line one\nline two"
+        assert orch._migrate_log_container == f"/workspace/frappe-bench/logs/{orch._migrate_log_host.name}"
+        script = orch._hook_script("echo hi", NEW_TAG)
+        assert f"export MIGRATE_LOG_FILE={orch._migrate_log_container}" in script
+
+    def test_a_failed_migrate_still_persists_its_output_and_reraises(self, tmp_path):
+        error = docker_error("patch exploded")
+        orch = self._migrator(tmp_path, error=error)
+        with pytest.raises(DockerException):
+            orch._migrate(NEW_TAG)
+        assert "patch exploded" in orch._migrate_log_host.read_text()
+
+
+# ============================================================ release pruning
+
+
+class TestPruneReleases:
+    def _pruner(self, tmp_path, tags, keep_releases=7, current=None, previous=None, backups=None):
+        backups = backups or {}
+        history = [
+            DeployStateEntry(
+                tag=t,
+                deployed_at=f"t{i}",
+                migrate_status="migrated",
+                backup=backups.get(t),
+            )
+            for i, t in enumerate(tags)
+        ]
+        state = DeployState(current_tag=current, previous_tag=previous, history=history)
+        orch = make_orch(tmp_path, switch=SwitchConfig(keep_releases=keep_releases), deploy_state=state)
+        orch.docker.rmi = MagicMock()
+        return orch
+
+    def test_an_empty_history_prunes_nothing(self, tmp_path):
+        orch = make_orch(tmp_path, deploy_state=DeployState())
+        assert orch.prune_releases() == {"entries": 0, "backups": [], "images": [], "kept": 0}
+        orch.config.export_to_toml.assert_not_called()
+
+    def test_keep_defaults_to_the_configured_retention(self, tmp_path):
+        orch = self._pruner(tmp_path, ["repo:a", "repo:b", "repo:c"], keep_releases=2)
+        summary = orch.prune_releases()
+        assert summary["kept"] == 2
+        assert summary["entries"] == 1
+        assert [e.tag for e in orch.config.deploy_state.history] == ["repo:b", "repo:c"]
+
+    def test_an_explicit_keep_overrides_the_configured_retention(self, tmp_path):
+        orch = self._pruner(tmp_path, ["repo:a", "repo:b", "repo:c"], keep_releases=99)
+        assert orch.prune_releases(keep=1)["entries"] == 2
+
+    def test_a_colonless_recorded_tag_makes_prune_raise(self, tmp_path):
+        """Pinned, not endorsed: deriving the nginx pair refuses a tag with no
+        ``:``. ``deploy()`` swallows this into a warning; ``fm prune`` does not."""
+        from frappe_manager.site_manager.modules.bake import BakeError
+
+        orch = self._pruner(tmp_path, ["untagged", "repo:b"], keep_releases=1)
+        with pytest.raises(BakeError, match="Malformed image tag"):
+            orch.prune_releases()
+
+    def test_a_pruned_tag_is_removed_together_with_its_nginx_pair(self, tmp_path):
+        orch = self._pruner(tmp_path, ["repo:a", "repo:b"], keep_releases=1)
+        summary = orch.prune_releases()
+        assert summary["images"] == ["repo:a", "repo-nginx:a"]
+        assert [c.args[0] for c in orch.docker.rmi.call_args_list] == ["repo:a", "repo-nginx:a"]
+
+    def test_a_tag_the_bench_can_still_switch_back_to_is_never_removed(self, tmp_path):
+        orch = self._pruner(tmp_path, ["repo:a", "repo:b"], keep_releases=1, previous="repo:a")
+        summary = orch.prune_releases()
+        assert summary["entries"] == 1  # the row goes
+        assert summary["images"] == []  # the artifact stays
+        orch.docker.rmi.assert_not_called()
+
+    def test_the_seed_image_is_protected_too(self, tmp_path):
+        orch = self._pruner(tmp_path, ["repo:a", "repo:b"], keep_releases=1)
+        orch.config.seed_image = "repo:a"
+        assert orch.prune_releases()["images"] == []
+
+    def test_a_recorded_backup_dir_is_reported_and_deleted(self, tmp_path):
+        backup_dir = tmp_path / "bench" / "backups" / "deploy-20240101000000"
+        backup_dir.mkdir(parents=True)
+        (backup_dir / "db.sql").write_text("dump")
+        orch = self._pruner(
+            tmp_path,
+            ["repo:a", "repo:b"],
+            keep_releases=1,
+            backups={"repo:a": str(backup_dir / "db.sql")},
+        )
+        summary = orch.prune_releases()
+        assert summary["backups"] == [str(backup_dir)]
+        assert not backup_dir.exists()
+
+    def test_a_backup_dir_that_is_not_a_deploy_dir_is_left_alone(self, tmp_path):
+        other = tmp_path / "elsewhere"
+        other.mkdir()
+        (other / "db.sql").write_text("dump")
+        orch = self._pruner(
+            tmp_path,
+            ["repo:a", "repo:b"],
+            keep_releases=1,
+            backups={"repo:a": str(other / "db.sql")},
+        )
+        assert orch.prune_releases()["backups"] == []
+        assert other.exists()
+
+    def test_dry_run_reports_without_deleting_or_rewriting_state(self, tmp_path):
+        backup_dir = tmp_path / "bench" / "backups" / "deploy-20240101000000"
+        backup_dir.mkdir(parents=True)
+        orch = self._pruner(
+            tmp_path,
+            ["repo:a", "repo:b"],
+            keep_releases=1,
+            backups={"repo:a": str(backup_dir / "db.sql")},
+        )
+        summary = orch.prune_releases(dry_run=True)
+        assert summary["entries"] == 1
+        assert summary["images"] == ["repo:a", "repo-nginx:a"]
+        assert backup_dir.exists()
+        orch.docker.rmi.assert_not_called()
+        orch.config.export_to_toml.assert_not_called()
+        assert len(orch.config.deploy_state.history) == 2
+
+    def test_a_short_history_writes_nothing_back(self, tmp_path):
+        orch = self._pruner(tmp_path, ["repo:a"], keep_releases=7)
+        assert orch.prune_releases()["entries"] == 0
+        orch.config.export_to_toml.assert_not_called()
+
+
+# ============================================================== health probes
+
+
+@pytest.mark.usefixtures("no_sleep")
+class TestHealthAndRunningProbes:
+    def _probe(self, tmp_path, codes):
+        orch = make_orch(tmp_path)
+        orch.docker.compose.exec = MagicMock(
+            side_effect=[c if isinstance(c, Exception) else SimpleNamespace(stdout=[c]) for c in codes],
+        )
+        return orch
+
+    @pytest.mark.parametrize("code", ["200", "404", "503"])
+    def test_server_up_codes_pass_the_gate(self, tmp_path, code):
+        assert self._probe(tmp_path, [code])._health_check(retries=1) is True
+
+    def test_a_bad_gateway_keeps_retrying_and_then_fails(self, tmp_path):
+        orch = self._probe(tmp_path, ["502", "502", "200"])
+        assert orch._health_check(retries=2) is False
+        assert orch.docker.compose.exec.call_count == 2
+
+    def test_an_exec_error_is_retried_not_fatal(self, tmp_path):
+        orch = self._probe(tmp_path, [docker_error("not up yet"), "200"])
+        assert orch._health_check(retries=2) is True
+
+    def test_frappe_running_matches_the_canonical_container_by_name_and_state(self, tmp_path):
+        orch = make_orch(tmp_path)
+        orch.compose.get_container_names.return_value = {"frappe": "shop-frappe"}
+        orch.docker.compose.get_all_services_status.return_value = [
+            {"Name": "shop-nginx", "State": "running"},
+            {"Name": "shop-frappe", "State": "running"},
+        ]
+        assert orch._frappe_running() is True
+
+    def test_a_stopped_frappe_is_not_running(self, tmp_path):
+        orch = make_orch(tmp_path)
+        orch.compose.get_container_names.return_value = {"frappe": "shop-frappe"}
+        orch.docker.compose.get_all_services_status.return_value = [
+            {"Name": "shop-frappe", "State": "exited"},
+        ]
+        assert orch._frappe_running() is False
+
+    def test_an_unreachable_daemon_reads_as_not_running(self, tmp_path):
+        orch = make_orch(tmp_path)
+        orch.docker.compose.get_all_services_status.side_effect = docker_error("daemon gone")
+        assert orch._frappe_running() is False
+
+
+# ==================================================================== backup
+
+
+class TestBackupStep:
+    def _backupper(self, tmp_path, running=True, db_name="shopdb", export_error=None, external=False):
+        orch = make_orch(tmp_path)
+        sites = orch.bench_path / "workspace" / "frappe-bench" / "sites" / SITE
+        sites.mkdir(parents=True, exist_ok=True)
+        (sites / "site_config.json").write_text("{}")
+        (sites.parent / "common_site_config.json").write_text("{}")
+        orch._frappe_running = MagicMock(return_value=running)
+        manager = MagicMock()
+        manager.db_export.side_effect = export_error
+        orch._db_manager = MagicMock(return_value=(manager, db_name))
+        if external:
+            orch.config.database[SITE] = SimpleNamespace(host="db.example", port=3306)
+        return orch, manager
+
+    def test_config_snapshots_are_taken_even_when_the_dump_is_skipped(self, tmp_path):
+        orch, _ = self._backupper(tmp_path, running=False)
+        target = tmp_path / "out"
+        assert orch._backup(target) is None
+        assert (target / f"{SITE}__site_config.json").exists()
+        assert (target / "common_site_config.json").exists()
+
+    def test_a_stopped_container_skips_the_dump_with_a_warning(self, tmp_path):
+        orch, manager = self._backupper(tmp_path, running=False)
+        assert orch._backup(tmp_path / "out") is None
+        manager.db_export.assert_not_called()
+        assert any("skipping DB backup" in str(c.args) for c in orch.output.warning.call_args_list)
+
+    def test_an_unresolvable_db_name_skips_the_dump(self, tmp_path):
+        orch, manager = self._backupper(tmp_path, db_name=None)
+        assert orch._backup(tmp_path / "out") is None
+        manager.db_export.assert_not_called()
+
+    def test_a_successful_dump_is_moved_into_the_backup_dir(self, tmp_path):
+        orch, manager = self._backupper(tmp_path)
+        logs = orch.bench_path / "workspace" / "frappe-bench" / "logs"
+        manager.db_export.side_effect = lambda *_a: (logs / "deploy-db-backup.sql").write_text("DUMP")
+        target = tmp_path / "out"
+        result = orch._backup(target)
+        assert result == target / "db-shopdb.sql"
+        assert result.read_text() == "DUMP"
+        assert not (logs / "deploy-db-backup.sql").exists()
+
+    def test_a_dump_that_never_appeared_yields_no_backup_path(self, tmp_path):
+        orch, _ = self._backupper(tmp_path)
+        assert orch._backup(tmp_path / "out") is None
+
+    def test_an_export_failure_continues_the_deploy_without_a_dump(self, tmp_path):
+        orch, _ = self._backupper(tmp_path, export_error=docker_error("access denied"))
+        assert orch._backup(tmp_path / "out") is None
+        assert any("DB export failed" in str(c.args) for c in orch.output.warning.call_args_list)
+
+    def test_an_external_export_failure_adds_the_tls_hint(self, tmp_path):
+        orch, _ = self._backupper(tmp_path, export_error=docker_error("access denied"), external=True)
+        orch._backup(tmp_path / "out")
+        warned = " ".join(str(c.args) for c in orch.output.warning.call_args_list)
+        assert "ca-bundle.pem" in warned

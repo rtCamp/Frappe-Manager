@@ -25,7 +25,7 @@ GLOBAL_DB_SITE = "local.localhost"
 EXTERNAL_SITE = "app.example.com"
 EXTERNAL_HOST = "mydb.abc.rds.amazonaws.com"
 SCHEMA = "app_prod"
-ROOT_PASSWORD = "global-db-root-secret"  # noqa: S105
+ROOT_PASSWORD = "global-db-root-secret"
 
 
 def _config(tmp_path: Path, *, name: str, external_site: str | None = None, ca: str | None = None) -> BenchConfig:
@@ -64,7 +64,7 @@ def test_delete_never_drops_an_external_schema(tmp_path, preference):
     """Not even when the operator passed --delete-db-from-global-db: it is not fm's schema."""
     bench = _bench(_config(tmp_path, name=EXTERNAL_SITE, external_site=EXTERNAL_SITE), EXTERNAL_SITE)
 
-    bench._handle_database_deletion(preference)  # noqa: SLF001
+    bench._handle_database_deletion(preference)
 
     assert bench.database.remove_database_and_user.called is False
     assert bench.output.prompt_ask.called is False  # no prompt either: there is nothing to decide
@@ -78,7 +78,7 @@ def test_delete_prompts_and_drops_on_global_db(tmp_path):
     bench = _bench(_config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE)
     bench.output.prompt_ask.return_value = "yes"
 
-    bench._handle_database_deletion(None)  # noqa: SLF001
+    bench._handle_database_deletion(None)
 
     assert bench.output.prompt_ask.call_count == 1
     assert bench.database.remove_database_and_user.call_count == 1
@@ -88,7 +88,7 @@ def test_delete_prompts_and_drops_on_global_db(tmp_path):
 def test_delete_honours_an_explicit_preference_on_global_db(tmp_path, preference, dropped):
     bench = _bench(_config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE)
 
-    bench._handle_database_deletion(preference)  # noqa: SLF001
+    bench._handle_database_deletion(preference)
 
     assert bench.output.prompt_ask.called is False
     assert bench.database.remove_database_and_user.call_count == dropped
@@ -105,10 +105,10 @@ def test_the_guard_resolves_per_site_not_per_bench(tmp_path):
 
     internal = _bench(config, GLOBAL_DB_SITE)
     internal.output.prompt_ask.return_value = "yes"
-    internal._handle_database_deletion(None)  # noqa: SLF001
+    internal._handle_database_deletion(None)
 
     external = _bench(config, EXTERNAL_SITE)
-    external._handle_database_deletion(None)  # noqa: SLF001
+    external._handle_database_deletion(None)
 
     assert internal.database.remove_database_and_user.call_count == 1
     assert external.database.remove_database_and_user.called is False
@@ -126,7 +126,7 @@ def test_bench_service_delete_shares_the_guard(tmp_path):
     output = MagicMock()
     bench = _bench(_config(tmp_path, name=EXTERNAL_SITE, external_site=EXTERNAL_SITE), EXTERNAL_SITE)
 
-    _service(output)._handle_database_deletion(bench, None)  # noqa: SLF001
+    _service(output)._handle_database_deletion(bench, None)
 
     assert bench.database.remove_database_and_user.called is False
     assert output.prompt_ask.called is False
@@ -138,7 +138,7 @@ def test_bench_service_delete_still_drops_a_global_db_schema(tmp_path):
     output.prompt_ask.return_value = "yes"
     bench = _bench(_config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE)
 
-    _service(output)._handle_database_deletion(bench, None)  # noqa: SLF001
+    _service(output)._handle_database_deletion(bench, None)
 
     assert output.prompt_ask.call_count == 1
     assert bench.database.remove_database_and_user.call_count == 1
@@ -185,7 +185,7 @@ def _site_manager(captured: list[tuple[str, dict]], config: BenchConfig) -> Benc
     def run(command, **kwargs):
         captured.append((command, kwargs))
 
-    manager._container_run = run  # type: ignore[method-assign]  # noqa: SLF001
+    manager._container_run = run  # type: ignore[method-assign]
     return manager
 
 

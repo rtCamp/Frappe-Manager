@@ -24,7 +24,6 @@ database.
 # SLF001: `_run_user`, `_env`, `_is_service_running` and `_compose_exec_or_run` are exactly the
 # routing decisions this module is being characterized for -- they have no public surface.
 # S105/S106: every "password" here is a fixture string that never leaves the process.
-# ruff: noqa: SLF001, S105, S106
 
 import json
 from pathlib import Path

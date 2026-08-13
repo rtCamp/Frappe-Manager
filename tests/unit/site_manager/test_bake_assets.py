@@ -33,7 +33,7 @@ def test_materialize_resolves_container_symlink(tmp_path):
     dest = tmp_path / "ctx" / "sites" / "assets"
 
     bm = object.__new__(BakeManager)  # bypass __init__ (no Docker)
-    bm._materialize_assets(fb / "sites" / "assets", fb, dest)  # noqa: SLF001
+    bm._materialize_assets(fb / "sites" / "assets", fb, dest)
 
     built = dest / "frappe" / "dist" / "css" / "desk.bundle.css"
     assert built.is_file()

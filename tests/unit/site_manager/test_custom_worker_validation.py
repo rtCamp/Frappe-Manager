@@ -78,7 +78,7 @@ class TestSplitConfigStaleCleanup:
         stale = tmp_path / "oldqueue-worker.workers.fm.supervisor.conf"
         stale.write_text("[program:frappe-bench-frappe-oldqueue-worker]\n")
 
-        supervisor._write_split_configs(  # noqa: SLF001
+        supervisor._write_split_configs(
             self._parsed(
                 [
                     "program:frappe-bench-frappe-web",
@@ -101,7 +101,7 @@ class TestSplitConfigStaleCleanup:
         schedule = tmp_path / "schedule.fm.supervisor.conf"
         schedule.write_text("[program:frappe-bench-frappe-schedule]\n")
 
-        supervisor._write_split_configs(self._parsed(["program:frappe-bench-frappe-web"]), tmp_path)  # noqa: SLF001
+        supervisor._write_split_configs(self._parsed(["program:frappe-bench-frappe-web"]), tmp_path)
 
         assert schedule.exists()
 
@@ -118,7 +118,7 @@ class TestSplitConfigStaleCleanup:
         parsed = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
         parsed.read_string("[program:frappe-bench-frappe-web]\ncommand = true\nstopasgroup\n")
 
-        supervisor._write_split_configs(parsed, tmp_path)  # noqa: SLF001
+        supervisor._write_split_configs(parsed, tmp_path)
 
         body = (tmp_path / "web.fm.supervisor.conf").read_text()
         assert "stopasgroup" in body

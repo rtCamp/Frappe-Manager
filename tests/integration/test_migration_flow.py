@@ -102,12 +102,8 @@ class TestMigrationRollback:
             config = FMConfigManager.import_from_toml(config_path)
             mock_output = Mock()
             mock_output.prompt_ask.return_value = "no"  # User says no to migration
-            
-            executor = MigrationExecutor(
-                config, 
-                migrate_fm_infrastructure=True,
-                output_handler=mock_output
-            )
+
+            executor = MigrationExecutor(config, migrate_fm_infrastructure=True, output_handler=mock_output)
 
             mock_migration = Mock()
             mock_migration.version = Version("0.19.0")

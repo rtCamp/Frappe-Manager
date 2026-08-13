@@ -758,9 +758,9 @@ def test_create_declares_the_root_password_as_a_secret_file_never_an_inline_env(
 
     envs = generate.call_args.args[0]["environment"]["global-db"]
     # S105: these are secret *file paths*, which is precisely the point of the assertion.
-    assert envs["MYSQL_ROOT_PASSWORD_FILE"] == "/run/secrets/db_root_password"  # noqa: S105
+    assert envs["MYSQL_ROOT_PASSWORD_FILE"] == "/run/secrets/db_root_password"
     assert "MYSQL_ROOT_PASSWORD" not in envs
-    assert envs["MYSQL_PASSWORD_FILE"] == "/run/secrets/db_password"  # noqa: S105
+    assert envs["MYSQL_PASSWORD_FILE"] == "/run/secrets/db_password"
 
 
 def test_create_pins_the_configured_subnet_and_proxy_ip_into_the_compose_yaml(tmp_path):

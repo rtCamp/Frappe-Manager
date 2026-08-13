@@ -121,7 +121,15 @@ def ensure_coverage() -> dict[str, Any]:
     return json.loads(COVERAGE_JSON.read_text())
 
 
-def build_candidates(cov: dict[str, Any]) -> list[tuple[str, int, str, str]]:
+def build_candidates(cov: dict[str, Any]) -> list[tuple[str, int, int, str, str]]:
+    """Every candidate is (file, line, COLUMN, old, new).
+
+    The column matters. A line like ``mkdir(parents=True, exist_ok=True)`` holds two ``True``
+    tokens, and they are not equivalent: flipping ``parents`` is inert in the tested paths while
+    flipping ``exist_ok`` raises FileExistsError and is caught by 5 tests. Identifying a mutation by
+    line alone (and replacing the first match) silently conflates the two, so a replay can "confirm"
+    a verdict that belongs to a different mutation. Each occurrence is therefore its own candidate.
+    """
     found = []
     for filename, data in cov["files"].items():
         if not data["executed_lines"]:
@@ -133,13 +141,15 @@ def build_candidates(cov: dict[str, Any]) -> list[tuple[str, int, str, str]]:
         for lineno in data["executed_lines"]:
             if lineno > len(lines):
                 continue
-            stripped = lines[lineno - 1].strip()
+            line = lines[lineno - 1]
+            stripped = line.strip()
             if not stripped or stripped.startswith(SKIP_LINE_PREFIXES):
                 continue
             for old, new in MUTATIONS:
-                if old in lines[lineno - 1]:
-                    found.append((filename, lineno, old, new))
-                    break
+                start = line.find(old)
+                while start != -1:
+                    found.append((filename, lineno, start, old, new))
+                    start = line.find(old, start + 1)
     random.seed(SEED)
     random.shuffle(found)
     return found
@@ -212,7 +222,7 @@ def main() -> int:
     ran = 0
     started = time.time()
 
-    for filename, lineno, old, new in candidates:
+    for filename, lineno, col, old, new in candidates:
         if ran >= SAMPLE_SIZE:
             break
         if per_file[filename] >= MAX_PER_FILE:
@@ -221,9 +231,13 @@ def main() -> int:
         path = ROOT / filename
         original = path.read_text()
         lines = original.splitlines(keepends=True)
-        mutated_line = lines[lineno - 1].replace(old, new, 1)
-        if mutated_line == lines[lineno - 1]:
+        line = lines[lineno - 1]
+        # Splice at the recorded column so the mutation is unambiguous even when the same token
+        # appears several times on one line.
+        if line[col : col + len(old)] != old:
             continue
+        mutated_line = line[:col] + new + line[col + len(old) :]
+        original_line = lines[lineno - 1].rstrip("\n")
         lines[lineno - 1] = mutated_line
         source = "".join(lines)
         try:
@@ -233,7 +247,7 @@ def main() -> int:
 
         per_file[filename] += 1
         ran += 1
-        change = f"{old.strip() or 'not'} -> {new.strip() or '(removed)'}"
+        change = f"col{col}:{old.strip() or 'not'} -> {new.strip() or '(removed)'}"
         print(f"[{ran:>4}/{SAMPLE_SIZE}] {filename:<58}:{lineno:<5} {change:<20} ...", flush=True)
 
         _in_flight[path] = original
@@ -248,7 +262,10 @@ def main() -> int:
         verdicts[verdict] += 1
         print(f"{'':>11} {'':<58} {'':<5} {'':<20} -> {verdict:<9} {elapsed:>5.1f}s", flush=True)
         with RESULTS.open("a") as handle:
-            handle.write(f"{filename}\t{lineno}\t{change}\t{verdict}\t{detail}\n")
+            # The ORIGINAL line text is recorded too. Line NUMBERS drift as soon as anyone edits the
+            # file, so a later replay that trusts the number alone can mutate a different line and
+            # report a confident, wrong verdict. With the text, a replay can relocate the line.
+            handle.write(f"{filename}\t{lineno}\t{change}\t{verdict}\t{original_line}\t{detail}\n")
 
     print("-" * 100)
     print(f"{ran} mutations across {len(per_file)} modules in {time.time() - started:.0f}s")

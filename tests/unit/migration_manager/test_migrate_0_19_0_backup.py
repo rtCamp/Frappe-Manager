@@ -58,9 +58,7 @@ port = 8000
             mock_compose_file_instance.compose_path = compose_file
             mock_compose_file.return_value = mock_compose_file_instance
 
-            bench = MigrationBench(name="test-bench", path=bench_path)
-
-        return bench
+            return MigrationBench(name="test-bench", path=bench_path)
 
     def test_bench_basic_backup_includes_bench_config(self, migration, mock_bench, tmp_path):
         """Verify that bench_basic_backup() backs up bench_config.toml via parent."""
@@ -69,12 +67,14 @@ port = 8000
             benches_dir=migration.benches_dir,
         )
 
-        with patch(
-            "frappe_manager.services_manager.database_service_manager.DatabaseServerServiceInfo.import_from_bench",
-            return_value=None,
+        with (
+            patch(
+                "frappe_manager.services_manager.database_service_manager.DatabaseServerServiceInfo.import_from_bench",
+                return_value=None,
+            ),
+            patch.object(migration, "bench_db_backup", return_value=None),
         ):
-            with patch.object(migration, "bench_db_backup", return_value=None):
-                migration.bench_basic_backup(mock_bench)
+            migration.bench_basic_backup(mock_bench)
 
         backup_found = any(backup.src.name == "bench_config.toml" for backup in migration.backup_manager.backups)
         assert backup_found, "bench_config.toml should be in backup list"
@@ -149,12 +149,14 @@ port = 8000
         bench_config_path = mock_bench.path / "bench_config.toml"
         original_content = bench_config_path.read_text()
 
-        with patch(
-            "frappe_manager.services_manager.database_service_manager.DatabaseServerServiceInfo.import_from_bench",
-            return_value=None,
+        with (
+            patch(
+                "frappe_manager.services_manager.database_service_manager.DatabaseServerServiceInfo.import_from_bench",
+                return_value=None,
+            ),
+            patch.object(migration, "bench_db_backup", return_value=None),
         ):
-            with patch.object(migration, "bench_db_backup", return_value=None):
-                migration.bench_basic_backup(mock_bench)
+            migration.bench_basic_backup(mock_bench)
 
         import tomlkit
 
@@ -205,7 +207,7 @@ port = 8000
         (env_dir / "bin").mkdir(parents=True, exist_ok=True)
         (env_dir / "bin" / "python3.10").write_text("#!/usr/bin/env python3.10")
 
-        migration._backup_env_for_rollback(mock_bench)  # noqa: SLF001
+        migration._backup_env_for_rollback(mock_bench)
 
         env_backup_path = mock_bench.path / "workspace" / "frappe-bench" / "env.backup.migration"
         assert env_backup_path.exists(), "env.backup.migration should exist"
@@ -218,7 +220,7 @@ port = 8000
         env_dir.mkdir(parents=True, exist_ok=True)
         (env_dir / "old_marker.txt").write_text("old environment")
 
-        migration._backup_env_for_rollback(mock_bench)  # noqa: SLF001
+        migration._backup_env_for_rollback(mock_bench)
 
         env_backup_path = mock_bench.path / "workspace" / "frappe-bench" / "env.backup.migration"
         assert env_backup_path.exists()
@@ -248,7 +250,7 @@ port = 8000
         env_path.write_text("not a virtualenv")
         migration.output = Mock()
 
-        migration._backup_env_for_rollback(mock_bench)  # noqa: SLF001
+        migration._backup_env_for_rollback(mock_bench)
 
         env_backup_path = frappe_bench / "env.backup.migration"
         assert env_path.is_file(), "A non-directory env/ must be left untouched"
@@ -262,7 +264,7 @@ port = 8000
         frappe_bench.mkdir(parents=True, exist_ok=True)
         migration.output = Mock()
 
-        migration._backup_env_for_rollback(mock_bench)  # noqa: SLF001
+        migration._backup_env_for_rollback(mock_bench)
 
         assert not (frappe_bench / "env.backup.migration").exists()
         migration.output.print.assert_not_called()
@@ -278,7 +280,7 @@ port = 8000
         stale_backup.mkdir(parents=True, exist_ok=True)
         (stale_backup / "stale.txt").write_text("stale")
 
-        migration._backup_env_for_rollback(mock_bench)  # noqa: SLF001
+        migration._backup_env_for_rollback(mock_bench)
 
         assert (stale_backup / "current.txt").exists(), "Backup must hold the current env contents"
         assert not (stale_backup / "stale.txt").exists(), "Stale backup contents must be discarded"

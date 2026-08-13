@@ -27,7 +27,7 @@ class TestAcmeShCertificateServiceInitialization:
 
     def test_init_stores_paths_and_creates_root_dir(self, mock_logger, mocker, tmp_path, mock_output_handler):
         """Test that initialization stores paths and creates root directory."""
-        
+
         ssl_dir = tmp_path / "ssl"
         webroot_dir = tmp_path / "webroot"
         webroot_dir.mkdir(parents=True)
@@ -244,7 +244,9 @@ class TestAcmeShCertificateServiceRunCommand:
 class TestAcmeShCertificateServiceGenerateCertificate:
     """Tests for generate_certificate method."""
 
-    def test_generate_certificate_http01_success(self, mock_logger, tmp_path, mock_output_handler, mock_http_certificate):
+    def test_generate_certificate_http01_success(
+        self, mock_logger, tmp_path, mock_output_handler, mock_http_certificate
+    ):
         """Test successful certificate generation with HTTP-01 challenge."""
         ssl_dir = tmp_path / "ssl"
         webroot_dir = tmp_path / "webroot"
@@ -284,7 +286,12 @@ class TestAcmeShCertificateServiceGenerateCertificate:
             assert fullchain_path.exists()
 
     def test_generate_certificate_uses_staging_flag(
-        self, mock_logger, tmp_path, mock_output_handler, mock_http_certificate, monkeypatch,
+        self,
+        mock_logger,
+        tmp_path,
+        mock_output_handler,
+        mock_http_certificate,
+        monkeypatch,
     ):
         """Test that staging flag is used when environment variable is set."""
         monkeypatch.setenv("FM_LETSENCRYPT_STAGING", "1")
@@ -318,7 +325,10 @@ class TestAcmeShCertificateServiceGenerateCertificate:
 
         mock_output_handler.live_lines.side_effect = consume_generator
 
-        with patch("frappe_manager.ssl_manager.acmesh_certificate_service.stream_command_output", side_effect=mock_stream_output):
+        with patch(
+            "frappe_manager.ssl_manager.acmesh_certificate_service.stream_command_output",
+            side_effect=mock_stream_output,
+        ):
             service = AcmeShCertificateService(
                 ssl_service_dir=ssl_dir,
                 webroot_dir=webroot_dir,
@@ -331,7 +341,9 @@ class TestAcmeShCertificateServiceGenerateCertificate:
             command = captured_command[0]
             assert "https://acme-staging-v02.api.letsencrypt.org/directory" in " ".join(command)
 
-    def test_generate_certificate_raises_on_failure(self, mock_logger, tmp_path, mock_output_handler, mock_http_certificate):
+    def test_generate_certificate_raises_on_failure(
+        self, mock_logger, tmp_path, mock_output_handler, mock_http_certificate
+    ):
         """Test that certificate generation failure raises exception."""
         ssl_dir = tmp_path / "ssl"
         webroot_dir = tmp_path / "webroot"
@@ -353,7 +365,10 @@ class TestAcmeShCertificateServiceGenerateCertificate:
 
         mock_output_handler.live_lines.side_effect = consume_generator
 
-        with patch("frappe_manager.ssl_manager.acmesh_certificate_service.stream_command_output", side_effect=mock_stream_output):
+        with patch(
+            "frappe_manager.ssl_manager.acmesh_certificate_service.stream_command_output",
+            side_effect=mock_stream_output,
+        ):
             service = AcmeShCertificateService(
                 ssl_service_dir=ssl_dir,
                 webroot_dir=webroot_dir,
@@ -363,7 +378,9 @@ class TestAcmeShCertificateServiceGenerateCertificate:
             with pytest.raises(SSLCertificateGenerateFailed):
                 service.generate_certificate(mock_http_certificate)
 
-    def test_generate_certificate_raises_if_files_not_found(self, mock_logger, tmp_path, mock_output_handler, mock_http_certificate):
+    def test_generate_certificate_raises_if_files_not_found(
+        self, mock_logger, tmp_path, mock_output_handler, mock_http_certificate
+    ):
         """Test that missing certificate files raise exception."""
         ssl_dir = tmp_path / "ssl"
         webroot_dir = tmp_path / "webroot"
@@ -428,7 +445,10 @@ class TestAcmeShCertificateServiceRenewCertificate:
 
         mock_output_handler.live_lines.side_effect = consume_generator
 
-        with patch("frappe_manager.ssl_manager.acmesh_certificate_service.stream_command_output", side_effect=mock_stream_output):
+        with patch(
+            "frappe_manager.ssl_manager.acmesh_certificate_service.stream_command_output",
+            side_effect=mock_stream_output,
+        ):
             service = AcmeShCertificateService(
                 ssl_service_dir=ssl_dir,
                 webroot_dir=webroot_dir,
@@ -548,7 +568,11 @@ class TestAcmeShCertificateServiceRemoveCertificate:
             assert result is False
 
     def test_remove_certificate_removes_directory_even_on_acmesh_failure(
-        self, mock_logger, tmp_path, mock_output_handler, mock_http_certificate,
+        self,
+        mock_logger,
+        tmp_path,
+        mock_output_handler,
+        mock_http_certificate,
     ):
         """Test that certificate directory is removed even if acme.sh fails."""
         ssl_dir = tmp_path / "ssl"
@@ -680,7 +704,9 @@ class TestAcmeShCertificateServiceCredentialCache:
         mock_output_handler.warning.assert_called_once()
         assert "Failed to clear cached credentials" in str(mock_output_handler.warning.call_args)
 
-    def test_generate_certificate_dns01_clears_cache(self, mock_logger, tmp_path, mock_output_handler, mock_dns_certificate):
+    def test_generate_certificate_dns01_clears_cache(
+        self, mock_logger, tmp_path, mock_output_handler, mock_dns_certificate
+    ):
         """Test that DNS-01 certificate generation clears credential cache."""
         ssl_dir = tmp_path / "ssl"
         webroot_dir = tmp_path / "webroot"
@@ -717,7 +743,9 @@ class TestAcmeShCertificateServiceCredentialCache:
                 updated_content = account_conf.read_text()
                 assert "SAVED_CF_Token=" not in updated_content
 
-    def test_renew_certificate_dns01_clears_cache(self, mock_logger, tmp_path, mock_output_handler, mock_dns_certificate):
+    def test_renew_certificate_dns01_clears_cache(
+        self, mock_logger, tmp_path, mock_output_handler, mock_dns_certificate
+    ):
         """Test that DNS-01 certificate renewal clears credential cache."""
         ssl_dir = tmp_path / "ssl"
         webroot_dir = tmp_path / "webroot"
@@ -758,7 +786,9 @@ class TestAcmeShCertificateServiceCredentialCache:
 class TestAcmeShCertificateServiceLetsEncryptServer:
     """Tests for Let's Encrypt server hardcoding."""
 
-    def test_generate_certificate_uses_letsencrypt_production_by_default(self, mock_logger, tmp_path, mock_output_handler, mock_http_certificate):
+    def test_generate_certificate_uses_letsencrypt_production_by_default(
+        self, mock_logger, tmp_path, mock_output_handler, mock_http_certificate
+    ):
         """Test that production Let's Encrypt server is used by default."""
         ssl_dir = tmp_path / "ssl"
         webroot_dir = tmp_path / "webroot"
@@ -789,7 +819,9 @@ class TestAcmeShCertificateServiceLetsEncryptServer:
             server_index = call_args.index("--server")
             assert call_args[server_index + 1] == LETSENCRYPT_PRODUCTION_SERVER
 
-    def test_generate_certificate_uses_letsencrypt_staging_with_env(self, mock_logger, tmp_path, mock_output_handler, mock_http_certificate, monkeypatch):
+    def test_generate_certificate_uses_letsencrypt_staging_with_env(
+        self, mock_logger, tmp_path, mock_output_handler, mock_http_certificate, monkeypatch
+    ):
         """Test that staging Let's Encrypt server is used when FM_LETSENCRYPT_STAGING is set."""
         monkeypatch.setenv("FM_LETSENCRYPT_STAGING", "1")
 
@@ -822,7 +854,9 @@ class TestAcmeShCertificateServiceLetsEncryptServer:
             server_index = call_args.index("--server")
             assert call_args[server_index + 1] == LETSENCRYPT_STAGING_SERVER
 
-    def test_renew_certificate_uses_letsencrypt_production_by_default(self, mock_logger, tmp_path, mock_output_handler, mock_http_certificate):
+    def test_renew_certificate_uses_letsencrypt_production_by_default(
+        self, mock_logger, tmp_path, mock_output_handler, mock_http_certificate
+    ):
         """Test that production Let's Encrypt server is used for renewal by default."""
         ssl_dir = tmp_path / "ssl"
         webroot_dir = tmp_path / "webroot"
@@ -856,7 +890,9 @@ class TestAcmeShCertificateServiceLetsEncryptServer:
             server_index = call_args.index("--server")
             assert call_args[server_index + 1] == LETSENCRYPT_PRODUCTION_SERVER
 
-    def test_renew_certificate_uses_letsencrypt_staging_with_env(self, mock_logger, tmp_path, mock_output_handler, mock_http_certificate, monkeypatch):
+    def test_renew_certificate_uses_letsencrypt_staging_with_env(
+        self, mock_logger, tmp_path, mock_output_handler, mock_http_certificate, monkeypatch
+    ):
         """Test that staging Let's Encrypt server is used for renewal when FM_LETSENCRYPT_STAGING is set."""
         monkeypatch.setenv("FM_LETSENCRYPT_STAGING", "1")
 

@@ -59,12 +59,12 @@ def test_forwards_use_uv_token_and_run_flag():
         [MagicMock(hooks=None)],
         output=MagicMock(),
         use_uv=False,
-        github_token="tok",  # noqa: S106
+        github_token="tok",
         use_run=False,
         detect_versions=False,
     )
 
     for c in am.install_apps.call_args_list:
         assert c.kwargs["use_uv"] is False
-        assert c.kwargs["github_token"] == "tok"  # noqa: S105
+        assert c.kwargs["github_token"] == "tok"
         assert c.kwargs["use_run"] is False

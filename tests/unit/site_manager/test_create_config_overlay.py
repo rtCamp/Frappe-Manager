@@ -55,7 +55,7 @@ def _build(
         apps=apps or [],
         environment=environment,
         developer_mode_status=developer_mode_status,
-        admin_pass="admin",  # noqa: S106
+        admin_pass="admin",
         alias_domains=alias_domains,
         github_token=None,
         python_version=None,

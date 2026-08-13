@@ -38,8 +38,8 @@ from frappe_manager.site_manager.modules.bench_site import BenchSiteManager
 SITE = "app.example.com"
 SCHEMA = "app_prod"
 EXTERNAL_HOST = "mydb.abc.rds.amazonaws.com"
-SITE_PASSWORD = "site-db-secret"  # noqa: S105
-GLOBAL_DB_ROOT_PASSWORD = "global-db-root-secret"  # noqa: S105
+SITE_PASSWORD = "site-db-secret"
+GLOBAL_DB_ROOT_PASSWORD = "global-db-root-secret"
 
 _BASE_TOML = f"""
 name = "{SITE}"
@@ -138,12 +138,12 @@ class _Harness:
         services.database_manager.database_server_info.password = GLOBAL_DB_ROOT_PASSWORD
         services.database_manager.database_server_info.host = "global-db"
         services.database_manager.database_server_info.port = 3306
-        site_manager._container_run = self.run  # type: ignore[method-assign]  # noqa: SLF001
-        site_manager._container_exec_argv = self.exec_argv  # type: ignore[method-assign]  # noqa: SLF001
+        site_manager._container_run = self.run  # type: ignore[method-assign]
+        site_manager._container_exec_argv = self.exec_argv  # type: ignore[method-assign]
         bench.site_manager = site_manager
 
         bench.app_manager.bench_cli_cmd = ["bench"]
-        bench.app_manager._container_run = self.run  # noqa: SLF001
+        bench.app_manager._container_run = self.run
         # Phase 6's first act; recorded as the command it stands for so the transcript assertions
         # catch it even if the call-tracking assertion is ever loosened.
         bench.app_manager.install_apps_to_site.side_effect = lambda *a, **kw: self.commands.append(
@@ -172,15 +172,15 @@ class _Harness:
             setattr(orchestrator, phase, self._stub(phase))
 
         # The two writing steps. Recorded rather than executed: being called at all is the failure.
-        orchestrator._phase6_install_apps = self._forbidden("_phase6_install_apps")  # noqa: SLF001
-        orchestrator._run_bench_migrate = self._forbidden("_run_bench_migrate")  # noqa: SLF001
+        orchestrator._phase6_install_apps = self._forbidden("_phase6_install_apps")
+        orchestrator._run_bench_migrate = self._forbidden("_run_bench_migrate")
 
         # `create_bench` funnels every exception here, which swallows it and cleans up. Re-raise so
         # a broken fake surfaces as a failure instead of a silently truncated pipeline.
         def _reraise(exception: Exception):
             raise exception
 
-        orchestrator._handle_creation_failure = _reraise  # type: ignore[method-assign]  # noqa: SLF001
+        orchestrator._handle_creation_failure = _reraise  # type: ignore[method-assign]
         return orchestrator
 
     def _stub(self, name: str):
@@ -249,7 +249,7 @@ def test_attach_never_reaches_a_writing_step(tmp_path, monkeypatch, _probe_says_
     orchestrator.create_bench()
 
     # The flow really was attach, so the assertions below are about the path under test.
-    assert orchestrator._external_flow is db_probe.Flow.attach  # noqa: SLF001
+    assert orchestrator._external_flow is db_probe.Flow.attach
     assert _probe_says_attach[0]["attach"] is True
     # …and the attach path really ran: Frappe's own make_site_dirs, which is what replaces new-site.
     assert "make_site_dirs" in harness.transcript
@@ -293,7 +293,7 @@ def test_global_db_create_still_calls_new_site_and_phase_six(tmp_path):
 
     orchestrator.create_bench()
 
-    assert orchestrator._external_flow is None  # no probe, no gate: the create fm has always run  # noqa: SLF001
+    assert orchestrator._external_flow is None  # no probe, no gate: the create fm has always run
     assert "new-site" in harness.transcript
     assert harness.forbidden == ["_phase6_install_apps"]
     assert harness.config.switch is None  # migrate is left at its default for a bench fm owns
@@ -317,7 +317,7 @@ def test_attach_finishes_the_create_instead_of_offering_to_tear_it_down(tmp_path
 
     orchestrator.create_bench()
 
-    assert orchestrator._external_flow is db_probe.Flow.attach  # noqa: SLF001
+    assert orchestrator._external_flow is db_probe.Flow.attach
     assert harness.bench.remove_bench.called is False
     assert harness.bench.info.called is True  # the completed-create path, same as any other create
 

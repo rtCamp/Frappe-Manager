@@ -24,7 +24,7 @@ def test_an_injected_handler_is_the_one_that_gets_written_to():
     assert orchestrator.output is handler
 
     # …and it really is the sink the phases use, not just an attribute that was stored.
-    orchestrator._skip_phase6_for_attach()  # noqa: SLF001
+    orchestrator._skip_phase6_for_attach()
 
     assert handler.change_head.called
     assert handler.print.called

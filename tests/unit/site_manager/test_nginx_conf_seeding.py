@@ -39,7 +39,7 @@ def _fake_image_copy():
     shape the helper ever asks for now that it stages into a scratch directory.
     """
 
-    def _copy(image, source, destination, docker):  # noqa: ARG001
+    def _copy(image, source, destination, docker):
         dest = Path(destination)
         assert not dest.exists(), "docker cp nests instead of merging when the target exists"
         for rel, body in IMAGE_FILES.items():
@@ -55,9 +55,7 @@ def _fake_image_copy():
 
 def test_seeding_merges_into_a_folder_fm_already_wrote_into(tmp_path, monkeypatch):
     """The regression: `custom/real-ip.conf` exists first, and the base config must still land."""
-    monkeypatch.setattr(
-        "frappe_manager.site_manager.modules.bench_docker.host_run_cp", _fake_image_copy()
-    )
+    monkeypatch.setattr("frappe_manager.site_manager.modules.bench_docker.host_run_cp", _fake_image_copy())
     conf = tmp_path / "configs" / "nginx" / "conf"
     (conf / "custom").mkdir(parents=True)
     (conf / "custom" / "real-ip.conf").write_text("set_real_ip_from 10.0.0.0/8;\n")
@@ -77,9 +75,7 @@ def test_seeding_merges_into_a_folder_fm_already_wrote_into(tmp_path, monkeypatc
 
 def test_seeding_never_overwrites_what_is_already_on_the_host(tmp_path, monkeypatch):
     """A bench that has been tuned by hand keeps its edits; seeding only fills gaps."""
-    monkeypatch.setattr(
-        "frappe_manager.site_manager.modules.bench_docker.host_run_cp", _fake_image_copy()
-    )
+    monkeypatch.setattr("frappe_manager.site_manager.modules.bench_docker.host_run_cp", _fake_image_copy())
     conf = tmp_path / "configs" / "nginx" / "conf"
     conf.mkdir(parents=True)
     (conf / "nginx.conf").write_text("# hand-tuned\n")
@@ -92,9 +88,7 @@ def test_seeding_never_overwrites_what_is_already_on_the_host(tmp_path, monkeypa
 
 def test_seeding_leaves_no_scratch_directory_behind(tmp_path, monkeypatch):
     """The staging directory is an implementation detail and must not survive."""
-    monkeypatch.setattr(
-        "frappe_manager.site_manager.modules.bench_docker.host_run_cp", _fake_image_copy()
-    )
+    monkeypatch.setattr("frappe_manager.site_manager.modules.bench_docker.host_run_cp", _fake_image_copy())
     conf = tmp_path / "configs" / "nginx" / "conf"
 
     _ops()._seed_nginx_conf(conf, "nginx:test")
@@ -110,9 +104,7 @@ def test_seeding_recreates_the_dangling_modules_symlink(tmp_path, monkeypatch):
     this failed on a real server: the create died on `.../conf/modules`. The link must be
     recreated as a link, not resolved.
     """
-    monkeypatch.setattr(
-        "frappe_manager.site_manager.modules.bench_docker.host_run_cp", _fake_image_copy()
-    )
+    monkeypatch.setattr("frappe_manager.site_manager.modules.bench_docker.host_run_cp", _fake_image_copy())
     conf = tmp_path / "configs" / "nginx" / "conf"
 
     _ops()._seed_nginx_conf(conf, "nginx:test")

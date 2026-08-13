@@ -90,9 +90,9 @@ class TestCreateTimeOnlyFieldsAreNeverSerialized:
     def _config(self, tmp_path) -> BenchConfig:
         bc = _import(tmp_path, _BASE)
         bc.db_password_generated = True
-        bc.db_password = "generated-secret"  # noqa: S105
+        bc.db_password = "generated-secret"
         bc.db_admin_user = "root"
-        bc.db_admin_password = "admin-secret"  # noqa: S105
+        bc.db_admin_password = "admin-secret"
         bc.attach_existing_site = True
         bc.encryption_key = "enc-key"
         return bc
@@ -101,7 +101,7 @@ class TestCreateTimeOnlyFieldsAreNeverSerialized:
         bc = self._config(tmp_path)
 
         assert bc.db_password_generated is True
-        assert bc.db_password == "generated-secret"  # noqa: S105
+        assert bc.db_password == "generated-secret"
         assert bc.attach_existing_site is True
 
     def test_model_dump_omits_create_time_only_fields(self, tmp_path):

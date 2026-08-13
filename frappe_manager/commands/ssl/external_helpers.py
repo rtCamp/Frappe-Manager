@@ -28,6 +28,61 @@ from .helpers import get_output_handler
 logger = get_logger(component="ssl_external")
 
 
+def _build_certificate_storage(services_manager) -> tuple[SSLStorageConfig, CertificateLinkManager]:
+    """Describe the global nginx-proxy SSL layout and the link manager that maintains it.
+
+    Every external-domain entrypoint (add / remove / renew / list) needs exactly this pair.
+    """
+    dirs = services_manager.proxy_storage.dirs
+    storage_config = SSLStorageConfig(
+        ssl_dir=dirs.ssl.host,
+        ssl_dir_container=dirs.ssl.container,
+        certs_dir=dirs.certs.host,
+        certs_dir_container=dirs.certs.container,
+        vhostd_dir=dirs.vhostd.host,
+        webroot_dir=dirs.html.host,  # For HTTP-01 challenge
+    )
+    return storage_config, CertificateLinkManager(storage_config)
+
+
+def _build_standalone_nginx(services_manager) -> StandaloneNginxConfigManager:
+    """Writer for standalone (non-bench) vhosts: only add and remove touch those configs."""
+    dirs = services_manager.proxy_storage.dirs
+    return StandaloneNginxConfigManager(
+        conf_dir=dirs.confd.host,
+        webroot_dir_container=dirs.html.container,
+        certs_dir_container=dirs.certs.container,
+    )
+
+
+def _build_certificate_manager(
+    certificates,
+    storage_config: SSLStorageConfig,
+    link_manager: CertificateLinkManager,
+    nginx_controller,
+    output,
+) -> SSLCertificateManager:
+    """Certificate manager for an external domain.
+
+    `certificates` is the only thing that varies: add starts empty and hands the cert to
+    add_certificate() afterwards, while remove and renew seed the manager with it.
+    `config_save_callback` is always None -- there is no bench config to write back to.
+    """
+
+    def certificate_service_factory(cert, storage_cfg, output_handler):
+        return create_certificate_service(cert, storage_cfg, output_handler)
+
+    return SSLCertificateManager(
+        certificates=certificates,
+        service_factory=certificate_service_factory,
+        link_manager=link_manager,
+        nginx_controller=nginx_controller,
+        storage_config=storage_config,
+        output_handler=output,
+        config_save_callback=None,
+    )
+
+
 def _add_external_certificate(
     ctx: typer.Context,
     domain: str,
@@ -153,25 +208,9 @@ def _add_external_certificate(
                     output.print("HTTP-01 challenge may fail if DNS is not configured correctly.", emoji_code="")
                     output.print(f"Make sure {domain} points to this server's IP address.", emoji_code="")
 
-        global_proxy_storage = services_manager.proxy_storage
-
-        storage_config = SSLStorageConfig(
-            ssl_dir=global_proxy_storage.dirs.ssl.host,
-            ssl_dir_container=global_proxy_storage.dirs.ssl.container,
-            certs_dir=global_proxy_storage.dirs.certs.host,
-            certs_dir_container=global_proxy_storage.dirs.certs.container,
-            vhostd_dir=global_proxy_storage.dirs.vhostd.host,
-            webroot_dir=global_proxy_storage.dirs.html.host,  # For HTTP-01 challenge
-        )
-
-        link_manager = CertificateLinkManager(storage_config)
+        storage_config, link_manager = _build_certificate_storage(services_manager)
         nginx_controller = services_manager.nginx_controller
-
-        standalone_nginx = StandaloneNginxConfigManager(
-            conf_dir=global_proxy_storage.dirs.confd.host,
-            webroot_dir_container=global_proxy_storage.dirs.html.container,
-            certs_dir_container=global_proxy_storage.dirs.certs.container,
-        )
+        standalone_nginx = _build_standalone_nginx(services_manager)
 
         # Step 1: Create HTTP-only nginx config (for ACME challenge)
         output.change_head(f"Setting up nginx configuration for {domain}")
@@ -183,18 +222,8 @@ def _add_external_certificate(
         nginx_controller.reload()
         output.print("Nginx reloaded successfully", emoji_code=":white_check_mark:")
 
-        def certificate_service_factory(cert, storage_cfg, output_handler):
-            return create_certificate_service(cert, storage_cfg, output_handler)
-
-        cert_manager = SSLCertificateManager(
-            certificates=[],  # Start with empty list, we'll add the cert next
-            service_factory=certificate_service_factory,
-            link_manager=link_manager,
-            nginx_controller=nginx_controller,
-            storage_config=storage_config,
-            output_handler=output,
-            config_save_callback=None,  # No bench config callback
-        )
+        # Start with an empty list; the cert is handed to add_certificate() next
+        cert_manager = _build_certificate_manager([], storage_config, link_manager, nginx_controller, output)
 
         # Step 3: Generate certificate (HTTP-01 challenge will now work)
         try:
@@ -316,38 +345,11 @@ def _remove_external_certificate(ctx: typer.Context, domain: str, yes: bool):
         if not cert:
             raise ValueError(f"Could not create certificate object for {domain}")
 
-        global_proxy_storage = services_manager.proxy_storage
-
-        storage_config = SSLStorageConfig(
-            ssl_dir=global_proxy_storage.dirs.ssl.host,
-            ssl_dir_container=global_proxy_storage.dirs.ssl.container,
-            certs_dir=global_proxy_storage.dirs.certs.host,
-            certs_dir_container=global_proxy_storage.dirs.certs.container,
-            vhostd_dir=global_proxy_storage.dirs.vhostd.host,
-            webroot_dir=global_proxy_storage.dirs.html.host,
-        )
-
-        link_manager = CertificateLinkManager(storage_config)
+        storage_config, link_manager = _build_certificate_storage(services_manager)
         nginx_controller = services_manager.nginx_controller
+        standalone_nginx = _build_standalone_nginx(services_manager)
 
-        standalone_nginx = StandaloneNginxConfigManager(
-            conf_dir=global_proxy_storage.dirs.confd.host,
-            webroot_dir_container=global_proxy_storage.dirs.html.container,
-            certs_dir_container=global_proxy_storage.dirs.certs.container,
-        )
-
-        def certificate_service_factory(cert, storage_cfg, output_handler):
-            return create_certificate_service(cert, storage_cfg, output_handler)
-
-        cert_manager = SSLCertificateManager(
-            certificates=[cert],
-            service_factory=certificate_service_factory,
-            link_manager=link_manager,
-            nginx_controller=nginx_controller,
-            storage_config=storage_config,
-            output_handler=output,
-            config_save_callback=None,
-        )
+        cert_manager = _build_certificate_manager([cert], storage_config, link_manager, nginx_controller, output)
 
         # Remove certificate (removes symlinks, vhost.d, and cert files)
         with spinner(output, f"Removing SSL certificate for {domain}"):
@@ -455,17 +457,7 @@ def _list_external_certificates(ctx: typer.Context):
         output.print("  fm ssl add --standalone <domain>", emoji_code="")
         return
 
-    global_proxy_storage = services_manager.proxy_storage
-    storage_config = SSLStorageConfig(
-        ssl_dir=global_proxy_storage.dirs.ssl.host,
-        ssl_dir_container=global_proxy_storage.dirs.ssl.container,
-        certs_dir=global_proxy_storage.dirs.certs.host,
-        certs_dir_container=global_proxy_storage.dirs.certs.container,
-        vhostd_dir=global_proxy_storage.dirs.vhostd.host,
-        webroot_dir=global_proxy_storage.dirs.html.host,
-    )
-
-    link_manager = CertificateLinkManager(storage_config)
+    _storage_config, link_manager = _build_certificate_storage(services_manager)
 
     table = Table(title="External Domains & SSL Certificates", show_header=True, header_style="fm.accent")
     table.add_column("Domain", style="fm.info")
@@ -539,32 +531,10 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool, 
         if not cert:
             raise ValueError(f"Could not create certificate object for {domain}")
 
-        global_proxy_storage = services_manager.proxy_storage
-
-        storage_config = SSLStorageConfig(
-            ssl_dir=global_proxy_storage.dirs.ssl.host,
-            ssl_dir_container=global_proxy_storage.dirs.ssl.container,
-            certs_dir=global_proxy_storage.dirs.certs.host,
-            certs_dir_container=global_proxy_storage.dirs.certs.container,
-            vhostd_dir=global_proxy_storage.dirs.vhostd.host,
-            webroot_dir=global_proxy_storage.dirs.html.host,
-        )
-
-        link_manager = CertificateLinkManager(storage_config)
+        storage_config, link_manager = _build_certificate_storage(services_manager)
         nginx_controller = services_manager.nginx_controller
 
-        def certificate_service_factory(cert, storage_cfg, output_handler):
-            return create_certificate_service(cert, storage_cfg, output_handler)
-
-        cert_manager = SSLCertificateManager(
-            certificates=[cert],
-            service_factory=certificate_service_factory,
-            link_manager=link_manager,
-            nginx_controller=nginx_controller,
-            storage_config=storage_config,
-            output_handler=output,
-            config_save_callback=None,
-        )
+        cert_manager = _build_certificate_manager([cert], storage_config, link_manager, nginx_controller, output)
 
         with spinner(output, f"Renewing certificate for {domain}"):
             cert_manager.renew_certificate(domain=domain, dry_run=dry_run, force=force)

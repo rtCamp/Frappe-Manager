@@ -47,7 +47,7 @@ def _make_workspace(root):
 def test_copy_keeps_code_venv_assets(tmp_path):
     src = _make_workspace(tmp_path / "bench")
     dest = tmp_path / "ctx" / "frappe-bench"
-    BakeManager._copy_workspace(src, dest)  # noqa: SLF001
+    BakeManager._copy_workspace(src, dest)
 
     assert (dest / "apps" / "erpnext" / "hooks.py").read_text() == "app_name = 'erpnext'"
     assert (dest / "env" / "bin" / "python").exists()
@@ -61,7 +61,7 @@ def test_copy_keeps_code_venv_assets(tmp_path):
 def test_copy_excludes_dev_and_site_state(tmp_path):
     src = _make_workspace(tmp_path / "bench")
     dest = tmp_path / "ctx" / "frappe-bench"
-    BakeManager._copy_workspace(src, dest)  # noqa: SLF001
+    BakeManager._copy_workspace(src, dest)
 
     # per-site data (with secrets) dropped
     assert not (dest / "sites" / "fm.localhost").exists()
@@ -79,7 +79,7 @@ def test_copy_reseeds_appstxt_when_missing(tmp_path):
     (src / "sites").mkdir(parents=True)
     (src / "apps").mkdir()
     dest = tmp_path / "ctx" / "frappe-bench"
-    BakeManager._copy_workspace(src, dest)  # noqa: SLF001
+    BakeManager._copy_workspace(src, dest)
     assert (dest / "sites" / "apps.txt").read_text() == "frappe\n"
     assert (dest / "sites" / "common_site_config.json").read_text() == "{}"
 
@@ -97,7 +97,7 @@ def test_copy_never_dies_on_site_state_it_cannot_remove(tmp_path):
     (src / "sites" / "linked.localhost").symlink_to(shared, target_is_directory=True)
 
     dest = tmp_path / "ctx" / "frappe-bench"
-    BakeManager._copy_workspace(src, dest)  # noqa: SLF001  -- must not raise
+    BakeManager._copy_workspace(src, dest)
 
     # The steps that come AFTER the cleanup loop still ran, i.e. it did not abort partway.
     assert (dest / "sites" / "common_site_config.json").read_text() == "{}"

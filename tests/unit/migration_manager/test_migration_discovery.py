@@ -137,7 +137,7 @@ class TestShouldIncludeMigrationBoundaries:
     def test_range_boundaries(self, discovery, migration_version, from_version, to_version, expected):
         migration = SimpleNamespace(version=Version(migration_version))
 
-        result = discovery._should_include_migration(  # noqa: SLF001
+        result = discovery._should_include_migration(
             migration,
             Version(from_version),
             Version(to_version),
