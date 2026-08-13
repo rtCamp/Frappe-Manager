@@ -234,6 +234,56 @@ port = 8000
         assert not (env_dir / "new_marker.txt").exists(), "New env should be removed"
         assert not env_backup_path.exists(), "Backup should be moved back (not exist)"
 
+    def test_env_backup_skipped_when_env_path_is_a_file(self, migration, mock_bench, tmp_path):
+        """env/ must be moved aside ONLY when it is a real directory.
+
+        A stray non-directory at the env/ path is not a virtualenv, so the rollback
+        backup must refuse it and leave it exactly where it is. Moving it would both
+        destroy the file's location and plant a bogus env.backup.migration that
+        undo_bench_migrate would later restore as env/.
+        """
+        frappe_bench = mock_bench.path / "workspace" / "frappe-bench"
+        frappe_bench.mkdir(parents=True, exist_ok=True)
+        env_path = frappe_bench / "env"
+        env_path.write_text("not a virtualenv")
+        migration.output = Mock()
+
+        migration._backup_env_for_rollback(mock_bench)  # noqa: SLF001
+
+        env_backup_path = frappe_bench / "env.backup.migration"
+        assert env_path.is_file(), "A non-directory env/ must be left untouched"
+        assert env_path.read_text() == "not a virtualenv"
+        assert not env_backup_path.exists(), "No env backup may be created from a non-directory"
+        migration.output.print.assert_not_called()
+
+    def test_env_backup_skipped_when_env_missing(self, migration, mock_bench, tmp_path):
+        """No env/ at all => nothing to back up, no backup directory created."""
+        frappe_bench = mock_bench.path / "workspace" / "frappe-bench"
+        frappe_bench.mkdir(parents=True, exist_ok=True)
+        migration.output = Mock()
+
+        migration._backup_env_for_rollback(mock_bench)  # noqa: SLF001
+
+        assert not (frappe_bench / "env.backup.migration").exists()
+        migration.output.print.assert_not_called()
+
+    def test_env_backup_replaces_stale_backup_from_prior_attempt(self, migration, mock_bench, tmp_path):
+        """A leftover env.backup.migration is replaced, not merged."""
+        frappe_bench = mock_bench.path / "workspace" / "frappe-bench"
+        env_dir = frappe_bench / "env"
+        env_dir.mkdir(parents=True, exist_ok=True)
+        (env_dir / "current.txt").write_text("current")
+
+        stale_backup = frappe_bench / "env.backup.migration"
+        stale_backup.mkdir(parents=True, exist_ok=True)
+        (stale_backup / "stale.txt").write_text("stale")
+
+        migration._backup_env_for_rollback(mock_bench)  # noqa: SLF001
+
+        assert (stale_backup / "current.txt").exists(), "Backup must hold the current env contents"
+        assert not (stale_backup / "stale.txt").exists(), "Stale backup contents must be discarded"
+        assert not env_dir.exists()
+
 
 class TestBackupManagerNewFileTracking:
     """Tests for BackupManager.track_new_file and cleanup_new_files."""

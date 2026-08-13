@@ -5,8 +5,9 @@ from typing import Annotated
 import typer
 from typer_examples import example
 
+from frappe_manager.commands.arguments import StandaloneBenchNameArgument
 from frappe_manager.output_manager import temporary_stop
-from frappe_manager.utils.callbacks import prompt_for_bench_selection, sites_autocompletion_callback
+from frappe_manager.utils.callbacks import prompt_for_bench_selection
 
 from .bench_helpers import _remove_bench_certificate
 from .external_helpers import _remove_external_certificate
@@ -32,13 +33,7 @@ from .helpers import get_output_handler
 )
 def remove_certificate(
     ctx: typer.Context,
-    benchname: Annotated[
-        str | None,
-        typer.Argument(
-            help="Name of the bench (omit for standalone mode).",
-            autocompletion=sites_autocompletion_callback,
-        ),
-    ] = None,
+    benchname: StandaloneBenchNameArgument = None,
     domain: Annotated[str | None, typer.Argument(help="Domain name of the certificate to remove")] = None,
     yes: Annotated[
         bool,

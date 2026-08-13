@@ -299,6 +299,29 @@ def test_global_db_create_still_calls_new_site_and_phase_six(tmp_path):
     assert harness.config.switch is None  # migrate is left at its default for a bench fm owns
 
 
+@pytest.mark.usefixtures("_probe_says_attach")
+@pytest.mark.parametrize("runtime", ["mount", "image"])
+def test_attach_finishes_the_create_instead_of_offering_to_tear_it_down(tmp_path, monkeypatch, runtime):
+    """Skipping phase 6 is a success, and `create_bench` has to be told so.
+
+    `_skip_phase6_for_attach` returns in place of phase 6's "apps installed" flag, and a false
+    flag is how the pipeline says the create failed: it then calls `remove_bench`. On the attach
+    path that is fm offering to delete a bench that is complete and healthy -- and to do it over a
+    phase that was deliberately never run -- while pointed at a customer's live database.
+    """
+    if runtime == "image":
+        _fake_the_app_image(monkeypatch)
+
+    harness = _Harness(_config(tmp_path, external=True, runtime=runtime), tmp_path)
+    orchestrator = harness.orchestrator()
+
+    orchestrator.create_bench()
+
+    assert orchestrator._external_flow is db_probe.Flow.attach  # noqa: SLF001
+    assert harness.bench.remove_bench.called is False
+    assert harness.bench.info.called is True  # the completed-create path, same as any other create
+
+
 # --------------------------------------------------------------------------- layer 2: fingerprint
 
 # `--skip-dump-date` is NOT optional and must not be "simplified" away: the dump footer carries a

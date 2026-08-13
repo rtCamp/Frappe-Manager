@@ -12,6 +12,7 @@ Tests cover:
 from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
+from ruamel.yaml.comments import CommentedMap as OrderedDict
 
 from frappe_manager.docker import ComposeFile
 
@@ -678,10 +679,11 @@ class TestUpdateHelperMethods:
             with patch("frappe_manager.docker.compose_file.yaml.load", return_value=sample_yml_content):
                 cf = ComposeFile(temp_compose_yml, auto_save=False)
 
-                cf.update_env("frappe", "VAR1", "value1", auto_save=False) \
-                  .update_env("frappe", "VAR2", "value2", auto_save=False) \
-                  .update_label("frappe", "label1", "val1", auto_save=False) \
-                  .update_image_tag("frappe", "v14", auto_save=False)
+                cf.update_env("frappe", "VAR1", "value1", auto_save=False).update_env(
+                    "frappe", "VAR2", "value2", auto_save=False
+                ).update_label("frappe", "label1", "val1", auto_save=False).update_image_tag(
+                    "frappe", "v14", auto_save=False
+                )
 
                 assert cf.yml["services"]["frappe"]["environment"]["VAR1"] == "value1"
                 assert cf.yml["services"]["frappe"]["environment"]["VAR2"] == "value2"
@@ -825,3 +827,68 @@ class TestServiceProfileDisabled:
         cf = self._make_cf(temp_compose_yml, sample_yml_content)
         services = cf.get_services_list(exclude_disabled=True)
         assert services == list(sample_yml_content["services"].keys())
+
+
+class TestSetEnvsAppend:
+    """`set_envs(..., append=True)` MERGES onto the existing environment; append=False replaces it.
+
+    The merge is gated on the value being a plain ``dict`` (``type(env) == dict``), because a
+    ruamel ``CommentedMap`` read back out of the yaml carries anchors/comments that must not be
+    folded into a caller-supplied mapping. Both halves of that gate are pinned here: losing the
+    merge silently drops every previously configured variable, which is how a bench ends up
+    booting without its DB credentials.
+    """
+
+    @pytest.fixture
+    def cf(self, tmp_path):
+        """Real compose file on disk, so `environment` is the ruamel type production sees."""
+        path = tmp_path / "docker-compose.yml"
+        path.write_text(
+            "version: '3'\n"
+            "services:\n"
+            "  frappe:\n"
+            "    image: frappe:latest\n"
+            "    environment:\n"
+            "      DB_HOST: mariadb\n"
+            "      DB_NAME: sitedb\n",
+        )
+        return ComposeFile(loadfile=path)
+
+    def test_append_dict_merges_with_existing_envs(self, cf):
+        cf.set_envs("frappe", {"REDIS_CACHE": "redis-cache:6379"}, append=True)
+
+        assert dict(cf.get_envs("frappe")) == {
+            "DB_HOST": "mariadb",
+            "DB_NAME": "sitedb",
+            "REDIS_CACHE": "redis-cache:6379",
+        }
+
+    def test_append_dict_overrides_only_the_keys_supplied(self, cf):
+        cf.set_envs("frappe", {"DB_HOST": "external-db"}, append=True)
+
+        envs = dict(cf.get_envs("frappe"))
+        assert envs["DB_HOST"] == "external-db"
+        assert envs["DB_NAME"] == "sitedb"
+
+    def test_append_false_replaces_existing_envs(self, cf):
+        cf.set_envs("frappe", {"REDIS_CACHE": "redis-cache:6379"})
+
+        assert dict(cf.get_envs("frappe")) == {"REDIS_CACHE": "redis-cache:6379"}
+
+    def test_append_of_non_plain_dict_replaces_instead_of_merging(self, cf):
+        """A CommentedMap is not `type(env) == dict`, so the merge is skipped even with append=True.
+
+        Pinned as-is (see class docstring): a subclass of dict does NOT append today.
+        """
+        cf.set_envs("frappe", OrderedDict({"REDIS_CACHE": "redis-cache:6379"}), append=True)
+
+        assert dict(cf.get_envs("frappe")) == {"REDIS_CACHE": "redis-cache:6379"}
+
+    def test_append_onto_service_without_environment_key(self, tmp_path):
+        path = tmp_path / "docker-compose.yml"
+        path.write_text("version: '3'\nservices:\n  frappe:\n    image: frappe:latest\n")
+        cf = ComposeFile(loadfile=path)
+
+        cf.set_envs("frappe", {"DB_HOST": "mariadb"}, append=True)
+
+        assert dict(cf.get_envs("frappe")) == {"DB_HOST": "mariadb"}

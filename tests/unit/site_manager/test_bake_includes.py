@@ -76,3 +76,21 @@ def test_parent_escape_dest_rejected(tmp_path):
     fb.mkdir(parents=True)
     with pytest.raises(BakeError):
         _manager(tmp_path)._apply_includes(fb, [f"{src}:../../escape"])  # noqa: SLF001
+
+
+def test_include_dest_creates_the_whole_missing_parent_chain(tmp_path):
+    """A dest can point deeper than anything the build context holds yet.
+
+    Dropping a patch into `apps/<app>/<app>/patches/<version>/` is the ordinary use of
+    `--include`, and none of those levels exist in a context populated from an image or a bare
+    workspace, so the entire parent chain has to be created -- not just one missing level.
+    """
+    src = tmp_path / "fix_stock_ledger.py"
+    src.write_text("def execute():\n    pass\n")
+    fb = tmp_path / "ctx" / "frappe-bench"
+    fb.mkdir(parents=True)
+
+    dest_rel = "apps/erpnext/erpnext/patches/v15_0/fix_stock_ledger.py"
+    _manager(tmp_path)._apply_includes(fb, [f"{src}:{dest_rel}"])  # noqa: SLF001
+
+    assert (fb / dest_rel).read_text() == "def execute():\n    pass\n"

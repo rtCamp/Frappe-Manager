@@ -6,13 +6,20 @@ These tests verify that the decorator correctly:
 - Converts parameters to docker CLI options
 - Manages the 'stream' parameter
 - Executes commands correctly
+- Picks the AUTO-STREAM branch only when the caller left `stream` unset: with an output
+  handler and no explicit `stream=`, the raw (source, line) iterator must be tee'd so the
+  lines are displayed live AND still returned as a materialized SubprocessOutput. An
+  explicit `stream=True` is the caller taking ownership of the iterator, so the decorator
+  must hand it back untouched and never display it itself.
 """
 
+from typing import ClassVar
 from unittest.mock import patch
 
 import pytest
 
 from frappe_manager.docker.docker_compose import DockerComposeWrapper, docker_command
+from frappe_manager.docker.subprocess_output import SubprocessOutput
 
 
 class TestDockerCommandDecorator:
@@ -20,6 +27,7 @@ class TestDockerCommandDecorator:
 
     def test_decorator_basic_usage(self):
         """Test that decorator can be applied to a method"""
+
         @docker_command("test")
         def test_method(self):
             pass
@@ -215,6 +223,97 @@ class TestDockerCommandDecorator:
             assert "ps" in called_cmd
             # Should not have any service name after 'ps'
             assert called_cmd[-1] == "ps"
+
+
+class _RecordingOutput:
+    """Minimal OutputHandler stand-in that records live_lines() and drains its iterator."""
+
+    should_stream_docker = True
+
+    def __init__(self):
+        self.live_lines_kwargs: list[dict] = []
+        self.displayed: list[tuple[str, bytes]] = []
+
+    def live_lines(self, iterator, **kwargs):
+        self.live_lines_kwargs.append(kwargs)
+        self.displayed.extend(iterator)
+
+
+class _StreamWrapper:
+    docker_compose_cmd: ClassVar[list[str]] = ["docker", "compose", "-f", "test.yml"]
+
+    def __init__(self, output):
+        self.output = output
+
+
+@docker_command("up")
+def _up(self, detach: bool = True, stream: bool | None = None):
+    pass
+
+
+DOCKER_LINES = [("stdout", b"creating\n"), ("stderr", b"warn\n"), ("exit_code", b"0")]
+
+
+class TestAutoStreamingBranch:
+    """`self.output and stream_param is None` decides tee-and-materialize vs. hand back the iterator."""
+
+    @pytest.mark.timeout(15)
+    def test_unset_stream_tees_to_live_lines_and_returns_subprocess_output(self):
+        output = _RecordingOutput()
+        wrapper = _StreamWrapper(output)
+
+        with patch("frappe_manager.docker.docker_compose.run_command_with_exit_code") as mock_run:
+            mock_run.return_value = iter(DOCKER_LINES)
+            result = _up(wrapper)
+
+        # The handler decided to stream, so the subprocess was asked for a live iterator...
+        assert mock_run.call_args[1]["stream"] is True
+        # ...it was displayed live...
+        assert len(output.live_lines_kwargs) == 1
+        assert output.live_lines_kwargs[0]["padding"] == (0, 0, 0, 2)
+        assert output.displayed == DOCKER_LINES
+        # ...and the caller still got a fully materialized result, not an iterator.
+        assert isinstance(result, SubprocessOutput)
+        assert result.stdout == ["creating\n"]
+        assert result.stderr == ["warn\n"]
+        assert result.exit_code == 0
+
+    @pytest.mark.timeout(15)
+    def test_explicit_stream_true_returns_iterator_untouched(self):
+        output = _RecordingOutput()
+        wrapper = _StreamWrapper(output)
+
+        with patch("frappe_manager.docker.docker_compose.run_command_with_exit_code") as mock_run:
+            mock_run.return_value = iter(DOCKER_LINES)
+            result = _up(wrapper, stream=True)
+
+        # The caller owns the iterator: nothing may consume or display it behind their back.
+        assert not output.live_lines_kwargs
+        assert not output.displayed
+        assert not isinstance(result, SubprocessOutput)
+        assert list(result) == DOCKER_LINES
+
+    @pytest.mark.timeout(15)
+    def test_explicit_stream_true_without_output_handler_returns_iterator(self):
+        wrapper = _StreamWrapper(None)
+
+        with patch("frappe_manager.docker.docker_compose.run_command_with_exit_code") as mock_run:
+            mock_run.return_value = iter(DOCKER_LINES)
+            result = _up(wrapper, stream=True)
+
+        assert not isinstance(result, SubprocessOutput)
+        assert list(result) == DOCKER_LINES
+
+    @pytest.mark.timeout(15)
+    def test_unset_stream_without_output_handler_does_not_stream(self):
+        wrapper = _StreamWrapper(None)
+
+        with patch("frappe_manager.docker.docker_compose.run_command_with_exit_code") as mock_run:
+            mock_run.return_value = SubprocessOutput([], [], [], 0)
+            result = _up(wrapper)
+
+        assert mock_run.call_args[1]["stream"] is False
+        assert result is mock_run.return_value
 
 
 class TestDecoratorIntegrationWithDockerCompose:

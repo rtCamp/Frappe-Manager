@@ -6,12 +6,13 @@ import typer
 from typer_examples import example
 
 from frappe_manager import CLI_BENCHES_DIRECTORY
+from frappe_manager.commands.arguments import StandaloneBenchNameArgument
 from frappe_manager.output_manager import spinner, temporary_stop
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.exceptions import BenchSSLCertificateNotIssued
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotDueForRenewalError
-from frappe_manager.utils.callbacks import prompt_for_bench_selection, sites_autocompletion_callback
+from frappe_manager.utils.callbacks import prompt_for_bench_selection
 
 from .external_helpers import _renew_all_external_certificates, _renew_external_certificate
 from .helpers import get_output_handler
@@ -60,13 +61,7 @@ install(ssl_renew_command)
 )
 def renew(
     ctx: typer.Context,
-    benchname: Annotated[
-        str | None,
-        typer.Argument(
-            help="Name of the bench (omit for standalone mode).",
-            autocompletion=sites_autocompletion_callback,
-        ),
-    ] = None,
+    benchname: StandaloneBenchNameArgument = None,
     domain: Annotated[
         str | None,
         typer.Argument(help="Specific domain to renew. If omitted, renews all certificates for the bench/standalone."),

@@ -104,3 +104,22 @@ class TestSplitConfigStaleCleanup:
         supervisor._write_split_configs(self._parsed(["program:frappe-bench-frappe-web"]), tmp_path)  # noqa: SLF001
 
         assert schedule.exists()
+
+    def test_a_directive_carrying_no_value_survives_the_split(self, supervisor, tmp_path):
+        """The split rebuilds every section into a fresh parser, so that parser has to accept
+        whatever the rendered conf parsed into.
+
+        `setup_supervisor` reads the rendered supervisor.conf with `allow_no_value`, which turns a
+        bare directive into an option whose value is None. A parser that does not allow that
+        rejects the value outright (TypeError: option values must be strings) and the whole
+        create fails while writing the supervisor confs -- for a directive it was handed, not one
+        it invented.
+        """
+        parsed = configparser.ConfigParser(allow_no_value=True, strict=False, interpolation=None)
+        parsed.read_string("[program:frappe-bench-frappe-web]\ncommand = true\nstopasgroup\n")
+
+        supervisor._write_split_configs(parsed, tmp_path)  # noqa: SLF001
+
+        body = (tmp_path / "web.fm.supervisor.conf").read_text()
+        assert "stopasgroup" in body
+        assert "command = true" in body

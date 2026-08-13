@@ -5,9 +5,10 @@ from typing import Annotated
 import typer
 from typer_examples import example
 
+from frappe_manager.commands.arguments import StandaloneBenchNameArgument
 from frappe_manager.output_manager import temporary_stop
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
-from frappe_manager.utils.callbacks import prompt_for_bench_selection, sites_autocompletion_callback
+from frappe_manager.utils.callbacks import prompt_for_bench_selection
 
 from .bench_helpers import _add_bench_certificate
 from .external_helpers import _add_external_certificate
@@ -45,13 +46,7 @@ from .helpers import get_output_handler
 )
 def add_certificate(
     ctx: typer.Context,
-    benchname: Annotated[
-        str | None,
-        typer.Argument(
-            help="Name of the bench (omit for standalone mode).",
-            autocompletion=sites_autocompletion_callback,
-        ),
-    ] = None,
+    benchname: StandaloneBenchNameArgument = None,
     domain: Annotated[str | None, typer.Argument(help="Domain name for the certificate")] = None,
     challenge: Annotated[
         LETSENCRYPT_PREFERRED_CHALLENGE,

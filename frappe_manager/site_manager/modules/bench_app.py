@@ -12,7 +12,7 @@ import os
 import shlex
 from collections.abc import Iterator
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 from frappe_manager.docker import DOCKER_LINE_NOISE, DockerClient, DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
@@ -1043,63 +1043,36 @@ fi
                     workdir=workdir,
                     env=exec_env,
                 )
+
+            # The two transports disagree about where the working directory goes:
+            # ``run`` starts a fresh container at the image's own workdir, so the
+            # ``cd`` has to be part of the shell string; ``exec`` joins a running
+            # container and takes ``workdir``/``user`` as compose options.
             if use_run:
-                wrapped_command = f"cd {workdir} && {command}"
-                run_command = f"/bin/bash -c '{wrapped_command}'"
-                if capture_output:
-                    output = cast(
-                        "SubprocessOutput",
-                        self.docker_client.compose.run(
-                            service=service,
-                            command=run_command,
-                            rm=True,
-                            stream=False,
-                            entrypoint="/exec-entrypoint.sh",
-                            env=env_options,
-                        ),
-                    )
-                    output = self._filter_docker_warnings(output)
-                    return output
-                output = cast(
-                    "Iterator[tuple[str, bytes]]",
-                    self.docker_client.compose.run(
-                        service=service,
-                        command=run_command,
-                        rm=True,
-                        entrypoint="/exec-entrypoint.sh",
-                        env=env_options,
-                        stream=True,
-                    ),
-                )
-                self.output.live_lines(output, line_filters=DOCKER_LINE_NOISE)
+                transport = self.docker_client.compose.run
+                call_kwargs: dict[str, Any] = {
+                    "service": service,
+                    "command": f"/bin/bash -c 'cd {workdir} && {command}'",
+                    "rm": True,
+                    "entrypoint": "/exec-entrypoint.sh",
+                    "env": env_options,
+                }
             else:
-                exec_command = f"/bin/bash -c '{command}'"
-                if capture_output:
-                    output = cast(
-                        "SubprocessOutput",
-                        self.docker_client.compose.exec(
-                            service=service,
-                            command=exec_command,
-                            user=user,
-                            workdir=workdir,
-                            env=env_options,
-                            stream=False,
-                        ),
-                    )
-                    output = self._filter_docker_warnings(output)
-                    return output
-                output = cast(
-                    "Iterator[tuple[str, bytes]]",
-                    self.docker_client.compose.exec(
-                        service=service,
-                        command=exec_command,
-                        workdir=workdir,
-                        user=user,
-                        env=env_options,
-                        stream=True,
-                    ),
-                )
-                self.output.live_lines(output, line_filters=DOCKER_LINE_NOISE)
+                transport = self.docker_client.compose.exec
+                call_kwargs = {
+                    "service": service,
+                    "command": f"/bin/bash -c '{command}'",
+                    "user": user,
+                    "workdir": workdir,
+                    "env": env_options,
+                }
+
+            if capture_output:
+                captured = cast("SubprocessOutput", transport(**call_kwargs, stream=False))
+                return self._filter_docker_warnings(captured)
+
+            streamed = cast("Iterator[tuple[str, bytes]]", transport(**call_kwargs, stream=True))
+            self.output.live_lines(streamed, line_filters=DOCKER_LINE_NOISE)
 
         except DockerException as e:
             if raise_exception_obj:

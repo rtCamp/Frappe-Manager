@@ -3,8 +3,9 @@ import secrets
 import shutil
 import sys
 import uuid
+from collections.abc import Callable
 from pathlib import Path
-from typing import Annotated, List, Optional, cast
+from typing import Annotated, Any, List, Optional, cast
 
 import typer
 from typer_examples import install
@@ -101,6 +102,95 @@ def check_bench_migration_required(bench_name: str | None) -> None:
         output.print("Bench migration updates configuration and applies necessary changes.\n", emoji_code="")
         output.print(f"Run: [fm.info]fm migrate {bench_name}[/fm.info]\n", emoji_code="")
         raise typer.Exit(0)
+
+
+def _prompt_and_run_migration(
+    output: OutputHandler,
+    fm_config_manager: FMConfigManager,
+    *,
+    warning: str,
+    detail: str,
+    detail_emoji: str,
+    prompt: str,
+    choices: list[dict[str, str]],
+    required_flag: str,
+    start_notice: str,
+    start_emoji: str,
+    executor_kwargs: dict[str, Any],
+    failure_error: str,
+    failure_hint: str,
+    record_version: Callable[[], None],
+    success_notice: str,
+    skip_error: str,
+    skip_hint: str,
+    skip_warning: str | None = None,
+    skip_note: str | None = None,
+) -> None:
+    """
+    Warn about a pending migration, ask the user, then either run it or refuse the command.
+
+    Serves both migration gates in ``app_callback``: the fm infrastructure gate and the bench
+    gate (which runs either nested after a successful infrastructure update, or standalone when
+    the infrastructure is already current).
+
+    The order of side effects is part of the contract: warn -> detail -> prompt_ask -> (on
+    "update") start notice -> build ``MigrationExecutor`` -> ``execute()`` *inside*
+    ``temporary_stop(output)`` -> record the new version *only* after a successful execute ->
+    success notice. A falsy execute result, or any answer other than "update", refuses the
+    command with ``typer.Exit(1)``.
+
+    Every parameter exists because the call sites genuinely differ; do not re-inline this:
+    the wording and emoji placement (infra puts its emoji in the message and indents the
+    detail line, bench passes the emoji separately), the executor arguments
+    (``migrate_fm_infrastructure`` vs ``target_benches``), where the new version is recorded
+    (``fm_config_manager.set_system_migration_version`` + ``export_to_toml`` vs
+    ``set_bench_migration_version(bench_path, ...)`` -- hence the ``record_version`` callback),
+    and the refusal text: the bench gate emits an extra "skipped"/"may not work" notice
+    (``skip_warning`` / ``skip_note``) that the infrastructure gate does not.
+    """
+    output.warning(warning)
+    output.print(detail, emoji_code=detail_emoji)
+    output.print("", emoji_code="")
+
+    choice = output.prompt_ask(
+        prompt=prompt,
+        choices=choices,
+        default="update",
+        required_flag=required_flag,
+    )
+
+    if choice == "update":
+        output.print(start_notice, emoji_code=start_emoji)
+
+        migrations = MigrationExecutor(
+            fm_config_manager,
+            **executor_kwargs,
+            output_handler=output,
+        )
+
+        with temporary_stop(output):
+            migration_status = migrations.execute()
+
+        if not migration_status:
+            output.display_error(failure_error)
+            output.print(failure_hint, emoji_code="")
+            raise typer.Exit(1)
+
+        record_version()
+        output.print(success_notice, emoji_code="✅ ")
+        return
+
+    if skip_warning is not None:
+        output.print("", emoji_code="")
+        output.warning(skip_warning)
+
+    if skip_note is not None:
+        output.print(skip_note, emoji_code="")
+        output.print("", emoji_code="")
+
+    output.display_error(skip_error)
+    output.print(skip_hint, emoji_code="")
+    raise typer.Exit(1)
 
 
 # Create main Typer app
@@ -311,149 +401,77 @@ def app_callback(
             if should_check_migration:
                 output = get_global_output_handler()
 
-                # Scenario 1: Infra needs migration
+                # Scenario 1: Infra needs migration. The gate either updates cleanly and falls
+                # through, or raises typer.Exit(1) -- so the bench gate below still runs only
+                # after a successful infra update, exactly as when it was nested inside it.
                 if infra_needs_migration:
-                    output.warning(
-                        f"FM infrastructure needs update: v{fm_infrastructure_version} -> v{current_version}",
-                    )
-                    output.print("This updates CLI config and global services", emoji_code="  ")
-                    output.print("", emoji_code="")
 
-                    infra_choice = output.prompt_ask(
+                    def record_infra_version() -> None:
+                        fm_config_manager.set_system_migration_version(current_version)
+                        fm_config_manager.export_to_toml()
+
+                    _prompt_and_run_migration(
+                        output,
+                        fm_config_manager,
+                        warning=f"FM infrastructure needs update: v{fm_infrastructure_version} -> v{current_version}",
+                        detail="This updates CLI config and global services",
+                        detail_emoji="  ",
                         prompt="How would you like to proceed?",
                         choices=[
                             {"name": "Update now (recommended)", "value": "update"},
                             {"name": "Update later (run 'fm migrate' when ready)", "value": "skip"},
                         ],
-                        default="update",
                         required_flag="'fm migrate' (run migration explicitly)",
+                        start_notice="\n🔄 Updating FM infrastructure...\n",
+                        start_emoji="",
+                        executor_kwargs={
+                            "migrate_fm_infrastructure": True,
+                            "auto_proceed": True,
+                            "on_failure": "rollback",
+                        },
+                        failure_error="FM infrastructure update failed",
+                        failure_hint="Please run 'fm migrate' manually to fix.",
+                        record_version=record_infra_version,
+                        success_notice=f"FM infrastructure updated to v{current_version}\n",
+                        skip_error="Cannot proceed - FM infrastructure migration required",
+                        skip_hint="Run 'fm migrate' when ready",
                     )
 
-                    if infra_choice == "update":
-                        output.print("\n🔄 Updating FM infrastructure...\n", emoji_code="")
+                # Scenario 2: Bench needs migration -- nested after the infra update above, or
+                # standalone when the infra was already up-to-date.
+                if bench_needs_migration_flag and bench_arg and bench_version:
 
-                        migrations = MigrationExecutor(
-                            fm_config_manager,
-                            migrate_fm_infrastructure=True,
-                            auto_proceed=True,
-                            on_failure="rollback",
-                            output_handler=output,
-                        )
+                    def record_bench_version() -> None:
+                        set_bench_migration_version(bench_path, current_version)  # type: ignore[arg-type]
 
-                        with temporary_stop(output):
-                            migration_status = migrations.execute()
-
-                        if not migration_status:
-                            output.display_error("FM infrastructure update failed")
-                            output.print("Please run 'fm migrate' manually to fix.", emoji_code="")
-                            raise typer.Exit(1)
-
-                        fm_config_manager.set_system_migration_version(current_version)
-                        fm_config_manager.export_to_toml()
-
-                        output.print(f"FM infrastructure updated to v{current_version}\n", emoji_code="✅ ")
-
-                        # Now check bench migration if bench arg present
-                        if bench_needs_migration_flag and bench_arg and bench_version:
-                            output.warning(
-                                f"Bench '{bench_arg}' needs migration: v{bench_version} -> v{current_version}",
-                            )
-                            output.print("This may modify bench configuration and services.", emoji_code="")
-                            output.print("", emoji_code="")
-
-                            bench_choice = output.prompt_ask(
-                                prompt=f"Migrate bench '{bench_arg}' now?",
-                                choices=[
-                                    {"name": "Update now", "value": "update"},
-                                    {
-                                        "name": f"Update later (run 'fm migrate {bench_arg}' when ready)",
-                                        "value": "skip",
-                                    },
-                                ],
-                                default="update",
-                                required_flag=f"'fm migrate {bench_arg}' (run migration explicitly)",
-                            )
-
-                            if bench_choice == "update":
-                                output.print(f"\nMigrating bench '{bench_arg}'...\n", emoji_code="🔄 ")
-
-                                bench_migrations = MigrationExecutor(
-                                    fm_config_manager,
-                                    target_benches=[bench_arg],
-                                    auto_proceed=True,
-                                    on_failure="rollback",
-                                    output_handler=output,
-                                )
-
-                                with temporary_stop(output):
-                                    bench_status = bench_migrations.execute()
-
-                                if not bench_status:
-                                    output.display_error(f"Bench migration failed for '{bench_arg}'")
-                                    output.print(f"Please run 'fm migrate {bench_arg}' manually.", emoji_code="")
-                                    raise typer.Exit(1)
-
-                                set_bench_migration_version(bench_path, current_version)  # type: ignore[arg-type]
-                                output.print(f"Bench '{bench_arg}' migrated to v{current_version}\n", emoji_code="✅ ")
-                            else:
-                                output.print("", emoji_code="")
-                                output.warning(f"Skipped bench migration. Run 'fm migrate {bench_arg}' when ready.")
-                                output.print("Note: Bench may not work correctly until migrated.", emoji_code="")
-                                output.print("", emoji_code="")
-                                output.display_error(f"Cannot {invoked_command} '{bench_arg}' - migration required")
-                                output.print(f"Run 'fm migrate {bench_arg}' first", emoji_code="")
-                                raise typer.Exit(1)
-
-                    else:
-                        output.display_error("Cannot proceed - FM infrastructure migration required")
-                        output.print("Run 'fm migrate' when ready", emoji_code="")
-                        raise typer.Exit(1)
-
-                # Scenario 2: Only bench needs migration (infra already up-to-date)
-                elif bench_needs_migration_flag and bench_arg and bench_version:
-                    output.warning(f"Bench '{bench_arg}' needs migration: v{bench_version} -> v{current_version}")
-                    output.print("This may modify bench configuration and services.", emoji_code="")
-                    output.print("", emoji_code="")
-
-                    bench_choice = output.prompt_ask(
+                    _prompt_and_run_migration(
+                        output,
+                        fm_config_manager,
+                        warning=f"Bench '{bench_arg}' needs migration: v{bench_version} -> v{current_version}",
+                        detail="This may modify bench configuration and services.",
+                        detail_emoji="",
                         prompt=f"Migrate bench '{bench_arg}' now?",
                         choices=[
                             {"name": "Update now", "value": "update"},
                             {"name": f"Update later (run 'fm migrate {bench_arg}' when ready)", "value": "skip"},
                         ],
-                        default="update",
                         required_flag=f"'fm migrate {bench_arg}' (run migration explicitly)",
+                        start_notice=f"\nMigrating bench '{bench_arg}'...\n",
+                        start_emoji="🔄 ",
+                        executor_kwargs={
+                            "target_benches": [bench_arg],
+                            "auto_proceed": True,
+                            "on_failure": "rollback",
+                        },
+                        failure_error=f"Bench migration failed for '{bench_arg}'",
+                        failure_hint=f"Please run 'fm migrate {bench_arg}' manually.",
+                        record_version=record_bench_version,
+                        success_notice=f"Bench '{bench_arg}' migrated to v{current_version}\n",
+                        skip_warning=f"Skipped bench migration. Run 'fm migrate {bench_arg}' when ready.",
+                        skip_note="Note: Bench may not work correctly until migrated.",
+                        skip_error=f"Cannot {invoked_command} '{bench_arg}' - migration required",
+                        skip_hint=f"Run 'fm migrate {bench_arg}' first",
                     )
-
-                    if bench_choice == "update":
-                        output.print(f"\nMigrating bench '{bench_arg}'...\n", emoji_code="🔄 ")
-
-                        bench_migrations = MigrationExecutor(
-                            fm_config_manager,
-                            target_benches=[bench_arg],
-                            auto_proceed=True,
-                            on_failure="rollback",
-                            output_handler=output,
-                        )
-
-                        with temporary_stop(output):
-                            bench_status = bench_migrations.execute()
-
-                        if not bench_status:
-                            output.display_error(f"Bench migration failed for '{bench_arg}'")
-                            output.print(f"Please run 'fm migrate {bench_arg}' manually.", emoji_code="")
-                            raise typer.Exit(1)
-
-                        set_bench_migration_version(bench_path, current_version)  # type: ignore[arg-type]
-                        output.print(f"Bench '{bench_arg}' migrated to v{current_version}\n", emoji_code="✅ ")
-                    else:
-                        output.print("", emoji_code="")
-                        output.warning(f"Skipped bench migration. Run 'fm migrate {bench_arg}' when ready.")
-                        output.print("Note: Bench may not work correctly until migrated.", emoji_code="")
-                        output.print("", emoji_code="")
-                        output.display_error(f"Cannot {invoked_command} '{bench_arg}' - migration required")
-                        output.print(f"Run 'fm migrate {bench_arg}' first", emoji_code="")
-                        raise typer.Exit(1)
 
             services_manager: ServicesManager = ServicesManager(
                 verbose=ctx.obj["verbose"],

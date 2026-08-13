@@ -82,3 +82,28 @@ def test_copy_reseeds_appstxt_when_missing(tmp_path):
     BakeManager._copy_workspace(src, dest)  # noqa: SLF001
     assert (dest / "sites" / "apps.txt").read_text() == "frappe\n"
     assert (dest / "sites" / "common_site_config.json").read_text() == "{}"
+
+
+def test_copy_never_dies_on_site_state_it_cannot_remove(tmp_path):
+    """Dropping dev/site state is best effort, and it has to be: `shutil.rmtree` refuses to
+    recurse into a symlinked directory at all (OSError, whatever the link points at), so a bench
+    whose `sites/<site>` is a symlink to shared storage would abort the whole bake in the middle
+    of populating the build context if the cleanup were strict.
+    """
+    src = _make_workspace(tmp_path / "bench")
+    shared = tmp_path / "shared" / "linked.localhost"
+    shared.mkdir(parents=True)
+    (shared / "site_config.json").write_text(json.dumps({"encryption_key": "SHARED_SECRET"}))
+    (src / "sites" / "linked.localhost").symlink_to(shared, target_is_directory=True)
+
+    dest = tmp_path / "ctx" / "frappe-bench"
+    BakeManager._copy_workspace(src, dest)  # noqa: SLF001  -- must not raise
+
+    # The steps that come AFTER the cleanup loop still ran, i.e. it did not abort partway.
+    assert (dest / "sites" / "common_site_config.json").read_text() == "{}"
+    assert (dest / "sites" / "apps.txt").read_text() == "frappe\nerpnext\n"
+    assert (dest / "sites" / "assets" / "erpnext.bundle.js").read_text() == "built"
+    # What it could not remove is left as it was found: a link, never followed.
+    assert (dest / "sites" / "linked.localhost").is_symlink()
+    # …and the ordinary site directory next to it was still dropped.
+    assert not (dest / "sites" / "fm.localhost").exists()

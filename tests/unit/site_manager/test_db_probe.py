@@ -490,6 +490,39 @@ def test_a_rejected_site_password_fails_separately_from_existence():
     assert SITE_PASSWORD not in result.check(CHECK_SITE_CREDENTIALS).detail
 
 
+# ------------------------------------------------------------ the admin account's grants
+
+
+def test_a_global_grant_short_of_admin_is_read_privilege_by_privilege():
+    """Only a genuine blanket grant covers everything provisioning needs.
+
+    The whole point of reading the grants before the build is to refuse an account that cannot
+    finish `setup_database`. Treating any global grant as blanket would report a read-only
+    reporting login as fully privileged and the refusal would arrive minutes later, from
+    Frappe, mid-provision.
+    """
+    result = stage_one(FakeServer(current_user_grants="GRANT SELECT, INSERT, UPDATE ON *.* TO `dbadmin`@`%`"))
+
+    check = result.check(CHECK_ADMIN_GRANTS)
+    assert check.status is CheckStatus.fail
+    for privilege in ("CREATE", "CREATE USER", "RELOAD", "GRANT OPTION"):
+        assert privilege in check.detail
+    assert not result.ok
+
+
+def test_the_short_all_spelling_of_a_blanket_grant_is_recognised():
+    """`GRANT ALL ON *.*` is the same grant as `GRANT ALL PRIVILEGES ON *.*`.
+
+    Both spellings are accepted by the server and either can come back from SHOW GRANTS, so the
+    bare one must not be mistaken for a single privilege literally named ALL: that turns a
+    fully privileged admin into a refusal naming privileges it already holds.
+    """
+    result = stage_one(FakeServer(current_user_grants="GRANT ALL ON *.* TO `dbadmin`@`%` WITH GRANT OPTION"))
+
+    assert result.check(CHECK_ADMIN_GRANTS).status is CheckStatus.ok
+    assert result.ok
+
+
 # ------------------------------------------------------------------ advisory lock
 
 

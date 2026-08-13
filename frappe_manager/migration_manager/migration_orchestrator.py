@@ -105,10 +105,37 @@ class MigrationOrchestrator:
 
         Creates services if not initialized, starts them if stopped.
         Logs warnings if services check fails but continues migration.
+
+        Only genuine service/docker/compose/filesystem failures are tolerated (warn and
+        continue). Programming errors (AttributeError, TypeError, ImportError, KeyError,
+        ...) propagate instead of being misreported as "could not verify/start global
+        services", which would hide a real bug behind a "fm services start" suggestion.
         """
+        from ruamel.yaml import YAMLError
+
+        from frappe_manager.docker.compose_exceptions import ComposeSecretNotFoundError, ComposeServiceNotFound
+        from frappe_manager.docker.docker_exceptions import DockerException
         from frappe_manager.output_manager.context_managers import temporary_stop
         from frappe_manager.output_manager.silent_output import SilentOutputHandler
         from frappe_manager.services_manager.services import ServicesManager
+        from frappe_manager.services_manager.services_exceptions import (
+            DatabaseServiceException,
+            ServicesComposeNotExist,
+            ServicesException,
+        )
+
+        # Failures that mean "the services stack itself is unhealthy, unreachable or
+        # unreadable". These are operator-actionable, so they warn and let migration continue.
+        tolerated_service_failures = (
+            DockerException,  # every compose call (pull/up/ps): daemon down, image missing, port clash
+            ServicesException,  # base of ServicesNotCreated, raised by entrypoint_checks/create
+            ServicesComposeNotExist,  # services dir present but its docker-compose.yml is gone
+            DatabaseServiceException,  # DatabaseServicePasswordNotFound while wiring MariaDBManager
+            ComposeServiceNotFound,  # compose file lacks global-nginx-proxy (init -> ProxyStoragePaths)
+            ComposeSecretNotFoundError,  # db_root_password secret entry absent from the compose file
+            YAMLError,  # corrupt/truncated services docker-compose.yml
+            OSError,  # permissions, missing dirs, unreadable template, unwritable fm_headers.conf
+        )
 
         try:
             services_manager = ServicesManager(output_handler=SilentOutputHandler())
@@ -137,8 +164,8 @@ class MigrationOrchestrator:
                     )
                     services_manager.start_service()
                     self.executor.output.print("Global services started successfully", emoji_code=":white_check_mark:")
-        except Exception as e:
-            self.logger.error(f"Failed to ensure global services are running: {e}")
+        except tolerated_service_failures as e:
+            self.logger.error(f"Failed to ensure global services are running: {e}\n{capture_and_format_exception()}")
             with temporary_stop(self.executor.output):
                 self.executor.output.print(
                     "Warning: Could not verify/start global services. "

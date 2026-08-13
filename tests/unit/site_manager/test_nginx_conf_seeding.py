@@ -122,3 +122,37 @@ def test_seeding_recreates_the_dangling_modules_symlink(tmp_path, monkeypatch):
     assert str(link.readlink()) == "/usr/lib/nginx/modules"
     # and the seeding did not abort partway through on it
     assert (conf / "nginx.conf").exists()
+
+
+def test_seeding_the_same_folder_twice_is_a_no_op(tmp_path, monkeypatch):
+    """Idempotence has to hold over the dangling link too, not just over ordinary files.
+
+    `create_compose_dirs` runs on every update and on the repair path, so the second pass finds
+    the `modules` link it created itself. `exists()` is False for a broken link, so only the
+    explicit `is_symlink()` half of the guard sees it -- checking either one alone means the
+    second seeding tries to create a link that is already there and dies with FileExistsError.
+    """
+    monkeypatch.setattr("frappe_manager.site_manager.modules.bench_docker.host_run_cp", _fake_image_copy())
+    conf = tmp_path / "configs" / "nginx" / "conf"
+
+    _ops()._seed_nginx_conf(conf, "nginx:test")
+    before = sorted((p.relative_to(conf), p.is_symlink()) for p in conf.rglob("*"))
+
+    _ops()._seed_nginx_conf(conf, "nginx:test")  # must not raise
+
+    assert sorted((p.relative_to(conf), p.is_symlink()) for p in conf.rglob("*")) == before
+    assert str((conf / "modules").readlink()) == "/usr/lib/nginx/modules"
+
+
+def test_a_modules_link_the_host_already_has_is_not_replaced(tmp_path, monkeypatch):
+    """An operator who repointed `modules` at their own build keeps it: the host always wins,
+    exactly as it does for a regular file, and the image's link never overwrites it."""
+    monkeypatch.setattr("frappe_manager.site_manager.modules.bench_docker.host_run_cp", _fake_image_copy())
+    conf = tmp_path / "configs" / "nginx" / "conf"
+    conf.mkdir(parents=True)
+    (conf / "modules").symlink_to("/opt/nginx-modules")
+
+    _ops()._seed_nginx_conf(conf, "nginx:test")  # must not raise
+
+    assert str((conf / "modules").readlink()) == "/opt/nginx-modules"
+    assert (conf / "nginx.conf").exists()  # and the rest of the seeding still landed

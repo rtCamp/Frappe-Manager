@@ -2,14 +2,19 @@
 
 Defends: token resolution, env-over-config precedence, loud failure on
 unknown names/invalid styles, the mono theme's no-color guarantee (color-
-blind safety), and that the Card component renders under every style.
+blind safety), idempotent theme application (re-applying replaces the
+pushed theme instead of stacking a second one), and that the Card
+component renders under every style with style-appropriate separation.
 """
+
+from unittest.mock import MagicMock, patch
 
 import pytest
 from rich.console import Console
 from rich.errors import StyleSyntaxError
 from rich.style import Style
 
+from frappe_manager.output_manager import theme as theme_module
 from frappe_manager.output_manager.railcard import Card, bench_meta, cards, status_dot
 from frappe_manager.output_manager.style import STYLES, get_output_style, set_output_style
 from frappe_manager.output_manager.theme import DEFAULT_TOKENS, THEMES, build_theme
@@ -58,6 +63,43 @@ def test_mono_theme_has_no_colors_anywhere():
         parsed = Style.parse(value)
         assert parsed.color is None or parsed.color.name == "default"
         assert parsed.bgcolor is None
+
+
+# ------------------------------------------------- theme application (consoles)
+
+
+def _apply_with_fake_consoles(applies: int):
+    """Run apply_output_theme() N times against two fake consoles."""
+    stdout, stderr = MagicMock(name="stdout"), MagicMock(name="stderr")
+    with (
+        patch.object(theme_module, "_pushed", new=False),
+        patch(
+            "frappe_manager.output_manager.console_singleton.get_stdout_console",
+            return_value=stdout,
+        ),
+        patch(
+            "frappe_manager.output_manager.console_singleton.get_stderr_console",
+            return_value=stderr,
+        ),
+    ):
+        for _ in range(applies):
+            theme_module.apply_output_theme("default")
+    return stdout, stderr
+
+
+def test_first_theme_apply_pushes_without_popping():
+    for console in _apply_with_fake_consoles(1):
+        console.pop_theme.assert_not_called()  # nothing of ours on the stack yet
+        assert console.push_theme.call_count == 1
+
+
+def test_reapplying_theme_replaces_instead_of_stacking():
+    # `fm` applies the default theme at bootstrap, then re-applies the configured
+    # one once fm_config is read. Without remembering the first push, every
+    # re-apply would bury another theme on the console stack.
+    for console in _apply_with_fake_consoles(3):
+        assert console.push_theme.call_count == 3
+        assert console.pop_theme.call_count == 2  # one pop per re-apply
 
 
 # ---------------------------------------------------------------- style
@@ -121,10 +163,23 @@ def test_rail_style_marks_inactive_with_light_rail():
     assert "stopped" in out
 
 
-def test_cards_separates_rail_cards():
+def test_rail_cards_are_separated_by_exactly_one_blank_line():
     set_output_style("rail")
-    out = _render(cards([_sample_card(), _sample_card()]))
-    assert out.count("bench.example") == 2
+    lines = _render(cards([_sample_card(), _sample_card()])).splitlines()
+    assert sum(1 for line in lines if not line.strip()) == 1  # the separator, nothing else
+    headlines = [i for i, line in enumerate(lines) if "bench.example" in line]
+    blank = next(i for i, line in enumerate(lines) if not line.strip())
+    assert len(headlines) == 2
+    assert headlines[0] < blank < headlines[1]  # between the cards, not around them
+    # A lone card gets no leading separator.
+    assert all(line.strip() for line in _render(cards([_sample_card()])).splitlines())
+
+
+def test_box_cards_get_no_separator_because_panels_separate_themselves():
+    set_output_style("box")
+    lines = _render(cards([_sample_card(), _sample_card()])).splitlines()
+    assert [line for line in lines if not line.strip()] == []
+    assert sum(1 for line in lines if "╭" in line) == 2
 
 
 def test_status_dot_carries_state_as_text_when_not_running():

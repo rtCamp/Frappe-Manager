@@ -5,10 +5,10 @@ from click.core import ParameterSource
 from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
+from frappe_manager.commands.arguments import BenchNameArgument
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.bench_config import WorkersConfig
 from frappe_manager.site_manager.site import Bench
-from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
 
 # Rich help panels for `fm restart --help`, grouped by concern.
 _PANEL_SCOPE = "Scope (which services)"
@@ -79,14 +79,7 @@ _PANEL_ADVANCED = "Advanced"
 )
 def restart(
     ctx: typer.Context,
-    benchname: Annotated[
-        str | None,
-        typer.Argument(
-            help="Name of the bench.",
-            autocompletion=sites_autocompletion_callback,
-            callback=sitename_callback,
-        ),
-    ] = None,
+    benchname: BenchNameArgument = None,
     web: Annotated[
         bool,
         typer.Option(

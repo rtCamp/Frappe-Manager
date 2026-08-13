@@ -172,10 +172,35 @@ def run_suite() -> tuple[str, str, float]:
     return "KILLED", tail, time.time() - started
 
 
+# While this runs, production files on disk are TRANSIENTLY WRONG: each mutation is written, tested,
+# then restored. Anything that reads the tree meanwhile (rsync to a server, a build, a container
+# image, another pytest run) can capture a mutated file and look like a real failure somewhere else
+# entirely. This lock makes that visible instead of mysterious.
+LOCK = ROOT / ".mutation-in-progress"
+
+
+def _acquire_lock() -> None:
+    if LOCK.exists():
+        print(f"refusing to start: {LOCK} exists ({LOCK.read_text().strip()}).", file=sys.stderr)
+        print(
+            "another mutation run is in flight, or a previous one was killed -9. Delete it to override.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+    LOCK.write_text(f"pid={os.getpid()} started={time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+    print("!! source files are transiently mutated while this runs. Do NOT deploy, rsync or build.")
+    print(f"   lock: {LOCK}")
+
+
+def _release_lock() -> None:
+    LOCK.unlink(missing_ok=True)
+
+
 def main() -> int:
     signal.signal(signal.SIGINT, _restore_all)
     signal.signal(signal.SIGTERM, _restore_all)
     os.chdir(ROOT)
+    _acquire_lock()
 
     candidates = build_candidates(ensure_coverage())
     print(f"{len(candidates)} mutable covered lines; sampling {SAMPLE_SIZE} (max {MAX_PER_FILE}/file, seed {SEED})")
@@ -234,6 +259,7 @@ def main() -> int:
     if scored:
         print(f"\nmutation score: {100 * verdicts['KILLED'] // scored}% ({verdicts['KILLED']}/{scored})")
         print(f"gaps (SURVIVED) listed in {RESULTS}")
+    _release_lock()
     return 0
 
 

@@ -105,6 +105,19 @@ def test_unknown_arch_does_not_block(tmp_path, stub, monkeypatch):
     assert materialize_workspace_from_image(stub, "r:t", tmp_path / "fb")
 
 
+def test_seeds_into_a_bench_whose_workspace_does_not_exist_yet(tmp_path, stub):
+    """The real argument is `<bench>/workspace/frappe-bench`, and on the seed-from-image create
+    neither level exists yet: the whole chain is fm's to create before the first `docker cp`,
+    which refuses a destination whose parent is missing.
+    """
+    fb = tmp_path / "benches" / "fm.localhost" / "workspace" / "frappe-bench"
+
+    assert materialize_workspace_from_image(stub, "r:t", fb) == list(SEED_PATHS)
+
+    assert fb.is_dir()
+    assert [fb / rel for rel in SEED_PATHS] == stub.owned
+
+
 def _cp_with_app_dir(docker, git: bool):
     orig_cp = docker.cp
 

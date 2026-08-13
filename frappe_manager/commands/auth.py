@@ -6,13 +6,13 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
+from frappe_manager.commands.arguments import BenchNameArgument
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime
 from frappe_manager.site_manager.modules.auth import generate_password, validate_credentials
 from frappe_manager.site_manager.modules.realip import validate_cidrs
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
-from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
 
 # Rich help panels for `fm auth --help`, grouped by concern.
 _PANEL_SURFACES = "Surfaces (what asks for a password)"
@@ -100,14 +100,7 @@ def _print_state(output, config: AuthConfig, hint_when_off: bool) -> None:
 )
 def auth(
     ctx: typer.Context,
-    benchname: Annotated[
-        str | None,
-        typer.Argument(
-            help="Name of the bench.",
-            autocompletion=sites_autocompletion_callback,
-            callback=sitename_callback,
-        ),
-    ] = None,
+    benchname: BenchNameArgument = None,
     protect: Annotated[
         list[AuthSurface],
         typer.Option(

@@ -109,6 +109,21 @@ def test_worker_specs_and_bind_strings():
     assert "./workspace/frappe-bench/logs:/workspace/frappe-bench/logs" in bind_strings(ispec)
 
 
+def test_nothing_outside_the_web_services_is_marked_rolling():
+    """`ServiceSpec.rolling` is the switch `render_image_compose` keys container_name shedding
+    off, so it must be True for exactly the two scaled web services and nothing else.
+
+    The redis suppression specs and every worker spec are built without naming the field at all.
+    If a spec were rolling by accident, a rolling deploy would strip the container_name of a
+    service it never scales and the canonical render would then hand it a `<bench>-<service>`
+    name that was never meant to be managed here.
+    """
+    cfg = _cfg(BenchRuntime.image, tag="r:t")
+    specs = bench_service_specs(cfg) + worker_service_specs(cfg, ["long-worker", "short-worker"])
+
+    assert sorted(s.name for s in specs if s.rolling) == ["frappe", "nginx"]
+
+
 # ------------------------------------------------------------------ renderer
 
 COMPOSE = """\
@@ -256,3 +271,17 @@ def test_validate_redis_endpoints_accepts_differing_endpoints():
     assert validate_redis_endpoints("redis://h:6379/0", "redis://h:6379/1") is None
     assert validate_redis_endpoints("redis://h:6379/0", "redis://other:6379/0") is None
     assert validate_redis_endpoints("redis://h:6379/0", "redis://h:6380/0") is None
+
+
+def test_default_render_context_is_not_a_rolling_swap():
+    """Every renderer defaults to DEFAULT_CONTEXT, so its flags decide what a plain render does.
+
+    `rolling=True` makes the renderer emit a rolling-swap shape (new replicas alongside the old
+    ones). That is opt-in for `fm restart --rolling` on image benches; if the default ever flipped,
+    every ordinary render would silently become a rolling swap. Nothing else asserted this, so
+    mutation testing found `rolling: bool = False` could be inverted with the suite still green.
+    """
+    from frappe_manager.site_manager.modules.compose_shape import DEFAULT_CONTEXT
+
+    assert DEFAULT_CONTEXT.rolling is False
+    assert DEFAULT_CONTEXT.deploy_tag is None

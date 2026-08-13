@@ -5,6 +5,7 @@ import typer
 from typer_examples import example
 
 from frappe_manager import CLI_BENCHES_DIRECTORY, EnableDisableOptionsEnum
+from frappe_manager.commands.arguments import BenchNameArgument
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.bench_config import (
@@ -26,8 +27,6 @@ from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import (
     alias_domains_validation_callback,
     apps_list_validation_callback,
-    sitename_callback,
-    sites_autocompletion_callback,
 )
 
 
@@ -132,14 +131,7 @@ def is_immutable_update_request(
 )
 def update(
     ctx: typer.Context,
-    benchname: Annotated[
-        str | None,
-        typer.Argument(
-            help="Name of the bench.",
-            autocompletion=sites_autocompletion_callback,
-            callback=sitename_callback,
-        ),
-    ] = None,
+    benchname: BenchNameArgument = None,
     admin_tools: Annotated[
         EnableDisableOptionsEnum | None,
         typer.Option(

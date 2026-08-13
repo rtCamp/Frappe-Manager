@@ -4,9 +4,9 @@ import typer
 from typer_examples import example
 
 from frappe_manager import CLI_BENCHES_DIRECTORY
+from frappe_manager.commands.arguments import BenchNameArgument
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_service import BenchService
-from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
 
 
 @example(
@@ -29,14 +29,7 @@ from frappe_manager.utils.callbacks import sitename_callback, sites_autocompleti
 )
 def delete(
     ctx: typer.Context,
-    benchname: Annotated[
-        str | None,
-        typer.Argument(
-            help="Name of the bench.",
-            autocompletion=sites_autocompletion_callback,
-            callback=sitename_callback,
-        ),
-    ] = None,
+    benchname: BenchNameArgument = None,
     yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation prompts")] = False,
     delete_db_from_global_db: Annotated[
         bool | None,

@@ -4,12 +4,9 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
+from frappe_manager.commands.arguments import BenchNameArgument
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.site import Bench
-from frappe_manager.utils.callbacks import (
-    sitename_callback,
-    sites_autocompletion_callback,
-)
 
 
 @example(
@@ -44,14 +41,7 @@ from frappe_manager.utils.callbacks import (
 )
 def start(
     ctx: typer.Context,
-    benchname: Annotated[
-        str | None,
-        typer.Argument(
-            help="Name of the bench.",
-            autocompletion=sites_autocompletion_callback,
-            callback=sitename_callback,
-        ),
-    ] = None,
+    benchname: BenchNameArgument = None,
     force: Annotated[bool, typer.Option("--force", "-f", help="Recreate containers")] = False,
     reconfigure_supervisor: Annotated[
         bool,

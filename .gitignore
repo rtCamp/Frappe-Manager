@@ -9,3 +9,6 @@ readme.org
 docs/stylesheets/extra.css
 .env
 .coverage
+
+# transient marker written by scripts/mutation_test.py while source files are mutated
+.mutation-in-progress

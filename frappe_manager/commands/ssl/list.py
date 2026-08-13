@@ -6,9 +6,10 @@ import typer
 from typer_examples import example
 
 from frappe_manager import CLI_BENCHES_DIRECTORY
+from frappe_manager.commands.arguments import StandaloneBenchNameArgument
 from frappe_manager.output_manager import temporary_stop
 from frappe_manager.site_manager.bench_service import BenchService
-from frappe_manager.utils.callbacks import prompt_for_bench_selection, sites_autocompletion_callback
+from frappe_manager.utils.callbacks import prompt_for_bench_selection
 
 from .bench_helpers import _list_bench_certificates
 from .external_helpers import _list_external_certificates
@@ -33,13 +34,7 @@ from .helpers import get_output_handler
 )
 def list_certificates(
     ctx: typer.Context,
-    benchname: Annotated[
-        str | None,
-        typer.Argument(
-            help="Name of the bench (omit for standalone mode).",
-            autocompletion=sites_autocompletion_callback,
-        ),
-    ] = None,
+    benchname: StandaloneBenchNameArgument = None,
     standalone: Annotated[
         bool,
         typer.Option("--standalone", help="List certificates for external (non-bench) domains"),

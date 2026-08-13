@@ -4,6 +4,7 @@ import typer
 from typer_examples import example
 
 from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY
+from frappe_manager.commands.arguments import RequiredBenchNameArgument
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_config import BenchRuntime
 from frappe_manager.site_manager.deploy_config_overlay import ConfigOverlayError, apply_config_overlays
@@ -253,14 +254,7 @@ def deploy(
 )
 def switch(
     ctx: typer.Context,
-    benchname: Annotated[
-        str,
-        typer.Argument(
-            help="Name of the bench.",
-            autocompletion=sites_autocompletion_callback,
-            callback=sitename_callback,
-        ),
-    ],
+    benchname: RequiredBenchNameArgument,
     tag: Annotated[
         str | None,
         typer.Argument(help="Image tag to switch to. Omit when using --previous.", show_default=False),
@@ -359,14 +353,7 @@ def switch(
 )
 def prune(
     ctx: typer.Context,
-    benchname: Annotated[
-        str,
-        typer.Argument(
-            help="Name of the bench.",
-            autocompletion=sites_autocompletion_callback,
-            callback=sitename_callback,
-        ),
-    ],
+    benchname: RequiredBenchNameArgument,
     keep: Annotated[
         int | None,
         typer.Option("--keep", help="Retain this many releases (overrides bench config).", show_default=False),
