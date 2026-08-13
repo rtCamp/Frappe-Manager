@@ -44,9 +44,12 @@ jobs:
         run: |
           uv sync --group dev
       
+      # The coverage floor lives HERE, not in pyproject, because this is the only place the whole
+      # suite runs. A floor in the shared config fails every subset run a developer makes locally.
+      # Ratchet it upwards as coverage climbs; never lower it to make a red build green.
       - name: Run pytest
         run: |
-          uv run pytest tests/ -v --cov=frappe_manager --cov-report=xml --cov-report=term-missing
+          uv run pytest tests/ -v --cov=frappe_manager --cov-report=xml --cov-report=term-missing --cov-fail-under=44
       
       - name: Upload coverage to Codecov
         if: matrix.python-ver == '3.13'

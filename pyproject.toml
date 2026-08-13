@@ -179,8 +179,10 @@ env = [
 ]
 
 [tool.coverage.report]
-# A ratchet, not a target. Set just below the measured figure so an ordinary PR cannot quietly
-# delete coverage, while leaving room for normal churn. Raise it as coverage climbs; never lower it
-# to make a red build green.
-fail_under = 44
+# NO `fail_under` here on purpose. A floor in the shared config applies to every invocation, so
+# running one file or one directory -- the normal dev loop -- fails on coverage while every test
+# passes (`pytest tests/unit/ssl_manager` measures 11% of the package and would exit 1). The ratchet
+# lives on the CI command instead, which is the only place the whole suite runs: see
+# .github/workflows/pytest.yml (`--cov-fail-under`). Raise it as coverage climbs; never lower it to
+# make a red build green.
 show_missing = true
