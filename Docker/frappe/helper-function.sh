@@ -193,9 +193,10 @@ install_apps() {
 #   * it destroyed real accounts over a number collision. A macOS host is gid 20, which is
 #     `dialout`, so every Mac create logged "Group dialout deleted". A host uid of 33 silently
 #     deleted `www-data`.
-#   * running fm as root (0:0) failed outright: `userdel root` reports "user root is currently
-#     used by process 1", the failure was ignored, the following usermod also failed, and the
-#     container carried on writing files as uid 1000 with nothing reported.
+#   * uid 0 failed outright and silently: `userdel root` reports "user root is currently used by
+#     process 1", the failure was ignored, the following usermod also failed, and the container
+#     carried on writing files as uid 1000 with nothing reported. fm now refuses to run as root
+#     (main.py) so it no longer sends 0 here, but the handling below is uid-agnostic on purpose.
 #   * `usermod -u` rewrites ownership of the account's home directory RECURSIVELY, and home is
 #     /workspace, i.e. the whole bench. Measured at 8s for 12.7k files. Under the mount runtime
 #     /workspace is a bind mount that already carries host ownership, so that pass was re-

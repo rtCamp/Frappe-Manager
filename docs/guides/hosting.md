@@ -10,6 +10,7 @@ On a fresh Ubuntu server:
 
 - [ ] **Install Docker Engine**: follow [Docker's official instructions](https://docs.docker.com/engine/install/ubuntu/).
 - [ ] **Let your user run Docker without root**: `sudo usermod -aG docker $USER`, then log out and back in. Verify with `docker ps`.
+- [ ] **Never run fm with sudo**: fm refuses to run as root and exits without doing anything. Frappe's own bench refuses root too, and fm's service containers are shared per host rather than per user, so a root run would fight the benches your own user owns. Adding your user to the `docker` group above is what removes the temptation.
 - [ ] **Open ports 80 and 443** in your firewall or cloud security group; the global nginx proxy listens on them, and Let's Encrypt HTTP-01 validation needs port 80.
 - [ ] **Point DNS at the server**: create an `A` (or `AAAA`) record for each client domain, e.g. `clientone.example.com -> your.server.ip`. See [Domains](domains.md).
 
