@@ -2,13 +2,21 @@
 
 The specs are plain data: decisions are asserted without Docker. The renderer
 is exercised against a real ComposeFile to prove idempotency and passthrough.
+
+`database` and `redis` are the two external-service switches: absent (None) is
+every bench that never asked for the feature, and the projection must be a no-op
+for those, since it runs on every create, update and re-pin.
 """
 
 from types import SimpleNamespace
 
+import pytest
+
 from frappe_manager.docker.compose_file import ComposeFile
-from frappe_manager.site_manager.bench_config import BenchRuntime
+from frappe_manager.site_manager.bench_config import BenchRuntime, DatabaseConfig, RedisConfig
+from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.modules.compose_shape import (
+    BENCH_REDIS_SERVICES,
     RenderContext,
     apply_specs,
     bench_service_specs,
@@ -16,17 +24,26 @@ from frappe_manager.site_manager.modules.compose_shape import (
     default_code_image,
     default_nginx_image,
     runtime_shape,
+    validate_redis_endpoints,
     worker_service_specs,
 )
 
+EXTERNAL_REDIS = RedisConfig(cache="redis://r.example:6379/0", queue="redis://r.example:6379/1")
 
-def _cfg(runtime, name="s.localhost", tag=None, base_image=None):
+
+def _cfg(runtime, name="s.localhost", tag=None, base_image=None, database=None, redis=None):
     return SimpleNamespace(
         runtime=runtime,
         name=name,
         base_image=base_image,
         deploy_state=SimpleNamespace(current_tag=tag) if tag else None,
+        database=database,
+        redis=redis,
     )
+
+
+def _external_db(name="s.localhost"):
+    return {name: DatabaseConfig(host="mydb.abc.rds.amazonaws.com", name="app_prod")}
 
 
 # ------------------------------------------------------------------ strategy
@@ -72,7 +89,10 @@ def test_deploy_tag_context_overrides_recorded_tag():
 
 def test_bench_specs_cover_code_services_with_rolling_roles():
     specs = {s.name: s for s in bench_service_specs(_cfg(BenchRuntime.image, tag="r:t"))}
-    assert set(specs) == {"frappe", "nginx", "socketio", "schedule"}
+    # The redis services ride in the same batch so every writer of the bench compose
+    # agrees on whether fm starts them; only the code services carry a runtime shape.
+    assert set(specs) == {"frappe", "nginx", "socketio", "schedule", *BENCH_REDIS_SERVICES}
+    assert all(specs[name].image is None and specs[name].managed_binds == () for name in BENCH_REDIS_SERVICES)
     assert specs["frappe"].rolling
     assert specs["nginx"].rolling
     assert not specs["socketio"].rolling
@@ -103,6 +123,10 @@ services:
     volumes:
       - ./configs/nginx/conf:/etc/nginx
       - ./workspace:/workspace
+  redis-cache:
+    image: redis:alpine
+  redis-queue:
+    image: redis:alpine
 volumes:
   fm-sockets:
 """
@@ -161,3 +185,74 @@ def test_apply_specs_switch_image_to_mount_restores_workspace(tmp_path):
     assert "./workspace:/workspace" in ng
     assert "./configs/nginx/conf:/etc/nginx" in ng
     assert cfm.yml["services"]["nginx"]["image"] == default_nginx_image()
+
+
+def test_external_redis_disables_both_redis_services_and_dropping_it_re_enables(tmp_path):
+    cfm = _cfm(tmp_path)
+    cfg = _cfg(BenchRuntime.mount, redis=EXTERNAL_REDIS)
+    apply_specs(cfm, bench_service_specs(cfg), cfg.name)
+
+    for name in BENCH_REDIS_SERVICES:
+        assert cfm.yml["services"][name]["profiles"] == ["disabled"]  # fm must not start them
+
+    apply_specs(cfm, bench_service_specs(_cfg(BenchRuntime.mount)), cfg.name)  # [redis] removed
+    for name in BENCH_REDIS_SERVICES:
+        assert "profiles" not in cfm.yml["services"][name]
+
+
+def test_internal_redis_render_is_byte_identical(tmp_path):
+    # The redis specs ride along on every bench compose write, so on a bench with no
+    # [redis] they must change nothing at all -- not even a profiles key.
+    cfg = _cfg(BenchRuntime.mount)
+    specs = bench_service_specs(cfg)
+    assert {s.name for s in specs} >= set(BENCH_REDIS_SERVICES)  # they really are in the batch
+
+    control_dir = tmp_path / "control"
+    control_dir.mkdir()
+    control = _cfm(control_dir)
+    apply_specs(control, tuple(s for s in specs if s.name not in BENCH_REDIS_SERVICES), cfg.name)
+    control.write_to_file()
+
+    rendered = _cfm(tmp_path)
+    apply_specs(rendered, specs, cfg.name)
+    rendered.write_to_file()
+
+    assert rendered.compose_path.read_text() == control.compose_path.read_text()
+
+
+# --------------------------------------------------------------------- external database
+
+
+def test_mysql_home_lands_only_on_the_db_cli_services():
+    envs = {s.name: dict(s.env) for s in bench_service_specs(_cfg(BenchRuntime.mount, database=_external_db()))}
+    bundle = db_tls.bench_mysql_home()
+    # frappe and schedule shell out to the mariadb client (initial import, dump-based
+    # backups), and get_command never reads db_ssl_*, so only MYSQL_HOME carries TLS.
+    assert envs["frappe"] == {"MYSQL_HOME": bundle}
+    assert envs["schedule"] == {"MYSQL_HOME": bundle}
+    assert envs["nginx"] == {}
+    assert envs["socketio"] == {}
+
+
+def test_no_mysql_home_without_an_external_database():
+    specs = bench_service_specs(_cfg(BenchRuntime.mount))
+    assert all(s.env == () for s in specs)
+    (worker,) = worker_service_specs(_cfg(BenchRuntime.mount), ["long-worker"])
+    assert worker.env == ()
+
+
+# ------------------------------------------------------------------------- redis urls
+
+
+def test_validate_redis_endpoints_rejects_a_shared_logical_index():
+    with pytest.raises(ValueError, match="same host, port and database index"):
+        validate_redis_endpoints("redis://h:6379/0", "redis://h:6379/0")
+    # No path and /0 are the same index, so the pair is the same logical database.
+    with pytest.raises(ValueError, match="same host, port and database index"):
+        validate_redis_endpoints("redis://h:6379", "redis://h:6379/0")
+
+
+def test_validate_redis_endpoints_accepts_differing_endpoints():
+    assert validate_redis_endpoints("redis://h:6379/0", "redis://h:6379/1") is None
+    assert validate_redis_endpoints("redis://h:6379/0", "redis://other:6379/0") is None
+    assert validate_redis_endpoints("redis://h:6379/0", "redis://h:6380/0") is None

@@ -544,15 +544,23 @@ class DockerComposeWrapper:
         detach: bool = False,
         rm: bool = False,
         entrypoint: str | None = None,
+        env: None | list[str] = None,
         use_shlex_split: bool = True,
         stream: bool | None = None,
     ) -> Iterable[tuple[str, bytes]] | SubprocessOutput:
         parameters: dict = locals()
         run_cmd: list = ["run"]
 
-        remove_parameters = ["stream", "command", "service", "use_shlex_split", "self"]
+        remove_parameters = ["stream", "command", "service", "use_shlex_split", "self", "env"]
 
         run_cmd += parameters_to_options(parameters, exclude=remove_parameters)
+
+        # One --env per KEY=VALUE, before the service name, exactly as exec does.
+        # An --env value is visible in the container's process listing, so nothing
+        # secret travels this way: fm sends MYSQL_HOME, which is a path.
+        if type(env) == list:
+            for i in env:
+                run_cmd += ["--env", i]
 
         run_cmd += [service]
 

@@ -27,6 +27,7 @@ from frappe_manager.site_manager.exceptions import (
     BenchOperationBenchRemoveAppFromPythonEnvFailed,
     BenchOperationException,
 )
+from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.modules.app_cloner import AppCloner, AppClonerError
 from frappe_manager.utils.docker import parameters_to_options
 
@@ -974,6 +975,24 @@ fi
         output.combined = filtered_lines
         return output
 
+    def _site_env(self) -> dict[str, str]:
+        """``MYSQL_HOME`` for this bench's site when its database is external.
+
+        Frappe builds every ``mariadb`` / ``mariadb-dump`` shell-out from user,
+        socket, host, port and password alone and never reads ``db_ssl_*``
+        (``frappe/database/__init__.py``, ``get_command``), so the CLI half of
+        TLS cannot come from ``site_config.json``. The client does read
+        ``<dir>/my.cnf`` when ``MYSQL_HOME=<dir>``, and that option file is what
+        carries ``ssl-ca`` and ``ssl-verify-server-cert``.
+
+        Empty for a ``global-db`` bench, and deliberately so: an option file
+        naming an external CA would make the client reject ``global-db``'s own
+        certificate.
+        """
+        if self.bench_config.get_database_config(self.bench_name) is None:
+            return {}
+        return {"MYSQL_HOME": db_tls.site_mysql_home(self.bench_name)}
+
     def _container_run(
         self,
         command: str,
@@ -983,6 +1002,7 @@ fi
         workdir: str = "/workspace/frappe-bench",
         service: str = "frappe",
         use_run: bool = False,
+        env: dict[str, str] | None = None,
     ) -> SubprocessOutput | None:
         """
         Execute a command inside the bench container.
@@ -998,6 +1018,10 @@ fi
             workdir: Working directory (default: /workspace/frappe-bench)
             service: Docker service name (default: frappe)
             use_run: If True, use 'docker compose run --rm' instead of 'exec' (default: False)
+            env: Extra environment for this one exec, merged over the site's own
+                ``MYSQL_HOME`` (which is added automatically for an external
+                database). Never pass a secret: an ``--env`` value shows up in
+                the container's process listing.
 
         Returns:
             SubprocessOutput if capture_output=True, None otherwise
@@ -1006,12 +1030,18 @@ fi
             BenchOperationException: If command fails and raise_exception_obj is provided
             DockerException: If command fails and no exception object provided
         """
+        # The narrow, exact-CA option file for anything fm runs itself; the
+        # long-running services get the bench-wide bundle from their compose env.
+        exec_env = {**self._site_env(), **(env or {})}
+        env_options = [f"{k}={v}" for k, v in exec_env.items()] or None
+
         try:
             if use_run and self.provision_image:
                 return self._run_in_provision_image(
                     command,
                     capture_output=capture_output,
                     workdir=workdir,
+                    env=exec_env,
                 )
             if use_run:
                 wrapped_command = f"cd {workdir} && {command}"
@@ -1025,6 +1055,7 @@ fi
                             rm=True,
                             stream=False,
                             entrypoint="/exec-entrypoint.sh",
+                            env=env_options,
                         ),
                     )
                     output = self._filter_docker_warnings(output)
@@ -1036,6 +1067,7 @@ fi
                         command=run_command,
                         rm=True,
                         entrypoint="/exec-entrypoint.sh",
+                        env=env_options,
                         stream=True,
                     ),
                 )
@@ -1050,6 +1082,7 @@ fi
                             command=exec_command,
                             user=user,
                             workdir=workdir,
+                            env=env_options,
                             stream=False,
                         ),
                     )
@@ -1062,6 +1095,7 @@ fi
                         command=exec_command,
                         workdir=workdir,
                         user=user,
+                        env=env_options,
                         stream=True,
                     ),
                 )
@@ -1078,6 +1112,7 @@ fi
         command: str,
         capture_output: bool = False,
         workdir: str = "/workspace/frappe-bench",
+        env: dict[str, str] | None = None,
     ) -> SubprocessOutput | None:
         """Run a bench command via plain ``docker run`` against ``self.provision_image``.
 
@@ -1085,7 +1120,8 @@ fi
         user so the bind-mounted build-context is writable, drop privileges to
         frappe, then exec the command. Used by ``fm bake`` (image mode) where no
         long-running compose service exists. Mirrors the compose ``use_run``
-        branch for capture vs. stream output.
+        branch for capture vs. stream output. ``env`` (the caller's, plus the
+        site's ``MYSQL_HOME``) is merged last, over the runtime defaults.
         """
         bench_mount = "/workspace/frappe-bench"
 
@@ -1104,7 +1140,7 @@ fi
         )
         bash_command = ["-c", bash_script]
 
-        env = {
+        run_env = {
             "HOME": bench_mount,
             "USER": "frappe",
             "GROUP": "frappe",
@@ -1129,6 +1165,7 @@ fi
                 for k in ("DOCKER_HOST", "GITHUB_TOKEN", "GIT_TOKEN", "UV_LINK_MODE", "DOCKER_DEFAULT_PLATFORM")
                 if k in os.environ
             },
+            **(env or {}),
         }
 
         result = self.docker_client.run(
@@ -1137,7 +1174,7 @@ fi
             command=shlex.join(bash_command),
             entrypoint="/bin/bash",
             volume=[f"{self.frappe_bench_dir}:{bench_mount}"],
-            env=env,
+            env=run_env,
             workdir=workdir,
             pull="missing",
             rm=True,

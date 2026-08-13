@@ -17,6 +17,7 @@ from frappe_manager.utils.site import get_bench_db_connection_info
 
 if TYPE_CHECKING:
     from frappe_manager.services_manager.services import ServicesManager
+    from frappe_manager.site_manager.bench_config import BenchConfig
 
 
 class BenchDatabase:
@@ -26,13 +27,14 @@ class BenchDatabase:
     Responsibilities:
     - Get database connection information
     - Remove database and user from global-db
-    - Sync common site config with database settings
+    - Sync common site config with the bench's redis wiring
     """
 
     def __init__(
         self,
         bench_name: str,
         bench_path: Path,
+        bench_config: "BenchConfig",
         services: "ServicesManager",
         set_common_bench_config_fn,
         output_handler: OutputHandler | None = None,
@@ -43,12 +45,14 @@ class BenchDatabase:
         Args:
             bench_name: Name of the bench
             bench_path: Path to bench directory
+            bench_config: Bench configuration, the source of the bench's redis wiring
             services: Services manager instance
             set_common_bench_config_fn: Callable to set common bench config
             output_handler: Optional output handler for displaying information
         """
         self.bench_name = bench_name
         self.bench_path = bench_path
+        self.bench_config = bench_config
         self.services = services
         self.set_common_bench_config = set_common_bench_config_fn
         self.output = output_handler or RichOutputHandler()
@@ -90,18 +94,20 @@ class BenchDatabase:
                 self.services.database_manager.remove_user(db_user, remove_all_host=True)
                 self.output.print(f"global-db: Removed bench db users [fm.info]{db_user}[/fm.info]")
 
-    def sync_common_site_config(self, services_db_host: str, services_db_port: int):
+    def sync_common_site_config(self):
         """
-        Sync the common site configuration with the global database information.
+        Sync `common_site_config.json` with this bench's redis wiring.
 
-        This function sets the common site configuration data including the socketio port,
-        database host and port, and the Redis cache, queue, and socketio URLs.
-
-        Args:
-            services_db_host: Database host from services
-            services_db_port: Database port from services
+        Redis only, and config-driven. The database endpoint is per site and lives in
+        `sites/<site>/site_config.json`, so a re-sync must neither mint nor overwrite db keys:
+        doing so would clobber an external bench back to the container names. An external
+        `[redis]` is used verbatim; without one the per-bench redis containers are addressed
+        exactly as before.
         """
         container_prefix = get_container_name_prefix(self.bench_name)
-        common_site_config_data = get_bench_connection_config(container_prefix, services_db_host, services_db_port)
+        redis = self.bench_config.redis
+        common_site_config_data = get_bench_connection_config(
+            container_prefix, redis.cache if redis else None, redis.queue if redis else None
+        )
         common_site_config_data["socketio_port"] = "80"
         self.set_common_bench_config(common_site_config_data)

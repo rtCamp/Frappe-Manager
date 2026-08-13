@@ -1,3 +1,4 @@
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -20,6 +21,7 @@ from frappe_manager.site_manager.bench_config import (
 )
 from frappe_manager.site_manager.domain_conflict import DomainConflictError, validate_domains_unique
 from frappe_manager.site_manager.exceptions import BenchNotRunning
+from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.utils.callbacks import (
     alias_domains_validation_callback,
@@ -34,6 +36,7 @@ _PANEL_RUNTIME = "Runtime Options"
 _PANEL_MOUNT = "Mount Runtime Options (mount only)"
 _PANEL_DOMAIN = "Domain Options"
 _PANEL_MONITORING = "Monitoring Options"
+_PANEL_DATABASE = "External Database Options"
 
 
 def is_immutable_update_request(
@@ -117,6 +120,14 @@ def is_immutable_update_request(
     "Set upload size limit",
     "{benchname} --upload-limit 100M",
     detail="Sets the maximum file upload size for the bench (useful for large attachments).",
+    benchname="mybench",
+)
+@example(
+    "Refresh a rotated external database CA",
+    "{benchname} --db-ca /path/to/new-ca.pem",
+    detail="Installs the new CA for the site, rebuilds the bench-level ca-bundle.pem the worker and schedule "
+    "containers use for dumps, and rewrites [database.<site>].ca. Replacing only the per-site file leaves the "
+    "bundle on the old certificate, so backups keep failing.",
     benchname="mybench",
 )
 def update(
@@ -285,6 +296,18 @@ def update(
             rich_help_panel=_PANEL_MONITORING,
         ),
     ] = None,
+    db_ca: Annotated[
+        Path | None,
+        typer.Option(
+            "--db-ca",
+            help="Refresh the external database CA for this site after a rotation: it re-copies the PEM, rebuilds "
+            "the bench-level ca-bundle.pem and rewrites \\[database.<site>].ca in one go, because replacing only "
+            "the per-site file leaves the bundle holding the old certificate and dumps broken until someone "
+            "notices.",
+            show_default=False,
+            rich_help_panel=_PANEL_DATABASE,
+        ),
+    ] = None,
 ):
     """
     Change bench settings and runtime.
@@ -320,6 +343,38 @@ def update(
         raise BenchNotRunning(bench_name=bench.name)
 
     with spinner(output, "Updating bench configuration"):
+        if db_ca is not None:
+            database_config = bench.bench_config.get_database_config()
+            if database_config is None:
+                output.display_error(
+                    f"{bench.name} has no \\[database] entry in bench_config.toml: the bench uses the fm-managed "
+                    "'global-db' container, whose TLS material fm owns, so there is no external CA to refresh.",
+                )
+                raise typer.Exit(1)
+
+            output.change_head("Refreshing the external database CA")
+            try:
+                # install_site_ca performs the first two writes together on purpose: config/tls/<site>/db-ca.pem
+                # for the site AND config/tls/ca-bundle.pem for the worker and schedule containers, which take
+                # dumps fm never wraps. Refreshing only the per-site file is the trap this flag exists to
+                # prevent: the site connects again while the bundle still carries the expired certificate, so
+                # dumps and restores stay broken until someone notices. The [database.<site>].ca rewrite below
+                # is the third write, keeping the recorded host path equal to what was installed.
+                container_ca_path = db_tls.install_site_ca(bench.path, bench.name, db_ca)
+            except (OSError, ValueError) as error:
+                output.display_error(str(error))
+                raise typer.Exit(1) from error
+
+            # Absolute, but deliberately not resolved: a rotation is usually driven through a stable symlink
+            # (certbot's live/ layout is the idiom), and following it would record the versioned file instead.
+            database_config.ca = str(db_ca.absolute())
+            output.print(f"Installed CA at {container_ca_path} and rebuilt the bench ca-bundle.pem")
+            # No restart notice here: config/ is bind-mounted as a directory into frappe, socketio, schedule and
+            # the workers (./workspace on the mount runtime, ./workspace/frappe-bench/config on the image
+            # runtime), and the copy rewrites the same file in place, so running containers already see it.
+            output.print("Running containers read the new CA on their next database connection; no restart needed.")
+            bench_config_save = True
+
         if developer_mode:
             if developer_mode == EnableDisableOptionsEnum.enable:
                 bench.bench_config.developer_mode = True

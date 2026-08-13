@@ -15,7 +15,7 @@ from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.services import ServicesManager
-from frappe_manager.site_manager.bench_config import AuthConfig, BenchConfig, FMBenchEnvType
+from frappe_manager.site_manager.bench_config import AuthConfig, BenchConfig, DatabaseConfig, FMBenchEnvType
 from frappe_manager.site_manager.exceptions import (
     BenchException,
     BenchRemoveDirectoryError,
@@ -149,6 +149,7 @@ class Bench:
         self.database = BenchDatabase(
             bench_name=name,
             bench_path=path,
+            bench_config=bench_config,
             services=services,
             set_common_bench_config_fn=self.set_common_bench_config,
             output_handler=self.output,
@@ -380,6 +381,24 @@ class Bench:
             raise BenchException(self.name, message=f"File not found {site_config_path.name}.")
         save_dict_to_file(config, site_config_path)
 
+    def create_bench_site_config(self, config: dict):
+        """Create `sites/<site>/site_config.json` from the host, before anything connects.
+
+        The external flow must write this file BEFORE `new-site` or any provisioning runs:
+        TLS has no CLI flag and this is the only per-site config source Frappe reads. Frappe's
+        `make_site_config` writes the file only when it does not exist and `make_conf` re-inits
+        the site afterwards, so a file fm wrote first survives untouched and is what the rest of
+        `new-site` reads. Unlike `set_bench_site_config` this creates the directory and the file.
+        """
+        site_dir = self.path / "workspace/frappe-bench/sites" / self.name
+        site_dir.mkdir(parents=True, exist_ok=True)
+        site_config_path = site_dir / "site_config.json"
+        # save_dict_to_file merges, so it reads the file before writing and cannot create one.
+        # Every other caller edits a file Frappe already wrote; this is the first write.
+        if not site_config_path.exists():
+            site_config_path.write_text("{}")
+        save_dict_to_file(config, site_config_path)
+
     def get_common_bench_config(self):
         return self.info_display.get_common_config()
 
@@ -403,14 +422,14 @@ class Bench:
         # (real client IP restoration) in the same breath.
         self.ensure_fm_nginx_confs()
 
-    def sync_bench_common_site_config(self, services_db_host: str, services_db_port: int):
+    def sync_bench_common_site_config(self):
         """
-        Syncs the common site configuration with the global database information and container prefix.
+        Syncs `common_site_config.json` with this bench's redis wiring and container prefix.
 
-        This function sets the common site configuration data including the socketio port, database host and port,
-        and the Redis cache, queue, and socketio URLs.
+        The database endpoint is not written here: it is per site and lives in
+        `sites/<site>/site_config.json`, while redis is per bench and stays in the common file.
         """
-        self.database.sync_common_site_config(services_db_host, services_db_port)
+        self.database.sync_common_site_config()
 
     def create_compose_dirs(self, copy_runtimes: bool = True) -> bool:
         return self.docker_ops.create_compose_dirs(copy_runtimes=copy_runtimes)
@@ -887,24 +906,19 @@ class Bench:
             self.logger.exception(f"Failed to remove bench: {self.name}", extra_fields=extra)
             raise
 
-    def _is_using_global_db(self) -> bool:
+    def external_database_config(self) -> DatabaseConfig | None:
         """
-        Check if bench is using FM's managed global-db service.
+        The `[database."<site>"]` entry for this bench's site, or None when there is none.
 
-        Returns:
-            True if bench uses global-db, False otherwise
+        Presence is the switch: an entry means the schema lives on a server fm does not own, absence
+        means the fm-managed `global-db` container, exactly as before `[database]` existed. This is
+        the single place that decision is made; `BenchService` calls it on the bench it is deleting.
         """
-        try:
-            db_info = self.database.get_connection_info()
-            db_host = db_info.get("host", "")
-
-            return db_host == "global-db"
-        except Exception:
-            return False
+        return self.bench_config.get_database_config(self.name)
 
     def _handle_database_deletion(self, delete_db_from_global_db: bool | None):
         """
-        Handle database deletion based on user preference and database location.
+        Handle database deletion based on user preference and where the schema lives.
 
         Args:
             delete_db_from_global_db: User preference for database deletion.
@@ -915,11 +929,20 @@ class Bench:
         extra = {"operation": "db_handle_deletion", "bench_name": self.name}
         self.logger.debug(f"Handling database deletion for bench: {self.name}", extra_fields=extra)
         try:
-            is_global_db = self._is_using_global_db()
+            external_db = self.external_database_config()
 
-            if not is_global_db:
-                self.output.print("Bench is not using FM's managed global-db. Skipping database deletion")
-                self.logger.info(f"Skipping database deletion - not using global-db: {self.name}", extra_fields=extra)
+            if external_db is not None:
+                # fm could drop this schema: the site's own grant carries DROP and its password is in
+                # site_config.json. It does not, because the schema is not fm's to drop.
+                self.output.print(
+                    f"Database '[bold]{external_db.name}[/bold]' lives on '[bold]{external_db.host}[/bold]', "
+                    "a server fm does not own. Skipping database deletion"
+                )
+                self.logger.info(
+                    f"Skipping database deletion - external database {external_db.name} on {external_db.host}: "
+                    f"{self.name}",
+                    extra_fields=extra,
+                )
                 return
 
             should_delete = delete_db_from_global_db
@@ -1095,7 +1118,11 @@ class Bench:
                     self.output.print(f"{action} supervisor processes - {service}")
 
     def restart_redis_services_containers(self):
-        """Restarts redis containers"""
+        """Restarts redis containers, unless this bench points at an external redis."""
+
+        if self.bench_config.redis:
+            self.output.print("Bench uses an external redis. Skipping redis service restart")
+            return
 
         redis_services = [
             SiteServicesEnum.redis_cache.value,

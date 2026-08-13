@@ -1,7 +1,7 @@
 import json
 import time
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pydantic import BaseModel
 
@@ -23,6 +23,10 @@ from frappe_manager.services_manager.services_exceptions import (
 )
 from frappe_manager.site_manager.exceptions import BenchException
 
+if TYPE_CHECKING:
+    # bench_config imports this module at module scope, so this one stays type-only.
+    from frappe_manager.site_manager.bench_config import DatabaseConfig
+
 
 # TODO this class will be used for validation for main config
 class DatabaseServerServiceInfo(BaseModel):
@@ -31,6 +35,9 @@ class DatabaseServerServiceInfo(BaseModel):
     port: int
     password: str
     name: str | None = None
+    # True when the endpoint is a database fm does not own. `host` is then a DNS name rather
+    # than a compose service, so there is no container to exec the client into.
+    external: bool = False
 
     @classmethod
     def import_from_compose_file(
@@ -63,15 +70,37 @@ class DatabaseServerServiceInfo(BaseModel):
         return cls(**info)
 
     @classmethod
-    def import_from_bench(cls, bench_name: str, bench_path: Path, raise_exception=False):
+    def from_database_config(cls, db_config: "DatabaseConfig", password: str) -> "DatabaseServerServiceInfo":
+        """
+        Provides info about an external database server, from `[database."<site>"]`.
+
+        `password` is the SITE's own password, never a root or admin one. fm holds admin
+        credentials only for the duration of a create, and routes them into Frappe's own
+        provisioning call over stdin rather than through this object.
+        """
+        return cls(
+            host=db_config.host,
+            port=db_config.port,
+            name=db_config.name,
+            user=db_config.login_user,
+            password=password,
+            external=True,
+        )
+
+    @classmethod
+    def import_from_bench(cls, bench_name: str, bench_path: Path, raise_exception=False, external: bool = False):
         """
         Provides info about a database server
+
+        The site file wins over the common one. fm no longer writes `db_host` and `db_port` into
+        `common_site_config.json` because the endpoint belongs to a site, so common is read only
+        as a fallback for benches created before that cutover.
         """
 
         site_config_file: Path = bench_path / "workspace" / "frappe-bench" / "sites" / bench_name / "site_config.json"
         common_site_config_file: Path = bench_path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
 
-        info: dict[str, Any] = {}
+        info: dict[str, Any] = {"external": external}
 
         info["password"] = None
 
@@ -86,10 +115,16 @@ class DatabaseServerServiceInfo(BaseModel):
             with open(site_config_file) as f:
                 site_config = json.load(f)
                 if site_config:
-                    info["host"] = site_config.get("db_host")
+                    info["host"] = site_config.get("db_host") or info.get("host")
+                    info["port"] = site_config.get("db_port") or info.get("port")
                     info["name"] = site_config["db_name"]
-                    info["user"] = site_config["db_name"]
+                    # v16 has a real `db_user` key, so the login user no longer has to equal the
+                    # schema name. v15 has no such key and falls back to the name, as before.
+                    info["user"] = site_config.get("db_user") or site_config["db_name"]
                     info["password"] = site_config["db_password"]
+
+        if not info.get("port"):
+            info["port"] = 3306
 
         if raise_exception and not info["password"]:
             raise BenchException(
@@ -137,6 +172,7 @@ class MariaDBManager(DatabaseServiceManager):
         docker_client: DockerClient,
         run_on_compose_service: str | None = None,
         output_handler: OutputHandler | None = None,
+        mysql_home: str | None = None,
     ) -> None:
         """
         Database manager
@@ -146,17 +182,38 @@ class MariaDBManager(DatabaseServiceManager):
         self.docker_client: DockerClient = docker_client
         self.output = output_handler or RichOutputHandler()
 
-        if not run_on_compose_service:
-            self.run_on_compose_service: str = self.database_server_info.host
+        self.run_on_compose_service: str
+
+        if run_on_compose_service:
+            self.run_on_compose_service = run_on_compose_service
+        elif self.database_server_info.external:
+            # An external endpoint has no container to exec into: `host` is a DNS name, not a
+            # compose service. The bench's frappe service ships the mariadb client, so the
+            # client runs there and dials the endpoint over the network.
+            self.run_on_compose_service = "frappe"
         else:
-            self.run_on_compose_service: str = run_on_compose_service
+            self.run_on_compose_service = self.database_server_info.host
+
+        # Credentials and endpoint are emitted together, from one object, so a password can
+        # only ever travel to the host it was minted for. `import_from_compose_file` is the
+        # only source of the global-db root password and it hardcodes `host` to the compose
+        # service name, which is why that password cannot reach an external server.
+        self.client_flags = (
+            f"-u'{self.database_server_info.user}' -p'{self.database_server_info.password}' "
+            f"-P{self.database_server_info.port} -h'{self.database_server_info.host}'"
+        )
 
         # Canonical client names only. MariaDB 11.x images no longer ship the legacy
         # mysql/mysqladmin/mysqldump symlinks (verified absent in mariadb:11.8), while
         # mariadb, mariadb-admin and mariadb-dump exist in both the engine image and
         # the bench image.
-        self.base_command = f"/usr/bin/mariadb -u{self.database_server_info.user} -p'{self.database_server_info.password}' -P{self.database_server_info.port} -h{self.database_server_info.host} "
+        self.base_command = f"/usr/bin/mariadb {self.client_flags} "
         self.base_query = "-e "
+
+        # Every CLI shell-out is plaintext unless the client reads an option file, and
+        # MYSQL_HOME=<dir> is what makes it read <dir>/my.cnf. None means global-db, where
+        # there is no TLS to carry, so no env is emitted at all.
+        self._env: list[str] | None = [f"MYSQL_HOME={mysql_home}"] if mysql_home else None
 
         # `compose run` needs a user that exists in the TARGET image. The bench image
         # has frappe; the engine image does not (`unable to find user frappe`), which
@@ -188,7 +245,12 @@ class MariaDBManager(DatabaseServiceManager):
         otherwise uses compose.run.
         """
         if self._is_service_running(self.run_on_compose_service):
-            return self.docker_client.compose.exec(self.run_on_compose_service, command=command, stream=stream)
+            return self.docker_client.compose.exec(
+                self.run_on_compose_service,
+                command=command,
+                stream=stream,
+                env=self._env,
+            )
         return self.docker_client.compose.run(
             self.run_on_compose_service,
             # command=command,
@@ -196,6 +258,7 @@ class MariaDBManager(DatabaseServiceManager):
             user=user,
             rm=rm,
             entrypoint=command,
+            env=self._env,
         )
 
     def db_run_query(
@@ -236,7 +299,7 @@ class MariaDBManager(DatabaseServiceManager):
         raise DatabaseServiceStartTimeout(total_timeout, self.run_on_compose_service)
 
     def is_db_running(self) -> bool:
-        db_started_command = f"mariadb-admin -P{self.database_server_info.port} -h{self.database_server_info.host} -u'{self.database_server_info.user}' -p'{self.database_server_info.password}' ping"
+        db_started_command = f"mariadb-admin {self.client_flags} ping"
         try:
             output = self._compose_exec_or_run(
                 db_started_command,
@@ -337,7 +400,7 @@ class MariaDBManager(DatabaseServiceManager):
         if isinstance(export_file_path, Path):
             export_file_path = str(export_file_path.absolute())
 
-        db_export_command = f"mariadb-dump -u'{self.database_server_info.user}' -p'{self.database_server_info.password}' -h'{self.database_server_info.host}' -P{self.database_server_info.port} {db_name} --result-file={export_file_path}"
+        db_export_command = f"mariadb-dump {self.client_flags} {db_name} --result-file={export_file_path}"
 
         try:
             output = self._compose_exec_or_run(
@@ -361,8 +424,7 @@ class MariaDBManager(DatabaseServiceManager):
             export_file_path = str(export_file_path.absolute())
 
         db_export_command = (
-            f"mariadb-dump -u'{self.database_server_info.user}' -p'{self.database_server_info.password}' "
-            f"-h'{self.database_server_info.host}' -P{self.database_server_info.port} "
+            f"mariadb-dump {self.client_flags} "
             "--all-databases --single-transaction --quick --routines --events --triggers "
             f"--result-file={export_file_path}"
         )

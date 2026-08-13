@@ -18,6 +18,7 @@ maintenance window. Supervisor stays.
 import base64
 import contextlib
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -26,6 +27,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from frappe_manager.docker import DockerException
+from frappe_manager.exceptions import NonInteractiveError
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
@@ -35,12 +37,14 @@ from frappe_manager.services_manager.database_service_manager import (
 )
 from frappe_manager.site_manager.bench_config import (
     BenchRuntime,
+    DatabaseConfig,
     DeployState,
     DeployStateEntry,
     SwitchConfig,
     WorkersConfig,
 )
 from frappe_manager.site_manager.hooks import hook_env, hook_script
+from frappe_manager.site_manager.modules import db_probe, db_tls
 from frappe_manager.utils.docker import run_command_with_exit_code
 
 BENCH_BIN = "/opt/user/.bin/bench"
@@ -49,8 +53,38 @@ FRAPPE_SERVICE = "frappe"
 FMX_PYTHON = "/opt/uv-tools/fmx/bin/python"
 
 
+def external_dump_tls_hint(site: str) -> str:
+    """What to check when a dump-based step fails on an external database.
+
+    Frappe's ``get_command`` builds every ``mariadb`` and ``mariadb-dump``
+    invocation from user, socket, host, port and password alone and never reads
+    ``db_ssl_*``, so a dump or restore takes its TLS from an option file and not
+    from ``site_config.json``. That is the failure nobody guesses: the site keeps
+    connecting happily over TLS while every dump is refused. The bundle is named
+    because it is the file a hand-replaced CA leaves stale.
+    """
+    return (
+        "The `mariadb` client that dumps and restores go through does not read db_ssl_* from "
+        f"sites/{site}/site_config.json. It takes TLS from the \\[client] section of the option file "
+        f"found through MYSQL_HOME, which fm points at config/tls/{site}/my.cnf for this site. "
+        "Check that file, and config/tls/ca-bundle.pem: the bundle is what a CA replaced by hand "
+        "leaves stale, and `fm update <bench> --db-ca PATH` rewrites both."
+    )
+
+
 class DeployError(Exception):
     """Raised when an image deploy cannot proceed or fails."""
+
+
+class RestoreNotConfirmed(DeployError):
+    """Raised when the operator declines a dump import into an external schema.
+
+    A subclass rather than a bare DeployError so the two paths can differ: an
+    explicit `--restore-db` that is declined aborts the deploy, while fm's own
+    insurance restores (`rollback_db`) carry on without the import. Declining to
+    write to a database fm does not own must never strand the bench on an image
+    it was rolling away from.
+    """
 
 
 def rolling_eligible(
@@ -526,13 +560,21 @@ class DeployOrchestrator:
         # Reload the in-memory compose managers from the restored files.
         self.compose.__init__(self.compose.compose_path)  # type: ignore[misc]
 
+    def _external_db(self) -> DatabaseConfig | None:
+        """This site's external database entry, or None for the global-db container."""
+        return self.config.get_database_config(self.site)
+
     def _db_manager(self) -> tuple[MariaDBManager, str | None]:
         db_info = DatabaseServerServiceInfo.import_from_bench(
             bench_name=self.site, bench_path=self.bench_path, raise_exception=False,
         )
         db_name = db_info.name or self.config.db_name
+        # MYSQL_HOME is the only way the client learns a CA: it reads <dir>/my.cnf.
+        # None for global-db, whose certificate an external CA would not describe.
+        mysql_home = db_tls.site_mysql_home(self.site) if self._external_db() else None
         manager = MariaDBManager(
             db_info, self.compose, self.docker, run_on_compose_service=FRAPPE_SERVICE, output_handler=self.output,
+            mysql_home=mysql_home,
         )
         return manager, db_name
 
@@ -563,6 +605,8 @@ class DeployOrchestrator:
             manager.db_export(db_name, container_path)
         except DockerException as e:
             self.output.warning(f"DB export failed; continuing without DB backup: {e}")
+            if self._external_db():
+                self.output.warning(external_dump_tls_hint(self.site))
             return None
         final = backup_dir / f"db-{db_name}.sql"
         if host_path.exists():
@@ -578,8 +622,94 @@ class DeployOrchestrator:
         if not db_name:
             self.output.warning("Could not resolve DB name; skipping DB restore.")
             return
+        if self._external_db() is not None:
+            self._confirm_external_restore(manager, db_name, db_dump)
         self.output.change_head("Restoring database backup")
-        manager.db_import(db_name, db_dump, force=True)
+        try:
+            manager.db_import(db_name, db_dump, force=True)
+        except Exception as e:
+            if not self._external_db():
+                raise
+            raise DeployError(
+                f"Restoring {db_dump} into {db_name} failed: {e}\n{external_dump_tls_hint(self.site)}",
+            ) from e
+
+    def _confirm_external_restore(self, manager: MariaDBManager, schema: str, db_dump: Path) -> None:
+        """Typed confirmation before a dump lands on a database fm does not own.
+
+        ``db_import(force=True)`` imports OVER the live schema, and a Frappe dump
+        opens with ``DROP TABLE IF EXISTS`` per table, so this is the most
+        destructive operation fm owns. ``--restore-db <path>`` proves the operator
+        meant that dump; it does not prove they meant this database, and that is
+        the half that bites. The table count is read here and not carried over from
+        an earlier phase, because a stale count is exactly the reassurance this
+        guard must not give.
+
+        Reached only when the site has a `[database]` entry: a global-db restore
+        neither prompts nor queries, since that schema is fm's own. A `bench
+        restore` typed by hand inside `fm shell` never reaches fm at all, and this
+        guard makes no claim over it.
+        """
+        endpoint = manager.database_server_info
+        host = f"{endpoint.host}:{endpoint.port}"
+
+        if not self.output.is_interactive():
+            # The global --non-interactive escape hatch (and a missing TTY), so
+            # unattended deploys keep working. No prompt means no reason to query.
+            self.output.warning(
+                f"Non-interactive: importing {db_dump.name} over schema '{schema}' on {host} unconfirmed.",
+            )
+            return
+
+        state = self._live_schema_state(manager, schema)
+        if state is None:
+            holds = "fm could not read how many tables it holds right now"
+        elif not state[0]:
+            holds = "it does not exist on that server yet, so this import would create it"
+        else:
+            holds = f"it holds {state[1]} tables right now, every one of which the dump drops and recreates"
+
+        self.output.warning(
+            f"About to import {db_dump} into schema '{schema}' on {host}, a database fm does not own: {holds}.",
+        )
+        try:
+            answer = self.output.prompt_ask(prompt=f"Type the schema name '{schema}' to confirm this overwrite")
+        except NonInteractiveError:
+            # Output modes that cannot prompt even on a TTY (json, silent) are the
+            # same escape hatch under another name.
+            self.output.warning(f"This output mode cannot prompt: importing into '{schema}' on {host} unconfirmed.")
+            return
+
+        if answer.strip() != schema:
+            raise RestoreNotConfirmed(
+                f"Restore into schema '{schema}' on {host} was not confirmed: the schema name was not typed. "
+                "Nothing was imported.",
+            )
+
+    def _live_schema_state(self, manager: MariaDBManager, schema: str) -> tuple[bool, int] | None:
+        """``(schema exists, table count)`` read from the server now, None if unreadable.
+
+        Same query the create-time probe uses, run through the client the restore
+        itself will use, so a TLS problem shows up here rather than mid-import.
+        A count fm cannot read is reported as unknown: the confirmation still has
+        to be typed, it just cannot quote a number.
+        """
+        sql = db_probe.schema_state_sql(schema)
+        try:
+            output = manager.db_run_query(shlex.quote(sql), capture_output=True)
+        except Exception as e:
+            self.output.warning(f"Could not count the tables in '{schema}': {e}")
+            self.output.warning(external_dump_tls_hint(self.site))
+            return None
+        for line in getattr(output, "stdout", None) or ():
+            columns = line.split("\t")
+            if len(columns) < 2:
+                continue
+            try:
+                return columns[0].strip() not in {"0", ""}, int(columns[1].strip() or 0)
+            except ValueError:
+                continue
+        return None
 
     def drain_workers(self) -> bool:
         """Suspend RQ workers and wait for in-flight jobs.
@@ -1009,7 +1139,12 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
                     migrate_status = self._migrate_status = "failed"  # noqa: F841
                     self._notify_after_migrate(new_tag)
                     if self.switch_config.rollback_db and db_dump:
-                        self._restore_db(db_dump)
+                        # A declined external-restore confirmation must not swallow the
+                        # migrate failure below: that message is the one worth reading.
+                        try:
+                            self._restore_db(db_dump)
+                        except RestoreNotConfirmed as declined:
+                            self.output.warning(str(declined))
                     raise DeployError(
                         f"Migration failed; kept old image ({old_tag or 'dev/mount'}). "
                         f"Compose reverted, no swap performed. Re-run deploy after fixing: {e}",
@@ -1200,7 +1335,13 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         self._pin_workers(previous_tag)
 
         if restore_db_dump is not None:
-            self._restore_db(restore_db_dump)
+            # Declining the DB import is a decision about someone else's database,
+            # not a reason to leave the bench on the image that just failed its
+            # health gate. The image rollback continues either way.
+            try:
+                self._restore_db(restore_db_dump)
+            except RestoreNotConfirmed as declined:
+                self.output.warning(str(declined))
 
         self.docker.compose.up(services=[], detach=True, pull="never", stream=False)
         self._up_workers()

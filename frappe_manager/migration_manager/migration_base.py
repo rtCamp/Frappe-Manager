@@ -18,6 +18,7 @@ from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo, MariaDBManager
+from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.utils.helpers import capture_and_format_exception
 
 
@@ -250,6 +251,34 @@ class MigrationBase(ABC):
 
         return None
 
+    def _resolve_mysql_home(self, bench: MigrationBench) -> str | None:
+        """``MYSQL_HOME`` for this bench's dump when its database is external.
+
+        Read straight out of ``bench_config.toml`` rather than through the
+        pydantic model, like ``_resolve_database_name`` above: a migration runs
+        against whatever config version is already on disk. Without it the dump
+        connects in plaintext, because the `mariadb` client never reads
+        ``db_ssl_*`` from ``site_config.json``, and an enforcing server refuses
+        it with 3159. None for a global-db bench.
+        """
+        bench_config_path = bench.path / "bench_config.toml"
+        if not bench_config_path.exists():
+            return None
+
+        try:
+            import tomlkit
+
+            with open(bench_config_path) as f:
+                databases = tomlkit.parse(f.read()).get("database") or {}
+        except Exception as e:
+            self.output.warning(f"Failed to read database table from bench_config.toml: {e}")
+            return None
+
+        if bench.name not in databases:
+            return None
+
+        return db_tls.site_mysql_home(bench.name)
+
     def bench_db_backup(
         self,
         bench: MigrationBench,
@@ -289,7 +318,13 @@ class MigrationBase(ABC):
             self.output.warning(f"Skipping database backup for {bench.name}")
             return
 
-        mariadb_manager = MariaDBManager(db_info, bench_compose_file, bench_docker, run_on_compose_service="frappe")
+        mariadb_manager = MariaDBManager(
+            db_info,
+            bench_compose_file,
+            bench_docker,
+            run_on_compose_service="frappe",
+            mysql_home=self._resolve_mysql_home(bench),
+        )
 
         from datetime import datetime
 

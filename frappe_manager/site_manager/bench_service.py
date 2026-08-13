@@ -374,27 +374,9 @@ class BenchService:
             output_handler=self.output,
         )
 
-    def _is_using_global_db(self, bench: Bench) -> bool:
-        """
-        Check if bench is using FM's managed global-db service.
-
-        Args:
-            bench: Bench instance to check
-
-        Returns:
-            True if bench uses global-db, False otherwise
-        """
-        try:
-            db_info = bench.database.get_connection_info()
-            db_host = db_info.get("host", "")
-
-            return db_host == "global-db"
-        except Exception:
-            return False
-
     def _handle_database_deletion(self, bench: Bench, delete_db_from_global_db: bool | None):
         """
-        Handle database deletion based on user preference and database location.
+        Handle database deletion based on user preference and where the schema lives.
 
         Args:
             bench: Bench instance
@@ -403,10 +385,15 @@ class BenchService:
                                      True = delete from global-db
                                      False = don't delete from global-db
         """
-        is_global_db = self._is_using_global_db(bench)
+        external_db = bench.external_database_config()
 
-        if not is_global_db:
-            self.output.print("Bench is not using FM's managed global-db. Skipping database deletion")
+        if external_db is not None:
+            # fm could drop this schema: the site's own grant carries DROP and its password is in
+            # site_config.json. It does not, because the schema is not fm's to drop.
+            self.output.print(
+                f"Database '[bold]{external_db.name}[/bold]' lives on '[bold]{external_db.host}[/bold]', "
+                "a server fm does not own. Skipping database deletion"
+            )
             return
 
         should_delete = delete_db_from_global_db

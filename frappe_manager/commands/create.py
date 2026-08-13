@@ -1,11 +1,15 @@
+import os
 import secrets
+import string
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated, cast
 
 import tomlkit
 import typer
 from click.core import ParameterSource
+from pydantic import ValidationError
 from typer_examples import example
 
 from frappe_manager import (
@@ -14,6 +18,7 @@ from frappe_manager import (
     STABLE_APP_BRANCH_MAPPING_LIST,
     EnableDisableOptionsEnum,
 )
+from frappe_manager.commands.auth import _read_password_from_stdin
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.services_manager.services import ServicesManager
@@ -21,8 +26,10 @@ from frappe_manager.site_manager.bench_config import (
     AppConfig,
     BenchConfig,
     BenchRuntime,
+    DatabaseConfig,
     DeployState,
     FMBenchEnvType,
+    RedisConfig,
     RestartPolicyEnum,
 )
 from frappe_manager.site_manager.bench_service import BenchService
@@ -40,6 +47,7 @@ _PANEL_RUNTIME = "Runtime Options"
 _PANEL_MOUNT = "Mount Runtime Options (mount only)"
 _PANEL_DOMAIN = "Domain Options"
 _PANEL_MONITORING = "Monitoring Options"
+_PANEL_EXTERNAL = "External Database and Redis Options"
 
 
 def _has_explicit_tag(image_ref: str) -> bool:
@@ -251,6 +259,226 @@ def _build_overlay_bench_config(
     return bc, apps_from_user
 
 
+_DB_PASSWORD_ALPHABET = string.ascii_letters + string.digits
+
+_EXPLICIT_SOURCES = (ParameterSource.COMMANDLINE, ParameterSource.ENVIRONMENT, ParameterSource.PROMPT)
+
+
+@dataclass(frozen=True)
+class _ExternalCredentials:
+    """The create-time credentials, named exactly for the ``BenchConfig`` fields they fill.
+
+    Those fields carry ``exclude=True`` and are in ``export_to_toml``'s exclude set, so
+    they live for this run only: passwords stay out of ``bench_config.toml`` entirely and
+    admin credentials stay out of every file, so no later fm run can provision or
+    re-provision on someone's shared server.
+    """
+
+    db_admin_user: str | None
+    db_admin_password: str | None
+    db_password: str
+    db_password_generated: bool
+    attach_existing_site: bool
+    encryption_key: str | None
+
+
+def _generate_db_password(length: int = 24) -> str:
+    """An alphanumeric password for the site's database login.
+
+    Alphanumeric is a requirement rather than a preference: the same value lands in the
+    ``[client]`` option file fm writes for the mariadb client, in ``mariadb`` command
+    strings and in ``site_config.json``, and a quote or a '#' would break the CLI TLS
+    path in a way that only surfaces during a backup. ``random_password_generate`` in
+    utils/helpers.py builds on ``secrets.token_urlsafe``, which emits '-' and '_' even
+    with symbols off, so this stays local rather than loosening that one for everyone.
+    """
+    return "".join(secrets.choice(_DB_PASSWORD_ALPHABET) for _ in range(length))
+
+
+def _resolve_secret(value: str | None, flag: str) -> str | None:
+    """'-' means read the secret from stdin, exactly as ``fm auth --password -`` does."""
+    if value != "-":
+        return value
+    secret = _read_password_from_stdin()
+    if not secret:
+        raise typer.BadParameter(f"{flag} -: nothing was read from stdin.")
+    return secret
+
+
+def _first_error(error: ValidationError) -> str:
+    """The message a model validator raised, without pydantic's framing."""
+    return str(error.errors()[0]["msg"]).removeprefix("Value error, ")
+
+
+def _flags(flags: list[str]) -> str:
+    """'--db-name needs' or '--db-name, --db-user need', so a refusal names what tripped it."""
+    return f"{', '.join(flags)} {'needs' if len(flags) == 1 else 'need'}"
+
+
+def _validated_ca(db_ca: Path) -> str:
+    """Absolute host path of a CA file that exists and can be read.
+
+    Checked here so a typo fails on the command line rather than minutes later, when
+    the bench directory exists and the copy into ``config/tls/<site>/`` is attempted.
+    """
+    # Absolute but deliberately not resolved: a certbot-style live/ symlink is the
+    # rotation idiom, and `fm update --db-ca` records the path the same way.
+    absolute = db_ca.expanduser().absolute()
+    if not absolute.is_file():
+        raise typer.BadParameter(f"--db-ca: no such file: {db_ca}")
+    if not os.access(absolute, os.R_OK):
+        raise typer.BadParameter(f"--db-ca: file is not readable: {db_ca}")
+    return str(absolute)
+
+
+def _resolve_redis(redis_cache: str | None, redis_queue: str | None) -> RedisConfig | None:
+    """``[redis]`` from the flag pair, or None for the fm-managed redis containers."""
+    if redis_cache is None and redis_queue is None:
+        return None
+    if not (redis_cache and redis_queue):
+        missing = "--redis-queue" if redis_cache else "--redis-cache"
+        raise typer.BadParameter(
+            f"--redis-cache and --redis-queue must be given together, and {missing} is missing. A redis-less "
+            "bench is not a thing: a missing redis_queue raises outright and redis_cache backs the document "
+            "cache and sessions."
+        )
+    try:
+        return RedisConfig(cache=redis_cache, queue=redis_queue)
+    except ValidationError as e:
+        raise typer.BadParameter(f"--redis-cache / --redis-queue: {_first_error(e)}") from e
+
+
+def _resolve_external_options(
+    *,
+    configured: DatabaseConfig | None,
+    db_host: str | None,
+    db_port: int,
+    db_port_given: bool,
+    db_name: str | None,
+    db_user: str | None,
+    db_password: str | None,
+    db_admin_user: str | None,
+    db_admin_password: str | None,
+    db_ca: Path | None,
+    db_no_verify_hostname: bool,
+    attach_existing_site: bool,
+    encryption_key: str | None,
+    redis_cache: str | None,
+    redis_queue: str | None,
+) -> tuple[DatabaseConfig | None, RedisConfig | None, _ExternalCredentials | None]:
+    """Validate the external database and redis flags and turn them into config.
+
+    Two groups of flags, and they are not interchangeable. The **endpoint** is given on
+    the command line as a whole, so every endpoint flag needs `--db-host` and the result
+    replaces any entry a `--config` overlay held for this site. The **credentials** are
+    never config, so they attach to whichever entry ends up configured, whether that came
+    from the flags or from the overlay in `configured`.
+
+    Every refusal happens here, before the bench directory, the compose file or a single
+    connection exists. The one deliberate omission is "--db-password together with admin
+    credentials against a schema that already exists": whether the schema exists is not
+    knowable from the command line, so the probe owns that one.
+
+    Returns the site's ``DatabaseConfig`` (None when the overlay's entry stands), the
+    bench's ``RedisConfig`` and the credentials that must never reach disk.
+    """
+    redis = _resolve_redis(redis_cache, redis_queue)
+
+    endpoint_flags = {
+        "--db-port": db_port_given,
+        "--db-name": db_name is not None,
+        "--db-user": db_user is not None,
+        "--db-ca": db_ca is not None,
+        "--db-no-verify-hostname": db_no_verify_hostname,
+    }
+    credential_flags = {
+        "--db-password": db_password is not None,
+        "--db-admin-user": db_admin_user is not None,
+        "--db-admin-password": db_admin_password is not None,
+        "--attach-existing-site": attach_existing_site,
+        "--encryption-key": encryption_key is not None,
+    }
+
+    if db_host is None:
+        orphans = [flag for flag, given in endpoint_flags.items() if given]
+        if orphans:
+            raise typer.BadParameter(
+                f"{_flags(orphans)} --db-host. The endpoint is given on the command line as a whole, or not at "
+                "all; without it the bench uses the fm-managed global-db container."
+            )
+        if configured is None:
+            orphans = [flag for flag, given in credential_flags.items() if given]
+            if orphans:
+                raise typer.BadParameter(
+                    f"{_flags(orphans)} an external database: pass --db-host, or declare [database] in a "
+                    "--config overlay. Without one the bench uses the fm-managed global-db container."
+                )
+            return None, redis, None
+    elif not db_name:
+        raise typer.BadParameter("--db-host requires --db-name: the schema on that server this site lives in.")
+
+    admin_given = db_admin_user is not None or db_admin_password is not None
+    if admin_given and not (db_admin_user and db_admin_password):
+        raise typer.BadParameter(
+            "--db-admin-user and --db-admin-password must be given together: fm provisions with both or with "
+            "neither."
+        )
+    if attach_existing_site and admin_given:
+        raise typer.BadParameter(
+            "--attach-existing-site cannot be combined with --db-admin-user / --db-admin-password. Attach creates "
+            "nothing and writes nothing to the schema, so an administrative login has no use there."
+        )
+    if db_password is None and not admin_given:
+        raise typer.BadParameter(
+            "an external database needs credentials, and neither path was taken: pass --db-password for a login "
+            "that already exists on the server, or --db-admin-user with --db-admin-password so fm can have Frappe "
+            "create the schema, the user and the grant. Supplying both is legal too, and means 'create the user "
+            "with this password'. Passwords are deliberately not config, so a [database] overlay cannot carry "
+            "them either."
+        )
+
+    if db_no_verify_hostname and db_ca is None:
+        raise typer.BadParameter(
+            "--db-no-verify-hostname needs --db-ca. Without a CA the driver sends no TLS at all, so there is no "
+            "certificate whose hostname could be checked."
+        )
+
+    ca_path = _validated_ca(db_ca) if db_ca is not None else None
+
+    # Refusals are done; only now is it safe to consume stdin.
+    db_password = _resolve_secret(db_password, "--db-password")
+    db_admin_password = _resolve_secret(db_admin_password, "--db-admin-password")
+    encryption_key = _resolve_secret(encryption_key, "--encryption-key")
+
+    database = None
+    if db_host is not None:
+        try:
+            database = DatabaseConfig(
+                host=db_host,
+                port=db_port,
+                name=db_name,
+                user=db_user,
+                ca=ca_path,
+                check_hostname=not db_no_verify_hostname,
+            )
+        except ValidationError as e:
+            raise typer.BadParameter(f"--db-host / --db-port / --db-name / --db-user: {_first_error(e)}") from e
+
+    # Something must exist before setup_database runs: it creates the user from
+    # frappe.conf.db_password, read out of the site file fm writes first. Whether fm
+    # minted it is load-bearing for the probe: create_user is CREATE USER IF NOT EXISTS,
+    # so an account that already exists keeps a password fm does not know.
+    credentials = _ExternalCredentials(
+        db_admin_user=db_admin_user,
+        db_admin_password=db_admin_password,
+        db_password=db_password if db_password is not None else _generate_db_password(),
+        db_password_generated=db_password is None,
+        attach_existing_site=attach_existing_site,
+        encryption_key=encryption_key,
+    )
+    return database, redis, credentials
+
+
 @example(
     "Create bench with Frappe only",
     "{benchname}",
@@ -291,6 +519,12 @@ def _build_overlay_bench_config(
     "Create bench with alias domains",
     "{benchname} --alias-domains www.example.com,api.example.com",
     detail="Adds alias domains to the bench configuration. Use 'fm ssl add' to provision certificates for these domains.",
+    benchname="mybench",
+)
+@example(
+    "Create bench on an external database",
+    "{benchname} --db-host db.example.com --db-name app_prod --db-password - --db-ca /etc/ssl/rds-bundle.pem",
+    detail="Points the site at a MariaDB fm does not own instead of the global-db container. --db-password - reads the secret from stdin so it stays out of the shell history, and --db-ca is required whenever the server enforces TLS. Pass --db-admin-user with --db-admin-password instead to have fm create the schema, the user and the grant.",
     benchname="mybench",
 )
 def create(
@@ -438,6 +672,135 @@ def create(
             rich_help_panel=_PANEL_MONITORING,
         ),
     ] = None,
+    db_host: Annotated[
+        str | None,
+        typer.Option(
+            "--db-host",
+            help="Put this site on an external MariaDB instead of the fm-managed global-db container. Any "
+            "MariaDB, managed or self-hosted; MySQL is not a supported Frappe backend.",
+            show_default=False,
+            rich_help_panel=_PANEL_EXTERNAL,
+        ),
+    ] = None,
+    db_port: Annotated[
+        int,
+        typer.Option(
+            "--db-port",
+            help="Port of the external database server.",
+            rich_help_panel=_PANEL_EXTERNAL,
+        ),
+    ] = 3306,
+    db_name: Annotated[
+        str | None,
+        typer.Option(
+            "--db-name",
+            help="Schema on the external server this site lives in. Required with --db-host.",
+            show_default=False,
+            rich_help_panel=_PANEL_EXTERNAL,
+        ),
+    ] = None,
+    db_user: Annotated[
+        str | None,
+        typer.Option(
+            "--db-user",
+            help="Login user for the schema. Defaults to the schema name, and must equal it on a v15 bench, "
+            "which has no db_user key.",
+            show_default=False,
+            rich_help_panel=_PANEL_EXTERNAL,
+        ),
+    ] = None,
+    db_password: Annotated[
+        str | None,
+        typer.Option(
+            "--db-password",
+            help="Password of the site's own database login. Pass - to read it from stdin, keeping it out of "
+            "the shell history. Optional alongside admin credentials: fm then generates an alphanumeric one "
+            "for the user it has Frappe create.",
+            show_default=False,
+            rich_help_panel=_PANEL_EXTERNAL,
+        ),
+    ] = None,
+    db_admin_user: Annotated[
+        str | None,
+        typer.Option(
+            "--db-admin-user",
+            help="Administrative login, used once at create time to have Frappe create the schema, the site "
+            "user and the grant. Never written to disk, so no later fm run can provision.",
+            show_default=False,
+            rich_help_panel=_PANEL_EXTERNAL,
+        ),
+    ] = None,
+    db_admin_password: Annotated[
+        str | None,
+        typer.Option(
+            "--db-admin-password",
+            help="Password for --db-admin-user. Pass - to read it from stdin. It travels on the container's "
+            "stdin only, never through a file, an environment variable or a process listing.",
+            show_default=False,
+            rich_help_panel=_PANEL_EXTERNAL,
+        ),
+    ] = None,
+    db_ca: Annotated[
+        Path | None,
+        typer.Option(
+            "--db-ca",
+            help="Host path to the CA bundle signing the server certificate. Required whenever the server "
+            "enforces TLS: with no CA the driver sends no TLS at all and such a server refuses the connection.",
+            show_default=False,
+            rich_help_panel=_PANEL_EXTERNAL,
+        ),
+    ] = None,
+    db_no_verify_hostname: Annotated[
+        bool,
+        typer.Option(
+            "--db-no-verify-hostname",
+            help="Verify the certificate chain but not that it names the host dialled. Only for a certificate "
+            "that cannot name it: one regional CA signs every tenant, so chain-only accepts any of them.",
+            show_default=False,
+            rich_help_panel=_PANEL_EXTERNAL,
+        ),
+    ] = False,
+    attach_existing_site: Annotated[
+        bool,
+        typer.Option(
+            "--attach-existing-site",
+            help="The schema already holds a Frappe site: build the bench around it and write nothing to the "
+            "database. No new-site, no migrate, no app install.",
+            show_default=False,
+            rich_help_panel=_PANEL_EXTERNAL,
+        ),
+    ] = False,
+    encryption_key: Annotated[
+        str | None,
+        typer.Option(
+            "--encryption-key",
+            help="The attached site's Frappe encryption_key. Pass - to read it from stdin. Without it Frappe "
+            "mints a new one and the site's existing encrypted secrets (mail passwords, OAuth secrets, API "
+            "tokens) stop being readable.",
+            show_default=False,
+            rich_help_panel=_PANEL_EXTERNAL,
+        ),
+    ] = None,
+    redis_cache: Annotated[
+        str | None,
+        typer.Option(
+            "--redis-cache",
+            help="External redis URL for the framework cache (e.g. redis://r.example:6379/0). Suppresses the "
+            "per-bench redis containers. Must be given together with --redis-queue.",
+            show_default=False,
+            rich_help_panel=_PANEL_EXTERNAL,
+        ),
+    ] = None,
+    redis_queue: Annotated[
+        str | None,
+        typer.Option(
+            "--redis-queue",
+            help="External redis URL for the queue and realtime (e.g. redis://r.example:6379/1). Use a "
+            "different logical index from --redis-cache: a restore mass-deletes the cache index.",
+            show_default=False,
+            rich_help_panel=_PANEL_EXTERNAL,
+        ),
+    ] = None,
 ):
     """
     Create a new bench with apps.
@@ -464,7 +827,9 @@ def create(
     developer_mode_status = developer_mode == EnableDisableOptionsEnum.enable
     apps_config = cast("list[AppConfig]", apps)
     sanitized_bench_name = benchname.replace(".", "_").replace("-", "_")
-    db_name = f"fm_{sanitized_bench_name}_{secrets.token_hex(8)}"
+    # The schema fm mints on its own global-db container. Distinct from --db-name, which
+    # names a schema on a server fm does not own.
+    global_db_name = f"fm_{sanitized_bench_name}_{secrets.token_hex(8)}"
 
     if config:
         explicit = {
@@ -495,7 +860,7 @@ def create(
                 newrelic_license_key=newrelic_license_key,
                 runtime=runtime,
                 image=image,
-                db_name=db_name,
+                db_name=global_db_name,
                 explicit=explicit,
             )
         except ConfigOverlayError as e:
@@ -557,7 +922,7 @@ def create(
             use_uv=True,
             python_version=python_version,
             node_version=node_version,
-            db_name=db_name,
+            db_name=global_db_name,
             restart_policy=restart,
             newrelic_enabled=newrelic,
             newrelic_license_key=newrelic_license_key,
@@ -572,6 +937,48 @@ def create(
         apps_from_user = bool(apps)
 
     # --- shared validation + creation (both paths) ---
+    # External database / redis. Every refusal is raised here, before the bench directory,
+    # the compose file or a single connection exists.
+    database_config, redis_config, credentials = _resolve_external_options(
+        configured=bench_config.get_database_config(benchname),
+        db_host=db_host,
+        db_port=db_port,
+        db_port_given=ctx.get_parameter_source("db_port") in _EXPLICIT_SOURCES,
+        db_name=db_name,
+        db_user=db_user,
+        db_password=db_password,
+        db_admin_user=db_admin_user,
+        db_admin_password=db_admin_password,
+        db_ca=db_ca,
+        db_no_verify_hostname=db_no_verify_hostname,
+        attach_existing_site=attach_existing_site,
+        encryption_key=encryption_key,
+        redis_cache=redis_cache,
+        redis_queue=redis_queue,
+    )
+    if database_config is not None:
+        # Keyed by site name, which is the bench name today: when a bench can hold several
+        # sites this becomes a data change rather than a schema change.
+        bench_config.database = {**(bench_config.database or {}), benchname: database_config}
+    if redis_config is not None:
+        bench_config.redis = redis_config
+    if credentials is not None:
+        # Runtime-only fields: excluded from export_to_toml, so none of this reaches disk.
+        bench_config.db_admin_user = credentials.db_admin_user
+        bench_config.db_admin_password = credentials.db_admin_password
+        bench_config.db_password = credentials.db_password
+        bench_config.db_password_generated = credentials.db_password_generated
+        bench_config.attach_existing_site = credentials.attach_existing_site
+        bench_config.encryption_key = credentials.encryption_key
+
+    site_database = bench_config.get_database_config(benchname)
+    if site_database is not None:
+        output.print(
+            f"External database: this site lives on [fm.info]{site_database.host}:{site_database.port}"
+            f"[/fm.info] in schema [fm.info]{site_database.name}[/fm.info], not the global-db container.",
+            emoji_code=":floppy_disk:",
+        )
+
     if bench_config.newrelic_enabled and not bench_config.newrelic_license_key:
         raise typer.BadParameter("--newrelic-license-key is required when --newrelic is set.")
 

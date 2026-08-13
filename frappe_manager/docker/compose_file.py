@@ -1202,6 +1202,33 @@ class ComposeFile:
         except (KeyError, TypeError, AttributeError):
             return False
 
+    def set_service_disabled(self, service: str, disabled: bool = True) -> None:
+        """Add or remove the ``disabled`` compose profile for a service.
+
+        The profile is how fm suppresses a service it must not start (a bench
+        pointed at an external redis): docker compose never brings up a service
+        whose profile is not activated, and ``get_services_list(exclude_disabled=True)``,
+        the readiness wait and the running-status checks all skip it. Idempotent in
+        both directions, other profiles on the service are preserved, and a service
+        that needs no change is left byte-identical.
+        """
+        try:
+            service_definition = self.yml["services"][service]
+        except (KeyError, TypeError) as e:
+            raise ComposeServiceNotFound(service) from e
+
+        current = service_definition.get("profiles")
+        profiles = [current] if isinstance(current, str) else list(current or [])
+        desired = [profile for profile in profiles if profile != "disabled"]
+        if disabled:
+            desired.append("disabled")
+        if desired == profiles:
+            return
+        if desired:
+            service_definition["profiles"] = desired
+        else:
+            service_definition.pop("profiles", None)
+
     @classmethod
     def get_template_services(
         cls,

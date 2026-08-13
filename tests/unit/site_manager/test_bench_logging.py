@@ -15,6 +15,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from frappe_manager.logger import FMLogger, current_context, reset_context
+from frappe_manager.site_manager.bench_config import DatabaseConfig
 from frappe_manager.site_manager.site import Bench
 
 
@@ -367,7 +368,9 @@ class TestDatabaseOperationLogging:
         bench = Bench.__new__(Bench)
         bench.name = "test.localhost"
         bench.logger = mock_logger
-        bench._is_using_global_db = MagicMock(return_value=False)
+        bench.external_database_config = MagicMock(
+            return_value=DatabaseConfig(host="db.example.com", name="app_prod"),
+        )
         bench.output = MagicMock()
 
         bench._handle_database_deletion(None)

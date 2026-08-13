@@ -5,8 +5,11 @@ This module handles all Docker and docker-compose operations for a bench.
 Extracted from the monolithic Bench class for better separation of concerns.
 """
 
+import os
 import shlex
+import shutil
 import sys
+import tempfile
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -62,9 +65,14 @@ class BenchDockerOps:
             return False
 
     def is_running(self) -> bool:
-        """Check if all bench services are running."""
+        """Check if all bench services are running.
+
+        Services suppressed via the ``disabled`` compose profile are excluded: fm
+        deliberately never starts them (a bench on an external redis), so counting
+        them would report a healthy bench as broken.
+        """
         try:
-            services = self.compose_file_manager.get_services_list()
+            services = self.compose_file_manager.get_services_list(exclude_disabled=True)
             containers = self.compose_file_manager.get_container_names().values()
             all_statuses = self.docker_client.compose.get_all_services_status()
             running_statuses = {
@@ -75,12 +83,21 @@ class BenchDockerOps:
             return False
 
     def get_services_running_status(self) -> dict:
-        """Get the running status of all services."""
+        """Get the running status of all services fm actually starts.
+
+        Suppressed services are left out rather than reported as not running: a
+        leftover container from before the service was disabled must not turn up
+        in the status of a bench that is doing exactly what it was configured to.
+        """
         try:
-            services = self.compose_file_manager.get_services_list()
+            services = set(self.compose_file_manager.get_services_list(exclude_disabled=True))
             containers = self.compose_file_manager.get_container_names().values()
             all_statuses = self.docker_client.compose.get_all_services_status()
-            return {status["Service"]: status["State"] for status in all_statuses if status.get("Name") in containers}
+            return {
+                status["Service"]: status["State"]
+                for status in all_statuses
+                if status.get("Name") in containers and status["Service"] in services
+            }
         except DockerException:
             return {}
 
@@ -225,6 +242,41 @@ class BenchDockerOps:
         self.output.print(f"Rendered image-mode compose pinned to {deploy_tag}")
         return BakeManager.nginx_image_tag(deploy_tag)
 
+    def _seed_nginx_conf(self, conf_dir: Path, nginx_image: str) -> None:
+        """Lay the nginx image's `/etc/nginx` onto the host without clobbering fm's overlays.
+
+        `docker cp <dir> <existing dir>` nests instead of merging: copying `/etc/nginx` straight
+        onto a `conf/` that already holds `custom/real-ip.conf` produces `conf/nginx/nginx.conf`,
+        which nginx never reads. So the image content lands in a scratch directory first and is
+        merged in file by file, and anything already on the host wins. That keeps fm's own
+        `custom/` and `http_auth/` overlays intact and makes the whole step idempotent.
+        """
+        conf_dir.mkdir(parents=True, exist_ok=True)
+
+        with tempfile.TemporaryDirectory(dir=conf_dir.parent) as scratch:
+            staged = Path(scratch) / "conf"
+            host_run_cp(
+                nginx_image,
+                source="/etc/nginx",
+                destination=str(staged),
+                docker=self.docker_client,
+            )
+            for item in sorted(staged.rglob("*")):
+                target = conf_dir / item.relative_to(staged)
+                # `modules` in the nginx image is a symlink to /usr/lib/nginx/modules, which does
+                # not exist inside the staged copy. Recreate the link itself rather than following
+                # it: `is_dir()` and `copy2()` both resolve the target and blow up on a dangling
+                # one. `exists()` is also False for a broken link, hence the explicit is_symlink.
+                if item.is_symlink():
+                    if not target.is_symlink() and not target.exists():
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        os.symlink(os.readlink(item), target)
+                elif item.is_dir():
+                    target.mkdir(parents=True, exist_ok=True)
+                elif not target.exists():
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(item, target)
+
     def create_compose_dirs(self, copy_runtimes: bool = True) -> bool:
         """
         Create the necessary directories for the Compose setup.
@@ -263,19 +315,19 @@ class BenchDockerOps:
         nginx_dir = configs_path / "nginx"
         nginx_dir.mkdir(parents=True, exist_ok=True)
 
-        nginx_populate_dir = ["conf"]
+        # The bind mount replaces /etc/nginx wholesale, so the image's base config has to be on
+        # the host or nginx has nothing to read and dies with `nginx.conf` not found. This used to
+        # be guarded on `conf/` not existing, which broke the moment anything else wrote into that
+        # directory first: `ensure_fm_nginx_confs` lays down `conf/custom/real-ip.conf` during
+        # `generate_compose`, which runs BEFORE this, so the directory existed, the copy was
+        # skipped, and every new bench came up with a dead web server. Guard on the marker file
+        # rather than the directory, so the seeding is independent of who got there first, and a
+        # bench already broken this way repairs itself on the next run.
         nginx_image = self.compose_file_manager.yml["services"]["nginx"]["image"]
+        nginx_conf_dir = nginx_dir / "conf"
 
-        for directory in nginx_populate_dir:
-            new_dir = nginx_dir / directory
-            if not new_dir.exists():
-                new_dir_abs = str(new_dir.absolute())
-                host_run_cp(
-                    nginx_image,
-                    source="/etc/nginx",
-                    destination=new_dir_abs,
-                    docker=self.docker_client,
-                )
+        if not (nginx_conf_dir / "nginx.conf").exists():
+            self._seed_nginx_conf(nginx_conf_dir, nginx_image)
 
         nginx_subdirs = ["logs", "cache", "run", "html"]
 
@@ -564,15 +616,22 @@ class BenchDockerOps:
         """
         Restart specific services.
 
+        Services suppressed via the ``disabled`` compose profile are dropped rather
+        than restarted: docker compose cannot address a service outside the active
+        profiles, and fm never started it anyway (a bench on an external redis).
+
         Args:
             services: List of service names to restart
             force: If True, use timeout=0 for immediate kill. If False, use default graceful timeout.
         """
+        enabled = [s for s in services if not self.compose_file_manager.is_service_profile_disabled(s)]
+        if not enabled:
+            return
         timeout = 0 if force else 100
-        self.output.change_head(f"Restarting services - {' '.join(services)}")
-        self.docker_client.compose.restart(services=services, timeout=timeout)
+        self.output.change_head(f"Restarting services - {' '.join(enabled)}")
+        self.docker_client.compose.restart(services=enabled, timeout=timeout)
         action = "Force restarted" if force else "Restarted"
-        self.output.print(f"{action} services - {' '.join(services)}")
+        self.output.print(f"{action} services - {' '.join(enabled)}")
 
     def exec_command(self, service: str, command: str, user: str | None = None, stream: bool = False):
         """

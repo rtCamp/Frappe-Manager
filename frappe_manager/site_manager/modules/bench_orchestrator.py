@@ -18,19 +18,49 @@ By centralizing orchestration logic here, we maintain separation of concerns:
 """
 
 import copy
+import json
+import re
+import shlex
 import time
-from typing import TYPE_CHECKING
+from pathlib import Path
+from typing import TYPE_CHECKING, cast
 
+from frappe_manager.docker import DockerException
+from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.site_manager.bench_config import BenchRuntime, FMBenchEnvType
+from frappe_manager.site_manager.bench_config import BenchRuntime, DatabaseConfig, FMBenchEnvType, SwitchConfig
 from frappe_manager.site_manager.exceptions import BenchOperationException
+from frappe_manager.site_manager.modules import db_probe, db_tls
 from frappe_manager.site_manager.provisioner import provision
 
 if TYPE_CHECKING:
     from frappe_manager.site_manager.site import Bench
 
+# Where the bench's own interpreter lives. Stage two of the probe runs `python -c` and needs
+# pymysql, which is installed into `env/`; the container's bare `python` resolves to the uv
+# default interpreter and carries no database driver at all, so the probe exec puts the venv
+# first on PATH and a bare `python` becomes the interpreter the site itself runs.
+BENCH_VENV_BIN = "/workspace/frappe-bench/env/bin"
+
+FRAPPE_BENCH_DIR = "/workspace/frappe-bench"
+
+# `compose run --rm` narrates the throwaway container's lifecycle on the same stream as the
+# command's own output (" Container <name> Creating", "... Created", and so on). The probe parses
+# the FIRST line of a reply positionally, so an unfiltered lifecycle line is read as the query
+# result: a schema that exists is reported absent, which then picks the wrong flow. Stripping
+# belongs here at the docker boundary rather than in db_probe, which stays transport-agnostic.
+_COMPOSE_LIFECYCLE_NOISE = re.compile(
+    r"^\s*(Container|Network|Volume|Image)\s+\S+\s+"
+    r"(Creating|Created|Starting|Started|Stopping|Stopped|Removing|Removed|"
+    r"Recreate|Recreated|Waiting|Healthy|Running|Pulling|Pulled|Built|Building)\s*$"
+)
+
+
+def _strip_compose_noise(lines: list[str]) -> str:
+    """Drop compose's lifecycle narration, keeping the command's real output."""
+    return "\n".join(line for line in lines if not _COMPOSE_LIFECYCLE_NOISE.match(line))
 
 
 class BenchOrchestrator:
@@ -60,6 +90,15 @@ class BenchOrchestrator:
         self.logger = get_logger(component="orchestrator")
         self.bench = bench
         self.output = output_handler or RichOutputHandler()
+
+        # Decided by the external database gate between phase 1 and phase 2. None means this
+        # bench has no `[database]` entry and sits on the `global-db` container, where nothing
+        # in this feature runs and the create is what it has always been.
+        self._external_flow: db_probe.Flow | None = None
+        # The schema this run provisioned, so a later phase failing can name exactly what fm
+        # created and offer to drop it. Never survives the run: a later invocation holds no
+        # admin credentials and has no business dropping anything.
+        self._provisioned: DatabaseConfig | None = None
 
     def create_bench(self, is_template_bench: bool = False) -> None:
         """
@@ -120,6 +159,10 @@ class BenchOrchestrator:
                 self._create_image_bench()
                 return
 
+            # Between phase 1 and phase 2, and the placement is the whole point. See
+            # `_external_database_gate`. No-op for a bench on the `global-db` container.
+            self._external_database_gate()
+
             if bench.bench_config.seed_image:
                 self._phase2_seed_from_image()
             else:
@@ -128,7 +171,7 @@ class BenchOrchestrator:
             self._phase4_create_site()
             self._phase5_finalize()
 
-            apps_installed = self._phase6_install_apps()
+            apps_installed = self._skip_phase6_for_attach() if self._attaching else self._phase6_install_apps()
 
             if bench.bench_config.seed_image:
                 # The phase-3 health probe hits the server BEFORE the site exists;
@@ -171,9 +214,7 @@ class BenchOrchestrator:
         tag = bench.bench_config.deploy_state.current_tag
 
         # Host-side config + supervisor (mode-agnostic, no image needed).
-        common_site_config_data = bench.bench_config.get_commmon_site_config_data(
-            bench.services.database_manager.database_server_info,
-        )
+        common_site_config_data = bench.bench_config.get_commmon_site_config_data()
         bench.set_common_bench_config(common_site_config_data)
         bench.supervisor.setup_supervisor(bench.path, force=True, use_run=True)
 
@@ -186,6 +227,13 @@ class BenchOrchestrator:
         baked = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()]
         bench.bench_config.apps_list = [AppConfig.from_string(n) for n in baked]
 
+        # The same gate the mount runtime runs between phase 1 and phase 2, placed at the first
+        # point this path can run a container at all: there is no phase 2 here, and the probe
+        # goes through `compose run --rm` on the `frappe` service, whose image is the app image
+        # `fetch_image` just made local. Still ahead of the containers, the site and every write,
+        # and `apps_list` is already the baked set the attach parity check compares against.
+        self._external_database_gate()
+
         # Pre-create the site dir (frappe-owned) so the per-site bind isn't auto-created
         # root-owned by `compose up`; new-site --force then populates that existing empty
         # dir. (The compose was already projected to the image shape in phase 1.)
@@ -193,7 +241,7 @@ class BenchOrchestrator:
         self._phase3_start_and_verify_bench()
         self._phase4_create_site(force=True)
 
-        apps_installed = self._phase6_install_apps()
+        apps_installed = self._skip_phase6_for_attach() if self._attaching else self._phase6_install_apps()
 
         self._phase5_finalize()
 
@@ -252,9 +300,7 @@ class BenchOrchestrator:
         self.output.change_head("Initializing bench (this may take several minutes)")
 
         self.output.change_head("Configuring common_site_config.json")
-        common_site_config_data = bench.bench_config.get_commmon_site_config_data(
-            bench.services.database_manager.database_server_info,
-        )
+        common_site_config_data = bench.bench_config.get_commmon_site_config_data()
         bench.set_common_bench_config(common_site_config_data)
         self.output.print("Configured common_site_config.json")
 
@@ -322,9 +368,7 @@ class BenchOrchestrator:
                 )
 
         self.output.change_head("Configuring common_site_config.json")
-        common_site_config_data = bench.bench_config.get_commmon_site_config_data(
-            bench.services.database_manager.database_server_info,
-        )
+        common_site_config_data = bench.bench_config.get_commmon_site_config_data()
         bench.set_common_bench_config(common_site_config_data)
         bench.supervisor.setup_supervisor(bench.path, force=True, use_run=True)
 
@@ -389,14 +433,502 @@ class BenchOrchestrator:
         raise Exception("Bench server not responding after 60 seconds")
 
     def _phase4_create_site(self, force: bool = False) -> None:
-        """Phase 4: Create empty site (no apps installed yet)"""
+        """Phase 4: Create empty site (no apps installed yet)
+
+        Provisioning an external schema happens HERE and not at probe time. Phases 2 and 3 take
+        minutes, and a failure in either would otherwise strand a schema and a login on a server
+        fm cannot clean up on any later run. The cost of the split is that the probe's emptiness
+        verdict is minutes stale by now, so it is re-checked immediately before the write, which
+        is the check standing between `--force` and someone's data.
+        """
         bench = self.bench
+
+        if self._attaching:
+            self._attach_existing_site()
+            bench.sync_bench_config_configuration()
+            return
+
+        if self._external_flow is not None:
+            self._recheck_external_schema()
+
+        if self._external_flow is db_probe.Flow.provision:
+            self._provision_external_schema()
 
         self.output.change_head(f"Creating bench site {bench.name}")
         bench.site_manager.create_bench_site(force=force)
 
         bench.set_bench_site_config({"admin_password": bench.bench_config.admin_pass})
         bench.sync_bench_config_configuration()
+
+    # ------------------------------------------------------------------ external database
+
+    @property
+    def _attaching(self) -> bool:
+        """True once the gate has decided this create attaches to an existing Frappe site.
+
+        Every skip attach needs hangs off this one predicate, evaluated at the call site: no
+        `bench new-site` command is constructed anywhere on that path, and phase 6 is not called.
+        Neither is a flag checked inside those code paths, because a flag saying "do not destroy
+        the data" is not a safety mechanism. `bootstrap_database` runs OUTSIDE `new-site`'s
+        `if setup:` block, so `--no-setup-db` does not skip it, and it opens with a
+        `DROP TABLE IF EXISTS` per core doctype: there is no shape of that command which is safe
+        against a schema that already holds a site.
+        """
+        return self._external_flow is db_probe.Flow.attach
+
+    def _external_database(self) -> DatabaseConfig:
+        """The `[database."<site>"]` entry driving this create. Only called once the gate ran."""
+        database = self.bench.bench_config.get_database_config(self.bench.name)
+        if database is None:
+            raise BenchOperationException(
+                self.bench.name,
+                "the external database configuration for this site went missing mid-create.",
+            )
+        return database
+
+    def _external_database_gate(self) -> None:
+        """Stage one of the database preflight, the flow decision, and the per-site config file.
+
+        Returns immediately when this site has no `[database]` entry, which is every bench on the
+        `global-db` container: that create runs exactly the phases it has always run, in the same
+        order, and never opens a probe connection.
+
+        Why it sits between phase 1 and phase 2. The compose file exists by now, so the probe
+        reaches the server through `compose run --rm` on the bench's REAL networks rather than
+        the default bridge, and a preflight that passes from the wrong network is the worst kind
+        of preflight. Phase 1 has written nothing but directories and that compose file, both of
+        which `_handle_creation_failure` already cleans up. And everything expensive -- cloning
+        apps, installing dependencies, building assets, fetching the app image -- is still ahead,
+        which is the entire reason to probe here rather than at the first connection.
+
+        Why the `mariadb` client. It is all that exists in the image at this moment. The
+        container's `python` resolves to the uv default interpreter and `pymysql` lives in
+        `env/`, both of which phase 2 creates, and the image runtime has no phase 2 at all. That
+        is not a compromise either: the CLI is the stack Frappe shells out to for the initial SQL
+        import, for restores and for dumps, and it is the half that needs the option file.
+        """
+        bench = self.bench
+        config = bench.bench_config
+        database = config.get_database_config(bench.name)
+
+        if database is None:
+            return
+
+        mysql_home = None
+        if database.ca:
+            self.output.change_head("Installing the database CA")
+            db_tls.install_site_ca(bench.path, bench.name, Path(database.ca))
+            mysql_home = db_tls.site_mysql_home(bench.name)
+            self.output.print(f"Installed {database.ca} for {bench.name} and refreshed the CA bundle")
+
+        attach = config.attach_existing_site
+        # Only a password the OPERATOR supplied can be authenticated. On the provisioning path fm
+        # mints one for a login that does not exist yet, and offering it to the probe would both
+        # fail the credentials check and suppress the refusal that catches a pre-existing login
+        # whose password fm does not know.
+        site_password = None if config.db_password_generated else config.db_password
+
+        self.output.change_head(f"Probing {database.host}:{database.port} from the bench container")
+        result = db_probe.probe_stage_one(
+            self._probe_runner(use_run=True),
+            host=database.host,
+            port=database.port,
+            admin_user=config.db_admin_user,
+            admin_password=config.db_admin_password,
+            site_user=database.login_user,
+            site_password=site_password,
+            schema=database.name,
+            mysql_home=mysql_home,
+            bench_apps=tuple(app.name for app in config.apps_list),
+            attach=attach,
+        )
+        self._report_probe_checks(result)
+
+        decision = db_probe.decide_flow(
+            result,
+            attach=attach,
+            credentials=db_probe.CredentialInputs(
+                site_password_given=site_password is not None,
+                admin_given=bool(config.db_admin_user and config.db_admin_password),
+                db_name=database.name,
+                db_user=database.user,
+            ),
+            schema=database.name,
+            host=database.host,
+        )
+        if decision.refused:
+            raise BenchOperationException(bench.name, decision.message)
+
+        self._external_flow = decision.flow
+        self.output.print(decision.message)
+
+        # The only per-site config source Frappe reads, and it has to exist before anything
+        # connects, because TLS has no CLI flag. Phase 4's direct `setup_database` call reads its
+        # `db_ssl_*` keys and `rds_db` like any other connection, which is the whole reason
+        # provisioning is a direct call rather than `new-site --db-root-username`. `rds_db` goes
+        # in only on the provisioning path: `grant_all_privileges` is the single thing in Frappe
+        # that reads it and only `setup_database` reaches it, so on adopt-empty or attach the key
+        # would imply behaviour it does not have.
+        self.output.change_head(f"Writing sites/{bench.name}/site_config.json")
+        bench.create_bench_site_config(
+            config.get_site_config_data(bench.name, provisioning=decision.flow is db_probe.Flow.provision)
+        )
+
+        if self._attaching:
+            self._disable_migrate_for_attach()
+            self._report_attach_warnings()
+
+    def _probe_runner(self, *, use_run: bool) -> db_probe.Runner:
+        """Run one probe command in the bench container and hand back its combined output.
+
+        `use_run` picks `compose run --rm` over `exec`. Stage one happens between phase 1 and
+        phase 2, when no container is up, and going through the bench's own compose service is
+        what puts the probe on the bench's real networks. Stage two runs in phase 4, where the
+        containers are already up and an exec is both cheaper and closer to how the site runs.
+
+        The command is `shlex.quote`d rather than concatenated into the shell string: both
+        `compose.run` and `compose.exec` shlex-split what they are handed, and every probe
+        command carries quotes of its own (the SQL, the python source), so quoting is the only
+        thing that survives the round trip intact.
+
+        A non-zero exit is answered with the output rather than an exception, because the
+        client's own `ERROR <code> (…)` line is where the entire diagnosis lives and `db_probe`
+        parses it.
+        """
+        bench = self.bench
+        # `env/bin` first so a bare `python` is the interpreter the site itself runs, the only one
+        # carrying pymysql; the image's `python` is the uv default and has no database driver.
+        # Harmless before the venv exists, since stage one runs no python at all.
+        prefix = f"export PATH={BENCH_VENV_BIN}:$PATH; "
+
+        def run(command: str) -> str:
+            wrapped = f"/bin/bash -c {shlex.quote(prefix + command)}"
+            try:
+                if use_run:
+                    output = cast(
+                        "SubprocessOutput",
+                        bench.docker_client.compose.run(
+                            service="frappe",
+                            command=wrapped,
+                            rm=True,
+                            entrypoint="/exec-entrypoint.sh",
+                            stream=False,
+                        ),
+                    )
+                else:
+                    output = cast(
+                        "SubprocessOutput",
+                        bench.docker_client.compose.exec(
+                            service="frappe",
+                            command=wrapped,
+                            user="frappe",
+                            workdir=FRAPPE_BENCH_DIR,
+                            stream=False,
+                        ),
+                    )
+            except DockerException as e:
+                return _strip_compose_noise(e.output.combined) if e.output else str(e)
+            return _strip_compose_noise(output.combined)
+
+        return run
+
+    def _report_probe_checks(self, result: db_probe.ProbeResult) -> None:
+        """Print every check individually, which is the point of running a preflight at all.
+
+        One pass/fail verdict hides which of a dozen independent things is wrong, and nearly all
+        of them are separately actionable: a server setting, a missing grant, a CA that does not
+        verify, a certificate that cannot name the endpoint. Failures are not raised from here;
+        `decide_flow` folds them into one refusal so the operator reads the decision in the
+        probe's own words rather than fm's paraphrase.
+        """
+        for check in result.checks:
+            if check.status is db_probe.CheckStatus.fail:
+                self.output.display_error(f"{check.name}: {check.detail}")
+            elif check.status is db_probe.CheckStatus.warn:
+                self.output.warning(f"{check.name}: {check.detail}")
+            else:
+                self.output.print(f"{check.name}: {check.detail}")
+
+    def _report_attach_warnings(self) -> None:
+        """The two attach warnings the probe cannot collect, because they are not about the server.
+
+        App parity and files-on-disk come out of `probe_stage_one` and were already printed, one
+        per line, by `_report_probe_checks`. These two are facts about fm's own state: whether an
+        encryption key was handed over, and whether another bench fm manages already points at
+        this schema.
+
+        None of them refuse. Attach writes nothing to the database, so every one is recoverable
+        afterwards, and a create command has no business interrogating someone's data to
+        second-guess them about it.
+        """
+        bench = self.bench
+        database = self._external_database()
+
+        if not bench.bench_config.encryption_key:
+            self.output.warning(
+                "no encryption key provided; if this database holds encrypted secrets (mail"
+                " passwords, OAuth secrets, API tokens) Frappe will mint a new key on first use"
+                " and those values will not be readable. Hashed login passwords are unaffected:"
+                " they are stored key-independently."
+            )
+
+        for other in self._benches_sharing_schema(database):
+            self.output.warning(
+                f"bench {other} already points at {database.name} on {database.host}. Frappe"
+                " prefixes its redis keys with db_name and not with the site name, so two benches"
+                " on one schema share cache keys, and a restore calling delete_keys('') on either"
+                " clears the other one too."
+            )
+
+    def _benches_sharing_schema(self, database: DatabaseConfig) -> list[str]:
+        """Other benches fm manages whose site already points at this schema on this host."""
+        from frappe_manager import CLI_BENCHES_DIRECTORY
+
+        sharing: list[str] = []
+        if not CLI_BENCHES_DIRECTORY.is_dir():
+            return sharing
+
+        for bench_dir in sorted(CLI_BENCHES_DIRECTORY.iterdir()):
+            if not bench_dir.is_dir() or bench_dir.name == self.bench.name:
+                continue
+            sites_dir = bench_dir / "workspace" / "frappe-bench" / "sites"
+            for site_config_path in sites_dir.glob("*/site_config.json"):
+                try:
+                    site_config = json.loads(site_config_path.read_text())
+                except (OSError, ValueError) as e:
+                    self.logger.debug(f"{bench_dir.name}: unreadable site config {site_config_path}: {e}")
+                    continue
+                if site_config.get("db_name") == database.name and site_config.get("db_host") == database.host:
+                    sharing.append(bench_dir.name)
+                    break
+        return sharing
+
+    def _recheck_external_schema(self) -> None:
+        """Re-take the emptiness verdict immediately before phase 4 writes anything.
+
+        The probe's answer is minutes stale by now: phases 2 and 3 sit in between and both take
+        real time. This is the check standing between `--force` and someone's data, so it is
+        deliberately re-run against the server rather than remembered from the gate.
+
+        Which stack it runs on follows from which login exists. On the adopt-empty path the site
+        login is already on the server, so stage two runs: pymysql out of the bench venv, reading
+        the exact `db_ssl_*` shapes from the site file, which is the exact driver and config the
+        site will use, and a probe that exercises only one of the two stacks can pass while the
+        create fails. On the provisioning path that login does not exist yet, so stage one
+        re-runs with the admin credentials instead, and Frappe's own `setup_database` connection
+        moments later is the driver-level check there.
+        """
+        bench = self.bench
+        config = bench.bench_config
+        database = self._external_database()
+
+        self.output.change_head(f"Re-checking schema {database.name} on {database.host}")
+
+        if self._external_flow is db_probe.Flow.provision:
+            result = db_probe.probe_stage_one(
+                self._probe_runner(use_run=False),
+                host=database.host,
+                port=database.port,
+                admin_user=config.db_admin_user,
+                admin_password=config.db_admin_password,
+                site_user=database.login_user,
+                schema=database.name,
+                mysql_home=db_tls.site_mysql_home(bench.name) if database.ca else None,
+            )
+        else:
+            result = db_probe.probe_stage_two(
+                self._probe_runner(use_run=False),
+                site=bench.name,
+                schema=database.name,
+            )
+
+        self._report_probe_checks(result)
+
+        decision = db_probe.decide_flow(result, attach=False, schema=database.name, host=database.host)
+        if decision.refused or decision.flow is not self._external_flow:
+            raise BenchOperationException(
+                bench.name,
+                "the external schema is no longer what the preflight found minutes ago, so fm"
+                f" stopped before writing anything to it. {decision.message}",
+            )
+
+    def _provision_external_schema(self) -> None:
+        """Have Frappe create the schema, the login and the grant, under the advisory lock.
+
+        fm issues no SQL of its own here. `provision_external_schema` calls Frappe's
+        `setup_database` directly, so Frappe keeps ownership of the `CREATE USER` dialect and the
+        privilege list it already maintains, and it takes `GET_LOCK('fm:create:<schema>', 0)` on
+        the very connection that provisions. That is what closes the window the re-check above
+        only narrows: two operators, or two `fm create` runs, can otherwise both read "absent"
+        and both proceed. The admin password travels on the container's stdin and never reaches a
+        flag, a file or a process listing.
+        """
+        bench = self.bench
+        config = bench.bench_config
+        database = self._external_database()
+
+        if not config.db_admin_user or not config.db_admin_password:
+            raise BenchOperationException(
+                bench.name,
+                f"schema {database.name!r} does not exist on {database.host} and no admin"
+                " credentials were supplied, so fm has nothing to create it with. Pass"
+                " --db-admin-user together with --db-admin-password, or point --db-name at a"
+                " schema that already exists.",
+            )
+
+        self.output.change_head(f"Provisioning schema {database.name} on {database.host}")
+        bench.site_manager.provision_external_schema(
+            admin_user=config.db_admin_user,
+            admin_password=config.db_admin_password,
+            site=bench.name,
+        )
+        # Only from here does a later failure have something to offer to undo.
+        self._provisioned = database
+        self.output.print(
+            f"Frappe created schema {database.name} and login {database.login_user} on {database.host}"
+        )
+
+    def _attach_existing_site(self) -> None:
+        """Build the site directory around a database that already holds a Frappe site.
+
+        A Frappe site is a directory plus a database. The database is already there, tables and
+        all, so the only thing missing is the directory, and `create_site_dirs` calls Frappe's
+        own `make_site_dirs` to make it: the layout stays authoritative instead of five paths fm
+        hardcodes, and it runs as the container user so the ownership is right.
+
+        No `bench new-site` in any form, no bootstrap, no migrate, no install-app. Attach
+        performs zero writes to the database and the schema is left exactly as found.
+
+        `admin_password` is deliberately not written into `site_config.json` the way the normal
+        path writes it: fm did not set this site's Administrator password and recording one would
+        make `fm info` report a password that does not open the site.
+        """
+        bench = self.bench
+        database = self._external_database()
+
+        self.output.change_head(f"Attaching {bench.name} to the existing site in {database.name}")
+        bench.site_manager.create_site_dirs(bench.name)
+        self.output.print(
+            f"Created the site directories for {bench.name}. Nothing was written to"
+            f" {database.name} on {database.host}."
+        )
+
+    def _disable_migrate_for_attach(self) -> None:
+        """Turn `[switch].migrate` off as soon as the attach decision is made.
+
+        This is what keeps attach's promise PAST the create. The key already exists and already
+        has a reader, so no provenance field is needed: `false` short-circuits the `"auto"` probe,
+        `schema_step` becomes false, and the maintenance window and the pre-migrate dump fall away
+        with it, which also makes a zero-downtime rolling swap eligible. Left at its `True`
+        default, `fm deploy` and `fm switch` would migrate data that predates fm, against an app
+        set the parity check only warns about.
+
+        It is written here, beside the site file, rather than after the pipeline. It is a setting,
+        not a record of completion, and a create that dies in a later phase still leaves the
+        bench directory and its `[database]` entry on disk. Writing it last meant a phase-5
+        failure produced exactly the bench this flag exists to protect: attached to someone's
+        data, with migrate still on. Measured, not hypothetical.
+        """
+        bench = self.bench
+        if bench.bench_config.switch is None:
+            bench.bench_config.switch = SwitchConfig(migrate=False)
+        else:
+            bench.bench_config.switch.migrate = False
+        bench.save_bench_config()
+        self.output.print("Wrote [switch].migrate = false to bench_config.toml")
+
+    def _skip_phase6_for_attach(self) -> bool:
+        """Phase 6 does not run on attach.
+
+        `_phase6_install_apps` and the `_run_bench_migrate` it calls both write to the database,
+        which is the one thing attach promises not to do, so neither is called. Returns True in
+        place of phase 6's success flag: nothing ran, so nothing failed, and the bench is
+        complete. Supervisor, the nginx site map and the workers are unaffected.
+        """
+        bench = self.bench
+
+        self.output.change_head("Skipping app installation and bench migrate")
+        self.output.print(
+            "Attached site: phase 6 is skipped entirely, because bench install-app and bench"
+            " migrate both write to the database. If the schema does need reconciling against"
+            f" this bench's apps, that is yours to run when you choose: fm shell {bench.name},"
+            f" then bench --site {bench.name} migrate."
+        )
+
+        return True
+
+    def _offer_to_drop_provisioned_schema(self) -> None:
+        """Offer to undo the one thing this run created on a server fm does not own.
+
+        Reachable only when THIS run provisioned: fm still holds the admin credentials in memory
+        and knows the schema was absent seconds before it created it, so it can name exactly what
+        it made. Prompted, never automatic, and never on a later invocation, which holds neither
+        the credentials nor the knowledge. Declining is the default and the non-interactive
+        answer, and it leaves the schema in place for the create to simply be re-run.
+
+        The drop goes through Frappe's own `DbManager`, the same way the provisioning went
+        through Frappe's own `setup_database`, so fm still authors no SQL and the admin password
+        still travels only on stdin. It runs before `remove_bench`, which takes the compose file
+        and the container with it.
+        """
+        database = self._provisioned
+        if database is None:
+            return
+        # One offer per run, whatever else fails on the way out.
+        self._provisioned = None
+
+        bench = self.bench
+        admin_user = bench.bench_config.db_admin_user
+        admin_password = bench.bench_config.db_admin_password
+        if not admin_user or not admin_password:
+            return
+
+        self.output.stop()
+        answer = self.output.prompt_ask(
+            prompt=(
+                f"This run created schema '{database.name}' and login '{database.login_user}'@'%' on"
+                f" '{database.host}'. Neither existed when it started. Drop them?"
+            ),
+            choices=["yes", "no"],
+            default="no",
+        )
+        if answer != "yes":
+            self.output.print(f"Left schema {database.name} on {database.host} exactly as it is")
+            return
+
+        from frappe_manager.site_manager.modules.bench_site import BENCH_PYTHON
+
+        script = "\n".join(
+            [
+                "import sys",
+                "import frappe",
+                f'frappe.init({json.dumps(bench.name)}, sites_path=".")',
+                f"frappe.flags.root_login = {json.dumps(admin_user)}",
+                "frappe.flags.root_password = sys.stdin.readline().strip()",
+                'frappe.local.session = frappe._dict({"user": "Administrator"})',
+                "from frappe.database.mariadb.setup_db import get_root_connection",
+                "from frappe.database.db_manager import DbManager",
+                "manager = DbManager(get_root_connection())",
+                f"manager.drop_database({json.dumps(database.name)})",
+                f'manager.delete_user({json.dumps(database.login_user)}, "%")',
+            ],
+        )
+
+        try:
+            bench.site_manager._container_exec_argv(
+                [BENCH_PYTHON, "-c", script],
+                stdin_data=f"{admin_password}\n",
+                workdir=db_probe.SITES_CONTAINER_ROOT,
+            )
+        except Exception as e:
+            self.output.display_error(
+                f"Could not drop schema {database.name} on {database.host}: {e}. It is still"
+                " there, and fm will not hold the admin credentials on any later run, so this"
+                " one is yours to clean up by hand."
+            )
+            return
+
+        self.output.print(f"Dropped schema {database.name} and login {database.login_user} on {database.host}")
 
     def _phase5_finalize(self) -> None:
         """Phase 5: Finalize bench infrastructure"""
@@ -501,8 +1033,7 @@ class BenchOrchestrator:
     def _create_template_bench(self):
         """Create a template bench (minimal configuration without full site setup)."""
         bench = self.bench
-        global_db_info = bench.services.database_manager.database_server_info
-        bench.sync_bench_common_site_config(global_db_info.host, global_db_info.port)
+        bench.sync_bench_common_site_config()
 
         from datetime import datetime
 
@@ -537,6 +1068,8 @@ class BenchOrchestrator:
             f":mag: Please check the logs at {log_path}",
         ]
         self.output.display_error("\n".join(error_message))
+
+        self._offer_to_drop_provisioned_schema()
 
         if bench.exists:
             remove_status = bench.remove_bench(default_choice=False)
@@ -578,8 +1111,7 @@ class BenchOrchestrator:
 
         if reconfigure_common_site_config:
             self.output.print("Reconfiguring common_site_config with defaults")
-            global_db_info = bench.services.database_manager.database_server_info
-            bench.sync_bench_common_site_config(global_db_info.host, global_db_info.port)
+            bench.sync_bench_common_site_config()
 
         self.output.change_head("Starting bench services")
         bench.docker_ops.start(services=[], force_recreate=force, pull="never")

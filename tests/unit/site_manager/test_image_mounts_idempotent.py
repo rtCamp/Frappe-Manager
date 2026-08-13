@@ -31,7 +31,9 @@ def _workers(tmp_path, site="s.localhost"):
     p = tmp_path / "docker-compose.workers.yml"
     p.write_text(COMPOSE)
     cfm = ComposeFile(p)
-    cfg = SimpleNamespace(runtime=BenchRuntime.image, name=site, base_image=None, deploy_state=None)
+    cfg = SimpleNamespace(
+        runtime=BenchRuntime.image, name=site, base_image=None, deploy_state=None, database=None, redis=None
+    )
     return SimpleNamespace(compose_path=p, compose_file_manager=cfm, bench=SimpleNamespace(bench_config=cfg))
 
 

@@ -234,6 +234,10 @@ class BenchWorkers:
                     if spec.image:
                         worker_config["image"] = spec.image
                     worker_config["volumes"] = ["fm-sockets:/fm-sockets", *bind_strings(spec)]
+                    # MYSQL_HOME when the bench has an external database: a desk
+                    # "Download Backup" is a background job here and reaches Frappe's
+                    # TLS-blind get_command, which only finds the CA via <dir>/my.cnf.
+                    worker_config["environment"].update(dict(spec.env))
                 worker_config["environment"]["USERID"] = os.getuid()
                 worker_config["environment"]["USERGROUP"] = os.getgid()
                 worker_config["environment"]["WORKER_NAME"] = worker

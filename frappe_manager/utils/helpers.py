@@ -252,16 +252,36 @@ def get_redis_queue_addr(container_prefix: str) -> tuple[str, int]:
     return f"{container_prefix}{CLI_DEFAULT_DELIMETER}redis-queue", 6379
 
 
-def get_bench_connection_config(container_prefix: str, db_host: str, db_port: int) -> dict:
-    cache_host, cache_port = get_redis_cache_addr(container_prefix)
-    queue_host, queue_port = get_redis_queue_addr(container_prefix)
+def get_bench_connection_config(
+    container_prefix: str, redis_cache: str | None = None, redis_queue: str | None = None
+) -> dict:
+    """
+    Mint the bench-wide keys of `common_site_config.json`.
+
+    The database is per site and redis is per bench, which is why no `db_host`/`db_port` is minted
+    here. `bench worker` and `bench schedule` run with no `--site`, so `common_site_config.json` is
+    the only config those processes ever see and redis has to live in it. Nothing connects to the
+    database without a site in hand, so the endpoint belongs in `sites/<site>/site_config.json`.
+
+    Args:
+        container_prefix: Container name prefix, used to derive the fm-managed redis addresses.
+        redis_cache: External cache URL; when absent the per-bench redis-cache container is used.
+        redis_queue: External queue URL; when absent the per-bench redis-queue container is used.
+    """
+    if redis_cache is None:
+        cache_host, cache_port = get_redis_cache_addr(container_prefix)
+        redis_cache = f"redis://{cache_host}:{cache_port}"
+
+    if redis_queue is None:
+        queue_host, queue_port = get_redis_queue_addr(container_prefix)
+        redis_queue = f"redis://{queue_host}:{queue_port}"
+
     return {
         "bench_id": "workspace-frappe-bench",
-        "db_host": db_host,
-        "db_port": db_port,
-        "redis_cache": f"redis://{cache_host}:{cache_port}",
-        "redis_queue": f"redis://{queue_host}:{queue_port}",
-        "redis_socketio": f"redis://{cache_host}:{cache_port}",
+        "redis_cache": redis_cache,
+        "redis_queue": redis_queue,
+        # The framework ignores this on v16, but bench tooling still expects the key.
+        "redis_socketio": redis_cache,
     }
 
 

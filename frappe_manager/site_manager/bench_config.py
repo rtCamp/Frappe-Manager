@@ -14,7 +14,6 @@ from tomlkit.items import Array as TOMLArray
 
 from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.metadata_manager import FMConfigManager
-from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
@@ -1153,6 +1152,55 @@ class SSLConfig(BaseModel):
     )
     certificates: list[SSLCertificate] = Field(default_factory=list, description="SSL certificates for this bench.")
 
+
+class DatabaseConfig(BaseModel):
+    """External database for one site (`[database."<site>"]`; absent means the `global-db` container)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    host: str = Field(..., description="Database server hostname or IP. Any MariaDB; MySQL is not supported.")
+    port: int = Field(3306, description="Database server port.")
+    name: str = Field(..., description="Schema (database) name for this site.")
+    user: str | None = Field(
+        None,
+        description="Login user for the schema; omitted means equal to name; must equal name on v15.",
+    )
+    ca: str | None = Field(
+        None, description="Host path to the CA bundle; required when the server enforces TLS."
+    )
+    check_hostname: bool = Field(
+        True,
+        description="Verify the server certificate names the host dialled. Set false only for a certificate that "
+        "cannot name it.",
+    )
+
+    @property
+    def login_user(self) -> str:
+        """The user fm logs in as: `user` when set, otherwise the schema name."""
+        return self.user or self.name
+
+
+class RedisConfig(BaseModel):
+    """External redis for the whole bench (`[redis]`; absent means fm-managed redis containers)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    cache: str = Field(..., description="Redis URL for the framework cache (e.g. 'redis://r.example:6379/0').")
+    queue: str = Field(..., description="Redis URL for the queue and realtime (e.g. 'redis://r.example:6379/1').")
+
+    @model_validator(mode="after")
+    def _distinct_logical_databases(self) -> "RedisConfig":
+        """Cache and queue must not be the same logical database.
+
+        A restore calls ``frappe.cache.delete_keys("")``, a mass delete, so a shared
+        index would destroy the queue along with the cache.
+        """
+        from frappe_manager.site_manager.modules.compose_shape import validate_redis_endpoints
+
+        validate_redis_endpoints(self.cache, self.queue)
+        return self
+
+
 AppConfig.model_rebuild()
 
 
@@ -1183,6 +1231,31 @@ class BenchConfig(BaseModel):
         "(extracted; no clone/install/build). Provenance record.",
     )
     deploy: DeployConfig | None = Field(None, description="Remote ship target for --remote deploys ([deploy]).")
+    database: dict[str, DatabaseConfig] | None = Field(
+        None,
+        description="External database per site, keyed by site name ([database.\"<site>\"]). "
+        "No entry for a site means that site lives on the fm-managed global-db container.",
+    )
+    redis: RedisConfig | None = Field(
+        None,
+        description="External redis for this bench ([redis]). Absent means fm starts and manages the "
+        "per-bench redis containers.",
+    )
+
+    # Runtime-only create inputs. NEVER persisted: excluded from export_to_toml below, exactly
+    # like admin_pass and mariadb_root_pass. The design forbids passwords in bench_config.toml,
+    # and admin credentials are create-time only so no LATER fm run can provision or re-provision
+    # on someone's shared server.
+    db_admin_user: str | None = Field(None, description="Admin user for one-shot schema provisioning. Never written to disk.", exclude=True)
+    db_admin_password: str | None = Field(None, description="Admin password for one-shot schema provisioning. Never written to disk.", exclude=True)
+    db_password: str | None = Field(None, description="Site database password, supplied or generated. Lives in site_config.json, never here.", exclude=True)
+    # Whether fm minted db_password matters to two probe checks and is not derivable from the
+    # other fields: a supplied password can legally accompany admin credentials. With a GENERATED
+    # password, "a login of this name already exists" is a refusal, because create_user is
+    # CREATE USER IF NOT EXISTS and an existing account would keep a password fm does not know.
+    db_password_generated: bool = Field(False, description="fm minted the site password because --db-password was absent. Create-time only.", exclude=True)
+    attach_existing_site: bool = Field(False, description="Attach to an existing Frappe schema instead of creating a site. Create-time only.", exclude=True)
+    encryption_key: str | None = Field(None, description="Frappe encryption_key for an attached site. Lives in site_config.json, never here.", exclude=True)
 
     # Multi-certificate support
     ssl_certificates: list[SSLCertificate] = Field(default=[], description="List of SSL certificates for this bench")
@@ -1261,6 +1334,20 @@ class BenchConfig(BaseModel):
             List of AppConfig objects
         """
         return self.apps_list
+
+    def get_database_config(self, site: str | None = None) -> DatabaseConfig | None:
+        """
+        External database configuration for a site, or None when there is none.
+
+        Absence means the site lives on the fm-managed `global-db` container, exactly as before
+        `[database]` existed. This is the only switch: there is no separate boolean.
+
+        Args:
+            site: Site name; defaults to this bench's own name.
+        """
+        if not self.database:
+            return None
+        return self.database.get(site or self.name)
 
     def get_primary_certificate(self) -> SSLCertificate:
         """
@@ -1341,7 +1428,8 @@ class BenchConfig(BaseModel):
         return all_domains
 
     def export_to_toml(self, path: Path) -> bool:
-        """Export to TOML: `environment`, [[apps]], [monitoring], [switch], [build], [registry], [deploy], [ssl]."""
+        """Export to TOML: `environment`, [[apps]], [monitoring], [switch], [build], [registry], [deploy], [ssl],
+        [database."<site>"], [redis]. Nested models round-trip through model_dump(exclude_none=True)."""
         exclude = {
             "root_path",
             "mariadb_root_pass",
@@ -1357,6 +1445,12 @@ class BenchConfig(BaseModel):
             "newrelic_license_key",
             "ssl_certificates",      # written under [ssl]
             "dns_providers",
+            "db_admin_user",
+            "db_admin_password",
+            "db_password",
+            "db_password_generated",
+            "attach_existing_site",
+            "encryption_key",
         }
         bench_dict = self.model_dump(exclude=exclude, exclude_none=True)
 
@@ -1489,13 +1583,25 @@ class BenchConfig(BaseModel):
             "build": BuildConfig(**dict(data["build"])) if data.get("build") else None,
             "registry": RegistryConfig(**dict(data["registry"])) if data.get("registry") else None,
             "deploy": DeployConfig(**dict(data["deploy"])) if data.get("deploy") else None,
+            "database": {str(k): DatabaseConfig(**dict(v)) for k, v in data["database"].items()}
+            if data.get("database")
+            else None,
+            "redis": RedisConfig(**dict(data["redis"])) if data.get("redis") else None,
         }
 
         return cls(**input_data)
 
-    def get_commmon_site_config_data(self, db_server_info: DatabaseServerServiceInfo) -> dict[str, Any]:
+    def get_commmon_site_config_data(self) -> dict[str, Any]:
+        """
+        Bench-wide `common_site_config.json` payload: no db keys, since the database is per site.
+
+        Redis is per bench, so an external `[redis]` is threaded through here; without it the
+        fm-managed per-bench redis containers are addressed as before.
+        """
         common_site_config_data = get_bench_connection_config(
-            self.container_name_prefix, db_server_info.host, db_server_info.port
+            self.container_name_prefix,
+            self.redis.cache if self.redis else None,
+            self.redis.queue if self.redis else None,
         )
         common_site_config_data.update(
             {
@@ -1506,8 +1612,50 @@ class BenchConfig(BaseModel):
                 "developer_mode": self.developer_mode,
             }
         )
-
         return common_site_config_data
+
+    def get_site_config_data(self, site: str | None = None, *, provisioning: bool = False) -> dict[str, Any]:
+        """Per-site `sites/<site>/site_config.json` payload for an external database.
+
+        This file is the ONLY per-site config source Frappe reads, and it must exist before
+        anything connects, because TLS has no CLI flag. Returns {} for a site on `global-db`,
+        where Frappe's own `make_site_config` writes the file during `new-site`.
+
+        provisioning: True on the schema-absent path, where `rds_db` is meaningful. `rds_db` is
+        read in exactly one place, `grant_all_privileges`, which is only reached from
+        `setup_database`, so it must NOT appear on the adopt-empty or attach paths where it would
+        imply behaviour it does not have.
+        """
+        # Deferred: modules/__init__ pulls in bench_docker, which imports BenchConfig from this
+        # module, so a top-level import here is a cycle.
+        from frappe_manager.site_manager.modules import db_tls
+
+        site = site or self.name
+        db_config = self.get_database_config(site)
+        if db_config is None:
+            return {}
+
+        data: dict[str, Any] = {
+            "db_type": "mariadb",
+            "db_name": db_config.name,
+            "db_user": db_config.login_user,
+            "db_host": db_config.host,
+            "db_port": db_config.port,
+        }
+        if self.db_password:
+            data["db_password"] = self.db_password
+        if db_config.ca:
+            # Chain verification only, until db_ssl_check_hostname is set: Frappe passes
+            # check_hostname=None, which pymysql lands as False while verify_mode still becomes
+            # CERT_REQUIRED. On a managed provider one regional CA signs every tenant, so
+            # chain-only verification accepts any instance in that region.
+            data["db_ssl_ca"] = db_tls.site_ca_container_path(site)
+            data["db_ssl_check_hostname"] = db_config.check_hostname
+        if provisioning:
+            data["rds_db"] = 1
+        if self.encryption_key:
+            data["encryption_key"] = self.encryption_key
+        return data
 
     def get_site_mappings(self) -> dict[str, str]:
         mappings = {}
