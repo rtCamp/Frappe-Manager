@@ -178,55 +178,70 @@ install_apps() {
 }
 
 # Function: update_uid_gid
-# Description: Updates the UID (User ID) and GID (Group ID) of a user and group in the system.
+# Description: Points the container's service account at the HOST's numeric uid/gid, so files
+#   written into bind mounts come out owned by the person running fm.
 # Parameters:
-#   - uid: The new UID to be assigned to the user.
-#   - gid: The new GID to be assigned to the group.
-#   - username: The username of the user.
-#   - groupname: The name of the group.
+#   - uid, gid: the host's numeric ids.
+#   - username, groupname: the in-image account to repoint (frappe/frappe).
 # Returns:
-#   - 0: If the UID and GID are updated successfully.
-#   - 1: If the function is called with incorrect number of parameters or if the UID or GID are not numeric values.
-# Notes:
-#   - If a user or group with the same UID or GID already exists, it will be deleted and updated with the provided username or groupname.
+#   - 0 on success, 1 on a usage or validation error.
+#
+# Only the NUMBER ever lands on disk; the account's name is irrelevant to file ownership. That
+# is the whole reason this does not rename or delete anything. The previous implementation
+# deleted whichever account already held the target number and then used usermod/groupmod, which
+# had three problems:
+#   * it destroyed real accounts over a number collision. A macOS host is gid 20, which is
+#     `dialout`, so every Mac create logged "Group dialout deleted". A host uid of 33 silently
+#     deleted `www-data`.
+#   * running fm as root (0:0) failed outright: `userdel root` reports "user root is currently
+#     used by process 1", the failure was ignored, the following usermod also failed, and the
+#     container carried on writing files as uid 1000 with nothing reported.
+#   * `usermod -u` rewrites ownership of the account's home directory RECURSIVELY, and home is
+#     /workspace, i.e. the whole bench. Measured at 8s for 12.7k files. Under the mount runtime
+#     /workspace is a bind mount that already carries host ownership, so that pass was re-
+#     stamping every file with the ownership it already had.
 update_uid_gid() {
 	if [ "$#" -ne 4 ]; then
 		echo "Usage: update_uid_gid <uid> <gid> <username> <groupname>"
 		return 1
 	fi
 
-	uid="$1"
-	gid="$2"
-	username="$3"
-	groupname="$4"
+	local uid="$1" gid="$2" username="$3" groupname="$4"
 
-	# Validate numeric fields
 	if [[ ! "$uid" =~ ^[0-9]+$ || ! "$gid" =~ ^[0-9]+$ ]]; then
 		echo "Error: UID and GID must be numeric values."
 		return 1
 	fi
 
-	# Check if UID and GID already exist
-	existing_uid_user="$(getent passwd "$uid" | cut -d: -f1)"
-	existing_gid_group="$(getent group "$gid" | cut -d: -f1)"
-
-	if [[ ! -z "$existing_uid_user" && "$existing_uid_user" != "$username" ]]; then
-		# User already registered, but with different username
-		# Delete the user with existing UID and update with provided username
-		userdel "$existing_uid_user"
-		echo "User $existing_uid_user deleted."
+	# Primary group. If a group already holds this gid, use it as it is: the name does not
+	# matter and the current holder has done nothing wrong. Only when the number is unclaimed
+	# does the service account's own group move onto it, which also keeps `ls -l` showing a
+	# name instead of a bare number.
+	if ! getent group "$gid" >/dev/null 2>&1; then
+		sed -i -E "s|^(${groupname}:x:)[0-9]+:|\1${gid}:|" /etc/group
 	fi
 
-	if [[ ! -z "$existing_gid_group" && "$existing_gid_group" != "$groupname" ]]; then
-		# Group already registered, but with different groupname
-		# Delete the group with existing GID and update with provided groupname
-		groupdel "$existing_gid_group"
-		echo "Group $existing_gid_group deleted."
+	# Numeric identity, rewritten in place. Anchored on [0-9]+ rather than the build-time
+	# 1000:1000 so re-running with a different host user updates rather than silently missing.
+	sed -i -E "s|^(${username}:x:)[0-9]+:[0-9]+:|\1${uid}:${gid}:|" /etc/passwd
+
+	# A host uid that collides with an image account (root 0, bin 2, www-data 33, nobody 65534)
+	# leaves two entries on one number. getpwuid answers with whichever comes first, so the
+	# reverse lookup returns the wrong name AND the account loses its supplementary groups
+	# (tty, sudo). Putting our line first makes the lookup resolve to us.
+	if [ "$(getent passwd "$uid" | head -1 | cut -d: -f1)" != "$username" ]; then
+		{
+			grep -E "^${username}:" /etc/passwd
+			grep -vE "^${username}:" /etc/passwd
+		} >/tmp/.passwd.new && cat /tmp/.passwd.new >/etc/passwd && rm -f /tmp/.passwd.new
 	fi
 
-	# Update UID and GID
-	usermod -u "$uid" "$username"
-	groupmod -g "$gid" "$groupname"
+	# Hand over the baked tree ONLY when /workspace is not a bind mount, i.e. the image runtime,
+	# where the workspace ships inside the image owned by the build uid. Under the mount runtime
+	# the host already owns every file here and this would be a no-op costing seconds per start.
+	if ! grep -qE '^[^ ]+ /workspace ' /proc/self/mounts 2>/dev/null; then
+		chown -R "$uid:$gid" /workspace 2>/dev/null || true
+	fi
 
 	echo "UID and GID updated successfully."
 }
