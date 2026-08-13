@@ -1,5 +1,6 @@
 from unittest.mock import Mock, patch
 
+import pytest
 
 from frappe_manager.migration_manager.migration_executor import MINIMUM_SUPPORTED_VERSION, MigrationExecutor
 from frappe_manager.migration_manager.version import Version
@@ -223,7 +224,15 @@ class TestMigrationExecutorMigrationDiscovery:
 
 
 class TestMigrationExecutorUserPrompt:
-    def test_prompts_user_when_migrations_pending(self, mock_fm_config):
+    @staticmethod
+    def _run_with_answer(mock_fm_config, answer):
+        """Drive execute() to the "Do you want to proceed?" prompt with a canned answer.
+
+        Every boundary that could reach real input, real docker or the real services
+        directory is closed here: ``prompt_ask`` is an explicit Mock, and
+        ``ServicesManager`` (imported inside MigrationOrchestrator._ensure_global_services_running)
+        is replaced by a stub reporting an already-running installation.
+        """
         mock_fm_config.version = Version("0.18.0")
 
         mock_migration = Mock()
@@ -231,24 +240,65 @@ class TestMigrationExecutorUserPrompt:
         mock_migration.up = Mock()
         mock_migration.get_rollback_version = Mock(return_value=Version("0.19.0"))
 
+        mock_output = Mock()
+        mock_output.prompt_ask = Mock(return_value=answer)
+
         with (
             patch("frappe_manager.migration_manager.migration_executor.get_current_fm_version", return_value="0.19.0"),
             patch("frappe_manager.migration_manager.migration_executor.get_logger"),
+            patch("frappe_manager.services_manager.services.ServicesManager") as mock_services_cls,
         ):
-            mock_output = Mock()
-            executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True, output_handler=mock_output)
+            services = mock_services_cls.return_value
+            services.path.exists.return_value = True
+            services.compose_file_manager.get_services_list.return_value = ["global-db"]
+            services.is_service_running.return_value = True
 
-            mock_output.prompt_ask.return_value = "yes"
+            executor = MigrationExecutor(mock_fm_config, migrate_fm_infrastructure=True, output_handler=mock_output)
 
             with (
                 patch.object(executor.discovery, "discover_migrations", return_value=[mock_migration]),
                 patch.object(executor, "_check_benches_need_migration", return_value=False),
             ):
-                executor.execute()
+                result = executor.execute()
 
-            assert mock_output.prompt_ask.called
-            prompt_text = mock_output.prompt_ask.call_args[1]["prompt"]
-            assert "Do you want to proceed" in prompt_text
+        return result, mock_output, mock_migration, services
+
+    @pytest.mark.timeout(15)
+    def test_prompts_user_when_migrations_pending(self, mock_fm_config):
+        """The proceed/abort prompt is asked once, and each answer picks its branch.
+
+        Regression guard: the "yes" branch continues into
+        MigrationOrchestrator.execute_migrations(), which builds a real ServicesManager
+        and could shell out to docker (or block) on the way. That boundary is stubbed,
+        so this test can never wait on real input or a real daemon.
+        """
+        yes_result, yes_output, yes_migration, yes_services = self._run_with_answer(mock_fm_config, "yes")
+
+        # What the prompt asked
+        yes_output.prompt_ask.assert_called_once()
+        kwargs = yes_output.prompt_ask.call_args[1]
+        assert kwargs["prompt"] == "Do you want to proceed?"
+        assert [choice["value"] for choice in kwargs["choices"]] == ["yes", "no"]
+        assert kwargs["required_flag"] == "--auto-proceed"
+
+        # "yes" runs the migration and reports success
+        assert yes_result is True
+        yes_migration.up.assert_called_once_with()
+        assert not any("Migration aborted" in str(call) for call in yes_output.print.call_args_list)
+
+        # The pre-migration services check ran against the stub and, seeing everything
+        # already running, did not ask for anything to be started.
+        yes_services.is_service_running.assert_called_once_with("global-db")
+        yes_services.start_service.assert_not_called()
+        yes_services.entrypoint_checks.assert_not_called()
+
+        # "no" aborts before touching the migration and reports failure
+        no_result, no_output, no_migration, _ = self._run_with_answer(mock_fm_config, "no")
+
+        no_output.prompt_ask.assert_called_once()
+        assert no_result is False
+        no_migration.up.assert_not_called()
+        assert any("Migration aborted" in str(call) for call in no_output.print.call_args_list)
 
     def test_aborts_and_reverts_when_user_says_no(self, mock_fm_config):
         mock_fm_config.version = Version("0.18.0")

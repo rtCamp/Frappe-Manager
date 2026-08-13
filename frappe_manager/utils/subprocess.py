@@ -8,13 +8,27 @@ that works for any subprocess (Docker, acme.sh, git, npm, etc.).
 import contextvars
 import os
 from collections.abc import Iterator
-from queue import Queue
+from queue import Empty, Queue
 from subprocess import PIPE, Popen
 from threading import Thread
+from time import monotonic
 
 from frappe_manager.logger import get_logger
 
 logger = get_logger(component="subprocess")
+
+# How long the drain loop keeps waiting for the reader threads' sentinels AFTER
+# the child process has already exited. Reader threads normally post their
+# sentinel within milliseconds of the pipes closing, but one can wedge for good
+# (e.g. blocked inside logging's flush while the rotating handler gzips a
+# rotated log file under its lock), and then its `finally: queue.put(None)`
+# never runs. Capping the post-exit wait means a wedged reader costs us at most
+# a tail of log lines instead of hanging fm forever.
+DRAIN_GRACE_PERIOD_AFTER_EXIT = 10.0
+
+# How long a single blocking queue read may park before we re-check whether the
+# child process is still alive. Only bounds responsiveness, never total wait.
+DRAIN_POLL_INTERVAL = 0.5
 
 
 def reader(pipe, pipe_name: str, queue: Queue):
@@ -96,6 +110,11 @@ def stream_command_output(
     Note:
         This function uses daemon threads to read from stdout/stderr pipes,
         preventing deadlocks when the process produces large amounts of output.
+        The drain loop is bounded: while the child process is still running it
+        waits indefinitely (a quiet long-running command is never cut off), but
+        once the child has exited the reader threads only get
+        DRAIN_GRACE_PERIOD_AFTER_EXIT seconds to finish. A wedged reader thread
+        can therefore cost trailing output, never the exit code.
     """
     logger.debug("- -" * 10)
     logger.debug(f"COMMAND: {' '.join(cmd)}")
@@ -129,10 +148,41 @@ def stream_command_output(
     stderr_thread.daemon = True
     stderr_thread.start()
 
-    # Yield output as it arrives
-    for _ in range(2):  # Wait for both threads to finish
-        for source, line in iter(q.get, None):
-            yield source, line
+    # Yield output as it arrives.
+    #
+    # Each reader thread posts a `None` sentinel when it is done, so we drain
+    # until both sentinels have arrived. Reads are bounded so a wedged reader
+    # can never hold the pipeline open forever: while the child is alive we keep
+    # waiting (silence is not failure), and once it has exited the readers only
+    # get a bounded grace period to drain.
+    outstanding_sentinels = 2
+    grace_deadline: float | None = None
+
+    while outstanding_sentinels > 0:
+        try:
+            item = q.get(timeout=DRAIN_POLL_INTERVAL)
+        except Empty:
+            if process.poll() is None:
+                # Child is still running and simply quiet; keep waiting.
+                continue
+            if grace_deadline is None:
+                grace_deadline = monotonic() + DRAIN_GRACE_PERIOD_AFTER_EXIT
+                continue
+            if monotonic() < grace_deadline:
+                continue
+            logger.warning(
+                f"Stopped draining output after {DRAIN_GRACE_PERIOD_AFTER_EXIT}s:"
+                f" process already exited but {outstanding_sentinels} reader thread(s) appear wedged."
+                " Trailing output may be missing."
+            )
+            break
+
+        if item is None:
+            outstanding_sentinels -= 1
+            continue
+
+        source, line = item
+        yield source, line
 
     # Wait for process to complete and yield exit code
     exit_code = process.wait()

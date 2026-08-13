@@ -34,6 +34,18 @@ test-file FILE:
 test-debug FILE:
     pytest {{FILE}} -vv --show-app-logs -s
 
+# Mutation test: break covered lines one at a time and see if any test complains.
+# Coverage says a line ran; this says a bug in it would be CAUGHT. Read the SURVIVED
+# entries as a to-do list of missing assertions. Takes ~3 minutes for the default 60.
+mutate n="60":
+    MUT_N={{n}} .venv/bin/python scripts/mutation_test.py
+
+# Re-collect the coverage the mutation sampler draws from, then mutate.
+# Use after adding tests, otherwise the sample is drawn from a stale covered surface.
+mutate-fresh n="60":
+    rm -f "${TMPDIR:-/tmp}/fm-mutation-cov.json"
+    MUT_N={{n}} .venv/bin/python scripts/mutation_test.py
+
 # ── Linting ──────────────────────────────────────────────────────────────────
 
 _py_changed := "git diff --name-only HEAD -- '*.py' && git ls-files --others --exclude-standard -- '*.py'"

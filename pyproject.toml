@@ -121,6 +121,10 @@ dev = [
     "pytest-mock>=3.15.0",
     "pytest-cov>=7.0.0",
     "pytest-env>=1.2.0",
+    # A wedged test must report itself. Without a per-test cap a test that blocks (real docker
+    # call, unanswered prompt, a thread stuck under the logging lock) hangs the whole run with no
+    # indication of which test is at fault, which is far worse than a failure.
+    "pytest-timeout>=2.4.0",
     "debugpy>=1.8.20",
     "zensical",
     "mike",
@@ -133,11 +137,17 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = [
     "-v",
-    "--cov=frappe_manager/ssl_manager",
+    # Whole package, not just ssl_manager: scoping this to one subsystem reported ~90% while the
+    # package as a whole sits near 44%, which hid every untested module from day-to-day runs.
+    "--cov=frappe_manager",
     "--cov-report=html",
     "--cov-report=term-missing",
     "--strict-markers",
 ]
+# Per-test ceiling. The whole unit suite runs in ~2s, so this only ever fires on a real hang, and
+# the signal method interrupts the blocked call and prints the offending test's traceback.
+timeout = 60
+timeout_method = "signal"
 markers = [
     "unit: Unit tests",
     "integration: Integration tests",
@@ -146,3 +156,10 @@ markers = [
 env = [
     "FM_LETSENCRYPT_STAGING=0",
 ]
+
+[tool.coverage.report]
+# A ratchet, not a target. Set just below the measured figure so an ordinary PR cannot quietly
+# delete coverage, while leaving room for normal churn. Raise it as coverage climbs; never lower it
+# to make a red build green.
+fail_under = 44
+show_missing = true

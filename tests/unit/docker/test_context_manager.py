@@ -11,6 +11,8 @@ These tests verify that:
 
 from unittest.mock import Mock, patch
 
+import pytest
+
 from frappe_manager.docker import DockerClient, DockerComposeWrapper
 
 
@@ -161,19 +163,48 @@ class TestDockerComposeWrapperContextManager:
         # Cleanup should still have happened
         wrapper.down.assert_called_once_with(remove_orphans=True, stream=False)
 
+    @pytest.mark.timeout(15)
     def test_context_manager_integration(self, tmp_path):
-        """Test context manager integration without mocks (integration-style)"""
+        """Full pass through the real __enter__/__exit__/down() path, hermetically.
+
+        Only the process-spawning seam (``run_command_with_exit_code``) is patched, so
+        __exit__'s cleanup decision and down()'s command construction both stay under
+        test while no docker CLI is ever executed.
+
+        Regression guard: this test used to run a REAL ``docker compose down`` from
+        __exit__ and block forever when the daemon was unreachable.
+        """
         compose_file = tmp_path / "docker-compose.yml"
         compose_file.write_text("version: '3'\nservices:\n  test: {image: alpine}")
 
-        # Create wrapper
         wrapper = DockerComposeWrapper(compose_file).with_auto_cleanup()
 
-        # Verify it can be used in context manager
-        with wrapper as compose:
-            assert isinstance(compose, DockerComposeWrapper)
-            # Empty list means cleanup all services
-            assert compose._context_services == []
+        with patch("frappe_manager.docker.docker_compose.run_command_with_exit_code") as mock_run:
+            mock_run.return_value = Mock(stdout=[], stderr=[], exit_code=0)
+
+            with wrapper as compose:
+                assert compose is wrapper
+                assert isinstance(compose, DockerComposeWrapper)
+                # Empty list means cleanup all services
+                assert compose._context_services == []
+                # Nothing is executed while the context is still open
+                mock_run.assert_not_called()
+
+        # Exiting the context requested cleanup exactly once, non-streaming, for the
+        # whole compose project (no service filter) and without destroying volumes/images.
+        mock_run.assert_called_once()
+        args, kwargs = mock_run.call_args
+        assert kwargs == {"stream": False}
+        assert args[0] == [
+            "docker",
+            "compose",
+            "-f",
+            compose_file.as_posix(),
+            "down",
+            "--timeout",
+            "100",
+            "--remove-orphans",
+        ]
 
 
 class TestDockerClientContextManager:
