@@ -11,7 +11,8 @@ to use different certificate types and validation methods.
 """
 
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -29,6 +30,30 @@ from frappe_manager.ssl_manager.ssl_certificate_service import SSLCertificateSer
 from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
 from frappe_manager.ssl_manager.vhost_config_manager import VhostConfigManager
 from frappe_manager.utils.helpers import get_certificate_expiry_date
+
+
+@contextmanager
+def _letsencrypt_staging(enabled: bool) -> Iterator[None]:
+    """Point acme.sh at the Let's Encrypt staging CA for the block, then restore.
+
+    ``FM_LETSENCRYPT_STAGING`` is read by the acme.sh service to select the staging
+    directory. Restoring the prior value (or unsetting it) is the point of this
+    helper: leaking staging mode into a real issuance would mint untrusted
+    certificates. No-op when ``enabled`` is False.
+    """
+    if not enabled:
+        yield
+        return
+
+    original_staging = os.environ.get("FM_LETSENCRYPT_STAGING")
+    os.environ["FM_LETSENCRYPT_STAGING"] = "1"
+    try:
+        yield
+    finally:
+        if original_staging is not None:
+            os.environ["FM_LETSENCRYPT_STAGING"] = original_staging
+        else:
+            os.environ.pop("FM_LETSENCRYPT_STAGING", None)
 
 
 class SSLCertificateManager:
@@ -131,7 +156,6 @@ class SSLCertificateManager:
                 "Cannot add certificate: service_factory, storage_config, and output_handler are required",
             )
 
-        original_staging = None
         if dry_run:
             self.output_handler.print(
                 "[fm.warn]DRY RUN MODE: Using Let's Encrypt staging server[/fm.warn]",
@@ -140,12 +164,9 @@ class SSLCertificateManager:
             self.output_handler.print(
                 "[fm.muted]No system modifications will be made (no symlinks, nginx restart, or config save)[/fm.muted]",
             )
-
-            original_staging = os.environ.get("FM_LETSENCRYPT_STAGING")
-            os.environ["FM_LETSENCRYPT_STAGING"] = "1"
             self.logger.debug("Enabled staging mode for dry run")
 
-        try:
+        with _letsencrypt_staging(dry_run):
             self.logger.info("Generating certificate", extra_fields={"domain": certificate.domain})
             privkey_path, fullchain_path = service.generate_certificate(certificate, dry_run=dry_run)
             self.logger.info(
@@ -200,13 +221,6 @@ class SSLCertificateManager:
                     self.logger.debug("Saved configuration")
 
                 self.logger.info("Certificate added successfully", extra_fields={"domain": certificate.domain})
-
-        finally:
-            if dry_run:
-                if original_staging is not None:
-                    os.environ["FM_LETSENCRYPT_STAGING"] = original_staging
-                else:
-                    os.environ.pop("FM_LETSENCRYPT_STAGING", None)
 
     def remove_certificate_by_domain(self, domain: str):
         self.logger.info("Removing certificate", extra_fields={"domain": domain})
@@ -549,19 +563,17 @@ class SSLCertificateManager:
                 self.logger.warning("Certificate not found for renewal", extra_fields={"domain": domain})
                 raise SSLCertificateNotFoundError(domain)
 
-        original_staging = None
         if dry_run:
             self.output_handler.print(
                 "[fm.warn]DRY RUN MODE: Using Let's Encrypt staging server[/fm.warn]",
                 emoji_code="🧪 ",
             )
-            self.output_handler.print("[fm.muted]No system modifications will be made (no symlinks or nginx restart)[/fm.muted]")
-
-            original_staging = os.environ.get("FM_LETSENCRYPT_STAGING")
-            os.environ["FM_LETSENCRYPT_STAGING"] = "1"
+            self.output_handler.print(
+                "[fm.muted]No system modifications will be made (no symlinks or nginx restart)[/fm.muted]"
+            )
             self.logger.debug("Enabled staging mode for dry run")
 
-        try:
+        with _letsencrypt_staging(dry_run):
             self._renew_single_certificate(
                 certificate=certificate,
                 dry_run=dry_run,
@@ -569,13 +581,6 @@ class SSLCertificateManager:
                 skip_nginx_restart=False,
             )
             self.logger.info("Certificate renewed successfully", extra_fields={"domain": certificate.domain})
-
-        finally:
-            if dry_run:
-                if original_staging is not None:
-                    os.environ["FM_LETSENCRYPT_STAGING"] = original_staging
-                else:
-                    os.environ.pop("FM_LETSENCRYPT_STAGING", None)
 
     def renew_all_certificates(self, dry_run: bool = False, force: bool = False):
         """
@@ -597,21 +602,19 @@ class SSLCertificateManager:
 
         self.output_handler.change_head("Renewing certificates for all domains")
 
-        original_staging = None
         if dry_run:
             self.output_handler.print(
                 "[fm.warn]DRY RUN MODE: Using Let's Encrypt staging server[/fm.warn]",
                 emoji_code="🧪",
             )
-            self.output_handler.print("[fm.muted]No system modifications will be made (no symlinks or nginx restart)[/fm.muted]")
-
-            original_staging = os.environ.get("FM_LETSENCRYPT_STAGING")
-            os.environ["FM_LETSENCRYPT_STAGING"] = "1"
+            self.output_handler.print(
+                "[fm.muted]No system modifications will be made (no symlinks or nginx restart)[/fm.muted]"
+            )
 
         renewed_count = 0
         skipped_count = 0
 
-        try:
+        with _letsencrypt_staging(dry_run):
             for certificate in self.certificates:
                 try:
                     self._renew_single_certificate(
@@ -634,13 +637,6 @@ class SSLCertificateManager:
                 else:
                     self.nginx_controller.restart()
                 self.output_handler.print(f"Renewal complete: {renewed_count} renewed, {skipped_count} skipped")
-
-        finally:
-            if dry_run:
-                if original_staging is not None:
-                    os.environ["FM_LETSENCRYPT_STAGING"] = original_staging
-                else:
-                    os.environ.pop("FM_LETSENCRYPT_STAGING", None)
 
     def remove_certificate(self, domain: str | None = None):
         """

@@ -13,6 +13,8 @@ BREAKING CHANGES:
 
 import json
 import shlex
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, cast
 
@@ -25,6 +27,46 @@ from frappe_manager.migration_manager.migration_base import MigrationBase
 from frappe_manager.migration_manager.migration_helpers import MigrationBench
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager.context_managers import spinner
+
+
+@contextmanager
+def _round_trip_compose(compose_path: Path) -> Iterator[Any]:
+    """Load a compose file round-trip, yield the document for mutation, write it back.
+
+    Preserves quote style and block flow style -- these are real user files.  Yields
+    ``None`` when the file has no ``services`` key; the caller must bail out and the
+    file is then left byte-for-byte untouched (``x-version`` is not bumped either).
+    """
+    yaml = YAML(typ="rt")
+    yaml.preserve_quotes = True
+    yaml.default_flow_style = False
+
+    with open(compose_path) as f:
+        compose_data = yaml.load(f)
+
+    if not compose_data or "services" not in compose_data:
+        yield None
+        return
+
+    yield compose_data
+
+    with open(compose_path, "w") as f:
+        yaml.dump(compose_data, f)
+
+
+def _run_in_frappe_container(bench: MigrationBench, command: str) -> Any:
+    """Run ``command`` in a throwaway ``frappe`` container via the exec entrypoint.
+
+    Returns whatever ``compose.run`` returns -- a ``SubprocessOutput`` or, if docker
+    decided to stream, an iterator; every caller checks which one it got, because they
+    react to streaming output differently.
+    """
+    return bench.compose.run(service="frappe", command=command, rm=True, entrypoint="/exec-entrypoint.sh")
+
+
+def _run_script_in_frappe_container(bench: MigrationBench, script: str) -> Any:
+    """Run a shell ``script``, quoted for ``bash -c``, in a throwaway ``frappe`` container."""
+    return _run_in_frappe_container(bench, f"bash -c {shlex.quote(script)}")
 
 
 class MigrationV0190(MigrationBase):
@@ -234,46 +276,40 @@ class MigrationV0190(MigrationBase):
         if "use_uv" not in doc:
             doc["use_uv"] = True
 
+    def _read_restart_policy(self, bench: MigrationBench) -> str:
+        """Restart policy from bench_config.toml, defaulting to ``unless-stopped``."""
+        bench_config_path = bench.path / "bench_config.toml"
+        if not bench_config_path.exists():
+            return "unless-stopped"
+        config = tomlkit.parse(bench_config_path.read_text())
+        return config.get("restart_policy", "unless-stopped")
+
     def _migrate_docker_compose_yml(self, bench: MigrationBench, compose_path: Path):
         """Update compose: v0.18.0 → current version images, SITENAME → SITE_MAPPINGS."""
         self.output.print("Migrating docker-compose.yml")
 
-        yaml = YAML(typ="rt")
-        yaml.preserve_quotes = True
-        yaml.default_flow_style = False
+        with _round_trip_compose(compose_path) as compose_data:
+            if compose_data is None:
+                return
 
-        with open(compose_path) as f:
-            compose_data = yaml.load(f)
+            services = compose_data["services"]
 
-        if not compose_data or "services" not in compose_data:
-            return
+            self._update_service_images(services)
 
-        services = compose_data["services"]
+            restart_policy = self._read_restart_policy(bench)
 
-        self._update_service_images(services)
+            # Resolve upload limit using the same source-of-truth logic that
+            # _resolve_upload_limit uses (prefers site_config.json max_file_size
+            # over bench_config.toml, then defaults to "50M").  This keeps
+            # CLIENT_MAX_BODY_SIZE in the compose env consistent with what
+            # upload-limit.conf and vhost.d will eventually contain.
+            upload_limit = self._resolve_upload_limit(bench)
 
-        # Read config values from bench_config.toml
-        bench_config_path = bench.path / "bench_config.toml"
-        restart_policy = "unless-stopped"
-        if bench_config_path.exists():
-            config = tomlkit.parse(bench_config_path.read_text())
-            restart_policy = config.get("restart_policy", "unless-stopped")
+            self._transform_nginx_environment(services, upload_limit)
+            self._add_restart_policy_to_services(services, restart_policy)
 
-        # Resolve upload limit using the same source-of-truth logic that
-        # _resolve_upload_limit uses (prefers site_config.json max_file_size
-        # over bench_config.toml, then defaults to "50M").  This keeps
-        # CLIENT_MAX_BODY_SIZE in the compose env consistent with what
-        # upload-limit.conf and vhost.d will eventually contain.
-        upload_limit = self._resolve_upload_limit(bench)
-
-        self._transform_nginx_environment(services, upload_limit)
-        self._add_restart_policy_to_services(services, restart_policy)
-
-        # Update x-version to current version (plain semver — no ``v`` prefix)
-        compose_data["x-version"] = str(self.version)
-
-        with open(compose_path, "w") as f:
-            yaml.dump(compose_data, f)
+            # Update x-version to current version (plain semver — no ``v`` prefix)
+            compose_data["x-version"] = str(self.version)
 
     def _update_service_images(self, services: dict[str, Any]):
         """Replace any existing version tag with runtime-determined version."""
@@ -504,33 +540,17 @@ class MigrationV0190(MigrationBase):
         """Update worker compose: v0.18.0 → current version images."""
         self.output.print("Migrating docker-compose.workers.yml")
 
-        yaml = YAML(typ="rt")
-        yaml.preserve_quotes = True
-        yaml.default_flow_style = False
+        with _round_trip_compose(compose_path) as compose_data:
+            if compose_data is None:
+                return
 
-        with open(compose_path) as f:
-            compose_data = yaml.load(f)
+            services = compose_data["services"]
 
-        if not compose_data or "services" not in compose_data:
-            return
+            self._update_service_images(services)
+            self._add_restart_policy_to_services(services, self._read_restart_policy(bench))
 
-        services = compose_data["services"]
-
-        self._update_service_images(services)
-
-        # Add restart policy from bench_config
-        bench_config_path = bench.path / "bench_config.toml"
-        restart_policy = "unless-stopped"
-        if bench_config_path.exists():
-            config = tomlkit.parse(bench_config_path.read_text())
-            restart_policy = config.get("restart_policy", "unless-stopped")
-        self._add_restart_policy_to_services(services, restart_policy)
-
-        # Update x-version to current version (plain semver — no ``v`` prefix)
-        compose_data["x-version"] = str(self.version)
-
-        with open(compose_path, "w") as f:
-            yaml.dump(compose_data, f)
+            # Update x-version to current version (plain semver — no ``v`` prefix)
+            compose_data["x-version"] = str(self.version)
 
     def _cleanup_admin_tools_nginx_config(self, bench: MigrationBench):
         admin_tools_config = bench.path / "configs" / "nginx" / "conf" / "custom" / "admin-tools.conf"
@@ -742,12 +762,7 @@ fi
 
         self.logger.debug("[_check_runtime_current] Checking current runtime state...")
         try:
-            result = bench.compose.run(
-                service="frappe",
-                command=f"bash -c {shlex.quote(check_script)}",
-                rm=True,
-                entrypoint="/exec-entrypoint.sh",
-            )
+            result = _run_script_in_frappe_container(bench, check_script)
         except Exception:
             self.logger.debug("[_check_runtime_current] Docker check failed, assuming rebuild needed")
             return False, False
@@ -887,12 +902,7 @@ ls -la env/ || echo "ERROR: env directory not found!"
         self.logger.debug("[_setup_python_with_uv] Executing docker compose run...")
 
         try:
-            result = bench.compose.run(
-                service="frappe",
-                command=f"bash -c {shlex.quote(setup_script)}",
-                rm=True,
-                entrypoint="/exec-entrypoint.sh",
-            )
+            result = _run_script_in_frappe_container(bench, setup_script)
         except Exception as e:
             error_str = str(e)
             if "network" in error_str.lower() and (
@@ -945,12 +955,7 @@ echo "Node environment setup complete"
 """
         self.logger.debug("[_setup_node_with_fnm] Executing docker compose run...")
 
-        result = bench.compose.run(
-            service="frappe",
-            command=f"bash -c {shlex.quote(setup_script)}",
-            rm=True,
-            entrypoint="/exec-entrypoint.sh",
-        )
+        result = _run_script_in_frappe_container(bench, setup_script)
 
         if not isinstance(result, SubprocessOutput):
             self.logger.error("[_setup_node_with_fnm] Unexpected streaming output received")
@@ -1007,12 +1012,7 @@ echo "Old runtime directories cleaned up"
 """
         self.logger.debug("[_cleanup_old_runtime_dirs] Executing docker compose run...")
 
-        result = bench.compose.run(
-            service="frappe",
-            command=f"bash -c {shlex.quote(cleanup_script)}",
-            rm=True,
-            entrypoint="/exec-entrypoint.sh",
-        )
+        result = _run_script_in_frappe_container(bench, cleanup_script)
 
         if not isinstance(result, SubprocessOutput):
             self.logger.error("[_cleanup_old_runtime_dirs] Unexpected streaming output received")
@@ -1094,12 +1094,7 @@ bench build""",
 
         self.logger.debug("[_reinstall_apps_and_rebuild] Executing docker compose run...")
 
-        result = bench.compose.run(
-            service="frappe",
-            command=f"bash -c {shlex.quote(reinstall_script)}",
-            rm=True,
-            entrypoint="/exec-entrypoint.sh",
-        )
+        result = _run_script_in_frappe_container(bench, reinstall_script)
 
         if not isinstance(result, SubprocessOutput):
             self.logger.error("[_reinstall_apps_and_rebuild] Unexpected streaming output received")
@@ -1285,11 +1280,9 @@ bench build""",
         current_node = None
 
         try:
-            result = bench.compose.run(
-                service="frappe",
-                command="bash -c '/workspace/frappe-bench/env/bin/python --version 2>&1'",
-                rm=True,
-                entrypoint="/exec-entrypoint.sh",
+            result = _run_in_frappe_container(
+                bench,
+                "bash -c '/workspace/frappe-bench/env/bin/python --version 2>&1'",
             )
             if isinstance(result, SubprocessOutput) and result.exit_code == 0:
                 import re
@@ -1304,12 +1297,7 @@ bench build""",
             self.logger.debug(f"Could not detect current Python (expected during migration): {e}")
 
         try:
-            result = bench.compose.run(
-                service="frappe",
-                command="bash -c 'node --version'",
-                rm=True,
-                entrypoint="/exec-entrypoint.sh",
-            )
+            result = _run_in_frappe_container(bench, "bash -c 'node --version'")
             if isinstance(result, SubprocessOutput) and result.exit_code == 0:
                 import re
 

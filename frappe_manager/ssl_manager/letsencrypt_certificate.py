@@ -1,6 +1,6 @@
 from pydantic import Field, model_validator
 
-from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
+from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 
 
@@ -69,3 +69,31 @@ class CustomDomainCertificate(LetsencryptSSLCertificate):
             Hyphenated domain name suitable for subdomain use
         """
         return self.domain.replace(".", "-")
+
+
+def build_letsencrypt_certificate(
+    domain: str,
+    challenge: LETSENCRYPT_PREFERRED_CHALLENGE,
+    cname: str | None,
+    acme_client: str | None = None,
+) -> LetsencryptSSLCertificate:
+    """Build the Let's Encrypt certificate for a domain; a cname picks the delegating subclass.
+
+    Credentials are deliberately left unset -- they are resolved from fm config at issuance.
+
+    Lives here, in ssl_manager, rather than in the command layer: the command modules and
+    ``external_domain_manager`` all build this identical object, and a home under
+    ``frappe_manager.commands`` cannot serve the third one. That is not merely a layering
+    preference -- importing the command layer from ``ssl_manager.external_domain_manager`` is a hard
+    circular import (commands.ssl.helpers -> ... -> external_domain_manager, which is still
+    partially initialised), verified by ImportError.
+
+    ``acme_client`` is omitted rather than passed as None when absent: the field is a defaulted
+    ``str`` ("acme.sh"), so forwarding None would replace the default instead of keeping it.
+    """
+    common = {"domain": domain, "ssl_type": SUPPORTED_SSL_TYPES.le, "api_token": None, "api_key": None}
+    if acme_client is not None:
+        common["acme_client"] = acme_client
+    if cname:
+        return CustomDomainCertificate(**common, challenge_type=challenge, delegation_cname=cname)
+    return LetsencryptSSLCertificate(**common, challenge_type=challenge)

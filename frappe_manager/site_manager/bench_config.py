@@ -141,6 +141,36 @@ def extract_node_version_requirement(frappe_app_path: Path) -> str | None:
         return None
 
 
+def _search_version_digits(version_requirement: str | None, pattern: str) -> re.Match[str] | None:
+    """
+    Shared scaffold for the runtime version parsers.
+
+    Rejects empty input, strips whitespace and a leading poetry/npm caret (^3.11 -> 3.11),
+    then searches `pattern` anywhere in what is left. Anything that goes wrong -- including
+    a non-string argument -- is reported as "no match" rather than raised, which is what
+    both callers want from a best-effort parse of a user-editable field.
+
+    Args:
+        version_requirement: Version requirement string, or None
+        pattern: Regex applied to the cleaned requirement string
+
+    Returns:
+        The first match, or None if there is nothing to parse
+    """
+    if not version_requirement:
+        return None
+
+    try:
+        version_str = version_requirement.strip()
+
+        if version_str.startswith("^"):
+            version_str = version_str[1:]
+
+        return re.search(pattern, version_str)
+    except Exception:
+        return None
+
+
 def parse_python_version_for_runtime(version_requirement: str | None) -> str | None:
     """
     Parse Python version requirement string to extract a usable Python version.
@@ -161,30 +191,14 @@ def parse_python_version_for_runtime(version_requirement: str | None) -> str | N
         Python version string suitable for UV (e.g., "3.10", "3.14")
         Returns None if parsing fails
     """
-    if not version_requirement:
-        return None
+    # Match patterns like: >=3.10, 3.10.5, 3.10
+    match = _search_version_digits(version_requirement, r"(\d+)\.(\d+)(?:\.\d+)?")
+    if match:
+        major = match.group(1)
+        minor = match.group(2)
+        return f"{major}.{minor}"
 
-    try:
-        import re
-
-        # Remove whitespace
-        version_str = version_requirement.strip()
-
-        # Handle poetry caret (^3.11 -> 3.11)
-        if version_str.startswith("^"):
-            version_str = version_str[1:]
-
-        # Extract version numbers using regex
-        # Match patterns like: >=3.10, 3.10.5, 3.10
-        match = re.search(r"(\d+)\.(\d+)(?:\.\d+)?", version_str)
-        if match:
-            major = match.group(1)
-            minor = match.group(2)
-            return f"{major}.{minor}"
-
-        return None
-    except Exception:
-        return None
+    return None
 
 
 def parse_node_version_for_runtime(version_requirement: str | None) -> str | None:
@@ -207,28 +221,12 @@ def parse_node_version_for_runtime(version_requirement: str | None) -> str | Non
         Node major version string suitable for fnm (e.g., "18", "24")
         Returns None if parsing fails
     """
-    if not version_requirement:
-        return None
+    # Match only the major version number: >=18, 18.12.0, 18.x, 18
+    match = _search_version_digits(version_requirement, r"(\d+)")
+    if match:
+        return match.group(1)
 
-    try:
-        import re
-
-        # Remove whitespace
-        version_str = version_requirement.strip()
-
-        # Handle poetry/npm caret (^18.0.0 -> 18.0.0)
-        if version_str.startswith("^"):
-            version_str = version_str[1:]
-
-        # Extract major version number
-        # Match patterns like: >=18, 18.12.0, 18.x, 18
-        match = re.search(r"(\d+)", version_str)
-        if match:
-            return match.group(1)
-
-        return None
-    except Exception:
-        return None
+    return None
 
 
 def validate_python_version_compatibility(user_version: str, frappe_requirement: str) -> tuple[bool, str]:
@@ -242,7 +240,6 @@ def validate_python_version_compatibility(user_version: str, frappe_requirement:
     Returns:
         Tuple of (is_compatible, error_message)
     """
-    import re
 
     def parse_version_range(version_str: str) -> tuple[tuple[int, int] | None, tuple[int, int] | None]:
         min_ver = None
@@ -293,7 +290,6 @@ def validate_node_version_compatibility(user_version: str, frappe_requirement: s
     Returns:
         Tuple of (is_compatible, error_message)
     """
-    import re
 
     def extract_min_version(version_str: str) -> int | None:
         match = re.search(r">=?(\d+)", version_str)

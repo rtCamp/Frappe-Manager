@@ -96,6 +96,36 @@ def docker_command(
     return decorator
 
 
+def _build_cp_cmd(
+    source: str,
+    destination: str,
+    source_container: str | None,
+    destination_container: str | None,
+    archive: bool,
+    follow_link: bool,
+) -> list:
+    """Build the `cp` subcommand argv shared by DockerComposeWrapper.cp and DockerClient.cp.
+
+    The two wrappers differ only in the command prefix they prepend and in who executes the
+    result, so only the subcommand is shared: `cp`, the option flags in signature order, then
+    the two positionals with any container name folded into them.
+    """
+    cp_cmd: list = ["cp"]
+
+    cp_cmd += parameters_to_options({"archive": archive, "follow_link": follow_link})
+
+    if source_container:
+        source = f"{source_container}:{source}"
+
+    if destination_container:
+        destination = f"{destination_container}:{destination}"
+
+    cp_cmd += [f"{source}"]
+    cp_cmd += [f"{destination}"]
+
+    return cp_cmd
+
+
 # Docker Compose version 2.18.1
 class DockerComposeWrapper:
     """
@@ -583,31 +613,9 @@ class DockerComposeWrapper:
         follow_link: bool = False,
         stream: bool | None = None,
     ) -> Iterable[tuple[str, bytes]] | SubprocessOutput:
-        parameters: dict = locals()
-
-        cp_cmd: list = ["cp"]
-
-        remove_parameters = [
-            "stream",
-            "source",
-            "destination",
-            "source_container",
-            "destination_container",
-            "self",
-        ]
-
-        cp_cmd += parameters_to_options(parameters, exclude=remove_parameters)
-
-        if source_container:
-            source = f"{source_container}:{source}"
-
-        if destination_container:
-            destination = f"{destination_container}:{destination}"
-
-        cp_cmd += [f"{source}"]
-        cp_cmd += [f"{destination}"]
-
-        return self.docker_compose_cmd + cp_cmd
+        return self.docker_compose_cmd + _build_cp_cmd(
+            source, destination, source_container, destination_container, archive, follow_link
+        )
 
     # ==================== NEW: Convenience Methods ====================
 

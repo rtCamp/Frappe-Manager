@@ -122,12 +122,7 @@ class BenchAppManager:
         versions["node"] = None
 
         try:
-            result = self._container_run(
-                "/workspace/frappe-bench/env/bin/python --version",
-                capture_output=True,
-                raise_exception_obj=None,
-                use_run=use_run,
-            )
+            result = self._container_capture("/workspace/frappe-bench/env/bin/python --version", use_run=use_run)
             if result and result.exit_code == 0:
                 output = " ".join(result.combined)
                 match = re.search(r"Python (\d+\.\d+\.\d+)", output)
@@ -137,12 +132,7 @@ class BenchAppManager:
             pass
 
         try:
-            result = self._container_run(
-                "node --version",
-                capture_output=True,
-                raise_exception_obj=None,
-                use_run=use_run,
-            )
+            result = self._container_capture("node --version", use_run=use_run)
             if result and result.exit_code == 0:
                 output = " ".join(result.combined)
                 match = re.search(r"v(\d+\.\d+\.\d+)", output)
@@ -191,12 +181,7 @@ class BenchAppManager:
 
             try:
                 check_current_version_cmd = "/workspace/frappe-bench/env/bin/python --version"
-                result = self._container_run(
-                    check_current_version_cmd,
-                    capture_output=True,
-                    raise_exception_obj=None,
-                    use_run=use_run,
-                )
+                result = self._container_capture(check_current_version_cmd, use_run=use_run)
 
                 if result and result.exit_code == 0:
                     import re
@@ -245,12 +230,7 @@ if [ -d /workspace/frappe-bench/.uv/python ]; then
     done 2>/dev/null | sort -u
 fi
 """
-                    result = self._container_run(
-                        scan_pythons_cmd,
-                        capture_output=True,
-                        raise_exception_obj=None,
-                        use_run=use_run,
-                    )
+                    result = self._container_capture(scan_pythons_cmd, use_run=use_run)
 
                     selected_python_full = None
                     selected_version = None
@@ -289,12 +269,7 @@ fi
                         detect_installed_cmd = (
                             f"ls -1 /workspace/frappe-bench/.uv/python/ | grep '^{quoted_pkg}' | sort -V | tail -1"
                         )
-                        result = self._container_run(
-                            detect_installed_cmd,
-                            capture_output=True,
-                            raise_exception_obj=None,
-                            use_run=use_run,
-                        )
+                        result = self._container_capture(detect_installed_cmd, use_run=use_run)
                         selected_python_full = None
                         if result and result.combined:
                             import re
@@ -363,12 +338,7 @@ fi
 
             try:
                 check_current_node_cmd = "node --version"
-                result = self._container_run(
-                    check_current_node_cmd,
-                    capture_output=True,
-                    raise_exception_obj=None,
-                    use_run=use_run,
-                )
+                result = self._container_capture(check_current_node_cmd, use_run=use_run)
 
                 if result and result.exit_code == 0:
                     import re
@@ -405,12 +375,7 @@ fi
                 self.output.change_head(f"Setting up Node {node_version} environment")
                 try:
                     check_cmd = f"fnm list | grep 'v{node_version}' || true"
-                    result = self._container_run(
-                        check_cmd,
-                        capture_output=True,
-                        raise_exception_obj=None,
-                        use_run=use_run,
-                    )
+                    result = self._container_capture(check_cmd, use_run=use_run)
 
                     needs_install = True
                     if result and result.combined:
@@ -422,12 +387,7 @@ fi
                     if needs_install:
                         self.output.print(f"Installing Node {node_version} via fnm..")
                         install_cmd = f"fnm install {node_version}"
-                        install_result = self._container_run(
-                            install_cmd,
-                            capture_output=True,
-                            raise_exception_obj=None,
-                            use_run=use_run,
-                        )
+                        install_result = self._container_capture(install_cmd, use_run=use_run)
                         if install_result and install_result.exit_code == 0:
                             self.output.print(f"Installed Node {node_version} via fnm")
                         else:
@@ -436,12 +396,7 @@ fi
                             )
 
                     set_default_cmd = f"fnm default {node_version}"
-                    default_result = self._container_run(
-                        set_default_cmd,
-                        capture_output=True,
-                        raise_exception_obj=None,
-                        use_run=use_run,
-                    )
+                    default_result = self._container_capture(set_default_cmd, use_run=use_run)
                     if default_result and default_result.exit_code == 0:
                         self.output.print(f"Set Node {node_version} as default")
                     else:
@@ -449,9 +404,7 @@ fi
 
                     # Verify yarn is available (should be auto-enabled by FNM_COREPACK_ENABLED)
                     verify_yarn = f"yarn --version"
-                    yarn_result = self._container_run(
-                        verify_yarn, capture_output=True, raise_exception_obj=None, use_run=use_run
-                    )
+                    yarn_result = self._container_capture(verify_yarn, use_run=use_run)
                     if yarn_result and yarn_result.exit_code == 0:
                         self.output.print(f"Yarn is available for Node {node_version}")
                     else:
@@ -678,7 +631,7 @@ fi
         if use_uv:
             try:
                 check_cmd = "which uv"
-                self._container_run(check_cmd, capture_output=True, raise_exception_obj=None, use_run=use_run)
+                self._container_capture(check_cmd, use_run=use_run)
 
                 for app in apps:
                     install_cmd = [
@@ -992,6 +945,16 @@ fi
         if self.bench_config.get_database_config(self.bench_name) is None:
             return {}
         return {"MYSQL_HOME": db_tls.site_mysql_home(self.bench_name)}
+
+    def _container_capture(self, command: str, use_run: bool) -> SubprocessOutput | None:
+        """Run ``command`` in the container and hand back its captured output.
+
+        The runtime-version and inventory checks all want the same thing: the
+        output itself, and no ``BenchOperation*`` translation of a docker failure
+        -- each caller either inspects ``exit_code`` or sits inside its own
+        ``try``.
+        """
+        return self._container_run(command, capture_output=True, raise_exception_obj=None, use_run=use_run)
 
     def _container_run(
         self,

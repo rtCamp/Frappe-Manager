@@ -3,7 +3,7 @@ import shlex
 from pathlib import Path
 from typing import Literal
 
-from frappe_manager.docker.docker_compose import DockerComposeWrapper
+from frappe_manager.docker.docker_compose import DockerComposeWrapper, _build_cp_cmd
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.output_manager.base import OutputHandler
 from frappe_manager.utils.docker import (
@@ -89,27 +89,7 @@ class DockerClient:
         follow_link: bool = False,
         stream: bool = False,
     ):
-        parameters: dict = locals()
-        cp_cmd: list = ["cp"]
-
-        remove_parameters = [
-            "stream",
-            "source",
-            "destination",
-            "source_container",
-            "destination_container",
-        ]
-
-        cp_cmd += parameters_to_options(parameters, exclude=remove_parameters)
-
-        if source_container:
-            source = f"{source_container}:{source}"
-
-        if destination_container:
-            destination = f"{destination_container}:{destination}"
-
-        cp_cmd += [f"{source}"]
-        cp_cmd += [f"{destination}"]
+        cp_cmd: list = _build_cp_cmd(source, destination, source_container, destination_container, archive, follow_link)
 
         iterator = run_command_with_exit_code(self.docker_cmd + cp_cmd, stream=stream)
         return iterator

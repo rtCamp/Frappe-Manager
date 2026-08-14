@@ -2,7 +2,7 @@
 
 import re
 import subprocess
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import typer
 from rich.table import Table
@@ -13,10 +13,10 @@ from frappe_manager.output_manager import spinner, temporary_stop
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.site import Bench
-from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
 from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkManager
 from frappe_manager.ssl_manager.external_domain_manager import ExternalDomainConfig, ExternalDomainConfigManager
-from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate, LetsencryptSSLCertificate
+from frappe_manager.ssl_manager.letsencrypt_certificate import build_letsencrypt_certificate
 from frappe_manager.ssl_manager.service_factory import create_certificate_service
 from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
 from frappe_manager.ssl_manager.standalone_nginx_config_manager import StandaloneNginxConfigManager
@@ -117,15 +117,9 @@ def _add_external_certificate(
     output.change_head(f"Adding SSL certificate for {domain} (standalone mode)")
 
     try:
+        cert = build_letsencrypt_certificate(domain, challenge, cname)
+
         if cname:
-            cert = CustomDomainCertificate(
-                domain=domain,
-                ssl_type=SUPPORTED_SSL_TYPES.le,
-                api_token=None,
-                api_key=None,
-                challenge_type=challenge,
-                delegation_cname=cname,
-            )
             output.print(f"Using CNAME delegation: {cname}", emoji_code=":information:")
 
             # Validate CNAME before proceeding (unless skipped)
@@ -185,28 +179,19 @@ def _add_external_certificate(
                         raise typer.Exit(1)
 
                     output.print("CNAME record verified", emoji_code=":white_check_mark:")
-        else:
-            cert = LetsencryptSSLCertificate(
-                domain=domain,
-                ssl_type=SUPPORTED_SSL_TYPES.le,
-                api_token=None,
-                api_key=None,
-                challenge_type=challenge,
-            )
+        elif not skip_dns_check and challenge == LETSENCRYPT_PREFERRED_CHALLENGE.http01:
+            from frappe_manager.ssl_manager.dns_validator import DNSValidator
 
-            if not skip_dns_check and challenge == LETSENCRYPT_PREFERRED_CHALLENGE.http01:
-                from frappe_manager.ssl_manager.dns_validator import DNSValidator
+            output.change_head(f"Checking DNS configuration for {domain}")
+            validator = DNSValidator(output_handler=output)
+            validation = validator.validate_a_record(domain)
 
-                output.change_head(f"Checking DNS configuration for {domain}")
-                validator = DNSValidator(output_handler=output)
-                validation = validator.validate_a_record(domain)
-
-                if validation.valid:
-                    output.print(f"Domain resolves to {validation.actual_value}", emoji_code=":white_check_mark:")
-                else:
-                    output.warning(f"Domain {domain} doesn't have an A record")
-                    output.print("HTTP-01 challenge may fail if DNS is not configured correctly.", emoji_code="")
-                    output.print(f"Make sure {domain} points to this server's IP address.", emoji_code="")
+            if validation.valid:
+                output.print(f"Domain resolves to {validation.actual_value}", emoji_code=":white_check_mark:")
+            else:
+                output.warning(f"Domain {domain} doesn't have an A record")
+                output.print("HTTP-01 challenge may fail if DNS is not configured correctly.", emoji_code="")
+                output.print(f"Make sure {domain} points to this server's IP address.", emoji_code="")
 
         storage_config, link_manager = _build_certificate_storage(services_manager)
         nginx_controller = services_manager.nginx_controller
@@ -479,7 +464,7 @@ def _list_external_certificates(ctx: typer.Context):
             if expiry_date:
                 expiry = expiry_date.strftime("%Y-%m-%d %H:%M")
                 # Make datetime.now() timezone-aware to match expiry_date
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 days_left = (expiry_date - now).days
                 needs_renewal = days_left <= SSL_RENEW_BEFORE_DAYS
                 renewal = "⚠️ DUE" if needs_renewal else "✓ OK"

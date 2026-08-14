@@ -22,9 +22,11 @@ from pathlib import Path
 
 import tomlkit
 
-from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
 from frappe_manager.ssl_manager.certificate import SSLCertificate
-from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate, LetsencryptSSLCertificate
+from frappe_manager.ssl_manager.letsencrypt_certificate import (
+    build_letsencrypt_certificate,
+)
 
 
 @dataclass
@@ -241,27 +243,14 @@ class ExternalDomainConfigManager:
         else:
             challenge_type = LETSENCRYPT_PREFERRED_CHALLENGE.http01
 
-        # Create certificate object with CNAME delegation if present
-        if config.delegation_cname:
-            return CustomDomainCertificate(
-                domain=config.domain,
-                ssl_type=SUPPORTED_SSL_TYPES.le,
-                # Email removed - Let's Encrypt discontinued notifications (June 2025)
-                # Cloudflare credentials loaded from FM config at runtime
-                api_token=None,
-                api_key=None,
-                challenge_type=challenge_type,
-                delegation_cname=config.delegation_cname,
-                acme_client=config.acme_client,
-            )
-        return LetsencryptSSLCertificate(
-            domain=config.domain,
-            ssl_type=SUPPORTED_SSL_TYPES.le,
-            # Email removed - Let's Encrypt discontinued notifications (June 2025)
-            # Cloudflare credentials loaded from FM config at runtime
-            api_token=None,
-            api_key=None,
-            challenge_type=challenge_type,
+        # The shared builder now lives in ssl_manager (below the command layer), so all three call
+        # sites -- the two SSL commands and this one -- build the certificate through one function.
+        # It could not live in commands.ssl.helpers: importing that from here is a hard circular
+        # import, since commands.ssl imports this module.
+        return build_letsencrypt_certificate(
+            config.domain,
+            challenge_type,
+            config.delegation_cname,
             acme_client=config.acme_client,
         )
 

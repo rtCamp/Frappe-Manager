@@ -46,7 +46,9 @@ def _show_dns_credentials(ctx: typer.Context, provider_name: str, benchname: str
     output.print(f"Provider: [fm.ok]{provider_name}[/fm.ok]")
 
     if provider_name == DNS_PROVIDER.cloudflare.value:
-        output.print(f"Email: {fm_config.cloudflare.email if fm_config.cloudflare.email else '[fm.muted]Not set[/fm.muted]'}")
+        output.print(
+            f"Email: {fm_config.cloudflare.email if fm_config.cloudflare.email else '[fm.muted]Not set[/fm.muted]'}"
+        )
         output.print(
             f"API Token: {'[fm.ok]*** (set)[/fm.ok]' if fm_config.cloudflare.api_token else '[fm.muted]Not set[/fm.muted]'}",
         )
@@ -117,7 +119,9 @@ def _configure_dns_credentials(
             f"[fm.ok]{provider_name}[/fm.ok] credentials configured for bench '{benchname}'",
             emoji_code=":white_check_mark:",
         )
-        output.print("[fm.muted]These credentials will be used for DNS-01 challenges on this bench[/fm.muted]", emoji_code="")
+        output.print(
+            "[fm.muted]These credentials will be used for DNS-01 challenges on this bench[/fm.muted]", emoji_code=""
+        )
         output.print(f"[fm.muted]Saved to: {bench.bench_config.root_path}[/fm.muted]", emoji_code="")
     else:
         # Configure global credentials (use output handler for global operations)
@@ -137,5 +141,7 @@ def _configure_dns_credentials(
         fm_config.export_to_toml()
 
         output.print(f"✅ Global [fm.ok]{provider_name}[/fm.ok] credentials configured")
-        output.print("[fm.muted]These credentials will be used by all benches unless overridden at bench level[/fm.muted]")
+        output.print(
+            "[fm.muted]These credentials will be used by all benches unless overridden at bench level[/fm.muted]"
+        )
         output.print("[fm.muted]Saved to: ~/frappe/fm_config.toml[/fm.muted]")

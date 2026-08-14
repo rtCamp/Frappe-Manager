@@ -8,7 +8,7 @@ from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotFoundError
-from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate, LetsencryptSSLCertificate
+from frappe_manager.ssl_manager.letsencrypt_certificate import build_letsencrypt_certificate
 
 from .helpers import get_output_handler
 
@@ -52,24 +52,10 @@ def _add_bench_certificate(
             domain=domain,
             ssl_type=SUPPORTED_SSL_TYPES.dev,
         )
-    elif cname:
-        cert = CustomDomainCertificate(
-            domain=domain,
-            ssl_type=SUPPORTED_SSL_TYPES.le,
-            api_token=None,
-            api_key=None,
-            challenge_type=challenge,
-            delegation_cname=cname,
-        )
-        output.print(f"Using CNAME delegation: {cname}", emoji_code=":information:")
     else:
-        cert = LetsencryptSSLCertificate(
-            domain=domain,
-            ssl_type=SUPPORTED_SSL_TYPES.le,
-            api_token=None,
-            api_key=None,
-            challenge_type=challenge,
-        )
+        cert = build_letsencrypt_certificate(domain, challenge, cname)
+        if cname:
+            output.print(f"Using CNAME delegation: {cname}", emoji_code=":information:")
 
     with spinner(output, f"Adding SSL certificate for {domain}"):
         bench.certificate_manager.add_certificate(cert, dry_run=dry_run)
