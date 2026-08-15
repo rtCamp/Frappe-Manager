@@ -5,26 +5,33 @@
 default:
     @just --list
 
-# Run SSL manager tests (clean output)
+# The default is the WHOLE suite on purpose: it is the only number that answers
+# "is the tree green?", and at ~16s there is no reason to run less. Bare `pytest`
+# behaves identically (testpaths = ["tests"] in pyproject), so a partial path such
+# as `pytest tests/unit` reports a smaller count that is easy to misread as the total.
+# Run the whole test suite
 test:
-    pytest tests/unit/ssl_manager/ -v
+    pytest tests/ -q
 
-# Run SSL manager tests with application logs
-test-logs:
-    pytest tests/unit/ssl_manager/ -v --show-app-logs
+# Run the whole test suite, verbose (per-test names)
+test-verbose:
+    pytest tests/ -v
 
-# Run SSL manager tests (quick summary)
-test-quick:
-    pytest tests/unit/ssl_manager/ -q
-
-# Run SSL manager tests with coverage
+# Coverage is measured over the whole package: scoping it to one subsystem reports a
+# flattering number that hides every untested module.
+# Run the whole test suite with coverage
 test-cov:
-    pytest tests/unit/ssl_manager/ --cov=frappe_manager/ssl_manager --cov-report=html
+    pytest tests/ --cov=frappe_manager --cov-report=html
     @echo "\nCoverage report: htmlcov/index.html"
 
-# Run all tests in the repository
-test-all:
-    pytest tests/ -v
+# ~219 of ~3774 tests. A fast loop while working in that subsystem; NOT a green light.
+# Run the SSL manager subset only
+test-ssl:
+    pytest tests/unit/ssl_manager/ -v
+
+# Run the SSL manager subset with application logs
+test-ssl-logs:
+    pytest tests/unit/ssl_manager/ -v --show-app-logs
 
 # Run specific test file
 test-file FILE:
