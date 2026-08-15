@@ -16,7 +16,12 @@ Two things are defended here.
    exclude protects those, since the explicit exclude set in export_to_toml covers export alone.
 """
 
+from unittest.mock import patch
+
+from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.site_manager.bench_config import BenchConfig, DeployState
+from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
+from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate, LetsencryptSSLCertificate
 
 _BASE = 'name = "dev.localhost"\ndeveloper_mode = true\nadmin_tools = true\nenvironment = "dev"\n'
 
@@ -137,3 +142,94 @@ class TestCreateTimeOnlyFieldsAreNeverSerialized:
         assert "db_password_generated" not in text
         assert "generated-secret" not in text
         assert "encryption_key" not in text
+
+
+_DELEGATED_CERT = (
+    "\n[[ssl.certificates]]\n"
+    'domain = "a.gg.com"\n'
+    'ssl_type = "letsencrypt"\n'
+    'challenge_type = "dns01"\n'
+    'delegation_cname = "a-gg-com.fm.gw"\n'
+)
+
+_PLAIN_CERT = '\n[[ssl.certificates]]\ndomain = "b.gg.com"\nssl_type = "letsencrypt"\nchallenge_type = "dns01"\n'
+
+
+class TestDelegatedCertificateSurvivesTheTomlBoundary:
+    """`delegation_cname` is written by ssl_certificate_to_toml_doc, so the reader must read it.
+
+    A bench certificate added with `fm ssl add --cname` is a CustomDomainCertificate: acme.sh only
+    gets `--challenge-alias` when `isinstance(cert, CustomDomainCertificate) and
+    cert.delegation_cname` holds (acmesh_certificate_service.py). The reader used to construct a
+    plain LetsencryptSSLCertificate from a fixed kwarg list, so the persisted key was dropped on
+    import and erased again on the next export -- every later Bench held a non-delegating cert and
+    re-issue tried to write _acme-challenge into a zone fm does not control.
+    """
+
+    def _import_with_isolated_fm_config(self, tmp_path, text: str) -> BenchConfig:
+        """The Let's Encrypt branch of the reader consults the global fm config for Cloudflare
+        credentials; point it at an absent file so the test never reads the developer's ~/frappe."""
+        fm_config = FMConfigManager.import_from_toml(tmp_path / "absent-fm-config.toml")
+        with patch(
+            "frappe_manager.site_manager.bench_config.FMConfigManager.import_from_toml",
+            return_value=fm_config,
+        ):
+            return _import(tmp_path, text)
+
+    def test_delegation_cname_is_read_back_as_a_delegating_certificate(self, tmp_path):
+        bc = self._import_with_isolated_fm_config(tmp_path, _BASE + _DELEGATED_CERT)
+
+        cert = bc.ssl_certificates[0]
+        assert type(cert) is CustomDomainCertificate
+        assert cert.delegation_cname == "a-gg-com.fm.gw"
+        assert cert.domain == "a.gg.com"
+        assert cert.challenge_type == LETSENCRYPT_PREFERRED_CHALLENGE.dns01
+
+    def test_a_certificate_without_delegation_stays_a_plain_letsencrypt_certificate(self, tmp_path):
+        bc = self._import_with_isolated_fm_config(tmp_path, _BASE + _PLAIN_CERT)
+
+        assert type(bc.ssl_certificates[0]) is LetsencryptSSLCertificate
+
+    def test_delegation_cname_survives_export_and_reimport(self, tmp_path):
+        """The bug erased the key from the file on the next write, not just from the object."""
+        bc = self._import_with_isolated_fm_config(tmp_path, _BASE + _DELEGATED_CERT)
+
+        out = tmp_path / "out.toml"
+        assert bc.export_to_toml(out) is True
+        assert 'delegation_cname = "a-gg-com.fm.gw"' in out.read_text()
+
+        fm_config = FMConfigManager.import_from_toml(tmp_path / "absent-fm-config.toml")
+        with patch(
+            "frappe_manager.site_manager.bench_config.FMConfigManager.import_from_toml",
+            return_value=fm_config,
+        ):
+            reimported = BenchConfig.import_from_toml(out)
+
+        assert reimported.ssl_certificates[0].delegation_cname == "a-gg-com.fm.gw"
+
+
+def test_a_bench_config_carrying_search_replace_still_loads():
+    """`[switch].search_replace` exists on real benches and must keep loading.
+
+    SwitchConfig is `extra="forbid"`, so deleting a field is not a no-op for anyone who already has
+    it in bench_config.toml: every command that loads that bench dies with a pydantic
+    ValidationError. This was removed once as "documented but never read" and it took down `fm info`
+    and `fm ssl list` on a live bench whose config carried `search_replace = true`. The key is inert,
+    but it stays until a migration strips it from disk.
+    """
+    from frappe_manager.site_manager.bench_config import SwitchConfig
+
+    cfg = SwitchConfig(migrate=True, search_replace=True)
+
+    assert cfg.search_replace is True
+
+
+def test_switch_config_still_rejects_a_genuinely_unknown_key():
+    """The compatibility field must not become a licence to accept typos."""
+    import pytest
+    from pydantic import ValidationError
+
+    from frappe_manager.site_manager.bench_config import SwitchConfig
+
+    with pytest.raises(ValidationError):
+        SwitchConfig(serch_replace=True)

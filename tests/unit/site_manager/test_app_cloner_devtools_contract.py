@@ -19,8 +19,8 @@ AppCloner contract defended:
 
 BenchDevTools contract defended:
 - the pip argv it builds for install/remove, and which exception each failure raises.
-- the attach guard order: not-running is checked first; VS Code's absence is only *reported*.
-- when a devcontainer label is regenerated (extensions differ) and when it is not.
+- the attach guard order: not-running is checked first, then a missing `code` binary stops the run.
+- when a devcontainer label is regenerated (extensions or remoteUser differ) and when it is not.
 - the debugger guard: only a workdir under `workspace` gets .vscode files, existing files are backed
   up, and a ruff install failure is downgraded to a warning.
 """
@@ -32,6 +32,7 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import pytest
+import typer
 from git import GitCommandError
 
 from frappe_manager.docker.docker_exceptions import DockerException
@@ -819,15 +820,17 @@ def test_attach_refuses_a_bench_that_is_not_running_before_doing_anything(devtoo
     tools.compose_file_manager.configure_service.assert_not_called()
 
 
-def test_a_missing_vscode_binary_is_only_reported_then_attach_breaks(devtools, monkeypatch):
-    """SUSPICION pinned, not fixed: `_verify_vscode_installed` does not raise, so the following
-    assert in `_build_vscode_command` is what actually stops the attach."""
+def test_a_missing_vscode_binary_stops_the_attach_with_a_single_report(devtools, monkeypatch):
+    """Was pinned as "only reported, then attach breaks": the check did not raise, so
+    `_build_vscode_command`'s assert was the real gate and the user got the same failure twice
+    (and a TypeError instead, under `python -O`). The check is now terminal."""
     tools = devtools()
     monkeypatch.setattr(devtools_module.shutil, "which", lambda name: None)
 
-    with pytest.raises(AssertionError, match="VS Code binary not found"):
+    with pytest.raises(typer.Exit) as excinfo:
         tools.attach_to_bench("frappe", [], "/workspace/frappe-bench")
 
+    assert excinfo.value.exit_code == 1
     tools.output.display_error.assert_called_once_with(
         "Visual Studio Code binary i.e 'code' is not accessible via cli",
     )
@@ -894,7 +897,7 @@ def test_attach_regenerates_the_compose_label_before_launching_vscode(devtools, 
 # --------------------------------------------------------------------------- BenchDevTools: devcontainer label
 
 
-def _written_label(extensions: list[str]) -> dict:
+def _written_label(extensions: list[str], user: str = "frappe") -> dict:
     """The label map exactly as `_apply_new_config` writes it into the compose file.
 
     `ComposeFile.get_labels(service)` returns that mapping (or None when the service has none),
@@ -902,7 +905,7 @@ def _written_label(extensions: list[str]) -> dict:
     """
     return {
         "devcontainer.metadata": json.dumps(
-            [{"customizations": {"vscode": {"extensions": extensions}}}],
+            [{"remoteUser": user, "customizations": {"vscode": {"extensions": extensions}}}],
         ),
     }
 
@@ -938,48 +941,52 @@ def test_attach_sorts_the_requested_extensions_before_they_reach_the_label(devto
     assert config[0]["customizations"]["vscode"]["extensions"] == ["a.ext", "z.ext"]
 
 
-def test_a_previously_written_label_is_read_back_as_no_extensions_at_all(devtools):
-    """SUSPICION pinned, not fixed: the reader subscripts the label MAPPING with `[0]`, so the
-    metadata this module itself wrote is never actually parsed -- KeyError(0) is swallowed and the
-    previous extension list always comes back empty."""
+def test_a_previously_written_label_is_read_back_as_the_extensions_it_recorded(devtools):
+    """Was pinned as `== []`: the reader subscripted the label MAPPING with `[0]`, the resulting
+    KeyError(0) was swallowed, and the metadata this module itself wrote was never parsed. That
+    bug is exactly what the old assertion pinned, so the expectation flips with the fix."""
     tools = devtools()
     tools.compose_file_manager.get_labels.return_value = _written_label(["a.ext", "b.ext"])
 
-    assert tools._get_previous_container_config() == []
+    assert tools._get_previous_container_config() == ["a.ext", "b.ext"]
 
 
-def test_an_unchanged_extension_list_still_regenerates_the_label_and_recreates_the_container(devtools):
-    """Consequence of the suspicion above: because the previous list is always read as empty, every
-    attach with at least one extension rewrites the compose label and re-ups the frappe service."""
+def test_an_unchanged_extension_list_no_longer_regenerates_the_label_or_recreates_the_container(devtools):
+    """Was pinned as "regenerates every time": because the previous list always read back empty,
+    every attach with at least one extension rewrote the compose label and re-upped the frappe
+    service. An unchanged config must be a no-op."""
     tools = devtools()
     tools.compose_file_manager.get_labels.return_value = _written_label(["a.ext", "b.ext"])
 
     tools._update_container_config("frappe", ["a.ext", "b.ext"])
 
-    tools.compose_file_manager.configure_service.assert_called_once()
-    tools.docker_client.compose.up.assert_called_once()
+    tools.compose_file_manager.configure_service.assert_not_called()
+    tools.docker_client.compose.up.assert_not_called()
 
 
-def test_requesting_no_extensions_is_what_actually_skips_regeneration(devtools):
-    """The only reachable no-op: empty requested list equals the empty previous list."""
+def test_dropping_every_extension_still_reaches_the_container(devtools):
+    """An empty request no longer matches a non-empty recorded list, so removing extensions
+    regenerates the label (this used to be the only reachable no-op, for the wrong reason)."""
     tools = devtools()
     tools.compose_file_manager.get_labels.return_value = _written_label(["a.ext"])
 
     tools._update_container_config("frappe", [])
 
-    tools.compose_file_manager.configure_service.assert_not_called()
-    tools.docker_client.compose.up.assert_not_called()
+    tools.compose_file_manager.configure_service.assert_called_once()
+    tools.docker_client.compose.up.assert_called_once()
 
 
-def test_changing_only_the_remote_user_never_reaches_the_container(devtools):
-    """SUSPICION pinned, not fixed: `_config_needs_update` accepts `user` and ignores it, so with no
-    extensions requested a different remoteUser is computed into the label and then dropped."""
+def test_changing_only_the_remote_user_reaches_the_container(devtools):
+    """Was pinned as "never reaches the container": `_config_needs_update` accepted `user` and
+    ignored it, which was harmless only while the check was stuck on True. Now that the extension
+    comparison works, an unread `user` would silently drop `fm code --user`."""
     tools = devtools()
     tools.compose_file_manager.get_labels.return_value = _written_label([])
 
     tools._update_container_config("someone-else", [])
 
-    tools.compose_file_manager.configure_service.assert_not_called()
+    labels = tools.compose_file_manager.configure_service.call_args.kwargs["labels"]
+    assert json.loads(labels["devcontainer.metadata"])[0]["remoteUser"] == "someone-else"
 
 
 def test_a_service_with_labels_but_no_devcontainer_metadata_yields_no_extensions(devtools):
@@ -989,14 +996,13 @@ def test_a_service_with_labels_but_no_devcontainer_metadata_yields_no_extensions
     assert tools._get_previous_container_config() == []
 
 
-def test_a_service_with_no_labels_at_all_explodes(devtools):
-    """SUSPICION pinned, not fixed: `ComposeFile.get_labels` returns None for a service without
-    labels, and only KeyError is handled, so attach dies with a TypeError."""
+def test_a_service_with_no_labels_at_all_yields_no_extensions(devtools):
+    """Was pinned as TypeError: `ComposeFile.get_labels` returns None for a service without
+    labels and only KeyError was handled, so attach died reading its own missing label."""
     tools = devtools()
     tools.compose_file_manager.get_labels.return_value = None
 
-    with pytest.raises(TypeError):
-        tools._get_previous_container_config()
+    assert tools._get_previous_container_config() == []
 
 
 # --------------------------------------------------------------------------- BenchDevTools: debugger config
@@ -1100,24 +1106,22 @@ def test_attach_with_the_debugger_flag_syncs_config_before_launching_vscode(devt
     assert launch_existed_at_attach == [True]
 
 
-def test_the_previous_extension_comparison_expects_a_shape_this_module_never_writes(devtools):
-    """Unit-level contract of the parse branch, pinned so a refactor cannot change it silently.
+def test_the_label_this_module_writes_is_the_shape_it_reads_back(devtools):
+    """Writer and reader have to agree or the comparison is worthless: feed the label produced by
+    one attach straight back into the next one.
 
-    SUSPICION: the branch is unreachable in production for two independent reasons. The reader needs
-    (a) `get_labels` to return a LIST of label dicts -- the real one returns the label MAPPING or
-    None -- and (b) `devcontainer.metadata` to hold a JSON OBJECT, while `_apply_new_config` writes
-    a JSON ARRAY. Only with both shapes flipped does the "config unchanged" comparison work.
+    Was pinned as "expects a shape this module never writes": the reader needed a LIST of label
+    dicts holding a JSON OBJECT, while `get_labels` returns the label MAPPING and
+    `_apply_new_config` writes a JSON ARRAY, so this round trip never closed.
     """
     tools = devtools()
-    tools.compose_file_manager.get_labels.return_value = [
-        {
-            "devcontainer.metadata": json.dumps(
-                {"customizations": {"vscode": {"extensions": ["a.ext", "b.ext"]}}},
-            ),
-        },
-    ]
-
-    assert tools._get_previous_container_config() == ["a.ext", "b.ext"]
+    tools.compose_file_manager.get_labels.return_value = {}
 
     tools._update_container_config("frappe", ["a.ext", "b.ext"])
+    written = tools.compose_file_manager.configure_service.call_args.kwargs["labels"]
+
+    tools.compose_file_manager.get_labels.return_value = written
+    tools.compose_file_manager.configure_service.reset_mock()
+    tools._update_container_config("frappe", ["a.ext", "b.ext"])
+
     tools.compose_file_manager.configure_service.assert_not_called()

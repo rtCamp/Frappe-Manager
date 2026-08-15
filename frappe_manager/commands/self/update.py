@@ -5,6 +5,7 @@ import requests
 import typer
 from typer_examples import example
 
+from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.utils.helpers import get_current_fm_version, install_package
 
@@ -35,7 +36,10 @@ def update(
         update_info = json.loads(update_info.text)
         fm_version = get_current_fm_version()
         latest_version = update_info["info"]["version"]
-        if not fm_version == latest_version:
+        # Ordered comparison, not string inequality: a dev/pre-release build is AHEAD of the
+        # published release, and offering the PyPI version there is a DOWNGRADE of the CLI
+        # underneath benches whose on-disk state was written by the newer fm.
+        if Version(latest_version) > Version(fm_version):
             update_msg = (
                 f":arrows_counterclockwise: New update available [fm.accent]v{latest_version}[/fm.accent]"
                 "\nDo you want to update ?"
@@ -49,6 +53,8 @@ def update(
 
             if continue_update == "yes":
                 install_package("frappe-manager", latest_version)
+        else:
+            output.print(f"fm is already up to date (v{fm_version})")
     except Exception as e:
         output = get_global_output_handler()
         output.error(f"Error occurred while updating the app: {e}", exception=e)

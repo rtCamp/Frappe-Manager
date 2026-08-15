@@ -11,6 +11,7 @@ import typer
 from typer_examples import example
 
 from frappe_manager import CLI_BENCHES_DIRECTORY
+from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
 
@@ -28,6 +29,7 @@ def _has_fm_block(text: str) -> bool:
 
 def _strip_fm_block(text: str) -> str:
     return _BLOCK_RE.sub("", text)
+
 
 # Conventioned per-bench custom page: drop this file into the bench's configs
 # directory once and every future enable uses it automatically.
@@ -311,6 +313,13 @@ def maintenance(
 
     output = get_global_output_handler()
 
+    # Same gate every other command that MUTATES a live bench carries (update, restart, start,
+    # auth, reset...). Maintenance rewrites the bench's vhost in the shared proxy, so running it
+    # against a bench whose on-disk layout predates the current fm is how you get a half-migrated
+    # vhost. `stop` and `delete` are deliberately exempt: you must always be able to stop or remove
+    # a bench you cannot migrate.
+    check_bench_migration_required(benchname)
+
     services = ctx.obj["services"]
     vhostd_dir = Path(services.proxy_storage.dirs.vhostd.host)
     html_mount = services.proxy_storage.dirs.html
@@ -395,11 +404,8 @@ def maintenance(
         return
 
     if off:
-        removed = 0
-        for domain in domains:
-            path = conf_path(domain)
-            if not active(path):
-                continue
+
+        def disable(path: Path) -> None:
             # Remove ONLY the fm block; other directives in the shared
             # per-domain file (e.g. upload limits) must survive.
             remainder = _strip_fm_block(path.read_text()).strip("\n")
@@ -407,12 +413,37 @@ def maintenance(
                 path.write_text(remainder + "\n")
             else:
                 path.unlink()
+
+        removed = 0
+        for domain in domains:
+            path = conf_path(domain)
+            if not active(path):
+                continue
+            disable(path)
             removed += 1
+
+        # A domain dropped from the bench (`fm update B --remove-alias x`) keeps its vhost.d
+        # file, and the loop above only knows the CURRENT bench_config.toml -- so its
+        # maintenance block would stay live: still listed by --status, and inherited (page and
+        # bypass token) by whichever bench claims that domain next. Sweep those orphans, which
+        # the block itself names as ours.
+        orphans: list[str] = []
+        if vhostd_dir.exists():
+            for conf in sorted(vhostd_dir.iterdir()):
+                if conf.name in domains or not conf.is_file():
+                    continue
+                text = conf.read_text()
+                if not _has_fm_block(text) or _extract_bench(text) != benchname:
+                    continue
+                disable(conf)
+                orphans.append(conf.name)
+        removed += len(orphans)
+
         if not removed:
             output.print("Maintenance was not enabled")
             return
         services.nginx_controller.reload()
-        output.print(f"Maintenance disabled for: {', '.join(domains)}")
+        output.print(f"Maintenance disabled for: {', '.join([*domains, *orphans])}")
         return
 
     # Enable. Reuse the existing token when re-running (idempotent) unless a

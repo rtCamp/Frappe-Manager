@@ -9,7 +9,11 @@ from ruamel.yaml.comments import CommentedSeq as OrderedList
 
 from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.docker import DockerVolumeMount
-from frappe_manager.docker.compose_exceptions import ComposeSecretNotFoundError, ComposeServiceNotFound
+from frappe_manager.docker.compose_exceptions import (
+    ComposeFileException,
+    ComposeSecretNotFoundError,
+    ComposeServiceNotFound,
+)
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.utils.helpers import get_template_path, represent_null_empty, get_docker_image_tag
@@ -125,7 +129,15 @@ class ComposeFile:
             list: A list of service names. May be filtered if ``exclude_disabled``
                 is True.
         """
-        services = list(self.yml["services"].keys())
+        # A compose file that is empty, or has no `services:` key, is an OPERATIONAL problem (a
+        # truncated write, a hand-edited file), not a programming error. Left alone, `self.yml`
+        # being None raises TypeError and a missing key raises KeyError, and callers that
+        # legitimately tolerate a broken services stack cannot name those without also swallowing
+        # real bugs. Raising the domain exception lets them be specific.
+        services_map = (self.yml or {}).get("services")
+        if not isinstance(services_map, dict):
+            raise ComposeFileException(f"{self.compose_path} has no usable 'services' section")
+        services = list(services_map.keys())
         if exclude_disabled:
             services = [s for s in services if not self.is_service_profile_disabled(s)]
         return services

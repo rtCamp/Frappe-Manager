@@ -86,14 +86,19 @@ KNOWN_CANONICAL = frozenset(
 EXCEPTIONS: dict[str, BenchnameSpec] = {
     # `create` makes a NEW bench, so completing over existing benches would be
     # actively wrong, and `sitename_callback` (which requires the bench to exist)
-    # would reject every valid input. Required, bare `str`, no callback at all.
+    # would reject every valid input. Required, bare `str`, and its own callback:
+    # `create_command_sitename_callback` normalises the name and then refuses one
+    # whose bench directory already exists. It used to carry NO callback at all,
+    # which is what let `fm create existing.localhost` overwrite a live bench --
+    # nothing else on the create path checks, and `--allow-domain-conflicts` turns
+    # the only other gate off. The absent callback was the bug, not the contract.
     "fm create": BenchnameSpec(
         help="Bench name",
         default=None,
         required=True,
         type_name="text",
         autocompletion=None,
-        callback=None,
+        callback=callbacks.create_command_sitename_callback,
     ),
     # `maintenance --status` may run bench-less, so it swaps in a wrapper that
     # lets `None` through for that one flag and otherwise delegates.

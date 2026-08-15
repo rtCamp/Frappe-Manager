@@ -49,6 +49,9 @@ from frappe_manager.utils.docker import run_command_with_exit_code
 
 BENCH_BIN = "/opt/user/.bin/bench"
 FRAPPE_SERVICE = "frappe"
+# coreutils `timeout` exits 124 when it had to kill the command it wrapped; that
+# is how a migrate over [switch].migrate_timeout reports back (see _migrate).
+TIMEOUT_EXIT_CODE = 124
 # fmx is installed as a uv tool; a bare `python` is not on the exec PATH.
 FMX_PYTHON = "/opt/uv-tools/fmx/bin/python"
 
@@ -85,6 +88,29 @@ class RestoreNotConfirmed(DeployError):
     write to a database fm does not own must never strand the bench on an image
     it was rolling away from.
     """
+
+
+class DrainUnavailable(DeployError):
+    """Raised when the drain command never ran inside the frappe container.
+
+    A subclass rather than a bare DeployError because the caller has to tell it
+    apart from a drain that ran and timed out. Images predating fmx have no
+    ``FMX_PYTHON`` at all, so the exec fails in milliseconds; reporting that as
+    "drain timed out after 300s" sends the operator to raise a timeout that was
+    never the problem, and no timeout can ever make the exec succeed.
+    """
+
+
+def _exec_error_text(exc: Exception) -> str:
+    """The one useful line out of a failed container exec.
+
+    DockerException stringifies to the whole command, stdout and stderr blocks;
+    for an error message the operator reads once, its stderr is the part that
+    names the cause (``stat /opt/uv-tools/fmx/bin/python: no such file``).
+    """
+    stderr = getattr(getattr(exc, "output", None), "stderr", None) or []
+    text = " ".join(line.strip() for line in stderr if line.strip())
+    return text or str(exc)
 
 
 def rolling_eligible(
@@ -134,7 +160,7 @@ def parse_migrate_probe(lines) -> dict | None:
         drift_m = re.search(r"drift=(\S+)", tail)
         drift = [] if not drift_m or drift_m.group(1) == "none" else drift_m.group(1).split(",")
         return {
-            "needed": "clean" not in tail,
+            "needed": tail.split()[:1] != ["clean"],
             "pending": int(pending_m.group(1)) if pending_m else None,
             "drift": drift,
         }
@@ -183,7 +209,6 @@ def _parse_installed_apps(lines) -> set[str]:
 def _new_apps(wanted: list[str], installed: set[str]) -> list[str]:
     """Apps in ``wanted`` (image/config order) not present in ``installed``."""
     return [a for a in wanted if a not in installed]
-
 
 
 def plan_release_prune(history: list, keep: int) -> tuple[list, list]:
@@ -282,14 +307,19 @@ class DeployOrchestrator:
     def _fetch_image(self, tag: str) -> None:
         """Ensure ``tag`` (+ its derived nginx tag) is present on the target daemon.
 
-        Delegates to the shared ``transport.fetch_image``; ``TransportError`` is
-        re-raised as ``DeployError`` to preserve deploy's error contract.
+        Delegates to the shared ``transport.fetch_image``; ``TransportError`` AND
+        ``BakeError`` are re-raised as ``DeployError`` to preserve deploy's error
+        contract. ``BakeError`` belongs here because fetch_image derives the nginx
+        tag first: a tag with no ``':'`` (``fm switch mybench local/mybench`` --
+        a plausible typo) dies there, and untranslated it escapes the CLI's
+        ``except DeployError`` as a traceback instead of the typo's message.
         """
+        from frappe_manager.site_manager.modules.bake import BakeError
         from frappe_manager.site_manager.modules.transport import TransportError, fetch_image
 
         try:
             fetch_image(self.docker, getattr(self.config, "registry", None), tag, output=self.output)
-        except TransportError as e:
+        except (TransportError, BakeError) as e:
             raise DeployError(str(e)) from e
 
     def _health_check(self, retries: int = 45, interval: int = 2) -> bool:
@@ -341,13 +371,20 @@ class DeployOrchestrator:
         """``compose up -d --no-recreate`` at the given per-service replica counts.
 
         ``--no-recreate`` keeps the old (old-tag) container in place and only
-        adds the new replica; the compose file is already pinned to the new tag."""
+        adds the new replica; the compose file is already pinned to the new tag.
+
+        A non-zero compose exit never comes back as an exit code: the capturing
+        path raises DockerException while the output is drained. Translate it to
+        DeployError so the swap aborts through ``_rolling_swap``'s handler
+        instead of a raw DockerException escaping with the compose still in the
+        rolling (container_name-less) render."""
         args = ["up", "-d", "--no-recreate", "--pull", "never"]
         for svc, n in scales.items():
             args += ["--scale", f"{svc}={n}"]
-        out = self._raw_compose(*args)
-        if out.exit_code not in (0, None):
-            raise DeployError(f"compose scale {scales} failed: {''.join(out.stderr) or ''.join(out.stdout)}")
+        try:
+            self._raw_compose(*args)
+        except DockerException as e:
+            raise DeployError(f"compose scale {scales} failed: {e}") from e
 
     def _new_container_id(self, service: str, old_ids: list[str]) -> str | None:
         for cid in self._compose_ps_ids(service):
@@ -421,7 +458,11 @@ class DeployOrchestrator:
             self._raw_docker("rename", container_id, name)
 
     def _abort_rolling(
-        self, web: list[str], old_ids: dict[str, list[str]], old_tag: str | None, snaps: dict[Path, bytes],
+        self,
+        web: list[str],
+        old_ids: dict[str, list[str]],
+        old_tag: str | None,
+        snaps: dict[Path, bytes],
     ) -> None:
         """New replica unhealthy: OLD never stopped -> still serving. Tear down the
         new replicas and restore the pre-deploy (old-tag) compose. Zero downtime
@@ -456,27 +497,40 @@ class DeployOrchestrator:
         canonical = self.compose.get_container_names()
         old_ids = {svc: self._compose_ps_ids(svc) for svc in web}
 
-        # 1. Re-render the compose without container_name on the web tiers so
-        #    docker compose accepts --scale, and pin workers to the new tag.
-        self.output.change_head("Rolling: rendering scalable image compose")
-        self.docker_ops.render_image_compose(new_tag, rolling=True)
-        self._pin_workers(new_tag)
+        # Steps 1-3 all run while the OLD replicas are untouched and still
+        # serving, so EVERY failure in them -- an unhealthy new replica, or a
+        # `compose --scale` that failed (DeployError out of `_scale`) -- unwinds
+        # through `_abort_rolling`: new replicas torn down, canonical (old-tag)
+        # compose restored. Without that, a mid-scale failure would escape with
+        # the compose left in the rolling render (no `container_name`), and a
+        # later `compose up` would create containers under generated names that
+        # `get_container_names()` no longer matches -- fm would read the bench as
+        # down. The drain (step 4 onward) is deliberately NOT covered: once the
+        # old replicas are stopped, tearing the new ones down would cause the
+        # very outage `_abort_rolling` exists to prevent.
+        try:
+            # 1. Re-render the compose without container_name on the web tiers so
+            #    docker compose accepts --scale, and pin workers to the new tag.
+            self.output.change_head("Rolling: rendering scalable image compose")
+            self.docker_ops.render_image_compose(new_tag, rolling=True)
+            self._pin_workers(new_tag)
 
-        # 2. Add the new frappe replica alongside the old (old keeps serving).
-        self.output.change_head("Rolling: starting new frappe replica")
-        self._scale({"frappe": 2})
-        new_frappe = self._new_container_id("frappe", old_ids["frappe"])
-        if not new_frappe or not self._container_health(new_frappe):
-            self._abort_rolling(web, old_ids, old_tag, snaps)
-            raise DeployError("new frappe replica failed health check; kept old, no swap")
+            # 2. Add the new frappe replica alongside the old (old keeps serving).
+            self.output.change_head("Rolling: starting new frappe replica")
+            self._scale({"frappe": 2})
+            new_frappe = self._new_container_id("frappe", old_ids["frappe"])
+            if not new_frappe or not self._container_health(new_frappe):
+                raise DeployError("new frappe replica failed health check; kept old, no swap")
 
-        # 3. Add the new nginx replica (now resolves both frappe replicas).
-        self.output.change_head("Rolling: starting new nginx replica")
-        self._scale({"frappe": 2, "nginx": 2})
-        new_nginx = self._new_container_id("nginx", old_ids["nginx"])
-        if not new_nginx or not self._container_health(new_nginx):
+            # 3. Add the new nginx replica (now resolves both frappe replicas).
+            self.output.change_head("Rolling: starting new nginx replica")
+            self._scale({"frappe": 2, "nginx": 2})
+            new_nginx = self._new_container_id("nginx", old_ids["nginx"])
+            if not new_nginx or not self._container_health(new_nginx):
+                raise DeployError("new nginx replica failed health check; kept old, no swap")
+        except Exception:
             self._abort_rolling(web, old_ids, old_tag, snaps)
-            raise DeployError("new nginx replica failed health check; kept old, no swap")
+            raise
 
         # 4. Drain OLD replicas. jwilder/nginx-proxy 1.11 does NOT honor container
         #    health, so proxy routing changes only on container add/remove;
@@ -566,14 +620,20 @@ class DeployOrchestrator:
 
     def _db_manager(self) -> tuple[MariaDBManager, str | None]:
         db_info = DatabaseServerServiceInfo.import_from_bench(
-            bench_name=self.site, bench_path=self.bench_path, raise_exception=False,
+            bench_name=self.site,
+            bench_path=self.bench_path,
+            raise_exception=False,
         )
         db_name = db_info.name or self.config.db_name
         # MYSQL_HOME is the only way the client learns a CA: it reads <dir>/my.cnf.
         # None for global-db, whose certificate an external CA would not describe.
         mysql_home = db_tls.site_mysql_home(self.site) if self._external_db() else None
         manager = MariaDBManager(
-            db_info, self.compose, self.docker, run_on_compose_service=FRAPPE_SERVICE, output_handler=self.output,
+            db_info,
+            self.compose,
+            self.docker,
+            run_on_compose_service=FRAPPE_SERVICE,
+            output_handler=self.output,
             mysql_home=mysql_home,
         )
         return manager, db_name
@@ -715,7 +775,9 @@ class DeployOrchestrator:
         """Suspend RQ workers and wait for in-flight jobs.
 
         Returns True when it is safe to restart (fully drained, drain disabled,
-        or frappe not running); False on drain timeout or error."""
+        or frappe not running); False when the drain ran and timed out with
+        workers still busy. Raises DrainUnavailable when the drain could not run
+        at all -- that is not a timeout and callers must not report it as one."""
         if not (self.workers_config.drain and self._frappe_running()):
             return True
         self.output.change_head("Draining RQ workers")
@@ -732,22 +794,46 @@ class DeployOrchestrator:
         )
         try:
             self._exec_frappe(f'{FMX_PYTHON} -c "{py}"')
-        except Exception:
-            # Timeout (exit 3) or exec failure; callers decide abort vs proceed.
-            return False
+        except Exception as e:
+            # Exit 3 is the wait above giving up: the drain ran, workers are still
+            # busy, and callers treat it as the gate closing. Any other status
+            # means the command never got as far as waiting.
+            if getattr(getattr(e, "output", None), "exit_code", None) == 3:
+                return False
+            raise DrainUnavailable(
+                f"Could not drain RQ workers: {FMX_PYTHON} failed to run in the frappe container "
+                f"({_exec_error_text(e)}). The image may predate fmx -- 'fm self update-images' "
+                "installs one that supports draining."
+            ) from e
         return True
 
     def resume_workers(self) -> None:
         if not self.workers_config.drain:
             return
-        py = (
-            "from fmx.rq_controller import control_rq_workers, ActionEnum; "
-            "control_rq_workers(ActionEnum.resume)"
-        )
+        py = "from fmx.rq_controller import control_rq_workers, ActionEnum; control_rq_workers(ActionEnum.resume)"
         try:
             self._exec_frappe(f'{FMX_PYTHON} -c "{py}"')
         except Exception as e:
             self.output.warning(f"Could not resume RQ workers (continuing): {e}")
+
+    def _unwind_maintenance(self) -> None:
+        """Drop the maintenance 503 and un-suspend RQ after an aborted deploy.
+
+        Shared by both abort windows -- pre-swap and the swap itself -- because
+        the damage is identical either side of the swap: an abort that leaves
+        ``maintenance_mode`` at 1 has the surviving old stack serve 503 to every
+        visitor while the CLI reports the old image was kept, and `drain_workers`
+        suspends RQ through a PERSISTENT Redis key, so skipping the resume leaves
+        the bench silently processing no background jobs at all -- no scheduled
+        jobs, no emails, no backups -- with the site otherwise healthy and
+        nothing on screen to say why. `resume_workers` is already a no-op when
+        draining is disabled and swallows its own failures, so it is safe on
+        every abort path.
+        """
+        if self._frappe_running():
+            with contextlib.suppress(Exception):
+                self._set_maintenance(0)
+        self.resume_workers()
 
     def _site_installed_apps(self) -> set[str]:
         """App names installed on the site, parsed from ``bench list-apps``.
@@ -883,9 +969,21 @@ class DeployOrchestrator:
         The full migrate output is persisted to ``logs/deploy-migrate-<ts>.log``
         (bind-mounted: readable by host AND container hooks) and exported to hook
         env as MIGRATE_LOG_FILE / MIGRATE_LOG_FILE_HOST -- on failure too, so
-        after_migrate notification hooks can ship the log."""
+        after_migrate notification hooks can ship the log.
+
+        ``[switch].migrate_timeout`` is enforced INSIDE the container, by wrapping
+        the command in coreutils ``timeout``: a wedged migrate (lock wait, hung
+        patch) has to be killed where it runs, because the drain of a live child
+        never returns and abandoning the wait on the host would leave the migrate
+        running against the DB under an open maintenance window. ``<= 0`` means no
+        budget (the pre-timeout behaviour).
+        """
         self.output.change_head("Running migrations (one-shot new-image container)")
         command = self.switch_config.migrate_command or f"--site {self.site} migrate"
+        budget = self.switch_config.migrate_timeout
+        entrypoint, argv = (BENCH_BIN, command)
+        if budget > 0:
+            entrypoint, argv = ("timeout", f"{budget} {BENCH_BIN} {command}")
         log_name = f"deploy-migrate-{datetime.now(UTC).strftime('%Y%m%d%H%M%S')}.log"
         self._migrate_log_host = self.bench_path / "workspace" / "frappe-bench" / "logs" / log_name
         self._migrate_log_container = f"/workspace/frappe-bench/logs/{log_name}"
@@ -897,8 +995,8 @@ class DeployOrchestrator:
         try:
             result = self.docker.compose.run(
                 service=FRAPPE_SERVICE,
-                entrypoint=BENCH_BIN,
-                command=command,
+                entrypoint=entrypoint,
+                command=argv,
                 user="frappe",
                 rm=True,
                 stream=False,
@@ -906,6 +1004,13 @@ class DeployOrchestrator:
         except DockerException as e:
             out = getattr(e, "output", None)
             _persist(getattr(out, "combined", None) or [str(e)])
+            if budget > 0 and getattr(out, "exit_code", None) == TIMEOUT_EXIT_CODE:
+                raise DeployError(
+                    f"Migration exceeded \\[switch].migrate_timeout ({budget}s) and was killed. "
+                    f"The migrate log is at {self._migrate_log_host}; a lock wait or a hung patch "
+                    "is the usual cause. Raise \\[switch].migrate_timeout (0 disables the budget) "
+                    "and re-run -- bench migrate is resumable.",
+                ) from e
             raise
         _persist(getattr(result, "combined", None))
         self.output.print("Migrations applied")
@@ -989,7 +1094,13 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
     def _record(self, new_tag: str, migrate_status: str, backup: Path | None = None) -> None:
         now = datetime.now(UTC).isoformat()
         state = self.config.deploy_state or DeployState()
-        state.previous_tag = state.current_tag
+        # Re-recording the tag that is ALREADY current (the health-gate rollback
+        # re-pins the running old tag) must not rotate it into previous_tag:
+        # previous would collapse onto current, turning the operator's next
+        # escape hatch (`fm switch --previous`) into a redeploy of what is
+        # already live and stranding the genuinely older release.
+        if state.current_tag != new_tag:
+            state.previous_tag = state.current_tag
         state.current_tag = new_tag
         state.last_deploy_at = now
         state.history.append(
@@ -1072,7 +1183,13 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         # A DB restore changes schema/data under running code the same way a
         # migrate does: same maintenance window, same rolling-eligibility rules.
         schema_step = migrate or restore_db_dump is not None
-        maintenance = schema_step and self.switch_config.maintenance_mode
+        # An EMPTY ``maintenance_mode_phases`` is the operator asserting the
+        # migration is backward-compatible, i.e. "no page" -- the same assertion
+        # that makes this deploy rolling-eligible below. Honour it here or the
+        # 503 goes up anyway and the assertion only bought the rolling swap.
+        maintenance = (
+            schema_step and self.switch_config.maintenance_mode and bool(self.switch_config.maintenance_mode_phases)
+        )
 
         do_rolling = (
             rolling_eligible(
@@ -1099,9 +1216,10 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
             # proceeding past a timed-out drain would take the backup while a
             # still-busy worker keeps writing, so the dump would no longer be
             # the exact quiesced state step 7 documents. Nothing irreversible
-            # has happened yet (maintenance is unwound below): resume + abort.
+            # has happened yet (maintenance is unwound below): abort.
+            # The resume is NOT done here: the pre-swap abort handler resumes on every abort path,
+            # so doing it here too would just cost a second container exec.
             if not self.drain_workers():
-                self.resume_workers()
                 raise DeployError(
                     f"Drain timed out after {self.workers_config.drain_timeout}s: workers still busy. "
                     "Deploy aborted before backup/migrate/swap; workers resumed, the old stack keeps serving. "
@@ -1133,9 +1251,12 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
                 try:
                     self._migrate(new_tag)
                     migrate_status = self._migrate_status = "migrated"
-                except DockerException as e:
+                except (DockerException, DeployError) as e:
                     # Migrate failure: NO swap. Keep old tag + report. migrate is
                     # transactional/resumable so default is keep-old (re-runnable).
+                    # DeployError is in the tuple because ``_migrate`` translates a
+                    # migrate_timeout kill into one: it must land HERE (notify +
+                    # rollback_db), not on the generic pre-swap abort above.
                     migrate_status = self._migrate_status = "failed"  # noqa: F841
                     self._notify_after_migrate(new_tag)
                     if self.switch_config.rollback_db and db_dump:
@@ -1157,27 +1278,35 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
             self._run_container_hook(self._switch_hook("before_restart"), "before_restart", new_tag)
         except Exception:
             # Abort BEFORE the swap (hook/migrate/maintenance/drain failure): the OLD
-            # stack is still the live one. Revert the compose re-pin and drop
-            # maintenance so an aborted deploy never leaves the site dark or the
-            # compose half-switched (a later plain `compose up` must not jump tags).
+            # stack is still the live one. Revert the compose re-pin, then drop the
+            # page and un-suspend RQ so an aborted deploy never leaves the site dark
+            # or the compose half-switched (a later plain `compose up` must not jump
+            # tags).
             self._restore_compose(snaps)
-            if self._frappe_running():
-                with contextlib.suppress(Exception):
-                    self._set_maintenance(0)
+            self._unwind_maintenance()
             raise
 
         # 7b. Swap. Rolling when eligible -> zero dropped requests;
         # otherwise recreate-swap (the maintenance window covers the brief blip).
-        if do_rolling:
-            self.output.change_head("Rolling web swap")
-            self._rolling_swap(new_tag, old_tag, snaps)
-        else:
-            # Recreate-swap. No ``--wait``: nginx emerg-exits on the frappe:80
-            # upstream DNS if it wins the startup race, so we gate on the frappe
-            # curl health check and then (re)start nginx once frappe resolves.
-            self.output.change_head("Swapping to new image (recreate)")
-            self.docker.compose.up(services=[], detach=True, pull="never", stream=False)
-            self._up_workers()
+        # A failure IN the swap is its own abort window: the swap paths restore the
+        # compose themselves (`_abort_rolling` for rolling; the recreate is already
+        # pinned to the tag it brought up), but the page and the suspended workers
+        # are this pipeline's to unwind -- otherwise the surviving stack serves 503
+        # to everyone while the CLI reports the old image was kept.
+        try:
+            if do_rolling:
+                self.output.change_head("Rolling web swap")
+                self._rolling_swap(new_tag, old_tag, snaps)
+            else:
+                # Recreate-swap. No ``--wait``: nginx emerg-exits on the frappe:80
+                # upstream DNS if it wins the startup race, so we gate on the frappe
+                # curl health check and then (re)start nginx once frappe resolves.
+                self.output.change_head("Swapping to new image (recreate)")
+                self.docker.compose.up(services=[], detach=True, pull="never", stream=False)
+                self._up_workers()
+        except Exception:
+            self._unwind_maintenance()
+            raise
 
         # Health gate (503 = maintenance page = server up; finalize clears it).
         self.output.change_head("Health-gating new containers")

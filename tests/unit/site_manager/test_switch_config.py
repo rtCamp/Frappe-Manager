@@ -48,3 +48,14 @@ def test_old_keep_releases_name_is_rejected():
     # fix their config instead of the key being silently ignored.
     with pytest.raises(ValueError):
         SwitchConfig(releases_retain_limit=3)
+
+
+def test_search_replace_is_accepted_but_inert():
+    # `search_replace` advertised "run search-and-replace in DB after restore" and is never read:
+    # _restore_db only ever imports fm's OWN dump of THIS site, so there is no other site's URL to
+    # rewrite. It was briefly DELETED for that reason, which was a mistake: SwitchConfig is
+    # extra="forbid" and real benches already carry `search_replace = true` on disk, so removing the
+    # field made every command that loads such a bench die with a ValidationError -- observed on a
+    # live bench, where it broke `fm info` and `fm ssl list`. The key is therefore accepted and
+    # ignored until a bench migration strips it from disk.
+    assert SwitchConfig(search_replace=True).search_replace is True

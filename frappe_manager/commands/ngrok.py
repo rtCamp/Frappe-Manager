@@ -3,6 +3,7 @@ from typing import Annotated
 import typer
 from typer_examples import example
 
+from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.commands.arguments import BenchNameArgument
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.ngrok import create_tunnel
@@ -44,6 +45,8 @@ def ngrok(
 
     Provisions a public URL for local benches using ngrok; requires an auth token either via flag or config.
     """
+    check_bench_migration_required(benchname)
+
     services_manager = ctx.obj["services"]
     verbose = ctx.obj["verbose"]
 
@@ -65,8 +68,13 @@ def ngrok(
             )
             raise typer.Exit(1)
 
-        if auth_token and not fm_config_manager.ngrok_auth_token:
-            output.print("New auth token provided", emoji_code=":new:")
+        # Guarded on "different from what is stored", not "nothing is stored": an explicit
+        # --save-token with a replacement token used to be discarded in silence.
+        if auth_token != fm_config_manager.ngrok_auth_token:
+            if fm_config_manager.ngrok_auth_token:
+                output.print("Replacing saved auth token", emoji_code=":new:")
+            else:
+                output.print("New auth token provided", emoji_code=":new:")
 
             if save_token is None:
                 with temporary_stop(output):

@@ -6,6 +6,7 @@ owns a marked block inside it; enable/disable must never destroy the rest.
 """
 
 from importlib import import_module
+from unittest.mock import MagicMock, patch
 
 from frappe_manager.commands.maintenance import (
     _bench_domains,
@@ -13,6 +14,7 @@ from frappe_manager.commands.maintenance import (
     _strip_fm_block,
     _vhost_conf,
 )
+from frappe_manager.output_manager import get_global_output_handler
 
 # frappe_manager.commands re-exports the `maintenance` FUNCTION under the same
 # name, shadowing the submodule attribute, so plain `import ... as` binds the
@@ -51,9 +53,9 @@ def test_reenable_replaces_block_without_duplicating_foreign_lines():
     assert remerged.count("# fm:maintenance BEGIN") == 1
 
 
-def _write_bench_config(root, benchname: str, body: str) -> None:
+def _write_bench_config(root, benchname: str, body: str = "") -> None:
     bench_dir = root / benchname
-    bench_dir.mkdir(parents=True)
+    bench_dir.mkdir(parents=True, exist_ok=True)
     (bench_dir / "bench_config.toml").write_text(f'name = "{benchname}"\n{body}')
 
 
@@ -123,3 +125,107 @@ def test_secure_cookie_follows_the_domain():
     args = ("mybench", "a" * 32, "/usr/share/nginx/html", 503, 300, [], [])
     assert "; Secure" in _vhost_conf(*args, secure_cookie=True)
     assert "; Secure" not in _vhost_conf(*args, secure_cookie=False)
+
+
+# --------------------------------------------------------------------------- #
+# Domains that left the bench
+#
+# `fm update B --remove-alias x` drops the domain from bench_config.toml but leaves
+# vhost.d/x on disk. Both maintenance paths iterate the CURRENT config, so `--off` used to
+# walk straight past that file: the block stayed live, --status kept listing it, and the
+# next bench to claim the domain inherited the maintenance page and the old bypass token.
+# --------------------------------------------------------------------------- #
+
+
+def _maint_env(tmp_path):
+    vhostd = tmp_path / "vhost.d"
+    vhostd.mkdir(parents=True)
+    benches = tmp_path / "benches"
+    services = MagicMock()
+    services.proxy_storage.dirs.vhostd.host = str(vhostd)
+    services.proxy_storage.dirs.html.host = str(tmp_path / "html")
+    services.proxy_storage.dirs.html.container = "/usr/share/nginx/html"
+    return services, vhostd, benches
+
+
+def _enabled_block(bench: str = "mybench") -> str:
+    return _vhost_conf(bench, "a" * 32, "/usr/share/nginx/html", 503, 300, [], [], secure_cookie=False)
+
+
+def _run_off(services, benches):
+    """`fm maintenance mybench --off` with only the proxy and the benches dir faked."""
+    ctx = MagicMock()
+    ctx.obj = {"services": services}
+    handler = get_global_output_handler()
+    with (
+        patch.object(maintenance_cmd, "CLI_BENCHES_DIRECTORY", benches),
+        patch.object(maintenance_cmd, "check_bench_migration_required"),
+        patch.object(handler, "print") as printed,
+    ):
+        maintenance_cmd.maintenance(
+            ctx,
+            benchname="mybench",
+            off=True,
+            status=False,
+            response_code=503,
+            retry_after=300,
+            allow_ip=[],
+            allow_path=[],
+            message=None,
+            page=None,
+            rotate_token=False,
+        )
+    return "\n".join(call.args[0] for call in printed.call_args_list if call.args)
+
+
+def test_off_clears_the_vhost_of_an_alias_that_left_the_bench(tmp_path):
+    services, vhostd, benches = _maint_env(tmp_path)
+    _write_bench_config(benches, "mybench", 'alias_domains = ["alias.example.com"]\n')
+    for domain in ("mybench", "alias.example.com"):
+        (vhostd / domain).write_text(_enabled_block())
+    # ... and then `fm update mybench --remove-alias alias.example.com` happened.
+    _write_bench_config(benches, "mybench")
+
+    reported = _run_off(services, benches)
+
+    assert not (vhostd / "alias.example.com").exists()
+    assert not (vhostd / "mybench").exists()
+    services.nginx_controller.reload.assert_called_once_with()
+    assert "alias.example.com" in reported
+
+
+def test_an_orphaned_vhost_is_the_only_thing_left_and_is_still_a_real_disable(tmp_path):
+    """No current domain is in maintenance, so the loop over the config finds nothing: the
+    command must still clean the orphan and reload, not report "was not enabled"."""
+    services, vhostd, benches = _maint_env(tmp_path)
+    _write_bench_config(benches, "mybench")
+    (vhostd / "alias.example.com").write_text(_enabled_block())
+
+    reported = _run_off(services, benches)
+
+    assert not (vhostd / "alias.example.com").exists()
+    services.nginx_controller.reload.assert_called_once_with()
+    assert "Maintenance was not enabled" not in reported
+
+
+def test_an_orphaned_vhost_keeps_the_directives_maintenance_does_not_own(tmp_path):
+    services, vhostd, benches = _maint_env(tmp_path)
+    _write_bench_config(benches, "mybench")
+    (vhostd / "alias.example.com").write_text(_enabled_block() + FOREIGN)
+
+    _run_off(services, benches)
+
+    assert (vhostd / "alias.example.com").read_text() == FOREIGN
+
+
+def test_off_never_touches_a_domain_another_bench_put_into_maintenance(tmp_path):
+    """The sweep is scoped by the bench name the block itself records; a foreign domain in
+    maintenance is not this bench's leftover."""
+    services, vhostd, benches = _maint_env(tmp_path)
+    _write_bench_config(benches, "mybench")
+    (vhostd / "mybench").write_text(_enabled_block())
+    (vhostd / "other.example.com").write_text(_enabled_block("otherbench"))
+
+    _run_off(services, benches)
+
+    assert _has_fm_block((vhostd / "other.example.com").read_text())

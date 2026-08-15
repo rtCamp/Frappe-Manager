@@ -9,6 +9,7 @@ separation of concerns.
 """
 
 import json
+import shlex
 from collections.abc import Iterator
 from pathlib import Path
 from typing import cast
@@ -294,14 +295,20 @@ class BenchSiteManager:
             # this by dropping --no-setup-db to make --force meaningful; that pairing is what
             # destroys a schema, and the assertion below refuses to build it.
             new_site_command += ["--no-setup-db", "--force"]
-            new_site_command += ["--admin-password", admin_pass]
+            # Every value below is joined into one string that `_container_run` hands to
+            # `compose.exec`, which shlex-splits it again, so a password carrying a space or a
+            # quote has to be quoted here or it fragments into extra positional arguments.
+            new_site_command += ["--admin-password", shlex.quote(admin_pass)]
             new_site_command += ["--verbose"]
         else:
-            new_site_command += ["--db-root-password", self.services.database_manager.database_server_info.password]
+            new_site_command += [
+                "--db-root-password",
+                shlex.quote(self.services.database_manager.database_server_info.password),
+            ]
             if self.bench_config.db_name:
                 new_site_command += ["--db-name", self.bench_config.db_name]
             new_site_command += ["--db-host", self.services.database_manager.database_server_info.host]
-            new_site_command += ["--admin-password", admin_pass]
+            new_site_command += ["--admin-password", shlex.quote(admin_pass)]
             new_site_command += ["--db-port", str(self.services.database_manager.database_server_info.port)]
             new_site_command += ["--verbose", "--mariadb-user-host-login-scope", "%"]
             if force:
@@ -497,11 +504,18 @@ class BenchSiteManager:
         This method runs 'bench reinstall' which drops and recreates the
         site's database, effectively resetting it to a fresh state.
 
+        Only for a site on the `global-db` container fm owns. A site with a `[database]` entry is
+        refused, for the reason `_handle_database_deletion` gives when `fm delete` skips the same
+        schema: `reinstall` drops and recreates it, and it is not fm's to drop. The refusal is also
+        what keeps the global-db root credential -- which means nothing on a host fm does not own --
+        out of the argv, out of the container's process listing and off the wire.
+
         Args:
             admin_password: New administrator password for the reset site
 
         Raises:
-            BenchOperationException: If site reset fails
+            BenchOperationException: If the site's database lives on a server fm does not own, or
+                if the site reset fails
 
         Warning:
             This operation is destructive and will delete all site data!
@@ -509,12 +523,28 @@ class BenchSiteManager:
         Example:
             >>> site_manager.reset_bench_site(admin_password="new_admin_pass")
         """
+        # Keyed on the site being reinstalled, which is what `--site` below names: one bench can
+        # hold two sites on two different servers.
+        database_config = self.bench_config.get_database_config(self.bench_name)
+        if database_config is not None:
+            raise BenchOperationException(
+                bench_name=self.bench_name,
+                message=f"Refusing to reset {self.bench_name}: its database '{database_config.name}' lives on "
+                f"'{database_config.host}', a server fm does not own. `bench reinstall` drops and recreates the "
+                f"schema, and that schema is not fm's to drop.",
+            )
+
+        # Only global-db sites get here, so there is no per-site MYSQL_HOME to carry: `_site_env()`
+        # is empty for exactly the sites this method does not refuse.
         global_db_info = self.services.database_manager.database_server_info
 
+        # The list is joined into one string that `_container_run` hands to `compose.exec`, which
+        # shlex-splits it again, so an unquoted password carrying a space fragments into extra
+        # positional arguments and one carrying an apostrophe breaks the split outright.
         reset_bench_site_command = self.bench_cli_cmd + ["--site", self.bench_name]
-        reset_bench_site_command += ["reinstall", "--admin-password", admin_password]
+        reset_bench_site_command += ["reinstall", "--admin-password", shlex.quote(admin_password)]
         reset_bench_site_command += ["--db-root-username", global_db_info.user]
-        reset_bench_site_command += ["--db-root-password", global_db_info.password]
+        reset_bench_site_command += ["--db-root-password", shlex.quote(global_db_info.password)]
         reset_bench_site_command += ["--yes"]
 
         reset_bench_site_command = " ".join(reset_bench_site_command)
@@ -566,10 +596,13 @@ class BenchSiteManager:
         # existed, which is what every bench on the global-db container still gets.
         env_options = [f"{name}={value}" for name, value in env.items()] if env else None
 
+        # `compose.run`/`compose.exec` shlex-split the string they are handed, so the wrapping is
+        # quoted rather than concatenated: `'{command}'` breaks apart the moment `command` carries
+        # a quote of its own (a password, say), and the split then fails or drops characters.
         try:
             if use_run:
                 wrapped_command = f"cd {workdir} && {command}"
-                run_command = f"/bin/bash -c '{wrapped_command}'"
+                run_command = f"/bin/bash -c {shlex.quote(wrapped_command)}"
                 if capture_output:
                     output = cast(
                         "SubprocessOutput",
@@ -596,7 +629,7 @@ class BenchSiteManager:
                 )
                 self.output.live_lines(output, line_filters=DOCKER_LINE_NOISE)
             else:
-                exec_command = f"/bin/bash -c '{command}'"
+                exec_command = f"/bin/bash -c {shlex.quote(command)}"
                 if capture_output:
                     output = cast(
                         "SubprocessOutput",
@@ -648,10 +681,10 @@ class BenchSiteManager:
         readable from outside the process. This uses `run_command_with_exit_code(input_data=...)`,
         the same path `docker login --password-stdin` takes.
 
-        Argv: `_container_run` wraps its command in `/bin/bash -c '<command>'` and that string is
-        then shlex split, so a python one liner containing quotes of either kind does not survive.
-        Passing argv straight through puts no shell and no quoting between here and the
-        interpreter.
+        Argv: `_container_run` wraps its command in `/bin/bash -c <command>` and that string is
+        then shlex split, so a python one liner still passes through a shell that will expand and
+        word-split whatever the quoting did not cover. Passing argv straight through puts no shell
+        between here and the interpreter at all.
 
         `-T` because stdin is a pipe rather than a terminal.
 

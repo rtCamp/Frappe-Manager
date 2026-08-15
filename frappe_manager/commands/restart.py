@@ -199,7 +199,11 @@ def restart(
 
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
-    from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError, DeployOrchestrator
+    from frappe_manager.site_manager.modules.deploy_orchestrator import (
+        DeployError,
+        DeployOrchestrator,
+        DrainUnavailable,
+    )
 
     orchestrator = DeployOrchestrator(bench, output_handler=output)
 
@@ -212,15 +216,26 @@ def restart(
             exception=typer.Exit(code=1),
         )
 
-    def _drain_gate() -> None:
+    def _drain_gate() -> bool:
         """Drain is a GATE: suspend workers and wait for in-flight jobs; on
         timeout resume the workers and abort the restart before any leg runs.
 
         The RQ suspend flag lives in redis, so workers restarted mid-drain come
         back suspended until resume -- ordering is safe even across the restart.
+
+        Returns True when the workers really were suspended, i.e. when the caller
+        owes them a resume. An image with no fmx cannot be drained at all: that
+        is warned about and the restart carries on undrained (the same fallback
+        the worker cycle already makes for supervisorctl), because it is not a
+        timeout and no drain_timeout can fix it.
         """
-        if orchestrator.drain_workers():
-            return
+        try:
+            drained = orchestrator.drain_workers()
+        except DrainUnavailable as e:
+            output.warning(f"{e} Restarting without a drain: in-flight jobs may be interrupted.")
+            return False
+        if drained:
+            return True
         orchestrator.resume_workers()
         output.display_error(
             f"Drain timed out after {orchestrator.workers_config.drain_timeout}s: workers still busy. "
@@ -291,8 +306,7 @@ def restart(
             )
         drained = False
         if workers and drain:
-            _drain_gate()
-            drained = True
+            drained = _drain_gate()
         try:
             try:
                 orchestrator.rolling_restart()
@@ -314,20 +328,22 @@ def restart(
         # (web included) is touched.
         drained = False
         if workers and drain:
-            _drain_gate()
-            drained = True
+            drained = _drain_gate()
         try:
             if web:
                 bench.restart_web_containers_services(use_container_restart=use_container_restart, force=force)
+
+            # Inside the drained window, before the workers come back: a redis
+            # bounce after resume_workers() kills the jobs the just-resumed
+            # workers picked up, voiding the guarantee the drain paid for.
+            if redis:
+                bench.restart_redis_services_containers()
 
             if workers:
                 _restart_workers(use_container_restart=use_container_restart)
         finally:
             if drained:
                 orchestrator.resume_workers()
-
-        if redis:
-            bench.restart_redis_services_containers()
 
         if nginx:
             bench.restart_nginx_service(force=force)

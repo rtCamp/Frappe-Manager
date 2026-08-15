@@ -16,6 +16,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import typer
+
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
@@ -154,6 +156,9 @@ class BenchDevTools:
         vscode_path = shutil.which("code")
         if not vscode_path:
             self.output.display_error("Visual Studio Code binary i.e 'code' is not accessible via cli")
+            # Terminal: without this the attach fell through to `_build_vscode_command`, which
+            # aborted on its assert and reported the same failure a second time.
+            raise typer.Exit(1)
 
     def _get_frappe_container_name(self) -> str:
         """Get the frappe container name and encode it."""
@@ -190,18 +195,31 @@ class BenchDevTools:
         if self._config_needs_update(previous_config, extensions, user):
             self._apply_new_config(labels)
 
+    def _get_previous_container_metadata(self) -> dict:
+        """Parse back the devcontainer metadata this module wrote into the compose label.
+
+        `ComposeFile.get_labels` returns the label MAPPING (or None when the service carries no
+        labels), and `_apply_new_config` stores a JSON ARRAY under `devcontainer.metadata`.
+        """
+        labels = self.compose_file_manager.get_labels("frappe") or {}
+        try:
+            config = json.loads(labels["devcontainer.metadata"])
+        except KeyError:
+            return {}
+        return config[0] if config else {}
+
     def _get_previous_container_config(self) -> list[str]:
         """Get previous container extension configuration."""
-        try:
-            labels = self.compose_file_manager.get_labels("frappe")[0]
-            config = json.loads(labels["devcontainer.metadata"])
-            return config["customizations"]["vscode"]["extensions"]
-        except KeyError:
-            return []
+        vscode = self._get_previous_container_metadata().get("customizations", {}).get("vscode", {})
+        return vscode.get("extensions", [])
 
     def _config_needs_update(self, previous_extensions: list[str], new_extensions: list[str], user: str) -> bool:
         """Check if container config needs updating."""
-        return previous_extensions != new_extensions
+        if previous_extensions != new_extensions:
+            return True
+        # `user` becomes the remoteUser of the label; now that the extension comparison actually
+        # works, an unread `user` would silently strip a changed --user from the container.
+        return self._get_previous_container_metadata().get("remoteUser") != user
 
     def _apply_new_config(self, labels: dict) -> None:
         """Apply new container configuration."""

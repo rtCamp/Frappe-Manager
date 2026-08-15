@@ -647,7 +647,7 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm deploy`, `fm swit
 | Key | Default | Meaning |
 |---|---|---|
 | `migrate` | `true` | `true` / `false` / `"auto"` (probe the new image against the live DB) |
-| `migrate_timeout` | `300` | seconds for the one-shot migrate |
+| `migrate_timeout` | `300` | seconds the one-shot migrate may run before it is killed (`0` disables the budget) |
 | `migrate_command` | - | custom migrate command override |
 | `maintenance_mode` | `true` | show the maintenance page during schema-changing steps |
 | `maintenance_mode_phases` | `["migrate"]` | `[]` asserts a backward-compatible migration (enables rolling with migrate) |

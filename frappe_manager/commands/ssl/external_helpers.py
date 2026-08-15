@@ -14,6 +14,7 @@ from frappe_manager.output_manager.silent_output import SilentOutputHandler
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.site import Bench
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
+from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotDueForRenewalError
 from frappe_manager.ssl_manager.certificate_link_manager import CertificateLinkManager
 from frappe_manager.ssl_manager.external_domain_manager import ExternalDomainConfig, ExternalDomainConfigManager
 from frappe_manager.ssl_manager.letsencrypt_certificate import build_letsencrypt_certificate
@@ -226,26 +227,47 @@ def _add_external_certificate(
             # Re-raise the original certificate error
             raise cert_error
 
-        # Step 4: Update nginx config to enable HTTPS
-        output.change_head("Enabling HTTPS for {domain}")
-        try:
-            standalone_nginx.create_https_config(domain)
-            output.print("Created HTTPS configuration", emoji_code=":white_check_mark:")
-
-            # Step 5: Reload nginx again to enable HTTPS
-            nginx_controller.reload()
-            output.print("Nginx reloaded with HTTPS enabled", emoji_code=":white_check_mark:")
-        except Exception as post_cert_error:
-            # HTTPS config or reload failed -- cert was already issued; clean up to avoid orphan
-            output.change_head("Cleaning up after HTTPS configuration failure")
+        # Steps 4 and 5 mutate the SHARED nginx-proxy conf.d, so they are dry-run guarded the
+        # same way the persistence step below is: a dry run deliberately never issues (or links)
+        # a certificate, and an HTTPS vhost pointing at absent cert files is a fatal nginx config
+        # error that breaks reloads and startup for every bench the global proxy fronts.
+        if not dry_run:
+            # Step 4: Update nginx config to enable HTTPS
+            output.change_head(f"Enabling HTTPS for {domain}")
             try:
-                cert_manager.remove_certificate_by_domain(domain)
-                standalone_nginx.remove_config(domain)
+                standalone_nginx.create_https_config(domain)
+                output.print("Created HTTPS configuration", emoji_code=":white_check_mark:")
+
+                # Step 5: Reload nginx again to enable HTTPS
                 nginx_controller.reload()
-                output.print("Cleaned up nginx configuration and certificate", emoji_code=":white_check_mark:")
-            except Exception as cleanup_error:
-                output.debug(f"Failed to clean up after HTTPS config failure: {cleanup_error}")
-            raise post_cert_error
+                output.print("Nginx reloaded with HTTPS enabled", emoji_code=":white_check_mark:")
+            except Exception as post_cert_error:
+                # HTTPS config or reload failed -- cert was already issued; clean up to avoid orphan
+                output.change_head("Cleaning up after HTTPS configuration failure")
+                # Certificate removal must not be able to block the nginx cleanup: the cert is
+                # only registered on the non-dry-run path, so on a dry run this raises
+                # SSLCertificateNotFoundError and the orphaned vhost this handler exists to
+                # delete would survive.
+                try:
+                    cert_manager.remove_certificate_by_domain(domain)
+                except Exception as cert_cleanup_error:
+                    output.debug(f"Failed to clean up after HTTPS config failure: {cert_cleanup_error}")
+                try:
+                    standalone_nginx.remove_config(domain)
+                    nginx_controller.reload()
+                    output.print("Cleaned up nginx configuration and certificate", emoji_code=":white_check_mark:")
+                except Exception as cleanup_error:
+                    output.debug(f"Failed to clean up after HTTPS config failure: {cleanup_error}")
+                raise post_cert_error
+        else:
+            # A dry run persists nothing, so the temporary ACME-challenge vhost from step 1 must
+            # go as well: left behind it is an invisible standalone vhost that neither
+            # `fm ssl remove --standalone` nor `fm ssl list --standalone` can reach, because
+            # the domain was never written to external_domains.toml.
+            output.change_head("Cleaning up dry-run nginx configuration")
+            standalone_nginx.remove_config(domain)
+            nginx_controller.reload()
+            output.print("Removed temporary nginx configuration (dry run)", emoji_code=":white_check_mark:")
 
         if not dry_run:
             # Save to external domains config
@@ -524,6 +546,13 @@ def _renew_external_certificate(ctx: typer.Context, domain: str, dry_run: bool, 
         with spinner(output, f"Renewing certificate for {domain}"):
             cert_manager.renew_certificate(domain=domain, dry_run=dry_run, force=force)
         output.print(f"Certificate renewal for {domain} completed", emoji_code=":white_check_mark:")
+
+    # A not-yet-due certificate is a healthy state, not a failure: renew_certificate raises this
+    # before any acme.sh call. The bench path in renew.py warns and exits 0; match it, otherwise
+    # `--all` reports every healthy domain as a failure.
+    except SSLCertificateNotDueForRenewalError as e:
+        output.warning(e.message)
+        return
 
     except Exception as e:
         output.display_error(f"Failed to renew certificate: {e}")

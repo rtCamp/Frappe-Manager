@@ -1,7 +1,6 @@
 import typer
 from typer_examples import example
 
-from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.commands.arguments import BenchNameArgument
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.site import Bench
@@ -27,8 +26,8 @@ def stop(
 
     Stops all containers for the given bench. No data is removed; containers can be started again with 'fm start'.
     """
-
-    check_bench_migration_required(benchname)
+    # No migration gate here: "stop" is in app_callback's commands_skip_bench_migration
+    # whitelist (with "delete"), i.e. stopping an unmigrated bench must always work.
 
     services_manager = ctx.obj["services"]
     verbose = ctx.obj["verbose"]

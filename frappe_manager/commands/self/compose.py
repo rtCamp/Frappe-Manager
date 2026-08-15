@@ -5,6 +5,10 @@ from frappe_manager import CLI_BENCHES_DIRECTORY
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.utils.callbacks import sitename_callback
 
+# docker merges later -f files over earlier ones, so the base must come first and the user's
+# .override.yml last, matching DockerComposeWrapper.
+_COMPOSE_ORDER = {"docker-compose.yml": 0, "docker-compose.workers.yml": 1, "docker-compose.admin-tools.yml": 2}
+
 
 @example(
     "Show running containers for a bench",
@@ -55,7 +59,14 @@ def compose(
     bench_path = CLI_BENCHES_DIRECTORY / bench_name
     output = get_global_output_handler()
 
-    compose_files = sorted(bench_path.glob("docker-compose*.yml"))
+    # Order matters: docker merges later -f files over earlier ones. Glob-sorted order puts
+    # docker-compose.yml LAST, so the base would override docker-compose.override.yml -- the
+    # inverse of DockerComposeWrapper's contract ("appended after the base so the override
+    # wins"). Base first, the fm-generated extras next, the user's override last.
+    compose_files = sorted(
+        bench_path.glob("docker-compose*.yml"),
+        key=lambda p: (4 if p.name == "docker-compose.override.yml" else _COMPOSE_ORDER.get(p.name, 3), p.name),
+    )
 
     if not compose_files:
         output.display_error(f"No docker-compose files found in {bench_path}")

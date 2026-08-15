@@ -33,8 +33,10 @@ from frappe_manager import SSL_RENEW_BEFORE_DAYS
 from frappe_manager.commands.ssl import external_helpers
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotDueForRenewalError
 from frappe_manager.ssl_manager.external_domain_manager import ExternalDomainConfig
 from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate, LetsencryptSSLCertificate
+from frappe_manager.ssl_manager.standalone_nginx_config_manager import StandaloneNginxConfigManager
 
 MODULE = "frappe_manager.commands.ssl.external_helpers"
 DOMAIN = "app.example.com"
@@ -519,14 +521,49 @@ def test_add_stores_lowercased_challenge_and_null_cname_for_http01(h):
     assert saved.delegation_cname is None
 
 
-def test_add_dry_run_still_runs_the_full_nginx_and_issue_dance_but_saves_nothing(h):
+def test_add_dry_run_never_writes_an_https_vhost_and_saves_nothing(h):
+    """Regression (was: ...still_runs_the_full_nginx_and_issue_dance...).
+
+    The previous version of this test pinned `create_https_config` being called on a dry run.
+    That was the bug itself, not a contract: `add_certificate(dry_run=True)` deliberately skips
+    the symlinks, so the HTTPS vhost references cert files that do not exist -- a fatal error
+    for the SHARED nginx-proxy conf.d, and unreachable through `fm ssl remove/list` because
+    the domain was never written to external_domains.toml.
+    """
     _add(h, dry_run=True)
 
     h.cert_manager.add_certificate.assert_called_once()
     assert h.cert_manager.add_certificate.call_args.kwargs == {"dry_run": True}
-    h.standalone_nginx.create_https_config.assert_called_once_with(DOMAIN)
+    h.standalone_nginx.create_https_config.assert_not_called()
+    # the step-1 ACME-challenge vhost is withdrawn again, and nginx reloaded to forget it
+    h.standalone_nginx.remove_config.assert_called_once_with(DOMAIN)
+    assert h.nginx_controller.reload.call_count == 2
     h.external_manager.add_domain.assert_not_called()
     assert f"SSL certificate added for {DOMAIN}" not in h.prints()
+
+
+def test_add_dry_run_leaves_the_shared_confd_directory_exactly_as_it_found_it(h):
+    """The blast-radius test, with the REAL config writer instead of a mock.
+
+    A leftover `<domain>.conf` naming absent certificate files breaks `nginx -s reload` for
+    every bench the global proxy fronts, and breaks its next start outright.
+    """
+    confd = h.dirs.confd.host
+    with patch(f"{MODULE}.StandaloneNginxConfigManager", StandaloneNginxConfigManager):
+        _add(h, dry_run=True)
+
+    assert not (confd / f"{DOMAIN}.conf").exists()
+    assert sorted(p.name for p in confd.iterdir()) == []
+
+
+def test_add_without_dry_run_does_write_the_real_https_vhost(h):
+    """Counterpart of the dry-run test: the guard must not disarm the real path."""
+    confd = h.dirs.confd.host
+    with patch(f"{MODULE}.StandaloneNginxConfigManager", StandaloneNginxConfigManager):
+        _add(h, dry_run=False)
+
+    written = (confd / f"{DOMAIN}.conf").read_text()
+    assert f"ssl_certificate /ctr/certs/{DOMAIN}.crt;" in written
 
 
 def test_add_success_prints_the_docker_compose_instructions(h):
@@ -539,14 +576,14 @@ def test_add_success_prints_the_docker_compose_instructions(h):
     assert f"3. Access your app at: https://{DOMAIN}" in prints
 
 
-def test_add_head_before_https_step_is_an_unformatted_literal(h):
-    """Pinned as-is: line 216 uses a plain string, so the placeholder is never substituted.
+def test_add_head_before_https_step_interpolates_the_domain(h):
+    """Was pinned as an unformatted literal (missing f prefix); the placeholder is now substituted.
 
-    Suspected defect, characterized rather than fixed.
+    The old assertions characterized the defect rather than the contract, so they are inverted.
     """
     _add(h)
-    assert "Enabling HTTPS for {domain}" in h.heads()
-    assert f"Enabling HTTPS for {DOMAIN}" not in h.heads()
+    assert f"Enabling HTTPS for {DOMAIN}" in h.heads()
+    assert "Enabling HTTPS for {domain}" not in h.heads()
 
 
 # --------------------------------------------------------------------------------------
@@ -618,6 +655,13 @@ def test_add_https_cleanup_failure_uses_its_own_debug_message(h):
         _add(h)
 
     h.output.debug.assert_called_once_with("Failed to clean up after HTTPS config failure: revoke boom")
+    # Regression: a failing certificate removal must not abort the rest of the cleanup. The whole
+    # point of this handler is to delete the nginx config that would otherwise be orphaned, and
+    # remove_certificate_by_domain has several ways to blow up here (unregistered domain, or its
+    # own nginx restart, which is likely to fail precisely when an HTTPS reload just did).
+    h.standalone_nginx.remove_config.assert_called_once_with(DOMAIN)
+    # one reload for the http config, one for the cleanup
+    assert h.nginx_controller.reload.call_count == 2
 
 
 def test_add_value_error_reports_the_same_message_as_any_other_exception(h):
@@ -880,6 +924,38 @@ def test_renew_failure_message_differs_from_remove_and_add(h):
     assert exc.value.exit_code == 1
     h.output.display_error.assert_called_once_with("Failed to renew certificate: renew boom")
     assert f"Certificate renewal for {DOMAIN} completed" not in h.prints()
+
+
+def test_renew_treats_a_not_due_certificate_as_a_warning_not_a_failure(h):
+    """`renew_certificate` raises this *before* any acme.sh call for a healthy certificate.
+
+    The bench path (renew.py) warns and exits 0; the standalone path used to fall into its
+    blanket handler and turn a healthy certificate into display_error + exit 1.
+    """
+    h.external_manager.domain_exists.return_value = True
+    not_due = SSLCertificateNotDueForRenewalError(DOMAIN, datetime.now(UTC) + timedelta(days=60))
+    h.cert_manager.renew_certificate.side_effect = not_due
+
+    assert external_helpers._renew_external_certificate(h.ctx, DOMAIN, dry_run=False) is None
+
+    h.output.warning.assert_called_once_with(not_due.message)
+    h.output.display_error.assert_not_called()
+    assert f"Certificate renewal for {DOMAIN} completed" not in h.prints()
+
+
+def test_renew_all_does_not_report_healthy_domains_as_failures(h):
+    """Consequence of the above for `--standalone --all`: the degraded
+    'Failed to renew <domain>: 1' (the caught object was the typer.Exit) is gone."""
+    h.external_manager.domain_exists.return_value = True
+    h.external_manager.list_domains.return_value = [SimpleNamespace(domain=DOMAIN)]
+    h.cert_manager.renew_certificate.side_effect = SSLCertificateNotDueForRenewalError(
+        DOMAIN, datetime.now(UTC) + timedelta(days=60)
+    )
+
+    external_helpers._renew_all_external_certificates(h.ctx, dry_run=False)
+
+    warnings = [c.args[0] for c in h.output.warning.call_args_list]
+    assert not [w for w in warnings if w.startswith("Failed to renew")]
 
 
 # --------------------------------------------------------------------------------------

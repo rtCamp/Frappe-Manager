@@ -20,12 +20,14 @@ The interesting content of that module is therefore not the plumbing but the DEC
 recorded dump that still exists) and what is refused on a mount-runtime bench.
 
 These tests describe TODAY's behaviour so the module can be refactored safely. Where the behaviour
-looks wrong it is pinned as-is and called out in the module docstring below rather than fixed:
-
-* ``--admin-tools disable`` on an already-disabled bench returns early, so a ``--db-ca`` refresh or
-  a ``--upload-limit`` in the same invocation is silently dropped (and the CA host path never saved).
-* a failed ``--node`` validation aborts after ``--python`` was already written to the in-memory
-  config but before ``save_bench_config()``, so the Python change is lost.
+looks wrong it is pinned as-is and called out below rather than fixed; the first two bullets are the
+exception -- those suspicions turned out to be real defects and their pins are now inverted:
+* ``--admin-tools disable`` on an already-disabled bench used to ``return`` from inside the spinner
+  block, dropping a ``--db-ca`` refresh or a ``--upload-limit`` of the same invocation; it now
+  reports and falls through to the remaining flags and the terminal save.
+* a failed ``--node`` validation used to abort after ``--python`` had been written to the in-memory
+  config and announced, but before ``save_bench_config()``, so the accepted Python change was lost;
+  both requested versions are now validated before either one is written.
 * ``fm deploy --config`` writes the overlay into ``bench_config.toml`` BEFORE the image-runtime
   check, so a deploy refused for being mount-runtime still mutated the bench config on disk.
 
@@ -123,6 +125,7 @@ class UpdateWorld:
         self.fetch_image = MagicMock(name="fetch_image")
         self.stash_seed = MagicMock(name="stash_conflicting_seed_paths", return_value=None)
         self.materialize = MagicMock(name="materialize_workspace_from_image", return_value=[])
+        self.check_migration = MagicMock(name="check_bench_migration_required")
 
         self.extract_python_req = MagicMock(name="extract_python_version_requirement", return_value=None)
         self.extract_node_req = MagicMock(name="extract_node_version_requirement", return_value=None)
@@ -148,6 +151,7 @@ class UpdateWorld:
         p(patch("frappe_manager.commands.update.validate_node_version_compatibility", self.node_compat))
         p(patch("frappe_manager.commands.update.parse_python_version_for_runtime", self.parse_python))
         p(patch("frappe_manager.commands.update.parse_node_version_for_runtime", self.parse_node))
+        p(patch("frappe_manager.commands.update.check_bench_migration_required", self.check_migration))
         p(patch("frappe_manager.site_manager.modules.db_tls.install_site_ca", self.install_site_ca))
         p(patch("frappe_manager.site_manager.modules.transport.fetch_image", self.fetch_image))
         p(patch("frappe_manager.site_manager.modules.workspace_seed.stash_conflicting_seed_paths", self.stash_seed))
@@ -374,6 +378,24 @@ class TestExternalDatabaseCaRefresh:
         assert world.errors == [str(error)]
         assert world.saves == 0
 
+    def test_a_site_that_never_had_tls_is_told_frappe_still_connects_without_it(self, world, tmp_path):
+        """``db_ssl_ca`` reaches ``sites/<site>/site_config.json`` only from ``[database.<site>].ca`` at
+        create time and update rewrites no site config, so on a site configured without TLS the driver
+        keeps sending none -- the 'no restart needed' reassurance would claim a CA that is not in play."""
+        world.database_config.ca = None
+        ca = tmp_path / "ca.pem"
+        ca.write_text("ca")
+
+        world.run(db_ca=ca)
+
+        no_restart = "Running containers read the new CA on their next database connection; no restart needed."
+        assert no_restart not in world.prints
+        assert len(world.warnings) == 1
+        assert "carries no db_ssl_ca" in world.warnings[0]
+        assert "WITHOUT TLS" in world.warnings[0]
+        assert world.database_config.ca == str(ca.absolute())
+        assert world.saves == 1
+
 
 class TestDeveloperMode:
     @pytest.mark.parametrize(
@@ -406,6 +428,25 @@ class TestEnvironmentSwitch:
         assert world.compose_up_calls[0].kwargs == {"services": ["frappe"], "detach": True, "force_recreate": True}
         assert len(world.compose_up_calls) == 1
         assert world.saves == 1
+
+    def test_admin_tools_and_developer_mode_are_left_alone(self, world):
+        """Admin tools and developer mode are decided at create time and never revisited here."""
+        world.run(environment=FMBenchEnvType.prod)
+
+        world.bench.admin_tools.enable.assert_not_called()
+        world.bench.admin_tools.disable.assert_not_called()
+        world.bench.sync_admin_tools_compose.assert_not_called()
+        world.bench.set_common_bench_config.assert_not_called()
+
+    def test_the_option_help_promises_only_what_the_branch_does(self, world):
+        """The help advertised 'adjusts FRAPPE_ENV, serving mode and admin-tool defaults'; the two tests
+        above pin that nothing but FRAPPE_ENV and the frappe container is touched, so the promise of
+        admin-tool defaults sent operators looking for a switch that does not exist."""
+        option = update.__annotations__["environment"].__metadata__[0]
+
+        assert "admin-tool defaults" not in option.help
+        assert "--admin-tools" in option.help
+        assert "FRAPPE_ENV" in option.help
 
 
 MOUNT_TO_IMAGE_REFUSAL = (
@@ -564,6 +605,36 @@ class TestRestartPolicy:
 
         assert world.warnings == []
 
+    def test_the_worker_and_tools_projects_are_recreated_too(self, world):
+        """Workers and admin tools are SEPARATE compose projects with their own DockerClient. Bringing
+        up the bench project alone leaves them running under the old policy on the daemon while
+        bench_config.toml and the rendered compose files claim the new one."""
+        world.bench.workers.compose_file_manager.compose_path.exists.return_value = True
+
+        world.run(restart=RestartPolicyEnum.unless_stopped)
+
+        world.bench.workers.docker_client.compose.up.assert_called_once_with(
+            services=[], detach=True, force_recreate=True, pull="never"
+        )
+        world.bench.admin_tools.enable.assert_called_once_with(force_recreate_container=True)
+
+    def test_absent_optional_compose_files_are_not_recreated(self, world):
+        world.bench.workers.compose_file_manager.compose_path.exists.return_value = False
+        world.bench.admin_tools.compose_file_manager.compose_path.exists.return_value = False
+
+        world.run(restart=RestartPolicyEnum.unless_stopped)
+
+        world.bench.workers.docker_client.compose.up.assert_not_called()
+        world.bench.admin_tools.enable.assert_not_called()
+
+    def test_an_unchanged_policy_recreates_nothing_anywhere(self, world):
+        world.bench.workers.compose_file_manager.compose_path.exists.return_value = True
+
+        world.run(restart=RestartPolicyEnum.always)
+
+        world.bench.workers.docker_client.compose.up.assert_not_called()
+        world.bench.admin_tools.enable.assert_not_called()
+
 
 class TestAdminTools:
     def test_enable_seeds_the_compose_file_when_absent(self, world):
@@ -589,6 +660,37 @@ class TestAdminTools:
         world.bench.admin_tools.enable.assert_called_once_with(force_configure=expected)
         world.bench.sync_admin_tools_compose.assert_not_called()
 
+    @pytest.mark.parametrize(
+        ("mailpit_default", "configure_calls"),
+        [pytest.param(False, 0, id="default"), pytest.param(True, 1, id="mailpit-as-default")],
+    )
+    def test_seeding_the_compose_file_still_honours_the_mailpit_choice(self, world, mailpit_default, configure_calls):
+        """sync_admin_tools_compose() takes no mail choice (it enables with force_configure defaulted to
+        False), so on the seeded path -- every bench that never had admin tools, i.e. every ``-e prod``
+        one -- --mailpit-as-default-mail-server was accepted and the mail keys never written."""
+        world.bench.admin_tools.compose_file_manager.compose_path.exists.return_value = False
+
+        world.run(admin_tools=EnableDisableOptionsEnum.enable, mailpit_as_default_mail_server=mailpit_default)
+
+        world.bench.sync_admin_tools_compose.assert_called_once_with()
+        assert world.bench.admin_tools.configure_mailpit_as_default_server.call_count == configure_calls
+
+    @pytest.mark.parametrize("compose_exists", [True, False], ids=["existing-compose", "seeded-compose"])
+    def test_enable_mints_the_tools_htpasswd(self, world, compose_exists):
+        """ensure_fm_nginx_confs() is the sole owner of <bench>.htpasswd and its own guard skips the
+        file while admin tools are off, so a bench that never had them (``-e prod``) has none on disk.
+        The tools vhost references it unconditionally, so enabling must mint it or the surface 500s."""
+        world.bench.admin_tools.compose_file_manager.compose_path.exists.return_value = compose_exists
+
+        world.run(admin_tools=EnableDisableOptionsEnum.enable)
+
+        world.bench.ensure_fm_nginx_confs.assert_called_once_with()
+
+    def test_disable_never_mints_the_tools_htpasswd(self, world):
+        world.run(admin_tools=EnableDisableOptionsEnum.disable)
+
+        world.bench.ensure_fm_nginx_confs.assert_not_called()
+
     def test_disable_turns_off_admin_tools_and_persists(self, world):
         world.run(admin_tools=EnableDisableOptionsEnum.disable)
 
@@ -612,9 +714,12 @@ class TestAdminTools:
         assert world.prints == ["Admin tools is already disabled"]
         world.bench.admin_tools.disable.assert_not_called()
 
-    def test_the_early_return_drops_work_queued_by_later_and_earlier_flags(self, world, tmp_path):
-        """PINNED SUSPICION: the ``return`` aborts the whole command, losing the CA path and the
-        upload limit that the same invocation asked for."""
+    def test_an_already_disabled_bench_still_applies_every_other_flag(self, world, tmp_path):
+        """Was pinned as a suspicion (``test_the_early_return_drops_work_queued_by_later_and_earlier_
+        flags``) and confirmed as a real defect: the ``return`` sat inside the spinner block in the
+        middle of the decision table, so it aborted the WHOLE command -- the CA was installed on disk
+        and recorded in memory but never persisted, and --upload-limit never ran. The branch now
+        reports and falls through, so the assertions below are the inverse of the old pin."""
         world.config.admin_tools = False
         ca = tmp_path / "ca.pem"
         ca.write_text("ca")
@@ -623,7 +728,40 @@ class TestAdminTools:
 
         world.install_site_ca.assert_called_once()
         assert world.database_config.ca == str(ca.absolute())
+        assert world.saves == 1
+        world.bench.update_upload_limit.assert_called_once_with("100M")
+
+    def test_an_already_disabled_bench_on_its_own_still_persists_nothing(self, world):
+        """Falling through must not invent a save: nothing changed."""
+        world.config.admin_tools = False
+
+        world.run(admin_tools=EnableDisableOptionsEnum.disable)
+
         assert world.saves == 0
+        world.bench.admin_tools.disable.assert_not_called()
+
+
+class TestMigrationGate:
+    """``fm update`` is the largest mutator in the product; the group-callback gate cannot see the
+    subcommand's benchname, so the command must run the per-bench gate itself before it loads and
+    rewrites an old-schema bench_config.toml with the current model."""
+
+    def test_the_gate_runs_with_the_benchname_before_the_bench_is_loaded(self, world):
+        order = []
+        world.check_migration.side_effect = lambda name: order.append(("gate", name))
+        world.bench_cls.get_object.side_effect = lambda *_a, **_kw: order.append("load") or world.bench
+
+        world.run(upload_limit="100M")
+
+        assert order == [("gate", BENCH), "load"]
+
+    def test_a_bench_needing_migration_aborts_before_anything_is_touched(self, world):
+        world.check_migration.side_effect = typer.Exit(1)
+
+        with pytest.raises(typer.Exit):
+            world.run(upload_limit="100M")
+
+        world.bench_cls.get_object.assert_not_called()
         world.bench.update_upload_limit.assert_not_called()
 
 
@@ -700,6 +838,18 @@ class TestNewRelic:
 
         assert exc.value.message == "--newrelic-license-key is required when enabling NewRelic."
         world.bench.supervisor.setup_newrelic.assert_not_called()
+
+    def test_a_missing_license_key_is_rejected_before_any_flag_is_applied(self, world):
+        """The check used to sit in the middle of the decision table: ``-e prod`` had already rewritten
+        the compose file and force-recreated the frappe container by the time the usage error aborted the
+        pending save, so FRAPPE_ENV=prod ran in the container while bench_config.toml still said dev."""
+        with pytest.raises(typer.BadParameter):
+            world.run(environment=FMBenchEnvType.prod, newrelic=True)
+
+        assert world.config.environment_type == FMBenchEnvType.dev
+        world.bench.generate_compose.assert_not_called()
+        assert world.compose_up_calls == []
+        assert world.saves == 0
 
     def test_enabling_accepts_a_key_already_stored_in_the_bench_config(self, world):
         world.config.newrelic_license_key = "stored-key"
@@ -844,9 +994,12 @@ class TestPythonAndNodeVersions:
         assert "Hint: Try --node 18" in world.prints
         world.bench.app_manager.setup_python_and_node_environments.assert_not_called()
 
-    def test_a_node_refusal_discards_the_python_change_of_the_same_run(self, world):
-        """PINNED SUSPICION: python is written to the in-memory config, then the node refusal exits
-        before save_bench_config(), so the accepted half of the request is silently lost."""
+    def test_a_node_refusal_leaves_the_python_change_of_the_same_run_unapplied(self, world):
+        """Was pinned as a suspicion (``test_a_node_refusal_discards_the_python_change_of_the_same_run``)
+        and confirmed as a real defect: python was written to the in-memory config and announced as
+        updated, then the node refusal exited before save_bench_config(), so the accepted half of the
+        request was reported as done and silently dropped. Both requested versions are now validated
+        before either is written, so the assertions below are the inverse of the old pin."""
         world.make_frappe_app_dir()
         world.extract_node_req.return_value = ">=18"
         world.node_compat.return_value = (False, "Node 16 does not satisfy >=18")
@@ -854,7 +1007,9 @@ class TestPythonAndNodeVersions:
         with pytest.raises(typer.Exit):
             world.run(python_version="3.12", node_version="16")
 
-        assert world.config.python_version == "3.12"
+        assert world.config.python_version == "3.11"
+        assert not [line for line in world.prints if line.startswith("Python:")]
+        assert "Updating Python version" not in world.heads
         assert world.saves == 0
 
     def test_skip_version_check_downgrades_the_node_refusal_to_a_warning(self, world):
@@ -1064,15 +1219,17 @@ class TestMountRuntimeIsRefused:
         assert ship.errors == [NOT_IMAGE_RUNTIME_REFUSAL]
         ship.orchestrator_cls.assert_not_called()
 
-    def test_the_refused_deploy_still_applied_the_config_overlay(self, ship):
-        """PINNED SUSPICION: --config mutates bench_config.toml before the runtime check, so the
-        overlay survives a deploy that was then refused."""
+    def test_a_refused_deploy_never_writes_the_config_overlay(self, ship):
+        """WAS PINNED AS A SUSPICION, and it was a real defect: apply_config_overlays is a
+        PERSISTED rewrite of bench_config.toml, so running it before the runtime check left the
+        operator's config mutated on disk by a command that then exited 1. The runtime check now
+        gates the write, exactly as `fm bake` orders its own existence check."""
         ship.config.runtime = BenchRuntime.mount
 
         with pytest.raises(typer.Exit):
             ship.deploy(config=["[build]\nplatform='linux/arm64'"])
 
-        ship.apply_config_overlays.assert_called_once()
+        ship.apply_config_overlays.assert_not_called()
 
 
 class TestDeployConfigOverlay:
@@ -1088,7 +1245,25 @@ class TestDeployConfigOverlay:
 
         ship.apply_config_overlays.assert_not_called()
 
-    def test_a_bad_overlay_aborts_before_the_bench_is_loaded(self, ship):
+    def test_the_bench_is_reloaded_so_the_deploy_sees_the_merged_config(self, ship):
+        """The bench has to be loaded BEFORE the overlay (the runtime check gates the write), so
+        that first load read the pre-overlay file: without the reload the deploy would run
+        against a config the overlay was supposed to change."""
+        ship.deploy(config=["a.toml"])
+
+        assert ship.bench_cls.get_object.call_count == 2
+        ship.apply_config_overlays.assert_called_once()
+        assert ship.orchestrator_cls.call_args.args == (ship.bench,)
+
+    def test_without_an_overlay_the_bench_is_loaded_once(self, ship):
+        ship.deploy()
+
+        assert ship.bench_cls.get_object.call_count == 1
+
+    def test_a_bad_overlay_aborts_the_deploy_before_anything_is_baked(self, ship):
+        """Was ``..._before_the_bench_is_loaded``: the bench is now loaded first on purpose (the
+        runtime check must gate the persisted overlay write). What matters is unchanged -- the
+        parser's message, exit 1, and nothing built or deployed."""
         ship.apply_config_overlays.side_effect = ConfigOverlayError("inline TOML is not valid")
 
         with pytest.raises(typer.Exit) as exc:
@@ -1096,7 +1271,8 @@ class TestDeployConfigOverlay:
 
         assert exc.value.exit_code == 1
         assert ship.errors == ["inline TOML is not valid"]
-        ship.bench_cls.get_object.assert_not_called()
+        ship.bake_cls.assert_not_called()
+        ship.orchestrator_cls.assert_not_called()
 
 
 class TestDeployTargetTagResolution:
@@ -1390,3 +1566,45 @@ class TestPrune:
 
         assert exc.value.exit_code == 1
         assert ship.errors == ["history unreadable"]
+
+
+KEEP_FLOOR_REFUSAL = "--keep must be at least 1: the current release is never pruned."
+
+
+class TestKeepFloor:
+    """``plan_release_prune`` floors retention at 1, so ``--keep 0`` used to mean ``--keep 1``
+    with nothing printed: an operator asking to drop all history silently kept the newest row
+    and its image tag. The impossible ask is refused at the CLI instead."""
+
+    @pytest.mark.parametrize("keep", [0, -5])
+    def test_prune_refuses_keep_below_one(self, ship, keep):
+        with pytest.raises(typer.Exit) as exc:
+            ship.prune(keep=keep)
+
+        assert exc.value.exit_code == 1
+        assert ship.errors == [KEEP_FLOOR_REFUSAL]
+        ship.orchestrator.prune_releases.assert_not_called()
+
+    def test_deploy_refuses_keep_below_one_before_it_bakes_anything(self, ship):
+        with pytest.raises(typer.Exit) as exc:
+            ship.deploy(keep=0)
+
+        assert exc.value.exit_code == 1
+        assert ship.errors == [KEEP_FLOOR_REFUSAL]
+        ship.bake_cls.assert_not_called()
+        ship.orchestrator.deploy.assert_not_called()
+
+    def test_switch_refuses_keep_below_one(self, ship):
+        with pytest.raises(typer.Exit) as exc:
+            ship.switch(tag="local/mybench:t9", keep=0)
+
+        assert exc.value.exit_code == 1
+        assert ship.errors == [KEEP_FLOOR_REFUSAL]
+        ship.orchestrator.deploy.assert_not_called()
+
+    def test_keep_one_is_still_accepted(self, ship):
+        ship.orchestrator.prune_releases.return_value = {"entries": 0, "kept": 1, "backups": [], "images": []}
+
+        ship.prune(keep=1)
+
+        ship.orchestrator.prune_releases.assert_called_once_with(keep=1, dry_run=False)

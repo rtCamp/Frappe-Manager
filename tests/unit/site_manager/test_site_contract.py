@@ -38,6 +38,7 @@ import pytest
 
 from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
 from frappe_manager.docker.docker_exceptions import DockerException
+from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.site_manager.bench_config import (
     AuthConfig,
     BenchConfig,
@@ -651,6 +652,25 @@ class TestEnsureFmNginxConfs:
         h.bench.ensure_fm_nginx_confs()
         map_conf = h.conf_dir / "conf.d" / MAP_CONF_NAME
         assert "/api/method/ping" in map_conf.read_text()
+
+    def test_both_exemptions_move_the_ip_allow_list_into_the_realm_map(self, tmp_path):
+        # D23: the server conf must not carry `deny all` alongside the variable realm
+        # (the access module would 403 the exempt path), so the IP exemption has to
+        # arrive in the map file instead -- which only happens if allow_ips is
+        # actually handed to build_auth_map_conf.
+        h = self._auth_bench(
+            tmp_path,
+            web=True,
+            password="s3cret",
+            allow_ips=["203.0.113.0/24"],
+            allow_paths=["/api/method/payment_webhook"],
+        )
+        h.bench.ensure_fm_nginx_confs()
+        assert "deny all;" not in (h.conf_dir / "custom" / SERVER_CONF_NAME).read_text()
+        map_text = (h.conf_dir / "conf.d" / MAP_CONF_NAME).read_text()
+        assert "geo $fm_auth_ip_exempt {" in map_text
+        assert "    203.0.113.0/24 1;" in map_text
+        assert "    ~^/api/method/payment_webhook 1;" in map_text
 
     def test_no_allow_paths_writes_no_realm_map(self, tmp_path):
         h = self._auth_bench(tmp_path, web=True, password="s3cret")
@@ -1510,6 +1530,113 @@ class TestHostSideLogFiles:
         harness.bench.handle_frappe_server_file_logs(follow=False)
 
         assert capsys.readouterr().out == "a1\na2\nb1\nb2\n"
+
+    @pytest.mark.timeout(15)
+    def test_host_log_files_that_do_not_exist_warn_instead_of_raising(self, harness):
+        """Regression: with a REAL BenchInfo the expected web log is simply absent until the
+        web program has run once (fresh bench, dev->prod switch, image bench before its
+        first deploy). `handle_frappe_server_file_logs` open()s every path it is handed, so
+        an unfiltered path list turned `fm logs <bench>` into an 'Unexpected Error [Errno 2]
+        No such file or directory' with exit 1 -- and made the 'No log files found' guard
+        directly above it dead code.
+        """
+        (harness.path / "workspace" / "frappe-bench" / "logs").mkdir(parents=True)
+
+        harness.bench.logs(follow=False)
+
+        printed = harness.bench.output.print.call_args.args[0]
+        assert "No log files found" in printed
+
+    @pytest.mark.timeout(15)
+    def test_only_the_log_files_present_on_disk_are_printed(self, harness, capsys):
+        """The dev log exists, so it is read: the filter drops absent paths, not real ones."""
+        logs = harness.path / "workspace" / "frappe-bench" / "logs"
+        logs.mkdir(parents=True)
+        (logs / "web.dev.log").write_text("dev1\ndev2\n")
+
+        harness.bench.logs(follow=False)
+
+        assert capsys.readouterr().out == "dev1\ndev2\n"
+
+
+class TestServiceRouting:
+    """`--service` names come from `get_available_services()`, which is the UNION of the
+    bench's three compose files, while `self.docker_ops` only knows docker-compose.yml.
+    Driving an admin-tools or worker service through docker_ops fails at the docker layer
+    with `no such service: adminer` even though the container is running, so `fm logs
+    --service adminer` / `fm shell --service adminer` advertised what they could not reach.
+    """
+
+    @staticmethod
+    def _with_admin_tools(harness, *, services, running=True):
+        bench = harness.bench
+        bench.docker_ops = MagicMock(name="main_docker_ops")
+        admin_compose = harness.path / "docker-compose.admin-tools.yml"
+        admin_compose.write_text("")
+        bench.admin_tools = MagicMock(name="admin_tools")
+        bench.admin_tools.compose_file_manager.get_services_list.return_value = list(services)
+        bench.admin_tools.docker_client.compose.docker_compose_cmd = [
+            "docker",
+            "compose",
+            "-f",
+            admin_compose.as_posix(),
+        ]
+        bench.admin_tools.docker_client.compose.get_all_services_status.return_value = [
+            {"Service": name, "State": "running" if running else "exited"} for name in services
+        ]
+        return bench
+
+    def test_logs_for_an_admin_tools_service_use_the_admin_tools_compose_client(self, harness):
+        bench = self._with_admin_tools(harness, services=["adminer", "mailpit"])
+
+        bench.logs(follow=False, service="adminer")
+
+        bench.admin_tools.docker_client.compose.logs.assert_called_once_with(
+            services=["adminer"], follow=False, stream=True
+        )
+        bench.docker_ops.logs.assert_not_called()
+
+    def test_a_stopped_admin_tools_service_is_still_refused(self, harness):
+        bench = self._with_admin_tools(harness, services=["adminer"], running=False)
+
+        bench.logs(follow=False, service="adminer")
+
+        bench.admin_tools.docker_client.compose.logs.assert_not_called()
+        assert "adminer" in bench.output.display_error.call_args.args[0]
+
+    def test_shell_for_an_admin_tools_service_execs_against_its_own_compose_file(self, harness):
+        bench = self._with_admin_tools(harness, services=["adminer"])
+
+        with patch("os.execvp") as execvp:
+            bench.shell("adminer", None)
+
+        argv = execvp.call_args.args[1]
+        assert argv[:3] == ["docker", "compose", "-f"]
+        assert argv[3] == (harness.path / "docker-compose.admin-tools.yml").as_posix()
+        # `adminer` has no bash, hence `sh` -- and no --user/--workdir, which are frappe-only.
+        assert argv[4:] == ["exec", "adminer", "sh"]
+        bench.docker_ops.shell.assert_not_called()
+
+    def test_a_command_run_in_an_admin_tools_service_execs_on_its_own_compose_client(self, harness):
+        """`fm shell --service adminer -c ...` is the same advertised service, same routing."""
+        bench = self._with_admin_tools(harness, services=["adminer"])
+        bench.admin_tools.docker_client.compose.exec.return_value = SubprocessOutput([], [], [], 0)
+
+        assert bench.execute_command("adminer", "id", None, shell_path="sh") == 0
+
+        assert bench.admin_tools.docker_client.compose.exec.call_args.kwargs["service"] == "adminer"
+        bench.docker_ops.execute_command.assert_not_called()
+
+    def test_a_main_compose_service_still_goes_through_docker_ops(self, harness):
+        bench = self._with_admin_tools(harness, services=["adminer"])
+        bench.docker_ops._is_service_running.return_value = True
+
+        bench.logs(follow=True, service="nginx")
+        bench.shell("nginx", None)
+
+        bench.docker_ops.logs.assert_called_once_with(services=["nginx"], follow=True)
+        bench.docker_ops.shell.assert_called_once_with("nginx", None, shell_path=None, use_run=False)
+        bench.admin_tools.docker_client.compose.logs.assert_not_called()
 
 
 class TestAvailableServices:

@@ -87,7 +87,11 @@ class ServicesManager:
             )
 
         if start:
-            if not self.invoked_subcommand == "service":
+            # The root callback passes ctx.invoked_subcommand, which for the sub-Typers is the
+            # group name ("services"/"self"), never a singular "service". Those two families act
+            # ON the global stack (stop/start/shell/self stop) and must be able to run against a
+            # deliberately stopped stack instead of silently starting it first.
+            if self.invoked_subcommand not in ("services", "self"):
                 services = self.compose_file_manager.get_services_list(exclude_disabled=True)
                 containers = self.compose_file_manager.get_container_names().values()
                 all_statuses = self.docker_client.compose.get_all_services_status()
@@ -238,9 +242,9 @@ class ServicesManager:
         # Set the subnet in the compose YAML
         if fm_config.network.subnet_cidr:
             try:
-                self.compose_file_manager.yml["networks"]["global-frontend-network"]["ipam"]["config"][0][
-                    "subnet"
-                ] = fm_config.network.subnet_cidr
+                self.compose_file_manager.yml["networks"]["global-frontend-network"]["ipam"]["config"][0]["subnet"] = (
+                    fm_config.network.subnet_cidr
+                )
             except (KeyError, IndexError):
                 pass
 

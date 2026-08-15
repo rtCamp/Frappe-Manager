@@ -52,6 +52,20 @@ def _resolve_switch_tag(state, tag: str | None, previous: bool) -> tuple[str | N
     return tag, None
 
 
+def _reject_impossible_keep(output, keep: int | None) -> None:
+    """Refuse ``--keep`` below 1 instead of silently rewriting it.
+
+    ``plan_release_prune`` floors the retention at 1 (the current release is
+    never pruned), so ``--keep 0`` used to mean ``--keep 1`` with nothing said:
+    an operator asking to drop all history kept a row and its image tag anyway.
+    The floor stays as the pure function's backstop; the impossible ask is
+    refused here, where the operator can see it.
+    """
+    if keep is not None and keep < 1:
+        output.display_error("--keep must be at least 1: the current release is never pruned.")
+        raise typer.Exit(1)
+
+
 def _find_current_deploy_backup(state) -> "tuple[str | None, str | None]":
     """(dump_path, error) -- the pre-migrate DB dump recorded for the CURRENT deploy.
 
@@ -130,7 +144,7 @@ def deploy(
         int | None,
         typer.Option(
             "--keep",
-            help="After a successful deploy, prune old releases keeping the newest N (see fm prune).",
+            help="After a successful deploy, prune old releases keeping the newest N (minimum 1; see fm prune).",
             show_default=False,
         ),
     ] = None,
@@ -152,13 +166,20 @@ def deploy(
     Transport: in registry mode the image is pushed after bake and the (possibly remote) daemon pulls it during fetch; in save_load mode the image is streamed to the remote via ``docker save | ssh docker load`` before deploy. With ``--remote`` the local orchestrator drives the remote daemon via ``DOCKER_HOST``.
     """
     output = get_global_output_handler()
+    _reject_impossible_keep(output, keep)
+    # The runtime check comes FIRST: apply_config_overlays is a persisted rewrite
+    # of bench_config.toml, and running it before the check left a deploy that
+    # was then refused (mount runtime) with the operator's config already
+    # mutated on disk. Same ordering as `fm bake`. The reload is what keeps the
+    # overlay effective -- the first load read the pre-overlay file.
+    bench = _load_image_bench(ctx, benchname)
     if config:
         try:
             apply_config_overlays(CLI_BENCHES_DIRECTORY / benchname / CLI_BENCH_CONFIG_FILE_NAME, config)
         except ConfigOverlayError as e:
             output.display_error(str(e))
             raise typer.Exit(1) from e
-    bench = _load_image_bench(ctx, benchname)
+        bench = _load_image_bench(ctx, benchname)
 
     if image:
         bench.bench_config.image = image
@@ -279,7 +300,7 @@ def switch(
         int | None,
         typer.Option(
             "--keep",
-            help="After a successful deploy, prune old releases keeping the newest N (see fm prune).",
+            help="After a successful deploy, prune old releases keeping the newest N (minimum 1; see fm prune).",
             show_default=False,
         ),
     ] = None,
@@ -298,6 +319,7 @@ def switch(
     Forward deploys and rollbacks are the same pipeline pointed at different tags: fetch -> pre-flight -> backup -> migrate (per config) -> swap (rolling when safe) -> record. With --previous, migrate is disabled so old code never runs against a newer schema.
     """
     output = get_global_output_handler()
+    _reject_impossible_keep(output, keep)
     bench = _load_image_bench(ctx, benchname)
 
     state = bench.bench_config.deploy_state
@@ -356,7 +378,11 @@ def prune(
     benchname: RequiredBenchNameArgument,
     keep: Annotated[
         int | None,
-        typer.Option("--keep", help="Retain this many releases (overrides bench config).", show_default=False),
+        typer.Option(
+            "--keep",
+            help="Retain this many releases, minimum 1 (overrides bench config).",
+            show_default=False,
+        ),
     ] = None,
     dry_run: Annotated[
         bool,
@@ -369,6 +395,7 @@ def prune(
     Keeps the newest N releases per keep_releases in bench config (--keep overrides). Current and previous tags -- and any dump a kept release still references -- are never touched.
     """
     output = get_global_output_handler()
+    _reject_impossible_keep(output, keep)
     bench = _load_image_bench(ctx, benchname)
 
     try:

@@ -44,19 +44,6 @@ def stop(
     stop_global = not benches_only
     stop_benches = not global_only
 
-    if stop_global:
-        with spinner(output, "Stopping global services"):
-            for service in ServicesEnum:
-                if service == ServicesEnum.all:
-                    continue
-
-                if not services_manager.is_service_running(service.value):
-                    output.print(f"Skipping already stopped service {service.value}")
-                    continue
-
-                services_manager.stop_service(services=[service.value])
-                output.print(f"Stopped service {service.value}")
-
     if stop_benches:
         bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
         bench_names = bench_service.get_bench_names()
@@ -67,11 +54,25 @@ def stop(
             for bench_name in bench_names:
                 try:
                     bench = bench_service.get_bench(bench_name, workers_check=False, admin_tools_check=False)
-                    if bench.running:
-                        with spinner(output, f"Stopping {bench_name}"):
-                            bench.stop()
-                        output.print(f"Stopped bench {bench_name}")
-                    else:
-                        output.print(f"Skipping already stopped bench {bench_name}")
+                    # No `if bench.running` guard: that predicate is all-or-nothing over the MAIN
+                    # compose file only, so a partially running bench (crashed frappe, or only the
+                    # worker/admin-tools containers left) reads as stopped and would keep its
+                    # containers. bench.stop() also stops workers and admin tools, so it is
+                    # strictly wider than the predicate -- always run it, like `fm stop` does.
+                    with spinner(output, f"Stopping {bench_name}"):
+                        bench.stop()
+                    output.print(f"Stopped bench {bench_name}")
                 except Exception as e:
                     output.warning(f"Failed to stop {bench_name}: {e}")
+
+    if stop_global:
+        with spinner(output, "Stopping global services"):
+            # Benches first (above), then the globals in reverse dependency order: the proxy goes
+            # down before the database it fronts, so nothing is ever reachable-but-databaseless.
+            for service in reversed([s for s in ServicesEnum if s != ServicesEnum.all]):
+                if not services_manager.is_service_running(service.value):
+                    output.print(f"Skipping already stopped service {service.value}")
+                    continue
+
+                services_manager.stop_service(services=[service.value])
+                output.print(f"Stopped service {service.value}")

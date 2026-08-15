@@ -1,8 +1,11 @@
 import grp
 import importlib
 import importlib.resources as pkg_resources
+import importlib.util
 import json
+import os
 import secrets
+import shutil
 import sys
 import time
 from datetime import datetime
@@ -17,6 +20,7 @@ from rich.traceback import Traceback
 
 from frappe_manager import CLI_DEFAULT_DELIMETER, CLI_SITE_NAME_DELIMETER
 from frappe_manager.docker import DOCKER_LINE_NOISE
+from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager import PREBAKED_SITE_APPS
@@ -311,9 +315,44 @@ def get_unix_groups():
     return groups
 
 
+def _running_from_uv_tool() -> bool:
+    """True when this interpreter is a ``uv tool install`` venv.
+
+    fm's own installer (scripts/install.sh) uses ``uv tool install``, and those venvs are not
+    pip-seeded, so ``python -m pip install`` cannot work there.
+    """
+    exe = Path(sys.executable)
+    tool_dir = os.environ.get("UV_TOOL_DIR")
+    if tool_dir:
+        try:
+            if exe.is_relative_to(Path(tool_dir).expanduser()):
+                return True
+        except (OSError, ValueError):
+            pass
+    parts = exe.parts
+    return any(parts[i : i + 2] == ("uv", "tools") for i in range(len(parts) - 1))
+
+
+def build_install_package_command(package_name: str, version: str) -> list[str]:
+    """The argv that can actually reinstall ``package_name`` on THIS installation.
+
+    Raises ``FrappeManagerException`` when neither installer is usable, naming the manual command.
+    """
+    if _running_from_uv_tool() or importlib.util.find_spec("pip") is None:
+        uv = shutil.which("uv")
+        if uv:
+            return [uv, "tool", "install", "--force", f"{package_name}=={version}"]
+        if importlib.util.find_spec("pip") is None:
+            raise FrappeManagerException(
+                f"Cannot update automatically: this fm was installed with 'uv tool install' and 'uv' is not on PATH. "
+                f"Install it (https://docs.astral.sh/uv/) and run: uv tool install --force {package_name}=={version}"
+            )
+    return [sys.executable, "-m", "pip", "install", f"{package_name}=={version}"]
+
+
 def install_package(package_name, version):
     output_lines = run_command_with_exit_code(
-        [sys.executable, "-m", "pip", "install", f"{package_name}=={version}"],
+        build_install_package_command(package_name, version),
         stream=True,
     )
     output = get_global_output_handler()

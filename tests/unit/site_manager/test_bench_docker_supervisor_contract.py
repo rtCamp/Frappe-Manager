@@ -758,6 +758,27 @@ class TestExecuteCommandOutputAndExitCodes:
         assert captured.out.splitlines() == ["r-out"]
         assert captured.err.splitlines() == ["r-err"]
 
+    @pytest.mark.timeout(15)
+    def test_run_mode_lands_in_the_bench_directory_like_exec_does(self, tmp_path):
+        """`fm shell --run -c 'bench ...'` used to run from /workspace (the image's
+        WORKDIR) because only the exec branch passed --workdir, so every bench
+        command failed on a mount-runtime bench."""
+        ops = self._ops_with_running_frappe(tmp_path)
+        ops.docker_client.compose.run.return_value = SimpleNamespace(stdout=[], stderr=[], exit_code=0)
+
+        ops.execute_command("frappe", "bench version", use_run=True)
+
+        assert ops.docker_client.compose.run.call_args.kwargs["workdir"] == "/workspace/frappe-bench"
+
+    @pytest.mark.timeout(15)
+    def test_run_mode_on_a_non_frappe_service_gets_no_bench_workdir(self, tmp_path):
+        ops = self._ops_with_running_frappe(tmp_path)
+        ops.docker_client.compose.run.return_value = SimpleNamespace(stdout=[], stderr=[], exit_code=0)
+
+        ops.execute_command("mailpit", "true", use_run=True)
+
+        assert "workdir" not in ops.docker_client.compose.run.call_args.kwargs
+
 
 class TestFrappeLogsTillStart:
     @pytest.mark.timeout(15)
@@ -890,7 +911,11 @@ class TestShellArgv:
 
     @pytest.mark.timeout(15)
     def test_run_mode_needs_no_running_container_and_uses_the_light_entrypoint(self, tmp_path, monkeypatch):
-        """`fm shell --run` exists precisely for a bench that will not come up."""
+        """`fm shell --run` exists precisely for a bench that will not come up.
+
+        The --workdir is not decoration: /exec-entrypoint.sh never cds and the image's
+        WORKDIR is /workspace, one level above the bench, so a shell landing there has
+        every `bench ...` fail. This pinned the missing flag before it was added."""
         ops = _ops(tmp_path)
         ops.docker_client.compose.get_all_services_status.return_value = []
         ops.docker_client.compose.docker_compose_cmd = ["docker", "compose"]
@@ -908,11 +933,26 @@ class TestShellArgv:
                     "--rm",
                     "--entrypoint",
                     "/exec-entrypoint.sh",
+                    "--workdir",
+                    "/workspace/frappe-bench",
                     "frappe",
                     "/bin/bash",
                 ],
             )
         ]
+
+    @pytest.mark.timeout(15)
+    def test_run_mode_on_a_non_frappe_service_gets_no_bench_workdir(self, tmp_path, monkeypatch):
+        """Only the frappe image has /workspace/frappe-bench; --workdir elsewhere would
+        make the container exit before running anything."""
+        ops = _ops(tmp_path)
+        ops.docker_client.compose.get_all_services_status.return_value = []
+        ops.docker_client.compose.docker_compose_cmd = ["docker", "compose"]
+        captured = self._capture_execvp(monkeypatch)
+
+        ops.shell("redis-cache", use_run=True)
+
+        assert "--workdir" not in captured[0][1]
 
     @pytest.mark.timeout(15)
     def test_the_live_display_is_stopped_before_handing_over_the_terminal(self, tmp_path, monkeypatch):
@@ -1617,22 +1657,46 @@ class TestRestartSupervisorService:
         assert "/fm-sockets/frappe.sock" in sup.output.warning.call_args.args[0]
 
     @pytest.mark.timeout(15)
-    def test_the_socket_check_uses_the_benchs_own_client_not_the_passed_one(self):
-        """SUSPICION pinned, not fixed: the restart is issued on `docker_client_obj`
-        (callers pass the workers-compose client) but the socket verification goes
-        through `self.docker_client`, i.e. the bench compose."""
+    def test_the_socket_check_goes_to_the_client_that_did_the_restart(self):
+        """Was pinned as a suspicion, now fixed: the socket lives inside the container
+        the restart was issued in, so it has to be verified through the SAME client.
+        Worker callers pass the workers-compose client, and the bench compose has no
+        worker service at all."""
         sup = _supervisor()
         sup.docker_client = self._client()
         other = self._client()
 
-        sup.restart_supervisor_service("frappe", docker_client_obj=other)
+        assert sup.restart_supervisor_service("frappe", docker_client_obj=other) is True
 
         assert [c.kwargs["command"] for c in other.compose.exec.call_args_list] == [
-            "supervisorctl -c /opt/user/supervisord.conf restart all"
+            "supervisorctl -c /opt/user/supervisord.conf restart all",
+            "test -e /fm-sockets/frappe.sock",
         ]
-        assert [c.kwargs["command"] for c in sup.docker_client.compose.exec.call_args_list] == [
-            "test -e /fm-sockets/frappe.sock"
+        sup.docker_client.compose.exec.assert_not_called()
+
+    @pytest.mark.timeout(15)
+    def test_a_worker_restart_does_not_burn_the_timeout_on_the_bench_compose(self, monkeypatch):
+        """`--force` is documented as the fast path. Checking the socket on the bench
+        compose (which has no `short-worker` service) made every attempt raise, so each
+        worker cost the full timeout in sleeps and then warned for nothing."""
+        sleeps = []
+        monkeypatch.setattr(f"{SUPERVISOR_MODULE}.time.sleep", sleeps.append)
+        sup = _supervisor()
+        # the bench compose knows nothing about worker services
+        sup.docker_client = self._client(running=False)
+        sup.docker_client.compose.exec.side_effect = _docker_exception("no such service: short-worker")
+        workers = self._client(service="short-worker")
+
+        assert sup.restart_supervisor_service("short-worker", docker_client_obj=workers, force=True) is True
+
+        assert [c.kwargs["command"] for c in workers.compose.exec.call_args_list] == [
+            "supervisorctl -c /opt/user/supervisord.conf stop all",
+            "supervisorctl -c /opt/user/supervisord.conf start all",
+            "test -e /fm-sockets/short-worker.sock",
         ]
+        sup.docker_client.compose.exec.assert_not_called()
+        assert sleeps == []
+        sup.output.warning.assert_not_called()
 
 
 class TestRunFrappeCommand:

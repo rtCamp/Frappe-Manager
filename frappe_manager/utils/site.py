@@ -316,8 +316,11 @@ def pull_docker_images() -> bool:
             output.live_lines(pull_output, padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE)
         except DockerException as e:
             no_error = False
-            output.error(f"[fm.error]Error [/fm.error]: Failed to pull {image}", e)
-        output.print(f"[fm.ok]Pulled[/fm.ok] [fm.info]{image}[/fm.info]")
+            # display_error, not error(): error() always re-raises, which aborted the loop on the
+            # first failure and made `return no_error` (and its callers' cleanup) unreachable.
+            output.display_error(f"[fm.error]Error [/fm.error]: Failed to pull {image}: {e}")
+        else:
+            output.print(f"[fm.ok]Pulled[/fm.ok] [fm.info]{image}[/fm.info]")
 
     return no_error
 

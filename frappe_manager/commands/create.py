@@ -38,6 +38,7 @@ from frappe_manager.site_manager.domain_conflict import DomainConflictError, val
 from frappe_manager.utils.callbacks import (
     alias_domains_validation_callback,
     apps_list_validation_callback,
+    create_command_sitename_callback,
 )
 from frappe_manager.utils.site import validate_sitename
 
@@ -529,7 +530,7 @@ def _resolve_external_options(
 )
 def create(
     ctx: typer.Context,
-    benchname: Annotated[str, typer.Argument(help="Bench name")],
+    benchname: Annotated[str, typer.Argument(help="Bench name", callback=create_command_sitename_callback)],
     apps: Annotated[
         list[str],
         typer.Option(

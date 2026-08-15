@@ -5,6 +5,7 @@ import typer
 from typer_examples import example
 
 from frappe_manager import CLI_BENCHES_DIRECTORY, EnableDisableOptionsEnum
+from frappe_manager.commands import check_bench_migration_required
 from frappe_manager.commands.arguments import BenchNameArgument
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import get_global_output_handler, spinner
@@ -145,7 +146,9 @@ def update(
         typer.Option(
             "--environment",
             "-e",
-            help="Switch environment (dev|prod): adjusts FRAPPE_ENV, serving mode and admin-tool defaults.",
+            help="Switch environment (dev|prod): sets FRAPPE_ENV on the frappe service and recreates it, "
+            "which selects the dev/prod supervisor serving mode. Admin tools and developer mode are NOT "
+            "changed -- toggle them with --admin-tools / --developer-mode.",
             show_default=False,
         ),
     ] = None,
@@ -311,6 +314,8 @@ def update(
     fm_config: FMConfigManager = ctx.obj["fm_config_manager"]
 
     output = get_global_output_handler()
+    check_bench_migration_required(benchname)
+
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
     demoting_to_mount = runtime == BenchRuntime.mount
@@ -329,6 +334,13 @@ def update(
         )
         raise typer.Exit(1)
 
+    # Validated up front, beside the image-runtime gate: this check used to sit in the middle of the
+    # decision table, so an --environment or --runtime change of the same invocation had already been
+    # rendered and force-recreated on the running containers when the usage error aborted the command
+    # -- and the pending bench_config.toml save with it, leaving disk and containers disagreeing.
+    if newrelic is True and not (newrelic_license_key or bench.bench_config.newrelic_license_key):
+        raise typer.BadParameter("--newrelic-license-key is required when enabling NewRelic.")
+
     bench_config_save = False
 
     if not bench.running:
@@ -345,6 +357,10 @@ def update(
                 raise typer.Exit(1)
 
             output.change_head("Refreshing the external database CA")
+            # Captured BEFORE the rewrite below: [database.<site>].ca is what put db_ssl_ca into
+            # sites/<site>/site_config.json at create time, and nothing rewrites that file on update.
+            # Without that key Frappe keeps connecting with TLS off, whatever CA is installed here.
+            had_ca = bool(database_config.ca)
             try:
                 # install_site_ca performs the first two writes together on purpose: config/tls/<site>/db-ca.pem
                 # for the site AND config/tls/ca-bundle.pem for the worker and schedule containers, which take
@@ -364,7 +380,15 @@ def update(
             # No restart notice here: config/ is bind-mounted as a directory into frappe, socketio, schedule and
             # the workers (./workspace on the mount runtime, ./workspace/frappe-bench/config on the image
             # runtime), and the copy rewrites the same file in place, so running containers already see it.
-            output.print("Running containers read the new CA on their next database connection; no restart needed.")
+            if had_ca:
+                output.print("Running containers read the new CA on their next database connection; no restart needed.")
+            else:
+                output.warning(
+                    f"{bench.name} was configured without database TLS: sites/{bench.name}/site_config.json "
+                    "carries no db_ssl_ca, so Frappe keeps connecting WITHOUT TLS -- this CA only serves the "
+                    "dumps fm takes (my.cnf and ca-bundle.pem). Add db_ssl_ca to that site config to turn "
+                    "TLS on for the site itself.",
+                )
             bench_config_save = True
 
         if developer_mode:
@@ -474,6 +498,15 @@ def update(
                 output.print("Restarting containers to apply restart policy..")
                 bench.docker_client.compose.up(detach=True, force_recreate=True)
 
+                # The workers and admin-tools containers are separate compose projects with their own
+                # DockerClient; recreating the bench project alone leaves them running under the OLD
+                # restart policy while the rendered compose files claim the new one.
+                if bench.workers.compose_file_manager.compose_path.exists():
+                    bench.workers.docker_client.compose.up(services=[], detach=True, force_recreate=True, pull="never")
+
+                if bench.admin_tools.compose_file_manager.compose_path.exists():
+                    bench.admin_tools.enable(force_recreate_container=True)
+
                 output.print(f"Updated restart policy to '{restart.value}'")
                 bench_config_save = True
             else:
@@ -485,9 +518,21 @@ def update(
                 bench.bench_config.admin_tools = True
 
                 if not bench.admin_tools.compose_file_manager.compose_path.exists():
+                    # Seeds the compose file and brings the tools up, but it carries no mail choice of
+                    # its own (it enables with force_configure defaulted to False), so the mail keys are
+                    # written right after it -- otherwise --mailpit-as-default-mail-server is silently
+                    # dropped on every bench that never had admin tools, i.e. every `-e prod` one.
                     bench.sync_admin_tools_compose()
+                    if mailpit_as_default_mail_server:
+                        bench.admin_tools.configure_mailpit_as_default_server()
                 else:
                     bench.admin_tools.enable(force_configure=mailpit_as_default_mail_server)
+
+                # The tools vhost renders `auth_basic_user_file .../<bench>.htpasswd`, but that file is owned
+                # solely by ensure_fm_nginx_confs(), whose guard skips it while admin tools are off -- so on a
+                # bench created with -e prod (or one where tools were disabled) it is absent and the freshly
+                # enabled tools surface answers HTTP 500. Mint it now that the surface exists.
+                bench.ensure_fm_nginx_confs()
 
                 bench_config_save = True
                 output.print("Enabled Admin-tools")
@@ -497,11 +542,14 @@ def update(
                     not bench.admin_tools.compose_file_manager.compose_path.exists()
                     or not bench.bench_config.admin_tools
                 ):
+                    # Report and fall through. An early `return` here would abort the WHOLE command,
+                    # silently dropping every other flag of the same invocation -- including work already
+                    # done (a --db-ca install awaiting the terminal save) and work still queued.
                     output.print("Admin tools is already disabled")
-                    return
-                bench.bench_config.admin_tools = False
-                bench.admin_tools.disable()
-                bench_config_save = True
+                else:
+                    bench.bench_config.admin_tools = False
+                    bench.admin_tools.disable()
+                    bench_config_save = True
 
         if add_alias or remove_alias:
             add_domains_list = add_alias if add_alias else []
@@ -532,9 +580,6 @@ def update(
             bench.update_upload_limit(upload_limit)
 
         if newrelic is not None or newrelic_license_key is not None:
-            if newrelic is True and not (newrelic_license_key or bench.bench_config.newrelic_license_key):
-                raise typer.BadParameter("--newrelic-license-key is required when enabling NewRelic.")
-
             if newrelic is not None:
                 bench.bench_config.newrelic_enabled = newrelic
 
@@ -573,30 +618,52 @@ def update(
         if python_version or node_version:
             frappe_app_path = bench.path / "workspace" / "frappe-bench" / "apps" / "frappe"
 
-            if python_version or node_version:
-                current_versions = bench.app_manager.get_current_runtime_versions(use_run=True)
+            current_versions = bench.app_manager.get_current_runtime_versions(use_run=True)
+
+            frappe_python_req = None
+            frappe_node_req = None
+            if frappe_app_path.exists():
+                if python_version:
+                    frappe_python_req = extract_python_version_requirement(frappe_app_path)
+                if node_version:
+                    frappe_node_req = extract_node_version_requirement(frappe_app_path)
+
+            # BOTH requested versions are validated before EITHER is written: the node refusal used to
+            # run after python_version had been assigned to the in-memory bench_config and announced as
+            # updated, then exited before save_bench_config() -- so the accepted half of the request was
+            # reported as done and silently discarded.
+            if python_version and frappe_python_req and not skip_version_check:
+                is_compatible, error_msg = validate_python_version_compatibility(
+                    python_version,
+                    frappe_python_req,
+                )
+                if not is_compatible:
+                    output.change_head("Python version validation failed")
+                    output.print(f"Python: {current_versions.get('python') or 'not set'} -> {python_version}")
+                    output.print(f"Frappe requires: {frappe_python_req}")
+                    output.display_error(f"{error_msg}", emoji_code=":cross_mark:")
+                    suggested = parse_python_version_for_runtime(frappe_python_req)
+                    if suggested:
+                        output.print(f"Hint: Try --python {suggested}", emoji_code=":light_bulb:")
+                    output.print("Use --skip-version-check to bypass this validation (not recommended)")
+                    raise typer.Exit(code=1)
+
+            if node_version and frappe_node_req and not skip_version_check:
+                is_compatible, error_msg = validate_node_version_compatibility(node_version, frappe_node_req)
+                if not is_compatible:
+                    output.change_head("Node version validation failed")
+                    output.print(f"Node: {current_versions.get('node') or 'not set'} -> {node_version}")
+                    output.print(f"Frappe requires: {frappe_node_req}")
+                    output.display_error(f"{error_msg}", emoji_code=":cross_mark:")
+
+                    suggested = parse_node_version_for_runtime(frappe_node_req)
+                    if suggested:
+                        output.print(f"Hint: Try --node {suggested}", emoji_code=":light_bulb:")
+                    output.print("Use --skip-version-check to bypass this validation (not recommended)")
+                    raise typer.Exit(code=1)
 
             if python_version:
                 old_python = current_versions.get("python") or "not set"
-
-                frappe_python_req = None
-                if frappe_app_path.exists():
-                    frappe_python_req = extract_python_version_requirement(frappe_app_path)
-                    if frappe_python_req and not skip_version_check:
-                        is_compatible, error_msg = validate_python_version_compatibility(
-                            python_version,
-                            frappe_python_req,
-                        )
-                        if not is_compatible:
-                            output.change_head("Python version validation failed")
-                            output.print(f"Python: {old_python} -> {python_version}")
-                            output.print(f"Frappe requires: {frappe_python_req}")
-                            output.display_error(f"{error_msg}", emoji_code=":cross_mark:")
-                            suggested = parse_python_version_for_runtime(frappe_python_req)
-                            if suggested:
-                                output.print(f"Hint: Try --python {suggested}", emoji_code=":light_bulb:")
-                            output.print("Use --skip-version-check to bypass this validation (not recommended)")
-                            raise typer.Exit(code=1)
 
                 bench.bench_config.python_version = python_version
                 output.change_head("Updating Python version")
@@ -615,22 +682,6 @@ def update(
 
             if node_version:
                 old_node = current_versions.get("node") or "not set"
-                frappe_node_req = None
-                if frappe_app_path.exists():
-                    frappe_node_req = extract_node_version_requirement(frappe_app_path)
-                    if frappe_node_req and not skip_version_check:
-                        is_compatible, error_msg = validate_node_version_compatibility(node_version, frappe_node_req)
-                        if not is_compatible:
-                            output.change_head("Node version validation failed")
-                            output.print(f"Node: {old_node} -> {node_version}")
-                            output.print(f"Frappe requires: {frappe_node_req}")
-                            output.display_error(f"{error_msg}", emoji_code=":cross_mark:")
-
-                            suggested = parse_node_version_for_runtime(frappe_node_req)
-                            if suggested:
-                                output.print(f"Hint: Try --node {suggested}", emoji_code=":light_bulb:")
-                            output.print("Use --skip-version-check to bypass this validation (not recommended)")
-                            raise typer.Exit(code=1)
 
                 bench.bench_config.node_version = node_version
                 output.change_head("Updating Node version")

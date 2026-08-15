@@ -333,6 +333,75 @@ class TestRestartWorkersNoWorkersConfigured:
         assert h.prints == ["Restarted supervisor processes - schedule"]
 
 
+class TestRestartWorkersWithoutAComposeFile:
+    """`fm start <bench> --reconfigure-workers --no-include-default-workers
+    --no-include-custom-workers` unlinks docker-compose.workers.yml, so a bench can
+    legitimately have no workers compose file. ComposeFile then falls back to the
+    template, whose only service is the placeholder `worker-name`; restarting it is
+    at best a bogus warning and at worst a DockerException that fails the command.
+    These tests use a REAL ComposeFile (not a stubbed services list) so the template
+    fallback is what is being guarded against.
+    """
+
+    @staticmethod
+    def _coordinator(tmp_path):
+        workers = _make_workers(tmp_path, confs=["long-worker.workers.fm.supervisor.conf"])
+        assert not workers.compose_path.exists()
+        # the state this guards against: the template's placeholder service
+        assert workers.compose_file_manager.get_services_list() == ["worker-name"]
+
+        output = MagicMock()
+        restart_supervisor = MagicMock(return_value=True)
+        docker_ops = MagicMock()
+        coordinator = BenchWorkerCoordinator(
+            bench_name="test.localhost",
+            workers=workers,
+            supervisor=MagicMock(),
+            bench_path=tmp_path / "test.localhost",
+            restart_supervisor_service_fn=restart_supervisor,
+            is_running_fn=MagicMock(return_value=True),
+            docker_ops=docker_ops,
+            output_handler=output,
+        )
+        return SimpleNamespace(
+            coordinator=coordinator,
+            workers=workers,
+            workers_client=workers.docker_client,
+            docker_ops=docker_ops,
+            output=output,
+            restart_supervisor=restart_supervisor,
+        )
+
+    @pytest.mark.timeout(15)
+    def test_container_path_restarts_schedule_only(self, tmp_path):
+        h = self._coordinator(tmp_path)
+
+        h.coordinator.restart_workers_containers_services(use_container_restart=True)
+
+        h.docker_ops.restart_services.assert_called_once_with([SCHEDULE], force=False)
+        # `compose restart worker-name` is an unhandled DockerException: it fails `fm restart --container`
+        h.workers_client.compose.restart.assert_not_called()
+        assert not [c.args[0] for c in h.output.change_head.call_args_list if "worker-name" in c.args[0]]
+
+    @pytest.mark.timeout(15)
+    def test_fmx_cycle_path_never_mentions_the_placeholder_service(self, tmp_path):
+        h = self._coordinator(tmp_path)
+
+        h.coordinator.restart_workers_containers_services(use_container_restart=False, force=False)
+
+        h.workers_client.compose.exec.assert_not_called()
+        assert not [c.args[0] for c in h.output.warning.call_args_list if "worker-name" in c.args[0]]
+        assert [c.args[0] for c in h.output.print.call_args_list] == ["Restarted supervisor processes - schedule"]
+
+    @pytest.mark.timeout(15)
+    def test_force_path_cycles_schedules_supervisor_only(self, tmp_path):
+        h = self._coordinator(tmp_path)
+
+        h.coordinator.restart_workers_containers_services(use_container_restart=False, force=True)
+
+        assert h.restart_supervisor.call_args_list == [call(SCHEDULE, force=True)]
+
+
 # ------------------------------------------------ ensure_workers_running_if_available
 
 
@@ -917,12 +986,18 @@ class TestGenerateCompose:
     @pytest.mark.timeout(15)
     def test_unreadable_existing_compose_drops_no_worker_containers(self, tmp_path):
         workers = _make_workers(tmp_path, confs=["long-worker.workers.fm.supervisor.conf"])
-        # a compose file that exists but has no services key: listing it raises
+        # A compose file that exists but has no services key: listing it raises. This used to leak a
+        # bare KeyError; it now raises ComposeFileException, because a truncated or hand-edited
+        # compose is an operational condition and callers that tolerate it could not name a bare
+        # KeyError without also swallowing real bugs. generate_compose catches Exception either way,
+        # so the behaviour this test actually defends -- an unknown previous state is never read as
+        # "everything was dropped" -- is unchanged.
         workers.compose_path.write_text("version: '3.9'\n")
         from frappe_manager.docker import ComposeFile
+        from frappe_manager.docker.compose_exceptions import ComposeFileException
 
         workers.compose_file_manager = ComposeFile(workers.compose_path, template_name="docker-compose.workers.tmpl")
-        with pytest.raises(KeyError):
+        with pytest.raises(ComposeFileException):
             workers.compose_file_manager.get_services_list()
 
         with patch(f"{MODULE}.get_proxy_ip_on_frontend", return_value=None):

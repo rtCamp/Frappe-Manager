@@ -586,6 +586,37 @@ def test_no_such_warning_when_a_surface_is_protected(out, tmp_path):
     assert "nothing enforces them" not in joined(out.warning)
 
 
+def test_protecting_tools_on_a_bench_without_admin_tools_says_nothing_enforces_it_yet(out, tmp_path):
+    # D31: ensure_fm_nginx_confs computes needs_auth = web or (tools and admin_tools),
+    # so on a bench whose admin tools are off nothing is written and nothing is
+    # enforced -- but the command still saved the surface and printed the credentials,
+    # reporting a protected surface that does not exist.
+    bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password=PW))
+    bench.bench_config.admin_tools = False
+    r = _run_auth(bench, protect=[AuthSurface.tools])
+    assert r.exit is None
+    assert _saved(bench).tools is True
+    body = joined(out.warning)
+    assert "Admin tools are disabled on mybench" in body
+    assert "fm update mybench --admin-tools enable" in body
+
+
+def test_no_admin_tools_warning_when_the_tools_locations_exist(out, tmp_path):
+    bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password=PW))
+    bench.bench_config.admin_tools = True
+    _run_auth(bench, protect=[AuthSurface.tools])
+    assert "Admin tools are disabled" not in joined(out.warning)
+
+
+def test_no_admin_tools_warning_when_only_the_web_surface_is_protected(out, tmp_path):
+    # The web surface is enforced by the server-context conf, which admin tools have
+    # nothing to do with.
+    bench = _auth_bench(tmp_path, stored=AuthConfig(web=False, tools=False, password=PW))
+    bench.bench_config.admin_tools = False
+    _run_auth(bench, protect=[AuthSurface.web])
+    assert "Admin tools are disabled" not in joined(out.warning)
+
+
 # --- exemptions ------------------------------------------------------------ #
 @pytest.mark.usefixtures("out")
 def test_allow_ip_replaces_the_stored_list_and_is_normalised_to_cidr(tmp_path):
@@ -1171,7 +1202,11 @@ def test_passthrough_on_a_non_frappe_service_gets_no_workdir(tmp_path):
 
 
 @pytest.mark.usefixtures("out")
-def test_passthrough_with_run_uses_the_exec_entrypoint_and_no_user_or_workdir(tmp_path):
+def test_passthrough_with_run_uses_the_exec_entrypoint_and_the_bench_workdir(tmp_path):
+    """--run pinned no --workdir, which is what made `fm shell <bench> --run bench ...`
+    fail on a mount-runtime bench: /exec-entrypoint.sh never cds and the image's
+    WORKDIR is /workspace, one level above the bench. The flag is now passed exactly
+    as the exec branch passes it; --user still cannot be (see the warning test below)."""
     bench = _shell_bench(tmp_path)
     r = _run_shell(bench, args=["bench", "migrate"], run=True)
     argv = [
@@ -1180,12 +1215,41 @@ def test_passthrough_with_run_uses_the_exec_entrypoint_and_no_user_or_workdir(tm
         "--rm",
         "--entrypoint",
         "/exec-entrypoint.sh",
+        "--workdir",
+        "/workspace/frappe-bench",
         "frappe",
         "/bin/bash",
         "-c",
         "bench migrate",
     ]
     r.execvp.assert_called_once_with("docker", argv)
+
+
+@pytest.mark.usefixtures("out")
+def test_passthrough_with_run_on_a_non_frappe_service_gets_no_workdir(tmp_path):
+    bench = _shell_bench(tmp_path)
+    r = _run_shell(bench, args=["nginx", "-t"], service="nginx", run=True)
+    assert "--workdir" not in r.execvp.call_args.args[1]
+
+
+def test_an_explicit_user_with_run_is_refused_out_loud_not_dropped_in_silence(out, tmp_path):
+    """--run goes through /exec-entrypoint.sh, which gosu-drops to the bench's
+    USERID:USERGROUP whatever user the container started as, so --user cannot be
+    honoured here. It used to be dropped silently; forwarding it is not the fix
+    (the frappe default would make a non-root `run --user` fail gosu outright)."""
+    bench = _shell_bench(tmp_path)
+    r = _run_shell(bench, args=["id", "-un"], run=True, user="root")
+    assert "--user" not in r.execvp.call_args.args[1]
+    assert "--user root is ignored with --run" in joined(out.warning)
+
+
+@pytest.mark.usefixtures("out")
+def test_the_default_frappe_user_does_not_trigger_the_run_warning(tmp_path):
+    """Only a user the operator actually typed is worth a warning."""
+    handler = get_global_output_handler()
+    with patch.object(handler, "warning") as warning:
+        _run_shell(bench=_shell_bench(tmp_path), args=["ls"], run=True)
+    assert not any("ignored with --run" in str(call.args[0]) for call in warning.call_args_list)
 
 
 @pytest.mark.usefixtures("out")

@@ -455,7 +455,11 @@ class BenchDockerOps:
                 "--entrypoint",
                 "/exec-entrypoint.sh",
             ]
-            # Use lightweight exec-entrypoint.sh that only handles UID/GID mismatch
+            # Use lightweight exec-entrypoint.sh that only handles UID/GID mismatch.
+            # It never cds and the image's WORKDIR is /workspace, one level above
+            # the bench, so the frappe service needs the same --workdir exec gets.
+            if compose_service == "frappe":
+                run_cmd += ["--workdir", "/workspace/frappe-bench"]
             run_cmd += [compose_service, shell_path]
 
             import os
@@ -517,6 +521,12 @@ class BenchDockerOps:
                 "entrypoint": "/exec-entrypoint.sh",
                 # Use lightweight exec-entrypoint.sh that only handles UID/GID mismatch
             }
+            # exec-entrypoint.sh never cds and the image's WORKDIR is /workspace, one
+            # level above the bench, so the frappe service needs the same --workdir
+            # the exec branch below passes -- otherwise `bench ...` runs from the wrong
+            # directory and fails.
+            if compose_service == "frappe":
+                run_args["workdir"] = "/workspace/frappe-bench"
 
             try:
                 result = cast("SubprocessOutput", self.docker_client.compose.run(**run_args))

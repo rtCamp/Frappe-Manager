@@ -196,6 +196,18 @@ def shell(
         output.print(f"Available services: {', '.join(sorted(available_services))}")
         raise typer.Exit(1)
 
+    # `--run` always goes through /exec-entrypoint.sh, which gosu-drops to the
+    # bench's USERID:USERGROUP no matter which user the container started as, so
+    # `--user` cannot be honoured on this path. Say so instead of dropping it in
+    # silence. (Forwarding it would be worse than useless: the default user for
+    # the frappe service is `frappe`, and a non-root `docker compose run --user`
+    # makes the entrypoint's gosu fail outright.)
+    if run and user:
+        output.warning(
+            f"--user {user} is ignored with --run: the run entrypoint always drops to the bench's "
+            "host UID. Drop --run to choose the user."
+        )
+
     if bench_console:
         if service != "frappe":
             output.display_error("--bench-console only works with the frappe service")
@@ -230,7 +242,11 @@ def shell(
                 "--entrypoint",
                 "/exec-entrypoint.sh",
             ]
-            # Use lightweight exec-entrypoint.sh that only handles UID/GID mismatch
+            # Use lightweight exec-entrypoint.sh that only handles UID/GID mismatch.
+            # It never cds, and the stock image's WORKDIR is /workspace (one level
+            # above the bench), so `bench ...` needs the same --workdir exec gets.
+            if service == "frappe":
+                exec_cmd += ["--workdir", "/workspace/frappe-bench"]
             exec_cmd += [service, shell_path, "-c", " ".join(passthrough_args)]
         else:
             exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["exec"]

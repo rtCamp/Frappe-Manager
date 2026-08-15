@@ -113,7 +113,11 @@ class MigrationOrchestrator:
         """
         from ruamel.yaml import YAMLError
 
-        from frappe_manager.docker.compose_exceptions import ComposeSecretNotFoundError, ComposeServiceNotFound
+        from frappe_manager.docker.compose_exceptions import (
+            ComposeFileException,
+            ComposeSecretNotFoundError,
+            ComposeServiceNotFound,
+        )
         from frappe_manager.docker.docker_exceptions import DockerException
         from frappe_manager.output_manager.context_managers import temporary_stop
         from frappe_manager.output_manager.silent_output import SilentOutputHandler
@@ -131,6 +135,7 @@ class MigrationOrchestrator:
             ServicesException,  # base of ServicesNotCreated, raised by entrypoint_checks/create
             ServicesComposeNotExist,  # services dir present but its docker-compose.yml is gone
             DatabaseServiceException,  # DatabaseServicePasswordNotFound while wiring MariaDBManager
+            ComposeFileException,  # services compose is empty or has no services: section
             ComposeServiceNotFound,  # compose file lacks global-nginx-proxy (init -> ProxyStoragePaths)
             ComposeSecretNotFoundError,  # db_root_password secret entry absent from the compose file
             YAMLError,  # corrupt/truncated services docker-compose.yml

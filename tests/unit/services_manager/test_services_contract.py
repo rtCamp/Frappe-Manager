@@ -100,8 +100,10 @@ def test_the_compose_path_is_always_derived_from_the_services_directory(tmp_path
 def test_the_invoked_subcommand_is_remembered_because_it_gates_auto_start(tmp_path):
     assert ServicesManager(path=tmp_path, output_handler=mock.MagicMock()).invoked_subcommand is None
     assert (
-        ServicesManager(path=tmp_path, invoked_subcommand="service", output_handler=mock.MagicMock()).invoked_subcommand
-        == "service"
+        ServicesManager(
+            path=tmp_path, invoked_subcommand="services", output_handler=mock.MagicMock()
+        ).invoked_subcommand
+        == "services"
     )
 
 
@@ -377,15 +379,23 @@ def test_status_rows_for_foreign_containers_are_ignored(tmp_path):
     manager.docker_client.compose.up.assert_not_called()
 
 
-def test_the_service_subcommand_is_exempt_from_auto_start(tmp_path):
-    """`fm service stop` must be able to act on a stopped stack instead of starting it first."""
+@pytest.mark.parametrize("family", ["services", "self"])
+def test_the_services_and_self_command_families_are_exempt_from_auto_start(tmp_path, family):
+    """`fm services stop global-db` and `fm self stop` must act on a stopped stack, not start it.
+
+    This used to be pinned as `invoked_subcommand="service"`, which no command ever produces: the
+    root callback passes `ctx.invoked_subcommand`, and for a sub-Typer registered as
+    `add_typer(services_app, name="services")` that value is the GROUP name. The guard was
+    therefore dead, and `fm services stop global-db` first ran `compose up` for both globals --
+    restarting a `global-nginx-proxy` the operator had deliberately stopped.
+    """
     write_compose(tmp_path)
     containers = {"global-db": "fm-global-db"}
     manager = make_manager(
         tmp_path,
         containers=containers,
         statuses=running_statuses(containers, {"global-db": "exited"}),
-        invoked_subcommand="service",
+        invoked_subcommand=family,
     )
     maria, info = _patch_database_manager()
     with maria, info:
@@ -393,6 +403,24 @@ def test_the_service_subcommand_is_exempt_from_auto_start(tmp_path):
 
     manager.docker_client.compose.up.assert_not_called()
     manager.docker_client.compose.get_all_services_status.assert_not_called()
+
+
+@pytest.mark.parametrize("family", ["start", "create", None])
+def test_every_other_command_still_gets_the_stack_started(tmp_path, family):
+    """The exemption is narrow: a bench command on a stopped stack must still bring it up."""
+    write_compose(tmp_path)
+    containers = {"global-db": "fm-global-db"}
+    manager = make_manager(
+        tmp_path,
+        containers=containers,
+        statuses=running_statuses(containers, {"global-db": "exited"}),
+        invoked_subcommand=family,
+    )
+    maria, info = _patch_database_manager()
+    with maria, info:
+        manager.entrypoint_checks(start=True)
+
+    manager.docker_client.compose.up.assert_called_once_with(services=[], detach=True, pull="missing")
 
 
 def test_a_stopped_stack_is_not_started_when_start_was_not_requested(tmp_path):

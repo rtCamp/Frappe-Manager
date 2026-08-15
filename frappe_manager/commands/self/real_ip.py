@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 from typing import Annotated
 
@@ -14,6 +15,32 @@ from frappe_manager.site_manager.modules.realip import (
 )
 
 _CONF_FILENAME = "fm-real-ip.conf"
+
+# nginx header names are tokens. Without this an `--header 'X-Real-IP; deny all; #'` lands
+# verbatim in `real_ip_header <value>;`, injecting arbitrary directives into the LIVE global
+# proxy's conf.d.
+_HEADER_TOKEN = re.compile(r"^[A-Za-z0-9-]+$")
+
+
+def _proxy_conf_is_valid(services) -> bool | None:
+    """`nginx -t` inside the live global proxy. ``None`` when it is not running, so there is
+    nothing to validate against and nothing to reload."""
+    from frappe_manager.docker import DockerException
+
+    if not services.is_service_running("global-nginx-proxy"):
+        return None
+    try:
+        services.docker_client.compose.exec(service="global-nginx-proxy", command="nginx -t", stream=False)
+    except DockerException:
+        return False
+    return True
+
+
+def _restore_conf(conf_path: Path, previous: str | None) -> None:
+    if previous is None:
+        conf_path.unlink(missing_ok=True)
+    else:
+        conf_path.write_text(previous)
 
 
 def _fetch_cloudflare_ranges(output) -> list[str]:
@@ -100,6 +127,14 @@ def real_ip(
     if off and status:
         output.error("--off cannot be combined with --status", exception=typer.Exit(code=1))
 
+    if header is not None and not _HEADER_TOKEN.match(header):
+        # Rejected BEFORE anything is written: this value is rendered verbatim into a file that
+        # is bind-mounted into the live global proxy's /etc/nginx/conf.d.
+        output.error(
+            f"--header {header!r} is not a valid header name (allowed: letters, digits and '-')",
+            exception=typer.Exit(code=1),
+        )
+
     if status:
         if conf_path.exists() and is_fm_realip_conf(conf_path.read_text()):
             output.print(f"real-ip configuration active ({conf_path}):")
@@ -112,8 +147,10 @@ def real_ip(
     if off:
         if conf_path.exists() and is_fm_realip_conf(conf_path.read_text()):
             conf_path.unlink()
-            services.nginx_controller.reload()
-            output.print("Removed real-ip configuration; proxy reloaded")
+            if services.nginx_controller.reload():
+                output.print("Removed real-ip configuration; proxy reloaded")
+            else:
+                output.print("Removed real-ip configuration (the global proxy was not reloaded)")
         else:
             output.print("No real-ip configuration was active")
         return
@@ -147,7 +184,31 @@ def real_ip(
         resolved_header = "X-Forwarded-For"
 
     conf_path.parent.mkdir(parents=True, exist_ok=True)
+    previous = conf_path.read_text() if conf_path.exists() else None
     conf_path.write_text(build_proxy_realip_conf(ranges, resolved_header, recursive=True))
-    services.nginx_controller.reload()
 
-    output.print(f"Real-ip active: trusting {len(ranges)} range(s), restoring client IP from {resolved_header}")
+    # The file lives in the global proxy's conf.d, so an nginx-invalid file does not just fail
+    # here: the proxy refuses to start on its next restart, taking every bench on this host down
+    # long after this command returned. Validate, and roll back rather than leave that behind.
+    valid = _proxy_conf_is_valid(services)
+    if valid is False:
+        _restore_conf(conf_path, previous)
+        output.error(
+            f"nginx rejected the configuration; {_CONF_FILENAME} was rolled back and the proxy left untouched",
+            exception=typer.Exit(code=1),
+        )
+
+    summary = f"trusting {len(ranges)} range(s), restoring client IP from {resolved_header}"
+
+    if valid is None:
+        output.print(f"Real-ip written ({summary}); the global proxy is not running, so it applies on next start")
+        return
+
+    if not services.nginx_controller.reload():
+        output.warning(
+            f"Real-ip written and validated ({summary}), but the proxy did not reload; "
+            "run 'fm services restart global-nginx-proxy' to apply it"
+        )
+        return
+
+    output.print(f"Real-ip active: {summary}")

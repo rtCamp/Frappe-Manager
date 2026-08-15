@@ -201,7 +201,7 @@ class BenchSupervisor:
         socket_path = f"/fm-sockets/{service}.sock"
         for _ in range(timeout):
             try:
-                self.docker_client.compose.exec(
+                docker_client_obj.compose.exec(
                     service=service,
                     user="frappe",
                     command=f"test -e {socket_path}",

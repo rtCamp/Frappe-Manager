@@ -32,12 +32,14 @@ import contextlib
 import json
 import os
 import random
+import re
 import shutil
 import signal
 import subprocess
 import sys
 import tempfile
 import time
+import tokenize
 from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
@@ -49,6 +51,9 @@ RESULTS = Path(os.environ.get("MUT_RESULTS", str(Path(tempfile.gettempdir()) / "
 SAMPLE_SIZE = int(os.environ.get("MUT_N", "60"))
 MAX_PER_FILE = int(os.environ.get("MUT_MAX_PER_FILE", "2"))
 SEED = int(os.environ.get("MUT_SEED", "1337"))
+# Restrict sampling to modules matching this regex. Use it to measure the suite's real strength over
+# code you are ABOUT to refactor, instead of a whole-repo average that hides which parts are weak.
+ONLY = os.environ.get("MUT_ONLY", "")
 
 # The suite runs in ~3s, so anything past this is a hang, not slowness. Kept well under
 # pytest-timeout's own per-test ceiling so a wedged run is cut off here first.
@@ -121,6 +126,34 @@ def ensure_coverage() -> dict[str, Any]:
     return json.loads(COVERAGE_JSON.read_text())
 
 
+def string_literal_spans(path: Path) -> dict[int, tuple[tuple[int, int], ...]]:
+    """Map line number -> column spans occupied by string literals.
+
+    Used to keep mutations out of prose. Tokenizing is worth it over a regex because f-strings,
+    nested quotes, raw strings and multi-line literals all defeat naive quote counting.
+    """
+    spans: dict[int, list[tuple[int, int]]] = {}
+    try:
+        with path.open("rb") as handle:
+            for token in tokenize.tokenize(handle.readline):
+                if token.type not in (tokenize.STRING, getattr(tokenize, "FSTRING_MIDDLE", tokenize.STRING)):
+                    continue
+                start_row, start_col = token.start
+                end_row, end_col = token.end
+                if start_row == end_row:
+                    spans.setdefault(start_row, []).append((start_col, end_col))
+                else:
+                    # A multi-line literal covers the rest of its first line, all of the middle
+                    # lines, and the head of its last.
+                    spans.setdefault(start_row, []).append((start_col, 10**6))
+                    for row in range(start_row + 1, end_row):
+                        spans.setdefault(row, []).append((0, 10**6))
+                    spans.setdefault(end_row, []).append((0, end_col))
+    except (OSError, SyntaxError, tokenize.TokenError, UnicodeDecodeError):
+        return {}
+    return {row: tuple(v) for row, v in spans.items()}
+
+
 def build_candidates(cov: dict[str, Any]) -> list[tuple[str, int, int, str, str]]:
     """Every candidate is (file, line, COLUMN, old, new).
 
@@ -131,13 +164,18 @@ def build_candidates(cov: dict[str, Any]) -> list[tuple[str, int, int, str, str]
     a verdict that belongs to a different mutation. Each occurrence is therefore its own candidate.
     """
     found = []
+    only = re.compile(ONLY) if ONLY else None
     for filename, data in cov["files"].items():
         if not data["executed_lines"]:
             continue
+        if only and not only.search(filename):
+            continue
+        path = Path(ROOT / filename)
         try:
-            lines = Path(ROOT / filename).read_text().splitlines()
+            lines = path.read_text().splitlines()
         except OSError:
             continue
+        literal_spans = string_literal_spans(path)
         for lineno in data["executed_lines"]:
             if lineno > len(lines):
                 continue
@@ -145,10 +183,15 @@ def build_candidates(cov: dict[str, Any]) -> list[tuple[str, int, int, str, str]
             stripped = line.strip()
             if not stripped or stripped.startswith(SKIP_LINE_PREFIXES):
                 continue
+            spans = literal_spans.get(lineno, ())
             for old, new in MUTATIONS:
                 start = line.find(old)
                 while start != -1:
-                    found.append((filename, lineno, start, old, new))
+                    # Skip occurrences inside a string literal. `"apps and assets"` holds an `and`
+                    # that no mutation of can change behaviour, so those candidates are phantom
+                    # survivors: they depress the score and pad the gap list with prose.
+                    if not any(a <= start < b for a, b in spans):
+                        found.append((filename, lineno, start, old, new))
                     start = line.find(old, start + 1)
     random.seed(SEED)
     random.shuffle(found)

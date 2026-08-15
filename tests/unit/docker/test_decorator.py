@@ -316,6 +316,53 @@ class TestAutoStreamingBranch:
         assert result is mock_run.return_value
 
 
+class TestCaptureOutputForwarding:
+    """`capture_output` is a transport flag, so the decorator -- not the argv builder -- owns it.
+
+    It is in every subcommand's exclude list (it must never become a `--capture-output`
+    flag), and the decorator used to end with a bare `run_command_with_exit_code(full_cmd,
+    stream=False)`. The runner then defaulted to capturing, so an interactive
+    `docker compose exec <svc> /bin/bash` (ServicesManager.shell) had its stdio piped into
+    a SubprocessOutput that is only returned after the shell exits: a dead terminal.
+    """
+
+    @pytest.fixture
+    def wrapper(self, tmp_path):
+        compose_file = tmp_path / "docker-compose.yml"
+        compose_file.write_text("services: {}\n")
+        # No output handler: the non-streaming tail of the decorator is what is under test.
+        return DockerComposeWrapper(path=compose_file)
+
+    @pytest.mark.timeout(15)
+    def test_capture_output_false_reaches_the_subprocess_runner(self, wrapper):
+        with patch("frappe_manager.docker.docker_compose.run_command_with_exit_code") as mock_run:
+            mock_run.return_value = None
+            wrapper.exec("global-db", command="/bin/bash", capture_output=False)
+
+        args, kwargs = mock_run.call_args
+        assert kwargs == {"stream": False, "capture_output": False}
+        # ...and it still is not a compose option.
+        assert "--capture-output" not in args[0]
+        assert args[0][-3:] == ["exec", "global-db", "/bin/bash"]
+
+    @pytest.mark.timeout(15)
+    def test_capture_output_defaults_to_capturing(self, wrapper):
+        with patch("frappe_manager.docker.docker_compose.run_command_with_exit_code") as mock_run:
+            mock_run.return_value = SubprocessOutput([], [], [], 0)
+            wrapper.exec("global-db", command="ls")
+
+        assert mock_run.call_args[1]["capture_output"] is True
+
+    @pytest.mark.timeout(15)
+    def test_subcommands_without_the_parameter_keep_the_bare_runner_call(self, wrapper):
+        """Only methods that declare `capture_output` forward it; `down` has no such knob."""
+        with patch("frappe_manager.docker.docker_compose.run_command_with_exit_code") as mock_run:
+            mock_run.return_value = SubprocessOutput([], [], [], 0)
+            wrapper.down(stream=False)
+
+        assert mock_run.call_args[1] == {"stream": False}
+
+
 class TestDecoratorIntegrationWithDockerCompose:
     """Test decorator integration with actual DockerComposeWrapper (with mocking)"""
 

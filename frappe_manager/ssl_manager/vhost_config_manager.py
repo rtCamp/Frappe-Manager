@@ -5,6 +5,7 @@ This module handles creation and removal of vhost.d configuration files that
 enable HTTPS redirects only for domains that have SSL certificates.
 """
 
+import re
 from pathlib import Path
 
 
@@ -23,6 +24,14 @@ class VhostConfigManager:
         vhostd_dir: Path to the nginx-proxy vhost.d directory (host filesystem)
     """
 
+    # The per-domain vhost.d file is SHARED: fm's maintenance block (see
+    # frappe_manager/commands/maintenance.py), the proxy-level upload limit and any
+    # hand-written directives live in the same jwilder file. So the redirect config owns a
+    # MARKED BLOCK inside the file and must never truncate or unlink foreign content.
+    BLOCK_BEGIN = "# fm:https-redirect BEGIN"
+    BLOCK_END = "# fm:https-redirect END"
+    _BLOCK_RE = re.compile(r"^# fm:https-redirect BEGIN.*?^# fm:https-redirect END\n?", re.DOTALL | re.MULTILINE)
+
     # Default HTTPS redirect configuration
     # Allows internal services (socketio) to make HTTP API calls without redirect,
     # since Node.js fetch() drops Cookie headers on cross-protocol redirects.
@@ -40,6 +49,17 @@ if ($redirect_to_https = 1) {
     return 301 https://$host$request_uri;
 }
 """
+
+    @classmethod
+    def _redirect_block(cls) -> str:
+        return f"{cls.BLOCK_BEGIN}\n{cls.HTTPS_REDIRECT_CONFIG}{cls.BLOCK_END}\n"
+
+    @classmethod
+    def _strip_redirect_block(cls, text: str) -> str:
+        stripped = cls._BLOCK_RE.sub("", text)
+        # Files written before the markers existed hold the bare config as the whole file body;
+        # recognise that legacy shape too so an upgraded install can still turn the redirect off.
+        return stripped.replace(cls.HTTPS_REDIRECT_CONFIG.strip("\n"), "")
 
     def __init__(self, vhostd_dir: Path):
         """
@@ -63,9 +83,9 @@ if ($redirect_to_https = 1) {
         """
         Enable HTTPS redirect for a specific domain.
 
-        Creates a vhost.d configuration file that redirects HTTP traffic to HTTPS
-        for this domain only. This should be called after a certificate is successfully
-        generated for the domain.
+        Writes fm's own marked redirect block into the domain's vhost.d file, preserving any
+        other content already there (maintenance block, upload limit, hand-written directives).
+        This should be called after a certificate is successfully generated for the domain.
 
         Args:
             domain: Domain name to enable HTTPS redirect for
@@ -79,8 +99,9 @@ if ($redirect_to_https = 1) {
         """
         vhost_file = self.vhostd_dir / domain
 
-        # Write the redirect configuration
-        vhost_file.write_text(self.HTTPS_REDIRECT_CONFIG)
+        # Replace only our own block; everything else in this shared file survives verbatim.
+        remainder = self._strip_redirect_block(vhost_file.read_text()).strip("\n") if vhost_file.exists() else ""
+        vhost_file.write_text(self._redirect_block() + (remainder + "\n" if remainder else ""))
 
         return vhost_file
 
@@ -88,15 +109,15 @@ if ($redirect_to_https = 1) {
         """
         Disable HTTPS redirect for a specific domain.
 
-        Removes the vhost.d configuration file for this domain, allowing it to
-        serve HTTP traffic without redirecting to HTTPS. This should be called
+        Strips fm's redirect block from the domain's vhost.d file, leaving foreign content in
+        place; the file itself is removed only when nothing else remains. This should be called
         when a certificate is removed.
 
         Args:
             domain: Domain name to disable HTTPS redirect for
 
         Returns:
-            True if the file was removed, False if it didn't exist
+            True if a redirect config was present and removed, False if there was none
 
         Example:
             >>> manager.disable_https_redirect("example.com")
@@ -104,23 +125,38 @@ if ($redirect_to_https = 1) {
         """
         vhost_file = self.vhostd_dir / domain
 
-        if vhost_file.exists():
+        if not vhost_file.exists():
+            return False
+
+        text = vhost_file.read_text()
+        if self.BLOCK_BEGIN not in text and self.HTTPS_REDIRECT_CONFIG.strip("\n") not in text:
+            return False
+
+        remainder = self._strip_redirect_block(text).strip("\n")
+        if remainder:
+            vhost_file.write_text(remainder + "\n")
+        else:
             vhost_file.unlink()
-            return True
-        return False
+        return True
 
     def has_redirect_config(self, domain: str) -> bool:
         """
-        Check if a domain has a redirect configuration file.
+        Check if a domain has fm's HTTPS redirect configuration.
+
+        The file may exist while holding only foreign content (upload limits, maintenance
+        block), so presence of the file alone does not mean the redirect is enabled.
 
         Args:
             domain: Domain name to check
 
         Returns:
-            True if vhost.d file exists for this domain, False otherwise
+            True if the redirect config is present for this domain, False otherwise
         """
         vhost_file = self.vhostd_dir / domain
-        return vhost_file.exists()
+        if not vhost_file.exists():
+            return False
+        text = vhost_file.read_text()
+        return self.BLOCK_BEGIN in text or self.HTTPS_REDIRECT_CONFIG.strip("\n") in text
 
     def get_config_path(self, domain: str) -> Path:
         """

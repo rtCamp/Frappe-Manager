@@ -463,7 +463,13 @@ class BenchWorkerCoordinator:
                 else:
                     self._cycle_supervisor_programs(service)
 
-        worker_services = self.workers.compose_file_manager.get_services_list()
+        # No workers compose file => no worker services. Without the exists() check ComposeFile
+        # falls back to the template and hands back its placeholder service ("worker-name").
+        if self.workers.compose_file_manager.exists():
+            worker_services = self.workers.compose_file_manager.get_services_list()
+        else:
+            worker_services = []
+
         for service in worker_services:
             self.output.change_head(f"Restarting worker service - {service}")
 

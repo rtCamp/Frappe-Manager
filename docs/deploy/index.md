@@ -145,7 +145,7 @@ The stop → reload → remove order exists because app-nginx resolves its `upst
 | Situation | Swap |
 |---|---|
 | no migrate and no DB restore | rolling |
-| `maintenance_mode_phases = []` (operator asserts the migration is additive) | rolling |
+| `maintenance_mode_phases = []` (operator asserts the migration is additive; also skips the maintenance page) | rolling |
 | migrate/restore **under** the maintenance page (both replicas serve the 503) | rolling |
 | migrate/restore with the maintenance page disabled | recreate |
 

@@ -28,6 +28,7 @@ from typing import ClassVar
 from unittest.mock import MagicMock, call, patch
 
 import pytest
+import tomlkit
 
 from frappe_manager.docker import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
@@ -178,17 +179,41 @@ def test_get_site_config_missing_raises_bench_exception(tmp_path):
 # =========================================================================== BenchInfo: log paths
 
 
+def _logs_dir(tmp_path, *names):
+    d = tmp_path / "workspace" / "frappe-bench" / "logs"
+    d.mkdir(parents=True, exist_ok=True)
+    for name in names:
+        (d / name).touch()
+    return d
+
+
 def test_log_paths_dev_is_the_single_dev_server_log(tmp_path):
+    # The files are created because only EXISTING paths are returned (see
+    # test_log_paths_omit_files_that_were_never_created); this test is about *which*
+    # file the dev environment maps to.
+    logs = _logs_dir(tmp_path, "web.dev.log")
     info = _info(tmp_path, bench_config=_config(environment_type=FMBenchEnvType.dev))
-    logs = tmp_path / "workspace/frappe-bench/logs"
     assert info.get_log_file_paths() == [logs / "web.dev.log"]
 
 
 def test_log_paths_prod_returns_error_log_before_stdout_log(tmp_path):
     """Order is stderr-then-stdout (not the variable order above it): callers tail [0] first."""
+    logs = _logs_dir(tmp_path, "web.log", "web.error.log")
     info = _info(tmp_path, bench_config=_config(environment_type=FMBenchEnvType.prod))
-    logs = tmp_path / "workspace/frappe-bench/logs"
     assert info.get_log_file_paths() == [logs / "web.error.log", logs / "web.log"]
+
+
+def test_log_paths_omit_files_that_were_never_created(tmp_path):
+    """The caller open()s every path it gets, so a path that is not there must not be
+    returned: an unstarted web program (or a dev->prod switch before the first prod
+    start) leaves the expected log absent, and `fm logs` died with FileNotFoundError."""
+    logs = _logs_dir(tmp_path, "web.log")
+    info = _info(tmp_path, bench_config=_config(environment_type=FMBenchEnvType.prod))
+    assert info.get_log_file_paths() == [logs / "web.log"]
+
+    _logs_dir(tmp_path)
+    dev_info = _info(tmp_path, bench_config=_config(environment_type=FMBenchEnvType.dev))
+    assert dev_info.get_log_file_paths() == []
 
 
 # =========================================================================== BenchInfo: apps guards
@@ -1209,6 +1234,35 @@ def test_list_benches_data_lists_a_broken_bench_instead_of_raising(tmp_path):
     assert broken["status"] == "unknown"
     assert broken["error"] == f"bench config not found at {missing.filename}"
     assert rows["good.localhost"]["error"] is None
+
+
+def test_list_benches_data_lists_a_bench_whose_config_is_not_valid_toml(tmp_path):
+    """A malformed bench_config.toml raises tomlkit's ParseError -- a ValueError, NOT a
+    FileNotFoundError -- so it used to escape the per-bench handler and abort `fm list`
+    entirely, hiding every healthy bench. Any per-bench config failure belongs in that
+    bench's own row.
+    """
+    _bench_dir(tmp_path, "broken.localhost")
+    good_path = _bench_dir(tmp_path, "good.localhost")
+
+    # The real exception fm gets from BenchConfig.import_from_toml on this content.
+    with pytest.raises(tomlkit.exceptions.ParseError) as err:
+        tomlkit.parse('name = "bad"\nthis is not toml\n')
+    parse_error = err.value
+
+    def get_bench(name, **_):
+        if name == "broken.localhost":
+            raise parse_error
+        return _listable_bench(good_path, name)
+
+    with patch.object(BenchService, "get_bench", side_effect=get_bench):
+        rows = {r["name"]: r for r in _service(tmp_path).list_benches_data()}
+
+    assert rows["good.localhost"]["error"] is None
+    broken = rows["broken.localhost"]
+    assert broken["status"] == "unknown"
+    assert broken["path"] == str(tmp_path / "broken.localhost")
+    assert str(parse_error) in broken["error"]
 
 
 def test_list_benches_data_never_asks_for_worker_or_admin_tool_checks(tmp_path):

@@ -16,7 +16,7 @@ from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
-from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
+from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate, LetsencryptSSLCertificate
 from frappe_manager.utils.helpers import get_container_name_prefix, get_bench_connection_config
 
 
@@ -864,6 +864,22 @@ def ssl_certificate_from_toml_data(ssl_data: dict, domain: str) -> SSLCertificat
         # Read acme_client field (defaults to "acme.sh" if not specified)
         acme_client = ssl_data.get("acme_client", "acme.sh")
 
+        # A CNAME-delegated certificate (`fm ssl add --cname`) is written as `delegation_cname` by
+        # ssl_certificate_to_toml_doc; reading it back into the plain LetsencryptSSLCertificate
+        # dropped the delegation target, so acme.sh re-issue lost `--challenge-alias` and tried to
+        # write _acme-challenge in a zone fm does not control.
+        delegation_cname = ssl_data.get("delegation_cname")
+        if delegation_cname:
+            return CustomDomainCertificate(
+                domain=domain,
+                ssl_type=ssl_type,
+                challenge_type=challenge_type,
+                api_key=api_key,
+                api_token=api_token,
+                acme_client=acme_client,
+                delegation_cname=delegation_cname,
+            )
+
         return LetsencryptSSLCertificate(
             domain=domain,
             ssl_type=ssl_type,
@@ -1014,11 +1030,15 @@ class WorkersConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     drain: bool = Field(True, description="Drain RQ workers (suspend + wait for in-flight jobs) before cycling them.")
-    drain_timeout: int = Field(300, description="Seconds to wait for in-flight jobs; restart and switch abort when exceeded.")
+    drain_timeout: int = Field(
+        300, description="Seconds to wait for in-flight jobs; restart and switch abort when exceeded."
+    )
     drain_poll: int = Field(5, description="Poll interval in seconds while draining.")
     skip_stale: bool = Field(True, description="Skip idle workers that stop responding while draining.")
     stale_timeout: int = Field(15, description="Seconds an idle unresponsive worker may block the drain wait.")
-    kill_timeout: int = Field(15, description="Seconds after SIGUSR1 before escalating to a supervisor stop (no-drain path).")
+    kill_timeout: int = Field(
+        15, description="Seconds after SIGUSR1 before escalating to a supervisor stop (no-drain path)."
+    )
     kill_poll: float = Field(3.0, description="Poll interval while waiting for a killed worker to exit.")
 
 
@@ -1032,7 +1052,10 @@ class SwitchConfig(BaseModel):
         description="Run bench migrate during switch: true, false, or 'auto' (probe the new image's "
         "pending patches / app-version drift against the live DB and migrate only when needed).",
     )
-    migrate_timeout: int = Field(300, description="Migrate timeout in seconds.")
+    migrate_timeout: int = Field(
+        300,
+        description="Seconds the one-shot bench migrate may run before it is killed (0 disables the budget).",
+    )
     migrate_command: str | None = Field(None, description="Custom migrate command override.")
     maintenance_mode: bool = Field(True, description="Show maintenance page during schema-changing steps.")
     maintenance_mode_phases: list[str] = Field(
@@ -1052,7 +1075,14 @@ class SwitchConfig(BaseModel):
         False,
         description="On failure: also restore the DB dump (requires backup_db; default off -- migrate is resumable).",
     )
-    search_replace: bool = Field(True, description="Run search-and-replace in DB after restore.")
+    # Accepted but unused. Nothing reads this: the switch pipeline never runs a search-and-replace.
+    # It cannot simply be deleted, because `SwitchConfig` is `extra="forbid"` and real benches
+    # already carry `search_replace = true` on disk -- removing the field makes EVERY command that
+    # loads such a bench die with a pydantic validation error (observed on a live bench). Dropping
+    # it needs a bench migration that strips the key first; until then it stays, inert.
+    search_replace: bool = Field(
+        True, description="Deprecated, ignored: retained so existing bench_config.toml still loads."
+    )
     install_apps: bool = Field(True, description="Install new apps to the site during finalize.")
     keep_releases: int = Field(
         7,
@@ -1066,7 +1096,9 @@ class SwitchConfig(BaseModel):
     @model_validator(mode="after")
     def _rollback_db_requires_backup_db(self):
         if self.rollback_db and self.backup_db is False:
-            raise ValueError("switch.rollback_db = true requires switch.backup_db = true (there is no dump to restore).")
+            raise ValueError(
+                "switch.rollback_db = true requires switch.backup_db = true (there is no dump to restore)."
+            )
         return self
 
 
@@ -1117,7 +1149,9 @@ class DeployConfig(BaseModel):
     ssh_server: str | None = Field(None, description="Remote server hostname or IP address.")
     ssh_user: str = Field("frappe", description="SSH username for the remote server.")
     ssh_port: int = Field(22, description="SSH port number.")
-    fm_source: str | None = Field(None, description="fm source for remote install (git URL or local path); ssh-fallback only.")
+    fm_source: str | None = Field(
+        None, description="fm source for remote install (git URL or local path); ssh-fallback only."
+    )
     benches_root: str | None = Field(None, description="Root directory for benches on the remote host.")
 
 
@@ -1161,9 +1195,7 @@ class DatabaseConfig(BaseModel):
         None,
         description="Login user for the schema; omitted means equal to name; must equal name on v15.",
     )
-    ca: str | None = Field(
-        None, description="Host path to the CA bundle; required when the server enforces TLS."
-    )
+    ca: str | None = Field(None, description="Host path to the CA bundle; required when the server enforces TLS.")
     check_hostname: bool = Field(
         True,
         description="Verify the server certificate names the host dialled. Set false only for a certificate that "
@@ -1213,7 +1245,9 @@ class BenchConfig(BaseModel):
     )
     image: str | None = Field(None, description="App image repo (image runtime); fm manages the :tag.")
     switch: SwitchConfig | None = Field(None, description="Switch/migrate pipeline configuration ([switch]).")
-    workers: WorkersConfig | None = Field(None, description="Worker-care configuration for restart and switch ([workers]).")
+    workers: WorkersConfig | None = Field(
+        None, description="Worker-care configuration for restart and switch ([workers])."
+    )
     auth: AuthConfig | None = Field(None, description="HTTP basic auth configuration ([auth]).")
     build: BuildConfig | None = Field(None, description="Image build configuration for bake ([build]).")
     registry: RegistryConfig | None = Field(None, description="Image registry / transport configuration ([registry]).")
@@ -1242,16 +1276,36 @@ class BenchConfig(BaseModel):
     # like admin_pass and mariadb_root_pass. The design forbids passwords in bench_config.toml,
     # and admin credentials are create-time only so no LATER fm run can provision or re-provision
     # on someone's shared server.
-    db_admin_user: str | None = Field(None, description="Admin user for one-shot schema provisioning. Never written to disk.", exclude=True)
-    db_admin_password: str | None = Field(None, description="Admin password for one-shot schema provisioning. Never written to disk.", exclude=True)
-    db_password: str | None = Field(None, description="Site database password, supplied or generated. Lives in site_config.json, never here.", exclude=True)
+    db_admin_user: str | None = Field(
+        None, description="Admin user for one-shot schema provisioning. Never written to disk.", exclude=True
+    )
+    db_admin_password: str | None = Field(
+        None, description="Admin password for one-shot schema provisioning. Never written to disk.", exclude=True
+    )
+    db_password: str | None = Field(
+        None,
+        description="Site database password, supplied or generated. Lives in site_config.json, never here.",
+        exclude=True,
+    )
     # Whether fm minted db_password matters to two probe checks and is not derivable from the
     # other fields: a supplied password can legally accompany admin credentials. With a GENERATED
     # password, "a login of this name already exists" is a refusal, because create_user is
     # CREATE USER IF NOT EXISTS and an existing account would keep a password fm does not know.
-    db_password_generated: bool = Field(False, description="fm minted the site password because --db-password was absent. Create-time only.", exclude=True)
-    attach_existing_site: bool = Field(False, description="Attach to an existing Frappe schema instead of creating a site. Create-time only.", exclude=True)
-    encryption_key: str | None = Field(None, description="Frappe encryption_key for an attached site. Lives in site_config.json, never here.", exclude=True)
+    db_password_generated: bool = Field(
+        False,
+        description="fm minted the site password because --db-password was absent. Create-time only.",
+        exclude=True,
+    )
+    attach_existing_site: bool = Field(
+        False,
+        description="Attach to an existing Frappe schema instead of creating a site. Create-time only.",
+        exclude=True,
+    )
+    encryption_key: str | None = Field(
+        None,
+        description="Frappe encryption_key for an attached site. Lives in site_config.json, never here.",
+        exclude=True,
+    )
 
     # Multi-certificate support
     ssl_certificates: list[SSLCertificate] = Field(default=[], description="List of SSL certificates for this bench")
@@ -1435,11 +1489,11 @@ class BenchConfig(BaseModel):
             "apps_list",
             "frappe_branch",
             "admin_pass",
-            "use_uv",                # always uv + pip fallback; not a config option
-            "environment_type",      # written as `environment`
-            "newrelic_enabled",      # written under [monitoring.newrelic]
+            "use_uv",  # always uv + pip fallback; not a config option
+            "environment_type",  # written as `environment`
+            "newrelic_enabled",  # written under [monitoring.newrelic]
             "newrelic_license_key",
-            "ssl_certificates",      # written under [ssl]
+            "ssl_certificates",  # written under [ssl]
             "dns_providers",
             "db_admin_user",
             "db_admin_password",

@@ -76,6 +76,36 @@ def test_map_conf_escapes_regex_metacharacters_in_paths():
     assert re.match(pattern, "/api/method/axb") is None
 
 
+def test_ips_and_paths_together_leave_no_access_module_denial_to_defeat_the_exemption():
+    # D23: `satisfy any; allow <ip>; deny all;` records a 403 in the access phase,
+    # which runs BEFORE auth_basic; a realm of `off` makes the auth_basic handler
+    # DECLINE rather than return OK, so nothing clears the recorded refusal and the
+    # allow-listed PATH answered 403 to every client outside the IP allow list --
+    # exactly the command's own `--allow-ip ... --allow-path ...` example.
+    conf = build_server_auth_conf(_AUTH_FILE, allow_ips=["203.0.113.0/24"], allow_paths=["/api/method/ping"])
+    assert "auth_basic $fm_auth_realm;" in conf
+    assert "deny all;" not in conf
+    assert "satisfy any;" not in conf
+    assert "allow 203.0.113.0/24;" not in conf
+
+
+def test_ips_and_paths_together_exempt_both_through_the_realm_map():
+    # The IP exemption dropped from the server conf above has to reappear here, or
+    # --allow-ip would silently stop working; `geo` is the only directive that
+    # matches a CIDR into a variable, and it is http-context only.
+    conf = build_auth_map_conf(["/api/method/ping"], ["203.0.113.0/24"])
+    assert is_fm_auth_conf(conf)
+    assert "geo $fm_auth_ip_exempt {" in conf
+    assert "    default 0;" in conf
+    assert "    203.0.113.0/24 1;" in conf
+    assert "map $uri $fm_auth_path_exempt {" in conf
+    assert "    ~^/api/method/ping 1;" in conf
+    # Either flag set is enough, and an unmatched request keeps the realm.
+    assert 'map "$fm_auth_ip_exempt$fm_auth_path_exempt" $fm_auth_realm {' in conf
+    assert f'    default "{REALM}";' in conf
+    assert '    "~1" off;' in conf
+
+
 def test_tools_only_locations_carry_the_gate_themselves():
     block = build_tools_auth_block(web=False, tools=True, auth_file=_AUTH_FILE)
     assert f'    auth_basic "{REALM}";' in block
@@ -91,8 +121,23 @@ def test_tools_only_honours_allow_ips():
 
 def test_web_only_opts_the_tools_locations_out_of_the_inherited_gate():
     # The server-level gate is inherited by every location, so tools=False is only
-    # honoured by an explicit opt-out.
-    assert build_tools_auth_block(web=True, tools=False, auth_file=_AUTH_FILE) == "    auth_basic off;\n"
+    # honoured by an explicit opt-out. Updated for D30: the equality below used to
+    # pin `auth_basic off;` alone, which opts out of only half the inherited gate --
+    # with --allow-ip the inherited `satisfy any; allow <ip>; deny all;` still 403'd
+    # /adminer/ and /mailpit/ for everyone outside the allow list, because the access
+    # phase runs first and `auth_basic off` DECLINEs instead of clearing the refusal.
+    assert (
+        build_tools_auth_block(web=True, tools=False, auth_file=_AUTH_FILE) == "    auth_basic off;\n    allow all;\n"
+    )
+
+
+def test_web_only_replaces_the_inherited_ip_allow_list_instead_of_inheriting_it():
+    block = build_tools_auth_block(web=True, tools=False, auth_file=_AUTH_FILE, allow_ips=["203.0.113.0/24"])
+    # A location-level allow list replaces the inherited one and returns OK, which is
+    # what clears the recorded denial under the inherited `satisfy any`.
+    assert "    allow all;" in block
+    assert "    auth_basic off;" in block
+    assert "deny" not in block
 
 
 def test_both_surfaces_on_inherits_and_emits_nothing():

@@ -365,4 +365,12 @@ def auth(
             "Credentials saved but nothing enforces them: no surface is protected, pass --protect web and/or --protect tools"
         )
 
+    # ensure_fm_nginx_confs writes nothing for the tools surface on a bench whose
+    # admin tools are off (there are no /adminer/ and /mailpit/ locations to gate), so
+    # reporting it as protected without this would be a lie.
+    if applied.tools and not bench.bench_config.admin_tools:
+        output.warning(
+            f"Admin tools are disabled on {bench.name}, so nothing enforces the tools surface yet; it applies once you run 'fm update {bench.name} --admin-tools enable'"
+        )
+
     _print_state(output, applied, hint_when_off=False)

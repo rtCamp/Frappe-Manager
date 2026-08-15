@@ -261,12 +261,19 @@ class BenchService:
                             "error": None,
                         }
                     )
-            except FileNotFoundError as e:
+            except Exception as e:
+                # Every way a single bench's config can fail to load (absent file, invalid
+                # TOML, schema violation) belongs in that bench's own row: `fm list` is the
+                # operator's overview and must keep showing every OTHER bench.
+                if isinstance(e, FileNotFoundError):
+                    error = f"bench config not found at {e.filename}"
+                else:
+                    error = f"bench config unreadable: {e}"
                 rows.append(
                     {
                         "name": bench_name,
                         "status": "unknown",
-                        "error": f"bench config not found at {e.filename}",
+                        "error": error,
                         "path": str(self.benches_directory / bench_name),
                     }
                 )

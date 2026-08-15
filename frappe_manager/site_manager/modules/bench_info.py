@@ -212,16 +212,22 @@ class BenchInfo:
         """
         Get log file paths based on environment type.
 
+        Only paths that exist on the host are returned: the expected file is absent
+        whenever the web program has not run yet in this environment (fresh bench,
+        dev->prod switch before the first prod start) or the log was rotated away,
+        and the caller opens every path it gets. An empty list is the caller's
+        "No log files found" case.
+
         Returns:
-            list: List of log file paths
+            list: List of existing log file paths
         """
         base_log_dir = self.bench_path / "workspace/frappe-bench/logs"
         if self.bench_config.environment_type.value == "dev":
             bench_dev_server_log_path = base_log_dir / "web.dev.log"
-            return [bench_dev_server_log_path]
+            return [p for p in [bench_dev_server_log_path] if p.exists()]
         bench_prod_server_log_path_stdout = base_log_dir / "web.log"
         bench_prod_server_log_path_stderr = base_log_dir / "web.error.log"
-        return [bench_prod_server_log_path_stderr, bench_prod_server_log_path_stdout]
+        return [p for p in [bench_prod_server_log_path_stderr, bench_prod_server_log_path_stdout] if p.exists()]
 
     def display_info(self) -> None:
         """Render the bench detail card.

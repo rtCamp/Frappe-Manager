@@ -39,5 +39,6 @@ def start_services(
             output.print(f"Started service {service.value}")
     elif not services_manager.is_service_running(service_name.value):
         services_manager.start_service(services=[service_name.value])
+        output.print(f"Started service {service_name.value}")
     else:
         output.print(f"Skipping already running service {service_name.value}")

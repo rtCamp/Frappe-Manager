@@ -46,7 +46,7 @@ class NginxController:
         self.docker_client = docker_client
         self.output = output_handler or RichOutputHandler()
 
-    def reload(self):
+    def reload(self) -> bool:
         """
         Reload nginx configuration without stopping the service.
 
@@ -57,10 +57,15 @@ class NginxController:
         and follow with a graceful nginx reload to also cover vhost.d
         content-only edits, which leave default.conf byte-identical.
         Regular nginx uses the standard reload signal.
+
+        Returns True when nginx was actually reloaded, False when the service is not
+        running or every reload attempt failed, so callers that report success to the
+        operator can tell the difference instead of claiming a reload that never happened.
         """
         self.output.change_head("Reloading nginx")
 
         if self.docker_client.compose.is_service_running(self.service_name):
+            reloaded = True
             if self.service_name == "global-nginx-proxy":
                 self.docker_client.compose.exec(
                     service=self.service_name,
@@ -81,15 +86,18 @@ class NginxController:
                         break
                     except DockerException:
                         if attempt == 2:
+                            reloaded = False
                             self.output.warning(
-                                "nginx reload raced the docker-gen render; "
-                                "docker-gen's own notify completes the reload"
+                                "nginx reload raced the docker-gen render; docker-gen's own notify completes the reload"
                             )
                         else:
                             time.sleep(0.5)
             else:
                 self.docker_client.compose.exec(service=self.service_name, command="nginx -s reload", stream=False)
-            self.output.print("Reloaded nginx")
+            if reloaded:
+                self.output.print("Reloaded nginx")
+            return reloaded
+        return False
 
     def restart(self):
         """

@@ -17,7 +17,7 @@ $ fm update BENCHNAME [OPTIONS]
 **Options**:
 
 * `--admin-tools`: Enable/disable admin tools (Adminer at /adminer, Mailpit at /mailpit).
-* `-e, --environment`: Switch environment (dev|prod): adjusts FRAPPE_ENV, serving mode and admin-tool defaults.
+* `-e, --environment`: Switch environment (dev|prod): sets FRAPPE_ENV on the frappe service and recreates it, which selects the dev/prod supervisor serving mode. Admin tools and developer mode are NOT changed -- toggle them with --admin-tools / --developer-mode.
 * `--runtime`: Switch bench runtime. 'mount' materializes an editable workspace from the CURRENTLY DEPLOYED image (code on disk == running code, so no migrate; stale leftovers are stashed, never deleted). mount -> image goes through 'fm switch' instead (it migrates onto the image).
 * `-a, --apps`: Override or add apps on the running bench (repeatable; appname:ref or org/repo:ref). Replaces the app's code with a fresh clone (old code stashed, never deleted) or adds a new app (installed to the site); deps reinstall, targeted asset build, then migrate.
 * `--developer-mode`: Toggle frappe developer mode (DocType edits write app files -- needs an editable workspace).

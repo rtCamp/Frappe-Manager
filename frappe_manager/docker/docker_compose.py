@@ -88,8 +88,14 @@ def docker_command(
                     return result
                 logger.debug("[docker_command] Returning raw iterator (explicit stream=True)")
                 return iterator
-            result = run_command_with_exit_code(full_cmd, stream=False)
-            return result
+            # `capture_output` is a transport flag, not a compose option (it sits in every
+            # exclude list), so the decorator must hand it to the runner explicitly:
+            # dropping it piped an interactive `exec` shell's stdio into a buffer that is
+            # discarded when the shell exits, leaving the operator with a blank terminal.
+            # Only methods that declare the parameter forward it.
+            if "capture_output" in parameters:
+                return run_command_with_exit_code(full_cmd, stream=False, capture_output=parameters["capture_output"])
+            return run_command_with_exit_code(full_cmd, stream=False)
 
         return wrapper
 
@@ -577,6 +583,9 @@ class DockerComposeWrapper:
         env: None | list[str] = None,
         use_shlex_split: bool = True,
         stream: bool | None = None,
+        # Appended last so no positional caller shifts. `docker compose run` takes
+        # --workdir exactly like `exec` does; parameters_to_options emits it.
+        workdir: str | None = None,
     ) -> Iterable[tuple[str, bytes]] | SubprocessOutput:
         parameters: dict = locals()
         run_cmd: list = ["run"]

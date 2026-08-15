@@ -759,6 +759,30 @@ class Bench:
         """
         self.info_display.display_info()
 
+    def _docker_ops_for_service(self, compose_service: str) -> BenchDockerOps:
+        """Docker ops bound to the compose file that actually declares ``compose_service``.
+
+        ``get_available_services`` advertises the union of the bench's three compose files,
+        but ``self.docker_ops`` is bound to docker-compose.yml alone -- an admin-tools or
+        worker service driven through it fails at the docker layer with `no such service`,
+        even though it is running. Route it to the client that owns it instead.
+        """
+        for module, compose_name in (
+            (self.admin_tools, "docker-compose.admin-tools.yml"),
+            (self.workers, "docker-compose.workers.yml"),
+        ):
+            if not (self.path / compose_name).exists():
+                continue
+            if compose_service in module.compose_file_manager.get_services_list():
+                return BenchDockerOps(
+                    docker_client=module.docker_client,
+                    compose_file_manager=module.compose_file_manager,
+                    config=self.bench_config,
+                    path=self.path,
+                    output_handler=self.output,
+                )
+        return self.docker_ops
+
     def shell(self, compose_service: str, user: str | None, shell_path: str | None = None, use_run: bool = False):
         """
         Spawns a shell for the specified service and user.
@@ -770,7 +794,9 @@ class Bench:
             use_run (bool): Use 'docker compose run --rm' instead of 'docker compose exec'.
 
         """
-        return self.docker_ops.shell(compose_service, user, shell_path=shell_path, use_run=use_run)
+        return self._docker_ops_for_service(compose_service).shell(
+            compose_service, user, shell_path=shell_path, use_run=use_run
+        )
 
     def execute_command(
         self,
@@ -793,7 +819,9 @@ class Bench:
         Returns:
             Exit code of the executed command
         """
-        return self.docker_ops.execute_command(compose_service, command, user, shell_path=shell_path, use_run=use_run)
+        return self._docker_ops_for_service(compose_service).execute_command(
+            compose_service, command, user, shell_path=shell_path, use_run=use_run
+        )
 
     def get_log_file_paths(self):
         return self.info_display.get_log_file_paths()
@@ -813,8 +841,12 @@ class Bench:
             self.output.print("[fm.warn]No log files found.[/fm.warn]")
             return
 
-        files = [open(path) for path in log_file_paths]
+        # Opened inside the try so a path that vanished between the existence check and
+        # here closes the handles already opened instead of leaking them.
+        files: list = []
         try:
+            for path in log_file_paths:
+                files.append(open(path))
             # Existing content first, file by file (no line-interleaving of
             # unrelated files, which zip_longest used to do).
             for handle in files:
@@ -851,12 +883,13 @@ class Bench:
             if not service:
                 self.handle_frappe_server_file_logs(follow=follow)
             else:
-                if not self._is_service_running(service):
+                ops = self._docker_ops_for_service(service)
+                if not ops._is_service_running(service):  # noqa: SLF001
                     self.output.display_error(
                         f"Cannot show logs. [fm.info]{self.name}[/fm.info]'s compose service '{service}' not running!",
                     )
                     return
-                self.docker_ops.logs(services=[service], follow=follow)
+                ops.logs(services=[service], follow=follow)
 
         except KeyboardInterrupt:
             print("Detected CTRL+C. Exiting..")
@@ -1331,7 +1364,7 @@ class Bench:
                 container_htpasswd_path(self.name), auth.allow_ips, auth.allow_paths
             )
             if auth.allow_paths:
-                wanted[map_conf_path] = build_auth_map_conf(auth.allow_paths)
+                wanted[map_conf_path] = build_auth_map_conf(auth.allow_paths, auth.allow_ips)
 
         changed = False
 

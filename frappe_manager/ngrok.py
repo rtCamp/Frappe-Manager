@@ -39,8 +39,11 @@ def create_tunnel(site_name: str, auth_token: str, port: int = 80) -> None:
 
             tunnel_url = listener.url()
         except Exception as e:
-            print(f"Error creating tunnel: {e}")
-            return
+            # Report AND re-raise: swallowing this made `fm ngrok` exit 0 on a tunnel that
+            # never came up (bad token, no network, port in use), so supervisors and scripts
+            # wrapping the command read a failed tunnel as success.
+            output.display_error(f"Error creating tunnel: {e}")
+            raise
 
     print(f"Ingress established at: {tunnel_url}")
 

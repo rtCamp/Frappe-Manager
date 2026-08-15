@@ -71,8 +71,41 @@ def get_bench_arg_from_context(ctx: typer.Context) -> str | None:
     """
     Extract bench/site name from command context.
     Commands use different parameter names (benchname, sitename, bench_name).
+
+    Only useful on a *subcommand* context. On the group context built for ``app_callback``
+    Click populates ``ctx.params`` with the group's own options only, so this returns None
+    there and the caller falls back to :func:`get_bench_arg_from_argv`.
     """
     return ctx.params.get("benchname") or ctx.params.get("sitename") or ctx.params.get("bench_name")
+
+
+def get_bench_arg_from_argv(command_path: str) -> str | None:
+    """
+    Extract the bench/site name from ``sys.argv``.
+
+    ``app_callback`` is a group callback: Click clears ``ctx.args`` and resolves the subcommand
+    *after* the callback returns, so the subcommand's ``benchname`` argument is not reachable
+    from the context. ``sys.argv`` is the only place it exists at that point -- the same source
+    ``get_full_command_path()`` already parses.
+
+    ``command_path`` is that resolved path ("start", "ssl add"): its tokens are consumed first
+    (skipping any global flags typed before them), and the next token is the bench argument
+    unless it is a flag or a filesystem path. Anything more clever would need the subcommand's
+    own parser, which does not exist yet here; a missed name only means the callback gate stays
+    quiet, because every bench command still re-checks via ``check_bench_migration_required``.
+    """
+    pending = command_path.split()
+
+    for token in sys.argv[1:]:
+        if pending:
+            if token == pending[0]:
+                pending.pop(0)
+            continue
+        if token.startswith(("-", "/", "~")):
+            break
+        return token
+
+    return None
 
 
 def check_bench_migration_required(bench_name: str | None) -> None:
@@ -101,7 +134,9 @@ def check_bench_migration_required(bench_name: str | None) -> None:
         output.warning(f"Bench migration required: {bench_name} (v{bench_version} → v{fm_version})\n", emoji_code="")
         output.print("Bench migration updates configuration and applies necessary changes.\n", emoji_code="")
         output.print(f"Run: [fm.info]fm migrate {bench_name}[/fm.info]\n", emoji_code="")
-        raise typer.Exit(0)
+        # Exit 1, not 0: this refuses the command without doing anything, so `fm start x && ...`
+        # and any CI step or systemd unit checking $? must see a failure.
+        raise typer.Exit(1)
 
 
 def _prompt_and_run_migration(
@@ -377,8 +412,9 @@ def app_callback(
 
             commands_skip_bench_migration = ["stop", "delete"] + MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS
 
-            # Get bench argument if present
-            bench_arg = get_bench_arg_from_context(ctx)
+            # Get bench argument if present. The group context never carries the subcommand's
+            # benchname, so sys.argv is what actually resolves it here.
+            bench_arg = get_bench_arg_from_context(ctx) or get_bench_arg_from_argv(full_command)
             bench_path = CLI_BENCHES_DIRECTORY / bench_arg if bench_arg else None
 
             # Check migration states
@@ -541,4 +577,10 @@ app.command(name="switch", no_args_is_help=True)(switch)
 app.command(name="prune", no_args_is_help=True)(prune)
 
 # Export app and helpers for backward compatibility
-__all__ = ["app", "app_callback", "check_bench_migration_required", "get_bench_arg_from_context"]
+__all__ = [
+    "app",
+    "app_callback",
+    "check_bench_migration_required",
+    "get_bench_arg_from_argv",
+    "get_bench_arg_from_context",
+]

@@ -24,6 +24,7 @@ refactor is provably behaviour-preserving. Where the current behaviour looks
 surprising it is pinned as-is, not fixed.
 """
 
+import shlex
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -43,9 +44,11 @@ from frappe_manager.site_manager.bench_config import (
     WorkersConfig,
 )
 from frappe_manager.site_manager.modules.deploy_orchestrator import (
+    BENCH_BIN,
     MIGRATE_PROBE_MARKER,
     DeployError,
     DeployOrchestrator,
+    DrainUnavailable,
     RestoreNotConfirmed,
 )
 
@@ -101,8 +104,10 @@ def make_orch(tmp_path, switch=None, workers=None, deploy_state=None):
     return DeployOrchestrator(bench, output_handler=MagicMock())
 
 
-def docker_error(msg="boom", stdout=None):
-    return DockerException(["docker", "compose", "run"], SubprocessOutput(stdout or [msg], [], [msg], 1))
+def docker_error(msg="boom", stdout=None, stderr=None, exit_code=1):
+    return DockerException(
+        ["docker", "compose", "run"], SubprocessOutput(stdout or [msg], stderr or [], [msg], exit_code)
+    )
 
 
 # --------------------------------------------------------------- deploy rig
@@ -323,10 +328,28 @@ class TestDrainWorkers:
         # exit 3 is the timeout signal the wrapper turns into a False return.
         assert "else 3" in command
 
-    def test_drain_failure_or_timeout_returns_false(self, tmp_path):
+    def test_the_wait_giving_up_with_exit_3_is_the_timeout_and_returns_false(self, tmp_path):
         orch = self._drainable(tmp_path)
-        orch._exec_frappe = MagicMock(side_effect=docker_error("exit 3"))
+        orch._exec_frappe = MagicMock(side_effect=docker_error("exit 3", exit_code=3))
         assert orch.drain_workers() is False
+
+    def test_an_exec_that_never_ran_is_not_reported_as_a_timeout(self, tmp_path):
+        """Was `return False` for ANY exception, which `fm restart` renders as "drain
+        timed out after 300s" -- on an image predating fmx the exec fails in
+        milliseconds and no drain_timeout can ever make it succeed."""
+        orch = self._drainable(tmp_path)
+        orch._exec_frappe = MagicMock(
+            side_effect=docker_error(
+                'OCI runtime exec failed: exec: "/opt/uv-tools/fmx/bin/python": stat: no such file or directory',
+                exit_code=127,
+            )
+        )
+        with pytest.raises(DrainUnavailable) as exc:
+            orch.drain_workers()
+        assert "fmx" in str(exc.value)
+        assert "image" in str(exc.value)
+        assert "no such file or directory" in str(exc.value)
+        assert "timed out" not in str(exc.value)
 
     def test_resume_is_a_noop_when_drain_is_disabled(self, tmp_path):
         orch = self._drainable(tmp_path, drain=False)
@@ -539,6 +562,22 @@ class TestMigrateProbeVerdict:
         assert orch._probe_migrate_needed(NEW_TAG) is True
         assert orch._probe_result["verdict"] == "assumed-needed"
 
+    def test_a_drifted_app_named_like_the_clean_token_is_still_a_needed_verdict(self, tmp_path):
+        """The verdict is the status TOKEN the probe prints, not a substring of the tail.
+
+        The marker tail also carries ``drift=<comma-joined app names>``, so an app whose module
+        name contains 'clean' (``data_cleanup``, ``cleaner``) used to flip an explicit ``needed``
+        verdict to clean -- under ``migrate = "auto"`` that silently skips both ``bench migrate``
+        and the maintenance window and runs the new code against an unmigrated schema.
+        """
+        orch = self._probing(
+            tmp_path,
+            SimpleNamespace(stdout=[f"{MIGRATE_PROBE_MARKER} needed pending=3 drift=data_cleanup"], stderr=[]),
+        )
+        assert orch._probe_migrate_needed(NEW_TAG) is True
+        assert orch._probe_result["drift"] == ["data_cleanup"]
+        assert orch._probe_result["verdict"] == "needed"
+
 
 # ==================================================== deploy: maintenance mode
 
@@ -581,6 +620,24 @@ class TestMaintenanceWindow:
         r.orch.deploy(NEW_TAG, restore_db_dump=dump)
         assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
         r.orch._restore_db.assert_called_once_with(dump)
+
+    def test_empty_maintenance_phases_skips_the_maintenance_window(self, rig):
+        """``maintenance_mode_phases = []`` is the operator asserting the migration is
+        backward-compatible, and the field's own description promises "no page". It used to
+        buy nothing but rolling eligibility (`rolling_eligible` is the only other reader):
+        the 503 still went up for the whole migrate + swap, so the operator who cleared
+        phases to get a page-less additive migrate took the downtime anyway."""
+        r = rig(switch=SwitchConfig(migrate=True, maintenance_mode=True, maintenance_mode_phases=[]))
+        r.orch.deploy(NEW_TAG)
+        assert r.calls("_set_maintenance") == []
+        r.orch._migrate.assert_called_once_with(NEW_TAG)
+
+    def test_a_populated_phases_list_still_opens_the_window_for_a_restore(self, rig, tmp_path):
+        """The list gates the window's EXISTENCE, not which steps it spans: 'restore' is not a
+        phase name, and a restore under the default ``["migrate"]`` still gets the page."""
+        r = rig(switch=SwitchConfig(migrate=False, maintenance_mode_phases=["migrate"]))
+        r.orch.deploy(NEW_TAG, restore_db_dump=tmp_path / "old.sql")
+        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
 
 
 # ======================================================== deploy: backup rule
@@ -682,6 +739,29 @@ class TestPreSwapAbort:
         r.orch._restore_compose.assert_called_once()
         r.orch._set_maintenance.assert_not_called()
 
+    def test_a_pre_swap_abort_always_un_suspends_the_workers(self, rig):
+        """A drained deploy that aborts must not leave RQ suspended.
+
+        `drain_workers` suspends RQ through a PERSISTENT Redis key, so an abort path that skips the
+        resume leaves the bench processing no background jobs at all -- no scheduled jobs, no
+        emails, no backups -- while the site itself looks healthy and nothing on screen explains it.
+        The site being back up is not enough; the workers have to be running too.
+        """
+        r = rig(_run_container_hook={"side_effect": [None, None, DeployError("hook exploded")]})
+        with pytest.raises(DeployError, match="hook exploded"):
+            r.orch.deploy(NEW_TAG)
+
+        r.orch.resume_workers.assert_called()
+
+    def test_the_resume_happens_even_when_nothing_is_running(self, rig):
+        """The maintenance reset is skipped when frappe is down; the resume must not be."""
+        r = rig(running=False, _run_container_hook={"side_effect": DeployError("hook exploded")})
+        with pytest.raises(DeployError, match="hook exploded"):
+            r.orch.deploy(NEW_TAG)
+
+        r.orch._set_maintenance.assert_not_called()
+        r.orch.resume_workers.assert_called()
+
     def test_a_failing_backup_is_not_swallowed(self, rig):
         r = rig(_backup={"side_effect": OSError("disk full")})
         with pytest.raises(OSError, match="disk full"):
@@ -752,6 +832,21 @@ class TestMigrateFailure:
         with pytest.raises(DeployError):
             r.orch.deploy(NEW_TAG)
         r.orch._restore_db.assert_not_called()
+
+    def test_a_migrate_killed_by_its_timeout_takes_the_migrate_failure_path(self, rig):
+        """``_migrate`` reports a ``migrate_timeout`` kill as a DeployError, not a
+        DockerException. It must still land on THIS handler -- notify + rollback_db -- and not
+        fall through to the generic pre-swap abort, which does neither."""
+        r = rig(
+            switch=SwitchConfig(migrate=True, backup_db=True, rollback_db=True),
+            _migrate={"side_effect": DeployError("Migration exceeded [switch].migrate_timeout (42s)")},
+        )
+        with pytest.raises(DeployError, match="migrate_timeout"):
+            r.orch.deploy(NEW_TAG)
+        r.orch._notify_after_migrate.assert_called_once_with(NEW_TAG)
+        r.orch._restore_db.assert_called_once_with(r.backup_path)
+        r.orch._rolling_swap.assert_not_called()
+        assert r.orch._migrate_status == "failed"
 
     def test_a_declined_external_restore_never_masks_the_migrate_error(self, rig):
         r = rig(
@@ -974,6 +1069,54 @@ class TestSwapSelection:
         r.orch._rolling_swap.assert_called_once_with(NEW_TAG, OLD_TAG, {"snap": b"x"})
 
 
+# ================================================ deploy: swap failure unwind
+
+
+class TestSwapFailureUnwind:
+    """A failure IN the swap is an abort window too: page off, workers back.
+
+    The pre-swap handler's ``try`` closes before the swap runs, so a swap that raises (a rolling
+    swap refusing after an unhealthy new replica, a recreate ``compose up`` that cannot start)
+    escaped with ``maintenance_mode`` still 1 and RQ still suspended: the surviving OLD stack
+    served 503 to every visitor while the CLI reported that the old image was kept -- the exact
+    opposite of "zero downtime even on a failed rolling deploy".
+    """
+
+    def test_rolling_swap_failure_clears_maintenance_and_resumes_workers(self, rig):
+        r = rig(_rolling_swap={"side_effect": DeployError("new frappe replica failed health check")})
+        with pytest.raises(DeployError, match="new frappe replica failed health check"):
+            r.orch.deploy(NEW_TAG)
+        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
+        r.orch.resume_workers.assert_called()
+        r.orch._record.assert_not_called()
+
+    def test_the_swap_window_leaves_the_compose_to_the_swap_itself(self, rig):
+        """Only the page and the workers unwind here: the rolling swap's own ``_abort_rolling``
+        already restored the canonical compose, and a recreate swap is pinned to the tag it
+        brought up."""
+        r = rig(_rolling_swap={"side_effect": DeployError("boom")})
+        with pytest.raises(DeployError):
+            r.orch.deploy(NEW_TAG)
+        r.orch._restore_compose.assert_not_called()
+
+    def test_a_failing_recreate_swap_also_drops_the_page_and_resumes(self, rig):
+        r = rig(compose_up={"side_effect": docker_error("no such image")})
+        with pytest.raises(DockerException):
+            r.orch.deploy(NEW_TAG, rolling=False)
+        assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
+        r.orch.resume_workers.assert_called()
+        r.orch._record.assert_not_called()
+
+    def test_a_swap_failure_with_nothing_running_still_resumes_the_workers(self, rig):
+        """No web to 503 (nothing running, so the window never opened), but the drain's
+        PERSISTENT RQ suspend still has to be lifted."""
+        r = rig(running=False, compose_up={"side_effect": docker_error("boom")})
+        with pytest.raises(DockerException):
+            r.orch.deploy(NEW_TAG)
+        r.orch._set_maintenance.assert_not_called()
+        r.orch.resume_workers.assert_called()
+
+
 # =================================================== deploy: the health gate
 
 
@@ -1108,6 +1251,27 @@ class TestRecordBookkeeping:
         assert result.current_tag == NEW_TAG
         assert result.history[-1].backup is None
 
+    def test_re_recording_the_current_tag_keeps_the_older_previous(self, tmp_path):
+        """``previous_tag`` must not collapse onto ``current_tag``.
+
+        The health-gate rollback records the tag that is ALREADY current (it re-pinned the running
+        old image). Rotating it into ``previous_tag`` would make the operator's next escape hatch,
+        ``fm switch --previous``, a redeploy of what is already live and strand the genuinely older
+        release.
+        """
+        older = "reg.example/shop:v0"
+        state = DeployState(
+            current_tag=OLD_TAG,
+            previous_tag=older,
+            history=[DeployStateEntry(tag=OLD_TAG, deployed_at="t0", migrate_status="migrated")],
+        )
+        orch = make_orch(tmp_path, deploy_state=state)
+        orch._record(OLD_TAG, "rollback")
+        result = orch.config.deploy_state
+        assert result.current_tag == OLD_TAG
+        assert result.previous_tag == older
+        assert [e.tag for e in result.history] == [OLD_TAG, OLD_TAG]
+
     def test_current_deployed_tag_reads_the_recorded_tag(self, tmp_path):
         assert make_orch(tmp_path)._current_deployed_tag() is None
         assert make_orch(tmp_path, deploy_state=DeployState())._current_deployed_tag() is None
@@ -1222,6 +1386,24 @@ class TestRollback:
         with pytest.raises(DeployError, match="not in image runtime"):
             orch.rollback(OLD_TAG)
         orch._fetch_image.assert_not_called()
+
+    def test_the_health_gate_rollback_preserves_the_previous_tag(self, tmp_path):
+        """After the auto-rollback, ``fm switch --previous`` must still reach the older release."""
+        older = "reg.example/shop:v0"
+        state = DeployState(
+            current_tag=OLD_TAG,
+            previous_tag=older,
+            history=[
+                DeployStateEntry(tag=older, deployed_at="t0", migrate_status="skipped"),
+                DeployStateEntry(tag=OLD_TAG, deployed_at="t1", migrate_status="migrated"),
+            ],
+        )
+        orch, _ = self._rollback_rig(tmp_path, deploy_state=state)
+        del orch._record  # the real bookkeeping is what this pins
+        orch.rollback(OLD_TAG)
+        result = orch.config.deploy_state
+        assert result.current_tag == OLD_TAG
+        assert result.previous_tag == older
 
 
 class TestRollingRestart:
@@ -1429,7 +1611,7 @@ def no_sleep():
 class TestRollingSwap:
     """Overlap swap: the OLD replica is only torn down once the NEW one is healthy."""
 
-    def _swap(self, tmp_path, frappe_ok=True, nginx_ok=True, new_frappe="newF", new_nginx="newN"):
+    def _swap(self, tmp_path, frappe_ok=True, nginx_ok=True, new_frappe="newF", new_nginx="newN", scale_error=None):
         orch = make_orch(tmp_path)
         orch.compose.get_services_list.return_value = ["frappe", "nginx", "socketio", "schedule"]
         orch.compose.get_container_names.return_value = {"frappe": "shop-frappe", "nginx": "shop-nginx"}
@@ -1442,12 +1624,15 @@ class TestRollingSwap:
             return olds[service] if seen[service] == 1 else olds[service] + news[service]
 
         orch._compose_ps_ids = MagicMock(side_effect=_ps)
-        orch._scale = MagicMock()
         orch._container_health = MagicMock(
             side_effect=lambda cid, **_kw: {"newF": frappe_ok, "newN": nginx_ok}.get(cid, False),
         )
         orch._raw_docker = MagicMock()
-        orch._raw_compose = MagicMock()
+        # ``scale_error`` keeps the REAL ``_scale`` and fails the compose call underneath it, so the
+        # test exercises how a failed ``compose --scale`` is reported and unwound.
+        orch._raw_compose = MagicMock(side_effect=scale_error)
+        if scale_error is None:
+            orch._scale = MagicMock()
         orch._pin_workers = MagicMock()
         orch._up_workers = MagicMock()
         orch._restore_compose = MagicMock()
@@ -1535,6 +1720,41 @@ class TestRollingSwap:
             orch._rolling_swap(NEW_TAG, None, {})
         assert [c.args for c in orch._pin_workers.call_args_list] == [(NEW_TAG,)]
 
+    def test_scale_translates_a_failed_compose_into_a_deploy_error(self, tmp_path):
+        """A non-zero ``compose`` exit raises DockerException from inside the wrapper -- the
+        exit-code fields never come back -- so ``_scale`` must translate, or the swap's abort
+        handler never sees a failure it recognises."""
+        orch = make_orch(tmp_path)
+        orch._raw_compose = MagicMock(side_effect=docker_error("pull access denied"))
+        with pytest.raises(DeployError, match=r"compose scale \{'frappe': 2\} failed"):
+            orch._scale({"frappe": 2})
+
+    def test_a_failed_scale_aborts_the_swap_and_restores_the_canonical_compose(self, tmp_path):
+        """Otherwise the compose is left in the ROLLING render (no ``container_name``): a later
+        ``fm start`` creates containers under generated names, ``get_container_names()`` stops
+        matching and fm reads the bench as down -- with orphan new replicas left behind."""
+        orch = self._swap(tmp_path, scale_error=docker_error("no such image"))
+        with pytest.raises(DeployError, match="compose scale"):
+            orch._rolling_swap(NEW_TAG, OLD_TAG, {"p": b"old"})
+        orch._restore_compose.assert_called_once_with({"p": b"old"})
+        assert orch._pin_workers.call_args_list[-1].args == (OLD_TAG,)
+        assert ("stop", "oldF") not in self._docker_argv(orch)
+        assert ("rm", "newF") in self._docker_argv(orch)
+
+
+# =============================================================== fetch image
+
+
+class TestFetchImage:
+    def test_fetch_image_translates_a_malformed_tag_into_a_deploy_error(self, tmp_path):
+        """``fm switch mybench local/mybench`` (the missing ``:tag`` typo) reaches
+        ``transport.fetch_image``, which derives the nginx tag FIRST and raises ``BakeError``
+        -- not a ``TransportError``. Untranslated it sails past the CLI's ``except DeployError``
+        and the operator gets a Python traceback for a typo."""
+        orch = make_orch(tmp_path)
+        with pytest.raises(DeployError, match=r"Malformed image tag \(missing ':'\): local/mybench"):
+            orch._fetch_image("local/mybench")
+
 
 # =================================================================== migrate
 
@@ -1549,18 +1769,56 @@ class TestMigrateStep:
         return orch
 
     def test_migrate_runs_a_one_shot_removed_container_with_the_default_command(self, tmp_path):
+        """The default 300s ``migrate_timeout`` wraps the command in the container's own
+        ``timeout``, so the argv is ``timeout <budget> <bench> <command>``; before the budget
+        was wired the entrypoint was bench itself."""
         orch = self._migrator(tmp_path)
         assert orch._migrate(NEW_TAG) is True
         kwargs = orch.docker.compose.run.call_args.kwargs
-        assert kwargs["command"] == f"--site {SITE} migrate"
-        assert kwargs["entrypoint"].endswith("/bench")
+        assert kwargs["entrypoint"] == "timeout"
+        assert kwargs["command"] == f"300 {BENCH_BIN} --site {SITE} migrate"
         assert kwargs["rm"] is True
         assert kwargs["user"] == "frappe"
 
     def test_a_configured_migrate_command_replaces_the_default(self, tmp_path):
-        orch = self._migrator(tmp_path, switch=SwitchConfig(migrate_command="--site x migrate --skip-failing"))
+        orch = self._migrator(
+            tmp_path,
+            switch=SwitchConfig(migrate_command="--site x migrate --skip-failing", migrate_timeout=0),
+        )
         orch._migrate(NEW_TAG)
-        assert orch.docker.compose.run.call_args.kwargs["command"] == "--site x migrate --skip-failing"
+        kwargs = orch.docker.compose.run.call_args.kwargs
+        assert kwargs["entrypoint"] == BENCH_BIN
+        assert kwargs["command"] == "--site x migrate --skip-failing"
+
+    def test_the_configured_timeout_is_the_budget_handed_to_the_container(self, tmp_path):
+        """``[switch].migrate_timeout`` was advertised (and documented) but never read: a
+        migrate that wedged on a lock hung fm forever under an open maintenance window."""
+        orch = self._migrator(tmp_path, switch=SwitchConfig(migrate_timeout=42))
+        orch._migrate(NEW_TAG)
+        kwargs = orch.docker.compose.run.call_args.kwargs
+        assert kwargs["entrypoint"] == "timeout"
+        assert shlex.split(kwargs["command"])[:2] == ["42", BENCH_BIN]
+
+    def test_timeout_zero_disables_the_budget_and_runs_bench_directly(self, tmp_path):
+        orch = self._migrator(tmp_path, switch=SwitchConfig(migrate_timeout=0))
+        orch._migrate(NEW_TAG)
+        kwargs = orch.docker.compose.run.call_args.kwargs
+        assert kwargs["entrypoint"] == BENCH_BIN
+        assert kwargs["command"] == f"--site {SITE} migrate"
+
+    def test_a_killed_migrate_names_the_budget_that_killed_it(self, tmp_path):
+        """``timeout`` reports the kill as exit 124; anything else stays a DockerException so
+        the ordinary migrate-failure text (and its docker output) is untouched."""
+        error = DockerException(["docker", "compose", "run"], SubprocessOutput(["waiting"], [], ["waiting"], 124))
+        orch = self._migrator(tmp_path, switch=SwitchConfig(migrate_timeout=42), error=error)
+        with pytest.raises(DeployError, match=r"migrate_timeout \(42s\)"):
+            orch._migrate(NEW_TAG)
+        assert "waiting" in orch._migrate_log_host.read_text()
+
+    def test_an_ordinary_migrate_failure_is_not_reported_as_a_timeout(self, tmp_path):
+        orch = self._migrator(tmp_path, error=docker_error("patch exploded"))
+        with pytest.raises(DockerException):
+            orch._migrate(NEW_TAG)
 
     def test_the_migrate_log_is_persisted_and_exported_to_hook_env(self, tmp_path):
         orch = self._migrator(tmp_path, result=SimpleNamespace(combined=["line one\n", "line two"]))
