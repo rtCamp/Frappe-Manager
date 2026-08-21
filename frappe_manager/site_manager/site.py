@@ -488,6 +488,18 @@ class Bench:
         self.logger.debug(f"Starting bench: {self.name}", extra_fields=extra)
         try:
             self.ensure_nginx_conf_seeded()
+            # The fm-managed overlay (real-ip, auth) is written by generate_compose, so a
+            # bench whose compose has not been regenerated since that landed never receives
+            # it. Without real-ip.conf every request reaches the app carrying the global
+            # proxy's own address, so frappe's request_ip, its per-IP rate limiting and the
+            # Activity Log see one IP for the entire internet. Writing before start_bench is
+            # deliberate: nginx must find the include when it boots. Best effort like the
+            # seeding above, and surfaced rather than swallowed.
+            try:
+                self.ensure_fm_nginx_confs()
+            except Exception as e:
+                self.logger.warning(f"Failed to refresh bench nginx overlay: {self.name}", extra_fields=extra)
+                self.output.warning(f"Could not refresh bench nginx config: {e!s}")
             self.orchestrator.start_bench(
                 force=force,
                 reconfigure_workers=reconfigure_workers,
