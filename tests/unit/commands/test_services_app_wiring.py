@@ -29,9 +29,9 @@ def test_bare_subcommand_renders_help_instead_of_missing_argument_error(subcomma
     # click's parse error for the omitted required argument must NOT be what
     # the user gets; the help screen is shown in its place.
     assert "Missing argument" not in output
-    # ...and the help screen really is rendered: the argument's own help text
-    # and the enumerated service names only appear in the help panels.
-    assert "Name of the service." in output
+    # ...and the help screen really is rendered: the enumerated service names
+    # and the worked-examples panel only appear in the help panels.
+    assert "Examples" in output
     assert "global-nginx-proxy" in output
 
 
@@ -54,5 +54,5 @@ def test_subcommand_with_an_argument_is_not_diverted_to_help(subcommand):
     # the absent ctx.obj, proving the body was entered).
     result = runner.invoke(services_app, [subcommand, "global-db"])
 
-    assert "Name of the service." not in result.output
+    assert "Examples" not in result.output
     assert isinstance(result.exception, TypeError)

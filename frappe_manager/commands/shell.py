@@ -85,94 +85,69 @@ frappe.connect()
 
 
 @example(
-    "Open interactive shell as frappe user",
+    "Open a shell in the bench",
     "{benchname}",
-    detail="Opens an interactive shell into the frappe service as the frappe user. Useful for ad-hoc debugging.",
     benchname="mybench",
 )
 @example(
-    "Open shell as root user",
-    "{benchname} --user root",
-    detail="Starts a shell session in the container as the root user. Use with caution for administrative tasks.",
-    benchname="mybench",
-)
-@example(
-    "Execute single command",
-    "{benchname} -c \"bench --version\"",
-    detail="Runs a single command inside the service and exits with the command's exit code.",
-    benchname="mybench",
-)
-@example(
-    "Execute commands from heredoc",
-    "{benchname} <<'EOF'\nls -la\nbench --version\nEOF",
-    detail="Sends a heredoc to the container and executes the provided commands non-interactively.",
-    benchname="mybench",
-)
-@example(
-    "Open shell in nginx container",
-    "{benchname} --service nginx --user nginx",
-    detail="Opens a shell session inside the nginx container for debugging webserver configuration.",
-    benchname="mybench",
-)
-@example(
-    "Run command with passthrough syntax",
+    "Run one command",
     "{benchname} -- bench migrate",
-    detail="Passes through arguments after '--' directly to the container's shell or compose command.",
+    detail="Everything after -- is joined into one command line and run through the container's shell.",
     benchname="mybench",
 )
 @example(
-    "Open interactive bench console with IPython",
+    "Pipe a script in",
+    "{benchname} <<'EOF'\nbench build --app frappe\nbench clear-cache\nEOF",
+    detail="stdin is read as a shell script whenever it is not a terminal.",
+    benchname="mybench",
+)
+@example(
+    "Work in the Frappe context",
     "{benchname} --bench-console",
-    detail="Opens an IPython console with Frappe initialized so you can interact with frappe APIs.",
+    detail="An IPython console with frappe initialised. With -c or piped input it runs Python instead.",
     benchname="mybench",
 )
 @example(
-    "Open bench console for specific site",
-    "{benchname} --bench-console --site mysite.localhost",
-    detail="Opens the bench console for a specific site; useful when the bench hosts multiple sites.",
-    benchname="mybench",
-)
-@example(
-    "Execute Python code in Frappe context",
-    "{benchname} --bench-console -c \"import frappe; print(frappe.__version__)\"",
-    detail="Executes a single Python statement inside the Frappe context and prints the result.",
-    benchname="mybench",
-)
-@example(
-    "Execute Python script from heredoc in Frappe context",
-    "{benchname} --bench-console <<'EOF'\nimport frappe\nprint(frappe.__version__)\nEOF",
-    detail="Executes a multi-line Python script inside the Frappe context provided via heredoc.",
-    benchname="mybench",
-)
-@example(
-    "Execute Python script file in Frappe context",
-    "{benchname} --bench-console < script.py",
-    detail="Reads a Python script from a file and executes it inside the bench's Frappe context.",
+    "Use a throwaway container",
+    "{benchname} --run -- bench migrate",
+    detail="--run goes through 'docker compose run --rm' rather than the bench's own container.",
     benchname="mybench",
 )
 def shell(
     ctx: typer.Context,
     benchname: BenchNameArgument = None,
-    command: Annotated[str | None, typer.Option("-c", "--command", help="Execute command and exit")] = None,
-    user: Annotated[str | None, typer.Option(help="User to connect as", show_default=False)] = None,
-    service: Annotated[str, typer.Option(help="Service to connect to")] = "frappe",
-    shell_path: Annotated[str | None, typer.Option(help="Shell path (e.g., /bin/bash, /bin/sh)")] = None,
-    run: Annotated[bool, typer.Option(help="Use 'docker compose run --rm'")] = False,
+    command: Annotated[str | None, typer.Option("-c", "--command", help="Run this command and exit.")] = None,
+    user: Annotated[
+        str | None,
+        typer.Option(
+            help="User inside the container. Defaults to frappe on the frappe service, and is ignored with --run.",
+            show_default=False,
+        ),
+    ] = None,
+    service: Annotated[str, typer.Option(help="Container to enter.")] = "frappe",
+    shell_path: Annotated[
+        str | None,
+        typer.Option(help="Shell to spawn. Defaults to /bin/bash, or sh on images without bash.", show_default=False),
+    ] = None,
+    run: Annotated[
+        bool, typer.Option(help="Use a throwaway 'docker compose run --rm' container instead of the bench's.")
+    ] = False,
     bench_console: Annotated[
         bool,
         typer.Option(
             "--bench-console",
-            help="Open bench console with Frappe context (interactive IPython or execute code via -c/stdin)",
+            help="Enter the Frappe context on the frappe service: bench console interactively, Python from -c or stdin.",
         ),
     ] = False,
     site: Annotated[
-        str | None, typer.Option(help="Site name for bench console (defaults to benchname if not specified)")
+        str | None,
+        typer.Option(help="Site the bench console connects to. Defaults to the bench name.", show_default=False),
     ] = None,
 ):
     """
-    Spawn shell for the bench or execute a command.
+    Open a shell in one of a bench's containers, or run a command in it.
 
-    Supports interactive shells, single command execution (-c), heredoc or piped input, and bench-console mode which runs Python code inside an initialized Frappe context.
+    A command can come from -c, from the arguments after --, or from stdin when stdin is not a terminal, and its exit code becomes fm's. --bench-console works on the frappe service only: interactively it is bench console, and with -c or piped input it runs Python with frappe already initialised and connected.
     """
 
     check_bench_migration_required(benchname)

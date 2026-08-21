@@ -9,20 +9,20 @@ from frappe_manager.services_manager.services import ServicesManager
 
 
 @example(
-    "Restart global-db only",
-    "global-db",
-    detail="Restarts the global-db service only.",
+    "Apply a change to the proxy",
+    "global-nginx-proxy",
+    detail="A restart is what puts a new proxy config into effect, for instance after fm self real-ip.",
 )
 @example(
-    "Restart all global services",
+    "Restart the whole global stack",
     "all",
-    detail="Restarts all managed global services.",
+    detail="Benches are unreachable until the proxy is back up.",
 )
 def restart_services(
     ctx: typer.Context,
-    service_name: Annotated[ServicesEnum, typer.Argument(help="Name of the service.")],
+    service_name: Annotated[ServicesEnum, typer.Argument()],
 ):
-    """Restarts global services."""
+    """Restart the global services shared by every bench."""
     services_manager: ServicesManager = ctx.obj["services"]
     output = get_global_output_handler()
 

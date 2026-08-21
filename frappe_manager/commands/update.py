@@ -57,77 +57,29 @@ def is_immutable_update_request(
 
 
 @example(
-    "Enable admin tools (Mailpit, Adminer)",
-    "{benchname} --admin-tools enable",
-    detail="Enables admin tools like Mailpit and Adminer for debugging and database access in development benches.",
-    benchname="mybench",
-)
-@example(
-    "Disable admin tools",
-    "{benchname} --admin-tools disable",
-    detail="Disables admin tools for security or production setups.",
-    benchname="mybench",
-)
-@example(
-    "Switch to production environment",
+    "Switch to the production environment",
     "{benchname} -e prod",
-    detail="Switches the bench to production environment settings and recreates necessary containers.",
     benchname="mybench",
 )
 @example(
-    "Switch to development environment",
-    "{benchname} -e dev",
-    detail="Switches the bench to development environment settings and enables developer conveniences.",
+    "Enable the admin tools",
+    "{benchname} --admin-tools enable",
     benchname="mybench",
 )
 @example(
-    "Enable developer mode",
+    "Turn on developer mode",
     "{benchname} --developer-mode enable",
-    detail="Turns on Frappe developer mode which enables features useful for app development.",
     benchname="mybench",
 )
 @example(
-    "Add alias domains",
-    "{benchname} --add-alias www.example.com,api.example.com",
-    detail="Adds alias domains to the bench; remember to add SSL certificates separately with 'fm ssl add'.",
+    "Add an alias domain",
+    "{benchname} --add-alias www.example.com",
+    detail="No certificate is issued for the new domain; run fm ssl add afterwards.",
     benchname="mybench",
 )
 @example(
-    "Remove alias domains",
-    "{benchname} --remove-alias shop.example.com",
-    detail="Removes alias domains from bench configuration.",
-    benchname="mybench",
-)
-@example(
-    "Update Python version",
+    "Bump the Python version",
     "{benchname} --python 3.11",
-    detail="Updates the bench Python runtime, recreates the virtual environment, and reinstalls all apps into the new environment.",
-    benchname="mybench",
-)
-@example(
-    "Install Python without recreating venv",
-    "{benchname} --python 3.14 --no-recreate-python-env",
-    detail="Installs Python 3.14 via uv and sets it as default without touching the existing virtual environment.",
-    benchname="mybench",
-)
-@example(
-    "Update Node version",
-    "{benchname} --node 20",
-    detail="Updates Node.js runtime used by the bench and rebuilds related assets.",
-    benchname="mybench",
-)
-@example(
-    "Set upload size limit",
-    "{benchname} --upload-limit 100M",
-    detail="Sets the maximum file upload size for the bench (useful for large attachments).",
-    benchname="mybench",
-)
-@example(
-    "Refresh a rotated external database CA",
-    "{benchname} --db-ca /path/to/new-ca.pem",
-    detail="Installs the new CA for the site, rebuilds the bench-level ca-bundle.pem the worker and schedule "
-    "containers use for dumps, and rewrites [database.<site>].ca. Replacing only the per-site file leaves the "
-    "bundle on the old certificate, so backups keep failing.",
     benchname="mybench",
 )
 def update(
@@ -146,9 +98,7 @@ def update(
         typer.Option(
             "--environment",
             "-e",
-            help="Switch environment (dev|prod): sets FRAPPE_ENV on the frappe service and recreates it, "
-            "which selects the dev/prod supervisor serving mode. Admin tools and developer mode are NOT "
-            "changed -- toggle them with --admin-tools / --developer-mode.",
+            help="Switch the bench between dev and prod serving (FRAPPE_ENV), recreating the frappe container. Admin tools and developer mode are left as they are; use --admin-tools or --developer-mode to change those.",
             show_default=False,
         ),
     ] = None,
@@ -156,9 +106,7 @@ def update(
         BenchRuntime | None,
         typer.Option(
             "--runtime",
-            help="Switch bench runtime. 'mount' materializes an editable workspace from the CURRENTLY "
-            "DEPLOYED image (code on disk == running code, so no migrate; stale leftovers are stashed, "
-            "never deleted). mount -> image goes through 'fm switch' instead (it migrates onto the image).",
+            help="Convert the bench runtime. 'mount' extracts an editable workspace from the currently deployed image, stashing anything stale it finds; converting back is a deploy, so use fm switch.",
             show_default=False,
             rich_help_panel=_PANEL_RUNTIME,
         ),
@@ -168,9 +116,7 @@ def update(
         typer.Option(
             "--apps",
             "-a",
-            help="Override or add apps on the running bench (repeatable; appname:ref or org/repo:ref). "
-            "Replaces the app's code with a fresh clone (old code stashed, never deleted) or adds a "
-            "new app (installed to the site); deps reinstall, targeted asset build, then migrate.",
+            help="Replace or add an app on the running bench (repeatable; appname:ref or org/repo:ref). Replaced code is stashed, never deleted; assets rebuild and the site migrates.",
             callback=apps_list_validation_callback,
             show_default=False,
             rich_help_panel=_PANEL_MOUNT,
@@ -179,7 +125,7 @@ def update(
     developer_mode: Annotated[
         EnableDisableOptionsEnum | None,
         typer.Option(
-            help="Toggle frappe developer mode (DocType edits write app files -- needs an editable workspace).",
+            help="Toggle frappe developer mode, so DocType edits write to app files.",
             show_default=False,
             rich_help_panel=_PANEL_MOUNT,
         ),
@@ -188,7 +134,7 @@ def update(
         bool,
         typer.Option(
             "--mailpit-as-default-mail-server",
-            help="Configure Mailpit as default mail server",
+            help="Route the site's outgoing mail to Mailpit. Applies when enabling admin tools.",
             show_default=False,
         ),
     ] = False,
@@ -216,7 +162,7 @@ def update(
         str | None,
         typer.Option(
             "--upload-limit",
-            help="Set maximum upload size for files (e.g., '50M', '100M', '500M', '1G')",
+            help="Set the maximum file upload size, e.g. 100M or 1G.",
             show_default=False,
         ),
     ] = None,
@@ -224,7 +170,7 @@ def update(
         str | None,
         typer.Option(
             "--python",
-            help="Update Python version (e.g. '3.11', '>=3.11,<3.14'); recreates the venv and reinstalls apps.",
+            help="Update the Python version (e.g. '3.11', '>=3.11,<3.14'); recreates the venv and reinstalls apps.",
             show_default=False,
             rich_help_panel=_PANEL_MOUNT,
         ),
@@ -233,7 +179,7 @@ def update(
         str | None,
         typer.Option(
             "--node",
-            help="Update Node version (e.g. '18', '20', '>=18'); installs and sets as default.",
+            help="Update the Node version (e.g. '20', '>=18') and set it as the bench default.",
             show_default=False,
             rich_help_panel=_PANEL_MOUNT,
         ),
@@ -242,7 +188,7 @@ def update(
         bool,
         typer.Option(
             "--skip-version-check",
-            help="Skip validation of Python/Node versions against Frappe requirements. Use with caution.",
+            help="Accept a Python/Node version that does not satisfy frappe's requirement.",
             show_default=False,
             rich_help_panel=_PANEL_MOUNT,
         ),
@@ -251,7 +197,7 @@ def update(
         bool,
         typer.Option(
             "--recreate-python-env/--no-recreate-python-env",
-            help="Recreate the Python venv; --no-recreate-python-env skips when the current version already satisfies.",
+            help="Recreate the venv when --python changes the interpreter; --no-recreate-python-env installs the new Python and leaves the existing venv in place.",
             show_default=True,
             rich_help_panel=_PANEL_MOUNT,
         ),
@@ -268,7 +214,7 @@ def update(
         bool,
         typer.Option(
             "--allow-domain-conflicts",
-            help="Skip domain uniqueness validation when adding aliases (not recommended).",
+            help="Add an alias domain even when another bench already serves it.",
             show_default=False,
             rich_help_panel=_PANEL_DOMAIN,
         ),
@@ -286,7 +232,7 @@ def update(
         str | None,
         typer.Option(
             "--newrelic-license-key",
-            help="NewRelic ingest license key.",
+            help="NewRelic ingest license key. Required the first time you enable NewRelic.",
             show_default=False,
             rich_help_panel=_PANEL_MONITORING,
         ),
@@ -295,19 +241,16 @@ def update(
         Path | None,
         typer.Option(
             "--db-ca",
-            help="Refresh the external database CA for this site after a rotation: it re-copies the PEM, rebuilds "
-            "the bench-level ca-bundle.pem and rewrites \\[database.<site>].ca in one go, because replacing only "
-            "the per-site file leaves the bundle holding the old certificate and dumps broken until someone "
-            "notices.",
+            help="Reinstall the external database CA after a rotation: the site PEM, the bench ca-bundle.pem the dumps use, and the recorded path are refreshed together.",
             show_default=False,
             rich_help_panel=_PANEL_DATABASE,
         ),
     ] = None,
 ):
     """
-    Change bench settings and runtime.
+    Change a bench's settings and runtime.
 
-    Not `bench update`: app code ships via fm deploy/switch. Settings (SSL/env/domains/policy/monitoring) apply to both runtimes. Code-affecting options -- --python/--node/--apps/--developer-mode -- need an editable workspace (mount); on an image bench demote first via --runtime mount.
+    Not `bench update`: app code ships with fm deploy or fm switch. The bench must be running, and the mount-only options need an editable workspace, so demote an image bench with --runtime mount first.
     """
 
     services_manager = ctx.obj["services"]
@@ -459,7 +402,9 @@ def update(
                         f"Existing workspace code was stale vs {tag}; moved to {stash} -- review and delete it.",
                     )
                 extracted = materialize_workspace_from_image(bench.docker_client, tag, frappe_bench_dir, output=output)
-                output.print(f"Extracted from image: {', '.join(extracted) if extracted else 'nothing (already present)'}")
+                output.print(
+                    f"Extracted from image: {', '.join(extracted) if extracted else 'nothing (already present)'}"
+                )
 
                 bench.bench_config.runtime = BenchRuntime.mount
 

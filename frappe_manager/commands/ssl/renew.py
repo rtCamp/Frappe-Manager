@@ -27,60 +27,52 @@ install(ssl_renew_command)
 
 @ssl_renew_command.command()
 @example(
-    "Renew all certificates for a bench",
+    "Renew every certificate on a bench",
     "{benchname}",
-    detail="Renews all TLS certificates associated with the specified bench.",
     benchname="mybench",
 )
 @example(
-    "Renew certificate for specific domain",
+    "Renew one domain",
     "{benchname} example.com",
-    detail="Renews a single domain certificate for the given bench.",
     benchname="mybench",
 )
 @example(
-    "Renew all certificates for all benches",
+    "Renew every bench",
     "--all",
-    detail="Renews certificates across all benches managed by FM when run by an administrator.",
 )
 @example(
-    "Test renewal with Let's Encrypt staging (dry-run)",
-    "{benchname} --dry-run",
-    detail="Simulates the renewal using Let's Encrypt staging environment to validate configuration.",
-    benchname="mybench",
-)
-@example(
-    "Renew specific external (standalone) domain",
+    "Renew an external domain",
     "--standalone example.com",
-    detail="Renews a standalone external domain certificate managed outside benches.",
 )
 @example(
-    "Renew all external (standalone) domains",
-    "--standalone --all",
-    detail="Renews all external standalone certificates managed by FM.",
+    "Renew one that is not due yet",
+    "{benchname} example.com --force",
+    benchname="mybench",
 )
 def renew(
     ctx: typer.Context,
     benchname: StandaloneBenchNameArgument = None,
     domain: Annotated[
         str | None,
-        typer.Argument(help="Specific domain to renew. If omitted, renews all certificates for the bench/standalone."),
+        typer.Argument(help="Domain to renew. Omit to renew every certificate in scope."),
     ] = None,
-    all: Annotated[bool, typer.Option(help="Renew ssl cert for all benches.")] = False,
-    standalone: Annotated[bool, typer.Option("--standalone", help="Renew certificates for external domains")] = False,
+    all: Annotated[bool, typer.Option(help="Renew every bench, or with --standalone every external domain.")] = False,
+    standalone: Annotated[bool, typer.Option("--standalone", help="Renew an external (non-bench) domain.")] = False,
     dry_run: Annotated[
         bool,
-        typer.Option("--dry-run", help="Test renewal using Let's Encrypt staging server without modifying the system."),
+        typer.Option("--dry-run", help="Rehearse against Let's Encrypt staging. Nothing on disk changes."),
     ] = False,
     force: Annotated[
         bool,
-        typer.Option("--force", "-f", help="Force renewal even if certificate is not due for renewal."),
+        typer.Option("--force", "-f", help="Renew even when the certificate is not near expiry yet."),
     ] = False,
 ):
     """
-    Renew SSL certificates.
+    Renew SSL certificates before they expire.
 
-    Supports bench and standalone modes. Use --dry-run to validate against Let's Encrypt staging; --force forces renewal.
+    Renews one bench by default, or a single domain of it if you name one. --all covers every bench, and --standalone switches to the external Docker project domains.
+
+    A certificate that is not yet due is reported and left alone, unless you pass --force.
     """
 
     if standalone:

@@ -7,24 +7,18 @@ from frappe_manager.site_manager.site import Bench
 
 
 @example(
-    "Stop bench containers",
+    "Stop a bench",
     "{benchname}",
-    detail="Stops all running containers for the specified bench without removing any data. Use to shut down a bench safely.",
     benchname="mybench",
-)
-@example(
-    "Stop multiple benches",
-    "mybench && fm stop another-bench",
-    detail="Chain multiple stop commands to shut down several benches at once.",
 )
 def stop(
     ctx: typer.Context,
     benchname: BenchNameArgument = None,
 ):
     """
-    Stop a bench.
+    Stop a bench's containers, admin tools and workers.
 
-    Stops all containers for the given bench. No data is removed; containers can be started again with 'fm start'.
+    Nothing is deleted; fm start brings the bench back.
     """
     # No migration gate here: "stop" is in app_callback's commands_skip_bench_migration
     # whitelist (with "delete"), i.e. stopping an unmigrated bench must always work.

@@ -6,7 +6,7 @@ from typer_examples import install
 dns_config_command = typer.Typer(
     no_args_is_help=True,
     rich_markup_mode="rich",
-    help="Configure DNS provider credentials for DNS-01 challenge",
+    help="Store DNS provider credentials for DNS-01 challenges.",
 )
 
 

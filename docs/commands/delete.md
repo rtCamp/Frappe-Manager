@@ -1,8 +1,8 @@
 ## `fm delete`
 
-Delete a bench and optionally its database from global-db service.
+Delete a bench: its containers and volumes, its whole directory, and its TLS certificate.
 
-Removes the bench directory, containers, and associated data. Use --yes to avoid confirmation prompts.
+The database is decided separately. fm can drop the site's schema and user from the global-db container it owns, but a schema on a server fm does not own is always left in place, --delete-db-from-global-db or not.
 
 **Usage**:
 
@@ -16,33 +16,29 @@ $ fm delete BENCHNAME [OPTIONS]
 
 **Options**:
 
-* `-y, --yes`: Skip confirmation prompts
-* `--delete-db-from-global-db/--no-delete-db-from-global-db`: Delete database from global-db service
+* `-y, --yes`: Delete without the removal confirmation. The database question is asked anyway.
+* `--delete-db-from-global-db/--no-delete-db-from-global-db`: Drop the site's schema and user from the global-db container, or keep them. Never touches a database on an external server. fm asks when neither is passed.
 
 
 ## Examples
 
-### Delete a bench
-
-Deletes the bench directory and associated containers. This is destructive and will remove local bench data.
-
-```bash
-fm delete mybench
-```
-
-### Delete without confirmation
-
-Performs deletion without interactive confirmation. Use with caution in scripts or automation.
-
-```bash
-fm delete mybench --yes
-```
-
-### Delete bench and its database from global-db
-
-Also deletes the bench's database from the global-db service. This permanently removes stored site data.
+### Delete a bench and its database
 
 ```bash
 fm delete mybench --delete-db-from-global-db
+```
+
+### Delete the bench but keep the database
+
+The bench is gone; the schema stays in global-db.
+
+```bash
+fm delete mybench --no-delete-db-from-global-db
+```
+
+### Delete unattended
+
+```bash
+fm delete mybench --yes --delete-db-from-global-db
 ```
 

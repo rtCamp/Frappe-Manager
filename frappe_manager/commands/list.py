@@ -12,34 +12,37 @@ from frappe_manager.site_manager.bench_service import BenchService
 
 
 @example(
-    "List all available benches",
+    "List every bench",
     "",
-    detail="Shows a table of all benches managed by FM with status, runtime, apps and deploy info.",
 )
 @example(
-    "Machine-readable output",
+    "Copy or pipe bench paths",
+    "--paths",
+)
+@example(
+    "Script over the inventory",
     "--json",
-    detail="Emits the full bench inventory as JSON (status, runtime, environment, apps, tags, domains, policies) for scripting: fm list --json | jq '.[].name'.",
+    detail="fm list --json | jq -r '.[] | select(.status == \"active\") | .name'",
 )
 def list(
     ctx: typer.Context,
     json_output: Annotated[
         bool,
-        typer.Option("--json", help="Output the bench inventory as JSON (clean stdout, pipe-friendly)."),
+        typer.Option("--json", help="Emit the full inventory as JSON on clean stdout."),
     ] = False,
     paths: Annotated[
         bool,
         typer.Option(
             "--paths",
             "-p",
-            help="Plain 'bench  path' lines (no table): copy- and pipe-friendly, never truncated.",
+            help="Print plain 'name  path' lines instead of cards, so paths survive copying and piping.",
         ),
     ] = False,
 ):
     """
-    List all benches.
+    List all benches with status, runtime, installed apps and deploy state.
 
-    Shows a table with status, runtime (mount/image), environment, installed apps, the deployed tag / base image, and path. --json emits the full inventory (including alias domains, seed provenance, restart policy) for scripting.
+    A bench whose config will not load is reported as a warning and left out of the listing; every other bench still lists. --json includes it instead, as a row carrying the error.
     """
 
     services_manager = ctx.obj["services"]

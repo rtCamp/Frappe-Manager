@@ -14,18 +14,18 @@ $ fm self [OPTIONS] COMMAND [ARGS]...
 
 **Commands**:
 
-* `update`: Check for and install frappe-manager updates.
-* `update-images`: Pull latest FM stack docker images.
-* `compose`: Run docker compose commands with auto-detected compose files.
-* `stop`: Stop everything managed by FM.
-* `real-ip`: Restore real client IPs at the global nginx proxy when it sits behind a CDN or load balancer.
+* `update`: Update fm to the latest release published on PyPI.
+* `update-images`: Pull the docker images fm's stack runs on.
+* `compose`: Run docker compose against a bench with all of its compose files already wired up.
+* `stop`: Stop every bench on this host, then the global services (global-nginx-proxy, global-db).
+* `real-ip`: Restore the visitor's real IP at the global nginx proxy when it sits behind a CDN or load balancer.
 
 
 ### `fm self update`
 
-Check for and install frappe-manager updates.
+Update fm to the latest release published on PyPI.
 
-Updates the installed fm package using the package installer. Use --yes to skip prompts.
+An install already ahead of PyPI, such as a dev or pre-release build, is reported as up to date and left alone: fm is never downgraded under benches whose on-disk state a newer fm wrote.
 
 **Usage**:
 
@@ -35,22 +35,18 @@ $ fm self update [OPTIONS]
 
 **Options**:
 
-* `-y, --yes`: Skip confirmation prompt and proceed with update
+* `-y, --yes`: Update without asking for confirmation.
 
 
 ## Examples
 
-### Update fm to the latest version available on pypi
-
-Checks PyPI for the latest frappe-manager release and installs it if available.
+### Update fm to the latest release
 
 ```bash
 fm self update
 ```
 
-### Update without confirmation prompt
-
-Skips the interactive confirmation and updates immediately if a new version is found.
+### Update without the confirmation prompt
 
 ```bash
 fm self update --yes
@@ -59,7 +55,9 @@ fm self update --yes
 
 ### `fm self update-images`
 
-Pull latest FM stack docker images.
+Pull the docker images fm's stack runs on.
+
+Running containers keep the image they started with until they are recreated.
 
 **Usage**:
 
@@ -70,9 +68,7 @@ $ fm self update-images
 
 ## Examples
 
-### Update all Frappe docker images to latest versions
-
-Pulls the latest Docker images used by FM to keep runtime images up to date.
+### Pull the images fm's stack runs on
 
 ```bash
 fm self update-images
@@ -81,9 +77,9 @@ fm self update-images
 
 ### `fm self compose`
 
-Run docker compose commands with auto-detected compose files.
+Run docker compose against a bench with all of its compose files already wired up.
 
-Automatically finds and includes all docker-compose*.yml files in the bench directory.
+Everything after the bench name is handed to docker compose untouched, so any subcommand and flag it accepts works here.
 
 **Usage**:
 
@@ -94,60 +90,36 @@ $ fm self compose
 
 ## Examples
 
-### Show running containers for a bench
-
-Runs 'docker compose ps' for the bench using all discovered compose files.
+### Show the bench's containers
 
 ```bash
 fm self compose mybench ps
 ```
 
-### Start containers in detached mode
-
-Starts containers in detached mode using the bench's compose files.
-
-```bash
-fm self compose mybench up -d
-```
-
-### Follow logs for frappe service
-
-Runs 'docker compose logs -f frappe' to stream logs for the frappe service.
+### Follow the frappe logs
 
 ```bash
 fm self compose mybench logs -f frappe
 ```
 
-### Execute bash in frappe container
-
-Executes an interactive bash shell in the frappe container.
+### Open a shell in a container
 
 ```bash
 fm self compose mybench exec frappe bash
 ```
 
-### Restart specific service
-
-Restarts a single service using docker compose for targeted debugging.
+### Restart one service
 
 ```bash
 fm self compose mybench restart frappe
 ```
 
-### View container resource usage
-
-Runs 'docker compose stats' to view resource usage for bench containers.
-
-```bash
-fm self compose mybench stats
-```
-
 
 ### `fm self stop`
 
-Stop everything managed by FM.
+Stop every bench on this host, then the global services (global-nginx-proxy, global-db).
 
-Stops all running benches and global services (global-db, global-nginx-proxy). Use --global-only or --benches-only to stop only a subset.
+Nothing fm manages is left running unless you narrow the blast radius with --benches-only or --global-only.
 
 **Usage**:
 
@@ -158,25 +130,19 @@ $ fm self stop
 
 ## Examples
 
-### Stop everything (all benches + global services)
-
-Stops all running benches and all global services (global-db, global-nginx-proxy).
+### Stop everything
 
 ```bash
 fm self stop
 ```
 
-### Stop only global services
-
-Stops only global services, leaves benches running.
+### Stop the global services, leave the benches up
 
 ```bash
 fm self stop --global-only
 ```
 
-### Stop only benches
-
-Stops only benches, leaves global services running.
+### Stop the benches, leave the global services up
 
 ```bash
 fm self stop --benches-only
@@ -185,11 +151,9 @@ fm self stop --benches-only
 
 ### `fm self real-ip`
 
-Restore real client IPs at the global nginx proxy when it sits behind a CDN or load balancer.
+Restore the visitor's real IP at the global nginx proxy when it sits behind a CDN or load balancer.
 
-Without this, everything behind a CDN appears to come from the CDN's edge IPs: proxy logs, fm maintenance --allow-ip, and frappe's per-IP rate limiting all see the edge instead of the visitor. This writes an nginx real_ip configuration trusting exactly the given ranges and reloads the proxy without downtime.
-
-Only trust ranges you actually sit behind: any trusted source fully controls the client IP you observe. The bench-level half (bench nginx trusting fm's internal frontend network) is automatic and needs no command.
+Trust only the ranges you actually sit behind: whatever you trust fully controls the client IP that fm, your logs and frappe go on to see.
 
 **Usage**:
 
@@ -199,34 +163,32 @@ $ fm self real-ip [OPTIONS]
 
 **Options**:
 
-* `--cdn`: Trust a known CDN's published ranges. Supported: cloudflare (uses the CF-Connecting-IP header).
-* `--trust`: CIDR range (or single IP) of a proxy/LB in front of fm to trust (repeatable). Client IP is taken from X-Forwarded-For.
-* `--header`: Override the header the client IP is restored from (default: CF-Connecting-IP for --cdn cloudflare, X-Forwarded-For otherwise).
-* `--off`: Remove the real-ip configuration from the global proxy.
-* `--status`: Show the active real-ip configuration without changing anything.
+* `--cdn`: Trust a CDN's published ranges. Supported: cloudflare.
+* `--trust`: CIDR range or single IP of a proxy in front of fm (repeatable).
+* `--header`: Header the client IP is read from. Defaults to CF-Connecting-IP for --cdn cloudflare and X-Forwarded-For otherwise; anything that is not a valid header name is refused.
+* `--off`: Remove the configuration and reload the proxy.
+* `--status`: Show the active configuration. Writes nothing.
 
 
 ## Examples
 
 ### Trust Cloudflare
 
-The global proxy restores the visitor's real IP from CF-Connecting-IP for requests arriving from Cloudflare's published ranges (fetched live, vendored fallback). Logs, fm maintenance --allow-ip, and frappe rate limiting then see real client IPs.
+Proxy logs, fm maintenance --allow-ip and frappe's rate limiting then see the visitor instead of Cloudflare's edge.
 
 ```bash
 fm self real-ip --cdn cloudflare
 ```
 
-### Trust a custom load balancer
+### Trust your own load balancer
 
-Restores the client IP from X-Forwarded-For for requests arriving from the given ranges (repeatable). Only list proxies you control: a trusted source controls the IP you see.
+Each run replaces the whole configuration, so pass every range you sit behind in one call.
 
 ```bash
 fm self real-ip --trust 203.0.113.0/24
 ```
 
-### Show or remove the configuration
-
-Shows the active real-ip configuration; --off removes it and reloads the proxy without downtime.
+### Show what is trusted
 
 ```bash
 fm self real-ip --status

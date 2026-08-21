@@ -1,8 +1,8 @@
 ## `fm ngrok`
 
-Create ngrok tunnel for bench.
+Expose a running bench on a public ngrok URL.
 
-Provisions a public URL for local benches using ngrok; requires an auth token either via flag or config.
+Needs an ngrok auth token: pass --auth-token, set NGROK_AUTHTOKEN, or save one in fm's config.
 
 **Usage**:
 
@@ -16,26 +16,22 @@ $ fm ngrok BENCHNAME [OPTIONS]
 
 **Options**:
 
-* `-t, --auth-token`: Ngrok authentication token
-* `--save-token/--no-save-token`: Save or don't save the ngrok auth token to config for future use
+* `-t, --auth-token`: ngrok auth token. Falls back to the one saved in fm's config.
+* `--save-token/--no-save-token`: Save this token to fm's config for later runs, or leave the config alone. fm asks when a new token arrives and neither flag is passed.
 
 
 ## Examples
 
-### Create ngrok tunnel for bench
-
-Creates a public ngrok tunnel for the bench using a specified auth token.
-
-```bash
-fm ngrok mybench --auth-token YOUR_TOKEN
-```
-
-### Use saved auth token from config
-
-Uses an auth token stored in FM configuration to create the tunnel without passing it on the command line.
+### Tunnel a running bench
 
 ```bash
 fm ngrok mybench
+```
+
+### Supply a token and remember it
+
+```bash
+fm ngrok mybench --auth-token 2abcXYZ --save-token
 ```
 
 ## Related

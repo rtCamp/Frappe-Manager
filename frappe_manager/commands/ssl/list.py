@@ -17,37 +17,34 @@ from .helpers import get_output_handler
 
 
 @example(
-    "List SSL certificates for a bench",
+    "List a bench's certificates",
     "{benchname}",
-    detail="Shows certificates installed for a specific bench.",
     benchname="mybench",
 )
 @example(
-    "List all external (standalone) certificates",
+    "List the external domains",
     "--standalone",
-    detail="Lists certificates managed in standalone (external project) mode.",
 )
 @example(
-    "List all certificates (bench + external)",
+    "List every certificate fm manages",
     "--all",
-    detail="Lists both bench-installed and external certificates together.",
 )
 def list_certificates(
     ctx: typer.Context,
     benchname: StandaloneBenchNameArgument = None,
     standalone: Annotated[
         bool,
-        typer.Option("--standalone", help="List certificates for external (non-bench) domains"),
+        typer.Option("--standalone", help="List external (non-bench) domains instead of a bench."),
     ] = False,
     all: Annotated[
         bool,
-        typer.Option("--all", help="List all certificates (bench + external)"),
+        typer.Option("--all", help="List both external domains and every bench."),
     ] = False,
 ):
     """
-    List SSL certificates.
+    List SSL certificates with their expiry and renewal status.
 
-    Use without flags to list certificates for a bench, or pass --standalone or --all to change scope.
+    Lists one bench by default, including its domains that have no certificate yet. --standalone lists external Docker project domains instead, and --all lists both.
     """
 
     if all:

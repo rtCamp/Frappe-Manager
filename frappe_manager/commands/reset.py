@@ -10,15 +10,13 @@ from frappe_manager.site_manager.site import Bench
 
 
 @example(
-    "Drop database and reinstall all apps",
+    "Reset a site to a fresh install",
     "{benchname}",
-    detail="Drops the site's database and reinstalls all apps; destructive and intended for development or recovery.",
     benchname="mybench",
 )
 @example(
-    "Reset with custom admin password",
-    "{benchname} --admin-pass newpassword",
-    detail="Resets the bench and sets the new administrator password after reinstalling apps.",
+    "Reset and set a new administrator password",
+    "{benchname} --admin-pass 'new-password'",
     benchname="mybench",
 )
 def reset(
@@ -26,13 +24,15 @@ def reset(
     benchname: BenchNameArgument = None,
     admin_pass: Annotated[
         str | None,
-        typer.Option(help="Password for the 'Administrator' User."),
+        typer.Option(
+            help="Administrator password for the reinstalled site. Taken from site_config.json, or prompted for, when omitted."
+        ),
     ] = None,
 ):
     """
-    Drop database and reinstall all apps.
+    Destroy a site: drop its database and reinstall every app, losing all site data.
 
-    Intended for resetting a site to a clean state; this operation removes site data.
+    Only sites on the database server fm owns can be reset. A bench with its own \\[database] entry is refused, because that schema is not fm's to drop.
     """
 
     check_bench_migration_required(benchname)

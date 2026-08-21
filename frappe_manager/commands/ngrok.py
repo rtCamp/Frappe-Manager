@@ -14,15 +14,13 @@ from frappe_manager.site_manager.site import Bench
 
 
 @example(
-    "Create ngrok tunnel for bench",
-    "{benchname} --auth-token YOUR_TOKEN",
-    detail="Creates a public ngrok tunnel for the bench using a specified auth token.",
+    "Tunnel a running bench",
+    "{benchname}",
     benchname="mybench",
 )
 @example(
-    "Use saved auth token from config",
-    "{benchname}",
-    detail="Uses an auth token stored in FM configuration to create the tunnel without passing it on the command line.",
+    "Supply a token and remember it",
+    "{benchname} --auth-token 2abcXYZ --save-token",
     benchname="mybench",
 )
 def ngrok(
@@ -30,20 +28,25 @@ def ngrok(
     benchname: BenchNameArgument = None,
     auth_token: Annotated[
         str | None,
-        typer.Option("--auth-token", "-t", help="Ngrok authentication token", envvar="NGROK_AUTHTOKEN"),
+        typer.Option(
+            "--auth-token",
+            "-t",
+            help="ngrok auth token. Falls back to the one saved in fm's config.",
+            envvar="NGROK_AUTHTOKEN",
+        ),
     ] = None,
     save_token: Annotated[
         bool | None,
         typer.Option(
             "--save-token/--no-save-token",
-            help="Save or don't save the ngrok auth token to config for future use",
+            help="Save this token to fm's config for later runs, or leave the config alone. fm asks when a new token arrives and neither flag is passed.",
         ),
     ] = None,
 ):
     """
-    Create ngrok tunnel for bench.
+    Expose a running bench on a public ngrok URL.
 
-    Provisions a public URL for local benches using ngrok; requires an auth token either via flag or config.
+    Needs an ngrok auth token: pass --auth-token, set NGROK_AUTHTOKEN, or save one in fm's config.
     """
     check_bench_migration_required(benchname)
 

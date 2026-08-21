@@ -14,15 +14,15 @@ $ fm services [OPTIONS] COMMAND [ARGS]...
 
 **Commands**:
 
-* `start`: Starts global services.
-* `stop`: Stops global services.
-* `restart`: Restarts global services.
-* `shell`: Open shell for the specificed global service.
+* `start`: Start the global services shared by every bench.
+* `stop`: Stop the global services shared by every bench.
+* `restart`: Restart the global services shared by every bench.
+* `shell`: Open a bash shell in one of the global service containers.
 
 
 ### `fm services start`
 
-Starts global services.
+Start the global services shared by every bench.
 
 **Usage**:
 
@@ -32,31 +32,31 @@ $ fm services start SERVICE_NAME
 
 **Arguments**:
 
-* `SERVICE_NAME`: Name of the service.  [required]
+* `SERVICE_NAME`  [required]
 
 
 ## Examples
 
-### Start global-db only
+### Bring the global stack up
 
-Starts only the global-db service used to store bench databases.
-
-```bash
-fm services start global-db
-```
-
-### Start all global services
-
-Starts all global services managed by FM (nginx-proxy, global-db, etc.).
+Services already running are left alone, so this is safe to re-run.
 
 ```bash
 fm services start all
 ```
 
+### Start the database only
+
+```bash
+fm services start global-db
+```
+
 
 ### `fm services stop`
 
-Stops global services.
+Stop the global services shared by every bench.
+
+Every bench is reached through global-nginx-proxy and keeps its data in global-db, so stopping these leaves the bench containers running but unreachable and without a database.
 
 **Usage**:
 
@@ -66,22 +66,14 @@ $ fm services stop SERVICE_NAME
 
 **Arguments**:
 
-* `SERVICE_NAME`: Name of the service.  [required]
+* `SERVICE_NAME`  [required]
 
 
 ## Examples
 
-### Stop global-db
+### Take the global stack down
 
-Stops the global-db service. Use when maintaining or backing up the global database.
-
-```bash
-fm services stop global-db
-```
-
-### Stop all services
-
-Stops all global services managed by FM.
+Services already stopped are left alone.
 
 ```bash
 fm services stop all
@@ -90,7 +82,7 @@ fm services stop all
 
 ### `fm services restart`
 
-Restarts global services.
+Restart the global services shared by every bench.
 
 **Usage**:
 
@@ -100,22 +92,22 @@ $ fm services restart SERVICE_NAME
 
 **Arguments**:
 
-* `SERVICE_NAME`: Name of the service.  [required]
+* `SERVICE_NAME`  [required]
 
 
 ## Examples
 
-### Restart global-db only
+### Apply a change to the proxy
 
-Restarts the global-db service only.
+A restart is what puts a new proxy config into effect, for instance after fm self real-ip.
 
 ```bash
-fm services restart global-db
+fm services restart global-nginx-proxy
 ```
 
-### Restart all global services
+### Restart the whole global stack
 
-Restarts all managed global services.
+Benches are unreachable until the proxy is back up.
 
 ```bash
 fm services restart all
@@ -124,7 +116,7 @@ fm services restart all
 
 ### `fm services shell`
 
-Open shell for the specificed global service.
+Open a bash shell in one of the global service containers.
 
 **Usage**:
 
@@ -134,26 +126,22 @@ $ fm services shell SERVICE_NAME [OPTIONS]
 
 **Arguments**:
 
-* `SERVICE_NAME`: Name of the service.  [required]
+* `SERVICE_NAME`: One service; all is not accepted here.  [required]
 
 **Options**:
 
-* `--user`: Connect as this user.
+* `--user`: Run the shell as this user instead of the container's default.
 
 
 ## Examples
 
-### Shell global-db
-
-Opens a shell into the global-db service for maintenance tasks.
+### Open a shell in the global database
 
 ```bash
 fm services shell global-db
 ```
 
-### Shell global-nginx-proxy
-
-Opens a shell into the nginx proxy container used for routing bench domains.
+### Open a shell in the proxy
 
 ```bash
 fm services shell global-nginx-proxy

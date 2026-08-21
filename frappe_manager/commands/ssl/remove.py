@@ -15,39 +15,36 @@ from .helpers import get_output_handler
 
 
 @example(
-    "Remove SSL certificate from a bench",
+    "Delete a bench certificate",
     "{benchname} example.com",
-    detail="Removes the certificate from the bench and its nginx configuration. Use --yes to skip confirmation.",
     benchname="mybench",
 )
 @example(
-    "Remove without confirmation",
+    "Delete without the confirmation prompt",
     "{benchname} example.com --yes",
-    detail="Removes the certificate immediately without prompting for confirmation.",
     benchname="mybench",
 )
 @example(
-    "Remove external (standalone) certificate",
+    "Delete an external domain's certificate",
     "example.com --standalone",
-    detail="Removes a certificate managed in standalone mode for external Docker projects.",
 )
 def remove_certificate(
     ctx: typer.Context,
     benchname: StandaloneBenchNameArgument = None,
-    domain: Annotated[str | None, typer.Argument(help="Domain name of the certificate to remove")] = None,
+    domain: Annotated[str | None, typer.Argument(help="Domain whose certificate to delete.")] = None,
     yes: Annotated[
         bool,
-        typer.Option("--yes", "-y", help="Skip confirmation prompt"),
+        typer.Option("--yes", "-y", help="Delete without asking for confirmation."),
     ] = False,
     standalone: Annotated[
         bool,
-        typer.Option("--standalone", help="Remove certificate for external (non-bench) domain"),
+        typer.Option("--standalone", help="Target an external (non-bench) domain."),
     ] = False,
 ):
     """
-    Remove an SSL certificate for a domain.
+    Delete an SSL certificate and go back to serving the domain over plain HTTP.
 
-    Works in bench mode (removes from a bench) or standalone mode for external Docker projects.
+    Asks for confirmation unless you pass --yes. --standalone deletes an external Docker project's certificate and nginx config instead of a bench's.
     """
 
     if standalone:

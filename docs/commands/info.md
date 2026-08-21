@@ -1,8 +1,8 @@
 ## `fm info`
 
-Show bench information and configuration.
+Show a bench's URL, credentials, apps, deploy history and live service state.
 
-Displays bench status, installed apps, environments, and other relevant configuration.
+The administrator and database passwords are printed in cleartext.
 
 **Usage**:
 
@@ -17,9 +17,7 @@ $ fm info BENCHNAME
 
 ## Examples
 
-### Show bench details and configuration
-
-Displays bench status, environment type, apps installed, and other configuration details useful for debugging and documentation.
+### Show everything about a bench
 
 ```bash
 fm info mybench

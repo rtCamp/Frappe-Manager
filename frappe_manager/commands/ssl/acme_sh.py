@@ -11,42 +11,31 @@ from .helpers import get_output_handler
 
 
 @example(
-    "Show acme.sh help and available commands",
+    "Show acme.sh's own help",
     "",
-    detail="Displays acme.sh help. Use for learning available subcommands and flags.",
 )
 @example(
-    "List all certificates managed by acme.sh",
+    "List the certificates acme.sh holds",
     "--list",
-    detail="Lists certificates that acme.sh currently manages in its home directory.",
 )
 @example(
-    "Show certificate information for a domain",
+    "Inspect one certificate",
     "--info -d example.com",
-    detail="Shows detailed information for a managed certificate for the domain.",
 )
 @example(
-    "Check acme.sh version",
-    "--version",
-    detail="Prints the installed acme.sh version used by FM.",
-)
-@example(
-    "Upgrade acme.sh to latest version",
-    "--upgrade",
-    detail="Upgrades the bundled acme.sh installation to the latest release.",
-)
-@example(
-    "Force renew certificate for a domain",
+    "Force a renewal acme.sh's own way",
     "--renew -d example.com --force",
-    detail="Forces a renewal for a certificate using acme.sh; advanced option for recovery and testing.",
+    detail="Bypasses fm's not-due check and its bookkeeping. fm ssl renew --force is the supported route.",
 )
 def acmesh_passthrough(
     ctx: typer.Context,
 ):
     """
-    Run acme.sh commands directly with FM's environment (advanced users).
+    Run the bundled acme.sh directly, against fm's certificate home.
 
-    Advanced users only: this bypasses FM's certificate management. Prefer 'fm ssl add/remove/renew' for normal workflows.
+    An escape hatch for inspection and recovery. fm does not see what you change this way, so use fm ssl add, renew and remove for normal work.
+
+    acme.sh is installed by the first fm ssl add, and this command refuses to run until then.
     """
     args = ctx.args
 

@@ -87,13 +87,17 @@ def _find_current_deploy_backup(state) -> "tuple[str | None, str | None]":
 @example(
     "Bake and deploy the current bench code",
     "{benchname}",
-    detail="Bakes a fresh immutable image from the bench and deploys it (same pipeline as fm switch).",
     benchname="mybench",
 )
 @example(
-    "Deploy into a specific image repository",
-    "{benchname} --image local/mybench",
-    detail="Sets the top-level image for this bake+deploy.",
+    "Deploy to a remote host",
+    "{benchname} --remote deploy.example.com",
+    detail="The image is baked for the remote daemon's architecture, not the local one.",
+    benchname="mybench",
+)
+@example(
+    "Deploy and trim old releases in one go",
+    "{benchname} --keep 3",
     benchname="mybench",
 )
 def deploy(
@@ -108,18 +112,21 @@ def deploy(
     ],
     image: Annotated[
         str | None,
-        typer.Option("--image", help="Image repository to bake into (sets the top-level image).", show_default=False),
+        typer.Option("--image", help="Image repository to bake into, e.g. local/mybench.", show_default=False),
     ] = None,
     tag: Annotated[
         str | None,
-        typer.Option("--tag", help="Full image tag to build (overrides the auto-generated tag).", show_default=False),
+        typer.Option(
+            "--tag",
+            help="Full image tag to build, instead of the generated <repo>:<timestamp>-<sha>.",
+            show_default=False,
+        ),
     ] = None,
     remote: Annotated[
         str | None,
         typer.Option(
             "--remote",
-            help="Deploy to a remote daemon over SSH (DOCKER_HOST=ssh://<user>@<host>:<port>). "
-            "Falls back to [deploy].ssh_server when omitted.",
+            help="Host of the remote Docker daemon to deploy to, e.g. deploy.example.com. The SSH user and port come from the deploy config, which also supplies the default host.",
             show_default=False,
         ),
     ] = None,
@@ -127,7 +134,7 @@ def deploy(
         bool | None,
         typer.Option(
             "--push/--no-push",
-            help="Push the baked image to the registry (default: push when [registry] is configured for 'registry').",
+            help="Push the baked image to the registry. On by default when registry.distribution is 'registry'.",
             show_default=False,
         ),
     ] = None,
@@ -135,8 +142,7 @@ def deploy(
         bool | None,
         typer.Option(
             "--rolling/--no-rolling",
-            help="Force/disable the rolling web swap. Default: auto (rolling whenever the overlap "
-            "is safe: no migrate, additive-asserted, or migrate under a maintenance window).",
+            help="Force or forbid the rolling web swap. The default decides per deploy, rolling only when running old and new containers side by side is safe.",
             show_default=False,
         ),
     ] = None,
@@ -144,7 +150,7 @@ def deploy(
         int | None,
         typer.Option(
             "--keep",
-            help="After a successful deploy, prune old releases keeping the newest N (minimum 1; see fm prune).",
+            help="After a successful deploy, prune old releases keeping the newest N (minimum 1). Same as running fm prune afterwards.",
             show_default=False,
         ),
     ] = None,
@@ -152,8 +158,7 @@ def deploy(
         list[str],
         typer.Option(
             "--config",
-            help="TOML config overlay: a file path or inline TOML content, deep-merged into the "
-            "bench config before deploy. Repeatable; later --config wins.",
+            help="TOML overlay, either a file path or inline TOML, merged into the bench's bench_config.toml before the bake and left there. Repeatable; later --config wins.",
             show_default=False,
         ),
     ] = [],
@@ -161,9 +166,7 @@ def deploy(
     """
     Bake an immutable image from the bench and deploy it.
 
-    Bake + switch in one command: builds the image, transports it if configured, then runs the same deploy pipeline as fm switch -- fetch -> pre-flight -> backup -> maintenance -> drain -> migrate (one-shot new image) -> swap (rolling when safe) -> finalize -> record.
-
-    Transport: in registry mode the image is pushed after bake and the (possibly remote) daemon pulls it during fetch; in save_load mode the image is streamed to the remote via ``docker save | ssh docker load`` before deploy. With ``--remote`` the local orchestrator drives the remote daemon via ``DOCKER_HOST``.
+    fm bake and fm switch in one command. The bench must already be in image runtime; a mount-runtime bench is refused.
     """
     output = get_global_output_handler()
     _reject_impossible_keep(output, keep)
@@ -225,52 +228,32 @@ def deploy(
 
 
 @example(
-    "Deploy a tag you baked earlier",
+    "Switch to a tag you baked",
     "{benchname} local/mybench:20260721-abc123",
-    detail="The everyday forward deploy: `fm bake` printed this tag (also in `fm list`). Runs backup, "
-    "migrate per config, swap, and records the tag in deploy history.",
+    detail="fm bake prints the tag; fm info lists the ones this bench has already run.",
     benchname="mybench",
 )
 @example(
-    "Deploy a tag from a registry",
+    "Switch to a tag from a registry",
     "{benchname} ghcr.io/acme/mybench:v15.2.1",
-    detail="Pulls with your ambient docker login if the image is not local. Typical on a prod box "
-    "where CI pushed the image.",
+    detail="Pulled with your ambient docker login when it is not already local.",
     benchname="mybench",
 )
 @example(
-    "Roll back a bad deploy",
+    "Roll back the last deploy",
     "{benchname} --previous",
-    detail="The 3am command. Returns to the last deployed tag with migrate disabled automatically "
-    "(old code must never migrate a newer schema). Run it again to undo the rollback.",
     benchname="mybench",
 )
 @example(
-    "Roll back further than one release",
-    "{benchname} local/mybench:20260718-9f21e0 --no-migrate",
-    detail="--previous only knows the last tag; for anything older pass the tag explicitly "
-    "(recorded in bench_config.toml deploy history) and keep migrate off.",
-    benchname="mybench",
-)
-@example(
-    "Undo a bad migration (code AND database)",
+    "Roll back code and database together",
     "{benchname} --previous --restore-db",
-    detail="Also restores the DB dump recorded during the current deploy, so code and schema go back "
-    "together. Runs under the maintenance window like a migrate.",
+    detail="For when the migration is the problem: the dump taken before it goes back with the older code.",
     benchname="mybench",
 )
 @example(
-    "Ship a code-only hotfix without the migrate ceremony",
-    "{benchname} local/mybench:20260721-hotfix1 --no-migrate",
-    detail="Skips migrate, and with it the maintenance window -- which makes the zero-downtime "
-    "rolling swap eligible. Fastest safe path for template/py-only fixes.",
-    benchname="mybench",
-)
-@example(
-    "Force the zero-downtime rolling swap",
-    "{benchname} local/mybench:20260722-def456 --rolling",
-    detail="Old and new web replicas serve side by side, then the old drains away. Only force it when "
-    "both versions work against the same DB schema; --no-rolling forces the plain recreate instead.",
+    "Roll back more than one release",
+    "{benchname} local/mybench:20260718-9f21e0 --no-migrate",
+    detail="--previous only knows the last tag, so name an older one explicitly and keep migrate off.",
     benchname="mybench",
 )
 def switch(
@@ -282,19 +265,19 @@ def switch(
     ] = None,
     previous: Annotated[
         bool,
-        typer.Option("--previous", help="Roll back to the previously deployed tag (disables migrate)."),
+        typer.Option("--previous", help="Roll back to the previously deployed tag, with migrate disabled."),
     ] = False,
     migrate: Annotated[
         bool | None,
         typer.Option(
             "--migrate/--no-migrate",
-            help="Force or skip bench migrate for this run (overrides bench config).",
+            help="Force or skip bench migrate for this run, overriding the bench config.",
             show_default=False,
         ),
     ] = None,
     restore_db: Annotated[
         bool,
-        typer.Option("--restore-db", help="Also restore the DB dump recorded during the current deploy."),
+        typer.Option("--restore-db", help="Also restore the DB dump taken during the deploy you are undoing."),
     ] = False,
     keep: Annotated[
         int | None,
@@ -308,7 +291,7 @@ def switch(
         bool | None,
         typer.Option(
             "--rolling/--no-rolling",
-            help="Force/disable the rolling web swap (default: auto when the overlap is safe).",
+            help="Force or disable the rolling web swap; the default is automatic whenever the overlap is safe. Forcing it is only safe when both versions run against the same database schema.",
             show_default=False,
         ),
     ] = None,
@@ -316,7 +299,7 @@ def switch(
     """
     Switch a bench to an already-built image tag, or roll back.
 
-    Forward deploys and rollbacks are the same pipeline pointed at different tags: fetch -> pre-flight -> backup -> migrate (per config) -> swap (rolling when safe) -> record. With --previous, migrate is disabled so old code never runs against a newer schema.
+    Every switch records the tag you left, so --previous returns to it; run it twice and you are back where you started. Older releases stay until fm prune clears them.
     """
     output = get_global_output_handler()
     _reject_impossible_keep(output, keep)
@@ -355,22 +338,19 @@ def switch(
 
 
 @example(
-    "Preview what a prune would remove",
+    "See what a prune would remove",
     "{benchname} --dry-run",
-    detail="Lists the history entries, backup dirs, and local image tags that would go. Nothing is touched.",
     benchname="mybench",
 )
 @example(
     "Prune old releases now",
     "{benchname}",
-    detail="Keeps the newest releases per keep_releases in bench config (default 7); current and "
-    "previous tags are always safe. Also available inline: --keep N on fm deploy/switch.",
+    detail="fm deploy and fm switch can do the same inline with --keep N.",
     benchname="mybench",
 )
 @example(
     "Keep only the last 3 releases",
     "{benchname} --keep 3",
-    detail="One-off override of the configured retention.",
     benchname="mybench",
 )
 def prune(
@@ -380,7 +360,7 @@ def prune(
         int | None,
         typer.Option(
             "--keep",
-            help="Retain this many releases, minimum 1 (overrides bench config).",
+            help="Keep this many releases instead of the configured keep_releases. Minimum 1: the current release is never pruned.",
             show_default=False,
         ),
     ] = None,
@@ -390,9 +370,9 @@ def prune(
     ] = False,
 ):
     """
-    Remove old deploy releases (history, DB dumps, unused image tags).
+    Delete old deploy releases: history rows, their DB dumps, and their local image tags.
 
-    Keeps the newest N releases per keep_releases in bench config (--keep overrides). Current and previous tags -- and any dump a kept release still references -- are never touched.
+    Keeps the newest keep_releases from the bench config (7 by default) or --keep. Nothing else is touched: a dump or image survives while a kept release, the current or previous tag, or the seed or base image still needs it, so rollback stays possible.
     """
     output = get_global_output_handler()
     _reject_impossible_keep(output, keep)

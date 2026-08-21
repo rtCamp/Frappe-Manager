@@ -63,17 +63,16 @@ def _fetch_cloudflare_ranges(output) -> list[str]:
 @example(
     "Trust Cloudflare",
     "--cdn cloudflare",
-    detail="The global proxy restores the visitor's real IP from CF-Connecting-IP for requests arriving from Cloudflare's published ranges (fetched live, vendored fallback). Logs, fm maintenance --allow-ip, and frappe rate limiting then see real client IPs.",
+    detail="Proxy logs, fm maintenance --allow-ip and frappe's rate limiting then see the visitor instead of Cloudflare's edge.",
 )
 @example(
-    "Trust a custom load balancer",
+    "Trust your own load balancer",
     "--trust 203.0.113.0/24",
-    detail="Restores the client IP from X-Forwarded-For for requests arriving from the given ranges (repeatable). Only list proxies you control: a trusted source controls the IP you see.",
+    detail="Each run replaces the whole configuration, so pass every range you sit behind in one call.",
 )
 @example(
-    "Show or remove the configuration",
+    "Show what is trusted",
     "--status",
-    detail="Shows the active real-ip configuration; --off removes it and reloads the proxy without downtime.",
 )
 def real_ip(
     ctx: typer.Context,
@@ -81,7 +80,7 @@ def real_ip(
         str | None,
         typer.Option(
             "--cdn",
-            help="Trust a known CDN's published ranges. Supported: cloudflare (uses the CF-Connecting-IP header).",
+            help="Trust a CDN's published ranges. Supported: cloudflare.",
             show_default=False,
         ),
     ] = None,
@@ -89,7 +88,7 @@ def real_ip(
         list[str],
         typer.Option(
             "--trust",
-            help="CIDR range (or single IP) of a proxy/LB in front of fm to trust (repeatable). Client IP is taken from X-Forwarded-For.",
+            help="CIDR range or single IP of a proxy in front of fm (repeatable).",
             show_default=False,
         ),
     ] = [],
@@ -97,25 +96,23 @@ def real_ip(
         str | None,
         typer.Option(
             "--header",
-            help="Override the header the client IP is restored from (default: CF-Connecting-IP for --cdn cloudflare, X-Forwarded-For otherwise).",
+            help="Header the client IP is read from. Defaults to CF-Connecting-IP for --cdn cloudflare and X-Forwarded-For otherwise; anything that is not a valid header name is refused.",
             show_default=False,
         ),
     ] = None,
     off: Annotated[
         bool,
-        typer.Option("--off", help="Remove the real-ip configuration from the global proxy."),
+        typer.Option("--off", help="Remove the configuration and reload the proxy."),
     ] = False,
     status: Annotated[
         bool,
-        typer.Option("--status", help="Show the active real-ip configuration without changing anything."),
+        typer.Option("--status", help="Show the active configuration. Writes nothing."),
     ] = False,
 ):
     """
-    Restore real client IPs at the global nginx proxy when it sits behind a CDN or load balancer.
+    Restore the visitor's real IP at the global nginx proxy when it sits behind a CDN or load balancer.
 
-    Without this, everything behind a CDN appears to come from the CDN's edge IPs: proxy logs, fm maintenance --allow-ip, and frappe's per-IP rate limiting all see the edge instead of the visitor. This writes an nginx real_ip configuration trusting exactly the given ranges and reloads the proxy without downtime.
-
-    Only trust ranges you actually sit behind: any trusted source fully controls the client IP you observe. The bench-level half (bench nginx trusting fm's internal frontend network) is automatic and needs no command.
+    Trust only the ranges you actually sit behind: whatever you trust fully controls the client IP that fm, your logs and frappe go on to see.
     """
 
     output = get_global_output_handler()

@@ -10,39 +10,33 @@ from frappe_manager.site_manager.site import Bench
 
 
 @example(
-    "Show frappe server logs",
+    "Read the bench's web server log",
     "{benchname}",
-    detail="Displays the frappe service logs for the bench; useful to inspect server output and errors.",
     benchname="mybench",
 )
 @example(
-    "Follow logs in real-time",
+    "Follow it live",
     "{benchname} -f",
-    detail="Streams logs continuously; press Ctrl+C to stop following.",
     benchname="mybench",
 )
 @example(
-    "Show nginx container logs",
+    "Read a container's logs instead",
     "{benchname} --service nginx -f",
-    detail="Shows the nginx container logs for the bench and follows them in real-time when -f is provided.",
-    benchname="mybench",
-)
-@example(
-    "Show redis logs",
-    "{benchname} --service redis-cache",
-    detail="Displays logs from redis-cache service; helpful when debugging caching or queuing issues.",
     benchname="mybench",
 )
 def logs(
     ctx: typer.Context,
     benchname: BenchNameArgument = None,
-    service: Annotated[str | None, typer.Option(help="Service name (frappe, nginx, redis-cache, etc.)")] = None,
-    follow: Annotated[bool, typer.Option("--follow", "-f", help="Follow logs in real-time")] = False,
+    service: Annotated[
+        str | None,
+        typer.Option(help="Compose service whose container logs to show (frappe, nginx, redis-cache, ...)."),
+    ] = None,
+    follow: Annotated[bool, typer.Option("--follow", "-f", help="Keep streaming new lines until Ctrl+C.")] = False,
 ):
     """
-    Show bench logs (server or container).
+    Show a bench's web server log, or a container's log with --service.
 
-    View logs from bench services (frappe, nginx, redis, etc.) with optional follow mode.
+    Without --service this reads the bench's log files on the host, so it works whether or not the bench is up. With --service the logs come from docker and that container has to be running.
     """
 
     check_bench_migration_required(benchname)

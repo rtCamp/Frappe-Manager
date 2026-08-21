@@ -10,39 +10,42 @@ from frappe_manager.site_manager.bench_service import BenchService
 
 
 @example(
-    "Delete a bench",
-    "{benchname}",
-    detail="Deletes the bench directory and associated containers. This is destructive and will remove local bench data.",
-    benchname="mybench",
-)
-@example(
-    "Delete without confirmation",
-    "{benchname} --yes",
-    detail="Performs deletion without interactive confirmation. Use with caution in scripts or automation.",
-    benchname="mybench",
-)
-@example(
-    "Delete bench and its database from global-db",
+    "Delete a bench and its database",
     "{benchname} --delete-db-from-global-db",
-    detail="Also deletes the bench's database from the global-db service. This permanently removes stored site data.",
+    benchname="mybench",
+)
+@example(
+    "Delete the bench but keep the database",
+    "{benchname} --no-delete-db-from-global-db",
+    detail="The bench is gone; the schema stays in global-db.",
+    benchname="mybench",
+)
+@example(
+    "Delete unattended",
+    "{benchname} --yes --delete-db-from-global-db",
     benchname="mybench",
 )
 def delete(
     ctx: typer.Context,
     benchname: BenchNameArgument = None,
-    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation prompts")] = False,
+    yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes", "-y", help="Delete without the removal confirmation. The database question is asked anyway."
+        ),
+    ] = False,
     delete_db_from_global_db: Annotated[
         bool | None,
         typer.Option(
             "--delete-db-from-global-db/--no-delete-db-from-global-db",
-            help="Delete database from global-db service",
+            help="Drop the site's schema and user from the global-db container, or keep them. Never touches a database on an external server. fm asks when neither is passed.",
         ),
     ] = None,
 ):
     """
-    Delete a bench and optionally its database from global-db service.
+    Delete a bench: its containers and volumes, its whole directory, and its TLS certificate.
 
-    Removes the bench directory, containers, and associated data. Use --yes to avoid confirmation prompts.
+    The database is decided separately. fm can drop the site's schema and user from the global-db container it owns, but a schema on a server fm does not own is always left in place, --delete-db-from-global-db or not.
     """
 
     if benchname:

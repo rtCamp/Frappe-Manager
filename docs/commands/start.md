@@ -1,8 +1,6 @@
 ## `fm start`
 
-Start a bench.
-
-Starts all containers for the specified bench. Reconfigure flags allow updating process and worker settings.
+Start a bench's containers, admin tools and workers.
 
 **Usage**:
 
@@ -16,54 +14,34 @@ $ fm start BENCHNAME [OPTIONS]
 
 **Options**:
 
-* `-f, --force`: Recreate containers
-* `--reconfigure-supervisor`: Reconfigure supervisor
-* `--reconfigure-common-site-config`: Reconfigure site config
-* `--reconfigure-workers`: Reconfigure workers
-* `--include-default-workers`: Include default workers
-* `--include-custom-workers`: Include custom workers
-* `--sync-dev-packages`: Sync dev packages
+* `-f, --force`: Recreate the containers instead of reusing the existing ones.
+* `--reconfigure-supervisor`: Regenerate the supervisord config before starting processes.
+* `--reconfigure-common-site-config`: Rewrite common_site_config.json with fm's defaults.
+* `--reconfigure-workers`: Regenerate the workers compose file from the bench config.
+* `--include-default-workers`: Include the default workers when regenerating.
+* `--include-custom-workers`: Include custom workers when regenerating.
+* `--sync-dev-packages`: Install dev packages on a dev bench, remove them on a prod one.
 
 
 ## Examples
 
-### Start bench containers
-
-Starts all containers for the specified bench. Useful to bring a bench up after stopping or system reboot.
+### Start a bench
 
 ```bash
 fm start mybench
 ```
 
-### Force recreate containers
+### Recreate the containers
 
-Recreates containers even if they already exist; use when container images or configuration changed.
+Use after an image or compose change.
 
 ```bash
 fm start mybench --force
 ```
 
-### Start and reconfigure workers
-
-Starts the bench and reconfigures worker processes to pick up configuration changes.
+### Pick up worker config changes
 
 ```bash
 fm start mybench --reconfigure-workers
-```
-
-### Start with supervisor reconfiguration
-
-Reconfigures the supervisor process manager during start to update process definitions.
-
-```bash
-fm start mybench --reconfigure-supervisor
-```
-
-### Start and sync dev packages
-
-Synchronizes development packages after starting; useful in development workflows.
-
-```bash
-fm start mybench --sync-dev-packages
 ```
 

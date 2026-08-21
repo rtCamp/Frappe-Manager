@@ -104,24 +104,26 @@ def _build_standalone_config(
 @example(
     "Bake an image from an existing bench",
     "{benchname}",
-    detail="Provisions the bench's apps into a build context and builds a runtime image tagged from the top-level image.",
     benchname="mybench",
 )
 @example(
-    "Bake with an explicit image repository",
+    "Bake into a specific image repository",
     "{benchname} --image local/mybench",
-    detail="Sets the top-level image for this bake. The tag is derived automatically as <repo>:<timestamp>-<git sha>.",
     benchname="mybench",
 )
 @example(
-    "Standalone bake (no bench) from apps",
+    "Bake exactly what is on disk right now",
+    "{benchname} --source workspace",
+    benchname="mybench",
+)
+@example(
+    "Standalone bake, no bench involved",
     "--apps erpnext:version-15 --image ghcr.io/acme/mysite --push",
-    detail="Builds an image directly from apps -- no bench/compose/site. Ideal for CI 'build once -> push -> deploy elsewhere'.",
 )
 @example(
     "Standalone bake from a config file",
     "--config ci/build.toml",
-    detail="The config supplies top-level image, [[apps]] and [build]; nothing else on disk is needed.",
+    detail="The config supplies the image, [[apps]] and [build]; nothing else on disk is needed.",
 )
 def bake(
     ctx: typer.Context,
@@ -136,7 +138,7 @@ def bake(
         str | None,
         typer.Option(
             "--image",
-            help="Image repository to bake into (sets the top-level image).",
+            help="Image repository to bake into, e.g. ghcr.io/acme/mysite.",
             show_default=False,
         ),
     ] = None,
@@ -144,7 +146,7 @@ def bake(
         str | None,
         typer.Option(
             "--tag",
-            help="Full image tag to build (overrides the auto-generated <repo>:<timestamp>-<sha>).",
+            help="Full image tag to build, instead of the generated <repo>:<timestamp>-<sha>.",
             show_default=False,
         ),
     ] = None,
@@ -152,7 +154,7 @@ def bake(
         bool | None,
         typer.Option(
             "--push/--no-push",
-            help="Push the baked image to the registry (default: push when [registry] is configured for 'registry').",
+            help="Push the baked image to the registry. On by default when registry.distribution is 'registry'.",
             show_default=False,
         ),
     ] = None,
@@ -160,8 +162,7 @@ def bake(
         list[str],
         typer.Option(
             "--config",
-            help="TOML config overlay: a file path or inline TOML content, deep-merged into the "
-            "config before baking. Repeatable; later --config wins.",
+            help="TOML overlay, either a file path or inline TOML. With a bench it is merged into bench_config.toml and stays there; standalone it supplies the whole config. Repeatable; later --config wins.",
             show_default=False,
         ),
     ] = [],
@@ -179,7 +180,7 @@ def bake(
         str | None,
         typer.Option(
             "--python",
-            help="Standalone bake only: Python version to bake (sets [build].python_version).",
+            help="Standalone bake only: Python version to bake.",
             show_default=False,
         ),
     ] = None,
@@ -187,7 +188,7 @@ def bake(
         str | None,
         typer.Option(
             "--node",
-            help="Standalone bake only: Node version to bake (sets [build].node_version).",
+            help="Standalone bake only: Node version to bake.",
             show_default=False,
         ),
     ] = None,
@@ -205,8 +206,7 @@ def bake(
         str | None,
         typer.Option(
             "--source",
-            help="App source: 'provision' (default, clone+install fresh) or 'workspace' "
-            "(snapshot the bench's current on-disk workspace; bench mode only).",
+            help="Where app code comes from: 'provision' (default) clones and installs fresh, 'workspace' snapshots the bench's current on-disk workspace (bench mode only).",
             show_default=False,
         ),
     ] = None,
@@ -214,8 +214,7 @@ def bake(
         list[str],
         typer.Option(
             "--include",
-            help="Extra path to bake into the image: 'src' or 'src:dest' (dest relative to the bench "
-            "root, i.e. /workspace/frappe-bench). Applied after source; overrides. Repeatable.",
+            help="Host path to copy into the image, as 'src' or 'src:dest' with dest relative to the bench root (default: the src basename). Overwrites whatever the app source put there. Repeatable.",
             show_default=False,
         ),
     ] = [],
@@ -225,12 +224,8 @@ def bake(
 
     Two modes:
 
-    - Bench: `fm bake <bench>` provisions the named bench's apps into a temp
-      build context and builds a runtime image.
-    - Standalone: `fm bake --apps ... --image ...` (or `--config`) builds an
-      image with no bench/compose/site -- for CI "build once -> push -> deploy".
-
-    Both provision via docker run and COPY the provisioned frappe-bench onto the base image (keeping the supervisor entrypoint).
+    - With a bench name: bakes that bench's apps.
+    - With --apps or --config and no bench name: builds with no bench, compose project or site.
     """
     output = get_global_output_handler()
 

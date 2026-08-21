@@ -9,29 +9,30 @@ from frappe_manager.site_manager.bench_service import BenchService
 
 
 @example(
-    "Stop everything (all benches + global services)",
+    "Stop everything",
     "",
-    detail="Stops all running benches and all global services (global-db, global-nginx-proxy).",
 )
 @example(
-    "Stop only global services",
+    "Stop the global services, leave the benches up",
     "--global-only",
-    detail="Stops only global services, leaves benches running.",
 )
 @example(
-    "Stop only benches",
+    "Stop the benches, leave the global services up",
     "--benches-only",
-    detail="Stops only benches, leaves global services running.",
 )
 def stop(
     ctx: typer.Context,
-    global_only: bool = typer.Option(False, "--global-only", help="Stop only global services"),
-    benches_only: bool = typer.Option(False, "--benches-only", help="Stop only benches"),
+    global_only: bool = typer.Option(
+        False, "--global-only", help="Stop the global services only, leaving every bench running."
+    ),
+    benches_only: bool = typer.Option(
+        False, "--benches-only", help="Stop every bench only, leaving the global services running."
+    ),
 ):
     """
-    Stop everything managed by FM.
+    Stop every bench on this host, then the global services (global-nginx-proxy, global-db).
 
-    Stops all running benches and global services (global-db, global-nginx-proxy). Use --global-only or --benches-only to stop only a subset.
+    Nothing fm manages is left running unless you narrow the blast radius with --benches-only or --global-only.
     """
     services_manager: ServicesManager = ctx.obj["services"]
     verbose = ctx.obj["verbose"]

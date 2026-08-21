@@ -58,6 +58,9 @@ FM supports two ways to prove domain ownership to Let's Encrypt:
 - ✅ Use **DNS-01** if port 80 is blocked, you need wildcard certificates, or testing on internal networks
 - ✅ Use `--dev` for local development: issues a locally-trusted certificate from a local CA, no internet or public DNS required (see [below](#local-development-certificates-dev))
 
+!!! note "HTTP-01 and a password prompt coexist; maintenance mode does not"
+    `fm auth` puts an HTTP basic auth prompt in front of a bench, but the bench nginx serves `/.well-known/acme-challenge/` with `auth_basic off`, so issuance and renewal are never blocked by it. `fm maintenance` is different: it exempts nothing by default, so if a renewal falls due while the maintenance page is up, allow the path explicitly with `fm maintenance <bench> --allow-path '/.well-known/acme-challenge/*'`.
+
 ---
 
 ## Before you start

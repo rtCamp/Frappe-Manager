@@ -9,20 +9,19 @@ from frappe_manager.services_manager.services import ServicesManager
 
 
 @example(
-    "Stop global-db",
-    "global-db",
-    detail="Stops the global-db service. Use when maintaining or backing up the global database.",
-)
-@example(
-    "Stop all services",
+    "Take the global stack down",
     "all",
-    detail="Stops all global services managed by FM.",
+    detail="Services already stopped are left alone.",
 )
 def stop_services(
     ctx: typer.Context,
-    service_name: Annotated[ServicesEnum, typer.Argument(help="Name of the service.")],
+    service_name: Annotated[ServicesEnum, typer.Argument()],
 ):
-    """Stops global services."""
+    """
+    Stop the global services shared by every bench.
+
+    Every bench is reached through global-nginx-proxy and keeps its data in global-db, so stopping these leaves the bench containers running but unreachable and without a database.
+    """
     services_manager: ServicesManager = ctx.obj["services"]
     output = get_global_output_handler()
     if service_name.value == ServicesEnum.all:

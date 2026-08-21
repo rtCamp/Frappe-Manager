@@ -1,8 +1,8 @@
 ## `fm prune`
 
-Remove old deploy releases (history, DB dumps, unused image tags).
+Delete old deploy releases: history rows, their DB dumps, and their local image tags.
 
-Keeps the newest N releases per keep_releases in bench config (--keep overrides). Current and previous tags -- and any dump a kept release still references -- are never touched.
+Keeps the newest keep_releases from the bench config (7 by default) or --keep. Nothing else is touched: a dump or image survives while a kept release, the current or previous tag, or the seed or base image still needs it, so rollback stays possible.
 
 **Usage**:
 
@@ -16,15 +16,13 @@ $ fm prune BENCHNAME [OPTIONS]
 
 **Options**:
 
-* `--keep`: Retain this many releases (overrides bench config).
+* `--keep`: Keep this many releases instead of the configured keep_releases. Minimum 1: the current release is never pruned.
 * `--dry-run`: Report what would be pruned without deleting anything.
 
 
 ## Examples
 
-### Preview what a prune would remove
-
-Lists the history entries, backup dirs, and local image tags that would go. Nothing is touched.
+### See what a prune would remove
 
 ```bash
 fm prune mybench --dry-run
@@ -32,15 +30,13 @@ fm prune mybench --dry-run
 
 ### Prune old releases now
 
-Keeps the newest releases per keep_releases in bench config (default 7); current and previous tags are always safe. Also available inline: --keep N on fm deploy/switch.
+fm deploy and fm switch can do the same inline with --keep N.
 
 ```bash
 fm prune mybench
 ```
 
 ### Keep only the last 3 releases
-
-One-off override of the configured retention.
 
 ```bash
 fm prune mybench --keep 3

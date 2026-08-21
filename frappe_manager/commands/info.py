@@ -8,9 +8,8 @@ from frappe_manager.site_manager.site import Bench
 
 
 @example(
-    "Show bench details and configuration",
+    "Show everything about a bench",
     "{benchname}",
-    detail="Displays bench status, environment type, apps installed, and other configuration details useful for debugging and documentation.",
     benchname="mybench",
 )
 def info(
@@ -18,9 +17,9 @@ def info(
     benchname: BenchNameArgument = None,
 ):
     """
-    Show bench information and configuration.
+    Show a bench's URL, credentials, apps, deploy history and live service state.
 
-    Displays bench status, installed apps, environments, and other relevant configuration.
+    The administrator and database passwords are printed in cleartext.
     """
 
     check_bench_migration_required(benchname)

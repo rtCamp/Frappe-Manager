@@ -13,60 +13,55 @@ from frappe_manager.utils.callbacks import code_command_extensions_callback
 
 
 @example(
-    "Open bench in VSCode",
+    "Open the bench in VSCode",
     "{benchname}",
-    detail="Opens the bench workspace in VSCode and attaches the recommended extensions and settings.",
     benchname="mybench",
 )
 @example(
-    "Open bench with debugger config",
+    "Open it with the Frappe debug config",
     "{benchname} --debugger",
-    detail="Launches VSCode with debugger configuration prepared for the Frappe app.",
     benchname="mybench",
 )
 @example(
-    "Force start bench before opening",
-    "{benchname} --force-start",
-    detail="Starts the bench containers before opening VSCode if they are not running.",
-    benchname="mybench",
-)
-@example(
-    "Add custom VSCode extension",
-    "{benchname} --extension vscodevim.vim",
-    detail="Installs or enables additional VSCode extensions inside the development container.",
-    benchname="mybench",
-)
-@example(
-    "Open with custom working directory",
-    "{benchname} --work-dir /workspace",
-    detail="Overrides the default working directory used within the VSCode container.",
+    "Add your own extension",
+    "{benchname} -e vscodevim.vim",
     benchname="mybench",
 )
 def code(
     ctx: typer.Context,
     benchname: BenchNameArgument = None,
-    user: Annotated[str, typer.Option(help="User to connect as")] = "frappe",
+    user: Annotated[str, typer.Option(help="User VSCode connects as inside the container.")] = "frappe",
     extensions: Annotated[
         list[str],
         typer.Option(
             "--extension",
             "-e",
-            help="VSCode extensions to install (e.g., ms-python.python)",
+            help="Extra VSCode extension to install alongside fm's defaults, e.g. ms-python.python (repeatable).",
             callback=code_command_extensions_callback,
             show_default=False,
         ),
     ] = DEFAULT_EXTENSIONS,
-    force_start: Annotated[bool, typer.Option("--force-start", "-f", help="Start bench before opening VSCode")] = False,
-    debugger: Annotated[bool, typer.Option("--debugger", "-d", help="Setup debugger config")] = False,
+    force_start: Annotated[
+        bool,
+        typer.Option("--force-start", "-f", help="Start the bench first if it is not running."),
+    ] = False,
+    debugger: Annotated[
+        bool,
+        typer.Option(
+            "--debugger",
+            "-d",
+            help="Write the Frappe debug launch config and install ruff in the container. Workspace directories only.",
+        ),
+    ] = False,
     workdir: Annotated[
         str,
-        typer.Option("--work-dir", "-w", help="Working directory in VSCode"),
+        typer.Option("--work-dir", "-w", help="Directory VSCode opens inside the container."),
     ] = "/workspace/frappe-bench",
 ):
     """
-    Open bench in VSCode.
+    Open a bench in VSCode, attached to its running frappe container.
 
-    Attaches VSCode to the bench container with recommended extensions and optional debugger support.
+    Needs the bench up (--force-start starts it) and the VSCode 'code' CLI on PATH. An image-mode bench has no mounted workspace, so edits made here live only in that container and are lost on the next deploy or switch.
     """
 
     check_bench_migration_required(benchname)

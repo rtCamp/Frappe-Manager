@@ -11,49 +11,33 @@ _COMPOSE_ORDER = {"docker-compose.yml": 0, "docker-compose.workers.yml": 1, "doc
 
 
 @example(
-    "Show running containers for a bench",
+    "Show the bench's containers",
     "{benchname} ps",
-    detail="Runs 'docker compose ps' for the bench using all discovered compose files.",
     benchname="mybench",
 )
 @example(
-    "Start containers in detached mode",
-    "{benchname} up -d",
-    detail="Starts containers in detached mode using the bench's compose files.",
-    benchname="mybench",
-)
-@example(
-    "Follow logs for frappe service",
+    "Follow the frappe logs",
     "{benchname} logs -f frappe",
-    detail="Runs 'docker compose logs -f frappe' to stream logs for the frappe service.",
     benchname="mybench",
 )
 @example(
-    "Execute bash in frappe container",
+    "Open a shell in a container",
     "{benchname} exec frappe bash",
-    detail="Executes an interactive bash shell in the frappe container.",
     benchname="mybench",
 )
 @example(
-    "Restart specific service",
+    "Restart one service",
     "{benchname} restart frappe",
-    detail="Restarts a single service using docker compose for targeted debugging.",
-    benchname="mybench",
-)
-@example(
-    "View container resource usage",
-    "{benchname} stats",
-    detail="Runs 'docker compose stats' to view resource usage for bench containers.",
     benchname="mybench",
 )
 def compose(
     ctx: typer.Context,
-    benchname: str = typer.Argument(..., help="Name of the bench"),
+    benchname: str = typer.Argument(..., help="Name of the bench."),
 ):
     """
-    Run docker compose commands with auto-detected compose files.
+    Run docker compose against a bench with all of its compose files already wired up.
 
-    Automatically finds and includes all docker-compose*.yml files in the bench directory.
+    Everything after the bench name is handed to docker compose untouched, so any subcommand and flag it accepts works here.
     """
     bench_name = sitename_callback(benchname)
     bench_path = CLI_BENCHES_DIRECTORY / bench_name

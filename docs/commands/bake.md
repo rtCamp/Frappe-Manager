@@ -4,12 +4,8 @@ Bake an immutable app image.
 
 Two modes:
 
-- Bench: `fm bake <bench>` provisions the named bench's apps into a temp
-  build context and builds a runtime image.
-- Standalone: `fm bake --apps ... --image ...` (or `--config`) builds an
-  image with no bench/compose/site -- for CI "build once -> push -> deploy".
-
-Both provision via docker run and COPY the provisioned frappe-bench onto the base image (keeping the supervisor entrypoint).
+- With a bench name: bakes that bench's apps.
+- With --apps or --config and no bench name: builds with no bench, compose project or site.
 
 **Usage**:
 
@@ -23,39 +19,39 @@ $ fm bake BENCHNAME [OPTIONS]
 
 **Options**:
 
-* `--image`: Image repository to bake into (sets the top-level image).
-* `--tag`: Full image tag to build (overrides the auto-generated <repo>:<timestamp>-<sha>).
-* `--push/--no-push`: Push the baked image to the registry (default: push when [registry] is configured for 'registry').
-* `--config`: TOML config overlay: a file path or inline TOML content, deep-merged into the config before baking. Repeatable; later --config wins.
+* `--image`: Image repository to bake into, e.g. ghcr.io/acme/mysite.
+* `--tag`: Full image tag to build, instead of the generated <repo>:<timestamp>-<sha>.
+* `--push/--no-push`: Push the baked image to the registry. On by default when registry.distribution is 'registry'.
+* `--config`: TOML overlay, either a file path or inline TOML. With a bench it is merged into bench_config.toml and stays there; standalone it supplies the whole config. Repeatable; later --config wins.
 * `-a, --apps`: Standalone bake only: apps to bake (appname:branch or appname, e.g. erpnext:version-15). Repeatable.
-* `--python`: Standalone bake only: Python version to bake (sets [build].python_version).
-* `--node`: Standalone bake only: Node version to bake (sets [build].node_version).
+* `--python`: Standalone bake only: Python version to bake.
+* `--node`: Standalone bake only: Node version to bake.
 * `-t, --github-token`: Standalone bake only: GitHub token for private app repos (or use GITHUB_TOKEN env var).
-* `--source`: App source: 'provision' (default, clone+install fresh) or 'workspace' (snapshot the bench's current on-disk workspace; bench mode only).
-* `--include`: Extra path to bake into the image: 'src' or 'src:dest' (dest relative to the bench root, i.e. /workspace/frappe-bench). Applied after source; overrides. Repeatable.
+* `--source`: Where app code comes from: 'provision' (default) clones and installs fresh, 'workspace' snapshots the bench's current on-disk workspace (bench mode only).
+* `--include`: Host path to copy into the image, as 'src' or 'src:dest' with dest relative to the bench root (default: the src basename). Overwrites whatever the app source put there. Repeatable.
 
 
 ## Examples
 
 ### Bake an image from an existing bench
 
-Provisions the bench's apps into a build context and builds a runtime image tagged from the top-level image.
-
 ```bash
 fm bake mybench
 ```
 
-### Bake with an explicit image repository
-
-Sets the top-level image for this bake. The tag is derived automatically as <repo>:<timestamp>-<git sha>.
+### Bake into a specific image repository
 
 ```bash
 fm bake mybench --image local/mybench
 ```
 
-### Standalone bake (no bench) from apps
+### Bake exactly what is on disk right now
 
-Builds an image directly from apps -- no bench/compose/site. Ideal for CI 'build once -> push -> deploy elsewhere'.
+```bash
+fm bake mybench --source workspace
+```
+
+### Standalone bake, no bench involved
 
 ```bash
 fm bake --apps erpnext:version-15 --image ghcr.io/acme/mysite --push
@@ -63,7 +59,7 @@ fm bake --apps erpnext:version-15 --image ghcr.io/acme/mysite --push
 
 ### Standalone bake from a config file
 
-The config supplies top-level image, [[apps]] and [build]; nothing else on disk is needed.
+The config supplies the image, [[apps]] and [build]; nothing else on disk is needed.
 
 ```bash
 fm bake --config ci/build.toml

@@ -1,8 +1,8 @@
 ## `fm reset`
 
-Drop database and reinstall all apps.
+Destroy a site: drop its database and reinstall every app, losing all site data.
 
-Intended for resetting a site to a clean state; this operation removes site data.
+Only sites on the database server fm owns can be reset. A bench with its own \[database] entry is refused, because that schema is not fm's to drop.
 
 **Usage**:
 
@@ -16,24 +16,20 @@ $ fm reset BENCHNAME [OPTIONS]
 
 **Options**:
 
-* `--admin-pass`: Password for the 'Administrator' User.
+* `--admin-pass`: Administrator password for the reinstalled site. Taken from site_config.json, or prompted for, when omitted.
 
 
 ## Examples
 
-### Drop database and reinstall all apps
-
-Drops the site's database and reinstalls all apps; destructive and intended for development or recovery.
+### Reset a site to a fresh install
 
 ```bash
 fm reset mybench
 ```
 
-### Reset with custom admin password
-
-Resets the bench and sets the new administrator password after reinstalling apps.
+### Reset and set a new administrator password
 
 ```bash
-fm reset mybench --admin-pass newpassword
+fm reset mybench --admin-pass 'new-password'
 ```
 

@@ -13,89 +13,57 @@ from ..dns_helpers import _configure_dns_credentials, _remove_dns_credentials, _
 
 
 @example(
-    "Configure global Cloudflare credentials using API Token (recommended)",
-    "--api-token YOUR_CLOUDFLARE_API_TOKEN",
-    detail="Stores a global Cloudflare API token for DNS-01 challenges. Recommended for scoped permissions.",
+    "Store a global API token",
+    "--api-token cf_AbCdEf1234567890",
 )
 @example(
-    "Configure global Cloudflare credentials using API Key (legacy)",
-    "--api-key YOUR_API_KEY --email admin@example.com",
-    detail="Stores legacy Global API Key credentials; less secure and requires account email.",
+    "Override the token for one bench",
+    "{benchname} --api-token cf_ZyXwVu0987654321",
+    benchname="mybench",
 )
 @example(
-    "Configure bench-specific Cloudflare credentials (overrides global)",
-    "--api-token BENCH_SPECIFIC_TOKEN",
-    detail="Sets Cloudflare credentials for a specific bench, overriding global configuration.",
+    "Use a legacy Global API Key instead",
+    "--api-key 1234567890abcdef1234 --email admin@example.com",
 )
 @example(
-    "Show global Cloudflare DNS credentials configuration",
+    "Show what is stored",
     "--show",
-    detail="Displays stored global Cloudflare credentials (if any).",
-)
-@example(
-    "Show bench-specific Cloudflare DNS credentials",
-    "--show",
-    detail="Displays stored Cloudflare credentials for the specified bench.",
-)
-@example(
-    "Remove global Cloudflare DNS credentials",
-    "--remove",
-    detail="Removes global Cloudflare credential configuration.",
-)
-@example(
-    "Remove bench-specific Cloudflare DNS credentials",
-    "--remove",
-    detail="Removes Cloudflare credential configuration for the specified bench.",
+    detail="With a bench name, prints that bench's entry as well as the global one.",
 )
 def dns_config_cloudflare(
     ctx: typer.Context,
     benchname: Annotated[
         str | None,
         typer.Argument(
-            help="Bench name for bench-specific credentials. Omit for global configuration.",
+            help="Bench to configure. Omit for global credentials.",
             autocompletion=sites_autocompletion_callback,
         ),
     ] = None,
     api_token: Annotated[
         str | None,
-        typer.Option("--api-token", help="Cloudflare API Token (recommended; scoped permissions)"),
+        typer.Option("--api-token", help="Cloudflare API token, scoped to the zones you issue for."),
     ] = None,
     api_key: Annotated[
         str | None,
-        typer.Option("--api-key", help="Cloudflare Global API Key (legacy; full account access)"),
+        typer.Option("--api-key", help="Legacy Global API Key, which grants full account access. Requires --email."),
     ] = None,
     email: Annotated[
         str | None,
-        typer.Option("--email", help="Cloudflare account email (required with Global API Key)"),
+        typer.Option("--email", help="Cloudflare account email. Required with --api-key only."),
     ] = None,
     show: Annotated[
         bool,
-        typer.Option("--show", "-s", help="Show current Cloudflare DNS credentials"),
+        typer.Option("--show", "-s", help="Print the stored credentials, secrets masked. Writes nothing."),
     ] = False,
     remove: Annotated[
         bool,
-        typer.Option("--remove", "-r", help="Remove Cloudflare DNS credentials"),
+        typer.Option("--remove", "-r", help="Delete the stored credentials."),
     ] = False,
 ):
     """
-    Configure Cloudflare DNS credentials for DNS-01 challenge.
+    Store Cloudflare API credentials for DNS-01 certificate issuance.
 
-    Credentials can be configured at two levels:
-    - [bold]Global[/bold]: Used by all benches (omit benchname)
-    - [bold]Bench-specific[/bold]: Override for a specific bench (provide benchname)
-
-    [bold cyan]Authentication Methods:[/bold cyan]
-
-    1. [green]API Token[/green] (Recommended):
-       - More secure with scoped permissions
-       - Create at: https://dash.cloudflare.com/profile/api-tokens
-       - Template: "Edit zone DNS"
-       - Required permission: Zone > DNS > Edit
-
-    2. [yellow]Global API Key[/yellow] (Legacy):
-       - Full account access (less secure)
-       - Requires --email with your Cloudflare account email
-       - Find at: https://dash.cloudflare.com/profile/api-tokens
+    Credentials are global; pass a bench name to override them for that bench alone. An API token needs Zone > DNS > Edit, created at https://dash.cloudflare.com/profile/api-tokens
     """
     provider_name = DNS_PROVIDER.cloudflare.value
 

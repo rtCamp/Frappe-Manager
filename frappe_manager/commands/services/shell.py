@@ -9,23 +9,21 @@ from frappe_manager.services_manager.services import ServicesManager
 
 
 @example(
-    "Shell global-db",
+    "Open a shell in the global database",
     "global-db",
-    detail="Opens a shell into the global-db service for maintenance tasks.",
 )
 @example(
-    "Shell global-nginx-proxy",
+    "Open a shell in the proxy",
     "global-nginx-proxy",
-    detail="Opens a shell into the nginx proxy container used for routing bench domains.",
 )
 def shell_services(
     ctx: typer.Context,
-    service_name: Annotated[ServicesEnum, typer.Argument(help="Name of the service.")],
-    user: Annotated[str | None, typer.Option(help="Connect as this user.")] = None,
+    service_name: Annotated[ServicesEnum, typer.Argument(help="One service; all is not accepted here.")],
+    user: Annotated[
+        str | None, typer.Option(help="Run the shell as this user instead of the container's default.")
+    ] = None,
 ):
-    """
-    Open shell for the specificed global service.
-    """
+    """Open a bash shell in one of the global service containers."""
     # `all` is a valid ServicesEnum value but there is no shell for it: passing it through ran
     # `docker compose exec all /bin/bash`, whose "no such service: all" was swallowed and
     # reported as "Shell exited with error code: 1", as if the shell had run.

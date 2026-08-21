@@ -93,7 +93,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
     # nothing else on the create path checks, and `--allow-domain-conflicts` turns
     # the only other gate off. The absent callback was the bug, not the contract.
     "fm create": BenchnameSpec(
-        help="Bench name",
+        help="Bench name, also its domain. A bare name becomes mybench.localhost.",
         default=None,
         required=True,
         type_name="text",
@@ -103,7 +103,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
     # `maintenance --status` may run bench-less, so it swaps in a wrapper that
     # lets `None` through for that one flag and otherwise delegates.
     "fm maintenance": BenchnameSpec(
-        help="Name of the bench. Optional with --status (lists every domain in maintenance).",
+        help="Name of the bench. Optional with --status, which then lists every domain in maintenance.",
         default=None,
         required=False,
         type_name="text",
@@ -159,10 +159,9 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         autocompletion=sites_autocompletion_callback,
         callback=sitename_callback,
     ),
-    # `self compose` is a maintenance escape hatch: required, no period in help,
-    # no completion, no callback.
+    # `self compose` is a maintenance escape hatch: required, no completion, no callback.
     "fm self compose": BenchnameSpec(
-        help="Name of the bench",
+        help="Name of the bench.",
         default=None,
         required=True,
         type_name="text",
@@ -184,7 +183,7 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
     },
     # dns-config credentials can be global, hence its own wording.
     "fm ssl dns-config cloudflare": BenchnameSpec(
-        help="Bench name for bench-specific credentials. Omit for global configuration.",
+        help="Bench to configure. Omit for global credentials.",
         default=None,
         required=False,
         type_name="text",

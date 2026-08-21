@@ -2,7 +2,7 @@
 
 Switch a bench to an already-built image tag, or roll back.
 
-Forward deploys and rollbacks are the same pipeline pointed at different tags: fetch -> pre-flight -> backup -> migrate (per config) -> swap (rolling when safe) -> record. With --previous, migrate is disabled so old code never runs against a newer schema.
+Every switch records the tag you left, so --previous returns to it; run it twice and you are back where you started. Older releases stay until fm prune clears them.
 
 **Usage**:
 
@@ -17,69 +17,51 @@ $ fm switch BENCHNAME TAG [OPTIONS]
 
 **Options**:
 
-* `--previous`: Roll back to the previously deployed tag (disables migrate).
-* `--migrate/--no-migrate`: Force or skip bench migrate for this run (overrides bench config).
-* `--restore-db`: Also restore the DB dump recorded during the current deploy.
-* `--keep`: After a successful deploy, prune old releases keeping the newest N (see fm prune).
-* `--rolling/--no-rolling`: Force/disable the rolling web swap (default: auto when the overlap is safe).
+* `--previous`: Roll back to the previously deployed tag, with migrate disabled.
+* `--migrate/--no-migrate`: Force or skip bench migrate for this run, overriding the bench config.
+* `--restore-db`: Also restore the DB dump taken during the deploy you are undoing.
+* `--keep`: After a successful deploy, prune old releases keeping the newest N (minimum 1; see fm prune).
+* `--rolling/--no-rolling`: Force or disable the rolling web swap; the default is automatic whenever the overlap is safe. Forcing it is only safe when both versions run against the same database schema.
 
 
 ## Examples
 
-### Deploy a tag you baked earlier
+### Switch to a tag you baked
 
-The everyday forward deploy: `fm bake` printed this tag (also in `fm list`). Runs backup, migrate per config, swap, and records the tag in deploy history.
+fm bake prints the tag; fm info lists the ones this bench has already run.
 
 ```bash
 fm switch mybench local/mybench:20260721-abc123
 ```
 
-### Deploy a tag from a registry
+### Switch to a tag from a registry
 
-Pulls with your ambient docker login if the image is not local. Typical on a prod box where CI pushed the image.
+Pulled with your ambient docker login when it is not already local.
 
 ```bash
 fm switch mybench ghcr.io/acme/mybench:v15.2.1
 ```
 
-### Roll back a bad deploy
-
-The 3am command. Returns to the last deployed tag with migrate disabled automatically (old code must never migrate a newer schema). Run it again to undo the rollback.
+### Roll back the last deploy
 
 ```bash
 fm switch mybench --previous
 ```
 
-### Roll back further than one release
+### Roll back code and database together
 
---previous only knows the last tag; for anything older pass the tag explicitly (recorded in bench_config.toml deploy history) and keep migrate off.
-
-```bash
-fm switch mybench local/mybench:20260718-9f21e0 --no-migrate
-```
-
-### Undo a bad migration (code AND database)
-
-Also restores the DB dump recorded during the current deploy, so code and schema go back together. Runs under the maintenance window like a migrate.
+For when the migration is the problem: the dump taken before it goes back with the older code.
 
 ```bash
 fm switch mybench --previous --restore-db
 ```
 
-### Ship a code-only hotfix without the migrate ceremony
+### Roll back more than one release
 
-Skips migrate, and with it the maintenance window -- which makes the zero-downtime rolling swap eligible. Fastest safe path for template/py-only fixes.
-
-```bash
-fm switch mybench local/mybench:20260721-hotfix1 --no-migrate
-```
-
-### Force the zero-downtime rolling swap
-
-Old and new web replicas serve side by side, then the old drains away. Only force it when both versions work against the same DB schema; --no-rolling forces the plain recreate instead.
+--previous only knows the last tag, so name an older one explicitly and keep migrate off.
 
 ```bash
-fm switch mybench local/mybench:20260722-def456 --rolling
+fm switch mybench local/mybench:20260718-9f21e0 --no-migrate
 ```
 
 ## Related

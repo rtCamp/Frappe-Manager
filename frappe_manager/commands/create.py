@@ -122,7 +122,6 @@ def _validate_from_image(
         raise typer.BadParameter("--from-image requires an explicit ':tag' (e.g. local/myapp:20260724-abc).")
 
 
-
 def _resolve_developer_mode(
     environment: FMBenchEnvType,
     resolved_runtime: BenchRuntime,
@@ -145,6 +144,7 @@ def _resolve_developer_mode(
             )
         return False
     return environment == FMBenchEnvType.dev or explicit_enable
+
 
 def _ensure_frappe_first(apps: list[AppConfig]) -> list[AppConfig]:
     """Frappe present and first (create's app-ordering rule)."""
@@ -421,8 +421,7 @@ def _resolve_external_options(
     admin_given = db_admin_user is not None or db_admin_password is not None
     if admin_given and not (db_admin_user and db_admin_password):
         raise typer.BadParameter(
-            "--db-admin-user and --db-admin-password must be given together: fm provisions with both or with "
-            "neither."
+            "--db-admin-user and --db-admin-password must be given together: fm provisions with both or with neither."
         )
     if attach_existing_site and admin_given:
         raise typer.BadParameter(
@@ -481,62 +480,46 @@ def _resolve_external_options(
 
 
 @example(
-    "Create bench with Frappe only",
+    "Create a bench with Frappe only",
     "{benchname}",
-    detail="Creates a new bench with Frappe installed using the default stable branch. Useful for starting a minimal development environment.",
     benchname="mybench",
 )
 @example(
-    "Create bench with ERPNext and HRMS",
-    "{benchname} --apps erpnext --apps hrms",
-    detail="Creates a new bench and installs ERPNext and HRMS on top of Frappe. Useful when you need these apps together.",
+    "Add apps, pinned to a branch or not",
+    "{benchname} --apps erpnext:version-15 --apps hrms",
     benchname="mybench",
 )
 @example(
-    "Create production bench",
-    "{benchname} -e prod",
-    detail="Creates a production-ready bench with production defaults (no developer tools). Use this for deployment environments.",
+    "Create a production bench",
+    "{benchname} -e prod --apps erpnext",
     benchname="mybench",
 )
 @example(
-    "Create bench with specific branch",
-    "{benchname} --apps erpnext:version-14",
-    detail="Creates a bench installing ERPNext from a specific branch or tag. Use when you need a particular release.",
+    "Run a pre-built app image",
+    "{benchname} --runtime image --image ghcr.io/acme/mybench:v15-20260822",
     benchname="mybench",
 )
 @example(
-    "Create bench with a private app",
-    "{benchname} --apps myorg/private-app --github-token ghp_xxx",
-    detail="Installs a private GitHub repository by supplying a token. Keep tokens secret and prefer environment variables.",
-    benchname="mybench",
-)
-@example(
-    "Create bench with custom Python/Node versions",
-    "{benchname} --python 3.11 --node 20",
-    detail="Selects custom Python and Node.js versions for the bench rather than auto-detected defaults.",
-    benchname="mybench",
-)
-@example(
-    "Create bench with alias domains",
-    "{benchname} --alias-domains www.example.com,api.example.com",
-    detail="Adds alias domains to the bench configuration. Use 'fm ssl add' to provision certificates for these domains.",
-    benchname="mybench",
-)
-@example(
-    "Create bench on an external database",
+    "Create a bench on an external database",
     "{benchname} --db-host db.example.com --db-name app_prod --db-password - --db-ca /etc/ssl/rds-bundle.pem",
-    detail="Points the site at a MariaDB fm does not own instead of the global-db container. --db-password - reads the secret from stdin so it stays out of the shell history, and --db-ca is required whenever the server enforces TLS. Pass --db-admin-user with --db-admin-password instead to have fm create the schema, the user and the grant.",
+    detail="Pass --db-admin-user with --db-admin-password instead of --db-password to have fm create the schema, the user and the grant.",
     benchname="mybench",
 )
 def create(
     ctx: typer.Context,
-    benchname: Annotated[str, typer.Argument(help="Bench name", callback=create_command_sitename_callback)],
+    benchname: Annotated[
+        str,
+        typer.Argument(
+            help="Bench name, also its domain. A bare name becomes mybench.localhost.",
+            callback=create_command_sitename_callback,
+        ),
+    ],
     apps: Annotated[
         list[str],
         typer.Option(
             "--apps",
             "-a",
-            help="Apps to install. Format: appname:branch or appname (e.g., erpnext:version-15)",
+            help="App to install: appname or owner/repo, optional :branch (repeatable). Frappe is always first.",
             callback=apps_list_validation_callback,
             show_default=False,
             rich_help_panel=_PANEL_MOUNT,
@@ -544,25 +527,24 @@ def create(
     ] = [],
     environment: Annotated[
         FMBenchEnvType,
-        typer.Option("--environment", "-e", help="Environment type (dev or prod)"),
+        typer.Option("--environment", "-e", help="Bench environment; sets the dev-mode and restart defaults."),
     ] = FMBenchEnvType.dev,
     developer_mode: Annotated[
         EnableDisableOptionsEnum,
         typer.Option(
-            help="Enable/disable developer mode (DocType edits write app files -- editable workspace only; "
-            "auto-enabled on dev-environment mount benches).",
+            help="Let DocType edits write app source files. Already on for a dev-environment bench.",
             rich_help_panel=_PANEL_MOUNT,
         ),
     ] = EnableDisableOptionsEnum.disable,
-    template: Annotated[bool, typer.Option(help="Create as template bench")] = False,
+    template: Annotated[bool, typer.Option(help="Create the bench config and directory only, no site.")] = False,
     admin_pass: Annotated[
         str,
-        typer.Option(help="Administrator password"),
+        typer.Option(help="Administrator password."),
     ] = "admin",
     alias_domains: Annotated[
         str | None,
         typer.Option(
-            help="Alias domains (comma-separated). Use 'fm ssl add' for SSL.",
+            help="Extra domains this bench answers on (comma-separated). Certificates come from 'fm ssl add'.",
             callback=alias_domains_validation_callback,
             show_default=False,
             rich_help_panel=_PANEL_DOMAIN,
@@ -573,7 +555,7 @@ def create(
         typer.Option(
             "--github-token",
             "-t",
-            help="Mount runtime only: GitHub token for cloning private app repos (or use GITHUB_TOKEN env var).",
+            help="Token for cloning private app repos.",
             envvar="GITHUB_TOKEN",
             show_default=False,
             rich_help_panel=_PANEL_MOUNT,
@@ -583,7 +565,7 @@ def create(
         str | None,
         typer.Option(
             "--python",
-            help="Python version (e.g., '3.11'). Auto-detected by default.",
+            help="Python version, e.g. '3.11'. Auto-detected by default.",
             show_default=False,
             rich_help_panel=_PANEL_MOUNT,
         ),
@@ -592,7 +574,7 @@ def create(
         str | None,
         typer.Option(
             "--node",
-            help="Node version (e.g., '18', '20'). Auto-detected by default.",
+            help="Node version, e.g. '20'. Auto-detected by default.",
             show_default=False,
             rich_help_panel=_PANEL_MOUNT,
         ),
@@ -609,7 +591,7 @@ def create(
         bool,
         typer.Option(
             "--allow-domain-conflicts",
-            help="Skip domain uniqueness validation (not recommended). Allows creating benches with duplicate domains.",
+            help="Skip the domain uniqueness check.",
             show_default=False,
             rich_help_panel=_PANEL_DOMAIN,
         ),
@@ -618,8 +600,7 @@ def create(
         BenchRuntime | None,
         typer.Option(
             "--runtime",
-            help="Runtime: 'mount' (default, live-mounted editable code) or 'image' (immutable pre-built "
-            "app image; settings-only, deploys via fm switch).",
+            help="'mount' (default) live-mounts an editable workspace; 'image' runs a pre-built app image, moved to a new tag with 'fm switch'.",
             show_default=False,
             rich_help_panel=_PANEL_RUNTIME,
         ),
@@ -628,8 +609,7 @@ def create(
         str | None,
         typer.Option(
             "--image",
-            help="Mount runtime: override the base frappe image (repo:tag). Image runtime: the pre-built "
-            "app image to run (repo:tag; must exist locally or be pullable).",
+            help="Mount runtime: base frappe image (repo:tag). Image runtime: the app image to run, local or pullable.",
             show_default=False,
             rich_help_panel=_PANEL_RUNTIME,
         ),
@@ -638,10 +618,7 @@ def create(
         str | None,
         typer.Option(
             "--from-image",
-            help="Mount runtime: seed the workspace from a baked app image (repo:tag) instead of "
-            "cloning + installing apps -- near-instant create from a release image. --apps entries "
-            "become per-app OVERRIDES on top of the image (e.g. --apps frappe:develop replaces the "
-            "baked frappe); --python/--node swap the seeded toolchain (venv recreated, apps reinstalled).",
+            help="Seed the workspace from a baked app image (repo:tag) instead of cloning and installing apps. --apps, --python and --node then override what it carries.",
             show_default=False,
             rich_help_panel=_PANEL_MOUNT,
         ),
@@ -650,8 +627,7 @@ def create(
         list[str],
         typer.Option(
             "--config",
-            help="TOML config overlay: a file path or inline TOML content used as the base bench config. "
-            "Explicit CLI flags override it; repeatable, later --config wins.",
+            help="TOML base config: file path or inline. Explicit flags win; later --config wins.",
             show_default=False,
         ),
     ] = [],
@@ -659,7 +635,7 @@ def create(
         bool,
         typer.Option(
             "--newrelic/--no-newrelic",
-            help="Enable NewRelic APM monitoring for the web process.",
+            help="Enable NewRelic APM for the web process.",
             show_default=False,
             rich_help_panel=_PANEL_MONITORING,
         ),
@@ -668,7 +644,7 @@ def create(
         str | None,
         typer.Option(
             "--newrelic-license-key",
-            help="NewRelic ingest license key. Required when --newrelic is set.",
+            help="NewRelic ingest license key. Required with --newrelic.",
             show_default=False,
             rich_help_panel=_PANEL_MONITORING,
         ),
@@ -677,8 +653,7 @@ def create(
         str | None,
         typer.Option(
             "--db-host",
-            help="Put this site on an external MariaDB instead of the fm-managed global-db container. Any "
-            "MariaDB, managed or self-hosted; MySQL is not a supported Frappe backend.",
+            help="External MariaDB host, replacing fm's global-db container. MySQL is not a supported backend.",
             show_default=False,
             rich_help_panel=_PANEL_EXTERNAL,
         ),
@@ -695,7 +670,7 @@ def create(
         str | None,
         typer.Option(
             "--db-name",
-            help="Schema on the external server this site lives in. Required with --db-host.",
+            help="Schema on that server this site lives in. Required with --db-host.",
             show_default=False,
             rich_help_panel=_PANEL_EXTERNAL,
         ),
@@ -704,8 +679,7 @@ def create(
         str | None,
         typer.Option(
             "--db-user",
-            help="Login user for the schema. Defaults to the schema name, and must equal it on a v15 bench, "
-            "which has no db_user key.",
+            help="Login user for the schema. Defaults to the schema name, and must equal it on a v15 bench.",
             show_default=False,
             rich_help_panel=_PANEL_EXTERNAL,
         ),
@@ -714,9 +688,7 @@ def create(
         str | None,
         typer.Option(
             "--db-password",
-            help="Password of the site's own database login. Pass - to read it from stdin, keeping it out of "
-            "the shell history. Optional alongside admin credentials: fm then generates an alphanumeric one "
-            "for the user it has Frappe create.",
+            help="Password of the site's database login. Pass - for stdin; omit with --db-admin-user to generate one.",
             show_default=False,
             rich_help_panel=_PANEL_EXTERNAL,
         ),
@@ -725,8 +697,7 @@ def create(
         str | None,
         typer.Option(
             "--db-admin-user",
-            help="Administrative login, used once at create time to have Frappe create the schema, the site "
-            "user and the grant. Never written to disk, so no later fm run can provision.",
+            help="Administrative login, used once at create time to create the schema, the site user and the grant. Never stored.",
             show_default=False,
             rich_help_panel=_PANEL_EXTERNAL,
         ),
@@ -735,8 +706,7 @@ def create(
         str | None,
         typer.Option(
             "--db-admin-password",
-            help="Password for --db-admin-user. Pass - to read it from stdin. It travels on the container's "
-            "stdin only, never through a file, an environment variable or a process listing.",
+            help="Password for --db-admin-user. Pass - to read it from stdin.",
             show_default=False,
             rich_help_panel=_PANEL_EXTERNAL,
         ),
@@ -745,8 +715,7 @@ def create(
         Path | None,
         typer.Option(
             "--db-ca",
-            help="Host path to the CA bundle signing the server certificate. Required whenever the server "
-            "enforces TLS: with no CA the driver sends no TLS at all and such a server refuses the connection.",
+            help="Host path to the CA bundle signing the server certificate. Required whenever the server enforces TLS.",
             show_default=False,
             rich_help_panel=_PANEL_EXTERNAL,
         ),
@@ -755,8 +724,7 @@ def create(
         bool,
         typer.Option(
             "--db-no-verify-hostname",
-            help="Verify the certificate chain but not that it names the host dialled. Only for a certificate "
-            "that cannot name it: one regional CA signs every tenant, so chain-only accepts any of them.",
+            help="Check the certificate chain but not that the certificate names the host dialled.",
             show_default=False,
             rich_help_panel=_PANEL_EXTERNAL,
         ),
@@ -765,8 +733,7 @@ def create(
         bool,
         typer.Option(
             "--attach-existing-site",
-            help="The schema already holds a Frappe site: build the bench around it and write nothing to the "
-            "database. No new-site, no migrate, no app install.",
+            help="The schema already holds a Frappe site: build the bench around it and write nothing to the database.",
             show_default=False,
             rich_help_panel=_PANEL_EXTERNAL,
         ),
@@ -775,9 +742,7 @@ def create(
         str | None,
         typer.Option(
             "--encryption-key",
-            help="The attached site's Frappe encryption_key. Pass - to read it from stdin. Without it Frappe "
-            "mints a new one and the site's existing encrypted secrets (mail passwords, OAuth secrets, API "
-            "tokens) stop being readable.",
+            help="The attached site's encryption_key, - to read from stdin. Without it Frappe mints a new one and existing encrypted secrets stop being readable.",
             show_default=False,
             rich_help_panel=_PANEL_EXTERNAL,
         ),
@@ -786,8 +751,7 @@ def create(
         str | None,
         typer.Option(
             "--redis-cache",
-            help="External redis URL for the framework cache (e.g. redis://r.example:6379/0). Suppresses the "
-            "per-bench redis containers. Must be given together with --redis-queue.",
+            help="External redis URL for the framework cache, e.g. redis://r.example:6379/0. Requires --redis-queue.",
             show_default=False,
             rich_help_panel=_PANEL_EXTERNAL,
         ),
@@ -796,24 +760,16 @@ def create(
         str | None,
         typer.Option(
             "--redis-queue",
-            help="External redis URL for the queue and realtime (e.g. redis://r.example:6379/1). Use a "
-            "different logical index from --redis-cache: a restore mass-deletes the cache index.",
+            help="External redis URL for the queue and realtime. Use a different logical index from --redis-cache: a restore mass-deletes the cache index.",
             show_default=False,
             rich_help_panel=_PANEL_EXTERNAL,
         ),
     ] = None,
 ):
     """
-    Create a new bench with apps.
+    Create a new bench and install apps into it.
 
-    Creates a bench directory, config, and installs requested apps. If not specified, Frappe is included by default.
-
-    Runtime (--runtime): 'mount' (default) live-mounts code for local development, and --image overrides the base frappe image. 'image' runs a pre-built app image (built by `fm bake` or otherwise present/pullable) given via --image and does not accept --apps/--python/--node -- those are baked into the image.
-
-    --config supplies a TOML base (file or inline) for the bench config (e.g. [switch],
-    [registry], [deploy], [build], [monitoring], per-app hooks); explicit CLI flags
-    override it. Repeatable, later --config wins.
-    
+    Image runtime (--runtime image) refuses --apps, --python, --node and developer mode, which the image already carries; 'fm update BENCHNAME --runtime mount' converts a bench to an editable workspace.
     """
 
     services_manager: ServicesManager = ctx.obj["services"]
@@ -836,9 +792,19 @@ def create(
         explicit = {
             name
             for name in (
-                "environment", "developer_mode", "admin_pass", "alias_domains", "github_token",
-                "python_version", "node_version", "restart", "newrelic", "newrelic_license_key",
-                "runtime", "image", "apps",
+                "environment",
+                "developer_mode",
+                "admin_pass",
+                "alias_domains",
+                "github_token",
+                "python_version",
+                "node_version",
+                "restart",
+                "newrelic",
+                "newrelic_license_key",
+                "runtime",
+                "image",
+                "apps",
             )
             if ctx.get_parameter_source(name)
             in (ParameterSource.COMMANDLINE, ParameterSource.ENVIRONMENT, ParameterSource.PROMPT)

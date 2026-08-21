@@ -26,7 +26,7 @@ ssl_app.command(name="acme-sh", context_settings={"allow_extra_args": True, "ign
     acmesh_passthrough,
 )
 
-# Register subcommand Typer app
-ssl_app.add_typer(dns_config_command, name="dns-config", help="Configure DNS provider credentials")
+# Register subcommand Typer app; its help lives on the dns_config Typer itself.
+ssl_app.add_typer(dns_config_command, name="dns-config")
 
 __all__ = ["ssl_app"]

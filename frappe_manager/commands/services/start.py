@@ -9,20 +9,19 @@ from frappe_manager.services_manager.services import ServicesManager
 
 
 @example(
-    "Start global-db only",
-    "global-db",
-    detail="Starts only the global-db service used to store bench databases.",
+    "Bring the global stack up",
+    "all",
+    detail="Services already running are left alone, so this is safe to re-run.",
 )
 @example(
-    "Start all global services",
-    "all",
-    detail="Starts all global services managed by FM (nginx-proxy, global-db, etc.).",
+    "Start the database only",
+    "global-db",
 )
 def start_services(
     ctx: typer.Context,
-    service_name: Annotated[ServicesEnum, typer.Argument(help="Name of the service.")],
+    service_name: Annotated[ServicesEnum, typer.Argument()],
 ):
-    """Starts global services."""
+    """Start the global services shared by every bench."""
     services_manager: ServicesManager = ctx.obj["services"]
     output = get_global_output_handler()
 

@@ -1,8 +1,8 @@
 ## `fm logs`
 
-Show bench logs (server or container).
+Show a bench's web server log, or a container's log with --service.
 
-View logs from bench services (frappe, nginx, redis, etc.) with optional follow mode.
+Without --service this reads the bench's log files on the host, so it works whether or not the bench is up. With --service the logs come from docker and that container has to be running.
 
 **Usage**:
 
@@ -16,42 +16,28 @@ $ fm logs BENCHNAME [OPTIONS]
 
 **Options**:
 
-* `--service`: Service name (frappe, nginx, redis-cache, etc.)
-* `-f, --follow`: Follow logs in real-time
+* `--service`: Compose service whose container logs to show (frappe, nginx, redis-cache, ...).
+* `-f, --follow`: Keep streaming new lines until Ctrl+C.
 
 
 ## Examples
 
-### Show frappe server logs
-
-Displays the frappe service logs for the bench; useful to inspect server output and errors.
+### Read the bench's web server log
 
 ```bash
 fm logs mybench
 ```
 
-### Follow logs in real-time
-
-Streams logs continuously; press Ctrl+C to stop following.
+### Follow it live
 
 ```bash
 fm logs mybench -f
 ```
 
-### Show nginx container logs
-
-Shows the nginx container logs for the bench and follows them in real-time when -f is provided.
+### Read a container's logs instead
 
 ```bash
 fm logs mybench --service nginx -f
-```
-
-### Show redis logs
-
-Displays logs from redis-cache service; helpful when debugging caching or queuing issues.
-
-```bash
-fm logs mybench --service redis-cache
 ```
 
 ## Related

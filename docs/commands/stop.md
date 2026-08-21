@@ -1,8 +1,8 @@
 ## `fm stop`
 
-Stop a bench.
+Stop a bench's containers, admin tools and workers.
 
-Stops all containers for the given bench. No data is removed; containers can be started again with 'fm start'.
+Nothing is deleted; fm start brings the bench back.
 
 **Usage**:
 
@@ -17,19 +17,9 @@ $ fm stop BENCHNAME
 
 ## Examples
 
-### Stop bench containers
-
-Stops all running containers for the specified bench without removing any data. Use to shut down a bench safely.
+### Stop a bench
 
 ```bash
 fm stop mybench
-```
-
-### Stop multiple benches
-
-Chain multiple stop commands to shut down several benches at once.
-
-```bash
-fm stop mybench && fm stop another-bench
 ```
 

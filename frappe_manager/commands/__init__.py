@@ -235,7 +235,7 @@ install(app)
 
 # Register subcommands
 app.add_typer(services_app, name="services", help="Handle global services.")
-app.add_typer(self_app, name="self", help="Perform operations related to the [bold][blue]fm[/bold][/blue] itself.")
+app.add_typer(self_app, name="self", help="Perform operations related to [bold][blue]fm[/bold][/blue] itself.")
 app.add_typer(ssl_app, name="ssl", help="Perform operations related to ssl.")
 
 

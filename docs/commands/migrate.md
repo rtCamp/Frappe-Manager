@@ -1,12 +1,10 @@
 ## `fm migrate`
 
-Migrate Frappe Manager to current version.
+Bring Frappe Manager and its benches up to the current version.
 
-Migration operates at two levels:
-- FM Infrastructure: CLI config + global database services (always checked and migrated if needed)
-- Benches: Individual bench environments (you choose which ones to migrate)
+Benches are never migrated implicitly: a bare fm migrate updates only FM's own config and global services. Name a bench, or pass --all-benches, to migrate benches themselves.
 
-Without arguments, migrates only FM infrastructure. Specify a benchname to migrate that bench, or use --all-benches to migrate all benches. Use --auto-proceed to skip confirmation prompts. Control failure handling with --on-failure: prompt (ask), archive (save failed), or rollback (revert all). Use --rerun to test idempotency -- re-applies all migration steps even when already up to date.
+Every other bench command refuses to run against a bench that is behind, so migrate first.
 
 **Usage**:
 
@@ -20,76 +18,46 @@ $ fm migrate BENCHNAME [OPTIONS]
 
 **Options**:
 
-* `--all-benches`: Migrate all benches
-* `--skip-all-backup`: Skip all backups (DANGEROUS; use only if backups fail)
-* `--skip-backup-for`: Skip backup for specific benches (comma-separated)
-* `--exclude-bench`: Exclude specific benches from migration (only with --all-benches)
-* `--auto-proceed`: Skip migration confirmation prompt (proceed automatically)
-* `--rerun`: Re-run migration even if already migrated (for testing idempotency). Config transforms and supervisor regeneration are re-applied, but the runtime environment is only rebuilt when Python/Node versions change.
-* `--on-failure`: What to do if migration fails: prompt (ask user), archive (save failed benches), rollback (revert all)
+* `--all-benches`: Migrate every bench FM manages.
+* `--skip-all-backup`: Migrate without taking a pre-migration backup (DANGEROUS; use only when the backups themselves fail).
+* `--skip-backup-for`: Skip the pre-migration backup for these benches only (comma-separated).
+* `--exclude-bench`: Benches to leave alone (comma-separated). Only with --all-benches.
+* `--auto-proceed`: Migrate without asking for confirmation.
+* `--rerun`: Re-run the migration steps on a bench that is already up to date.
+* `--on-failure`: What to do when a bench fails: prompt (ask, the default), archive (set failed benches aside and keep the rest migrated), rollback (revert every bench). A single-bench run always rolls back.
 
 
 ## Examples
 
-### Migrate FM infrastructure only (safe)
+### Migrate FM itself after a CLI update
 
-Applies only FM infrastructure migrations without touching benches. Safe to run for CLI updates.
+Updates FM's own config and global services. No bench is touched.
 
 ```bash
 fm migrate
 ```
 
-### Migrate specific bench
-
-Runs migration steps for a specific bench to bring it in line with the FM version.
+### Migrate one bench
 
 ```bash
 fm migrate mybench
 ```
 
-### Migrate all benches
-
-Applies migrations to all benches managed by FM. Use with caution and consider backups.
+### Migrate every bench
 
 ```bash
 fm migrate --all-benches
 ```
 
-### Skip confirmation prompt
+### Migrate every bench unattended
 
-Runs migrations across all benches without interactive prompts. Useful for automation.
-
-```bash
-fm migrate --all-benches --auto-proceed
-```
-
-### Auto-proceed with auto-rollback on failure
-
-Automatically proceeds with migrations and rolls back if a failure occurs.
-
-```bash
-fm migrate --all-benches --auto-proceed --on-failure=rollback
-```
-
-### Auto-proceed, archive failed benches (partial success OK)
-
-Archives benches that fail migration while continuing others; useful for large fleets.
+The combination for CI and large fleets: no prompts, and one bad bench does not undo the others.
 
 ```bash
 fm migrate --all-benches --auto-proceed --on-failure=archive
 ```
 
-### Skip all backups (dangerous)
-
-Disables taking backups before migration. This is risky and should only be used in controlled scenarios.
-
-```bash
-fm migrate --all-benches --skip-all-backup
-```
-
-### Exclude specific benches
-
-Excludes specific benches from a full migration run.
+### Leave some benches behind
 
 ```bash
 fm migrate --all-benches --exclude-bench mybench1,mybench2

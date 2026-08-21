@@ -16,86 +16,83 @@ from .helpers import get_output_handler
 
 
 @example(
-    "Add SSL certificate with HTTP-01 challenge",
-    "{benchname} example.com --challenge http01",
-    detail="Requests a certificate using an HTTP-01 challenge and installs it into the bench's nginx configuration.",
+    "Issue a certificate for a bench domain",
+    "{benchname} example.com",
     benchname="mybench",
 )
 @example(
-    "Add SSL certificate with DNS-01 challenge (Cloudflare)",
+    "Issue one when the domain has no public A record",
     "{benchname} example.com --challenge dns01",
-    detail="Requests a certificate using DNS-01 validation; configure DNS provider credentials first when required.",
+    detail="DNS-01 needs provider credentials, see fm ssl dns-config.",
     benchname="mybench",
 )
 @example(
-    "Add for external Docker project (standalone mode)",
-    "example.com --standalone",
-    detail="Manage SSL for an external Docker project by using standalone mode and FM's nginx-proxy.",
-)
-@example(
-    "Test with Let's Encrypt staging (dry-run)",
+    "Rehearse against the staging server first",
     "{benchname} example.com --dry-run",
-    detail="Performs a dry-run against Let's Encrypt staging environment to validate configuration without issuing production certs.",
     benchname="mybench",
 )
 @example(
-    "Add with CNAME delegation for DNS validation",
-    "{benchname} example.com --challenge dns01 --cname delegated.example.com",
-    detail="Uses a CNAME delegation target for DNS-01 validation when the DNS zone is delegated to another provider.",
+    "Issue for an external Docker project",
+    "example.com --standalone",
+)
+@example(
+    "Validate through a delegated zone",
+    "{benchname} example.com --challenge dns01 --cname acme.example.net",
+    detail="acme.sh looks for _acme-challenge.acme.example.net instead of the bench's own zone.",
     benchname="mybench",
 )
 def add_certificate(
     ctx: typer.Context,
     benchname: StandaloneBenchNameArgument = None,
-    domain: Annotated[str | None, typer.Argument(help="Domain name for the certificate")] = None,
+    domain: Annotated[str | None, typer.Argument(help="Domain to issue the certificate for.")] = None,
     challenge: Annotated[
         LETSENCRYPT_PREFERRED_CHALLENGE,
-        typer.Option("--challenge", "-c", help="Challenge type"),
+        typer.Option("--challenge", "-c", help="ACME validation method."),
     ] = LETSENCRYPT_PREFERRED_CHALLENGE.http01,
     cname: Annotated[
         str | None,
-        typer.Option("--cname", help="CNAME delegation record for DNS-01 challenge (requires dns01)"),
+        typer.Option("--cname", help="Delegated zone for _acme-challenge. dns01 only."),
     ] = None,
     dry_run: Annotated[
         bool,
         typer.Option(
             "--dry-run",
-            help="Test certificate generation using Let's Encrypt staging server without adding it to the system.",
+            help="Rehearse against Let's Encrypt staging. Nothing is kept: no certificate, no nginx change.",
         ),
     ] = False,
     standalone: Annotated[
         bool,
         typer.Option(
             "--standalone",
-            help="Manage SSL for external (non-bench) Docker project. Use with docker network 'fm-global-frontend-network'.",
+            help="For an external Docker project on the fm-global-frontend-network network.",
         ),
     ] = False,
     dev: Annotated[
         bool,
         typer.Option(
             "--dev",
-            help="Issue a locally-trusted dev certificate using a local CA (no internet required).",
+            help="Issue from fm's local CA, so no internet or public DNS is needed. Bench mode only.",
         ),
     ] = False,
     skip_dns_check: Annotated[
         bool,
         typer.Option(
             "--skip-dns-check",
-            help="Skip DNS validation before certificate generation (use if DNS will be configured later).",
+            help="Skip the DNS pre-check. Standalone mode only.",
         ),
     ] = False,
     wait_for_dns: Annotated[
         bool,
         typer.Option(
             "--wait-for-dns",
-            help="Wait for DNS propagation (polls every 30s for up to 5 minutes).",
+            help="Wait up to 5 min for the CNAME. Standalone only.",
         ),
     ] = False,
 ):
     """
-    Add an SSL certificate for a domain.
+    Issue an SSL certificate for a domain and point nginx at it.
 
-    Supports bench mode (adds certificate to a bench) and standalone mode for external Docker projects using FM nginx-proxy. Use --dry-run to validate issuance against Let's Encrypt staging first.
+    Bench mode takes a bench name and one of its configured domains (add new ones with fm update --add-alias). --standalone issues for an external Docker project instead.
     """
 
     if dev and standalone:

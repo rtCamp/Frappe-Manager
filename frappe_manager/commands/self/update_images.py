@@ -6,11 +6,13 @@ from frappe_manager.utils.site import pull_docker_images
 
 
 @example(
-    "Update all Frappe docker images to latest versions",
+    "Pull the images fm's stack runs on",
     "",
-    detail="Pulls the latest Docker images used by FM to keep runtime images up to date.",
 )
 def update_images(ctx: typer.Context):
-    """Pull latest FM stack docker images."""
+    """Pull the docker images fm's stack runs on.
+
+    Running containers keep the image they started with until they are recreated.
+    """
     with spinner(get_global_output_handler(), "Pulling latest Docker images"):
         pull_docker_images()

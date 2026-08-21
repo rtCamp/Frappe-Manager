@@ -198,37 +198,26 @@ def _maintenance_sitename_callback(sitename: str | None):
 @example(
     "Put a bench into maintenance",
     "{benchname}",
-    detail="Serves a maintenance page for every domain of the bench (aliases included) at the global nginx proxy, and prints a secret bypass URL that lets you keep using the real site while everyone else sees the page.",
     benchname="mybench",
 )
 @example(
-    "Maintenance with team and webhook exceptions",
-    "{benchname} --allow-ip 203.0.113.7 --allow-path '/api/method/payment_webhook*' --retry-after 1800",
-    detail="The office IP and the payment webhook keep reaching the real bench while everyone else sees the page with a Retry-After of 30 minutes.",
+    "Let the office and a payment webhook through",
+    "{benchname} --allow-ip 203.0.113.7 --allow-path '/api/method/payment_webhook*'",
     benchname="mybench",
 )
 @example(
-    "Custom page or message",
-    "{benchname} --message 'Upgrading the database, back at 17:00 UTC'",
-    detail="Injects the text into fm's maintenance page. Use --page FILE for fully custom HTML, or drop a configs/maintenance.html into the bench directory to make it the permanent default for this bench.",
+    "Say when you will be back",
+    "{benchname} --message 'Back at 17:00 UTC' --retry-after 1800",
     benchname="mybench",
 )
 @example(
-    "Maintenance with a different status code",
-    "{benchname} --response-code 404",
-    detail="Serves the maintenance page with HTTP 404 instead of 503, e.g. to make the site look absent instead of temporarily down.",
-    benchname="mybench",
-)
-@example(
-    "Show maintenance state",
+    "Check the state",
     "{benchname} --status",
-    detail="Shows whether maintenance is active per domain and reprints the bypass URL. Omit the bench name to list every domain currently in maintenance.",
     benchname="mybench",
 )
 @example(
     "Bring the bench back",
     "{benchname} --off",
-    detail="Removes the maintenance page from every domain; visitors reach the bench again immediately.",
     benchname="mybench",
 )
 def maintenance(
@@ -236,38 +225,38 @@ def maintenance(
     benchname: Annotated[
         str | None,
         typer.Argument(
-            help="Name of the bench. Optional with --status (lists every domain in maintenance).",
+            help="Name of the bench. Optional with --status, which then lists every domain in maintenance.",
             autocompletion=sites_autocompletion_callback,
             callback=_maintenance_sitename_callback,
         ),
     ] = None,
     off: Annotated[
         bool,
-        typer.Option("--off", help="Disable maintenance mode and serve the bench again."),
+        typer.Option("--off", help="Take every domain out of maintenance and serve the bench again."),
     ] = False,
     status: Annotated[
         bool,
-        typer.Option("--status", help="Show maintenance state per domain without changing anything."),
+        typer.Option("--status", help="Report maintenance state per domain, with the bypass URL."),
     ] = False,
     response_code: Annotated[
         int,
         typer.Option(
             "--response-code",
-            help="HTTP status code served while maintenance is on (400-599). Default 503 Service Unavailable.",
+            help="HTTP status code served while maintenance is on (400-599).",
         ),
     ] = 503,
     retry_after: Annotated[
         int,
         typer.Option(
             "--retry-after",
-            help="Retry-After header value in seconds on maintenance responses (tells crawlers the outage is temporary). 0 disables the header.",
+            help="Retry-After header in seconds; 0 omits it.",
         ),
     ] = 300,
     allow_ip: Annotated[
         list[str],
         typer.Option(
             "--allow-ip",
-            help="Client IP that bypasses maintenance (repeatable). Exact IPs only; behind a CDN or external proxy this matches the forwarding IP unless real-IP forwarding is configured.",
+            help="Client IP that reaches the real site (repeatable; single addresses, no CIDR). Behind a CDN see fm self real-ip.",
             show_default=False,
         ),
     ] = [],
@@ -275,7 +264,7 @@ def maintenance(
         list[str],
         typer.Option(
             "--allow-path",
-            help="Request path that bypasses maintenance, e.g. payment webhooks or health checks (repeatable). Exact match; append * for a prefix match.",
+            help="Request path served the real site, e.g. /api/method/ping (repeatable). Exact match; append * for a prefix.",
             show_default=False,
         ),
     ] = [],
@@ -283,7 +272,7 @@ def maintenance(
         str | None,
         typer.Option(
             "--message",
-            help="Custom text shown on fm's built-in maintenance page.",
+            help="Text shown on fm's built-in maintenance page.",
             show_default=False,
         ),
     ] = None,
@@ -291,7 +280,7 @@ def maintenance(
         Path | None,
         typer.Option(
             "--page",
-            help="Fully custom maintenance page: path to an HTML file served as-is. Tip: a configs/maintenance.html in the bench directory is picked up automatically on every enable.",
+            help="HTML file served as the page, instead of --message. A bench's configs/maintenance.html is used automatically.",
             show_default=False,
         ),
     ] = None,
@@ -299,16 +288,16 @@ def maintenance(
         bool,
         typer.Option(
             "--rotate-token",
-            help="Generate a fresh bypass token, invalidating every previously issued bypass cookie/URL.",
+            help="Mint a fresh bypass token, invalidating every bypass URL and cookie already handed out.",
         ),
     ] = False,
 ):
     """
-    Toggle a proxy-level maintenance page for a bench (all domains, aliases included).
+    Put every domain of a bench, aliases included, behind a maintenance page.
 
-    Maintenance is enforced at the global nginx proxy, so it holds even while the bench itself is stopped, restarting, or being deployed. Everyone gets the maintenance page (503 by default; tune with --response-code) and /api/* clients get a JSON body; opening the printed secret bypass URL sets a cookie that lets YOU through to the real site (open /fm-bypass/off to drop it). Allow-listed IPs and paths (webhooks, health checks) pass through as well.
+    Enabling prints a secret bypass URL: open it once and a cookie lets you through to the real site while everyone else gets the page (visit /fm-bypass/off to drop it again).
 
-    Re-running enable replaces the previous settings (code, allow lists, page); the bypass token is kept unless --rotate-token is given. The page comes from --page, --message, the bench's configs/maintenance.html, or fm's default, in that order.
+    Each enable rewrites the settings from the flags you pass, so repeat the ones you still want; only the bypass token carries over, unless you ask for --rotate-token.
     """
 
     output = get_global_output_handler()

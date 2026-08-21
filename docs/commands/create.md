@@ -1,14 +1,8 @@
 ## `fm create`
 
-Create a new bench with apps.
+Create a new bench and install apps into it.
 
-Creates a bench directory, config, and installs requested apps. If not specified, Frappe is included by default.
-
-Runtime (--runtime): 'mount' (default) live-mounts code for local development, and --image overrides the base frappe image. 'image' runs a pre-built app image (built by `fm bake` or otherwise present/pullable) given via --image and does not accept --apps/--python/--node -- those are baked into the image.
-
---config supplies a TOML base (file or inline) for the bench config (e.g. [switch],
-[registry], [deploy], [build], [monitoring], per-app hooks); explicit CLI flags
-override it. Repeatable, later --config wins.
+Image runtime (--runtime image) refuses --apps, --python, --node and developer mode, which the image already carries; 'fm update BENCHNAME --runtime mount' converts a bench to an editable workspace.
 
 **Usage**:
 
@@ -18,85 +12,74 @@ $ fm create BENCHNAME [OPTIONS]
 
 **Arguments**:
 
-* `BENCHNAME`: Bench name  [required]
+* `BENCHNAME`: Bench name, also its domain. A bare name becomes mybench.localhost.  [required]
 
 **Options**:
 
-* `-a, --apps`: Apps to install. Format: appname:branch or appname (e.g., erpnext:version-15)
-* `-e, --environment`: Environment type (dev or prod)
-* `--developer-mode`: Enable/disable developer mode (DocType edits write app files -- editable workspace only; auto-enabled on dev-environment mount benches).
-* `--template`: Create as template bench
-* `--admin-pass`: Administrator password
-* `--alias-domains`: Alias domains (comma-separated). Use 'fm ssl add' for SSL.
-* `-t, --github-token`: Mount runtime only: GitHub token for cloning private app repos (or use GITHUB_TOKEN env var).
-* `--python`: Python version (e.g., '3.11'). Auto-detected by default.
-* `--node`: Node version (e.g., '18', '20'). Auto-detected by default.
+* `-a, --apps`: App to install: appname or owner/repo, optional :branch (repeatable). Frappe is always first.
+* `-e, --environment`: Bench environment; sets the dev-mode and restart defaults.
+* `--developer-mode`: Let DocType edits write app source files. Already on for a dev-environment bench.
+* `--template`: Create the bench config and directory only, no site.
+* `--admin-pass`: Administrator password.
+* `--alias-domains`: Extra domains this bench answers on (comma-separated). Certificates come from 'fm ssl add'.
+* `-t, --github-token`: Token for cloning private app repos.
+* `--python`: Python version, e.g. '3.11'. Auto-detected by default.
+* `--node`: Node version, e.g. '20'. Auto-detected by default.
 * `--restart`: Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).
-* `--allow-domain-conflicts`: Skip domain uniqueness validation (not recommended). Allows creating benches with duplicate domains.
-* `--runtime`: Runtime: 'mount' (default, live-mounted editable code) or 'image' (immutable pre-built app image; settings-only, deploys via fm switch).
-* `--image`: Mount runtime: override the base frappe image (repo:tag). Image runtime: the pre-built app image to run (repo:tag; must exist locally or be pullable).
-* `--from-image`: Mount runtime: seed the workspace from a baked app image (repo:tag) instead of cloning + installing apps -- near-instant create from a release image. --apps entries become per-app OVERRIDES on top of the image (e.g. --apps frappe:develop replaces the baked frappe); --python/--node swap the seeded toolchain (venv recreated, apps reinstalled).
-* `--config`: TOML config overlay: a file path or inline TOML content used as the base bench config. Explicit CLI flags override it; repeatable, later --config wins.
-* `--newrelic/--no-newrelic`: Enable NewRelic APM monitoring for the web process.
-* `--newrelic-license-key`: NewRelic ingest license key. Required when --newrelic is set.
+* `--allow-domain-conflicts`: Skip the domain uniqueness check.
+* `--runtime`: 'mount' (default) live-mounts an editable workspace; 'image' runs a pre-built app image, moved to a new tag with 'fm switch'.
+* `--image`: Mount runtime: base frappe image (repo:tag). Image runtime: the app image to run, local or pullable.
+* `--from-image`: Seed the workspace from a baked app image (repo:tag) instead of cloning and installing apps. --apps, --python and --node then override what it carries.
+* `--config`: TOML base config: file path or inline. Explicit flags win; later --config wins.
+* `--newrelic/--no-newrelic`: Enable NewRelic APM for the web process.
+* `--newrelic-license-key`: NewRelic ingest license key. Required with --newrelic.
+* `--db-host`: External MariaDB host, replacing fm's global-db container. MySQL is not a supported backend.
+* `--db-port`: Port of the external database server.
+* `--db-name`: Schema on that server this site lives in. Required with --db-host.
+* `--db-user`: Login user for the schema. Defaults to the schema name, and must equal it on a v15 bench.
+* `--db-password`: Password of the site's database login. Pass - for stdin; omit with --db-admin-user to generate one.
+* `--db-admin-user`: Administrative login, used once at create time to create the schema, the site user and the grant. Never stored.
+* `--db-admin-password`: Password for --db-admin-user. Pass - to read it from stdin.
+* `--db-ca`: Host path to the CA bundle signing the server certificate. Required whenever the server enforces TLS.
+* `--db-no-verify-hostname`: Check the certificate chain but not that the certificate names the host dialled.
+* `--attach-existing-site`: The schema already holds a Frappe site: build the bench around it and write nothing to the database.
+* `--encryption-key`: The attached site's encryption_key, - to read from stdin. Without it Frappe mints a new one and existing encrypted secrets stop being readable.
+* `--redis-cache`: External redis URL for the framework cache, e.g. redis://r.example:6379/0. Requires --redis-queue.
+* `--redis-queue`: External redis URL for the queue and realtime. Use a different logical index from --redis-cache: a restore mass-deletes the cache index.
 
 
 ## Examples
 
-### Create bench with Frappe only
-
-Creates a new bench with Frappe installed using the default stable branch. Useful for starting a minimal development environment.
+### Create a bench with Frappe only
 
 ```bash
 fm create mybench
 ```
 
-### Create bench with ERPNext and HRMS
-
-Creates a new bench and installs ERPNext and HRMS on top of Frappe. Useful when you need these apps together.
+### Add apps, pinned to a branch or not
 
 ```bash
-fm create mybench --apps erpnext --apps hrms
+fm create mybench --apps erpnext:version-15 --apps hrms
 ```
 
-### Create production bench
-
-Creates a production-ready bench with production defaults (no developer tools). Use this for deployment environments.
+### Create a production bench
 
 ```bash
-fm create mybench -e prod
+fm create mybench -e prod --apps erpnext
 ```
 
-### Create bench with specific branch
-
-Creates a bench installing ERPNext from a specific branch or tag. Use when you need a particular release.
+### Run a pre-built app image
 
 ```bash
-fm create mybench --apps erpnext:version-14
+fm create mybench --runtime image --image ghcr.io/acme/mybench:v15-20260822
 ```
 
-### Create bench with a private app
+### Create a bench on an external database
 
-Installs a private GitHub repository by supplying a token. Keep tokens secret and prefer environment variables.
-
-```bash
-fm create mybench --apps myorg/private-app --github-token ghp_xxx
-```
-
-### Create bench with custom Python/Node versions
-
-Selects custom Python and Node.js versions for the bench rather than auto-detected defaults.
+Pass --db-admin-user with --db-admin-password instead of --db-password to have fm create the schema, the user and the grant.
 
 ```bash
-fm create mybench --python 3.11 --node 20
-```
-
-### Create bench with alias domains
-
-Adds alias domains to the bench configuration. Use 'fm ssl add' to provision certificates for these domains.
-
-```bash
-fm create mybench --alias-domains www.example.com,api.example.com
+fm create mybench --db-host db.example.com --db-name app_prod --db-password - --db-ca /etc/ssl/rds-bundle.pem
 ```
 
 ## Related

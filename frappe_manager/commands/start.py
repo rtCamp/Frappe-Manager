@@ -10,56 +10,50 @@ from frappe_manager.site_manager.site import Bench
 
 
 @example(
-    "Start bench containers",
+    "Start a bench",
     "{benchname}",
-    detail="Starts all containers for the specified bench. Useful to bring a bench up after stopping or system reboot.",
     benchname="mybench",
 )
 @example(
-    "Force recreate containers",
+    "Recreate the containers",
     "{benchname} --force",
-    detail="Recreates containers even if they already exist; use when container images or configuration changed.",
+    detail="Use after an image or compose change.",
     benchname="mybench",
 )
 @example(
-    "Start and reconfigure workers",
+    "Pick up worker config changes",
     "{benchname} --reconfigure-workers",
-    detail="Starts the bench and reconfigures worker processes to pick up configuration changes.",
-    benchname="mybench",
-)
-@example(
-    "Start with supervisor reconfiguration",
-    "{benchname} --reconfigure-supervisor",
-    detail="Reconfigures the supervisor process manager during start to update process definitions.",
-    benchname="mybench",
-)
-@example(
-    "Start and sync dev packages",
-    "{benchname} --sync-dev-packages",
-    detail="Synchronizes development packages after starting; useful in development workflows.",
     benchname="mybench",
 )
 def start(
     ctx: typer.Context,
     benchname: BenchNameArgument = None,
-    force: Annotated[bool, typer.Option("--force", "-f", help="Recreate containers")] = False,
+    force: Annotated[
+        bool, typer.Option("--force", "-f", help="Recreate the containers instead of reusing the existing ones.")
+    ] = False,
     reconfigure_supervisor: Annotated[
         bool,
-        typer.Option("--reconfigure-supervisor", help="Reconfigure supervisor"),
+        typer.Option("--reconfigure-supervisor", help="Regenerate the supervisord config before starting processes."),
     ] = False,
     reconfigure_common_site_config: Annotated[
         bool,
-        typer.Option("--reconfigure-common-site-config", help="Reconfigure site config"),
+        typer.Option("--reconfigure-common-site-config", help="Rewrite common_site_config.json with fm's defaults."),
     ] = False,
-    reconfigure_workers: Annotated[bool, typer.Option("--reconfigure-workers", help="Reconfigure workers")] = False,
-    include_default_workers: Annotated[bool, typer.Option(help="Include default workers")] = True,
-    include_custom_workers: Annotated[bool, typer.Option(help="Include custom workers")] = True,
-    sync_dev_packages: Annotated[bool, typer.Option("--sync-dev-packages", help="Sync dev packages")] = False,
+    reconfigure_workers: Annotated[
+        bool,
+        typer.Option("--reconfigure-workers", help="Regenerate the workers compose file from the bench config."),
+    ] = False,
+    include_default_workers: Annotated[
+        bool, typer.Option(help="Include the default workers when regenerating.")
+    ] = True,
+    include_custom_workers: Annotated[bool, typer.Option(help="Include custom workers when regenerating.")] = True,
+    sync_dev_packages: Annotated[
+        bool,
+        typer.Option("--sync-dev-packages", help="Install dev packages on a dev bench, remove them on a prod one."),
+    ] = False,
 ):
     """
-    Start a bench.
-
-    Starts all containers for the specified bench. Reconfigure flags allow updating process and worker settings.
+    Start a bench's containers, admin tools and workers.
     """
 
     check_bench_migration_required(benchname)

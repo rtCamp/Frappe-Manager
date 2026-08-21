@@ -1,8 +1,8 @@
 ## `fm update`
 
-Change bench settings and runtime.
+Change a bench's settings and runtime.
 
-Not `bench update`: app code ships via fm deploy/switch. Settings (SSL/env/domains/policy/monitoring) apply to both runtimes. Code-affecting options -- --python/--node/--apps/--developer-mode -- need an editable workspace (mount); on an image bench demote first via --runtime mount.
+Not `bench update`: app code ships with fm deploy or fm switch. The bench must be running, and the mount-only options need an editable workspace, so demote an image bench with --runtime mount first.
 
 **Usage**:
 
@@ -17,112 +17,57 @@ $ fm update BENCHNAME [OPTIONS]
 **Options**:
 
 * `--admin-tools`: Enable/disable admin tools (Adminer at /adminer, Mailpit at /mailpit).
-* `-e, --environment`: Switch environment (dev|prod): sets FRAPPE_ENV on the frappe service and recreates it, which selects the dev/prod supervisor serving mode. Admin tools and developer mode are NOT changed -- toggle them with --admin-tools / --developer-mode.
-* `--runtime`: Switch bench runtime. 'mount' materializes an editable workspace from the CURRENTLY DEPLOYED image (code on disk == running code, so no migrate; stale leftovers are stashed, never deleted). mount -> image goes through 'fm switch' instead (it migrates onto the image).
-* `-a, --apps`: Override or add apps on the running bench (repeatable; appname:ref or org/repo:ref). Replaces the app's code with a fresh clone (old code stashed, never deleted) or adds a new app (installed to the site); deps reinstall, targeted asset build, then migrate.
-* `--developer-mode`: Toggle frappe developer mode (DocType edits write app files -- needs an editable workspace).
-* `--mailpit-as-default-mail-server`: Configure Mailpit as default mail server
+* `-e, --environment`: Switch the bench between dev and prod serving (FRAPPE_ENV), recreating the frappe container. Admin tools and developer mode are left as they are; use --admin-tools or --developer-mode to change those.
+* `--runtime`: Convert the bench runtime. 'mount' extracts an editable workspace from the currently deployed image, stashing anything stale it finds; converting back is a deploy, so use fm switch.
+* `-a, --apps`: Replace or add an app on the running bench (repeatable; appname:ref or org/repo:ref). Replaced code is stashed, never deleted; assets rebuild and the site migrates.
+* `--developer-mode`: Toggle frappe developer mode, so DocType edits write to app files.
+* `--mailpit-as-default-mail-server`: Route the site's outgoing mail to Mailpit. Applies when enabling admin tools.
 * `--add-alias`: Add alias domains (comma-separated, e.g. www.example.com,api.example.com).
 * `--remove-alias`: Remove alias domains (comma-separated, e.g. shop.example.com).
-* `--upload-limit`: Set maximum upload size for files (e.g., '50M', '100M', '500M', '1G')
-* `--python`: Update Python version (e.g. '3.11', '>=3.11,<3.14'); recreates the venv and reinstalls apps.
-* `--node`: Update Node version (e.g. '18', '20', '>=18'); installs and sets as default.
-* `--skip-version-check`: Skip validation of Python/Node versions against Frappe requirements. Use with caution.
-* `--recreate-python-env/--no-recreate-python-env`: Recreate the Python venv; --no-recreate-python-env skips when the current version already satisfies.
+* `--upload-limit`: Set the maximum file upload size, e.g. 100M or 1G.
+* `--python`: Update the Python version (e.g. '3.11', '>=3.11,<3.14'); recreates the venv and reinstalls apps.
+* `--node`: Update the Node version (e.g. '20', '>=18') and set it as the bench default.
+* `--skip-version-check`: Accept a Python/Node version that does not satisfy frappe's requirement.
+* `--recreate-python-env/--no-recreate-python-env`: Recreate the venv when --python changes the interpreter; --no-recreate-python-env installs the new Python and leaves the existing venv in place.
 * `--restart`: Update Docker restart policy for all bench services.
-* `--allow-domain-conflicts`: Skip domain uniqueness validation when adding aliases (not recommended).
+* `--allow-domain-conflicts`: Add an alias domain even when another bench already serves it.
 * `--newrelic/--no-newrelic`: Enable or disable NewRelic APM monitoring for the web process.
-* `--newrelic-license-key`: NewRelic ingest license key.
+* `--newrelic-license-key`: NewRelic ingest license key. Required the first time you enable NewRelic.
+* `--db-ca`: Reinstall the external database CA after a rotation: the site PEM, the bench ca-bundle.pem the dumps use, and the recorded path are refreshed together.
 
 
 ## Examples
 
-### Enable admin tools (Mailpit, Adminer)
-
-Enables admin tools like Mailpit and Adminer for debugging and database access in development benches.
-
-```bash
-fm update mybench --admin-tools enable
-```
-
-### Disable admin tools
-
-Disables admin tools for security or production setups.
-
-```bash
-fm update mybench --admin-tools disable
-```
-
-### Switch to production environment
-
-Switches the bench to production environment settings and recreates necessary containers.
+### Switch to the production environment
 
 ```bash
 fm update mybench -e prod
 ```
 
-### Switch to development environment
-
-Switches the bench to development environment settings and enables developer conveniences.
+### Enable the admin tools
 
 ```bash
-fm update mybench -e dev
+fm update mybench --admin-tools enable
 ```
 
-### Enable developer mode
-
-Turns on Frappe developer mode which enables features useful for app development.
+### Turn on developer mode
 
 ```bash
 fm update mybench --developer-mode enable
 ```
 
-### Add alias domains
+### Add an alias domain
 
-Adds alias domains to the bench; remember to add SSL certificates separately with 'fm ssl add'.
-
-```bash
-fm update mybench --add-alias www.example.com,api.example.com
-```
-
-### Remove alias domains
-
-Removes alias domains from bench configuration.
+No certificate is issued for the new domain; run fm ssl add afterwards.
 
 ```bash
-fm update mybench --remove-alias shop.example.com
+fm update mybench --add-alias www.example.com
 ```
 
-### Update Python version
-
-Updates the bench Python runtime, recreates the virtual environment, and reinstalls all apps into the new environment.
+### Bump the Python version
 
 ```bash
 fm update mybench --python 3.11
-```
-
-### Install Python without recreating venv
-
-Installs Python 3.14 via uv and sets it as default without touching the existing virtual environment.
-
-```bash
-fm update mybench --python 3.14 --no-recreate-python-env
-```
-
-### Update Node version
-
-Updates Node.js runtime used by the bench and rebuilds related assets.
-
-```bash
-fm update mybench --node 20
-```
-
-### Set upload size limit
-
-Sets the maximum file upload size for the bench (useful for large attachments).
-
-```bash
-fm update mybench --upload-limit 100M
 ```
 
 ## Related

@@ -26,45 +26,27 @@ class MigrationFailureAction(str, Enum):
 
 
 @example(
-    "Migrate FM infrastructure only (safe)",
+    "Migrate FM itself after a CLI update",
     "",
-    detail="Applies only FM infrastructure migrations without touching benches. Safe to run for CLI updates.",
+    detail="Updates FM's own config and global services. No bench is touched.",
 )
 @example(
-    "Migrate specific bench",
+    "Migrate one bench",
     "{benchname}",
-    detail="Runs migration steps for a specific bench to bring it in line with the FM version.",
     benchname="mybench",
 )
 @example(
-    "Migrate all benches",
+    "Migrate every bench",
     "--all-benches",
-    detail="Applies migrations to all benches managed by FM. Use with caution and consider backups.",
 )
 @example(
-    "Skip confirmation prompt",
-    "--all-benches --auto-proceed",
-    detail="Runs migrations across all benches without interactive prompts. Useful for automation.",
-)
-@example(
-    "Auto-proceed with auto-rollback on failure",
-    "--all-benches --auto-proceed --on-failure=rollback",
-    detail="Automatically proceeds with migrations and rolls back if a failure occurs.",
-)
-@example(
-    "Auto-proceed, archive failed benches (partial success OK)",
+    "Migrate every bench unattended",
     "--all-benches --auto-proceed --on-failure=archive",
-    detail="Archives benches that fail migration while continuing others; useful for large fleets.",
+    detail="The combination for CI and large fleets: no prompts, and one bad bench does not undo the others.",
 )
 @example(
-    "Skip all backups (dangerous)",
-    "--all-benches --skip-all-backup",
-    detail="Disables taking backups before migration. This is risky and should only be used in controlled scenarios.",
-)
-@example(
-    "Exclude specific benches",
+    "Leave some benches behind",
     "--all-benches --exclude-bench mybench1,mybench2",
-    detail="Excludes specific benches from a full migration run.",
 )
 def migrate(
     ctx: typer.Context,
@@ -74,49 +56,50 @@ def migrate(
     ] = None,
     all_benches: Annotated[
         bool,
-        typer.Option("--all-benches", help="Migrate all benches"),
+        typer.Option("--all-benches", help="Migrate every bench FM manages."),
     ] = False,
     skip_backup: Annotated[
         bool,
-        typer.Option("--skip-all-backup", help="Skip all backups (DANGEROUS; use only if backups fail)"),
+        typer.Option(
+            "--skip-all-backup",
+            help="Migrate without taking a pre-migration backup (DANGEROUS; use only when the backups themselves fail).",
+        ),
     ] = False,
     skip_backup_for: Annotated[
         str | None,
-        typer.Option("--skip-backup-for", help="Skip backup for specific benches (comma-separated)"),
+        typer.Option(
+            "--skip-backup-for", help="Skip the pre-migration backup for these benches only (comma-separated)."
+        ),
     ] = None,
     exclude_bench: Annotated[
         str | None,
-        typer.Option("--exclude-bench", help="Exclude specific benches from migration (only with --all-benches)"),
+        typer.Option("--exclude-bench", help="Benches to leave alone (comma-separated). Only with --all-benches."),
     ] = None,
     auto_proceed: Annotated[
         bool,
-        typer.Option("--auto-proceed", help="Skip migration confirmation prompt (proceed automatically)"),
+        typer.Option("--auto-proceed", help="Migrate without asking for confirmation."),
     ] = False,
     rerun: Annotated[
         bool,
         typer.Option(
             "--rerun",
-            help="Re-run migration even if already migrated (for testing idempotency). "
-            "Config transforms and supervisor regeneration are re-applied, but the "
-            "runtime environment is only rebuilt when Python/Node versions change.",
+            help="Re-run the migration steps on a bench that is already up to date.",
         ),
     ] = False,
     on_failure: Annotated[
         MigrationFailureAction | None,
         typer.Option(
             "--on-failure",
-            help="What to do if migration fails: prompt (ask user), archive (save failed benches), rollback (revert all)",
+            help="What to do when a bench fails: prompt (ask, the default), archive (set failed benches aside and keep the rest migrated), rollback (revert every bench). A single-bench run always rolls back.",
         ),
     ] = None,
 ):
     """
-    Migrate Frappe Manager to current version.
+    Bring Frappe Manager and its benches up to the current version.
 
-    Migration operates at two levels:
-    - FM Infrastructure: CLI config + global database services (always checked and migrated if needed)
-    - Benches: Individual bench environments (you choose which ones to migrate)
+    Benches are never migrated implicitly: a bare fm migrate updates only FM's own config and global services. Name a bench, or pass --all-benches, to migrate benches themselves.
 
-    Without arguments, migrates only FM infrastructure. Specify a benchname to migrate that bench, or use --all-benches to migrate all benches. Use --auto-proceed to skip confirmation prompts. Control failure handling with --on-failure: prompt (ask), archive (save failed), or rollback (revert all). Use --rerun to test idempotency -- re-applies all migration steps even when already up to date.
+    Every other bench command refuses to run against a bench that is behind, so migrate first.
     """
     fm_config_manager: FMConfigManager = ctx.obj["fm_config_manager"]
     output = get_global_output_handler()
@@ -255,7 +238,9 @@ def migrate(
     if benches_skipped:
         for bench_name in benches_skipped:
             orig_version = next((v for n, v in benches_checked if n == bench_name), None)
-            table.add_row("⏭️ ", f"[fm.info]{bench_name}[/fm.info]", f"[fm.warn]v{orig_version}[/fm.warn] (already up to date)")
+            table.add_row(
+                "⏭️ ", f"[fm.info]{bench_name}[/fm.info]", f"[fm.warn]v{orig_version}[/fm.warn] (already up to date)"
+            )
 
     if benches_failed:
         for bench_name in benches_failed:

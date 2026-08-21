@@ -11,22 +11,20 @@ from frappe_manager.utils.helpers import get_current_fm_version, install_package
 
 
 @example(
-    "Update fm to the latest version available on pypi",
+    "Update fm to the latest release",
     "",
-    detail="Checks PyPI for the latest frappe-manager release and installs it if available.",
 )
 @example(
-    "Update without confirmation prompt",
+    "Update without the confirmation prompt",
     "--yes",
-    detail="Skips the interactive confirmation and updates immediately if a new version is found.",
 )
 def update(
     ctx: typer.Context,
-    yes: Annotated[bool, typer.Option("--yes", "-y", help="Skip confirmation prompt and proceed with update")] = False,
+    yes: Annotated[bool, typer.Option("--yes", "-y", help="Update without asking for confirmation.")] = False,
 ):
-    """Check for and install frappe-manager updates.
+    """Update fm to the latest release published on PyPI.
 
-    Updates the installed fm package using the package installer. Use --yes to skip prompts.
+    An install already ahead of PyPI, such as a dev or pre-release build, is reported as up to date and left alone: fm is never downgraded under benches whose on-disk state a newer fm wrote.
     """
     output = get_global_output_handler()
     output.change_head("Checking for udpates")
