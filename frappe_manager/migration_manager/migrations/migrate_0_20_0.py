@@ -225,7 +225,7 @@ class MigrationV0200(MigrationBase):
             doc["auth"] = auth
 
         config_path.write_text(tomlkit.dumps(doc))
-        self.output.print(f"Moved admin tools credentials into [auth] for {bench.name}")
+        self.output.print(f"Moved admin tools credentials into \\[auth] for {bench.name}")
 
     def _drop_removed_config_keys(self, bench: MigrationBench):
         """Strip keys whose fields no longer exist from bench_config.toml.

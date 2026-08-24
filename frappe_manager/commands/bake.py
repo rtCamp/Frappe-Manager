@@ -166,7 +166,7 @@ def bake(
         str | None,
         typer.Option(
             "--base-image",
-            help="Image the runtime Dockerfile builds FROM. Defaults to [build].base_image, else fm's published frappe image for this fm version.",
+            help="Image the runtime Dockerfile builds FROM. Defaults to \\[build].base_image, else fm's published frappe image for this fm version.",
             callback=_base_image_callback,
             show_default=False,
         ),
@@ -175,7 +175,7 @@ def bake(
         bool | None,
         typer.Option(
             "--push/--no-push",
-            help="Push the baked image to the registry after building. Defaults to [build].push, which is off unless set. A bake that does not push still loads the image into the local daemon.",
+            help="Push the baked image to the registry after building. Defaults to \\[build].push, which is off unless set. A bake that does not push still loads the image into the local daemon.",
             show_default=False,
         ),
     ] = None,
@@ -262,7 +262,7 @@ def bake(
             output.display_error(str(e))
             raise typer.Exit(1) from e
         if not bench_config.apps_list:
-            output.display_error("Standalone bake needs apps: pass --apps or a --config providing [[apps]].")
+            output.display_error("Standalone bake needs apps: pass --apps or a --config providing \\[\\[apps]].")
             raise typer.Exit(1)
     else:
         if apps_config or python_version or node_version:

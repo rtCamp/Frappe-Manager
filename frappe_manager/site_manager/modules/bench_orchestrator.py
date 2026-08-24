@@ -835,7 +835,7 @@ class BenchOrchestrator:
         else:
             bench.bench_config.switch.migrate = False
         bench.save_bench_config()
-        self.output.print("Wrote [switch].migrate = false to bench_config.toml")
+        self.output.print("Wrote \\[switch].migrate = false to bench_config.toml")
 
     def _skip_phase6_for_attach(self) -> bool:
         """Phase 6 does not run on attach.
