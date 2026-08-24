@@ -1,8 +1,9 @@
 """Contract tests for `fm create`'s runtime wiring (#323).
 
 `_resolve_deploy_options` selects the runtime (mount vs image) from --runtime
-only; --image is mode-scoped (mount: base-image override; image: the pre-built
-app image). It returns (resolved_mode, image_repo, current_tag, base_image);
+only. Each image flag has exactly one meaning: --image is the pre-built app
+image an image-runtime bench runs, --base-image is the mount runtime's base
+frappe image. It returns (resolved_mode, image_repo, current_tag, base_image);
 image_repo is the tag-stripped app image repo (top-level BenchConfig.image) in
 image mode, else None.
 """
@@ -11,7 +12,6 @@ import pytest
 import typer
 
 from frappe_manager.commands.create import (
-    _has_explicit_tag,
     _resolve_deploy_options,
     _resolve_developer_mode,
     _validate_from_image,
@@ -22,10 +22,11 @@ from frappe_manager.site_manager.bench_config import (
     DeployState,
     FMBenchEnvType,
 )
+from frappe_manager.utils.helpers import has_explicit_tag
 
 
-def _resolve(runtime=None, image=None, apps=None, python=None, node=None):
-    return _resolve_deploy_options(runtime, image, apps or [], python, node)
+def _resolve(runtime=None, image=None, base_image=None, apps=None, python=None, node=None):
+    return _resolve_deploy_options(runtime, image, base_image, apps or [], python, node)
 
 
 def test_default_is_mount_backward_compatible():
@@ -37,18 +38,35 @@ def test_default_is_mount_backward_compatible():
     assert base_image is None
 
 
-def test_image_flag_does_not_imply_image_runtime():
-    # --image alone no longer flips the runtime; it's a mount base-image override.
-    mode, image_repo, current_tag, base_image = _resolve(image="ghcr.io/acme/frappe-custom:v15")
+def test_base_image_flag_does_not_imply_image_runtime():
+    # --base-image does not flip the runtime; it overrides the mount base image.
+    mode, image_repo, current_tag, base_image = _resolve(base_image="ghcr.io/acme/frappe-custom:v15")
     assert mode == BenchRuntime.mount
     assert image_repo is None
     assert current_tag is None
     assert base_image == "ghcr.io/acme/frappe-custom:v15"
 
 
-def test_mount_override_requires_tag():
-    with pytest.raises(typer.BadParameter):
-        _resolve(image="ghcr.io/acme/frappe-custom")
+def test_mount_base_image_requires_tag():
+    with pytest.raises(typer.BadParameter, match="--base-image must include a tag"):
+        _resolve(base_image="ghcr.io/acme/frappe-custom")
+
+
+def test_mount_runtime_rejects_image_and_points_at_base_image():
+    # --image is the app image an image-runtime bench runs, never a mount base.
+    with pytest.raises(typer.BadParameter, match="--base-image") as excinfo:
+        _resolve(image="ghcr.io/acme/frappe-custom:v15")
+    assert "--runtime image" in str(excinfo.value)
+
+
+def test_image_runtime_rejects_base_image_and_points_at_image():
+    with pytest.raises(typer.BadParameter, match="--base-image does not apply") as excinfo:
+        _resolve(
+            runtime=BenchRuntime.image,
+            image="ghcr.io/acme/mybench:v1",
+            base_image="ghcr.io/acme/frappe-custom:v15",
+        )
+    assert "--image" in str(excinfo.value)
 
 
 def test_explicit_image_runtime_requires_image():
@@ -77,9 +95,7 @@ def test_image_runtime_rejects_node():
 
 
 def test_image_runtime_splits_repo_and_keeps_tag():
-    mode, image_repo, current_tag, base_image = _resolve(
-        runtime=BenchRuntime.image, image="ghcr.io/acme/mybench:fm-1"
-    )
+    mode, image_repo, current_tag, base_image = _resolve(runtime=BenchRuntime.image, image="ghcr.io/acme/mybench:fm-1")
     assert mode == BenchRuntime.image
     assert image_repo == "ghcr.io/acme/mybench"
     assert current_tag == "ghcr.io/acme/mybench:fm-1"
@@ -88,18 +104,16 @@ def test_image_runtime_splits_repo_and_keeps_tag():
 
 def test_has_explicit_tag_ignores_host_port():
     # A registry host:port is not a tag; a real :tag after the last '/' is.
-    assert _has_explicit_tag("localhost:5000/repo") is False
-    assert _has_explicit_tag("localhost:5000/repo:v1") is True
-    assert _has_explicit_tag("ghcr.io/acme/x:tag") is True
-    assert _has_explicit_tag("repo") is False
+    assert has_explicit_tag("localhost:5000/repo") is False
+    assert has_explicit_tag("localhost:5000/repo:v1") is True
+    assert has_explicit_tag("ghcr.io/acme/x:tag") is True
+    assert has_explicit_tag("repo") is False
 
 
 def test_created_image_bench_persists_deploy_fields(tmp_path):
     # The full path a created image bench takes: resolver -> BenchConfig -> TOML -> reload.
     path = tmp_path / "bench_config.toml"
-    mode, image_repo, current_tag, base_image = _resolve(
-        runtime=BenchRuntime.image, image="ghcr.io/acme/mybench:fm-1"
-    )
+    mode, image_repo, current_tag, base_image = _resolve(runtime=BenchRuntime.image, image="ghcr.io/acme/mybench:fm-1")
     bc = BenchConfig(
         name="mybench.localhost",
         developer_mode=False,
@@ -123,7 +137,7 @@ def test_created_image_bench_persists_deploy_fields(tmp_path):
 
 def test_created_mount_bench_persists_base_image(tmp_path):
     path = tmp_path / "bench_config.toml"
-    mode, image_repo, _current_tag, base_image = _resolve(image="local/frappe-base:test")
+    mode, image_repo, _current_tag, base_image = _resolve(base_image="local/frappe-base:test")
     bc = BenchConfig(
         name="ovr.localhost",
         developer_mode=True,

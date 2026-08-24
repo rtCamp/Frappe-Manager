@@ -206,11 +206,11 @@ Bake immutable images and ship them by switching a bench onto a tag. See the [De
 ### :material-image-multiple: [`fm bake`](bake.md) {.command-heading}
 **Bake an immutable app image**
 
-Provision a bench's apps into a runtime image, or build standalone from `--apps`/`--config` for CI pipelines. `--tag` takes a full image ref, so a pipeline names the tag it is about to ship.
+Provision a bench's apps into a runtime image, or build standalone from `--apps`/`--config` for CI pipelines. `--image` names the app image produced and takes a full ref, so a pipeline names the tag it is about to ship; a bare repo gets a generated `:<timestamp>-<sha>` tag instead. `--base-image` names what that image is built from.
 
 ```bash
 fm bake mybench
-fm bake mybench --tag ghcr.io/acme/mysite:v42 --push
+fm bake mybench --image ghcr.io/acme/mysite:v42 --push
 fm bake --apps erpnext:version-15 --image ghcr.io/acme/mysite --push
 ```
 

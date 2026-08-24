@@ -488,3 +488,14 @@ def save_dict_to_file(config: dict, json_file_path: Path):
         final_config[key] = value
     with open(json_file_path, "w") as f:
         json.dump(final_config, f)
+
+
+def has_explicit_tag(image_ref: str) -> bool:
+    """True when ``image_ref`` carries a ``:tag``.
+
+    The colon has to come after the last ``/``, so a registry host-port like
+    ``localhost:5000/repo`` is a bare repo, not a repo tagged ``5000/repo``.
+    A docker reference cannot hold a colon in its final path segment for any
+    other reason, which makes this total: a ref either names a tag or does not.
+    """
+    return ":" in image_ref.rsplit("/", 1)[-1]

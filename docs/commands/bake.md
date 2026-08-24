@@ -19,8 +19,8 @@ $ fm bake BENCHNAME [OPTIONS]
 
 **Options**:
 
-* `--image`: Image repository to bake into, e.g. ghcr.io/acme/mysite.
-* `--tag`: Full image tag to build, instead of the generated <repo>:<timestamp>-<sha>.
+* `--image`: Image to build. A full ref (ghcr.io/acme/mysite:v42) is built as-is; a bare repo (ghcr.io/acme/mysite) gets a generated :<timestamp>-<sha> tag. Defaults to the bench's configured image.
+* `--base-image`: Image the runtime Dockerfile builds FROM. Defaults to [build].base_image, else fm's published frappe image for this fm version.
 * `--push/--no-push`: Push the baked image to the registry after building. Defaults to [build].push, which is off unless set. A bake that does not push still loads the image into the local daemon.
 * `--config`: TOML overlay, either a file path or inline TOML. With a bench it is merged into bench_config.toml and stays there; standalone it supplies the whole config. Repeatable; later --config wins.
 * `-a, --apps`: Standalone bake only: apps to bake (appname:branch or appname, e.g. erpnext:version-15). Repeatable.
@@ -43,6 +43,22 @@ fm bake mybench
 
 ```bash
 fm bake mybench --image local/mybench
+```
+
+### Bake an exact image reference
+
+A ref that already carries a tag is built verbatim; drop the tag to get a generated :<timestamp>-<sha> instead.
+
+```bash
+fm bake mybench --image ghcr.io/acme/mysite:v42 --push
+```
+
+### Pin the base image the build starts FROM
+
+--base-image is what the runtime Dockerfile builds FROM, while --image is what the bake produces.
+
+```bash
+fm bake mybench --base-image ghcr.io/acme/frappe-custom:v15
 ```
 
 ### Bake exactly what is on disk right now

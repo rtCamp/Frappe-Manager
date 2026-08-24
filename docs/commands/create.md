@@ -28,7 +28,8 @@ $ fm create BENCHNAME [OPTIONS]
 * `--restart`: Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).
 * `--allow-domain-conflicts`: Skip the domain uniqueness check.
 * `--runtime`: 'mount' (default) live-mounts an editable workspace; 'image' runs a pre-built app image, moved to a new tag with 'fm switch'.
-* `--image`: Mount runtime: base frappe image (repo:tag). Image runtime: the app image to run, local or pullable.
+* `--image`: Image runtime: the pre-built app image to run (repo:tag), local or pullable. For the mount runtime's base image see --base-image.
+* `--base-image`: Mount runtime: override the base frappe image (repo:tag) for frappe, socketio, schedule and workers. None = fm's default image.
 * `--from-image`: Seed the workspace from a baked app image (repo:tag) instead of cloning and installing apps. --apps, --python and --node then override what it carries.
 * `--config`: TOML base config: file path or inline. Explicit flags win; later --config wins.
 * `--newrelic/--no-newrelic`: Enable NewRelic APM for the web process.

@@ -599,8 +599,8 @@ Bench runtime model:
 
 | Key | Applies to | Meaning |
 |---|---|---|
-| `image` | image runtime | App image repository (FM manages the `:tag`, pinned in `[deploy_state]`) |
-| `base_image` | mount runtime | Override the base frappe image (`repo:tag`) used for frappe/socketio/schedule/workers |
+| `image` | image runtime | App image repository, the pre-built app image the bench runs (FM manages the `:tag`, pinned in `[deploy_state]`). Set by `fm create --runtime image --image` and by `fm bake --image`, which bakes into it |
+| `base_image` | mount runtime | The base frappe image (`repo:tag`) the frappe/socketio/schedule/workers containers **run from**. Set by `fm create --base-image`. Not the same key as [`[build].base_image`](#deploy-tables), which is what a bake builds from |
 | `seed_image` | mount runtime | Provenance record: the baked image the workspace was seeded from at create (`fm create --from-image`) |
 
 ---
@@ -614,7 +614,7 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm switch`, `fm prun
 | Key | Default | Meaning |
 |---|---|---|
 | `source` | `"provision"` | `provision` = clone + install fresh (reproducible); `workspace` = snapshot the bench's on-disk workspace, which needs a real bench (a standalone `fm bake` rejects it) |
-| `base_image` | fm's published base (`ghcr.io/rtcamp/frappe-manager-frappe:v<fm version>`) | the `FROM` / provisioning image |
+| `base_image` | fm's published base (`ghcr.io/rtcamp/frappe-manager-frappe:v<fm version>`) | the image the runtime Dockerfile **builds from** during a bake, and the image the provisioning containers run. Set by `fm bake --base-image`. Not the same key as the top-level [`base_image`](#images), which is what a mount bench's containers run from |
 | `python_version` | the bench's create-time / auto-detected version | Python toolchain (uv) baked into the image |
 | `node_version` | the bench's create-time / auto-detected version | Node toolchain (fnm) baked into the image |
 | `platform` | native / auto-detected | target architecture (see [Platforms](../deploy/transports.md#platforms-cpu-architectures)) |

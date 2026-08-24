@@ -42,6 +42,7 @@ from frappe_manager.utils.callbacks import (
     apps_list_validation_callback,
     create_command_sitename_callback,
 )
+from frappe_manager.utils.helpers import has_explicit_tag
 from frappe_manager.utils.site import validate_sitename
 
 # Rich help panels for `fm create --help`, grouped by concern / runtime applicability
@@ -53,15 +54,10 @@ _PANEL_MONITORING = "Monitoring Options"
 _PANEL_EXTERNAL = "External Database and Redis Options"
 
 
-def _has_explicit_tag(image_ref: str) -> bool:
-    """True when image_ref carries a :tag (':' after the last '/'), so a bare
-    'localhost:5000/repo' host-port is not mistaken for a tag."""
-    return ":" in image_ref.rsplit("/", 1)[-1]
-
-
 def _resolve_deploy_options(
     runtime: BenchRuntime | None,
     image: str | None,
+    base_image: str | None,
     apps: list,
     python_version: str | None,
     node_version: str | None,
@@ -69,26 +65,37 @@ def _resolve_deploy_options(
     """Resolve the deploy model (#323) for ``fm create``.
 
     Mode is selected only by ``--runtime`` (default ``mount``); ``--image``
-    no longer implies image mode. ``--image`` is mode-scoped: in mount mode it
-    overrides the base frappe image, in image mode it is the pre-built app image
-    to run. Returns ``(resolved_mode, image_repo, current_tag, base_image_override)``.
+    no longer implies image mode and is no longer mode-scoped. ``--image`` is
+    image-runtime only: the pre-built app image to run. ``--base-image`` is
+    mount only: the base frappe image the containers run from. Returns
+    ``(resolved_mode, image_repo, current_tag, base_image_override)``.
     """
     resolved = runtime or BenchRuntime.mount
 
     if resolved != BenchRuntime.image:
-        base_image_override = None
         if image:
-            if not _has_explicit_tag(image):
-                raise typer.BadParameter("--image must include a tag, e.g. 'ghcr.io/acme/frappe-custom:v15'.")
-            base_image_override = image
+            raise typer.BadParameter(
+                "--image is the pre-built app image an image-runtime bench runs, so it needs --runtime image; the "
+                "mount runtime's base frappe image is --base-image.",
+            )
+        base_image_override = None
+        if base_image:
+            if not has_explicit_tag(base_image):
+                raise typer.BadParameter("--base-image must include a tag, e.g. 'ghcr.io/acme/frappe-custom:v15'.")
+            base_image_override = base_image
         return resolved, None, None, base_image_override
 
+    if base_image:
+        raise typer.BadParameter(
+            "--base-image does not apply to an image runtime bench: it runs the app image directly and never builds "
+            "FROM a base image. The app image to run is --image.",
+        )
     if not image:
         raise typer.BadParameter(
             "Image deployment mode requires --image <repo:tag> -- an existing image built by 'fm bake' "
             "or otherwise present/pullable.",
         )
-    if not _has_explicit_tag(image):
+    if not has_explicit_tag(image):
         raise typer.BadParameter(
             "--image must be a full reference with a tag, e.g. 'ghcr.io/acme/mybench:fm-20260722-abc123'.",
         )
@@ -120,7 +127,7 @@ def _validate_from_image(
         raise typer.BadParameter(
             "--from-image seeds a MOUNT workspace; image runtime already runs the image (use --image).",
         )
-    if not _has_explicit_tag(from_image):
+    if not has_explicit_tag(from_image):
         raise typer.BadParameter("--from-image requires an explicit ':tag' (e.g. local/myapp:20260724-abc).")
 
 
@@ -180,6 +187,7 @@ def _build_overlay_bench_config(
     newrelic_license_key: str | None,
     runtime: BenchRuntime | None,
     image: str | None,
+    base_image: str | None,
     db_name: str,
     explicit: set[str],
 ) -> tuple[BenchConfig, bool]:
@@ -249,12 +257,13 @@ def _build_overlay_bench_config(
     else:
         bc.apps_list = _ensure_frappe_first(bc.apps_list)
 
-    # Runtime/image selection: explicit --runtime/--image re-resolve (flag path);
-    # otherwise keep whatever the config declared ([runtime]/[deploy]/[deploy_state]).
-    if "runtime" in explicit or "image" in explicit:
+    # Runtime/image selection: an explicit --runtime/--image/--base-image re-resolves
+    # (flag path); otherwise keep whatever the config declared ([runtime]/[deploy]/[deploy_state]).
+    if "runtime" in explicit or "image" in explicit or "base_image" in explicit:
         r_runtime, r_image, r_tag, r_base = _resolve_deploy_options(
             runtime if "runtime" in explicit else bc.runtime,
             image if "image" in explicit else None,
+            base_image if "base_image" in explicit else None,
             apps if "apps" in explicit else [],
             python_version if "python_version" in explicit else None,
             node_version if "node_version" in explicit else None,
@@ -616,9 +625,18 @@ def create(
         str | None,
         typer.Option(
             "--image",
-            help="Mount runtime: base frappe image (repo:tag). Image runtime: the app image to run, local or pullable.",
+            help="Image runtime: the pre-built app image to run (repo:tag), local or pullable. For the mount runtime's base image see --base-image.",
             show_default=False,
             rich_help_panel=_PANEL_RUNTIME,
+        ),
+    ] = None,
+    base_image: Annotated[
+        str | None,
+        typer.Option(
+            "--base-image",
+            help="Mount runtime: override the base frappe image (repo:tag) for frappe, socketio, schedule and workers. None = fm's default image.",
+            show_default=False,
+            rich_help_panel=_PANEL_MOUNT,
         ),
     ] = None,
     from_image: Annotated[
@@ -811,6 +829,7 @@ def create(
                 "newrelic_license_key",
                 "runtime",
                 "image",
+                "base_image",
                 "apps",
             )
             if ctx.get_parameter_source(name)
@@ -834,6 +853,7 @@ def create(
                 newrelic_license_key=newrelic_license_key,
                 runtime=runtime,
                 image=image,
+                base_image=base_image,
                 db_name=global_db_name,
                 explicit=explicit,
             )
@@ -866,9 +886,10 @@ def create(
         # auto-injection -- the image's frappe must not be clobbered by a default).
         final_apps_list = apps_config if from_image else _ensure_frappe_first(apps_config)
 
-        # Deploy model (#323): resolve runtime (mount|image) + mode-scoped --image.
+        # Deploy model (#323): resolve runtime (mount|image) + the single-meaning
+        # --image (image runtime) / --base-image (mount runtime) flags.
         resolved_runtime, image_repo, deploy_current_tag, base_image_override = _resolve_deploy_options(
-            runtime, image, apps, python_version, node_version
+            runtime, image, base_image, apps, python_version, node_version
         )
         if from_image:
             _validate_from_image(from_image, resolved_runtime)

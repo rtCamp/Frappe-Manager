@@ -5,17 +5,17 @@
 A deploy is two commands, run on the host that owns the bench:
 
 ```bash
-fm bake mybench --tag ghcr.io/acme/mybench:v42 --push
+fm bake mybench --image ghcr.io/acme/mybench:v42 --push
 fm switch mybench ghcr.io/acme/mybench:v42
 ```
 
-`--tag` takes a **full image ref**, so the tag you switch to is the tag you typed: nothing has to be read back out of the bake output. Omit `--tag` and the bake generates `<repo>:<timestamp>-<git sha>` from the bench's `image` repo and prints it, which you then pass to `fm switch`.
+`--image` names the app image the bake produces, and it takes either form. Give it a **full image ref** and it is built exactly as typed, so the tag you switch to is the tag you typed and nothing has to be read back out of the bake output. Give it a **bare repo** and the bake generates `<repo>:<timestamp>-<git sha>` and prints it, which you then pass to `fm switch`; omitting `--image` altogether falls back to the bench's own `image` repo the same way. What the image is built *from* is a separate input, `--base-image` (persisted as `[build].base_image`), and it is never the thing you switch onto.
 
 Whether anything has to be transported at all depends on where those two commands run.
 
 ```mermaid
 flowchart LR
-    B["fm bake --tag REF"] --> LI[image pair on the build daemon]
+    B["fm bake --image REF"] --> LI[image pair on the build daemon]
     LI -->|"same host: fm switch finds it, no pull"| RD[target daemon]
     LI -->|"--push"| REG[(registry)] -->|"fm switch pulls what is missing"| RD
     LI -->|"docker save over ssh docker load"| RD
@@ -60,7 +60,7 @@ Images are architecture-specific, and a bake has to target the architecture the 
 
 So when the machine you bake on and the machine you run on differ, an Apple Silicon laptop building for an amd64 server, set `[build].platform = "linux/amd64"` explicitly. Nothing detects the target for you.
 
-Cross-arch bakes require emulation (Rosetta/binfmt; Docker Desktop ships it) and only work with `[build].source = "provision"` (a `workspace` snapshot contains host-arch binaries, so fm refuses it). The two image builds are `docker buildx build --platform <target> --load`; the provisioning containers that run before them take no platform argument, so they are steered by `DOCKER_DEFAULT_PLATFORM` for the duration of the bake. Before provisioning starts, fm checks the **base image** against the target architecture (a local copy of the right arch passes) and fails fast with the list of published architectures when the registry manifest provably lacks it.
+Cross-arch bakes require emulation (Rosetta/binfmt; Docker Desktop ships it) and only work with `[build].source = "provision"` (a `workspace` snapshot contains host-arch binaries, so fm refuses it). The two image builds are `docker buildx build --platform <target> --load`; the provisioning containers that run before them take no platform argument, so they are steered by `DOCKER_DEFAULT_PLATFORM` for the duration of the bake. Before provisioning starts, fm checks the **base image** the bake builds from (`fm bake --base-image REF`, or `[build].base_image`, defaulting to fm's published base) against the target architecture (a local copy of the right arch passes) and fails fast with the list of published architectures when the registry manifest provably lacks it.
 
 `[build].platform` names exactly one platform. fm loads each built image into the local daemon, which is what lets the pre-flight boot check run it and a same-host `fm switch` skip the registry, and docker cannot load a multi-platform manifest list. A comma-separated value is refused rather than attempted. If you need a manifest list covering several architectures, push one yourself from a container-driver buildx builder.
 
@@ -72,7 +72,7 @@ The shape is the same two commands, split across the two machines. Bake and push
 
 ```bash
 # on the runner: no bench needed, just the app list and a ref you chose
-fm bake --apps frappe --apps erpnext:version-15 --tag ghcr.io/acme/mybench:$GIT_SHA --push
+fm bake --apps frappe --apps erpnext:version-15 --image ghcr.io/acme/mybench:$GIT_SHA --push
 
 # on the server that owns the bench
 ssh prod "fm switch mybench ghcr.io/acme/mybench:$GIT_SHA"

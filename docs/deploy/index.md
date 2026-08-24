@@ -37,11 +37,11 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
 4. **Every release after that is bake then switch:**
 
     ```bash
-    fm bake mybench --tag local/mybench:v2
+    fm bake mybench --image local/mybench:v2
     fm switch mybench local/mybench:v2
     ```
 
-    `--tag` names the image ref outright, so the ref you bake is the ref you switch to; omit it and the bake generates and prints `local/mybench:<timestamp>-<git sha>` for you to pass along. The switch then runs the full pipeline, and you will see its steps in order: fetch, a pre-flight boot check, the compose re-pin, the migrate decision, the worker drain, the DB dump, the migrate, the swap, a health gate, and finalize. If anything fails before the swap, the old stack never stopped serving.
+    `--image` names the app image the bake produces: give it a full ref and the ref you bake is the ref you switch to; give it a bare repo, or leave it off and let the bench's `image` repo stand, and the bake generates and prints `local/mybench:<timestamp>-<git sha>` for you to pass along. (`--base-image REF` is the other direction: the image this one is built *from*.) The switch then runs the full pipeline, and you will see its steps in order: fetch, a pre-flight boot check, the compose re-pin, the migrate decision, the worker drain, the DB dump, the migrate, the swap, a health gate, and finalize. If anything fails before the swap, the old stack never stopped serving.
 
 5. **Verify it:**
 
@@ -66,7 +66,7 @@ flowchart LR
     R -->|fm prune / --keep N| H[trimmed history,\ndumps, image tags]
 ```
 
-- `fm bake <bench> [--tag REF]`: build the image pair only, deploying nothing (prints both tags).
+- `fm bake <bench> [--image REF] [--base-image REF]`: build the image pair only, deploying nothing (prints both tags). `--image` is the app image produced; `--base-image` is what it is built from, the command-line form of [`[build].base_image`](../reference/configuration.md#deploy-tables).
 - `fm switch <bench> <tag>`: deploy an already-built tag (no bake).
 - `fm switch <bench> --previous`: roll back (same pipeline pointed backwards, migrate disabled).
 - `fm prune <bench>`: remove old releases; also available inline as `--keep N` on `fm switch`.

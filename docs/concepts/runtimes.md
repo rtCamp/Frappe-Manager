@@ -61,7 +61,7 @@ Runtime says where code lives; [environment](../guides/environments.md) says how
 
 The one asymmetry: developer mode is refused on an image bench even in a `dev` environment, because DocType authoring writes app source files into the container layer that the next deploy throws away.
 
-One flag worth knowing changes meaning with the runtime: `fm create --image` names the *base* frappe image the workspace runs on for a mount bench, and the *app image to run* for an image bench.
+One flag per direction, so nothing changes meaning with the runtime: `fm create --image` is image runtime only and names the *app image to run*, while a mount bench overrides the *base* frappe image its containers run on with `fm create --base-image` and seeds its workspace from a baked image with `fm create --from-image`.
 
 ## Where to next
 

@@ -24,6 +24,7 @@ from frappe_manager.utils.callbacks import (
     sitename_callback,
     sites_autocompletion_callback,
 )
+from frappe_manager.utils.helpers import has_explicit_tag
 
 
 def _bake_name(image: str | None) -> str:
@@ -34,6 +35,13 @@ def _bake_name(image: str | None) -> str:
         if name:
             return name
     return "fm-bake"
+
+
+def _base_image_callback(value: str | None) -> str | None:
+    """``--base-image`` pins a specific base, so a bare repo is almost certainly a mistake."""
+    if value and not has_explicit_tag(value):
+        raise typer.BadParameter("--base-image must include a tag, e.g. 'ghcr.io/acme/frappe-custom:v15'.")
+    return value
 
 
 def _frappe_first(apps: list[AppConfig]) -> list[AppConfig]:
@@ -112,6 +120,18 @@ def _build_standalone_config(
     benchname="mybench",
 )
 @example(
+    "Bake an exact image reference",
+    "{benchname} --image ghcr.io/acme/mysite:v42 --push",
+    benchname="mybench",
+    detail="A ref that already carries a tag is built verbatim; drop the tag to get a generated :<timestamp>-<sha> instead.",
+)
+@example(
+    "Pin the base image the build starts FROM",
+    "{benchname} --base-image ghcr.io/acme/frappe-custom:v15",
+    benchname="mybench",
+    detail="--base-image is what the runtime Dockerfile builds FROM, while --image is what the bake produces.",
+)
+@example(
     "Bake exactly what is on disk right now",
     "{benchname} --source workspace",
     benchname="mybench",
@@ -138,15 +158,16 @@ def bake(
         str | None,
         typer.Option(
             "--image",
-            help="Image repository to bake into, e.g. ghcr.io/acme/mysite.",
+            help="Image to build. A full ref (ghcr.io/acme/mysite:v42) is built as-is; a bare repo (ghcr.io/acme/mysite) gets a generated :<timestamp>-<sha> tag. Defaults to the bench's configured image.",
             show_default=False,
         ),
     ] = None,
-    tag: Annotated[
+    base_image: Annotated[
         str | None,
         typer.Option(
-            "--tag",
-            help="Full image tag to build, instead of the generated <repo>:<timestamp>-<sha>.",
+            "--base-image",
+            help="Image the runtime Dockerfile builds FROM. Defaults to [build].base_image, else fm's published frappe image for this fm version.",
+            callback=_base_image_callback,
             show_default=False,
         ),
     ] = None,
@@ -259,8 +280,17 @@ def bake(
             raise typer.Exit(1) from e
         bench_config = BenchConfig.import_from_toml(bench_config_path)
 
+    explicit_tag: str | None = None
     if image:
-        bench_config.image = image
+        if has_explicit_tag(image):
+            explicit_tag = image
+        else:
+            bench_config.image = image
+
+    if base_image:
+        if bench_config.build is None:
+            bench_config.build = BuildConfig()
+        bench_config.build.base_image = base_image
 
     if source is not None:
         if source not in ("provision", "workspace"):
@@ -283,7 +313,7 @@ def bake(
 
     try:
         bake_manager = BakeManager(bench_config, output_handler=output)
-        built_tag = bake_manager.bake(tag=tag, push=push)
+        built_tag = bake_manager.bake(tag=explicit_tag, push=push)
     except BakeError as e:
         output.display_error(str(e))
         raise typer.Exit(1) from e

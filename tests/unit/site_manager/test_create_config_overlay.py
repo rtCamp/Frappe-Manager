@@ -47,6 +47,7 @@ def _build(
     restart=None,
     runtime=None,
     image=None,
+    base_image=None,
 ):
     return _build_overlay_bench_config(
         config=config,
@@ -65,6 +66,7 @@ def _build(
         newrelic_license_key=None,
         runtime=runtime,
         image=image,
+        base_image=base_image,
         db_name="fm_x_deadbeef",
         explicit=set(explicit),
     )
