@@ -677,6 +677,14 @@ def test_image_present_treats_a_daemon_error_as_absent():
 
 
 def test_fetch_image_does_nothing_when_both_tags_are_present():
+    """This is also how the airgap case is served now that `[registry].distribution` is gone.
+
+    That flag's `save_load` value existed to declare "the image is already on this daemon,
+    do not reach for a registry", and made an absent tag a hard error. It was config
+    restating something the daemon can be asked directly, so it went: ship the image
+    yourself (`docker save | ssh host docker load`), or bake it here, and the presence check
+    below finds it. Nothing is pulled and no registry has to be configured or reachable.
+    """
     docker = MagicMock()
     docker.images.return_value = [
         {"Repository": "ghcr.io/acme/erp", "Tag": "jun01"},
@@ -696,24 +704,6 @@ def test_fetch_image_pulls_only_the_missing_tags_after_logging_in():
 
     docker.login.assert_called_once()
     docker.pull.assert_called_once_with("ghcr.io/acme/erp-nginx:jun01", stream=False)
-
-
-def test_fetch_image_save_load_refuses_instead_of_pulling():
-    """``distribution = "save_load"`` asserts the image was placed on THIS daemon by hand, so
-    there is no registry to pull from: an absent tag must fail loudly and name both tags rather
-    than attempt a pull that can only 404."""
-    docker = MagicMock()
-    docker.images.return_value = []
-    cfg = RegistryConfig(registry="ghcr.io", distribution="save_load")
-
-    with pytest.raises(TransportError) as err:
-        fetch_image(docker, cfg, "ghcr.io/acme/erp:jun01")
-
-    msg = str(err.value)
-    assert "ghcr.io/acme/erp:jun01" in msg
-    assert "ghcr.io/acme/erp-nginx:jun01" in msg
-    assert "docker save/load" in msg
-    docker.pull.assert_not_called()
 
 
 def test_fetch_image_without_registry_config_defaults_to_pulling():

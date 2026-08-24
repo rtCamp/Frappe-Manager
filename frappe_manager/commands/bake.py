@@ -154,7 +154,7 @@ def bake(
         bool | None,
         typer.Option(
             "--push/--no-push",
-            help="Push the baked image to the registry. On by default when registry.distribution is 'registry'.",
+            help="Push the baked image to the registry after building. Defaults to [build].push, which is off unless set. A bake that does not push still loads the image into the local daemon.",
             show_default=False,
         ),
     ] = None,

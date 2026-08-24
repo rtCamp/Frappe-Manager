@@ -40,8 +40,8 @@ def _image_bench(path):
         runtime=BenchRuntime.image,
         image="ghcr.io/acme/x",
         switch=SwitchConfig(maintenance_mode_phases=["migrate"]),
-        build=BuildConfig(base_image="ghcr.io/rtcamp/frappe-manager-frappe", python_version="3.11"),
-        registry=RegistryConfig(registry="ghcr.io/acme", username="u", distribution="save_load"),
+        build=BuildConfig(base_image="ghcr.io/rtcamp/frappe-manager-frappe", python_version="3.11", push=True),
+        registry=RegistryConfig(registry="ghcr.io/acme", username="u"),
     )
 
 
@@ -82,7 +82,8 @@ def test_image_deploy_roundtrip(tmp_path):
     assert bc.build is not None
     assert bc.build.python_version == "3.11"
     assert bc.registry is not None
-    assert bc.registry.distribution == "save_load"
+    assert bc.registry.registry == "ghcr.io/acme"
+    assert bc.build.push is True
 
 
 def test_additive_optout_empty_phases_roundtrip(tmp_path):

@@ -407,7 +407,7 @@ class BakeManager:
 
         ``tag`` overrides the auto-generated ``<repo>:<ts>-<sha>`` when given.
         ``push`` forces (``True``) or suppresses (``False``) the registry push;
-        ``None`` (default) pushes when ``[registry].distribution == 'registry'``.
+        ``None`` (default) falls back to ``[build].push``.
         """
         base_image = self.resolve_base_image()
         tag = tag or self.resolve_tag()
@@ -531,16 +531,19 @@ class BakeManager:
         return getattr(self.bench_config, "registry", None)
 
     def _should_push(self, push: bool | None) -> bool:
-        """Resolve the push decision: explicit flag wins; otherwise push when a
-        ``[registry]`` table is configured with ``distribution == 'registry'``.
+        """Resolve the push decision: the explicit flag wins, else ``[build].push``.
 
-        The registry host is normally encoded in the top-level ``image`` (e.g.
-        ``localhost:5000/rtest``); a separate ``[registry].registry`` is only
+        Deliberately not inferred from ``[registry]``: a bench configures a registry
+        so it can PULL as well (``fm switch``, ``fm create``, ``fm update`` all use
+        it), so the presence of creds says nothing about whether this bake should
+        publish. The registry host is normally encoded in the top-level ``image``
+        (e.g. ``localhost:5000/rtest``); a separate ``[registry].registry`` is only
         needed for ``docker login``.
         """
-        reg = self._registry_config()
-        default = bool(reg and reg.distribution == "registry")
-        return default if push is None else push
+        if push is not None:
+            return push
+        build = self.bench_config.build
+        return bool(build and build.push)
 
     def _push_images(self, tags: list[str]) -> None:
         reg = self._registry_config()

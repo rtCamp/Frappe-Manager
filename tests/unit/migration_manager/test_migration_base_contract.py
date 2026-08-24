@@ -1112,6 +1112,52 @@ def test_the_renamed_admin_tools_htpasswd_is_dropped(v0200, v0200_bench):
     assert not htpasswd.exists()
 
 
+def test_keys_removed_in_0_20_0_are_stripped_from_bench_config(v0200, v0200_bench):
+    """The models dropped these fields, so the file must stop carrying them.
+
+    `import_from_toml` filters both keys so an un-migrated bench still loads; this is the
+    step that takes them off disk. Neighbouring keys in the same tables must survive.
+    """
+    config = v0200_bench.path / "bench_config.toml"
+    config.write_text(
+        'name = "alpha"\n'
+        "[switch]\nmigrate = true\nsearch_replace = true\n"
+        '[registry]\nregistry = "ghcr.io/acme"\ndistribution = "save_load"\n',
+    )
+
+    v0200._drop_removed_config_keys(v0200_bench)
+
+    doc = tomlkit.parse(config.read_text())
+    assert "search_replace" not in doc["switch"]
+    assert "distribution" not in doc["registry"]
+    assert doc["switch"]["migrate"] is True
+    assert doc["registry"]["registry"] == "ghcr.io/acme"
+    assert doc["name"] == "alpha"
+
+
+def test_a_config_without_the_removed_keys_is_not_rewritten(v0200, v0200_bench):
+    """No key present means no write, so mtimes and formatting are left alone."""
+    config = v0200_bench.path / "bench_config.toml"
+    original = 'name = "alpha"\n[switch]\nmigrate = true\n'
+    config.write_text(original)
+
+    v0200._drop_removed_config_keys(v0200_bench)
+
+    assert config.read_text() == original
+
+
+def test_migrate_bench_actually_runs_the_key_strip(v0200, v0200_bench):
+    """Wiring, not behaviour. The helper is unit-tested directly above, so nothing there
+    notices if the call goes missing from ``migrate_bench``. Safe to run in full here:
+    with no docker-compose.admin-tools.yml it returns before the compose rewrite."""
+    config = v0200_bench.path / "bench_config.toml"
+    config.write_text('name = "alpha"\n[switch]\nsearch_replace = true\n')
+
+    v0200.migrate_bench(v0200_bench)
+
+    assert "search_replace" not in tomlkit.parse(config.read_text())["switch"]
+
+
 def test_a_config_without_the_old_keys_is_not_rewritten(v0200, v0200_bench, output):
     config = v0200_bench.path / "bench_config.toml"
     config.write_text('name = "alpha"\n[auth]\nuser = "bob"\n')

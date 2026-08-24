@@ -208,20 +208,29 @@ class TestDelegatedCertificateSurvivesTheTomlBoundary:
         assert reimported.ssl_certificates[0].delegation_cname == "a-gg-com.fm.gw"
 
 
-def test_a_bench_config_carrying_search_replace_still_loads():
-    """`[switch].search_replace` exists on real benches and must keep loading.
+def test_a_bench_config_carrying_keys_removed_in_0_20_0_still_loads(tmp_path):
+    """Keys deleted from the models must not break benches that still carry them on disk.
 
-    SwitchConfig is `extra="forbid"`, so deleting a field is not a no-op for anyone who already has
-    it in bench_config.toml: every command that loads that bench dies with a pydantic
-    ValidationError. This was removed once as "documented but never read" and it took down `fm info`
-    and `fm ssl list` on a live bench whose config carried `search_replace = true`. The key is inert,
-    but it stays until a migration strips it from disk.
+    `[switch].search_replace` and `[registry].distribution` were both removed in 0.20.0.
+    Those models are `extra="forbid"` and `import_from_toml` splats the whole TOML table
+    into them, so a stale key would otherwise make EVERY command that loads the bench die
+    with a pydantic ValidationError. `search_replace` was deleted once before on the
+    grounds that nothing read it, and it took down `fm info` and `fm ssl list` on a live
+    bench whose config carried `search_replace = true`. The loader filters these keys now,
+    and the 0.20.0 bench migration strips them from disk so they stop propagating.
     """
-    from frappe_manager.site_manager.bench_config import SwitchConfig
+    path = tmp_path / "bench_config.toml"
+    path.write_text(
+        _BASE
+        + '[switch]\nmigrate = true\nsearch_replace = true\n\n[registry]\nregistry = "ghcr.io/acme"\ndistribution = "save_load"\n'
+    )
 
-    cfg = SwitchConfig(migrate=True, search_replace=True)
+    cfg = BenchConfig.import_from_toml(path)
 
-    assert cfg.search_replace is True
+    assert cfg.switch is not None and cfg.switch.migrate is True
+    assert cfg.registry is not None and cfg.registry.registry == "ghcr.io/acme"
+    assert not hasattr(cfg.switch, "search_replace")
+    assert not hasattr(cfg.registry, "distribution")
 
 
 def test_switch_config_still_rejects_a_genuinely_unknown_key():
@@ -233,7 +242,6 @@ def test_switch_config_still_rejects_a_genuinely_unknown_key():
 
     with pytest.raises(ValidationError):
         SwitchConfig(serch_replace=True)
-
 
 
 _SSL_WITH_HSTS = (

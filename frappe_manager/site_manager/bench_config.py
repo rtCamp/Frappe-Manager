@@ -1083,14 +1083,6 @@ class SwitchConfig(BaseModel):
         False,
         description="On failure: also restore the DB dump (requires backup_db; default off -- migrate is resumable).",
     )
-    # Accepted but unused. Nothing reads this: the switch pipeline never runs a search-and-replace.
-    # It cannot simply be deleted, because `SwitchConfig` is `extra="forbid"` and real benches
-    # already carry `search_replace = true` on disk -- removing the field makes EVERY command that
-    # loads such a bench die with a pydantic validation error (observed on a live bench). Dropping
-    # it needs a bench migration that strips the key first; until then it stays, inert.
-    search_replace: bool = Field(
-        True, description="Deprecated, ignored: retained so existing bench_config.toml still loads."
-    )
     install_apps: bool = Field(True, description="Install new apps to the site during finalize.")
     keep_releases: int = Field(
         7,
@@ -1108,6 +1100,21 @@ class SwitchConfig(BaseModel):
                 "switch.rollback_db = true requires switch.backup_db = true (there is no dump to restore)."
             )
         return self
+
+
+def _drop_removed(table, *keys: str) -> dict:
+    """A config table with keys removed in this version filtered out.
+
+    These models are ``extra="forbid"`` and ``import_from_toml`` splats the whole
+    TOML table into them, so a key that used to be valid makes EVERY command that
+    loads such a bench die on a pydantic error. The 0.20.0 bench migration strips
+    these keys from disk, but the gate that offers to migrate is skipped for
+    whitelisted commands (``list``, ``bake``, ``switch``), so one un-migrated bench
+    would otherwise break `fm list` for all of them. Filtering here keeps a stale
+    file loadable; the migration is what stops it propagating, since ``export_to_toml``
+    can no longer write a field the model does not have.
+    """
+    return {k: v for k, v in dict(table).items() if k not in keys}
 
 
 class BuildConfig(BaseModel):
@@ -1128,6 +1135,12 @@ class BuildConfig(BaseModel):
         description="Target build platform (e.g. 'linux/amd64'). None = the build daemon's "
         "native arch. Cross-arch bakes run under emulation (needs binfmt/Rosetta).",
     )
+    push: bool = Field(
+        False,
+        description="Push the built image to the registry. Overridden either way by "
+        "`fm bake --push/--no-push`. A bake that does not push still loads the image "
+        "into the local daemon, so a same-host `fm switch` needs no registry at all.",
+    )
     include: list[str] = Field(
         default_factory=list,
         description="Extra host paths baked into the image: 'src' or 'src:dest' (dest relative to "
@@ -1136,16 +1149,18 @@ class BuildConfig(BaseModel):
 
 
 class RegistryConfig(BaseModel):
-    """Image registry / transport configuration (`[registry]`)."""
+    """Image registry configuration (`[registry]`).
+
+    Read in both directions, which is why it is not part of `[build]`: `fm bake`
+    pushes with it, and `fm switch`, `fm create` (image/attach) and `fm update` all
+    pull with it on hosts that never build anything.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     registry: str | None = Field(None, description="Registry host/namespace for push/pull.")
     username: str | None = Field(None, description="Registry username (env-substituted).")
     password: str | None = Field(None, description="Registry password/token (env-substituted, --password-stdin).")
-    distribution: str = Field(
-        "registry", description="Image transport: 'registry' (push/pull) or 'save_load' (docker save/load over SSH)."
-    )
 
 
 class NewRelicConfig(BaseModel):
@@ -1620,10 +1635,12 @@ class BenchConfig(BaseModel):
             "image": data.get("image", None),
             "base_image": data.get("base_image", None),
             "seed_image": data.get("seed_image", None),
-            "switch": SwitchConfig(**dict(data["switch"])) if data.get("switch") else None,
+            "switch": SwitchConfig(**_drop_removed(data["switch"], "search_replace")) if data.get("switch") else None,
             "workers": WorkersConfig(**dict(data["workers"])) if data.get("workers") else None,
             "build": BuildConfig(**dict(data["build"])) if data.get("build") else None,
-            "registry": RegistryConfig(**dict(data["registry"])) if data.get("registry") else None,
+            "registry": RegistryConfig(**_drop_removed(data["registry"], "distribution"))
+            if data.get("registry")
+            else None,
             "database": {str(k): DatabaseConfig(**dict(v)) for k, v in data["database"].items()}
             if data.get("database")
             else None,

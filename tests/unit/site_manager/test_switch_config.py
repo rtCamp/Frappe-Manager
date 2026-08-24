@@ -50,12 +50,15 @@ def test_old_keep_releases_name_is_rejected():
         SwitchConfig(releases_retain_limit=3)
 
 
-def test_search_replace_is_accepted_but_inert():
-    # `search_replace` advertised "run search-and-replace in DB after restore" and is never read:
-    # _restore_db only ever imports fm's OWN dump of THIS site, so there is no other site's URL to
-    # rewrite. It was briefly DELETED for that reason, which was a mistake: SwitchConfig is
-    # extra="forbid" and real benches already carry `search_replace = true` on disk, so removing the
-    # field made every command that loads such a bench die with a ValidationError -- observed on a
-    # live bench, where it broke `fm info` and `fm ssl list`. The key is therefore accepted and
-    # ignored until a bench migration strips it from disk.
-    assert SwitchConfig(search_replace=True).search_replace is True
+def test_search_replace_is_gone_from_the_model():
+    # `search_replace` advertised "run search-and-replace in DB after restore" and was never
+    # read: _restore_db only ever imports fm's OWN dump of THIS site, so there is no other
+    # site's URL to rewrite. It was deleted once on that reasoning alone, which broke every
+    # command that loaded a bench carrying `search_replace = true` (observed live: it took
+    # down `fm info` and `fm ssl list`), because SwitchConfig is extra="forbid". It is gone
+    # again in 0.20.0, this time with the loader filtering the stale key and the bench
+    # migration stripping it from disk. The model itself is strict again, as it should be:
+    # the compatibility lives in BenchConfig.import_from_toml, not here.
+    # See test_bench_config_toml.py::test_a_bench_config_carrying_keys_removed_in_0_20_0_still_loads.
+    with pytest.raises(ValueError):
+        SwitchConfig(search_replace=True)

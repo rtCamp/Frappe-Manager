@@ -21,7 +21,7 @@ $ fm bake BENCHNAME [OPTIONS]
 
 * `--image`: Image repository to bake into, e.g. ghcr.io/acme/mysite.
 * `--tag`: Full image tag to build, instead of the generated <repo>:<timestamp>-<sha>.
-* `--push/--no-push`: Push the baked image to the registry. On by default when registry.distribution is 'registry'.
+* `--push/--no-push`: Push the baked image to the registry after building. Defaults to [build].push, which is off unless set. A bake that does not push still loads the image into the local daemon.
 * `--config`: TOML overlay, either a file path or inline TOML. With a bench it is merged into bench_config.toml and stays there; standalone it supplies the whole config. Repeatable; later --config wins.
 * `-a, --apps`: Standalone bake only: apps to bake (appname:branch or appname, e.g. erpnext:version-15). Repeatable.
 * `--python`: Standalone bake only: Python version to bake.

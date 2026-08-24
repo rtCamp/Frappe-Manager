@@ -1,18 +1,18 @@
 """Image transport helpers.
 
-A baked image reaches the daemon that will run it in one of two ways, selected by
-``[registry].distribution`` in ``bench_config.toml``:
+A baked image reaches the daemon that will run it in one of two ways, and which
+one applies is discovered rather than configured: if the tag is already on that
+daemon it is used as-is, otherwise it is pulled.
 
-- ``registry`` (the default): ``docker login`` from ``[registry]`` creds
-  (env-substituted, ``--password-stdin``) then ``docker push`` on the host that
-  built the image and ``docker pull`` on the host that runs it. When no creds are
-  configured the ambient daemon credentials are used.
-- ``save_load`` (airgap): the image is expected to be present on the daemon
-  already, because the operator shipped it there by hand with something like
-  ``docker save <img> | ssh host docker load``. In this mode ``fetch_image``
-  refuses to pull and raises ``TransportError`` when the tag is absent, so a
-  missing image fails loudly instead of reaching for a registry that is not
-  there.
+- Built here: a bake loads the image into the local daemon, so a same-host
+  ``fm switch`` finds it and never contacts a registry.
+- Built elsewhere: ``docker login`` from ``[registry]`` creds (env-substituted,
+  ``--password-stdin``) then ``docker pull``. With no creds configured the ambient
+  daemon credentials are used.
+
+Airgap works without a mode flag: ship the image yourself (``docker save <img> |
+ssh host docker load``) and the presence check finds it. If it is genuinely
+missing and cannot be pulled, the pull failure says so.
 """
 
 import os
@@ -65,9 +65,8 @@ def image_present(docker: DockerClient, tag: str) -> bool:
 def fetch_image(docker: DockerClient, registry_config, tag: str, output=None) -> None:
     """Ensure ``tag`` (+ its derived nginx tag) is present on the target daemon.
 
-    registry mode: ``docker login`` (when creds set) then ``docker pull`` any
-    missing tags. save_load mode: a missing tag is a hard error (transport it
-    first). local/absent registry: pull if missing.
+    Present already (built here, or shipped by hand) means nothing to do. Anything
+    missing is pulled, logging in first when ``[registry]`` carries creds.
     """
     from frappe_manager.docker import DockerException
     from frappe_manager.site_manager.modules.bake import BakeManager
@@ -76,13 +75,6 @@ def fetch_image(docker: DockerClient, registry_config, tag: str, output=None) ->
     missing = [t for t in (tag, nginx_tag) if not image_present(docker, t)]
     if not missing:
         return
-
-    distribution = registry_config.distribution if registry_config else "registry"
-    if distribution == "save_load":
-        raise TransportError(
-            f"Image(s) {', '.join(missing)} not present and distribution='save_load'; "
-            "transport the image(s) (docker save/load) to this daemon before switching.",
-        )
 
     registry_login(docker, registry_config, output=output)
     for t in missing:

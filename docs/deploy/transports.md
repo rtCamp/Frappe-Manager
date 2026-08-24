@@ -17,36 +17,39 @@ Whether anything has to be transported at all depends on where those two command
 flowchart LR
     B["fm bake --tag REF"] --> LI[image pair on the build daemon]
     LI -->|"same host: fm switch finds it, no pull"| RD[target daemon]
-    LI -->|"push after bake"| REG[(registry)] -->|"distribution = registry: fm switch pulls"| RD
-    LI -->|"distribution = save_load: docker save over ssh docker load"| RD
+    LI -->|"--push"| REG[(registry)] -->|"fm switch pulls what is missing"| RD
+    LI -->|"docker save over ssh docker load"| RD
     RD --> RUN[bench containers]
 ```
 
-**Same host, the single-server case.** `fm switch` begins by making sure both tags are on the daemon it talks to, and returns immediately when they already are. A bake on that same machine has just put them there, so the switch never pulls and you need no registry at all: skip `--push`, leave `[registry]` at its defaults, and an `image = "local/mybench"` repo is enough.
+**Same host, the single-server case.** `fm switch` begins by making sure both tags are on the daemon it talks to, and returns immediately when they already are. A bake on that same machine has just put them there, so the switch never pulls and you need no registry at all: skip `--push`, leave `[registry]` out entirely, and an `image = "local/mybench"` repo is enough.
 
-**Bake here, run there.** Now the image has to cross the gap, and `[registry] distribution` in `bench_config.toml` says how:
+**Bake here, run there.** Now the image has to cross the gap. There is no mode to select: `fm switch` asks the target daemon whether each tag is already there, and pulls only what is missing. So you choose by how you get the image across, not by a config value.
+
+Via a registry, which is the normal path:
 
 ```toml
+[build]
+push = true                  # or pass --push on the command line
+
 [registry]
-distribution = "registry"    # push after bake; fm switch pulls what is missing
-# distribution = "save_load" # the image is already on the target daemon; fm switch never pulls
 # registry = "ghcr.io"       # only needed for docker login
 # username = "ci-bot"        # ${VAR} env substitution supported
 # password = "${REGISTRY_TOKEN}"
 ```
 
-`distribution = "registry"` (the default): `fm bake` pushes, which is what `--push` does and what this mode turns on by default, and `fm switch` pulls any tag missing on the target daemon, logging in first when `username` and `password` are set. The registry host is part of the image ref itself (`ghcr.io/acme/mybench`); `[registry] registry` exists only to name what `docker login` talks to. Omit the credentials to use whatever ambient auth the daemon already has.
+`fm bake --push` (or `[build] push = true`) publishes both tags, and `fm switch` on the target pulls whatever it does not already have, logging in first when `username` and `password` are set. The registry host is part of the image ref itself (`ghcr.io/acme/mybench`); `[registry] registry` exists only to name what `docker login` talks to. Omit the credentials to use whatever ambient auth the daemon already has.
 
-`distribution = "save_load"` (airgap): fm never pulls. A tag missing on the target daemon is a hard error telling you to transport it first, so you ship the image yourself before switching:
+Or by hand, for an airgapped target with no registry at all:
 
 ```bash
 docker save ghcr.io/acme/mybench:v42 ghcr.io/acme/mybench-nginx:v42 | ssh prod docker load
 ssh prod "fm switch mybench ghcr.io/acme/mybench:v42"
 ```
 
-The loud failure is the point of this mode: a missing image means the transport did not happen, and quietly pulling something from a registry instead would be the wrong answer.
+The presence check is what makes this work: the tags are already on the target daemon, so the switch uses them and never contacts a registry. If you skip the transport, the pull that follows is what fails, and it names the tag it could not get.
 
-Both modes carry a **pair** of tags. Every bake builds the app image and its paired `-nginx` assets image, which is the same tag with `-nginx` appended to the repo. Only the app tag is ever named on the command line; fm derives the second one, and both are what `fm switch` fetches, deploys and prunes together. That is why the `docker save` above names two tags.
+Either way you are moving a **pair** of tags. Every bake builds the app image and its paired `-nginx` assets image, which is the same tag with `-nginx` appended to the repo. Only the app tag is ever named on the command line; fm derives the second one, and both are what `fm switch` fetches, deploys and prunes together. That is why the `docker save` above names two tags.
 
 ## Platforms (CPU architectures)
 

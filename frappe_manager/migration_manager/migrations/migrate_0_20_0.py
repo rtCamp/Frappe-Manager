@@ -36,7 +36,6 @@ Global database engine:
   system tables via MARIADB_AUTO_UPGRADE
 """
 
-
 import gzip
 import shutil
 from collections.abc import MutableMapping
@@ -101,12 +100,21 @@ def rewrite_global_db_service(engine: MutableMapping, image: str = GLOBAL_DB_IMA
 class MigrationV0200(MigrationBase):
     version = Version("0.20.0")
 
+    # Keys removed from the config models in 0.20.0. Their tables are extra="forbid",
+    # so BenchConfig.import_from_toml filters them to keep a stale file loadable; this
+    # is what actually takes them off disk so they stop being carried forward.
+    REMOVED_KEYS: tuple[tuple[str, str], ...] = (
+        ("switch", "search_replace"),
+        ("registry", "distribution"),
+    )
+
     def migrate_bench(self, bench: MigrationBench):
         # Bench nginx config applies to every bench, before the admin-tools
         # early returns below.
         self._place_realip_conf(bench)
         self._refresh_nginx_default_conf(bench)
         self._move_admin_tools_credentials(bench)
+        self._drop_removed_config_keys(bench)
 
         compose_path = bench.path / "docker-compose.admin-tools.yml"
         if not compose_path.exists():
@@ -225,6 +233,35 @@ class MigrationV0200(MigrationBase):
 
         config_path.write_text(tomlkit.dumps(doc))
         self.output.print(f"Moved admin tools credentials into [auth] for {bench.name}")
+
+    def _drop_removed_config_keys(self, bench: MigrationBench):
+        """Strip keys whose fields no longer exist from bench_config.toml.
+
+        ``[switch].search_replace`` never did anything (the switch pipeline runs no
+        search-and-replace) and ``[registry].distribution`` restated something the daemon
+        can be asked directly: whether the tag is already present. Both are gone from the
+        models, and because those tables are ``extra="forbid"`` a leftover key on disk
+        would fail validation. ``BenchConfig.import_from_toml`` filters them so a bench
+        that has not migrated yet still loads; removing them here is what stops the file
+        carrying them forward.
+        """
+        config_path = bench.path / "bench_config.toml"
+        if not config_path.exists():
+            return
+
+        doc = tomlkit.parse(config_path.read_text())
+        dropped = []
+        for table, key in self.REMOVED_KEYS:
+            section = doc.get(table)
+            if isinstance(section, MutableMapping) and key in section:
+                del section[key]
+                dropped.append(f"[{table}].{key}")
+
+        if not dropped:
+            return
+
+        config_path.write_text(tomlkit.dumps(doc))
+        self.output.print(f"Dropped removed config key(s) {', '.join(dropped)} for {bench.name}")
 
     def migrate_services(self):
         self._upgrade_global_db_engine()

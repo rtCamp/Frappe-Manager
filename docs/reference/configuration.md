@@ -619,6 +619,7 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm switch`, `fm prun
 | `node_version` | the bench's create-time / auto-detected version | Node toolchain (fnm) baked into the image |
 | `platform` | native / auto-detected | target architecture (see [Platforms](../deploy/transports.md#platforms-cpu-architectures)) |
 | `include` | `[]` | extra host paths baked in (`src` or `src:dest`) |
+| `push` | `false` | push the built image pair to the registry after building. `fm bake --push` / `--no-push` overrides it either way. A bake that does not push still loads the image into the local daemon, so a same-host `fm switch` needs no registry |
 
 **`[switch]`** (read by `fm switch`):
 
@@ -637,13 +638,11 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm switch`, `fm prun
 | `common_site_config` | (none) | keys merged into `common_site_config.json` during finalize |
 | `site_config` | (none) | keys merged into `site_config.json` during finalize |
 | `hooks` | (none) | `before/after_migrate`, `before/after_restart` (container + `host.*` variants) |
-| `search_replace` | `true` | accepted and ignored: nothing in the pipeline runs a search-and-replace. The key is kept only so benches that already carry it still load |
 
-**`[registry]`** (image transport):
+**`[registry]`** (registry auth, used for both push and pull):
 
 | Key | Default | Meaning |
 |---|---|---|
-| `distribution` | `"registry"` | `"registry"` (`fm bake` pushes, `fm switch` pulls what is missing) or `"save_load"` (the image is already on the target daemon; `fm switch` never pulls and errors if it is absent) |
 | `registry` | (none) | registry host for `docker login`; omit to use ambient auth |
 | `username` | (none) | login username (env-substituted, e.g. `"${REGISTRY_USER}"`) |
 | `password` | (none) | login password/token (env-substituted, e.g. `"${REGISTRY_TOKEN}"`) |
