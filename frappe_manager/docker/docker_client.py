@@ -237,35 +237,6 @@ class DockerClient:
             input_data=password.encode() if isinstance(password, str) else password,
         )
 
-    def save(
-        self,
-        images: list[str],
-        output_path: Path,
-        stream: bool = False,
-    ):
-        """Save one or more images to a tar archive (``docker save -o <path> <imgs>``)."""
-        save_cmd: list[str] = ["save", "-o", str(output_path), *images]
-
-        iterator = run_command_with_exit_code(
-            self.docker_cmd + save_cmd,
-            stream=stream,
-        )
-        return iterator
-
-    def load(
-        self,
-        input_path: Path,
-        stream: bool = False,
-    ):
-        """Load images from a tar archive (``docker load -i <path>``)."""
-        load_cmd: list[str] = ["load", "-i", str(input_path)]
-
-        iterator = run_command_with_exit_code(
-            self.docker_cmd + load_cmd,
-            stream=stream,
-        )
-        return iterator
-
     def network_ls(
         self,
         format: str = "{{.Name}}",

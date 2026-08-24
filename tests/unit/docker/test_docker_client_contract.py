@@ -428,33 +428,6 @@ class TestLogin:
         assert client.login(registry="reg.local", username="bob", password=self.STDIN_VALUE) is None
 
 
-class TestSaveAndLoad:
-    def test_save_writes_to_o_before_listing_every_image(self, client, runner, tmp_path):
-        target = tmp_path / "images.tar"
-
-        client.save(images=["a:1", "b:2"], output_path=target)
-
-        assert argv(runner) == [DOCKER, "save", "-o", str(target), "a:1", "b:2"]
-        assert opts(runner) == {"stream": False}
-
-    def test_save_accepts_a_single_image(self, client, runner, tmp_path):
-        client.save(images=["only:1"], output_path=tmp_path / "x.tar")
-
-        assert argv(runner)[-1] == "only:1"
-
-    def test_load_reads_from_i(self, client, runner, tmp_path):
-        source = tmp_path / "images.tar"
-
-        client.load(input_path=source)
-
-        assert argv(runner) == [DOCKER, "load", "-i", str(source)]
-
-    def test_paths_are_stringified_not_left_as_path_objects(self, client, runner, tmp_path):
-        client.load(input_path=tmp_path / "images.tar")
-
-        assert all(isinstance(part, str) for part in argv(runner))
-
-
 class TestNetworkLs:
     def test_argv_requests_only_the_name_column(self, client, runner):
         runner.return_value = _output([])

@@ -23,7 +23,6 @@ MIGRATION_CHECK_WHITELIST_COMMANDS: list[str] = [
     "migrate",
     "bake",
     "switch",
-    "rollback",
 ]
 
 MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS: list[str] = ["maintenance"]
