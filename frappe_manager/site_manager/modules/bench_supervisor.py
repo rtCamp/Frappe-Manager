@@ -324,7 +324,8 @@ class BenchSupervisor:
         parsed.read_string(rendered)
         self._write_split_configs(parsed, config_dir)
         self._write_gunicorn_wrapper(config_dir, context)
-        if self.config.newrelic_enabled and self.config.newrelic_license_key:
+        newrelic = self.config.get_newrelic_config()
+        if newrelic and newrelic.enabled and newrelic.license_key:
             self._write_newrelic_config(config_dir)
         self.output.print("Configured supervisor configs")
 
@@ -344,7 +345,8 @@ class BenchSupervisor:
 
         self._write_gunicorn_wrapper(config_dir, context)
 
-        if self.config.newrelic_enabled and self.config.newrelic_license_key:
+        newrelic = self.config.get_newrelic_config()
+        if newrelic and newrelic.enabled and newrelic.license_key:
             self._write_newrelic_config(config_dir)
 
         self.output.print("Configured supervisor configs")
@@ -391,10 +393,11 @@ class BenchSupervisor:
         import io
         from pathlib import Path
 
+        newrelic = self.config.get_newrelic_config()
         cfg = configparser.RawConfigParser()
 
         cfg.add_section("newrelic")
-        cfg.set("newrelic", "license_key", self.config.newrelic_license_key or "")
+        cfg.set("newrelic", "license_key", (newrelic.license_key if newrelic else None) or "")
         cfg.set("newrelic", "app_name", f"Frappe - {self.bench_name}")
         cfg.set("newrelic", "monitor_mode", "true")
         cfg.set("newrelic", "high_security", "false")

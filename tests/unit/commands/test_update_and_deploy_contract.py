@@ -47,7 +47,13 @@ from frappe_manager.commands.deploy import prune, switch
 from frappe_manager.commands.update import update
 from frappe_manager.output_manager import set_global_output_handler
 from frappe_manager.output_manager.base import OutputHandler
-from frappe_manager.site_manager.bench_config import BenchRuntime, FMBenchEnvType, RestartPolicyEnum
+from frappe_manager.site_manager.bench_config import (
+    BenchRuntime,
+    FMBenchEnvType,
+    MonitoringConfig,
+    NewRelicConfig,
+    RestartPolicyEnum,
+)
 from frappe_manager.site_manager.domain_conflict import DomainConflict, DomainConflictError
 from frappe_manager.site_manager.exceptions import BenchNotRunning
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError
@@ -92,7 +98,10 @@ class UpdateWorld:
         cfg.developer_mode = False
         cfg.python_version = "3.11"
         cfg.node_version = "18"
-        cfg.newrelic_license_key = None
+        cfg.monitoring = None
+        # The command reads monitoring through the helper and writes it back through the
+        # attribute, so the double has to keep the two consistent.
+        cfg.get_newrelic_config.side_effect = lambda: cfg.monitoring.newrelic if cfg.monitoring else None
         cfg.github_token = MagicMock(name="github_token")
         cfg.use_uv = True
         cfg.registry = SimpleNamespace(distribution="registry")
@@ -847,23 +856,23 @@ class TestNewRelic:
         assert world.saves == 0
 
     def test_enabling_accepts_a_key_already_stored_in_the_bench_config(self, world):
-        world.config.newrelic_license_key = "stored-key"
+        world.config.monitoring = MonitoringConfig(newrelic=NewRelicConfig(license_key="stored-key"))
 
         world.run(newrelic=True)
 
-        assert world.config.newrelic_enabled is True
+        assert world.config.monitoring.newrelic.enabled is True
         world.bench.supervisor.setup_newrelic.assert_called_once_with(world.bench_path)
 
     def test_disabling_needs_no_license_key(self, world):
         world.run(newrelic=False)
 
-        assert world.config.newrelic_enabled is False
+        assert world.config.monitoring.newrelic.enabled is False
         world.bench.supervisor.setup_newrelic.assert_called_once_with(world.bench_path)
 
     def test_a_license_key_alone_enters_the_block_and_restarts_frappe(self, world):
         world.run(newrelic_license_key="ingest-key")
 
-        assert world.config.newrelic_license_key == "ingest-key"
+        assert world.config.monitoring.newrelic.license_key == "ingest-key"
         world.bench.generate_compose.assert_called_once()
         world.bench.supervisor.setup_newrelic.assert_called_once_with(world.bench_path)
         assert world.compose_up_calls[0].kwargs == {"services": ["frappe"], "detach": True, "force_recreate": True}

@@ -33,12 +33,8 @@ DYNAMIC_OR_INDIRECT: dict[str, str] = {
     # (see bench_migration_state, line 48).
     "MigrationState.migrated_to": "raw TOML read in bench_migration_state.py",
     "MigrationState.last_migration_date": "raw TOML read in bench_migration_state.py",
-    # SUSPECTS. Not verified as reachable; left failing-safe here rather than
-    # quietly deleted, because both are secret-bearing and user-visible.
-    # NewRelicConfig.license_key: every consumer reads the TOP-LEVEL
-    # BenchConfig.newrelic_license_key instead (bench_supervisor.py:327,347,397),
-    # so the nested [monitoring.newrelic] copy may be a duplicate surface.
-    "NewRelicConfig.license_key": "SUSPECT: consumers use BenchConfig.newrelic_license_key",
+    # SUSPECT. Not verified as reachable; left failing-safe here rather than
+    # quietly deleted, because it is secret-bearing and user-visible.
     # SSLConfig.dns_challenge_providers: no reader found anywhere, yet
     # docs/reference/configuration.md describes per-certificate api_token/api_key
     # as taking precedence over it.

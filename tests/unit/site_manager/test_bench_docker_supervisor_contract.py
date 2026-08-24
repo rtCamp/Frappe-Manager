@@ -37,7 +37,13 @@ import pytest
 
 from frappe_manager.docker import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.site_manager.bench_config import BenchRuntime
+from frappe_manager.site_manager.bench_config import (
+    BenchConfig,
+    BenchRuntime,
+    FMBenchEnvType,
+    MonitoringConfig,
+    NewRelicConfig,
+)
 from frappe_manager.site_manager.exceptions import BenchOperationException
 from frappe_manager.site_manager.modules.bench_docker import BenchDockerOps
 from frappe_manager.site_manager.modules.bench_supervisor import BenchSupervisor
@@ -1078,9 +1084,15 @@ def _supervisor(*, newrelic_enabled=False, newrelic_license_key=None, bench_name
     sup = object.__new__(BenchSupervisor)
     sup.logger = MagicMock()
     sup.docker_client = MagicMock()
-    sup.config = SimpleNamespace(
-        newrelic_enabled=newrelic_enabled,
-        newrelic_license_key=newrelic_license_key,
+    sup.config = BenchConfig(
+        name=bench_name,
+        developer_mode=False,
+        admin_tools=False,
+        environment_type=FMBenchEnvType.dev,
+        root_path=Path("/nonexistent/bench_config.toml"),
+        monitoring=MonitoringConfig(newrelic=NewRelicConfig(enabled=newrelic_enabled, license_key=newrelic_license_key))
+        if newrelic_enabled or newrelic_license_key
+        else None,
     )
     sup.bench_name = bench_name
     sup.output = MagicMock()

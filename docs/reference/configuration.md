@@ -793,10 +793,15 @@ last_migration_date = "2026-04-12T14:30:45"
 
 ### `[monitoring.newrelic]` {#monitoring-newrelic}
 
-**Default:** disabled  
-**File key:** `[monitoring.newrelic]` → `enabled` / `license_key`
+**Default:** (absent, NewRelic off)  
+**File key:** `[monitoring.newrelic]`
 
-NewRelic APM for the web (Gunicorn) process.
+NewRelic APM for the web process. The agent is wired into the generated Gunicorn wrapper, `config/fm-web-server.sh`, so it is the `prod` web process that reports; a `dev` bench serves through `bench serve` and never loads it.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `false` | run the web process under the NewRelic agent |
+| `license_key` | (none) | NewRelic ingest license key; required whenever `enabled` is `true` |
 
 ```toml
 [monitoring.newrelic]
@@ -804,7 +809,16 @@ enabled = true
 license_key = "eu01xx..."
 ```
 
-**Change via:** `fm update BENCHNAME --newrelic --newrelic-license-key KEY` / `--no-newrelic`
+`[monitoring]` defines `newrelic` and nothing else, so any other sub-table under it is a validation error.
+
+With both keys set, FM writes `workspace/frappe-bench/config/newrelic.ini` (app name `Frappe - <bench>`, SQL recorded obfuscated, `Authorization` and `Cookie` request headers excluded) and adds `NEWRELIC_ENABLED` and `NEWRELIC_LICENSE_KEY` to the `frappe` service's compose environment. The wrapper installs the `newrelic` package into the bench venv on first start when it is missing, then execs Gunicorn under `newrelic-admin`. If the env vars are set but `newrelic.ini` is gone, the web process refuses to start; run `fm update` to regenerate it.
+
+!!! warning "Enabling without a license key is refused"
+    `fm create --newrelic` and `fm update --newrelic` both fail with a parameter error when no key is passed and none is already stored. There is no half-enabled state: the compose env vars and `newrelic.ini` are written only when `enabled` and `license_key` are both set, and the wrapper falls back to plain Gunicorn otherwise.
+
+**Set via:** `fm create BENCHNAME --newrelic --newrelic-license-key KEY`; `fm update BENCHNAME --newrelic --newrelic-license-key KEY` / `--no-newrelic`. `fm update` force-recreates the frappe container to apply the change.
+
+**See also:** [Monitoring (New Relic)](../guides/environments.md#monitoring-new-relic)
 
 ---
 

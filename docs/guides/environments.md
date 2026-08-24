@@ -184,7 +184,7 @@ fm update mybench --newrelic --newrelic-license-key YOUR_INGEST_KEY
 fm update mybench --no-newrelic
 ```
 
-Enabling wraps the web process with the New Relic agent; fm force-recreates the frappe container to apply it. Works on both runtimes; it is a settings-level change. The stored keys live under [`[monitoring.newrelic]`](../reference/configuration.md#monitoring-newrelic) in `bench_config.toml`.
+Enabling wraps the web process with the New Relic agent; fm force-recreates the frappe container to apply it. Works on both runtimes; it is a settings-level change. A license key is required the first time you enable it, after which `fm update mybench --newrelic` on its own reuses the stored one. The stored keys live under [`[monitoring.newrelic]`](../reference/configuration.md#monitoring-newrelic) in `bench_config.toml`.
 
 ---
 

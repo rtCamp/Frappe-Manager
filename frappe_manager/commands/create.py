@@ -29,6 +29,8 @@ from frappe_manager.site_manager.bench_config import (
     DatabaseConfig,
     DeployState,
     FMBenchEnvType,
+    MonitoringConfig,
+    NewRelicConfig,
     RedisConfig,
     RestartPolicyEnum,
 )
@@ -230,10 +232,15 @@ def _build_overlay_bench_config(
         bc.node_version = node_version
     if "restart" in explicit:
         bc.restart_policy = restart
-    if "newrelic" in explicit:
-        bc.newrelic_enabled = newrelic
-    if "newrelic_license_key" in explicit:
-        bc.newrelic_license_key = newrelic_license_key
+    if "newrelic" in explicit or "newrelic_license_key" in explicit:
+        monitoring = bc.monitoring or MonitoringConfig()
+        newrelic_config = monitoring.newrelic or NewRelicConfig()
+        if "newrelic" in explicit:
+            newrelic_config.enabled = newrelic
+        if "newrelic_license_key" in explicit:
+            newrelic_config.license_key = newrelic_license_key
+        monitoring.newrelic = newrelic_config
+        bc.monitoring = monitoring
     if not bc.db_name:
         bc.db_name = db_name
 
@@ -891,8 +898,9 @@ def create(
             node_version=node_version,
             db_name=global_db_name,
             restart_policy=restart,
-            newrelic_enabled=newrelic,
-            newrelic_license_key=newrelic_license_key,
+            monitoring=MonitoringConfig(newrelic=NewRelicConfig(enabled=newrelic, license_key=newrelic_license_key))
+            if newrelic or newrelic_license_key
+            else None,
             runtime=resolved_runtime,
             image=image_repo,
             base_image=base_image_override,
@@ -946,7 +954,8 @@ def create(
             emoji_code=":floppy_disk:",
         )
 
-    if bench_config.newrelic_enabled and not bench_config.newrelic_license_key:
+    newrelic_config = bench_config.get_newrelic_config()
+    if newrelic_config and newrelic_config.enabled and not newrelic_config.license_key:
         raise typer.BadParameter("--newrelic-license-key is required when --newrelic is set.")
 
     all_domains = {bench_config.name, *bench_config.alias_domains}

@@ -13,6 +13,8 @@ from frappe_manager.site_manager.bench_config import (
     AppConfig,
     BenchRuntime,
     FMBenchEnvType,
+    MonitoringConfig,
+    NewRelicConfig,
     RestartPolicyEnum,
     extract_node_version_requirement,
     extract_python_version_requirement,
@@ -281,7 +283,8 @@ def update(
     # decision table, so an --environment or --runtime change of the same invocation had already been
     # rendered and force-recreated on the running containers when the usage error aborted the command
     # -- and the pending bench_config.toml save with it, leaving disk and containers disagreeing.
-    if newrelic is True and not (newrelic_license_key or bench.bench_config.newrelic_license_key):
+    current_newrelic = bench.bench_config.get_newrelic_config()
+    if newrelic is True and not (newrelic_license_key or (current_newrelic and current_newrelic.license_key)):
         raise typer.BadParameter("--newrelic-license-key is required when enabling NewRelic.")
 
     bench_config_save = False
@@ -525,11 +528,17 @@ def update(
             bench.update_upload_limit(upload_limit)
 
         if newrelic is not None or newrelic_license_key is not None:
+            monitoring = bench.bench_config.monitoring or MonitoringConfig()
+            newrelic_config = monitoring.newrelic or NewRelicConfig()
+
             if newrelic is not None:
-                bench.bench_config.newrelic_enabled = newrelic
+                newrelic_config.enabled = newrelic
 
             if newrelic_license_key is not None:
-                bench.bench_config.newrelic_license_key = newrelic_license_key
+                newrelic_config.license_key = newrelic_license_key
+
+            monitoring.newrelic = newrelic_config
+            bench.bench_config.monitoring = monitoring
 
             bench.generate_compose(bench.bench_config.export_to_compose_inputs())
             bench.save_bench_config()

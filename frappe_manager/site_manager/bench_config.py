@@ -1376,9 +1376,7 @@ class BenchConfig(BaseModel):
         description="Image deploy state tracking (managed by the deploy orchestrator)",
     )
 
-    # NewRelic APM
-    newrelic_enabled: bool = Field(False, description="Enable NewRelic APM monitoring for the web process")
-    newrelic_license_key: str | None = Field(None, description="NewRelic license key (ingest key)")
+    monitoring: MonitoringConfig | None = Field(None, description="Observability integrations ([monitoring]).")
 
     @field_validator("restart_policy", mode="before")
     @classmethod
@@ -1507,8 +1505,6 @@ class BenchConfig(BaseModel):
             "admin_pass",
             "use_uv",  # always uv + pip fallback; not a config option
             "environment_type",  # written as `environment`
-            "newrelic_enabled",  # written under [monitoring.newrelic]
-            "newrelic_license_key",
             "ssl_certificates",  # written under [ssl]
             "dns_providers",
             "db_admin_user",
@@ -1537,16 +1533,6 @@ class BenchConfig(BaseModel):
                 toml_doc[key] = value
         for key, value in tables.items():
             toml_doc[key] = value
-
-        # [monitoring.newrelic]
-        if self.newrelic_enabled or self.newrelic_license_key:
-            newrelic = tomlkit.table()
-            newrelic["enabled"] = self.newrelic_enabled
-            if self.newrelic_license_key:
-                newrelic["license_key"] = self.newrelic_license_key
-            monitoring = tomlkit.table()
-            monitoring["newrelic"] = newrelic
-            toml_doc["monitoring"] = monitoring
 
         # [ssl]
         ssl_table = tomlkit.table()
@@ -1588,11 +1574,6 @@ class BenchConfig(BaseModel):
         for provider_name, provider_data in (ssl_data.get("dns_challenge_providers") or {}).items():
             if isinstance(provider_data, dict):
                 dns_providers_dict[provider_name] = DNSProviderConfig.import_from_toml_doc(provider_data)
-
-        # [monitoring.newrelic]
-        newrelic_data = (data.get("monitoring") or {}).get("newrelic") or {}
-        newrelic_enabled = newrelic_data.get("enabled", False)
-        newrelic_license_key = newrelic_data.get("license_key", None)
 
         alias_domains_list = data.get("alias_domains", [])
 
@@ -1638,8 +1619,6 @@ class BenchConfig(BaseModel):
             "restart_policy": data.get("restart_policy", None),
             "migration_state": migration_state_obj,
             "deploy_state": deploy_state_obj,
-            "newrelic_enabled": newrelic_enabled,
-            "newrelic_license_key": newrelic_license_key,
             "runtime": data.get("runtime", "mount"),
             "image": data.get("image", None),
             "base_image": data.get("base_image", None),
@@ -1648,6 +1627,7 @@ class BenchConfig(BaseModel):
             "workers": WorkersConfig(**_table(data, "workers")) if data.get("workers") else None,
             "build": BuildConfig(**_table(data, "build")) if data.get("build") else None,
             "registry": RegistryConfig(**_table(data, "registry")) if data.get("registry") else None,
+            "monitoring": MonitoringConfig(**_table(data, "monitoring")) if data.get("monitoring") else None,
             "database": {str(k): DatabaseConfig(**dict(v)) for k, v in data["database"].items()}
             if data.get("database")
             else None,
@@ -1730,11 +1710,16 @@ class BenchConfig(BaseModel):
                 mappings[alias] = self.name
         return mappings
 
+    def get_newrelic_config(self) -> NewRelicConfig | None:
+        """`[monitoring.newrelic]`, or None when the bench configures no monitoring at all."""
+        return self.monitoring.newrelic if self.monitoring else None
+
     def export_to_compose_inputs(self):
         all_domains = [self.name]
         if self.alias_domains:
             all_domains.extend(self.alias_domains)
         domains_string = ",".join(all_domains)
+        newrelic = self.get_newrelic_config()
 
         environment = {
             "frappe": {
@@ -1742,8 +1727,8 @@ class BenchConfig(BaseModel):
                 "USERGROUP": self.usergroup,
                 "SERVICE_NAME": "frappe",
                 **(
-                    {"NEWRELIC_ENABLED": "true", "NEWRELIC_LICENSE_KEY": self.newrelic_license_key}
-                    if self.newrelic_enabled and self.newrelic_license_key
+                    {"NEWRELIC_ENABLED": "true", "NEWRELIC_LICENSE_KEY": newrelic.license_key}
+                    if newrelic and newrelic.enabled and newrelic.license_key
                     else {}
                 ),
             },
