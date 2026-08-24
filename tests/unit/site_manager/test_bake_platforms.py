@@ -33,6 +33,14 @@ class TestResolveTargetPlatform:
         # Introspection failure: pass the platform through; docker will enforce it.
         assert BakeManager.resolve_target_platform("linux/amd64", None, "provision") == ("linux/amd64", None)
 
+    def test_more_than_one_platform_is_refused(self):
+        # fm loads each built image into the local daemon (buildx --load) so the
+        # pre-flight boot check and a same-host `fm switch` can find the tag, and docker
+        # cannot load a manifest list. Refused here rather than failing inside docker
+        # with a message about outputs.
+        with pytest.raises(BakeError, match="more than one platform"):
+            BakeManager.resolve_target_platform("linux/amd64,linux/arm64", "amd64", "provision")
+
 
 class TestManifestArchitectures:
     """parse_manifest_architectures: registry manifest-list -> arch set (or None)."""

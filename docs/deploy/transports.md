@@ -60,7 +60,9 @@ Images are architecture-specific, and a bake has to target the architecture the 
 
 So when the machine you bake on and the machine you run on differ, an Apple Silicon laptop building for an amd64 server, set `[build].platform = "linux/amd64"` explicitly. Nothing detects the target for you.
 
-Cross-arch bakes run the whole bake (provisioning containers and image builds) under `DOCKER_DEFAULT_PLATFORM`, which requires emulation (Rosetta/binfmt; Docker Desktop ships it) and only works with `[build].source = "provision"` (a `workspace` snapshot contains host-arch binaries, so fm refuses it). Before provisioning starts, fm checks the **base image** against the target architecture (a local copy of the right arch passes) and fails fast with the list of published architectures when the registry manifest provably lacks it. fm bakes single-platform images; it does not produce multi-arch manifest lists.
+Cross-arch bakes require emulation (Rosetta/binfmt; Docker Desktop ships it) and only work with `[build].source = "provision"` (a `workspace` snapshot contains host-arch binaries, so fm refuses it). The two image builds are `docker buildx build --platform <target> --load`; the provisioning containers that run before them take no platform argument, so they are steered by `DOCKER_DEFAULT_PLATFORM` for the duration of the bake. Before provisioning starts, fm checks the **base image** against the target architecture (a local copy of the right arch passes) and fails fast with the list of published architectures when the registry manifest provably lacks it.
+
+`[build].platform` names exactly one platform. fm loads each built image into the local daemon, which is what lets the pre-flight boot check run it and a same-host `fm switch` skip the registry, and docker cannot load a multi-platform manifest list. A comma-separated value is refused rather than attempted. If you need a manifest list covering several architectures, push one yourself from a container-driver buildx builder.
 
 ## Running fm in CI
 

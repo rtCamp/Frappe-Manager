@@ -83,9 +83,21 @@ class BakeManager:
         emulation -- only valid with the ``provision`` source (a ``workspace``
         snapshot contains host-arch binaries) and requires binfmt/Rosetta on
         the daemon.
+
+        More than one platform is refused. fm loads each built image into the local
+        daemon so the pre-flight boot check and a same-host ``fm switch`` can find it,
+        and docker cannot load a multi-platform manifest list.
         """
         if not platform:
             return None, None
+        if "," in platform:
+            raise BakeError(
+                f"build.platform={platform} names more than one platform. fm loads the built "
+                f"image into the local daemon so the pre-flight boot check and a same-host "
+                f"fm switch can find it, and docker cannot load a multi-platform manifest "
+                f"list. Bake one platform at a time, or push a manifest list yourself from a "
+                f"container-driver buildx builder.",
+            )
         cross = daemon_arch is not None and platform.split("/")[-1] != daemon_arch
         if not cross:
             return platform, None
@@ -410,6 +422,7 @@ class BakeManager:
         ``None`` (default) falls back to ``[build].push``.
         """
         base_image = self.resolve_base_image()
+        self._assert_buildx()
         tag = tag or self.resolve_tag()
         dockerfile = self._runtime_dockerfile()
 
@@ -427,9 +440,9 @@ class BakeManager:
         if platform:
             self._check_base_image_platform(base_image, platform)
 
-        # DOCKER_DEFAULT_PLATFORM steers every docker run/build/pull in this bake
-        # (provisioning containers AND both image builds) -- one lever, no
-        # parameter threading through the provision stack. Restored in finally.
+        # The two image builds get --platform explicitly. This env var is still set
+        # because it also steers the PROVISIONING containers that run before them, which
+        # take no platform argument of their own. Restored in finally.
         prior_platform = os.environ.get("DOCKER_DEFAULT_PLATFORM")
         if platform:
             os.environ["DOCKER_DEFAULT_PLATFORM"] = platform
@@ -494,25 +507,21 @@ class BakeManager:
                 "fm.node.version": node_version,
                 "fm.apps": json.dumps(app_refs, separators=(",", ":")) if app_refs else None,
             }
-            build_cmd = [
-                "docker",
-                "build",
-                "--build-arg",
-                f"BASE_IMAGE={base_image}",
-                "-f",
-                str(dockerfile),
-                "-t",
-                tag,
-            ]
+            extra = ["--build-arg", f"BASE_IMAGE={base_image}"]
             for _k, _v in labels.items():
                 if _v:
-                    build_cmd += ["--label", f"{_k}={_v}"]
-            build_cmd.append(str(context_dir / "workspace"))
-            run_command_with_exit_code(build_cmd, stream=False, capture_output=False)
+                    extra += ["--label", f"{_k}={_v}"]
+            self._buildx(
+                dockerfile=dockerfile,
+                tag=tag,
+                context=context_dir / "workspace",
+                platform=platform,
+                extra=extra,
+            )
 
             self.output.print(f"Built image: {tag}", emoji_code=":white_check_mark:")
 
-            nginx_tag = self._build_nginx_image(frappe_bench_dir, tag)
+            nginx_tag = self._build_nginx_image(frappe_bench_dir, tag, platform=platform)
 
             if self._should_push(push):
                 self._push_images([t for t in (tag, nginx_tag) if t])
@@ -549,7 +558,40 @@ class BakeManager:
         reg = self._registry_config()
         push_images(self.docker_client, tags, reg, output=self.output)
 
-    def _build_nginx_image(self, frappe_bench_dir: Path, tag: str) -> str | None:
+    def _assert_buildx(self) -> None:
+        """Fail early and clearly when the buildx plugin is absent."""
+        try:
+            run_command_with_exit_code(["docker", "buildx", "version"], stream=False, capture_output=True)
+        except Exception as e:
+            raise BakeError(
+                "docker buildx is not available, and fm builds images with it. It ships with "
+                "current Docker Engine and Docker Desktop; on a slim install add the "
+                "docker-buildx-plugin package.",
+            ) from e
+
+    def _buildx(self, *, dockerfile: Path, tag: str, context: Path, platform: str | None, extra: list[str]) -> None:
+        """Run one ``docker buildx build`` that loads the result into the local daemon.
+
+        ``--load`` is not optional here, and it is the one thing to know about buildx
+        versus ``docker build``: buildx does not guess where the image goes, so without
+        an explicit output the tag would not exist on the daemon afterwards. Everything
+        downstream expects it to: the pre-flight ``docker run`` on the new tag, the
+        ``image_present`` check that lets a same-host ``fm switch`` skip the registry,
+        and the push step that follows a bake.
+
+        That is also why a multi-platform bake is refused rather than attempted (see
+        ``resolve_target_platform``): docker cannot load a manifest list into a daemon,
+        so multi-arch has to be pushed straight to a registry from a container-driver
+        builder, which fm does not manage.
+        """
+        cmd = ["docker", "buildx", "build", "--load", "-f", str(dockerfile), "-t", tag]
+        if platform:
+            cmd += ["--platform", platform]
+        cmd += extra
+        cmd.append(str(context))
+        run_command_with_exit_code(cmd, stream=False, capture_output=False)
+
+    def _build_nginx_image(self, frappe_bench_dir: Path, tag: str, platform: str | None = None) -> str | None:
         """Build the app-nginx assets image (``<repo>-nginx:<tag>``).
 
         The nginx Dockerfile's ``app-assets`` target COPYs the built
@@ -582,18 +624,13 @@ class BakeManager:
                 shutil.copy2(src, staging / fname)
 
             self.output.change_head(f"Building app-nginx image {nginx_tag}")
-            build_cmd = [
-                "docker",
-                "build",
-                "-f",
-                str(nginx_dockerfile),
-                "--target",
-                "app-assets",
-                "-t",
-                nginx_tag,
-                str(staging),
-            ]
-            run_command_with_exit_code(build_cmd, stream=False, capture_output=False)
+            self._buildx(
+                dockerfile=nginx_dockerfile,
+                tag=nginx_tag,
+                context=staging,
+                platform=platform,
+                extra=["--target", "app-assets"],
+            )
         finally:
             shutil.rmtree(staging, ignore_errors=True)
         self.output.print(f"Built image: {nginx_tag}", emoji_code=":white_check_mark:")
