@@ -8,7 +8,7 @@ Everything you need to go from zero to a running Frappe bench.
 
     ---
 
-    Check what you need before installing: Python, Docker, and a few minutes.
+    What you need first: Python 3.13, Docker, git, and ports 80 and 443 free.
 
 -   :lucide-package:{ .lg .middle } &nbsp; **[Installation](installation.md)**
 
@@ -20,7 +20,7 @@ Everything you need to go from zero to a running Frappe bench.
 
     ---
 
-    Create your first bench step by step, then learn the most common day-to-day commands.
+    Create your first bench, then the handful of commands you will use every day.
 
 </div>
 

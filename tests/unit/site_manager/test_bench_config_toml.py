@@ -233,3 +233,47 @@ def test_switch_config_still_rejects_a_genuinely_unknown_key():
 
     with pytest.raises(ValidationError):
         SwitchConfig(serch_replace=True)
+
+
+
+_SSL_WITH_HSTS = (
+    "\n[[ssl.certificates]]\n"
+    'domain = "dev.localhost"\n'
+    'ssl_type = "letsencrypt"\n'
+    'challenge_type = "http01"\n'
+    'hsts = "max-age=31536000; includeSubDomains"\n'
+)
+
+
+class TestHstsSurvivesTheTomlRoundTrip:
+    """`ssl_certificate_to_toml_doc` dumps the whole model, so hsts reaches disk, but the reader
+    rebuilt the certificate from an explicit field list that omitted it. Every bench therefore
+    reloaded as hsts="off" and nginx-proxy never received the header the config asked for, silently
+    undoing the value migrate_0_19_0 goes out of its way to carry forward."""
+
+    def test_the_configured_value_is_read_back(self, tmp_path):
+        cert = _import(tmp_path, _BASE + _SSL_WITH_HSTS).get_primary_certificate()
+
+        assert cert.hsts == "max-age=31536000; includeSubDomains"
+
+    def test_the_value_reaches_the_nginx_container(self, tmp_path):
+        """The property that matters: what the proxy is actually told."""
+        inputs = _import(tmp_path, _BASE + _SSL_WITH_HSTS).export_to_compose_inputs()
+
+        assert inputs["environment"]["nginx"]["HSTS"] == "max-age=31536000; includeSubDomains"
+
+    def test_an_absent_key_still_defaults_to_off(self, tmp_path):
+        """The fix must not turn HSTS on for benches that never asked for it."""
+        without = _SSL_WITH_HSTS.replace('hsts = "max-age=31536000; includeSubDomains"\n', "")
+
+        assert _import(tmp_path, _BASE + without).get_primary_certificate().hsts == "off"
+
+    def test_it_survives_an_export_and_reimport(self, tmp_path):
+        """Round-trip through fm's own writer, not just a hand-written file."""
+        original = _import(tmp_path, _BASE + _SSL_WITH_HSTS)
+        out = tmp_path / "exported.toml"
+        original.export_to_toml(out)
+
+        assert BenchConfig.import_from_toml(out).get_primary_certificate().hsts == (
+            "max-age=31536000; includeSubDomains"
+        )

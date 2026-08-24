@@ -14,7 +14,7 @@ flowchart LR
     LI -->|same machine| RD
     LI -->|registry: docker push| REG[(registry)] -->|fetch: docker pull| RD
     LI -->|save_load: docker save over ssh docker load| RD
-    P -.->|every deploy step| DH["DOCKER_HOST=ssh://user@host"]
+    P -.->|every deploy step| DH["DOCKER_HOST=ssh://user@host:port"]
     DH -.-> RD
 ```
 
@@ -29,12 +29,14 @@ distribution = "registry"    # push after bake; the target pulls during fetch
 # password = "${REGISTRY_TOKEN}"
 
 [deploy]
-ssh_server = "prod.example.com"   # remote daemon; or pass --remote on fm deploy
+ssh_server = "prod.example.com"   # bare host; fm builds the ssh:// URL itself
 ssh_user   = "frappe"
 ssh_port   = 22
 ```
 
-With a remote configured, `fm deploy` bakes on the local daemon, then drives every deploy step (fetch, pre-flight, migrate, swap, finalize) on the remote daemon over `DOCKER_HOST=ssh://`; the fm CLI is not used on the target. Only `fm deploy` reads `[deploy]`; `fm switch` and `fm prune` act on whatever daemon fm itself talks to. Registry mode encodes the registry host in the top-level `image` (e.g. `ghcr.io/acme/mybench`); `[registry] registry` exists only for `docker login` (fm logs in first when credentials are set, otherwise ambient docker auth applies). Every `[registry]` and `[deploy]` key with its default is in the [configuration reference](../reference/configuration.md#deploy-tables).
+With a remote configured, `fm deploy` bakes on the local daemon, then drives every deploy step (fetch, pre-flight, migrate, swap, finalize) on the remote daemon over `DOCKER_HOST=ssh://`; the fm CLI is not used on the target. The remote is always named as a **bare host**, never a URL: both `ssh_server` and `--remote` take `prod.example.com`, and fm assembles `ssh://<ssh_user>@<host>:<ssh_port>` itself (defaulting to `frappe` and `22`). `--remote` overrides the host only; the user and port still come from `[deploy]`. Only `fm deploy` reads `[deploy]`; `fm switch` and `fm prune` act on whatever daemon fm itself talks to. Registry mode encodes the registry host in the top-level `image` (e.g. `ghcr.io/acme/mybench`); `[registry] registry` exists only for `docker login` (fm logs in first when credentials are set, otherwise ambient docker auth applies). Every `[registry]` and `[deploy]` key with its default is in the [configuration reference](../reference/configuration.md#deploy-tables).
+
+Both transports carry two tags: the app image and its paired `-nginx` assets image. In `save_load` mode the transport happens before the pipeline starts, and `fetch` will not fall back to a pull: a tag missing on the target daemon is a hard error telling you to transport it first.
 
 ## Platforms (CPU architectures)
 

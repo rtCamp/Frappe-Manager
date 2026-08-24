@@ -1,62 +1,30 @@
 # SSL / HTTPS
 
-Frappe Manager provides built-in SSL certificate management using Let's Encrypt. You can secure your benches with trusted HTTPS certificates using either HTTP-01 (the default) or DNS-01 (Cloudflare) challenge types.
+Frappe Manager issues and installs Let's Encrypt certificates for your benches using either the HTTP-01 challenge (the default) or DNS-01 through Cloudflare. It can also mint locally-trusted certificates from its own CA for development, and it can front external Docker projects that share its proxy network.
 
-## Overview
+## What `fm ssl add` does
 
-When you run `fm ssl add`, Frappe Manager:
+1. Installs acme.sh on first use into `~/frappe/services/nginx-proxy/ssl/acmesh/.acme.sh/`.
+2. Runs the ACME challenge against Let's Encrypt. For HTTP-01, acme.sh drops the validation file into the bench's nginx webroot, which is served at `/.well-known/acme-challenge/`. For DNS-01, acme.sh creates and then removes a `_acme-challenge` TXT record through the Cloudflare API.
+3. Copies the issued certificate to `~/frappe/services/nginx-proxy/ssl/acmesh/<domain>/` and symlinks it into the proxy's `certs/` directory, where nginx-proxy reads it.
+4. Writes a `vhostd/<domain>` snippet that redirects HTTP to HTTPS, then restarts nginx-proxy.
+5. Records the certificate in the bench's `bench_config.toml` and sets the site's `host_name` to `https://<domain>`.
 
-1. **Installs acme.sh** on first use into `~/frappe/services/nginx-proxy/ssl/acmesh/.acme.sh/`
-2. **Runs the ACME challenge** (HTTP-01 or DNS-01) to prove domain ownership to Let's Encrypt
-3. **Obtains the certificate** and private key
-4. **Installs the certificate** into your bench's nginx configuration automatically
-5. **Enables HTTPS redirect** so all HTTP traffic redirects to HTTPS
-6. **Handles renewal** automatically when certificates are about to expire (< 30 days)
+!!! warning "Nothing renews on its own"
+    fm installs no cron job, timer, or daemon. `fm ssl renew` only runs when you run it. Set up the cron job in [Renewals](#renewals) the same day you issue your first certificate.
 
-SSL is supported for both **FM-managed benches** and **external Docker projects** sharing FM's nginx-proxy network (standalone mode).
-
-!!! tip "Quick Start"
-    **For most users (HTTP-01):**
-    ```bash
-    # Test first (staging server)
-    fm ssl add mybench example.com --dry-run
-    
-    # Then issue for real
-    fm ssl add mybench example.com
-    ```
-    
-    **For Cloudflare users (DNS-01):**
-    ```bash
-    # Save credentials once
-    fm ssl dns-config cloudflare --api-token YOUR_TOKEN
-    
-    # Then issue
-    fm ssl add mybench example.com --challenge dns01
-    ```
-    
-    **Automate renewals:**
-    ```bash
-    # Add to crontab (renews when < 30 days remain)
-    0 3 * * * fm ssl renew --all
-    ```
-
-## Challenge Types
-
-FM supports two ways to prove domain ownership to Let's Encrypt:
+## Challenge types
 
 | | HTTP-01 | DNS-01 |
 |---|---|---|
-| **How it works** | Let's Encrypt fetches a validation file from `http://yourdomain/.well-known/acme-challenge/` | You (FM) add a TXT record to your DNS zone programmatically |
+| **How it works** | Let's Encrypt fetches a validation file from `http://yourdomain/.well-known/acme-challenge/` | acme.sh adds a TXT record to your Cloudflare zone, then removes it |
 | **Port 80 required** | ✅ Yes | ❌ No |
 | **Wildcard certs** | ❌ No | ✅ Yes |
-| **Best for** | Most production setups with public domains | Firewalled servers, wildcard domains, internal infrastructure |
-| **Supported DNS providers** | N/A | Cloudflare (built-in support) |
+| **Best for** | Public domains with open ports | Firewalled servers, wildcard domains, internal infrastructure |
+| **Supported DNS providers** | N/A | Cloudflare |
 | **Setup complexity** | Simple (default) | Requires API credentials |
 
-**Quick decision guide:**
-- ✅ Use **HTTP-01** if your domain points to the server and ports 80/443 are open (simplest, default)
-- ✅ Use **DNS-01** if port 80 is blocked, you need wildcard certificates, or testing on internal networks
-- ✅ Use `--dev` for local development: issues a locally-trusted certificate from a local CA, no internet or public DNS required (see [below](#local-development-certificates-dev))
+Neither applies to local development: `--dev` issues a locally-trusted certificate from fm's own CA, with no internet, public DNS, or open port (see [below](#local-development-certificates-dev)).
 
 !!! note "HTTP-01 and a password prompt coexist; maintenance mode does not"
     `fm auth` puts an HTTP basic auth prompt in front of a bench, but the bench nginx serves `/.well-known/acme-challenge/` with `auth_basic off`, so issuance and renewal are never blocked by it. `fm maintenance` is different: it exempts nothing by default, so if a renewal falls due while the maintenance page is up, allow the path explicitly with `fm maintenance <bench> --allow-path '/.well-known/acme-challenge/*'`.
@@ -65,357 +33,278 @@ FM supports two ways to prove domain ownership to Let's Encrypt:
 
 ## Before you start
 
+**Both challenge types:** the domain must already be configured on the bench. `fm ssl add` only accepts the bench's own name or one of its alias domains, and refuses anything else. Add an alias first:
+
+```bash
+fm update mybench --add-alias example.com
+```
+
 ### HTTP-01 checklist
 
-- [ ] Your domain's A record points to this server's public IP
-- [ ] Port 80 and 443 are open in your firewall / security group
-- [ ] No other process is occupying port 80 on the host
+- [ ] The domain's A record points to this server's public IP
+- [ ] Ports 80 and 443 are open in your firewall and security group
+- [ ] No other process owns port 80 on the host
 
 ### DNS-01 checklist
 
-- [ ] You have Cloudflare managing the DNS zone for your domain
-- [ ] You have created a Cloudflare API Token with **Zone → DNS → Edit** permission
-- [ ] DNS credentials are saved with `fm ssl dns-config cloudflare`
+- [ ] Cloudflare manages the DNS zone for the domain
+- [ ] You have a Cloudflare API Token scoped to **Zone > DNS > Edit** for that zone
+- [ ] The token is saved with `fm ssl dns-config cloudflare`
 
-FM validates that the domain's DNS resolves before issuing. If you intend to configure DNS later, pass `--skip-dns-check` to `fm ssl add`.
-
-!!! warning "Always dry-run first"
-    Run with `--dry-run` before issuing real certificates. The dry-run uses the Let's Encrypt **staging** server; it validates your setup without consuming your [rate limit quota](https://letsencrypt.org/docs/rate-limits/) (50 certificates per registered domain per week, 5 per identical set of names per week).
+!!! warning "Rehearse first"
+    `--dry-run` issues against the Let's Encrypt **staging** CA and keeps nothing: no certificate is installed, no symlink or `vhostd` redirect is written, and nginx is not restarted. It does still reach the staging endpoint and register an account there, so it is a network operation, not an offline check. Use it to burn mistakes on staging instead of your [production rate limit](https://letsencrypt.org/docs/rate-limits/) (50 certificates per registered domain per week, 5 per identical set of names per week).
 
 ---
 
 ## HTTP-01 setup
 
-### 1. Dry run
-
-Validates that Let's Encrypt can reach your server and complete the challenge:
-
 ```bash
 fm ssl add mybench example.com --dry-run
 ```
 
-Expected output: a message like `Cert verified OK` or acme.sh's staging success banner. If it fails, see [Troubleshooting](#troubleshooting) below.
-
-### 2. Issue the certificate
+A successful rehearsal ends with `Certificate generated successfully (staging)` followed by the skipped-step lines (symlinks, redirect config, nginx restart, config save). Then issue for real:
 
 ```bash
 fm ssl add mybench example.com
 ```
 
-FM will:
-
-1. Start the acme.sh HTTP-01 challenge handler inside the FM nginx-proxy
-2. Obtain the certificate from Let's Encrypt
-3. Install it into the bench's nginx configuration
-4. Reload nginx
-
-### 3. Verify
+Verify:
 
 ```bash
 fm ssl list mybench
-```
-
-Then confirm from outside:
-
-```bash
 curl -I https://example.com
-# Look for: HTTP/2 200  and  strict-transport-security header
 ```
 
-Or with openssl:
-
-```bash
-openssl s_client -connect example.com:443 -servername example.com < /dev/null 2>/dev/null \
-  | openssl x509 -noout -dates -subject
-```
+`fm ssl list mybench` also shows configured domains that have no certificate yet, which is the fastest way to spot an alias you forgot to secure.
 
 ---
 
 ## DNS-01 setup (Cloudflare)
 
-### 1. Create a Cloudflare API Token
+### 1. Create a Cloudflare API Token {#dns-01-cloudflare-api-token}
 
 1. Go to <https://dash.cloudflare.com/profile/api-tokens>
-2. Click **Create Token** → use the **Edit zone DNS** template
-3. Set **Zone Resources** to the specific zone(s) you need
-4. Copy the token; you will not see it again
+2. **Create Token**, then use the **Edit zone DNS** template, which grants exactly **Zone > DNS > Edit**
+3. Restrict **Zone Resources** to the zones you issue for, and copy the token before leaving the page
 
-!!! tip "API Token vs Global API Key"
-    Always prefer the API Token. The Global API Key grants full account access and is a higher-risk credential. If you must use it, pass `--api-key` and `--email` instead of `--api-token`.
+!!! tip "API Token, not Global API Key"
+    The Global API Key grants full account access and cannot be scoped. fm accepts it (`--api-key` together with `--email`) but the token is the safer credential and needs no email.
 
 ### 2. Save credentials
 
-Global (applies to all benches unless overridden):
-
 ```bash
+# Global: used by every bench that has no override
 fm ssl dns-config cloudflare --api-token YOUR_TOKEN
-```
 
-Bench-specific override:
-
-```bash
+# Per-bench override
 fm ssl dns-config cloudflare mybench --api-token DIFFERENT_TOKEN
-```
 
-Verify:
-
-```bash
+# Inspect what is stored (secrets masked, writes nothing)
 fm ssl dns-config cloudflare --show
 ```
 
-### 3. Dry run
+Global credentials land in the `[cloudflare]` table of `~/frappe/fm_config.toml`. A per-bench override lands in `[ssl.dns_challenge_providers.cloudflare]` in that bench's `bench_config.toml` and takes precedence.
+
+### 3. Issue
 
 ```bash
 fm ssl add mybench example.com --challenge dns01 --dry-run
-```
-
-acme.sh adds a `_acme-challenge.example.com` TXT record, waits for propagation, validates, then removes it.
-
-!!! info "DNS propagation"
-    TXT record propagation typically takes 30 seconds to 5 minutes, but can take longer on some registrars. If the dry-run times out, retry or pass `--wait-for-dns` to let FM poll automatically (every 30 s, up to 5 minutes).
-
-### 4. Issue the certificate
-
-```bash
 fm ssl add mybench example.com --challenge dns01
 ```
 
-### 5. Wildcard certificates
+acme.sh adds `_acme-challenge.example.com`, waits for propagation on its own, validates, then deletes the record. Propagation is usually well under a minute on Cloudflare; if a run fails on a missing TXT record, retry.
 
-DNS-01 is the only challenge type that supports wildcards. Issue a wildcard alongside the apex:
+### 4. Wildcard certificates
+
+DNS-01 is the only challenge type that can cover a wildcard. The wildcard has to be a configured domain of the bench first:
 
 ```bash
-fm ssl add mybench "*.example.com" --challenge dns01
+fm update mybench --add-alias '*.example.com'
+fm ssl add mybench '*.example.com' --challenge dns01
 ```
 
 !!! note
-    Many browsers require both the apex (`example.com`) and the wildcard (`*.example.com`) to be covered. Issue both, or use a SAN cert covering both names.
+    A wildcard certificate does not cover the apex. If you serve both `example.com` and `www.example.com`, issue a certificate for each name.
 
-### 6. CNAME delegation
+### 5. CNAME delegation
 
-If your DNS zone is hosted elsewhere but you want to delegate just the `_acme-challenge` subdomain to Cloudflare, add a CNAME in your primary DNS:
+If your zone lives outside Cloudflare, delegate only the challenge record. `--cname` takes the **delegated zone**, not the full record name: fm passes it to acme.sh as `--challenge-alias`, and acme.sh writes into `_acme-challenge.<delegated zone>`.
+
+Add this to your primary DNS:
 
 ```
-_acme-challenge.example.com. CNAME _acme-challenge.example.com.cf-delegated.example.com.
+_acme-challenge.example.com. CNAME _acme-challenge.acme.example.net.
 ```
 
-Then pass the delegation target to FM:
+Then issue against the delegated zone, whose credentials are the ones that must be saved with `fm ssl dns-config`:
 
 ```bash
-fm ssl add mybench example.com --challenge dns01 --cname _acme-challenge.example.com.cf-delegated.example.com
+fm ssl add mybench example.com --challenge dns01 --cname acme.example.net
 ```
 
 ---
 
 ## Standalone mode
 
-For Docker projects that are not FM benches but are on the `fm-global-frontend-network`, FM's nginx-proxy can front them and handle their certificates.
+`--standalone` secures a domain served by an external Docker project rather than a bench. fm writes a server block into `~/frappe/services/nginx-proxy/confd/<domain>.conf` so the ACME challenge can be answered and TLS terminated even before a backend exists, and records the domain in `external_domains.toml`.
 
 ```bash
 fm ssl add example.com --standalone
 ```
 
-Renew and list work the same way with `--standalone`:
+`list`, `renew` and `remove` take `--standalone` the same way, and `fm ssl list --all` covers external domains and every bench at once.
 
-```bash
-fm ssl list --standalone
-fm ssl list --all              # bench + external certificates together
-fm ssl renew --standalone example.com
-fm ssl renew --standalone --all
+Connect the backend by giving its container the nginx-proxy environment variables and joining fm's proxy network:
+
+```yaml
+services:
+  your-app:
+    environment:
+      VIRTUAL_HOST: example.com
+      VIRTUAL_PORT: 80
+    networks:
+      - fm-global-frontend-network
+
+networks:
+  fm-global-frontend-network:
+    external: true
 ```
+
+Until that is in place the domain answers `503 Backend Not Connected` over HTTPS, which means the certificate is fine and only the backend is missing.
+
+`--skip-dns-check` and `--wait-for-dns` apply to standalone mode only; bench mode ignores them. `--skip-dns-check` turns off the pre-flight lookup (the A record for HTTP-01, the delegation CNAME when `--cname` is given), and `--wait-for-dns` polls for the delegation CNAME for up to 5 minutes, so it is only meaningful together with `--cname`.
 
 ---
 
 ## Local development certificates (`--dev`) {#local-development-certificates-dev}
 
-For local or air-gapped development, `--dev` skips Let's Encrypt entirely and issues a certificate from a locally-generated CA:
-
 ```bash
 fm ssl add mybench mybench.local --dev
 ```
 
-No internet, public DNS, or open ports are required. The CA lives under `~/frappe/services/nginx-proxy/ssl/dev/`, and FM installs it into your system trust store (macOS keychain, Linux CA store, Firefox/Chrome NSS databases where available) so browsers accept the certificate. Renewal (`fm ssl renew`) re-issues the leaf certificate from the same CA.
+`--dev` skips Let's Encrypt entirely: no internet, public DNS, or open ports. On first use fm generates a CA under `~/frappe/services/nginx-proxy/ssl/dev/ca/` and installs it into the host trust store (macOS login keychain, the Linux system CA store, plus Firefox and Chrome NSS databases when `certutil` is present) so browsers accept the leaf certificate.
+
+Leaf certificates are valid for 397 days, so they never fall inside the 30-day renewal window during normal use. To re-issue one from the same CA, force it:
+
+```bash
+fm ssl renew mybench mybench.local --force
+```
+
+`--dev` is bench mode only and cannot be combined with `--standalone`.
 
 ---
 
-## Renewals
+## Renewals {#renewals}
 
-### Manual
+Let's Encrypt certificates are valid for 90 days. fm treats a certificate as due when fewer than 30 days remain; one that is not due is reported and left alone unless you pass `--force`.
 
 ```bash
-# Renew all certs for one bench
-fm ssl renew mybench
-
-# Renew one specific domain
-fm ssl renew mybench example.com
-
-# Force renewal even if not yet due (< 30 days remaining)
-fm ssl renew mybench example.com --force
-
-# Renew across all benches
-fm ssl renew --all
+fm ssl renew mybench                        # every certificate on one bench
+fm ssl renew --all                          # every bench
 ```
 
-### Automatic (cron)
-
-Let's Encrypt certificates are valid for **90 days**. FM renews when fewer than 30 days remain. Set up a daily cron job:
+Because fm ships no scheduler, add the cron job yourself:
 
 ```bash
 crontab -e
 ```
 
-Add:
-
 ```
 0 3 * * * fm ssl renew --all
 ```
 
-This runs at 3 am every day. FM skips benches that don't need renewal, so running it daily is safe.
+Running it daily is safe: certificates that are not due are skipped. Certificate lifetimes are also shrinking under the CA/Browser Forum schedule adopted in 2025 (200 days from March 2026, 100 from March 2027, 47 from March 2029), so manual renewal will stop being practical.
 
-!!! warning "Certificate lifetime is shrinking"
-    Under the CA/Browser Forum schedule adopted in 2025, maximum certificate validity drops to **200 days** for certificates issued from March 2026, **100 days** from March 2027, and **47 days** from March 2029. Automated renewal is no longer optional; manual renewal will become impractical. Set up the cron job now.
-
----
-
-## Removing a certificate
-
-```bash
-fm ssl remove mybench example.com
-
-# Skip confirmation prompt
-fm ssl remove mybench example.com --yes
-```
+!!! tip "Check the cron environment"
+    Cron runs with a minimal `PATH`. Use the absolute path to `fm` in the crontab entry, or set `PATH` at the top of the crontab, otherwise the job fails silently every night.
 
 ---
 
 ## Troubleshooting
 
-### Quick diagnostic checklist
-
-Run these in order before diving deeper:
+Start here:
 
 ```bash
-# 1. Is the domain resolving to this server?
+# Does the domain resolve to this server?
 dig +short example.com
 
-# 2. Is port 80 reachable? (HTTP-01 only)
+# Is port 80 reachable from outside? (HTTP-01)
 curl -v http://example.com/.well-known/acme-challenge/test
 
-# 3. Is the certificate valid and trusted?
-openssl s_client -connect example.com:443 -servername example.com < /dev/null 2>/dev/null \
-  | openssl x509 -noout -dates -issuer -subject
+# What certificate is actually being served, and does it verify?
+openssl s_client -connect example.com:443 -servername example.com < /dev/null 2>&1 \
+  | grep -E "^(depth|verify|subject|issuer)"
 
-# 4. Does the cert chain look complete?
-openssl s_client -connect example.com:443 -servername example.com < /dev/null 2>/dev/null \
-  | grep -E "^(depth|verify)"
-
-# 5. Are FM containers running?
+# Are the containers up?
 fm list
 ```
 
----
-
-### Error reference
-
-#### HTTP-01 failures
+### HTTP-01 failures
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `Connection refused` on port 80 | Port blocked by firewall | Open port 80 in your cloud provider's security group / `ufw` |
-| `Timeout during connect` | Wrong IP in DNS A record | Update A record to point to this server; wait for propagation |
-| `Invalid response from http://example.com/.well-known/acme-challenge/` | Another web server is answering port 80 | Stop or reconfigure the conflicting service; only FM's nginx-proxy should own port 80 |
-| `Too many certificates` rate limit error | Exceeded 5 certs for the same name set this week | Wait until next week or use `--dry-run` during testing |
+| `Domain 'example.com' is not configured for bench 'mybench'` | The domain is neither the bench name nor an alias | `fm update mybench --add-alias example.com`, then retry |
+| Connection refused on port 80 | Firewall or security group | Open port 80 to the internet |
+| Connect timeout | A record points elsewhere | Correct the A record and wait for the TTL to expire |
+| Let's Encrypt gets an unexpected response from `/.well-known/acme-challenge/` | Another web server is answering port 80 | Stop or move it; only fm's nginx-proxy should own port 80 |
+| Rate limit refusal | More than 5 certificates for the same name set this week | Wait, and use `--dry-run` while experimenting |
 
-#### DNS-01 failures
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| `DNS record not found` | TXT record not propagated yet | Wait 1–5 minutes and retry; use `--wait-for-dns` |
-| `Authentication error` | API token lacks DNS Edit permission | Recreate the token with **Zone → DNS → Edit** |
-| `Invalid API Token` | Token was revoked or typo | Run `fm ssl dns-config cloudflare --show` to inspect; re-save if needed |
-| Old TXT record conflict | Previous failed attempt left a stale record | Delete `_acme-challenge.example.com` TXT records from Cloudflare dashboard manually |
-
-#### Certificate errors in browser
+### DNS-01 failures
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `NET::ERR_CERT_DATE_INVALID` | Certificate expired | Run `fm ssl renew mybench` |
-| `NET::ERR_CERT_AUTHORITY_INVALID` | Self-signed or incomplete chain | FM uses Let's Encrypt; check that `fullchain.pem` is served, not just `cert.pem` |
-| `NET::ERR_CERT_COMMON_NAME_INVALID` | Domain mismatch | Confirm the cert's SANs cover the domain you're accessing: `openssl x509 -noout -ext subjectAltName` |
-| Clock skew warning | Server time is wrong | Run `timedatectl` or `date -u`; sync NTP: `sudo timedatectl set-ntp true` |
+| acme.sh reports the TXT record is missing | The Cloudflare API call did not take effect, or a stale record from a failed run is still in the zone | Delete leftover `_acme-challenge.example.com` TXT records in the Cloudflare dashboard, then retry |
+| Cloudflare rejects the request | Token lacks **Zone > DNS > Edit**, or was scoped to a different zone | Recreate the token from the **Edit zone DNS** template and re-save it |
+| `Failed to get DNS credentials` | No credentials stored for this bench or globally | `fm ssl dns-config cloudflare --show` to confirm, then re-save |
+| Delegation validation fails with `--cname` | The `_acme-challenge` CNAME is missing or points at the wrong target | Expected target is `_acme-challenge.<value of --cname>`; fix the record, or poll with `--wait-for-dns` in standalone mode |
 
-!!! warning "Incomplete chain: the silent failure"
-    Chrome auto-fetches missing intermediate certificates via the AIA extension, so a site may appear valid in Chrome but fail in `curl`, Firefox, and API clients. Always make sure nginx is serving `fullchain.pem` (which includes the intermediates), not just `cert.pem`. FM handles this automatically, but if you have manually customised nginx config, verify with:
+### Certificate errors in the browser
 
-    ```bash
-    openssl s_client -connect example.com:443 -servername example.com < /dev/null 2>/dev/null | grep -c "^---"
-    # Should return 3 or more (root + intermediate + leaf)
-    ```
+| Symptom | Cause | Fix |
+|---|---|---|
+| `NET::ERR_CERT_DATE_INVALID` | Expired, because nothing renewed it | `fm ssl renew mybench`, then fix the cron job |
+| `NET::ERR_CERT_COMMON_NAME_INVALID` | The name you visited is not in the certificate | `fm ssl list mybench` to see which domains are covered; a wildcard does not cover the apex |
+| A `--dev` certificate is untrusted in Firefox or Chrome, but fine in `curl` | The CA reached the system store but `certutil` was missing, so the NSS databases were skipped | Install `libnss3-tools` (Debian/Ubuntu) or `nss-tools` (Fedora), delete `~/frappe/services/nginx-proxy/ssl/dev/ca/.installed`, then re-run `fm ssl add ... --dev` |
+| Clock skew warning | Host clock is wrong | `sudo timedatectl set-ntp true` |
 
-#### Renewal failures
+### Renewal failures
 
 | Symptom | Fix |
 |---|---|
-| Cron ran but cert not renewed | Check cron logs: `grep CRON /var/log/syslog`; confirm FM is on `$PATH` in the cron environment |
-| `force renewal failed` | Run `fm ssl acme-sh --info -d example.com` to inspect acme.sh state |
-| DNS credentials expired | Re-save with `fm ssl dns-config cloudflare --api-token NEW_TOKEN` and run `fm ssl renew mybench --force` |
+| Cron ran but nothing renewed | Confirm `fm` resolves in the cron environment; run the same command by hand to see the real error |
+| A renewal fails where issuance worked | Inspect acme.sh's own view of the certificate: `fm ssl acme-sh --info -d example.com` |
+| Cloudflare credentials were rotated | Re-save with `fm ssl dns-config cloudflare --api-token NEW_TOKEN`, then `fm ssl renew mybench --force` |
 
 ---
 
 ## Certificate file locations
 
-All SSL files are stored in the global nginx-proxy service directory. Understanding this structure is helpful for debugging:
+Everything lives under the global nginx-proxy service directory:
 
 | Path | Purpose |
 |------|---------|
-| `~/frappe/services/nginx-proxy/ssl/acmesh/.acme.sh/` | acme.sh installation and internal certificate database |
-| `~/frappe/services/nginx-proxy/ssl/acmesh/<domain>/fullchain.pem` | Full certificate chain (includes intermediates) |
-| `~/frappe/services/nginx-proxy/ssl/acmesh/<domain>/key.pem` | Private key for the domain |
-| `~/frappe/services/nginx-proxy/certs/<domain>.crt` | Symlink to fullchain.pem (nginx-proxy reads this) |
-| `~/frappe/services/nginx-proxy/certs/<domain>.key` | Symlink to key.pem (nginx-proxy reads this) |
-| `~/frappe/services/nginx-proxy/vhostd/<domain>` | HTTP→HTTPS redirect configuration |
-| `~/frappe/services/nginx-proxy/confd/<domain>.conf` | Nginx server block (standalone mode only) |
-| `~/frappe/services/nginx-proxy/external_domains.toml` | Registry of standalone domain certificates |
-
-!!! info "Why symlinks?"
-    FM uses symlinks so nginx-proxy can read certificates from a fixed location (`certs/`) while the actual certificate files are managed by acme.sh in its own directory structure (`ssl/acmesh/`).
-
----
-
-## Advanced: raw acme.sh access
-
-FM exposes acme.sh directly for edge cases. Use this only if the `fm ssl` commands don't cover your need.
-
-```bash
-# List all certs acme.sh knows about
-fm ssl acme-sh --list
-
-# Detailed info for one domain
-fm ssl acme-sh --info -d example.com
-
-# Check acme.sh version
-fm ssl acme-sh --version
-
-# Upgrade bundled acme.sh
-fm ssl acme-sh --upgrade
-```
-
-!!! danger
-    Commands run via `fm ssl acme-sh` bypass FM's certificate management. Certificates issued or removed this way will not be reflected in `fm ssl list` and FM will not manage their installation into bench nginx configs. Prefer `fm ssl add/remove/renew` for all normal workflows.
+| `~/frappe/services/nginx-proxy/ssl/acmesh/.acme.sh/` | acme.sh installation and its own certificate database |
+| `~/frappe/services/nginx-proxy/ssl/acmesh/<domain>/fullchain.pem` | Certificate chain fm installs |
+| `~/frappe/services/nginx-proxy/ssl/acmesh/<domain>/key.pem` | Private key |
+| `~/frappe/services/nginx-proxy/ssl/dev/ca/` | Local dev CA (`rootCA.pem`, `rootCA-key.pem`, `.installed` sentinel) |
+| `~/frappe/services/nginx-proxy/ssl/dev/<domain>/` | Dev leaf certificate and key |
+| `~/frappe/services/nginx-proxy/certs/<domain>.crt` | Symlink nginx-proxy reads for the chain |
+| `~/frappe/services/nginx-proxy/certs/<domain>.key` | Symlink nginx-proxy reads for the key |
+| `~/frappe/services/nginx-proxy/vhostd/<domain>` | HTTP to HTTPS redirect snippet |
+| `~/frappe/services/nginx-proxy/confd/<domain>.conf` | Server block for a standalone domain |
+| `~/frappe/services/nginx-proxy/external_domains.toml` | Registry of standalone domains |
 
 ---
 
 ## Security notes
 
-- **Credentials**: Cloudflare API credentials are stored globally in `~/frappe/fm_config.toml` (bench-specific overrides live in the bench's `bench_config.toml`); key reference: [DNS challenge providers](../reference/configuration.md#dns-providers). Restrict file permissions: `chmod 600 ~/frappe/fm_config.toml`. Remove saved credentials with `fm ssl dns-config cloudflare --remove`.
-- **Token scope**: Use a per-zone API Token, not the Global API Key. If the token is compromised, you can revoke it without rotating your entire Cloudflare account.
-- **Certs in version control**: Never commit `*.pem` or `*.key` files. Add them to `.gitignore`.
-- **Staging vs production**: Use `--dry-run` (staging) during setup and testing. Production rate limits are shared across all users of a domain; hitting them blocks certificate issuance for everyone on that domain for up to a week.
+- **Credentials.** Global Cloudflare credentials sit in plain text in `~/frappe/fm_config.toml`; per-bench overrides sit in that bench's `bench_config.toml`. Restrict permissions (`chmod 600 ~/frappe/fm_config.toml`) and delete them with `fm ssl dns-config cloudflare --remove` when they are no longer needed. Key reference: [DNS challenge providers](../reference/configuration.md#dns-providers).
+- **Token scope.** A per-zone API Token can be revoked in isolation; the Global API Key cannot.
 
 ---
 
 !!! info "See also"
-    - [fm ssl command reference](../commands/ssl.md): all flags and subcommands
-    - [Cloudflare DNS Config](../commands/ssl-dns-config-cloudflare.md): detailed Cloudflare token setup
-    - [Environments](environments.md): prod vs dev environment differences
+    - [fm ssl command reference](../commands/ssl.md): every flag and subcommand
+    - [Cloudflare DNS config reference](../commands/ssl-dns-config-cloudflare.md)
+    - [Environments](environments.md): prod and dev differences
     - [Configuration reference](../reference/configuration.md#ssl-certificates): how issued certificates are recorded in `bench_config.toml`

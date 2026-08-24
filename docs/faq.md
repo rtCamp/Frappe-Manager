@@ -4,30 +4,24 @@
 
 ### How do I install Frappe Manager?
 
-See the [Installation guide](getting-started/installation.md). The recommended method:
-
 ```bash
 uv tool install --python 3.13 frappe-manager
 ```
 
-### How do I update FM itself?
+`uv` owns that command, not fm. For pipx, uvx, dev builds, and the prerequisites, see the [Installation guide](getting-started/installation.md).
 
-Run these two commands. The first updates the CLI; the second updates your benches and infrastructure to match.
+### How do I update FM itself?
 
 ```bash
 fm self update
 fm migrate --all-benches
 ```
 
-Details: [Upgrading fm](getting-started/installation.md#upgrading-fm).
+The first updates the CLI, the second brings fm's config, the global services and your benches up to match it. Every bench command refuses to run against a bench that is behind, so do not skip it. Details: [Upgrading fm](getting-started/installation.md#upgrading-fm).
 
 ### Can I run multiple benches on the same machine?
 
-Yes. Each bench is fully isolated. Create as many as you need and list them any time:
-
-```bash
-fm list
-```
+Yes. Each bench gets its own containers, workspace, apps and database schema. Two things are shared: one MariaDB server (`global-db`) and one nginx proxy holding ports 80 and 443, which routes to the right bench by domain. `fm list` shows them all.
 
 ---
 
@@ -35,7 +29,7 @@ fm list
 
 ### How do I install ERPNext?
 
-At create time: `fm create mybench --apps erpnext`. For existing benches and everything else, see [App Management](guides/app-management.md).
+At create time, `fm create mybench --apps erpnext`. On an existing `mount` bench, `fm update mybench --apps erpnext`. Refs, private repos and monorepo layouts: [App Management](guides/app-management.md).
 
 ### How do I check installed apps and versions?
 
@@ -45,52 +39,53 @@ fm info mybench
 
 ### How do I use a private GitHub repo for an app?
 
-Pass `--github-token YOUR_TOKEN` at create time, or export `GITHUB_TOKEN` in your shell before running `fm create`. See [App Management](guides/app-management.md).
+Pass `--github-token YOUR_TOKEN` to `fm create`, or export `GITHUB_TOKEN` before running it. fm stores the token in the bench config, so a later `fm update --apps` reuses it; `fm update` has no `--github-token` flag of its own. Either way fm checks the repo and ref with `git ls-remote` before it starts building, so a bad token fails early. See [App Management](guides/app-management.md).
 
 ### How do I change the Administrator password?
 
-**Option A**, reset and reinstall (destructive):
+Without losing data, using Frappe's own `bench` command inside the container:
 
 ```bash
-fm reset mybench --admin-pass newpass
+fm shell mybench -c "bench set-admin-password 'a-better-password'"
 ```
 
-**Option B**, change password only (no data loss):
-
-```bash
-fm shell mybench -c "bench set-admin-password newpass"
-```
+`fm reset` also takes `--admin-pass`, but it reinstalls the site from scratch and destroys everything in it.
 
 ### How do I reset a bench to a clean state?
 
-`fm reset mybench` drops the bench database and reinstalls all apps from scratch. This is destructive; back up first. See [fm reset](commands/reset.md).
+`fm reset mybench` drops the site's database and reinstalls every app. All site data is lost, so back up first. It only works on the database server fm owns: a bench with its own `[database]` config entry is refused, because that schema is not fm's to drop. See [fm reset](commands/reset.md).
 
 ### How do I back up my bench?
 
-Run `fm shell mybench -c "bench backup --with-files"`, or use the Frappe web UI. See [Backup & Restore](guides/backup-restore.md).
+Backups are Frappe's job; fm just runs the command for you. `bench backup --with-files` is a Frappe flag, not an fm one:
+
+```bash
+fm shell mybench -c "bench backup --with-files"
+```
+
+Where the files land, scheduled backups, and restoring: [Backup & Restore](guides/backup-restore.md).
 
 ### How do I run bench commands like migrate or build?
 
-Use `fm shell` to open an interactive shell or run a single command:
+`fm shell` puts you in the bench container, where the `bench` CLI lives. fm never wraps `bench` subcommands; you call them yourself.
 
 ```bash
-fm shell mybench -c "bench migrate"
-fm shell mybench          # interactive
+fm shell mybench                      # interactive shell
+fm shell mybench -c "bench migrate"   # one command, its exit code becomes fm's
+fm shell mybench -- bench build       # same thing, everything after -- is the command
 ```
+
+`fm shell mybench --bench-console` gets you a Frappe console with `frappe` already initialised and connected.
 
 ### How do I share my bench for testing?
 
 Create a temporary public URL with ngrok. An auth token is required; sign up at [ngrok.com](https://ngrok.com) if you don't have one.
 
 ```bash
-fm ngrok mybench --auth-token YOUR_TOKEN
+fm ngrok mybench --auth-token YOUR_TOKEN --save-token
 ```
 
-Once a token is saved, future runs don't need it:
-
-```bash
-fm ngrok mybench
-```
+`--save-token` writes it to fm's config so later runs are just `fm ngrok mybench`. Without either `--save-token` or `--no-save-token`, fm asks. `NGROK_AUTHTOKEN` works too.
 
 For a stable custom domain instead of a temporary URL, see [Domains](guides/domains.md).
 
@@ -100,11 +95,11 @@ For a stable custom domain instead of a temporary URL, see [Domains](guides/doma
 
 ### How do I restart just the web server or just the workers?
 
-From the host: `fm restart mybench --no-workers` (web only), `fm restart mybench --no-web` (workers only), or `--service NAME` for one specific service. Inside the container, `fmx` gives the same control over individual supervisor processes. See [fm restart](commands/restart.md) and the [fmx guide](guides/fmx.md).
+`fm restart mybench --no-workers` for web only, `fm restart mybench --no-web` for workers only, or `--service NAME` (repeatable) for one named service such as `socketio`, `nginx`, or a single worker. Inside the container, `fmx` gives finer control. See [fm restart](commands/restart.md) and the [fmx guide](guides/fmx.md).
 
 ### How do I safely restart during a deployment without losing jobs?
 
-`fm restart mybench` already does this: workers drain by default, so in-flight jobs finish before anything restarts, and the restart aborts rather than kill a job that exceeds the drain budget. See [fm restart](commands/restart.md) and the [fmx guide](guides/fmx.md) for drain plus migrate and maintenance mode.
+`fm restart mybench` already does this. Workers drain by default: fm waits for in-flight RQ jobs, and if one outlasts `[workers].drain_timeout` it **aborts the restart** rather than kill the job. `--no-drain` skips the wait and interrupts running jobs (they land in the failed-jobs registry); `--force` kills everything fast. Note that `--service` skips the drain. See [fm restart](commands/restart.md) and the [fmx guide](guides/fmx.md) for drain plus migrate and maintenance mode.
 
 ---
 
@@ -116,27 +111,27 @@ Work through these in order:
 
 - Docker is running: `docker ps`
 - The bench is listed and running: `fm list`
-- Ports 80 and 443 are free on the host (nothing else bound to them)
-- On Windows 10, add `127.0.0.1 mybench.localhost` to your `hosts` file if the `.localhost` domain doesn't resolve
-- Still stuck? Check the logs: [Reading logs](reference/logs.md)
+- The global nginx proxy came up. It needs ports 80 and 443 on the host, so anything else already bound there will have stopped it: `fm services start`
+- On Windows 10, `*.localhost` may not resolve; add a `hosts` entry as described in the [WSL guide](guides/wsl.md)
+- Still stuck? Read the log: `fm logs mybench -f`, then [Reading logs](reference/logs.md)
 
 ### Docker images fail to pull from GHCR. What can I try?
 
-Log out and back in to the GitHub Container Registry:
+fm's images are public on `ghcr.io`, so no login is needed. A stale or expired GHCR credential left in your Docker keychain is the usual cause; drop it and pull again:
 
 ```bash
 docker logout ghcr.io
-docker login ghcr.io
+fm self update-images
 ```
 
 If pulls still fail, check the CLI logs for details: [Logs](reference/logs.md).
 
 ### How do I enable HTTPS for my bench?
 
-SSL requires that your domain points at the server and that ports 80 and 443 are reachable from the internet.
-
 ```bash
 fm ssl add mybench example.com
 ```
 
-If you cannot open port 80 (for example on a corporate network), use DNS-01 challenge with Cloudflare instead. See the [SSL guide](guides/ssl.md) for step-by-step instructions.
+The default HTTP-01 challenge needs the domain's A record pointing at this server and port 80 reachable from the internet. If you cannot open port 80, use `--challenge dns01` with saved provider credentials. For a local bench that needs no public DNS at all, `--dev` issues from fm's own CA.
+
+Renewal is not automatic: run `fm ssl renew --all` from a daily cron. The [SSL guide](guides/ssl.md) has step-by-step instructions for all of it.

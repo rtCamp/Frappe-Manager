@@ -1,252 +1,196 @@
 # Logs & Debugging
 
-FM provides multiple log streams for debugging bench issues, monitoring service health, and tracking CLI operations.
-
-## Overview
-
-Logs are separated into three layers:
-
-1. **CLI logs**: FM command operations (`fm create`, `fm update`, etc.)
-2. **Bench logs**: Frappe application logs (web server, workers, scheduler)
-3. **Service logs**: Global infrastructure (MariaDB, Redis, nginx-proxy)
-
-!!! tip "Quick access"
-    **Stream the bench web server log:**
-    ```bash
-    fm logs mybench --follow
-    ```
-    
-    **View a specific container:**
-    ```bash
-    fm logs mybench --service frappe --follow
-    ```
-    
-    **Check FM's own operation log:**
-    ```bash
-    tail -f ~/frappe/logs/fm.log
-    ```
-
----
+Three kinds of log: what the `fm` CLI itself did, what a bench's Frappe processes wrote to disk, and what a container printed to stdout.
 
 ## Log Locations
 
-| Log Type | Location | Description |
-|---|---|---|
-| **CLI operations** | `~/frappe/logs/fm.log` | Everything every `fm` command did (auto-rotated, gzipped backups) |
-| **Bench web server** | `~/frappe/sites/<bench>/workspace/frappe-bench/logs/` | Frappe web logs (`web.log`, `web.error.log`, `web.dev.log`) |
-| **Bench workers** | Same as bench web server | Worker logs (`worker.log`, `worker.error.log`) |
-| **Bench scheduler** | Same as bench web server | Scheduled job logs (`schedule.log`) |
-| **Global MariaDB** | `~/frappe/services/global-db/logs/` | Database server logs |
-| **Global Redis** | `~/frappe/services/global-redis-*/logs/` | Redis server logs |
-| **nginx-proxy** | Container logs (Docker) | HTTP access logs, SSL validation logs |
-
-!!! info "CLI log rotation"
-    `fm.log` rotates automatically when it exceeds 10MB. Rotated files are gzipped: `fm.log.1.gz`, `fm.log.2.gz`, `fm.log.3.gz` (3 backups kept).
-
-
-### `fm.log` Line Format {#fm-log-format}
-
-Every line in `fm.log` carries ambient context: a correlation id for the CLI invocation, plus the bench, operation, and component when known:
-
-```
-[<timestamp>] LEVEL: [corr=<id>] [bench=<name>] [op=<operation>] [component=<component>] message
-```
-
-Example:
-
-```
-[2026-07-27 17:41:12,694] INFO: [corr=5211fa23] [op=list] [component=output] [OUTPUT] DATA:
-```
-
-- `corr=`: first 8 chars of a per-invocation correlation id; grep it to see everything one command did
-- `bench=` / `op=`: the bench and operation the line belongs to (present when applicable)
-- `component=`: which subsystem logged it (e.g. `docker`, `migration`, `output`)
-
-```bash
-# Trace a single fm invocation end to end
-grep 'corr=5211fa23' ~/frappe/logs/fm.log
-```
----
-
-## Viewing Logs with `fm logs`
-
-`fm logs` shows **bench** logs, not FM's own operation log (that lives in `~/frappe/logs/fm.log`).
-
-### Basic Usage
-
-```bash
-# View the bench web server log
-# (web.dev.log in dev; web.log + web.error.log in prod)
-fm logs mybench
-
-# Stream live (follow mode)
-fm logs mybench --follow
-
-# View a specific container's logs instead
-fm logs mybench --service frappe
-```
-
-Without `--service`, `fm logs` reads the Frappe web server **file** logs from the bench workspace. With `--service`, it shows that container's Docker logs (the service must be running).
-
-### Available Services {#available-services}
-
-| Service | Description |
+| What | Where |
 |---|---|
-| `frappe` | Main Frappe web server (Gunicorn or Werkzeug) |
-| `nginx` | Per-bench nginx container (reverse proxy) |
-| `socketio` | Real-time WebSocket server |
-| `schedule` | Scheduled task worker (cron-like) |
-| `redis-cache` | Per-bench Redis cache instance |
-| `redis-queue` | Per-bench Redis queue instance |
-| `short-worker` | Short background job worker |
-| `long-worker` | Long background job worker |
-| `adminer` | Database admin UI (if admin tools enabled) |
-| `mailpit` | Email testing UI (if admin tools enabled) |
+| **CLI operations** | `~/frappe/logs/fm.log` |
+| **Bench Frappe processes** | `~/frappe/sites/<bench>/workspace/frappe-bench/logs/` |
+| **Bench nginx** | `~/frappe/sites/<bench>/configs/nginx/logs/` (`access.log`, `error.log`) |
+| **Global MariaDB** | `~/frappe/services/mariadb/logs/` |
+| **Global nginx proxy** | `~/frappe/services/nginx-proxy/logs/` |
+| **Any container** | `fm logs <bench> --service <service>` |
 
-!!! warning "Redis services use `sh` shell"
-    `redis-cache` and `redis-queue` containers do not have bash. When using `fm shell --service redis-cache`, FM automatically falls back to `sh`.
-
-### Examples
-
-```bash
-# Debug web server errors
-fm logs mybench --service frappe
-
-# Monitor worker job processing
-fm logs mybench --service short-worker --follow
-
-# Check nginx routing issues
-fm logs mybench --service nginx
-
-# View scheduler execution
-fm logs mybench --service schedule --follow
-```
+Redis is per bench, not a global service, so it has no directory under `~/frappe/services/`. Its output is container output only: `fm logs <bench> --service redis-cache`.
 
 ---
 
-## Bench Application Logs
+## `fm.log` {#fm-log}
 
-Frappe writes application logs to `~/frappe/sites/<bench>/workspace/frappe-bench/logs/`:
-
-| Log File | Environment | Content |
-|---|---|---|
-| `web.dev.log` | Dev | All web server output (stdout + stderr combined) |
-| `web.log` | Prod | Web server stdout (successful requests, info messages) |
-| `web.error.log` | Prod | Web server stderr (errors, warnings, tracebacks) |
-| `worker.log` | Both | Worker stdout (job processing logs) |
-| `worker.error.log` | Both | Worker errors and failed jobs |
-| `schedule.log` | Both | Scheduled task execution logs |
-
-!!! tip "Environment-specific log splitting"
-    **Dev environment:** Single `web.dev.log` file (easier tailing)  
-    **Prod environment:** Separate `web.log` and `web.error.log` (easier filtering)
-
-### Reading Application Logs Directly
+Everything every `fm` invocation did, at `DEBUG` by default. This is the file to reach for when a command failed and the console output was not enough.
 
 ```bash
-# Stream web server logs
-tail -f ~/frappe/sites/mybench/workspace/frappe-bench/logs/web.log
-
-# View recent errors only (prod)
-tail -n 100 ~/frappe/sites/mybench/workspace/frappe-bench/logs/web.error.log
-
-# Monitor worker job failures
-tail -f ~/frappe/sites/mybench/workspace/frappe-bench/logs/worker.error.log
+tail -f ~/frappe/logs/fm.log
 ```
 
----
+### Line format {#fm-log-format}
 
-## CLI Verbosity Flags
+```
+[<timestamp>] <LEVEL>: [corr=<id>] [bench=<name>] [op=<operation>] [component=<component>] <message>
+```
 
-Control CLI output verbosity globally (applies to all `fm` commands):
+```
+[2026-08-24 13:15:43,413] DEBUG: [corr=a8c2a3de] [op=info] [component=output] [OUTPUT] STOP
+```
 
-### `--verbose` / `-v` {#verbose-flag}
+Every record is stamped with the ambient context at emit time, so the tags appear on lines from any subsystem, including worker threads:
 
-Sets console output to `INFO` level (shows additional operation details). Default console level is `WARNING`.
+- `corr=`: first 8 characters of a UUID generated once per invocation
+- `bench=` / `op=`: the bench and the command the line belongs to, when known
+- `component=`: the subsystem that logged it (`docker`, `migration`, `output`, `main`, ...)
 
 ```bash
-fm --verbose create mybench
-fm -v start mybench
+# Everything one command did, in order
+grep 'corr=a8c2a3de' ~/frappe/logs/fm.log
 ```
 
-### `--log-level` {#log-level-flag}
+Lines tagged `[component=output] [OUTPUT]` are the mirror of what was printed to your terminal, so the file is a superset of the console.
 
-Override the console log level explicitly (takes precedence over `--verbose`).
+### Rotation {#fm-log-rotation}
 
-```bash
-# Debug level (most verbose)
-fm --log-level debug create mybench
+Rotates at 10 MB, keeping three gzipped backups: `fm.log.1.gz`, `fm.log.2.gz`, `fm.log.3.gz`. There is no way to turn this off.
 
-# Warning level only (minimal output)
-fm --log-level warning restart mybench
-```
+### File log level {#file-level}
 
-**Valid levels:** `debug`, `info`, `warning`, `error`
-
-### `--non-interactive` / `-n` {#non-interactive-flag}
-
-Disable interactive prompts (useful for CI/CD, automation).
-
-```bash
-# Will error if required options missing (no prompts)
-fm --non-interactive create mybench --apps erpnext
-```
-
-!!! tip "CI/CD usage"
-    Always use `--non-interactive` in automation to prevent hanging on prompts:
-    
-    ```bash
-    fm --non-interactive create mybench --apps erpnext --environment prod
-    ```
-
-### `--version` / `-V` {#version-flag}
-
-Print installed FM version and exit.
-
-```bash
-fm --version
-# Output: frappe-manager 0.19.0
-```
-
----
-
-## Global CLI Log Configuration
-
-Configure CLI log verbosity in `~/frappe/fm_config.toml`:
+`~/frappe/fm_config.toml`:
 
 ```toml
 [logs]
 file_level = "DEBUG"
 ```
 
-**Valid levels:** `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
+Accepts `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`. Anything else raises a configuration error listing the valid names. This setting applies to `fm.log` only; console verbosity is a separate flag (see below).
 
-!!! info "File log vs console output"
-    `file_level` only affects `~/frappe/logs/fm.log` (default `DEBUG`). Console output verbosity is controlled by the `--verbose` / `--log-level` flags.
-
-**See also:** [Configuration reference: logs.file_level](/reference/configuration/#logs-file-level)
+**See also:** [`logs.file_level`](configuration.md#logs-file-level)
 
 ---
 
-## Log Rotation
-
-### CLI Logs (`fm.log`)
-
-**Automatic rotation:**
-
-- Max size: 10 MB per file
-- Backup count: 3 gzipped files (`fm.log.1.gz` through `fm.log.3.gz`)
-- Rotation trigger: On next write after exceeding 10 MB; the rotated file is gzip-compressed
-
-**Disable rotation:** Not supported (prevents disk exhaustion).
-
-### Application Logs (Frappe)
-
-Frappe does not auto-rotate logs. For production deployments, configure logrotate:
+## `fm logs`
 
 ```bash
+# The bench's web server log files
+fm logs mybench
+
+# Stream them
+fm logs mybench -f
+
+# A container's docker logs instead
+fm logs mybench --service nginx -f
+```
+
+Without `--service`, `fm logs` reads the bench's log **files** from the host, so it works whether or not the bench is running:
+
+- **dev**: `web.dev.log`
+- **prod**: `web.error.log`, then `web.log`
+
+Existing content is printed file by file, then `-f` polls all of them for new lines. Files that do not exist yet are skipped; if none exist you get `No log files found.`
+
+With `--service`, the logs come from docker and that container has to be running, otherwise `fm logs` reports that the service is not running and prints nothing.
+
+`--service` accepts any service in the bench's compose files: `docker-compose.yml` (`frappe`, `nginx`, `socketio`, `schedule`, `redis-cache`, `redis-queue`), `docker-compose.workers.yml` (`short-worker`, `long-worker`, `default-worker`, plus one per custom queue), and `docker-compose.admin-tools.yml` (`adminer`, `mailpit`) when admin tools are enabled. An unknown name prints the bench's actual list.
+
+---
+
+## Bench Log Files
+
+Written by supervisor inside the container to `~/frappe/sites/<bench>/workspace/frappe-bench/logs/`:
+
+| File | Environment | Content |
+|---|---|---|
+| `web.dev.log` | dev | Dev server, stdout and stderr combined |
+| `watch.dev.log` | dev | Asset watcher |
+| `web.log` / `web.error.log` | prod | Gunicorn stdout / stderr |
+| `worker.log` / `worker.error.log` | both | Every background worker (short, long, default, custom) writes to the same pair |
+| `schedule.log` / `schedule.error.log` | both | Scheduler |
+| `node-socketio.log` / `node-socketio.error.log` | both | Socket.IO server |
+
+```bash
+tail -f ~/frappe/sites/mybench.localhost/workspace/frappe-bench/logs/worker.error.log
+```
+
+---
+
+## Bench nginx Access Log {#nginx-access-log}
+
+Bench nginx writes a structured JSON access log, in the same format as the global nginx proxy, so one parser handles both hops.
+
+`~/frappe/sites/<bench>/configs/nginx/logs/access.log`:
+
+```json
+{"time":"2026-08-24T13:15:43+00:00","request_id":"7f3c...","client":"203.0.113.7","xff":"203.0.113.7","host":"mybench.localhost","scheme":"https","method":"GET","path":"/app/todo","status":200,"bytes":18244,"request_time":0.212,"upstream":"10.0.5.3:80","upstream_status":"200","upstream_time":"0.208","referer":"-","ua":"Mozilla/5.0 ..."}
+```
+
+`status`, `bytes` and `request_time` are numbers. The `upstream*` fields are strings because nginx writes `-` there when there was no upstream (a maintenance-page 503, for example) and a comma-separated list when it retried.
+
+`client` is the visitor's address, not the proxy's: a `real-ip.conf` overlay tells bench nginx to trust `X-Real-IP` from the FM frontend network. It is re-materialised on every `fm start`.
+
+```bash
+# Slowest requests
+jq -sr 'sort_by(-.request_time) | .[:20] | .[] | "\(.request_time) \(.status) \(.path)"' \
+  ~/frappe/sites/mybench.localhost/configs/nginx/logs/access.log
+
+# Error rate by path
+jq -r 'select(.status >= 500) | .path' \
+  ~/frappe/sites/mybench.localhost/configs/nginx/logs/access.log | sort | uniq -c | sort -rn
+```
+
+!!! note "Older benches"
+    The JSON format arrived with the v0.20.0 migration, which deletes the generated `conf.d/default.conf` so the container re-renders it from the current image template. A bench that has not been migrated still writes nginx's combined format.
+
+---
+
+## Console Verbosity Flags
+
+These are options on `fm` itself, so they go before the subcommand.
+
+### `--verbose` / `-v`
+
+Turns on console log output at `INFO`.
+
+```bash
+fm -v start mybench
+```
+
+### `--log-level`
+
+```bash
+fm --log-level debug create mybench
+```
+
+Accepts `debug`, `info`, `warning` and `error`; anything else exits 1 with the valid list.
+
+!!! note "Only `debug` and `info` add console output"
+    Console log output is attached only when the level is `INFO` or `DEBUG` (or `-v` was passed). `--log-level warning` and `--log-level error` therefore leave the console log handler off entirely, which is also the default. Command output, tables and prompts are unaffected either way; `fm.log` still records everything at `logs.file_level`.
+
+### `--non-interactive` / `-n`
+
+Fails instead of prompting, naming the flag that would have supplied the answer. Use it in CI.
+
+```bash
+fm -n create mybench --apps erpnext --environment prod
+```
+
+### `--version` / `-V`
+
+Prints the version and nothing else:
+
+```console
+$ fm --version
+0.20.0
+```
+
+---
+
+## Rotating Bench Logs
+
+Frappe does not rotate its own logs, and neither does FM. On long-lived hosts, hand them to logrotate:
+
+```
 # /etc/logrotate.d/frappe-manager
-/home/user/frappe/sites/*/workspace/frappe-bench/logs/*.log {
+/home/user/frappe/sites/*/workspace/frappe-bench/logs/*.log
+/home/user/frappe/sites/*/configs/nginx/logs/*.log {
     daily
     rotate 14
     compress
@@ -257,6 +201,6 @@ Frappe does not auto-rotate logs. For production deployments, configure logrotat
 }
 ```
 
-`copytruncate` avoids having to restart the bench processes to reopen log files.
+`copytruncate` matters here: the processes hold their log files open and will not reopen them, so renaming out from under them would silently stop the logging.
 
-**See also:** [logrotate documentation](https://linux.die.net/man/8/logrotate)
+**See also:** [Configuration reference](configuration.md), [Architecture reference](architecture.md)

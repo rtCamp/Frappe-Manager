@@ -5,7 +5,7 @@ The runtime is the most consequential property of a bench: it decides **where th
 | | `mount` (default) | `image` |
 |---|---|---|
 | Code lives in | an editable **workspace** on your disk, bind-mounted into the containers | an immutable **Docker image**, baked ahead of time |
-| Change code by | editing files (changes are live) | building a new image (`fm bake`) and switching to it |
+| Change code by | editing files (changes are live) | building a new image and switching to it (`fm deploy` does both) |
 | Made for | development, simple servers | production: repeatable deploys, instant rollbacks |
 
 ## Mount: the editable workspace
@@ -17,9 +17,9 @@ fm create mybench --from-image repo:tag    # or seed the workspace from a baked 
 
 Your apps live at `~/frappe/sites/<bench>/workspace/frappe-bench/apps/`, a normal bench directory you can edit, commit from, and debug against. Everything code-related works here:
 
-- `fm update --apps app:branch`: graft apps onto the bench (old code is stashed, never deleted)
-- `fm update --python 3.12 --node 22`: swap toolchains (recreates the venv, reinstalls apps)
-- `fm bake`: snapshot or freshly provision this bench into an immutable image
+- `fm update --apps app:branch`: graft apps onto the bench (`appname:ref` or `org/repo:ref`; replaced code is stashed, never deleted, then assets rebuild and the site migrates)
+- `fm update --python 3.12 --node 22`: swap toolchains (recreates the venv and reinstalls apps; `--no-recreate-python-env` keeps the existing venv)
+- `fm bake`: provision this bench's apps into an immutable image, or snapshot the workspace as it stands with `--source workspace`
 
 ## Image: the immutable release
 
@@ -31,7 +31,7 @@ fm create prodbench --runtime image --image repo:tag   # or create a bench direc
 Code, venv, and built assets are inside the image; the bench only holds data (sites, DB, logs, config). There is nothing to edit, and that's the point:
 
 - deploys are atomic and repeatable, and rollback is one command away; see [Deployment](../deploy/index.md) and [Rolling back](../deploy/rollback.md)
-- `fm update` accepts settings only (SSL, domains, policies); `--apps`/`--python`/`--node` are refused, since those are baked in
+- `fm update` accepts settings only: environment, alias domains, admin tools, upload limit, restart policy, NewRelic, external-database CA. `--apps`, `--python`, `--node` and `--developer-mode enable` are refused, since those are baked in
 
 The full pipeline (baking, zero-downtime rolling swaps, rollbacks with DB restore, release pruning) is covered in the [Deployment guide](../deploy/index.md).
 
@@ -42,10 +42,10 @@ stateDiagram-v2
     direction LR
     [*] --> mount : fm create
     [*] --> image : fm create --runtime image --image TAG
-    mount --> image : fm switch BENCH TAG
+    mount --> image : config edit + fm switch BENCH TAG
     image --> mount : fm update --runtime mount
     mount --> mount : fm bake
-    image --> image : fm switch TAG / --previous
+    image --> image : fm deploy / fm switch TAG / --previous
 ```
 
 Both directions preserve your site and database:
@@ -59,7 +59,9 @@ The backing keys ([`runtime`](../reference/configuration.md#runtime), [`image` a
 
 Runtime says where code lives; [environment](../guides/environments.md) says how the web process runs. All four combinations are valid; see the [Concepts overview](index.md) for the 2x2 matrix.
 
-One flag worth knowing changes meaning with the runtime: on a mount bench `--image` overrides the *base* frappe image the workspace runs on; on an image bench it names the *app image to run*.
+The one asymmetry: developer mode is refused on an image bench even in a `dev` environment, because DocType authoring writes app source files into the container layer that the next deploy throws away.
+
+One flag worth knowing changes meaning with the runtime: `fm create --image` names the *base* frappe image the workspace runs on for a mount bench, and the *app image to run* for an image bench.
 
 ## Where to next
 

@@ -1,404 +1,315 @@
 # Migrations
 
-When you update FM CLI itself, run `fm migrate` to upgrade your benches and infrastructure to match the new version.
+Updating the `fm` CLI does not update what it manages. `fm migrate` brings FM's own configuration, the global services, and (when you name them) your benches up to the version of the CLI you just installed.
 
 ## Overview
 
-FM migrations operate at two levels:
+FM migrates two things, tracked separately:
 
-1. **FM Infrastructure**: Global services (MariaDB, Redis, nginx-proxy) and CLI configuration
-2. **Benches**: Individual bench environments, configurations, and compose files
+1. **FM infrastructure**: the global services (`global-db`, `global-nginx-proxy`) and `~/frappe/fm_config.toml`
+2. **Benches**: each bench's `bench_config.toml`, compose files, generated nginx and supervisor config
 
-Migrations are **version-aware**: FM tracks which version each component is migrated to and only applies necessary upgrade steps.
+Both are **version-aware**: FM records the version each one is migrated to and only runs the migrations newer than that.
 
-!!! tip "Quick Start"
-    **After updating FM:**
+!!! important "A bare `fm migrate` touches no bench"
+    `fm migrate` with no arguments migrates only the FM infrastructure. Benches are never migrated implicitly: name one, or pass `--all-benches`.
+
+    Naming a bench migrates the infrastructure too, if it is behind.
+
+!!! tip "After updating the CLI"
     ```bash
-    # Update CLI first
-    fm self update
-    
-    # Migrate infrastructure only (safe)
-    fm migrate
-    
-    # Migrate specific bench
-    fm migrate mybench
-    
-    # Migrate all benches
-    fm migrate --all-benches
+    fm self update            # update the CLI
+    fm migrate                # FM infrastructure only
+    fm migrate --all-benches  # then the benches
     ```
-
-!!! warning "Always update CLI before migrating"
-    Run `fm self update` first, then `fm migrate`. Running migrations on an old CLI version can cause compatibility issues.
 
 ---
 
-## How Migration Works
+## Every Bench Command Requires a Migrated Bench {#migration-gate}
 
-### Migration Process
+A bench that is behind the CLI is refused, not silently used. Two gates enforce it:
 
-1. **Pre-flight checks**: Validates current state and determines required migrations
-2. **Backup creation**: Creates backups of config files + MariaDB dump
-3. **Apply migrations**: Executes version-specific upgrade steps
-4. **Verification**: Validates successful migration
-5. **State update**: Records the new version in `[migration_state]`
+- **The top-level callback**, before any subcommand runs. If the FM infrastructure or the bench named on the command line is behind, it warns and asks: **Update now** (runs the migration inline, with `--auto-proceed` and `--on-failure=rollback`) or **Update later**. Choosing later exits with status 1, so the command never runs.
+- **The command's own check** (`check_bench_migration_required`), carried by every command that reads or mutates a live bench. It does not prompt: it prints `Run: fm migrate <bench>` and exits 1. This catches the cases where the callback could not resolve the bench name out of `sys.argv`.
 
-### What Gets Backed Up
+Commands that skip the callback gate entirely: `list`, `migrate`, `bake`, `deploy`, `switch`, `self compose`, `self update-images`.
 
-| Component | Backup Location | Restoreable |
+The bench half of the callback gate is additionally skipped for `stop`, `delete`, and `maintenance`. Of those, only `stop` and `delete` carry no in-command check either, so those two are the ones you can always run against a bench you cannot migrate. `maintenance` still refuses, just without the offer to migrate inline.
+
+!!! note "Non-interactive runs"
+    Under `--non-interactive` the callback's prompt cannot be answered, so a pending migration fails the command with a message naming `fm migrate`. Migrate explicitly before the rest of a CI job.
+
+---
+
+## Version Tracking
+
+**FM infrastructure**, in `~/frappe/fm_config.toml`:
+
+```toml
+[migration_state]
+system_migrated_to = "0.20.0"
+```
+
+**Per bench**, in `~/frappe/sites/<bench>/bench_config.toml`:
+
+```toml
+[migration_state]
+migrated_to = "0.20.0"
+last_migration_date = "2026-04-12T14:30:45.123456"
+```
+
+A bench with no `[migration_state]` reads as version `0.0.0`.
+
+### Minimum supported version {#minimum-supported-version}
+
+Migrations only reach back to **v0.18.0**. From anything older, FM refuses and prints the required path:
+
+```
+Cannot migrate from v0.17.0. Minimum supported version is v0.18.0.
+Migration path: v0.17.0 → v0.18.0 → v0.20.0
+```
+
+---
+
+## Migrations on Disk {#inventory}
+
+Two migrations ship with the current CLI. Each one runs only if the target is below its version.
+
+| Version | Infrastructure | Per bench |
 |---|---|---|
-| Bench config files | `~/frappe/sites/<bench>/backups/migrations/<timestamp>/` | ✅ Yes |
-| MariaDB database | Same location (gzipped SQL dump, per migration version) | ✅ Yes |
-| Docker compose files | Same as bench config | ✅ Yes |
-| Global config (`fm_config.toml`) | `~/frappe/backups/migrations/<timestamp>/` | ✅ Yes |
+| **v0.19.0** | `global-nginx-proxy` image bumped to `jwilder/nginx-proxy:1.11` | `[ssl]` table becomes the `[[ssl_certificates]]` array, `preferred_challenge` becomes `challenge_type`; nginx `SITENAME` becomes `SITE_MAPPINGS`; `alias_domains`, `upload_limit`, `restart_policy` added; runtime moves from pyenv/nvm to uv/fnm and from certbot to acme.sh; supervisor config regenerated |
+| **v0.20.0** | `global-db` moved off end-of-life `mariadb:10.6` to `mariadb:11.8`, with `MARIADB_AUTO_UPGRADE` letting the image upgrade the system tables | Adminer 4 to 5 with the FM login plugin; `admin_tools_username` / `admin_tools_password` move into the `[auth]` table; bench nginx gains the real-IP overlay and re-renders `default.conf` so it logs JSON |
 
-!!! info "Backup timestamp format"
-    Backups use format: `DD-Mon-YY--HH-MM-SS` (e.g., `12-Apr-26--14-30-45`)
+The v0.19.0 runtime rebuild is the slow part: it recreates the Python virtualenv with `uv`, reinstalls apps, and rebuilds assets.
 
-### Version Tracking
+---
 
-FM tracks migration state in two places:
+## Backups
 
-**Global infrastructure:** `~/frappe/fm_config.toml`
-```toml
-[migration_state]
-system_migrated_to = "0.19.0"
-```
+Unless you skip them, backups are taken **per migration version** immediately before that version's steps run.
 
-**Per-bench:** `~/frappe/sites/<benchname>/bench_config.toml`
-```toml
-[migration_state]
-migrated_to = "0.19.0"
-last_migration_date = "2026-04-12T14:30:45"
-```
+**Per bench**, under `~/frappe/sites/<bench>/backups/migrations/<timestamp>/<version>/`:
+
+| What | Notes |
+|---|---|
+| `bench_config.toml` | |
+| `docker-compose.yml` | v0.20.0 also backs up `docker-compose.admin-tools.yml` |
+| `common_site_config.json`, `site_config.json` | |
+| `db-<bench>-<DD-MM-YYYY--HH-MM-SS>.sql.gz` | gzipped logical dump of the bench database |
+| `supervisor.conf`, `*.fm.supervisor.conf` | v0.19.0 only, because it regenerates them |
+| nginx `default.conf` | v0.19.0 and v0.20.0, both of which regenerate it |
+
+**FM infrastructure**, under `~/frappe/backups/migrations/<timestamp>/<version>/`:
+
+| What | Notes |
+|---|---|
+| `docker-compose.yml` | the global services compose file |
+| `global-db-all-databases-<timestamp>.sql.gz` | v0.20.0 only: whole-server dump taken while the old engine still runs, because the datadir upgrade is one-way |
+
+!!! info "Timestamp format"
+    `DD-Mon-YY--HH-MM-SS`, for example `12-Apr-26--14-30-45`. Collisions within one run get microseconds appended.
+
+!!! warning "`fm_config.toml` is not backed up"
+    FM rewrites the version in `fm_config.toml` in place and rewinds it on rollback. There is no copy in the backup directory.
 
 ---
 
 ## Migration Commands
 
-### Migrate Infrastructure Only {#migrate-infrastructure}
+### Infrastructure only {#migrate-infrastructure}
 
 ```bash
 fm migrate
 ```
 
-Applies only FM infrastructure migrations (global services, CLI config). **Safe to run after every CLI update.**
+Migrates the global services and FM's own config. Nothing bench-specific happens. If there is nothing to do it prints `FM infrastructure already up to date (no benches specified)` and exits 0.
 
-**When to use:**
-
-- After running `fm self update`
-- No benches need upgrading yet
-- Just want to update global services
-
----
-
-### Migrate Specific Bench {#migrate-bench}
+### One bench {#migrate-bench}
 
 ```bash
-fm migrate mybench
+fm migrate mybench.localhost
 ```
 
-Migrates a single bench to current FM version.
+Migrates that bench, plus the infrastructure if it is behind.
 
-**What happens:**
+!!! info "Running benches are recreated"
+    The bench does not need to be stopped first. If it is running, FM warns that its containers will be restarted (recreated) during migration. Stop it with `fm stop mybench` beforehand only if you want to pick the downtime window yourself.
 
-1. Backs up `bench_config.toml`, `docker-compose*.yml`, MariaDB database
-2. Applies bench-specific migration steps (SSL config format, compose changes, etc.)
-3. Updates `migration_state.migrated_to` in bench config
+!!! warning "`fm migrate` wants the exact directory name"
+    Most commands normalise a bare `mybench` to `mybench.localhost` for you. `fm migrate` does not: it looks up `~/frappe/sites/<what you typed>` and reports `Bench 'mybench' does not exist` if that is not a directory. Use the name `fm list` shows.
 
-!!! info "Running benches are restarted"
-    The bench does **not** need to be stopped first. If it is running, FM warns that its containers will be restarted (recreated) during migration. Stop it beforehand with `fm stop mybench` only if you want to control the downtime window yourself.
-
----
-
-### Migrate All Benches {#migrate-all-benches}
+### Every bench {#migrate-all-benches}
 
 ```bash
 fm migrate --all-benches
 ```
 
-Migrates all benches in `~/frappe/sites/`.
+Targets every directory in `~/frappe/sites/` that has a `bench_config.toml`. Benches are migrated one at a time, in one pass per migration version.
 
-**Confirmation prompt:**
+Before starting, FM lists what it will do and asks once:
 
 ```
-Benches needing migration:
-  • mybench: v0.18.0 → v0.19.0
-  • testbench: v0.18.0 → v0.19.0
-  • prod: v0.18.0 → v0.19.0
+FM Infrastructure: v0.19.0 → v0.20.0
+  • CLI configuration
+  • Global services (MariaDB, Nginx-Proxy)
 
-Do you want to proceed? (yes / no)
+Benches:
+  • mybench.localhost: v0.19.0 → v0.20.0
+  • prod.localhost: v0.19.0 → v0.20.0
+
+Migration versions:
+  • v0.20.0
+
+Do you want to proceed?
+  yes - Start migration
+  no - Abort and revert to previous fm version
 ```
 
-**Skip prompt:**
+Answering `no` prints the `uv tool install frappe-manager==<previous>` command to get back to the CLI you came from, and exits.
+
+`--auto-proceed` answers yes for you.
+
+### Re-run a migration {#rerun}
 
 ```bash
-fm migrate --all-benches --auto-proceed
+fm migrate mybench.localhost --rerun
 ```
+
+Re-applies the current release's migration steps even when the target is already up to date. Config transforms and supervisor regeneration run again; the runtime environment is rebuilt only when the Python or Node version actually changed or the existing environment is broken.
+
+`--rerun` narrows discovery to the current release, so old migrations are not replayed.
+
+### Exclude benches {#exclude-benches}
+
+```bash
+fm migrate --all-benches --exclude-bench oldbench.localhost,legacy.localhost
+```
+
+Comma-separated, and only valid with `--all-benches`. As with the positional argument, the names have to be the exact bench directory names.
 
 ---
 
-### Re-run a Migration {#rerun}
+## Failure Handling {#on-failure}
+
+When a bench's migration raises, FM restores that bench's backups for the failing version and undoes the version's bench-level changes before deciding what to do next. `--on-failure` picks that decision.
+
+### `--on-failure=prompt` (default) {#on-failure-prompt}
+
+**One bench:** asks whether to roll the bench back to its pre-migration state, or to skip the rollback and leave it as it is for manual fixing and a retry with `fm migrate <bench>`.
+
+**`--all-benches`:** asks whether to **archive** the failed benches and keep the successful ones migrated, or to **revert the migration for every bench**.
+
+### `--on-failure=rollback` {#on-failure-rollback}
+
+Rolls back without asking: backups are restored, the recorded version is rewound, and the command exits non-zero. With `--all-benches` this reverts every bench, not just the failed one, and prints how to reinstall the previous CLI.
+
+!!! tip "Use it in automation"
+    This is what the inline migration gate uses, and the safe default for unattended runs of a single production bench.
+
+### `--on-failure=archive` {#on-failure-archive}
 
 ```bash
-fm migrate mybench --rerun
+fm migrate --all-benches --auto-proceed --on-failure=archive
 ```
 
-Re-applies all migration steps even when the target is already up to date (for testing idempotency). Config transforms and supervisor regeneration are re-applied; the runtime environment is only rebuilt when Python/Node versions change.
+Each failed bench is rolled back to its last successfully completed migration version and its directory is moved from `~/frappe/sites/<bench>/` to `~/frappe/archived/<bench>/`. The benches that succeeded stay migrated. FM prints which benches it archived.
+
+!!! warning "Not available for a single bench"
+    On a single-bench run FM prints `--on-failure=archive not supported for single bench migrations. Using rollback.` and then falls through to the single-bench question above: roll the bench back, or leave it as it is. Archive only makes sense when there are other benches to keep migrated.
 
 ---
 
-### Exclude Benches {#exclude-benches}
+## Skipping Backups
 
-```bash
-fm migrate --all-benches --exclude-bench oldbench,legacy
-```
-
-Migrate all benches **except** specified ones (comma-separated).
-
-!!! tip "Use for problematic benches"
-    Exclude broken or archived benches from mass migrations, then handle them individually later.
-
----
-
-## Failure Handling
-
-### On-Failure Strategies {#on-failure}
-
-Control what happens when a bench migration fails:
-
-#### `--on-failure=prompt` (default) {#on-failure-prompt}
-
-Asks what to do after a failure.
-
-```bash
-fm migrate --all-benches --on-failure=prompt
-```
-
-**Single bench:** you are asked whether to roll the bench back to its pre-migration state, or skip rollback and leave it as-is for manual fixing / retry.
-
-**Multiple benches (`--all-benches`):** you are asked whether to **archive** the failed benches (continue with the rest) or **revert the migration for all benches**.
-
----
-
-#### `--on-failure=rollback` {#on-failure-rollback}
-
-Automatically roll back on failure.
-
-```bash
-fm migrate mybench --on-failure=rollback
-```
-
-**What happens:**
-
-1. Migration fails
-2. Backups are restored (config files, docker-compose files, MariaDB dump)
-3. For a single bench: that bench returns to its pre-migration state. For `--all-benches`: the migration is reverted for **all** benches
-4. Exit with error
-
-!!! tip "Recommended for production benches"
-    Use rollback for critical production benches to ensure they never end up in a half-migrated state.
-
----
-
-#### `--on-failure=archive` {#on-failure-archive}
-
-Move failed benches to the archive, continue migrating others (partial success OK).
-
-```bash
-fm migrate --all-benches --on-failure=archive
-```
-
-**What happens:**
-
-1. Migration fails for `mybench`
-2. `mybench` is rolled back to its last successfully completed migration version
-3. Moves `~/frappe/sites/mybench/` → `~/frappe/archived/mybench/`
-4. Continues migrating remaining benches, printing a summary of archived benches at the end
-
-!!! warning "Only for `--all-benches`"
-    Archive mode requires `--all-benches`. For a single bench migration it falls back to rollback.
-
-**Use case:** Large bench fleets where some failures are acceptable, and you'll investigate archived benches later.
-
----
-
-## Backup Management
-
-### Skip All Backups (Dangerous) {#skip-backups}
+### `--skip-all-backup` {#skip-backups}
 
 ```bash
 fm migrate --all-benches --skip-all-backup
 ```
 
-!!! danger "Use only in controlled scenarios"
-    Skipping backups means **no rollback possible** if migration fails. Only use when:
-    
-    - You have external backups
-    - Backup creation itself is failing (disk space, permissions)
-    - Testing in disposable dev environments
+!!! danger "No backups means no rollback"
+    Rollback restores files from the backup directory. Without it, a failed migration leaves the bench where it stopped. Use this only when you have external backups, when backup creation itself is what is failing (disk space, permissions), or on disposable benches.
 
----
-
-### Skip Backups for Specific Benches {#skip-backup-for}
+### `--skip-backup-for` {#skip-backup-for}
 
 ```bash
-fm migrate --all-benches --skip-backup-for testbench,devbench
+fm migrate --all-benches --skip-backup-for testbench.localhost,devbench.localhost
 ```
 
-Skip backups for specified benches (comma-separated), still back up others.
+Comma-separated. Those benches are migrated without a backup; the rest are backed up normally.
 
-**Use case:** Dev benches with large databases where backup time is prohibitive.
+!!! note "Undeterminable database name"
+    If FM cannot work out a bench's database name from `site_config.json`, `bench_config.toml`, or the global service info, it asks whether to continue without a database backup. `--skip-all-backup` or `--skip-backup-for <bench>` answers that in advance.
 
 ---
 
-## Backup Restoration
+## Restoring by Hand
 
-### Manual Rollback
-
-If you need to manually restore a bench from backup:
+Backups are grouped by the migration version that took them, so the version subdirectory is part of the path.
 
 ```bash
-# Find backup timestamp
-ls ~/frappe/sites/mybench/backups/migrations/
+BENCH=mybench.localhost
+BACKUP=~/frappe/sites/$BENCH/backups/migrations/12-Apr-26--14-30-45/0.20.0
 
-# Example: 12-Apr-26--14-30-45
-BACKUP_TS="12-Apr-26--14-30-45"
+fm stop $BENCH
 
-# Stop bench
-fm stop mybench
+# config files
+cp "$BACKUP/bench_config.toml" ~/frappe/sites/$BENCH/
 
-# Restore config files
-cp ~/frappe/sites/mybench/backups/migrations/$BACKUP_TS/bench_config.toml \
-   ~/frappe/sites/mybench/
+# database: the dump has to be inside the workspace, because that is the only
+# part of the bench directory mounted into the containers
+cp "$BACKUP"/db-*.sql.gz ~/frappe/sites/$BENCH/workspace/frappe-bench/sites/
 
-# Restore database: copy the dump into the workspace (only the workspace is
-# mounted into the containers), then restore inside the bench
-cp ~/frappe/sites/mybench/backups/migrations/$BACKUP_TS/*/db-*.sql.gz \
-   ~/frappe/sites/mybench/workspace/frappe-bench/sites/
-fm start mybench
-fm shell mybench -c "bench --site mybench.localhost restore sites/db-mybench-*.sql.gz"
+fm start $BENCH
+fm shell $BENCH -c "bench --site $BENCH restore sites/db-*.sql.gz"
 ```
 
-!!! info "Database backups are gzipped SQL dumps"
-    Use `bench restore` command inside the bench to restore database from `.sql.gz` file.
-
----
-
-## Version-Specific Migration Notes
-
-### v0.19.0 Notable Changes {#v0-19-0}
-
-**Toolchain changes:**
-
-- Switched from `pyenv` + `nvm` to `uv` + `fnm` for Python/Node version management
-- Python/Node versions now auto-detected from app `pyproject.toml`
-
-**SSL configuration changes:**
-
-- Multi-certificate support (individual certs per domain)
-- New `ssl_certificates` array format in `bench_config.toml`
-- Old single-certificate configs automatically converted
-
-**Migration impact:**
-
-- Requires bench container rebuild (Python/Node toolchain replacement)
-- SSL config files regenerated in new format
-- Approximately 2-5 minutes per bench (depending on app count)
+The Frappe site name is the bench name, which is why the same variable serves both.
 
 ---
 
 ## Troubleshooting
 
-### Migration Fails with Backup Error
-
-**Symptom:** `Error creating backup: Disk quota exceeded`
-
-**Solution:**
+### Backup creation fails
 
 ```bash
-# Check disk space
 df -h ~/frappe
-
-# Clean old backups
-rm -rf ~/frappe/backups/migrations/<old-timestamp>/
-
-# Or skip backups (if safe)
-fm migrate mybench --skip-all-backup
+rm -rf ~/frappe/sites/mybench.localhost/backups/migrations/<old-timestamp>/
 ```
 
----
+If space is genuinely unavailable and you have backups elsewhere, `--skip-all-backup` gets the migration through.
 
-### Bench Stuck in Half-Migrated State
+### A bench is stuck half-migrated
 
-**Symptom:** Migration failed, bench won't start, rollback wasn't triggered
-
-**Solution:**
+The rollback was skipped, or the process was killed mid-run. List the backup timestamps and restore the right one by hand (see above); the format sorts by day-of-month, not chronologically, so read the dates rather than piping through `sort`:
 
 ```bash
-# Find most recent backup
-ls ~/frappe/sites/mybench/backups/migrations/ | sort -r | head -1
-
-# Manually restore (see "Manual Rollback" above)
+ls ~/frappe/sites/mybench.localhost/backups/migrations/
 ```
 
----
+### "Already up to date" but the config looks wrong
 
-### Migration Says "Already Up to Date" But Bench Broken
-
-**Symptom:** `fm migrate mybench` says already migrated, but bench config is wrong
-
-**Solution:**
-
-Reset migration state to force re-migration:
+Use `--rerun` rather than editing `[migration_state]` by hand:
 
 ```bash
-# Edit bench_config.toml
-nano ~/frappe/sites/mybench/bench_config.toml
-
-# Remove or change [migration_state] section:
-[migration_state]
-migrated_to = "0.18.0"  # Set to previous version
-
-# Save and re-run migration
-fm migrate mybench
+fm migrate mybench.localhost --rerun
 ```
+
+It re-applies the current release's steps against the bench as it is now.
 
 ---
 
-## Migration Internals
+## How Migrations Are Selected {#internals}
 
-### Migration Discovery
+Migration classes are discovered from the modules in `migration_manager/migrations/` and filtered by `from_version < migration.version <= current_version`, then sorted by version.
 
-FM automatically discovers and applies migrations by comparing:
+`from_version` is the lower of FM's recorded infrastructure version and the lowest version among the targeted benches, so one run can catch a bench that is several releases behind an already-current infrastructure.
 
-1. Current FM CLI version (from `fm --version`)
-2. Infrastructure migration state (`[migration_state] system_migrated_to` in `fm_config.toml`)
-3. Each bench migration state (`[migration_state] migrated_to` in `bench_config.toml`)
+For each selected version, in ascending order:
 
-**Migration selection:**
+1. If the infrastructure is behind: back up the global services compose file, then apply that version's service changes.
+2. For each targeted bench, in sequence: back up, then apply that version's bench changes. A bench already at or above the version is skipped (unless `--rerun`).
 
-- If CLI = 0.19.0, infrastructure = 0.18.0 → Apply 0.19.0 infrastructure migration
-- If CLI = 0.19.0, bench = 0.18.0 → Apply 0.19.0 bench migration
-- If CLI = 0.19.0, bench = 0.19.0 → Skip (already migrated)
+Benches are never migrated in parallel. Once a bench has failed, later versions skip it instead of compounding the damage.
 
-### Migration Execution Order
-
-1. **Infrastructure migrations** (always first)
-   - Global database schema upgrades
-   - Global service config changes
-   - CLI config format updates
-
-2. **Bench migrations** (one bench at a time)
-   - Bench config format changes
-   - Docker compose file updates
-   - SSL certificate format conversions
-   - Per-bench database migrations (if needed)
-
-!!! info "Sequential execution"
-    Benches are migrated sequentially (not parallel) to avoid database lock conflicts and ensure proper error handling.
-
-### Migration Check on Every Command
-
-Every `fm` invocation first checks whether the infrastructure or the target bench is behind the CLI version and prompts you to migrate before proceeding. A small whitelist of commands skips this gate so they stay usable on un-migrated setups: `list`, `migrate`, `bake`, `deploy`, `switch`, `self compose`, and `self update-images`. The bench-level check is additionally skipped for `stop` and `delete`.
-
-**See also:** [Configuration reference](/reference/configuration/), [Architecture reference](/reference/architecture/)
+**See also:** [Configuration reference](configuration.md), [Architecture reference](architecture.md), [`fm migrate`](../commands/migrate.md)

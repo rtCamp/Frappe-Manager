@@ -832,6 +832,12 @@ class DNSProviderConfig(BaseModel):
 def ssl_certificate_from_toml_data(ssl_data: dict, domain: str) -> SSLCertificate:
     """Parse a single certificate from TOML data."""
     ssl_type = ssl_data.get("ssl_type", SUPPORTED_SSL_TYPES.none)
+    # ssl_certificate_to_toml_doc dumps the whole model, so hsts is on disk; reading it back
+    # without this dropped it to the "off" default, which meant nginx-proxy never received the
+    # HSTS header a bench had configured (BenchConfig.export_to_compose_inputs reads it from the
+    # primary certificate). migrate_0_19_0 deliberately carries the old value forward, so the
+    # drop silently undid that migration. Same oversight as delegation_cname below.
+    hsts = ssl_data.get("hsts", "off")
 
     if ssl_type == SUPPORTED_SSL_TYPES.le:
         # Email field removed - Let's Encrypt discontinued notifications (June 2025)
@@ -878,6 +884,7 @@ def ssl_certificate_from_toml_data(ssl_data: dict, domain: str) -> SSLCertificat
                 api_token=api_token,
                 acme_client=acme_client,
                 delegation_cname=delegation_cname,
+                hsts=hsts,
             )
 
         return LetsencryptSSLCertificate(
@@ -888,9 +895,10 @@ def ssl_certificate_from_toml_data(ssl_data: dict, domain: str) -> SSLCertificat
             api_key=api_key,
             api_token=api_token,
             acme_client=acme_client,
+            hsts=hsts,
         )
     if ssl_type == SUPPORTED_SSL_TYPES.dev:
-        return SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.dev)
+        return SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.dev, hsts=hsts)
     return SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none)
 
 

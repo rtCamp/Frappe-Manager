@@ -10,14 +10,6 @@ Changes take effect on next `fm start` or service restart.
 !!! warning "Use `fm update` commands for safe editing"
     These files are managed by FM. Manual edits may be overwritten or cause validation errors. Use `fm update` commands whenever possible.
 
-!!! tip "Relocating the root directory"
-    Set `FRAPPE_MANAGER_HOME` environment variable before any `fm` command to move all FM data to a custom location:
-    
-    ```bash
-    export FRAPPE_MANAGER_HOME=/srv/frappe
-    fm create mybench  # Creates bench under /srv/frappe/sites/mybench
-    ```
-
 ---
 
 ## Quick Reference
@@ -27,7 +19,7 @@ Changes take effect on next `fm start` or service restart.
 Minimal example showing common settings:
 
 ```toml
-version = "0.19.0"
+version = "0.20.0"
 
 ngrok_auth_token = "2abc..."
 
@@ -58,7 +50,7 @@ runtime = "mount"
 upload_limit = "50M"
 restart_policy = "unless-stopped"
 alias_domains = ["www.mybench.com"]
-db_name = "fm_mybench_a1b2c3d4"
+db_name = "fm_mybench_localhost_9f4c1a77d0e35b62"
 
 python_version = "3.13"
 node_version = "20"
@@ -79,7 +71,7 @@ challenge_type = "http01"
 acme_client = "acme.sh"
 
 [migration_state]
-migrated_to = "0.19.0"
+migrated_to = "0.20.0"
 ```
 
 ---
@@ -97,7 +89,7 @@ Settings in `~/frappe/fm_config.toml` apply to all benches and FM operations.
 FM version that last wrote this config file. Automatically updated by FM. Do not edit manually.
 
 ```toml
-version = "0.19.0"
+version = "0.20.0"
 ```
 
 ---
@@ -114,7 +106,7 @@ Saved ngrok authentication token for persistent tunneling. Written by `fm ngrok 
 ngrok_auth_token = "2abc..."
 ```
 
-**See also:** [fm ngrok command](/commands/ngrok/)
+**See also:** [fm ngrok command](../commands/ngrok.md)
 
 ---
 
@@ -151,7 +143,7 @@ file_level = "DEBUG"
 
 **Valid values:** `DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`
 
-**See also:** [Logs reference](/reference/logs/)
+**See also:** [Logs reference](logs.md)
 
 ---
 
@@ -181,7 +173,7 @@ api_token = "abc123..."
 
 **Set via:** `fm ssl dns-config cloudflare --api-token YOUR_TOKEN`
 
-**See also:** [SSL guide: DNS-01 setup](/guides/ssl/#dns-01-cloudflare-api-token), [fm ssl dns-config command](/commands/ssl/dns-config/)
+**See also:** [SSL guide: DNS-01 setup](../guides/ssl.md#dns-01-cloudflare-api-token), [fm ssl dns-config cloudflare](../commands/ssl-dns-config-cloudflare.md)
 
 ---
 
@@ -201,7 +193,7 @@ email = "you@example.com"
 
 **Set via:** `fm ssl dns-config cloudflare --api-key YOUR_KEY --email you@example.com`
 
-**See also:** [#dns-providers-cloudflare-api-token](#dns-providers-cloudflare-api-token)
+**See also:** [`cloudflare.api_token`](#dns-providers-cloudflare-api-token)
 
 ---
 
@@ -252,15 +244,14 @@ FM version the global infrastructure was last migrated to. Managed by `fm migrat
 
 ```toml
 [migration_state]
-system_migrated_to = "0.19.0"
+system_migrated_to = "0.20.0"
 ```
+
+---
 
 ## Bench Configuration
 
 Settings in `~/frappe/sites/<benchname>/bench_config.toml` apply to a single bench.
-
-!!! tip "Quick lookup"
-    Jump to specific settings: [name](#name) · [developer_mode](#developer-mode) · [admin_tools](#admin-tools) · [environment](#environment-type) · [runtime](#runtime) · [upload_limit](#upload-limit) · [restart_policy](#restart-policy) · [ssl certificates](#ssl-certificates) · [deploy pipeline tables](#deploy-tables)
 
 ### `name` {#name}
 
@@ -285,7 +276,7 @@ name = "mybench.localhost"
 
 ### `developer_mode` {#developer-mode}
 
-**Default:** `true` (dev environment), `false` (prod environment)  
+**Default:** `true` (dev environment), `false` (prod environment); always `false` on image runtime  
 **Type:** `boolean`  
 **File key:** `developer_mode`
 
@@ -295,12 +286,12 @@ Frappe Developer Mode toggle. When `true`, enables debug toolbar, disables cachi
 developer_mode = true
 ```
 
-!!! tip "Independent from environment type"
-    You can enable developer mode in production environments or disable it in dev; this setting is independent of `environment`.
+!!! warning "Refused on image runtime"
+    `developer_mode = true` cannot be combined with `runtime = "image"`. DocType authoring writes app *source* files, and standard doctypes only sync files into the database, never back, so those writes would land in the container's ephemeral layer and be lost on the next deploy. `fm create` rejects both the flag and a config overlay that sets it; demote with `fm update BENCHNAME --runtime mount` first.
 
 **Change via:** `fm update BENCHNAME --developer-mode enable|disable` (needs an editable workspace: mount runtime)
 
-**See also:** [Environments guide](/guides/environments/), [fm update command](/commands/update/)
+**See also:** [Environments guide](../guides/environments.md), [fm update command](../commands/update.md)
 
 ---
 
@@ -323,7 +314,7 @@ admin_tools = true
 
 **Change via:** `fm update BENCHNAME --admin-tools enable|disable`
 
-**See also:** [#auth](#auth)
+**See also:** [`[auth]`](#auth), which puts a password prompt in front of these tools
 
 ---
 
@@ -348,11 +339,11 @@ environment = "prod"
 | Logs | `web.dev.log` (single file) | `web.log` + `web.error.log` (split) |
 
 !!! warning "Switching recreates only the frappe container"
-    Environment switch **does not recreate** workers, nginx, Redis, or MariaDB. Only the main frappe web container is recreated.
+    `fm update -e` recreates the frappe web container alone: workers, nginx, Redis and MariaDB keep running. `developer_mode` and `admin_tools` are left exactly as they are, so the defaults in the table above apply at create time only; change them afterwards with `--developer-mode` or `--admin-tools`.
 
 **Change via:** `fm update BENCHNAME --environment dev|prod`
 
-**See also:** [Environments guide](/guides/environments/)
+**See also:** [Environments guide](../guides/environments.md)
 
 ---
 
@@ -362,13 +353,13 @@ environment = "prod"
 **Type:** `string`  
 **File key:** `upload_limit`
 
-Maximum file upload size enforced by nginx. Uses nginx size syntax.
+Maximum file upload size. One value drives three layers: `max_file_size` in `site_config.json`, `client_max_body_size` in the bench nginx, and the `vhost.d` entry nginx-proxy applies to every domain of the bench.
 
 ```toml
 upload_limit = "500M"
 ```
 
-**Valid formats:** `50M`, `500M`, `1G`, `2G`
+**Valid formats:** digits followed by `M` or `G`, case-insensitive (`50M`, `500M`, `1G`), stored uppercased. Bare byte counts and a `K` suffix are rejected even though nginx itself accepts them.
 
 **Change via:** `fm update BENCHNAME --upload-limit 500M`
 
@@ -393,9 +384,6 @@ restart_policy = "unless-stopped"
 | `on-failure` | Restart only on crash (exit code ≠ 0) |
 | `unless-stopped` | Restart unless manually stopped (**recommended for prod**) |
 
-!!! tip "Recommended: `unless-stopped` for production"
-    Provides automatic recovery after crashes or server reboots, but respects intentional `fm stop` commands.
-
 **Change via:** `fm update BENCHNAME --restart unless-stopped`
 
 ---
@@ -412,18 +400,11 @@ Additional hostnames served by this bench. Each alias can have its own SSL certi
 alias_domains = ["www.mybench.com", "alt.mybench.com"]
 ```
 
-**Usage:**
-
-- All aliases serve the same Frappe bench
-- Each alias can have independent SSL configuration
-- Requires DNS A/CNAME records pointing to server
-
 **Change via:** `fm update BENCHNAME --add-alias www.example.com,alt.example.com` / `--remove-alias www.example.com`
 
-**See also:** [fm ssl add command](/commands/ssl/add/)
+**See also:** [fm ssl add command](../commands/ssl.md)
 
 ---
-
 
 ### `db_name` {#db-name}
 
@@ -431,16 +412,17 @@ alias_domains = ["www.mybench.com", "alt.mybench.com"]
 **Type:** `string`  
 **File key:** `db_name`
 
-Database name in global MariaDB service. Auto-generated random string on bench creation to avoid conflicts.
+Schema this bench's site uses on the fm-managed `global-db` container. Generated at creation as `fm_<name>_<16 hex chars>`, where `<name>` is the bench name with every `.` and `-` replaced by `_`.
 
 ```toml
-db_name = "fm_mybench_a1b2c3d4"
+db_name = "fm_mybench_localhost_9f4c1a77d0e35b62"
 ```
 
-**Format:** `fm_<benchname_sanitized>_<8_random_chars>`
-
 !!! danger "Do not modify manually"
-    Changing this value causes database connection failure. FM expects the database name to match this field exactly.
+    Changing this value points the bench at a schema that does not exist. FM expects the database name to match this field exactly.
+
+!!! info "Unused on an external database"
+    A site with a [`[database."<site>"]`](#database) entry lives on that server, under `[database]` `name`. `db_name` is still generated and stored, but nothing reads it for that site.
 
 ---
 
@@ -460,7 +442,7 @@ github_token = "ghp_..."
 
 **Set via:** `fm create BENCHNAME --github-token ghp_...` or the `GITHUB_TOKEN` environment variable
 
-**See also:** [fm create command](/commands/create/)
+**See also:** [fm create command](../commands/create.md)
 
 ---
 
@@ -470,15 +452,13 @@ github_token = "ghp_..."
 **Type:** `string | null`  
 **File key:** `python_version`
 
-Python version override. Extracted from frappe app's `pyproject.toml` on creation.
+Python version override. Auto-detected on creation from the frappe app's `pyproject.toml` (`[project]` `requires-python`, or Poetry's `tool.poetry.dependencies.python`).
 
 ```toml
 python_version = "3.13"
 ```
 
 **Set via:** `fm create BENCHNAME --python 3.13` or `fm update BENCHNAME --python 3.13`
-
-**Added in:** FM 0.18.0
 
 ---
 
@@ -488,7 +468,7 @@ python_version = "3.13"
 **Type:** `string | null`  
 **File key:** `node_version`
 
-Node.js version override. Extracted from frappe app's `pyproject.toml` on creation.
+Node.js version override. Auto-detected on creation from the frappe app's `package.json` (`engines.node`).
 
 ```toml
 node_version = "20"
@@ -496,13 +476,11 @@ node_version = "20"
 
 **Set via:** `fm create BENCHNAME --node 20` or `fm update BENCHNAME --node 20`
 
-**Added in:** FM 0.18.0
-
 ---
 
 ### `[auth]` {#auth}
 
-**Default:** admin tools protected, site open  
+**Default:** admin tools protected (when `admin_tools` is enabled), site open  
 **File key:** `[auth]`
 
 HTTP basic auth for the bench's two nginx surfaces: `web` (frappe and socketio, every path bar the admin tools) and `tools` (`/adminer/` and `/mailpit/`). One credential pair serves both, and the bench nginx enforces both.
@@ -561,14 +539,19 @@ acme_client = "acme.sh"
 
 **Certificate fields:**
 
-- `domain`: Hostname for this certificate
-- `ssl_type`: `"letsencrypt"` (Let's Encrypt), `"dev"` (locally-trusted dev cert via `fm ssl add --dev`), or `"disable"`
-- `challenge_type`: `"http01"` or `"dns01"` (Let's Encrypt only)
-- `acme_client`: Always `"acme.sh"`
+- `domain`: hostname this certificate covers
+- `ssl_type`: `"letsencrypt"`, or `"dev"` for a certificate from FM's local CA (`fm ssl add --dev`). `"disable"` is accepted on read and means no certificate; FM never writes such an entry, it drops the domain from the array instead
+- `challenge_type`: `"http01"` or `"dns01"`, Let's Encrypt only. Absent, FM picks `dns01` when Cloudflare credentials exist and `http01` otherwise
+- `acme_client`: always `"acme.sh"`
+- `api_token` / `api_key`: per-certificate DNS credentials, taking precedence over `[ssl.dns_challenge_providers]` and the global `[cloudflare]` table
+- `delegation_cname`: delegated zone for `_acme-challenge`, written by `fm ssl add --cname`
+- `hsts`: value for the `Strict-Transport-Security` header the proxy sends for this domain, or `"off"` (the default). There is no flag for it; set it here. Only the primary domain's certificate is consulted
 
-**Managed by:** `fm ssl add`, `fm ssl remove`, `fm ssl renew` commands
+FM also writes bookkeeping keys into each entry (`enabled`, `status`, `cert_path`, `key_path`, `issued_date`, `last_renewal_attempt`). `issued_date`, `last_renewal_attempt` and `key_path` are outputs that nothing reads back, so editing them changes nothing.
 
-**See also:** [SSL guide](/guides/ssl/), [fm ssl commands](/commands/ssl/)
+**Managed by:** `fm ssl add`, `fm ssl remove`, `fm ssl renew`, `fm ssl list`
+
+**See also:** [SSL guide](../guides/ssl.md), [fm ssl commands](../commands/ssl.md)
 
 ---
 
@@ -577,21 +560,16 @@ acme_client = "acme.sh"
 **Default:** (inherits from global config)  
 **File key:** `[ssl.dns_challenge_providers.<provider>]`
 
-Bench-specific DNS provider credentials for DNS-01 challenges. Overrides the global `[cloudflare]` table in `fm_config.toml`.
+Bench-specific DNS provider credentials for DNS-01 challenges. Overrides the global `[cloudflare]` table in `fm_config.toml`. Each provider table accepts `api_token`, `api_key` and `email`; `cloudflare` is the only provider name FM feeds to acme.sh.
 
 ```toml
 [ssl.dns_challenge_providers.cloudflare]
 api_token = "bench-specific-token"
 ```
 
-**Override behavior:**
-
-- If set: Uses bench-specific credentials for DNS-01 challenges
-- If not set: Falls back to global `fm_config.toml` credentials
-
 **Set via:** `fm ssl dns-config cloudflare BENCHNAME --api-token TOKEN`
 
-**See also:** [#dns-providers-cloudflare-api-token](#dns-providers-cloudflare-api-token), [fm ssl dns-config command](/commands/ssl/dns-config/)
+**See also:** [`cloudflare.api_token`](#dns-providers-cloudflare-api-token), [fm ssl dns-config cloudflare](../commands/ssl-dns-config-cloudflare.md)
 
 ---
 
@@ -635,7 +613,7 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm deploy`, `fm swit
 
 | Key | Default | Meaning |
 |---|---|---|
-| `source` | `"provision"` | `provision` = clone + install fresh (reproducible); `workspace` = snapshot the bench's on-disk workspace |
+| `source` | `"provision"` | `provision` = clone + install fresh (reproducible); `workspace` = snapshot the bench's on-disk workspace, which needs a real bench (a standalone `fm bake` rejects it) |
 | `base_image` | fm's published base (`ghcr.io/rtcamp/frappe-manager-frappe:v<fm version>`) | the `FROM` / provisioning image |
 | `python_version` | the bench's create-time / auto-detected version | Python toolchain (uv) baked into the image |
 | `node_version` | the bench's create-time / auto-detected version | Node toolchain (fnm) baked into the image |
@@ -648,7 +626,7 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm deploy`, `fm swit
 |---|---|---|
 | `migrate` | `true` | `true` / `false` / `"auto"` (probe the new image against the live DB) |
 | `migrate_timeout` | `300` | seconds the one-shot migrate may run before it is killed (`0` disables the budget) |
-| `migrate_command` | - | custom migrate command override |
+| `migrate_command` | (none) | custom migrate command override |
 | `maintenance_mode` | `true` | show the maintenance page during schema-changing steps |
 | `maintenance_mode_phases` | `["migrate"]` | `[]` asserts a backward-compatible migration (enables rolling with migrate) |
 | `backup_db` | `true` | `true` / `false` / `"auto"` (dump only when a schema step runs) |
@@ -656,26 +634,34 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm deploy`, `fm swit
 | `rollback_db` | `false` | also restore the dump when the deploy fails (failed migrate, or alongside the image rollback; requires `backup_db`) |
 | `install_apps` | `true` | install newly-baked apps to the site during finalize |
 | `keep_releases` | `7` | retention used by `fm prune` |
-| `common_site_config` | - | keys merged into `common_site_config.json` during finalize |
-| `site_config` | - | keys merged into `site_config.json` during finalize |
-| `hooks` | - | `before/after_migrate`, `before/after_restart` (container + `host.*` variants) |
+| `common_site_config` | (none) | keys merged into `common_site_config.json` during finalize |
+| `site_config` | (none) | keys merged into `site_config.json` during finalize |
+| `hooks` | (none) | `before/after_migrate`, `before/after_restart` (container + `host.*` variants) |
+| `search_replace` | `true` | accepted and ignored: nothing in the pipeline runs a search-and-replace. The key is kept only so benches that already carry it still load |
 
 **`[registry]`** (image transport):
 
 | Key | Default | Meaning |
 |---|---|---|
 | `distribution` | `"registry"` | `"registry"` (push/pull) or `"save_load"` (airgap over SSH) |
-| `registry` | - | registry host for `docker login`; omit to use ambient auth |
-| `username` | - | login username (env-substituted, e.g. `"${REGISTRY_USER}"`) |
-| `password` | - | login password/token (env-substituted, e.g. `"${REGISTRY_TOKEN}"`) |
+| `registry` | (none) | registry host for `docker login`; omit to use ambient auth |
+| `username` | (none) | login username (env-substituted, e.g. `"${REGISTRY_USER}"`) |
+| `password` | (none) | login password/token (env-substituted, e.g. `"${REGISTRY_TOKEN}"`) |
 
-**`[deploy]`** (remote daemon target, read only by `fm deploy`; `--remote` overrides):
+**`[deploy]`** (remote daemon target, read only by `fm deploy`):
 
 | Key | Default | Meaning |
 |---|---|---|
-| `ssh_server` | - | remote host to deploy to over `DOCKER_HOST=ssh://` |
-| `ssh_user` | `"frappe"` | SSH user |
-| `ssh_port` | `22` | SSH port |
+| `ssh_server` | (none) | remote host to deploy to, as a bare hostname. fm assembles `ssh://<ssh_user>@<ssh_server>:<ssh_port>` itself and sets it as `DOCKER_HOST` |
+| `ssh_user` | `"frappe"` | SSH user in that URL |
+| `ssh_port` | `22` | SSH port in that URL |
+| `fm_source` | (none) | accepted and ignored: nothing reads it |
+| `benches_root` | (none) | accepted and ignored: nothing reads it |
+
+`fm deploy --remote HOST` also takes a bare host and overrides `ssh_server` only; `ssh_user` and `ssh_port` still come from this table. fm is never installed or run on the target: it drives the remote daemon over SSH and nothing else.
+
+!!! warning "An unknown key is a hard error"
+    `[switch]`, `[build]`, `[registry]`, `[deploy]`, `[workers]`, `[auth]`, `[monitoring]`, `[database]` and `[redis]` reject keys they do not define. A misspelled key is not ignored: every `fm` command that loads the bench fails with a validation error until you remove it.
 
 ---
 
@@ -692,6 +678,92 @@ Worker care: how `fm restart` and the `fm switch` pipeline treat RQ workers and 
 | `stale_timeout` | `15` | seconds an idle unresponsive worker may block the drain wait |
 | `kill_timeout` | `15` | seconds after SIGUSR1 before escalating to a supervisor stop (no-drain path) |
 | `kill_poll` | `3.0` | poll interval during the kill wait |
+
+---
+
+### `[database."<site>"]` {#database}
+
+**Default:** (absent)  
+**File key:** `[database."<site>"]`, one table per site name
+
+External MariaDB for one site. An absent entry means that site lives on the FM-managed `global-db` container; there is no separate on/off flag.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `host` | required | database server hostname or IP. Any MariaDB; MySQL is not a supported backend |
+| `port` | `3306` | database server port |
+| `name` | required | schema (database) name for this site |
+| `user` | (none) | login user for the schema; absent means equal to `name`, and it must equal `name` on a v15 bench |
+| `ca` | (none) | host path to the CA bundle; required when the server enforces TLS |
+| `check_hostname` | `true` | verify the server certificate names the host dialled. Set `false` only for a certificate that cannot name it |
+
+```toml
+[database."mybench.localhost"]
+host = "db.example.com"
+port = 3306
+name = "app_prod"
+user = "app_prod"
+ca = "/etc/ssl/certs/db-ca.pem"
+```
+
+Passwords never live here: the site's database password goes into `site_config.json`.
+
+**Set via:** `fm create BENCHNAME --db-host ... --db-name ...`; `fm update BENCHNAME --db-ca` reinstalls the CA after a rotation.
+
+**See also:** [External database guide](../guides/external-database.md)
+
+---
+
+### `[redis]` {#redis}
+
+**Default:** (absent)  
+**File key:** `[redis]`
+
+External Redis for the whole bench. Absent means FM starts and manages the per-bench `redis-cache` and `redis-queue` containers.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `cache` | required | Redis URL for the framework cache |
+| `queue` | required | Redis URL for the queue and realtime |
+
+```toml
+[redis]
+cache = "redis://r.example:6379/0"
+queue = "redis://r.example:6379/1"
+```
+
+!!! danger "Cache and queue need different logical databases"
+    Loading the config fails when they share one. A restore calls `frappe.cache.delete_keys("")`, a mass delete, so a shared index would wipe the queue along with the cache.
+
+**Set via:** `fm create BENCHNAME --redis-cache URL --redis-queue URL`
+
+---
+
+### `[[apps]]` {#apps}
+
+**File key:** `[[apps]]` (the legacy name `[[apps_list]]` is still read)
+
+Apps to install. Read by `fm create --config` and `fm bake --config`, and built from `fm create --apps`. FM never writes this array back, so a bench's own `bench_config.toml` normally has none; the installed apps are whatever the workspace or the image carries, and `fm info` lists them.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `name` | required | app module name, e.g. `erpnext` |
+| `repo` | required | `owner/repo`, or a full HTTPS or `git@` URL |
+| `ref` | (none) | branch, tag, or 40-character commit SHA |
+| `repo_url` | (derived) | full clone URL; derived from `repo` when absent |
+| `shallow_clone` | `true` | clone with `--depth 1` |
+| `subdir_path` | (none) | path inside a monorepo holding the app |
+| `symlink` | `false` | symlink the monorepo subdirectory instead of copying it |
+| `hooks` | (none) | per-app build hooks `before_deps`, `after_deps`, `before_build`, `after_build`, plus a nested `host` table with the same four |
+
+```toml
+[[apps]]
+name = "erpnext"
+repo = "frappe/erpnext"
+ref = "version-15"
+```
+
+Frappe is installed first whether or not it appears here.
 
 ---
 
@@ -726,7 +798,7 @@ FM version this bench was last migrated to. Managed by `fm migrate`; do not edit
 
 ```toml
 [migration_state]
-migrated_to = "0.19.0"
+migrated_to = "0.20.0"
 last_migration_date = "2026-04-12T14:30:45"
 ```
 
@@ -765,26 +837,14 @@ export FRAPPE_MANAGER_HOME=/srv/frappe
 fm create mybench
 ```
 
-**Relocates all data:**
-
-- Config files: `/srv/frappe/fm_config.toml`
-- Benches: `/srv/frappe/sites/<benchname>/`
-- Services: `/srv/frappe/services/`
-- Logs: `/srv/frappe/logs/`
-
-!!! tip "Make it persistent"
-    Add to `~/.bashrc` or `~/.zshrc` to persist across shell sessions:
-    
-    ```bash
-    echo 'export FRAPPE_MANAGER_HOME=/srv/frappe' >> ~/.bashrc
-    ```
+Everything moves with it; [Where the files live](#directory-layout) shows the tree it produces. Export it from your shell profile to make it stick across sessions.
 
 ---
 
 ### `FM_LETSENCRYPT_STAGING` {#env-fm-letsencrypt-staging}
 
-**Default:** `"0"`  
-**Type:** `"1" | "0" | "true" | "false" | "yes" | "no"`
+**Default:** unset (off)  
+**Type:** `1`, `true` or `yes` enables staging; any other value, including unset, leaves it off
 
 Force staging Let's Encrypt server for testing. Prevents hitting production rate limits.
 
@@ -801,7 +861,7 @@ fm ssl add mybench.com
 - 50 certificates per registered domain per week
 - 5 duplicate certificates per week (same set of names)
 
-**See also:** [SSL guide: Before you start](/guides/ssl/#before-you-start)
+**See also:** [SSL guide: Before you start](../guides/ssl.md#before-you-start)
 
 ---
 
@@ -818,32 +878,26 @@ fm ssl add mybench.com
 
 ---
 
-## Directory Layout
+## Where the files live {#directory-layout}
+
+Only the paths that hold configuration or credentials. The [Architecture reference](architecture.md) has the annotated tree of everything else.
 
 ```
 ~/frappe/                                    ← FRAPPE_MANAGER_HOME
 ├── fm_config.toml                           ← Global config
-├── logs/
-│   └── fm.log                               ← CLI log (10MB rotation, gzipped backups fm.log.1.gz–.3.gz)
-├── backups/
-│   └── migrations/                          ← Infrastructure migration backups
-├── archived/                                ← Benches archived on migration failure
+├── logs/fm.log                              ← CLI log (rotates at 10 MiB, keeping fm.log.1.gz to fm.log.3.gz)
 ├── services/
 │   ├── docker-compose.yml                   ← Global services compose
-│   ├── nginx-proxy/
-│   │   └── ssl/
-│   │       └── acmesh/                      ← acme.sh certificate store
-│   ├── mariadb/                             ← MariaDB conf + logs (+ data on Linux)
-│   └── secrets/                             ← DB root/user password files
-└── sites/
-    └── <benchname>/
-        ├── bench_config.toml                ← Bench config
-        ├── docker-compose.yml               ← Main compose
-        ├── docker-compose.workers.yml       ← Workers compose
-        ├── docker-compose.admin-tools.yml   ← Admin tools compose
-        ├── logs/                            ← Bench logs
-        └── workspace/
-            └── frappe-bench/                ← Frappe files
+│   ├── nginx-proxy/ssl/acmesh/              ← acme.sh certificate store
+│   ├── mariadb/conf/                        ← global-db configuration
+│   └── secrets/                             ← global-db root and user password files
+└── sites/<benchname>/
+    ├── bench_config.toml                    ← Bench config
+    ├── docker-compose.yml                   ← Main compose
+    ├── docker-compose.workers.yml           ← Workers compose
+    ├── docker-compose.admin-tools.yml       ← Admin tools compose
+    ├── configs/nginx/conf/                  ← Bench nginx config, including the custom/ overlay
+    └── workspace/frappe-bench/sites/        ← common_site_config.json and per-site site_config.json
 ```
 
-**See also:** [Architecture reference](/reference/architecture/)
+Inside `configs/nginx/conf/`, fm owns three files and rewrites them on every `fm start`: `custom/real-ip.conf` from the frontend network subnet, plus the basic-auth server and map confs it derives from [`[auth]`](#auth). Editing those is pointless. Other files you drop into `custom/` are left alone, `custom/upload-limit.conf` among them, which is why `upload_limit` changes go through `fm update` rather than the file.

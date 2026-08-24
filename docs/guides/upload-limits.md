@@ -1,22 +1,22 @@
 # Upload Limits
 
-Use fm to change the maximum file upload size for a bench.
+Change the maximum file upload size for a bench with one command. The bench has to be running: `fm update` refuses a stopped one.
 
 ```bash
 fm update mybench --upload-limit 100M
 ```
 
-Valid values look like `50M`, `100M`, or `1G` (digits followed by `M` or `G`). The default and key details live in the [`upload_limit` reference](../reference/configuration.md#upload-limit).
+Valid values are digits followed by `M` or `G`, in either case: `50M`, `100m`, `1G`. The units are binary, so `100M` becomes `104857600` bytes in Frappe's config. The default lives in the [`upload_limit` reference](../reference/configuration.md#upload-limit).
 
-One command updates every layer that enforces the limit:
+That one command writes every layer that enforces the limit:
 
-- `site_config.json`: Frappe's `max_file_size` (in bytes)
-- the bench's nginx container: `client_max_body_size`
-- the global nginx proxy: per-domain `vhost.d` entries for all of the bench's domains
+- `bench_config.toml`: `upload_limit`, normalised to uppercase
+- `workspace/frappe-bench/sites/<bench>/site_config.json`: Frappe's `max_file_size`, in bytes
+- `configs/nginx/conf/custom/upload-limit.conf`: `client_max_body_size` for the bench's own nginx
+- `services/nginx-proxy/vhostd/<domain>`: `client_max_body_size` for each of the bench's domains, on the global proxy
+- `docker-compose.yml`: `CLIENT_MAX_BODY_SIZE` on the bench's nginx service, which the global proxy reads when it regenerates that vhost
 
-Both nginx layers are reloaded automatically; no restart needed.
+Both nginx layers are reloaded in place, so nothing restarts. The compose variable only takes effect the next time the container is recreated; fm writes it so the two never disagree.
 
 !!! tip
-    Avoid editing proxy or nginx files by hand; `fm update` writes all three layers consistently and reloads nginx for you. Frappe's own **System Settings → Max Attachment Size** can still impose a lower limit from inside the application.
-
-See also: [`upload_limit`](../reference/configuration.md#upload-limit) in the configuration reference for the config key this command writes.
+    Avoid editing proxy or nginx files by hand; `fm update` writes every layer consistently and reloads nginx for you. Frappe's own **System Settings → Max Attachment Size** can still impose a lower limit from inside the application.

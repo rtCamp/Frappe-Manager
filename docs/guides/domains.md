@@ -10,8 +10,10 @@ Every bench registers its domains with the shared **nginx-proxy** (one per machi
 
 ```bash
 fm create mybench            # http://mybench.localhost just works
-fm create shop.example.com   # any domain works -- DNS is your job (see below)
+fm create shop.example.com   # any domain works; DNS is your job (see below)
 ```
+
+Once a domain has a certificate it is served over both HTTP and HTTPS: fm configures the proxy not to redirect, so a plain-HTTP request keeps working rather than becoming a 301.
 
 ## Alias domains
 
@@ -28,7 +30,7 @@ fm update mybench --remove-alias shop.example.com
 
 - Aliases are registered with the proxy and land on the same site.
 - fm validates that no other bench on the machine claims the same domain (`--allow-domain-conflicts` skips the check; not recommended).
-- HTTPS for aliases: certificates are per-domain; see the [SSL guide](./ssl.md).
+- HTTPS for aliases: certificates are per-domain; see the [SSL guide](ssl.md).
 - Aliases are stored as [`alias_domains`](../reference/configuration.md#alias-domains) in `bench_config.toml`.
 
 ## Making a domain resolve
@@ -41,24 +43,13 @@ fm update mybench --remove-alias shop.example.com
 
 ## Exposing a local bench to the internet
 
-For webhooks, mobile testing, or sharing work in progress, tunnel a local bench through ngrok:
-
-```bash
-fm ngrok mybench    # prints a public URL tunneled to the bench
-```
-
-Requires an ngrok auth token (flag or config; see `fm ngrok --help`). The tunnel lives while the command runs; it is a development convenience, not a deployment mechanism. To actually host a bench publicly, use a server with real DNS and the [Hosting guide](hosting.md) or the [Deployment guide](../deploy/index.md).
-
-## Google OAuth during local development
-
-Google OAuth requires a public HTTPS redirect URI; a local `http://mybench.localhost` URL will not be accepted. Tunnel the bench through ngrok to get one:
+For webhooks, mobile testing, or an OAuth provider that will not accept `http://mybench.localhost` as a redirect URI, tunnel the bench through ngrok:
 
 ```bash
 fm ngrok mybench --auth-token YOUR_TOKEN --save-token   # first run: save the token
-fm ngrok mybench                                        # later runs reuse the saved token
+fm ngrok mybench                                        # later runs reuse it
 ```
 
-Copy the public HTTPS URL that ngrok prints and add it as an **Authorized Redirect URI** in the Google Cloud Console.
+The token can also come from `NGROK_AUTHTOKEN` or fm's config, and `fm ngrok` asks whether to save a new one when neither `--save-token` nor `--no-save-token` is passed.
 
-!!! tip
-    ngrok URLs are ephemeral unless you have a paid ngrok account. Update the redirect URIs in Google Cloud each time the URL changes.
+The tunnel lives only while the command runs, and without a paid ngrok plan the URL changes on every run, so anything registered with a third party (a Google OAuth redirect URI, a webhook endpoint) has to be updated each time. It is a development convenience, not a deployment mechanism: to serve a bench publicly, use a server with real DNS and the [Hosting guide](hosting.md) or the [Deployment guide](../deploy/index.md).

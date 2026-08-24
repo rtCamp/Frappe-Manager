@@ -1,6 +1,6 @@
 # Guides
 
-Everyday bench workflows. They apply to any bench: dev or prod, on your laptop or a server. (New here? Read [Concepts](../concepts/index.md) first: five minutes, and everything below makes sense. Shipping immutable releases is its own journey: [Deployment](../deploy/index.md).)
+Everyday bench workflows, for any bench: dev or prod, on your laptop or a server. New here? Read [Concepts](../concepts/index.md) first, then [Environments: Dev vs Prod](environments.md) for what those two words actually change. For immutable releases and rolling swaps instead, see [Deployment](../deploy/index.md).
 
 ## The daily loop
 
@@ -10,13 +10,13 @@ Everyday bench workflows. They apply to any bench: dev or prod, on your laptop o
 
     ---
 
-    Open a bench in VS Code with a pre-configured debugger. Set breakpoints and inspect live requests.
+    Attach VS Code to a bench's running container: fm's extension set, and a Frappe debug config that steps into framework code.
 
 -   :lucide-puzzle:{ .lg .middle } &nbsp; **[App Management](app-management.md)**
 
     ---
 
-    Install, update, and pin Frappe apps, at create time or any time after with `fm update --apps`.
+    Install, update and pin Frappe apps at create time or later with `fm update --apps`, private repos and monorepo subdirectories included.
 
 -   :lucide-package:{ .lg .middle } &nbsp; **[Python & Node Versions](python-node-versions.md)**
 
@@ -28,7 +28,7 @@ Everyday bench workflows. They apply to any bench: dev or prod, on your laptop o
 
     ---
 
-    Mailpit for email testing and Adminer for database inspection, enabled by default on dev benches.
+    Mailpit for mail and Adminer for the database, plus the `fm auth` basic auth prompt that can front either the tools or the whole site.
 
 -   :lucide-cpu:{ .lg .middle } &nbsp; **[fmx: In-Container Services](fmx.md)**
 
@@ -54,23 +54,23 @@ Everyday bench workflows. They apply to any bench: dev or prod, on your laptop o
 
     The end-to-end runbook: fresh server to HTTPS-served production benches, one domain per client.
 
--   :lucide-shield-check:{ .lg .middle } &nbsp; **[SSL / HTTPS](./ssl.md)**
+-   :lucide-shield-check:{ .lg .middle } &nbsp; **[SSL / HTTPS](ssl.md)**
 
     ---
 
-    Trusted local certificates for development, free auto-renewing Let's Encrypt for public benches.
+    Let's Encrypt over HTTP-01 or Cloudflare DNS-01, and fm's own CA for locally trusted development certificates.
 
 -   :lucide-archive:{ .lg .middle } &nbsp; **[Backup & Restore](backup-restore.md)**
 
     ---
 
-    Back up site data from the CLI or Frappe UI, know where backups live, restore when needed.
+    Three overlapping tools (fm, `bench`, the Frappe UI), which one owns what, where backups land, and how to restore.
 
 -   :lucide-database:{ .lg .middle } &nbsp; **[External Database](external-database.md)**
 
     ---
 
-    Connect a bench to an external MariaDB server instead of the built-in one.
+    Point a site at your own MariaDB server instead of fm's `global-db`. Declared per site, not per bench.
 
 </div>
 
@@ -88,6 +88,6 @@ Everyday bench workflows. They apply to any bench: dev or prod, on your laptop o
 
     ---
 
-    Run Frappe Manager on Windows using WSL 2. Notes on filesystem performance and browser access.
+    Run fm on Windows under WSL 2: where to keep the bench directory, and how `.localhost` resolves.
 
 </div>

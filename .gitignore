@@ -10,5 +10,9 @@ docs/stylesheets/extra.css
 .env
 .coverage
 
+# generated docs site (zensical/mkdocs output) and coverage html, both rewritten on every build/test run
+site/
+htmlcov/
+
 # transient marker written by scripts/mutation_test.py while source files are mutated
 .mutation-in-progress

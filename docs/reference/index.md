@@ -1,10 +1,6 @@
 # Reference
 
-Technical reference documentation for Frappe Manager internals. These pages serve lookup, not learning. For the mental model start at [Concepts](../concepts/index.md); for workflows see the [Guides](../guides/index.md) and [Deployment](../deploy/index.md).
-
----
-
-## Core Reference
+Lookup, not learning. Every page here is meant to be searched and deep-linked rather than read front to back. For the mental model start at [Concepts](../concepts/index.md); for workflows see the [Guides](../guides/index.md) and [Deployment](../deploy/index.md).
 
 <div class="grid cards" markdown>
 
@@ -12,39 +8,18 @@ Technical reference documentation for Frappe Manager internals. These pages serv
 
     ---
 
-    Every config key in `fm_config.toml` and `bench_config.toml`: defaults, types, env vars, file locations.
-
-</div>
-
----
-
-## Operations Reference
-
-<div class="grid cards" markdown>
+    Every key in `fm_config.toml` and `bench_config.toml`: defaults, types, the environment variables that override them, and where the files live. One named anchor per key, for example [`restart_policy`](configuration.md#restart-policy) and [`[workers]`](configuration.md#workers).
 
 -   :material-text-box-search:{ .lg .middle } **[Logs & Debugging](logs.md)**
 
     ---
 
-    Log file locations, log levels, CLI verbosity flags, service-specific logging, rotation config.
+    Where every log lives, what `fm.log` and `fm logs` each show you, the JSON access log both nginx hops share, the console verbosity flags, and how to rotate the logs nothing rotates for you.
 
 -   :material-database-arrow-up:{ .lg .middle } **[Migrations](migrations.md)**
 
     ---
 
-    What `fm migrate` does, backup strategy, failure handling, version upgrade paths, rollback procedures.
+    What `fm migrate` does, why a stale bench is refused rather than used, how backups are grouped per migration version, what `--on-failure` decides, and how to restore by hand.
 
 </div>
-
----
-
-## Navigation Tips
-
-!!! tip "Deep Linking"
-    All reference pages use named anchors for every configuration key, service name, and log location.
-
-    **Example deep links:**
-
-    - [`configuration.md#restart-policy`](configuration.md#restart-policy): restart policy options
-
-    **Fast lookup:** Use browser **Ctrl+F** / **Cmd+F** within each page to jump to specific terms.

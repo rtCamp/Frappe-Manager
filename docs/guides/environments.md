@@ -30,7 +30,7 @@ fm update mybench --environment dev
 | | `dev` | `prod` |
 |---|---|---|
 | **Web server** | Werkzeug (single-threaded) | Gunicorn (multi-worker) |
-| **Restart on crash** | ❌ No | ✅ Yes |
+| **Restart on crash** | ❌ supervisord leaves the process down | ✅ supervisord restarts the web process |
 | **Hot-reload** | ✅ Assets + Python | ❌ Disabled |
 | **Admin tools at create** | ✅ Mailpit, Adminer | ❌ Disabled |
 | **Performance** | Slower (for DX) | Optimized for load |
@@ -42,22 +42,28 @@ fm update mybench --environment dev
 
 ### 1. Web server process
 
-**Development (`dev`):**
+**Development (`dev`):** supervisord runs two Frappe bench processes.
 
 ```bash
-bench serve --port 80  # Werkzeug development server
-bench watch            # Asset hot-reload watcher
+bench serve --host 0.0.0.0 --port 80   # Werkzeug development server
+bench watch                            # asset rebuild watcher
 ```
 
-Single-threaded. Changes to Python/JS/CSS reload automatically. Intended for one developer.
+`--host` and `--port` are `bench serve`'s own options; fm supplies `0.0.0.0:80`, and falls back to `--port 80` alone on bench releases that do not accept `--host`. Single-threaded, one request at a time, and supervisord is told not to restart either process if it dies.
 
-**Production (`prod`):**
+**Production (`prod`):** supervisord runs a generated wrapper, `workspace/frappe-bench/config/fm-web-server.sh`, which execs Gunicorn with the arguments fm computed:
 
-```bash
-gunicorn -b 0.0.0.0:80 -w <workers> --worker-class=gthread --threads <threads> --max-requests 1000 --preload frappe.app:application
+```text
+gunicorn -b 0.0.0.0:80 -w <workers> --worker-class=gthread --threads <threads>
+         --max-requests 1000 --max-requests-jitter 100
+         -t 120 --graceful-timeout 30
+         frappe.app:application --preload
 ```
 
-Multi-worker WSGI server. Worker and thread counts are sized automatically from CPU and RAM; no auto-reload. See [Web Serving & Concurrency](../concepts/web-serving.md) for the sizing formula and how to override it via `common_site_config.json`.
+Every option on that line is **Gunicorn's own**, not an fm flag; fm only picks the values. It sizes `-w` from CPU count and RAM, `--threads` from CPU count, sets `--max-requests 1000` with a jitter of 10% of that, and takes `-t` from `http_timeout` (120 by default). See [Web Serving & Concurrency](../concepts/web-serving.md) for the sizing formula and the `common_site_config.json` keys that override each value.
+
+!!! warning "`--preload` rules out an in-place code reload"
+    fm always passes `--preload`, so Gunicorn imports `frappe.app` in the master process before forking workers. A HUP to the master therefore does not pick up changed Python, and restarting the web process takes the whole tier down for as long as the master needs to come back. Prod is not a place to edit code: ship it with `fm deploy`, or work on a `dev` bench.
 
 ---
 
@@ -95,6 +101,8 @@ fm update mybench --developer-mode enable
 # Disable developer mode in development (rare)
 fm update mybench --developer-mode disable
 ```
+
+`--developer-mode` is a mount-runtime option. An `image` bench bakes developer mode into the image, so `fm update` refuses the flag there; demote with `--runtime mount` first.
 
 !!! info "Environment vs developer mode"
     **Environment** (`dev`/`prod`) controls the web server type and restart policy. **Developer mode** controls Frappe's debug features. They're related but independent: you can run prod environment with developer mode enabled, though this isn't recommended for production servers.
@@ -154,88 +162,37 @@ fm start mybench --sync-dev-packages
 | Environment | Effect |
 |-------------|--------|
 | `dev` | **Installs** dev packages |
-| `prod` | **Removes** dev packages (keeps production image clean) |
-
-Example dev dependencies: `pytest`, `black`, `mypy`, `ipdb`.
+| `prod` | **Removes** dev packages (keeps the venv lean) |
 
 ---
 
 ## When to use each environment
 
-### Use `dev` when:
-
-- ✅ Actively writing or debugging Frappe application code
-- ✅ Need hot-reload for Python/JS/CSS changes
-- ✅ Want Mailpit and Adminer without extra setup
-- ✅ Bench runs on your **local machine**
-- ✅ Single developer workflow
-
-### Use `prod` when:
-
-- ✅ Bench is **deployed on a server** and accessed by end users
-- ✅ Need **multi-worker concurrency** for handling simultaneous requests
-- ✅ Want **automatic recovery** from crashes and reboots
-- ✅ Running **performance benchmarks** or load tests
-- ✅ Security matters (no debug tools exposed)
+Use `dev` on your own machine, where you are editing app code and want the asset watcher, browser tracebacks and the admin tools. Use `prod` anywhere the bench is reachable by other people: multi-worker serving, containers that come back after a crash or reboot, and no debug surface.
 
 !!! tip "Staging servers"
-    For staging environments that mirror production, use `prod` mode with `--developer-mode enable` if you need detailed error tracebacks during testing.
+    For staging that mirrors production, run `prod` with `--developer-mode enable` if you need detailed error tracebacks during testing.
 
 ---
-
-## Switching guide: Dev to production checklist
-
-The full go-live sequence (environment switch, developer mode, restart policy, admin tools, dev packages, SSL, verification) now lives in the [Hosting on a Server](hosting.md) runbook.
-The environment-specific step is `fm update mybench --environment prod`; the sections above explain exactly what that does and does not change.
-
----
-
-## Reference: All environment-related commands
-
-```bash
-# Create with specific environment
-fm create mybench --environment dev
-fm create mybench --environment prod
-
-# Switch environment
-fm update mybench --environment prod
-fm update mybench --environment dev
-
-# Toggle developer mode independently
-fm update mybench --developer-mode enable
-fm update mybench --developer-mode disable
-
-# Toggle admin tools independently
-fm update mybench --admin-tools enable
-fm update mybench --admin-tools disable
-
-# Set the Docker restart policy
-fm update mybench --restart unless-stopped
-
-# Sync dev packages
-fm start mybench --sync-dev-packages
-
-# Check current environment
-fm info mybench
-```
-
----
-
-!!! info "See also"
-    - [VSCode Integration](vscode.md): attach debugger to dev benches
-    - [Deployment (Image Benches)](../deploy/index.md): ship production code as immutable images
-    - [Admin Tools](admin-tools.md): Mailpit and Adminer details
-    - [Web Serving & Concurrency](../concepts/web-serving.md): Gunicorn workers and threads
-    - [SSL Guide](ssl.md): secure production benches with HTTPS
 
 ## Monitoring (New Relic)
 
-Production web processes can report to New Relic APM:
+Only the `prod` web process can report to New Relic APM: the agent is wired into the Gunicorn wrapper, and a `dev` bench's `bench serve` never sees it.
 
 ```bash
 fm update mybench --newrelic --newrelic-license-key YOUR_INGEST_KEY
 fm update mybench --no-newrelic
 ```
 
-Enabling wraps the web process with the New Relic agent (the frappe container restarts to apply). Works on both runtimes; it is a settings-level change. The stored keys live under [`[monitoring.newrelic]`](../reference/configuration.md#monitoring-newrelic) in `bench_config.toml`.
+Enabling wraps the web process with the New Relic agent; fm force-recreates the frappe container to apply it. Works on both runtimes; it is a settings-level change. The stored keys live under [`[monitoring.newrelic]`](../reference/configuration.md#monitoring-newrelic) in `bench_config.toml`.
+
+---
+
+!!! info "See also"
+    - [VSCode Integration](vscode.md): attach debugger to dev benches
+    - [Hosting on a Server](hosting.md): the full dev-to-prod go-live sequence
+    - [Deployment (Image Benches)](../deploy/index.md): ship production code as immutable images
+    - [Admin Tools](admin-tools.md): Mailpit and Adminer details
+    - [Web Serving & Concurrency](../concepts/web-serving.md): Gunicorn workers and threads
+    - [SSL Guide](ssl.md): secure production benches with HTTPS
 

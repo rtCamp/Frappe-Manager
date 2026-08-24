@@ -40,7 +40,7 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
     fm deploy mybench
     ```
 
-    `fm deploy` is bake **and** switch in one: it builds a fresh image from the bench's app config, then runs the full switch pipeline against it. You'll see the bake print the tag, then the pipeline steps in order: fetch, a pre-flight boot check, the migrate decision, the swap, a health gate, and finalize. If anything fails before the swap, the old stack never stopped serving.
+    `fm deploy` is bake **and** switch in one: it builds a fresh image from the bench's app config, then runs the full switch pipeline against it. You'll see the bake print the tag, then the pipeline steps in order: fetch, a pre-flight boot check, the compose re-pin, the migrate decision, the worker drain, the DB dump, the migrate, the swap, a health gate, and finalize. If anything fails before the swap, the old stack never stopped serving.
 
 5. **Verify it:**
 
@@ -72,7 +72,7 @@ flowchart LR
 - `fm switch <bench> --previous`: roll back (same pipeline pointed backwards, migrate disabled).
 - `fm prune <bench>`: remove old releases; also available inline as `--keep N` on deploy/switch.
 
-Every deploy is recorded in the bench's `bench_config.toml` under `[deploy_state]` (current tag, previous tag, full history with migrate status and the DB dump taken). `fm info <bench>` shows the whole history in its **deploys** section.
+Every deploy is recorded in the bench's `bench_config.toml` under `[deploy_state]`: the current tag, the previous tag (the rollback target), the timestamp of the last successful deploy, and one history row per release carrying its tag, timestamp, migrate status (`migrated`, `skipped`, `failed` or `rollback`) and the path of the DB dump taken. `fm info <bench>` shows the whole history in its **deploys** section.
 
 ## The switch pipeline
 
@@ -84,7 +84,7 @@ flowchart TD
     PF --> SNAP[snapshot compose\nevery pre-swap abort restores it]
     SNAP --> PIN[re-render compose + workers\npinned to the new tag]
     PIN --> M{migrate?}
-    M -->|config true| MAINT[maintenance page ON\nwhen maintenance_mode = true]
+    M -->|config true| MAINT[maintenance page ON\nwhen maintenance_mode = true\nand maintenance_mode_phases is non-empty]
     M -->|config auto| PROBE[probe new image vs live DB:\npending patches + version drift]
     M -->|false / --no-migrate| DRAIN
     PROBE -->|clean| DRAIN
@@ -94,7 +94,7 @@ flowchart TD
     BK -->|migrate on| MIG[bench migrate\none-shot new-image container]
     BK -->|migrate off| SWAP
     MIG -->|ok| SWAP{swap}
-    MIG -->|fail| KEEP[no swap -- old stack still live,\ncompose reverted, optional rollback_db]
+    MIG -->|fail| KEEP[no swap: old stack still live,\ncompose reverted, optional rollback_db]
     SWAP -->|rolling eligible| ROLL[rolling web swap\nzero dropped requests]
     SWAP -->|else| REC[recreate swap\nbrief blip]
     ROLL --> GATE{health gate}
@@ -105,10 +105,10 @@ flowchart TD
 
 Key properties:
 
-- **Aborts are safe.** Any failure before the swap restores the compose snapshot: the old stack never stopped serving, and a later plain `compose up` cannot jump tags.
+- **Aborts are safe.** Any failure before the swap restores the compose snapshot, clears the maintenance page and resumes the RQ workers: the old stack never stopped serving, a later plain `compose up` cannot jump tags, and the bench is not left silently processing no background jobs. A failure *in* the swap unwinds the page and the workers the same way; the swap paths restore their own compose.
 - **A failed migrate never swaps.** `bench migrate` is transactional/resumable, so the default is keep-old and re-run after fixing.
-- **The DB dump is exact.** It is taken while requests are already on the maintenance page and workers are drained, so restoring it loses nothing that happened before the migrate.
-- **Drain and dump are not migrate-only.** By default workers are drained and the DB dump is taken on every deploy, even with `--no-migrate`; if in-flight jobs do not finish within `[workers].drain_timeout` the deploy aborts before backup/migrate/swap (workers resumed, old stack still serving), so the dump is never taken while a worker is mid-write. The drain is tuned in the [`[workers]` table](../reference/configuration.md#workers) and `backup_db` (including its `"auto"` mode) in the [`[switch]` table](../reference/configuration.md#deploy-tables).
+- **The DB dump is exact.** It is taken after the workers have drained (and, when a schema step put it up, with requests already on the maintenance page), so restoring it loses nothing that happened before the migrate.
+- **Drain and dump are not migrate-only.** By default workers are drained and the DB dump is taken on every deploy, even with `--no-migrate`; if in-flight jobs do not finish within `[workers].drain_timeout` the deploy aborts before backup/migrate/swap (workers resumed, old stack still serving), so the dump is never taken while a worker is mid-write. Raise the timeout, or set `[workers].drain = false` to deploy without waiting at all, accepting that in-flight jobs die when the worker containers are replaced. The drain is tuned in the [`[workers]` table](../reference/configuration.md#workers) and `backup_db` (including its `"auto"` mode) in the [`[switch]` table](../reference/configuration.md#deploy-tables).
 
 ## The rolling web swap
 
@@ -153,7 +153,7 @@ In every case rolling also needs the old web tier running to swap alongside; whe
 
 Honest caveat: rolling is zero-**downtime**, not zero-**skew**; during the overlap a request may see old assets with new code or vice-versa. Eligibility guarantees both versions are DB-compatible, so the skew cannot 500.
 
-The same engine powers `fm restart --rolling`: a zero-downtime web-tier recreate on the *current* tag (fresh containers, no release change).
+The same engine powers `fm restart --rolling`: a zero-downtime web-tier recreate on the *current* tag (fresh containers, no release change). It needs an image bench; on a mount bench web restarts already go through supervisor, which is faster.
 
 ## Releases, history, and pruning
 

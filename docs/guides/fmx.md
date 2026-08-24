@@ -106,13 +106,13 @@ fmx stop long-worker -p long-worker_1
 fmx stop --drain-workers
 ```
 
-This sets a Redis suspend flag so workers stop picking up new jobs, then waits for every worker to finish its current job before stopping them. By default it waits **indefinitely**; workers that have been idle for more than 15 seconds after suspension are treated as stale and skipped (`--skip-stale-workers`, on by default), so a hung worker cannot block the stop forever.
+This sets a Redis suspend flag so workers stop picking up new jobs, then waits for every worker to finish its current job before stopping them. For `stop` the wait is unbounded by default; a worker idle for longer than `--skip-stale-timeout` (15 seconds) is treated as stale and skipped, so one hung worker cannot hold the stop open forever. If the wait does run out, fmx resumes the workers and aborts instead of stopping them mid-job.
 
 ```bash
 # Bound the wait window instead of waiting indefinitely
 fmx stop --drain-workers --drain-workers-timeout 600
 
-# Speed up polling on busy systems
+# Poll less often on a busy system (default is every 5 seconds)
 fmx stop --drain-workers --drain-workers-poll 10
 ```
 
@@ -120,7 +120,10 @@ fmx stop --drain-workers --drain-workers-poll 10
 
 ### `fmx restart`: restart services
 
-This is the most-used `fmx` command. It stops and then starts the targeted services in parallel. **Draining is the default**: workers stop picking up new jobs, fmx waits for in-flight jobs to finish (bounded at 300 seconds by default; `--drain-workers-timeout` tunes it, 0 waits indefinitely; stale idle workers are skipped after 15 s), then restarts.
+This is the most-used `fmx` command. It stops and then starts the targeted services in parallel. **Draining is the default**: workers stop picking up new jobs, fmx waits for in-flight jobs to finish (bounded at 300 seconds; `--drain-workers-timeout` tunes it, `0` waits indefinitely), then restarts. Workers idle for longer than `--skip-stale-timeout` (15 seconds) are skipped so a hung worker cannot block the wait, and if the wait runs out fmx resumes the workers and aborts the restart rather than interrupt a job.
+
+!!! note "`fm restart` and `fmx restart` are the same guarantee from two sides"
+    `fm restart BENCHNAME` runs on the host and owns the drain: it suspends workers through fmx's RQ controller, waits up to [`[workers] drain_timeout`](../reference/configuration.md#workers) (300 seconds by default), and aborts the restart rather than kill a job that outlasts it. The fmx call it then makes inside each container passes `--no-drain-workers`, so nothing waits twice. Running `fmx restart` yourself gives you the same drain with the same 300 second default, scoped to the container you are in. The suspend flag lives in Redis, so workers restarted mid-drain come back suspended until the resume; ordering holds across the restart. The same gate guards `fm switch` and `fm deploy`.
 
 === "Safe (default)"
 
@@ -128,7 +131,7 @@ This is the most-used `fmx` command. It stops and then starts the targeted servi
     fmx restart
     ```
 
-    Workers stop picking up new jobs, fmx waits for all current jobs to finish, then restarts. No job is lost.
+    Workers stop picking up new jobs, fmx waits for the jobs in flight to finish, then restarts. A job that outlasts the deadline aborts the restart instead of being interrupted.
 
 === "Fast (dev)"
 
@@ -136,7 +139,7 @@ This is the most-used `fmx` command. It stops and then starts the targeted servi
     fmx restart --no-drain-workers
     ```
 
-    Skips the drain: workers are killed via SIGUSR1 (RQ's warm-shutdown signal). Any in-flight job may be interrupted. Fine for development where speed matters.
+    Skips the drain: each worker gets SIGUSR1 (RQ's warm shutdown) and is stopped through supervisor if it is still running afterwards. Any in-flight job may be interrupted. Fine for development where speed matters.
 
 === "With DB migration"
 
@@ -151,7 +154,7 @@ This is the most-used `fmx` command. It stops and then starts the targeted servi
     3. Run `bench migrate` (override with `--migrate-command`)
     4. Restart all services
 
-    Aborts cleanly if the migration fails.
+    If the migration fails, the flow aborts and starts back whatever it had stopped.
 
 === "With maintenance page"
 
@@ -172,9 +175,11 @@ fmx restart short-worker long-worker
 
 #### Tuning the kill window
 
+With a drain, workers are stopped through supervisor and these two flags do nothing. They apply to the `--no-drain-workers` path, where each worker gets SIGUSR1 and then a supervisor stop if it is still alive:
+
 ```bash
-# Give workers up to 30 seconds to honour the shutdown signal before force-killing
-fmx restart --worker-kill-timeout 30 --worker-kill-poll 2
+# Allow 30 seconds for the warm shutdown before escalating to a supervisor stop
+fmx restart --no-drain-workers --worker-kill-timeout 30 --worker-kill-poll 2
 ```
 
 ---
@@ -199,27 +204,6 @@ fmx rq resume
 
 !!! note "When `fmx rq suspend` is useful"
     Before running a manual SQL migration or patching a custom app, suspend workers first so no background job touches the database while you are making changes.
-
-!!! info "The same mechanism powers `fm`"
-    The host-side CLI reuses this suspend/resume flow: `fm restart` (drains by default) and the
-    `fm deploy` / `fm switch` pipeline (via [`[workers] drain`](../reference/configuration.md#workers)) call
-    fmx's RQ controller inside the container to suspend workers, wait for in-flight jobs
-    to finish, and resume them afterwards. The suspend flag lives in Redis, so workers
-    restarted mid-drain come back suspended until the resume; ordering is safe even
-    across a restart.
-
----
-
-## Choosing a restart strategy
-
-| Situation | Command |
-|---|---|
-| Dev environment, quick reload | `fmx restart --no-drain-workers` |
-| Code push, no DB changes, keep jobs safe | `fmx restart` (drains by default) |
-| Code push with DB migration | `fmx restart --migrate` |
-| Production deploy with maintenance page | `fmx restart --migrate --maintenance-mode drain --maintenance-mode migrate` |
-| Single broken worker, leave rest alone | `fmx restart short-worker` |
-| System broken, fastest possible recovery | `fmx restart --no-drain-workers` |
 
 ## Global options
 

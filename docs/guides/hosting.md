@@ -39,14 +39,14 @@ fm ssl add clientone.example.com clientone.example.com --dry-run   # validate fi
 fm ssl add clientone.example.com clientone.example.com             # then issue
 ```
 
-Set up automated renewals once per server:
+fm installs no renewal timer, so add the renewal once per server:
 
 ```bash
-# Add to crontab
+# crontab: safe to run daily, certificates that are not due are skipped
 0 3 * * * fm ssl renew --all
 ```
 
-The [SSL guide](ssl.md) covers all of this in depth, including the DNS-01 (Cloudflare) challenge; use `--challenge dns01` when port 80 is blocked or you need wildcard certificates.
+The [SSL guide](ssl.md) covers the rest, including the DNS-01 (Cloudflare) challenge for when port 80 is blocked or you need a wildcard certificate (`--challenge dns01`).
 
 ## 5. Verify
 
@@ -55,7 +55,7 @@ fm info clientone.example.com
 curl -I https://clientone.example.com
 ```
 
-Look for `HTTP/2 200` and the `strict-transport-security` header. `fm info` shows the environment, domains, and credentials.
+A `200` over HTTPS means DNS, the proxy, the certificate and the bench are all in place. `fm info` shows the environment, the domains, the credentials and the live state of every service.
 
 ## Adding more client benches
 
@@ -72,8 +72,9 @@ fm ssl add clienttwo.example.com clienttwo.example.com
 
 ## Staying safe
 
-- **Backups**: back up sites regularly (`fm shell <bench> -c "bench --site <bench> backup"`) and copy the backups off the server. Test restores on a non-production bench.
+- **Backups**: fm does not back up site data; `bench backup` does, and the artefacts live inside the bench you are backing up. See [Backup & Restore](backup-restore.md), then get the files off the server.
 - **Upgrading fm**: keep the CLI and your benches in sync; see [Upgrading fm](../getting-started/installation.md#upgrading-fm) (`fm self update` then `fm migrate --all-benches`).
+- **Behind a CDN or load balancer**: run `fm self real-ip` so the proxy logs and any `fm auth --allow-ip` list see the visitor's address instead of the CDN's.
 - **Monitoring**: report the web process to New Relic APM; see [Monitoring](environments.md#monitoring-new-relic).
 - **Web concurrency**: Gunicorn worker and thread counts have sensible RAM/CPU-based defaults; see [Web Serving & Concurrency](../concepts/web-serving.md).
 - **Background jobs**: queue and worker tuning; see [Background Jobs & Workers](../concepts/background-jobs.md).

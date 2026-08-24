@@ -1,169 +1,65 @@
-# Restarting Frappe Services Without Breaking Things
+# Worker care: restarting without losing jobs
 
-You need to restart your Frappe services. Sounds simple, right? Just run `fmx restart` and you're done!
+`fmx` drives one container's supervisor programs: `frappe` (Gunicorn), `short-worker`, `long-worker`, `schedule`, `socketio`. Cycling the web server and the scheduler is uninteresting; cycling the RQ workers is not, because each one may be holding a job. This note is about that.
 
-<MarginNote>Restarting isn’t always straightforward—production systems require extra care to avoid data loss or user disruption.</MarginNote>
+The host-side view, including how `fm restart` and `fmx restart` divide the work and the `[workers]` config keys that drive the host, lives in `docs/guides/fmx.md` and `docs/reference/configuration.md#workers`. Everything below is the in-container surface.
 
-Not quite. If you're running a production system, there’s more to consider. Background workers may be processing important tasks, and if you stop them mid-job, you risk data corruption or unhappy users.
+## Check what is running first
 
-This guide will help you understand your options so you can restart services safely.
-
-## What Actually Happens During a Restart?
-
-When Frappe restarts, several components are recycled:
-- **Web server** (Gunicorn/Nginx): Stops serving requests, then restarts
-- **Background workers**: Are terminated and replaced with new ones
-- **Scheduler**: The cron job trigger also restarts
-
-During this process, your site is temporarily unavailable. The key question: how do you manage background jobs that might be running?
-
-## Background Workers: The Hidden Heroes
-
-Background workers handle behind-the-scenes tasks such as:
-- Sending emails
-- Generating reports
-- Processing bulk operations
-- Running scheduled tasks
-
-If you terminate a worker halfway through updating 10,000 records, you can imagine the consequences.
-
-## Check What's Running First
-
-Before restarting, check the current activity:
-
-**Quick check with bench:**
 ```bash
-# default site
-bench doctor 
-
-# Or for a specific site:
+fmx status --verbose     # supervisor state, suspend flag, queue depths, current job per worker
+fmx rq status --verbose  # the RQ view on its own
 bench --site your.site.name doctor
 ```
 
-**Check the web interface:**
-Go to `/app/rq-jobs` in your Frappe site to view active jobs and queues.
+Frappe's **RQ Job** list in the desk UI shows the same queues if you would rather look at them there.
 
-## Your Restart Options
+## The drain
 
-### 1. `fmx restart` (The Default)
+`fmx restart` drains by default:
 
-**What it does:** Sends a "please stop" signal to all processes. Workers get a grace period to finish, then are forcibly killed if they don’t.
+1. Set RQ's suspend flag in Redis, so no worker picks up another job.
+2. Poll (`--drain-workers-poll`, default 5 seconds) until every worker is suspended, for at most `--drain-workers-timeout` seconds (default 300; `0` waits indefinitely).
+3. Restart the targeted services.
+4. Clear the suspend flag. This happens on every exit path, including a failure part-way through.
 
-**When to use:**
-- Development environments
-- Emergencies when you need services back ASAP
-- When no critical jobs are running
+If step 2 runs out of time, fmx clears the suspend flag and exits non-zero **without restarting anything**: a job that outlasts the deadline is never interrupted on your behalf. Raise `--drain-workers-timeout`, or decide the job is expendable and pass `--no-drain-workers`.
 
-**Pros:** Fast  
-**Cons:** Jobs may be interrupted  
+A worker idle for longer than `--skip-stale-timeout` seconds (default 15) is treated as dead and no longer waited on, so a crashed worker cannot stall the drain forever. `--no-skip-stale-workers` turns that off and waits for it anyway.
 
-### 2. `fmx restart --wait-workers` (The Safe Option)
+`fmx stop --drain-workers` runs the same drain before stopping, with two differences: for `stop` the drain is opt-in, and its `--drain-workers-timeout` defaults to `0`, so the wait is unbounded unless you bound it.
 
-**What it does:**
-- Tells Redis to stop accepting new jobs
-- Waits for all current jobs to finish
-- Restarts services only after jobs are done
-- Resumes normal operation afterward
+## Skipping the drain
 
-**When to use:**
-- Production environments
-- When critical jobs are running
-- Before database migrations
-- Anytime data integrity matters
+`--no-drain-workers` sends each worker SIGUSR1 (RQ's warm shutdown) and stops any worker still alive `--worker-kill-timeout` seconds later (default 15, polled every `--worker-kill-poll` seconds, default 3) through supervisor. In-flight jobs may be interrupted and land in the failed-job registry.
 
-**Pros:** Maximum safety, no job interruption  
-**Cons:** Can take longer if jobs are lengthy  
+This is the development path, and the recovery path when a wedged bench matters more than a job. Those two flags only apply here: a drained restart stops workers through supervisor and never signals them.
 
-### 3. `fmx restart --no-wait-workers` (The Middle Ground)
+## Migrations
 
-**What it does:**
-- Tells Redis to stop accepting new jobs
-- Signals workers to finish current jobs gracefully
-- Restarts services immediately
-- Old workers may still finish in the background
+`fmx restart --migrate` runs `bench migrate` between the drain and the restart. Non-worker services stay up during the migration, so the site keeps serving; if the migration fails the flow aborts and starts back whatever it had stopped.
 
-**When to use:**
-- You want RQ coordination but can’t wait
-- Routine updates where service availability is a priority
-- Jobs are typically short-running
+- `--migrate-command 'bench --site mysite.localhost migrate'` replaces the default `bench migrate`.
+- `--migrate-timeout 600` bounds the migration; the default `0` lets it run as long as it needs.
 
-**Pros:** Faster, provides some coordination  
-**Cons:** No guarantee jobs finish before workers are replaced  
+Keep the drain on for a migration. `fmx restart --migrate --no-drain-workers` leaves old workers executing old code against the new schema, and fmx warns as much before proceeding.
 
-## Database Migrations
+To serve Frappe's maintenance page instead of a half-working site:
 
-If you’re running `fmx restart --migrate`, you’re changing the database structure. This is critical:
+```bash
+fmx restart --migrate --maintenance-mode drain --maintenance-mode migrate
+```
 
-<MarginNote>Always use `--wait-workers` with migrations to ensure jobs finish before the database changes.</MarginNote>
+`--maintenance-mode` is repeatable and accepts `drain` and `migrate`. Each value sets `maintenance_mode` in `common_site_config.json` for that phase only, and it is cleared on every exit path. `drain` without a drain, or `migrate` without `--migrate`, warns and is ignored.
 
-- **Good:** `fmx restart --migrate --wait-workers`
-  - Jobs finish with the old database structure
-  - Database is updated
-  - New workers start with the new structure
-  - Consistency is maintained
+## Manual maintenance windows
 
-- **Bad:** `fmx restart --migrate --no-wait-workers`
-  - Database changes while old workers are still running
-  - Old workers access data that no longer matches expectations
-  - Leads to errors and corruption
+`fmx rq suspend` and `fmx rq resume` toggle the flag without touching any process, which is what you want before a hand-written SQL migration. The flag is persistent: a bench left suspended looks healthy and silently processes no background jobs, so pair every `suspend` with a `resume` and confirm through `fmx rq status`.
 
-## How to Choose
+## When it goes wrong
 
-Here’s a simplified decision process:
+**A worker never drains.** `fmx status --verbose` names the job it is holding. Either raise `--drain-workers-timeout` or interrupt it with `--no-drain-workers`.
 
-**Is your system completely broken?**
-→ Use `fmx restart` for quick recovery
+**Suspend or resume fails.** The flag lives in the queue Redis, which fmx reads from `redis_queue` in `common_site_config.json`. Check that key and that Redis is reachable.
 
-**Are critical jobs running that must finish?**
-→ Use `fmx restart --wait-workers`
-
-**Is this a database migration?**
-→ Use `fmx restart --migrate --wait-workers` (do not skip this)
-
-**Is this production and you want safety?**
-→ Use `fmx restart --wait-workers`
-
-**Is this development and you want speed?**
-→ Use `fmx restart`
-
-**Need a balance between speed and safety?**
-→ Use `fmx restart --no-wait-workers`
-
-## Common Scenarios
-
-**Deploying new code to production:**
-- No database changes: `fmx restart --no-wait-workers`
-- With database changes: `fmx restart --migrate --wait-workers`
-
-**Developing and restarting frequently:**
-- Use `fmx restart` for speed
-
-**Something’s broken and users are complaining:**
-- If system is down: `fmx restart` (quick fix)
-- If system is unstable: `fmx restart --wait-workers` (protect running jobs)
-
-**Need to restart but a big report is running:**
-- Use `fmx restart --wait-workers` and take a break
-
-## Useful Options
-
-- `--wait-workers-timeout 300`: Set a maximum wait time (default: 5 minutes)
-- `--migrate-timeout 600`: Extend time for migrations if needed
-- `--wait-workers-verbose`: See worker activity while waiting
-- `--force-kill-timeout 30`: Force kill processes after 30 seconds
-
-## When Things Go Wrong
-
-**Workers won’t stop:**
-- Check `fmx status -v` for stuck processes
-- Review Background Jobs in the web interface
-- Increase the timeout or use `--force-kill-timeout`
-
-**RQ suspension fails:**
-- Check your Redis connection in `common_site_config.json`
-- Ensure Redis is running
-
-**Services won’t start after restart:**
-- View logs with `fmx logs [service_name] --tail 100`
-
-<MarginNote>The `fmx restart` command is powerful—choose wisely to keep users happy and data safe.</MarginNote>
+**Services do not come back.** Supervisor writes to `/workspace/frappe-bench/logs/` inside the container; from the host, `fm logs BENCHNAME --service frappe -f` reads the container log directly.
