@@ -192,12 +192,15 @@ def pin_workers_to_image(workers, site: str, deploy_tag: str) -> None:
     cfm.write_to_file()
 
 
-def _parse_installed_apps(lines) -> set[str]:
-    """Parse ``bench list-apps`` output into a set of installed app names.
+def _parse_app_names(lines) -> set[str]:
+    """Parse app names out of ``bench list-apps`` or an ``apps/`` directory listing.
 
-    Tolerant of the version/branch columns some Frappe versions print: takes the
-    first whitespace token of each line when it is a valid (lowercase) app module
-    name, dropping headers/noise."""
+    Both surfaces are one-name-per-line with optional trailing columns, so the
+    rule is the same for both: take the first whitespace token when it is a valid
+    (lowercase) app module name. That drops ``bench list-apps`` headers and noise,
+    and in a directory listing it drops anything that is not an app (``.git``,
+    ``README.md``, ``requirements.txt``) because a dot cannot appear in a module
+    name."""
     names: set[str] = set()
     for line in lines or []:
         tokens = line.strip().split()
@@ -845,25 +848,42 @@ class DeployOrchestrator:
         except Exception as e:
             self.output.warning(f"Could not list installed apps: {e}")
             return set()
-        return _parse_installed_apps(getattr(result, "stdout", None))
+        return _parse_app_names(getattr(result, "stdout", None))
+
+    def _image_baked_apps(self) -> list[str]:
+        """App names carried by the image the new container is running.
+
+        The baked set has to come from the IMAGE, never from bench config.
+        ``config.apps_list`` is filled in memory during a bake and deliberately
+        never persisted to ``bench_config.toml`` (see
+        ``BakeManager._derive_apps_list``), so a separate ``fm switch`` process
+        always reads it back empty. In image runtime ``apps/`` is image content:
+        the data binds cover only ``sites/<site>``, ``common_site_config.json``,
+        ``apps.txt``, ``logs`` and ``config`` (``compose_shape.data_binds``), so
+        listing it inside the new container is the image answering for itself.
+
+        Returns an empty list when the listing fails, which the caller treats as
+        "nothing to reconcile" rather than guessing at the contents.
+        """
+        try:
+            result = self._exec_frappe("ls -1 /workspace/frappe-bench/apps")
+        except Exception as e:
+            self.output.warning(f"Could not list apps baked into the image: {e}")
+            return []
+        return sorted(_parse_app_names(getattr(result, "stdout", None)))
 
     def _install_new_apps(self) -> None:
-        """Install apps baked into the image but not yet on the site (``[switch].install_apps``).
+        """Install apps present in the image but not yet on the site (``[switch].install_apps``).
 
-        Currently unreachable, and deliberately left in place rather than deleted. The
-        wanted set comes from ``config.apps_list``, which ``fm bake`` populates in memory
-        only: it is deliberately not persisted to ``bench_config.toml`` (see
-        ``BakeManager._derive_apps_list``). That was fine while one command baked and
-        switched in a single process, but with ``fm bake`` and ``fm switch`` as separate
-        commands the switch always loads an empty list, so nothing is reconciled. Making
-        it work again means deriving the baked set from the new image itself rather than
-        from bench config. Runs in the new container during finalize (under maintenance
-        when migrating). Defensive: only installs when the installed set is read reliably
-        (must contain ``frappe``) so a parse failure skips rather than blindly
-        reinstalling every app."""
+        Runs in the new container during finalize (under maintenance when
+        migrating), so the container is already the new image and can be asked
+        what it carries. Defensive on both sides: an unreadable image listing
+        reconciles nothing, and the installed set must contain the always-present
+        ``frappe`` app or it is treated as unreliable, so a parse failure skips
+        rather than blindly reinstalling every app."""
         if not self.switch_config.install_apps:
             return
-        wanted = [a.name for a in (self.config.apps_list or [])]
+        wanted = self._image_baked_apps()
         if not wanted:
             return
         installed = self._site_installed_apps()

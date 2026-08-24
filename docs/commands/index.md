@@ -201,26 +201,17 @@ fm ngrok mybench
 
 ## Deployment
 
-Bake immutable images and ship them with zero-downtime deploys. See the [Deployment guide](../deploy/index.md) for the full workflow.
+Bake immutable images and ship them by switching a bench onto a tag. See the [Deployment guide](../deploy/index.md) for the full workflow.
 
 ### :material-image-multiple: [`fm bake`](bake.md) {.command-heading}
 **Bake an immutable app image**
 
-Provision a bench's apps into a runtime image, or build standalone from `--apps`/`--config` for CI pipelines.
+Provision a bench's apps into a runtime image, or build standalone from `--apps`/`--config` for CI pipelines. `--tag` takes a full image ref, so a pipeline names the tag it is about to ship.
 
 ```bash
 fm bake mybench
+fm bake mybench --tag ghcr.io/acme/mysite:v42 --push
 fm bake --apps erpnext:version-15 --image ghcr.io/acme/mysite --push
-```
-
-### :material-rocket-launch: [`fm deploy`](deploy.md) {.command-heading}
-**Bake and deploy in one step**
-
-Builds the image, then runs the full deploy pipeline: backup, migrate, and a rolling web swap when safe.
-
-```bash
-fm deploy mybench
-fm deploy mybench --keep 5
 ```
 
 ### :material-swap-horizontal: [`fm switch`](switch.md) {.command-heading}

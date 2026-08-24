@@ -632,7 +632,7 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm switch`, `fm prun
 | `backup_db` | `true` | `true` / `false` / `"auto"` (dump only when a schema step runs) |
 | `rollback_image` | `true` | auto-rollback to the previous tag on a failed health gate |
 | `rollback_db` | `false` | also restore the dump when the deploy fails (failed migrate, or alongside the image rollback; requires `backup_db`) |
-| `install_apps` | `true` | install newly-baked apps to the site during finalize |
+| `install_apps` | `true` | during finalize, install apps the new image carries that the site does not have yet (the image is asked directly, so it works on any switch) |
 | `keep_releases` | `7` | retention used by `fm prune` |
 | `common_site_config` | (none) | keys merged into `common_site_config.json` during finalize |
 | `site_config` | (none) | keys merged into `site_config.json` during finalize |

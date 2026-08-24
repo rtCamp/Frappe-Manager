@@ -16,7 +16,6 @@ console = Console()
 # Related-guide links appended to generated command pages.
 # Keyed by the output file stem in docs/commands/; URLs are relative to docs/commands/.
 RELATED_GUIDES: dict[str, list[tuple[str, str]]] = {
-    "deploy": [("Deployment guide", "../deploy/index.md")],
     "switch": [("Deployment guide", "../deploy/index.md"), ("Rolling back", "../deploy/rollback.md")],
     "bake": [("Deployment guide", "../deploy/index.md")],
     "prune": [("Deployment guide", "../deploy/index.md")],

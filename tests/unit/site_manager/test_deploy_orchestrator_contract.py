@@ -1537,45 +1537,77 @@ class TestRestoreConfirmation:
 
 
 class TestInstallNewApps:
-    def _installer(self, tmp_path, switch=None, apps=(), listed=""):
+    """The baked set is read from the IMAGE, not from bench config.
+
+    ``config.apps_list`` is filled in memory by a bake and deliberately never
+    persisted, so once ``fm bake`` and ``fm switch`` became separate commands a
+    config-sourced list was always empty on a switch and nothing was ever
+    reconciled. Finalize now asks the new container what it carries, which means
+    two probes: the ``apps/`` listing (the image) and ``bench list-apps`` (the
+    site). ``apps/`` is used rather than ``sites/apps.txt`` because that file is a
+    host bind in image runtime, so the image's own copy is shadowed inside the
+    container.
+    """
+
+    APPS_LS = "ls -1 /workspace/frappe-bench/apps"
+
+    def _installer(self, tmp_path, switch=None, baked=(), listed=""):
+        """``baked`` is what the image's ``apps/`` listing returns; ``listed`` is
+        the site's ``bench list-apps`` output."""
         orch = make_orch(tmp_path, switch=switch or SwitchConfig())
-        orch.config.apps_list = [SimpleNamespace(name=a) for a in apps]
-        orch._exec_frappe = MagicMock(return_value=SimpleNamespace(stdout=listed.splitlines()))
+
+        def _exec(command, user="frappe"):
+            if command == self.APPS_LS:
+                return SimpleNamespace(stdout=list(baked))
+            return SimpleNamespace(stdout=listed.splitlines())
+
+        orch._exec_frappe = MagicMock(side_effect=_exec)
         return orch
+
+    def _installed(self, orch):
+        return [c.args[0] for c in orch._exec_frappe.call_args_list if "install-app" in c.args[0]]
 
     def test_install_apps_disabled_reconciles_nothing(self, tmp_path):
         orch = self._installer(tmp_path, SwitchConfig(install_apps=False), ("erpnext",), "frappe\n")
         orch._install_new_apps()
         orch._exec_frappe.assert_not_called()
 
-    def test_an_empty_apps_list_reconciles_nothing(self, tmp_path):
-        orch = self._installer(tmp_path, apps=(), listed="frappe\n")
+    def test_the_image_is_asked_what_it_carries(self, tmp_path):
+        orch = self._installer(tmp_path, baked=("frappe", "hrms"), listed="frappe\n")
         orch._install_new_apps()
-        orch._exec_frappe.assert_not_called()
+        assert orch._exec_frappe.call_args_list[0].args[0] == self.APPS_LS
 
-    def test_an_unreadable_app_list_skips_rather_than_reinstalling(self, tmp_path):
-        """No 'frappe' in the output means the parse is untrustworthy."""
-        orch = self._installer(tmp_path, apps=("erpnext",), listed="Traceback (most recent call last):")
+    def test_an_image_with_no_readable_apps_reconciles_nothing(self, tmp_path):
+        orch = self._installer(tmp_path, baked=(), listed="frappe\n")
         orch._install_new_apps()
-        assert orch._exec_frappe.call_count == 1  # the list-apps probe only
+        assert self._installed(orch) == []
+
+    def test_an_unreadable_site_app_list_skips_rather_than_reinstalling(self, tmp_path):
+        """No 'frappe' in the output means the parse is untrustworthy."""
+        orch = self._installer(tmp_path, baked=("erpnext",), listed="Traceback (most recent call last):")
+        orch._install_new_apps()
+        assert self._installed(orch) == []
         assert any("Skipping new-app install" in str(c.args) for c in orch.output.warning.call_args_list)
 
-    def test_only_the_missing_apps_are_installed_in_config_order(self, tmp_path):
-        orch = self._installer(tmp_path, apps=("erpnext", "hrms", "payments"), listed="frappe\nerpnext\n")
+    def test_only_the_missing_apps_are_installed(self, tmp_path):
+        orch = self._installer(tmp_path, baked=("erpnext", "hrms", "payments"), listed="frappe\nerpnext\n")
         orch._install_new_apps()
-        commands = [c.args[0] for c in orch._exec_frappe.call_args_list[1:]]
+        commands = self._installed(orch)
         assert [c.split()[-1] for c in commands] == ["hrms", "payments"]
-        assert all("install-app" in c for c in commands)
 
     def test_nothing_missing_means_no_install_call(self, tmp_path):
-        orch = self._installer(tmp_path, apps=("erpnext",), listed="frappe\nerpnext\n")
+        orch = self._installer(tmp_path, baked=("erpnext",), listed="frappe\nerpnext\n")
         orch._install_new_apps()
-        assert orch._exec_frappe.call_count == 1
+        assert self._installed(orch) == []
 
     def test_a_failed_install_aborts_finalize_loudly(self, tmp_path):
-        orch = self._installer(tmp_path, apps=("hrms",), listed="frappe\n")
+        orch = self._installer(tmp_path, baked=("hrms",), listed="frappe\n")
         orch._exec_frappe = MagicMock(
-            side_effect=[SimpleNamespace(stdout=["frappe"]), docker_error("app not found")],
+            side_effect=[
+                SimpleNamespace(stdout=["hrms"]),
+                SimpleNamespace(stdout=["frappe"]),
+                docker_error("app not found"),
+            ],
         )
         with pytest.raises(DeployError, match="Failed to install new app 'hrms'"):
             orch._install_new_apps()
