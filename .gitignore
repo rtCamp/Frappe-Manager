@@ -16,3 +16,6 @@ htmlcov/
 
 # transient marker written by scripts/mutation_test.py while source files are mutated
 .mutation-in-progress
+
+# Agent behavior rules: local to each checkout, never shared
+AGENTS.md

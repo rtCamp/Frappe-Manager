@@ -50,6 +50,13 @@ jobs:
       - name: Run pytest
         run: |
           uv run pytest tests/ -v --cov=frappe_manager --cov-report=xml --cov-report=term-missing --cov-fail-under=44
+
+      # Reads the flag set from the live CLI, so it fails when code and docs disagree:
+      # a renamed or removed flag still named in prose, a link to a page a deleted
+      # command used to generate. That makes it a code check, not just a prose check.
+      - name: Check docs against the CLI
+        run: |
+          uv run python scripts/docslint.py
       
       - name: Upload coverage to Codecov
         if: matrix.python-ver == '3.13'

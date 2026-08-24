@@ -75,9 +75,15 @@ lint:
 lint-tests:
     uv run ruff check tests/
 
-# Run Ruff linter + format check (CI-style, full repo)
+# Run Ruff linter + format check + docs checks (CI-style, full repo).
+# All three always run: `&&` would hide the docs check behind pre-existing ruff debt.
 lint-all:
-    uv run ruff check frappe_manager/ tests/ && uv run ruff format --check .
+    #!/usr/bin/env bash
+    rc=0
+    uv run ruff check frappe_manager/ tests/ || rc=1
+    uv run ruff format --check . || rc=1
+    uv run python scripts/docslint.py || rc=1
+    exit $rc
 
 # Auto-fix fixable lint issues on changed files only
 lint-fix:
@@ -144,6 +150,10 @@ check-actions:
 # Generate command reference docs from the live CLI
 docs-gen:
     uv run python scripts/update_cli_docs.py
+
+# Check docs against the live CLI: dash style, link hygiene, flags that no longer exist
+docs-lint:
+    uv run python scripts/docslint.py
 
 # Serve versioned docs locally via mike (shows version selector)
 docs port="8000":
