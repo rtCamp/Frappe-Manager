@@ -14,7 +14,7 @@ Many benches share one host, one database server and one proxy.
 Orthogonally, each bench runs in one of **two runtimes** ([`runtime`](configuration.md#runtime) in `bench_config.toml`):
 
 - **`mount`** (default): app code lives on the host in `workspace/frappe-bench/` and is live-mounted into the containers. Editable; built for development.
-- **`image`**: app code is baked into an immutable image (`fm bake`) and deploys happen by switching image tags (`fm deploy`, `fm switch`). The workspace holds only sites and config.
+- **`image`**: app code is baked into an immutable image (`fm bake`) and deploys happen by switching image tags (`fm deploy`, `fm switch`). Only mutable data is bound in from the workspace: the site directory, `common_site_config.json`, `apps.txt`, `logs` and `config`.
 
 The topology below is identical in both runtimes; only where the app code comes from differs. See the [Deployment guide](../deploy/index.md).
 
@@ -82,7 +82,10 @@ client (or CDN edge)
 3. **The web process** is gunicorn in prod and `bench serve` in dev, both on port 80 inside the container.
 
 !!! warning "The `/assets` fallthrough is a dev-only safety net"
-    `/assets` is `try_files $uri @webserver`, so a bundle nginx cannot find is retried against the web process. That only produces a file in `dev`: frappe wraps its app in `application_with_statics()` inside `serve()`, whereas prod runs `gunicorn frappe.app:application`, the bare module-level app with no static middleware. On a `mount` bench nginx reads the workspace directly, so the question rarely arises; on an `image` bench the assets are baked into the nginx image (`Docker/nginx/Dockerfile`, the `app-assets` stage), and a bundle missing from that image is a hard 404 that nginx cannot cover for. The fix is a rebake, not an nginx change.
+    `/assets` is `try_files $uri @webserver`, so a bundle nginx cannot find is retried against the web process. That recovers the file only in `dev`: frappe wraps its app in `application_with_statics()` inside `serve()`, whereas prod runs `gunicorn frappe.app:application`, the bare module-level app with no static middleware. In prod the miss is a hard 404, and where nginx was looking depends on the runtime:
+
+    - **`mount`:** the stock `-nginx` image plus the single `./workspace:/workspace` bind, so nginx reads `/workspace/frappe-bench/sites/assets` live off the host. A missing bundle means the bench has not built it; rebuild it in the bench.
+    - **`image`:** the baked `<repo>-nginx:<tag>` image (`Docker/nginx/Dockerfile`, the `app-assets` stage), and the image-mode binds deliberately cover only `sites/<site>`, `common_site_config.json`, `apps.txt`, `logs` and `config`, never `sites/assets`, so nothing masks the baked bundles. A missing bundle needs a rebake.
 
 ### The frontend network is the only way in {#frontend-network}
 
@@ -319,7 +322,7 @@ fm self compose mybench ps
 - `fm__<bench>__redis-cache-data`, `fm__<bench>__redis-queue-data`: Redis persistence.
 - `fm__<bench>__mailpit-data`: the mailpit message database.
 
-The bench's `workspace/` directory is a bind mount, not a volume, and is mounted at `/workspace` in `frappe`, `nginx`, `socketio`, `schedule` and every worker. One filesystem, so a code change is visible to all of them at once, and in `dev` `bench watch` rebuilds assets without a restart.
+How the workspace reaches the containers is the other thing the runtime decides. A `mount` bench binds the whole directory as `./workspace:/workspace` into `frappe`, `nginx`, `socketio`, `schedule` and every worker: one filesystem, so a code change is visible to all of them at once, and in `dev` `bench watch` rebuilds assets without a restart. An `image` bench carries the code in its image instead, binding in only the site directory, `common_site_config.json`, `apps.txt`, `logs` and `config`, so nothing on the host can mask what was baked. Either way it is a bind mount, not a Docker volume.
 
 ---
 
@@ -340,7 +343,7 @@ fm self compose mybench logs -f frappe
 
 fm's stack images are tagged with the fm version that pulled them: `ghcr.io/rtcamp/frappe-manager-<service>:v<fm-version>`, for example `ghcr.io/rtcamp/frappe-manager-frappe:v0.19.0` and `ghcr.io/rtcamp/frappe-manager-nginx:v0.19.0`. A `.dev` version yields a `.dev` tag.
 
-An `image`-runtime bench runs its own baked app image in place of the frappe one: the repository comes from [`image`](configuration.md#images) in `bench_config.toml` and the tag from [`[deploy_state]`](configuration.md#deploy-state). `fm info <bench>` shows the pinned tag and the deploy history.
+An `image`-runtime bench replaces both fm stack images with its own bake. `fm bake` builds a pair: the app image, used for `frappe`, socketio, schedule and the workers, and a derived `<repo>-nginx:<tag>` from the `app-assets` stage, carrying the built frontend bundles for `nginx`. Only the app tag is ever named on the command line; the nginx tag is derived from it, and the two are deployed and pruned together. The repository comes from [`image`](configuration.md#images) in `bench_config.toml` and the tag from [`[deploy_state]`](configuration.md#deploy-state). `fm info <bench>` shows the pinned tag and the deploy history.
 
 `fm self update-images` pulls the current set.
 

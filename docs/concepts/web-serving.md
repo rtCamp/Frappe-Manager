@@ -12,7 +12,9 @@ browser -> global-nginx-proxy (routes by domain) -> bench nginx -> web process
 
 The bench's nginx does more than forward. It serves the site's own `public/` files off disk, sends `/socket.io` to the socketio container instead of the web process, and answers `/.well-known/acme-challenge/` itself so certificate renewal works without touching Frappe.
 
-`/assets` is the interesting one: nginx serves the baked bundle if it has it, and otherwise falls through to the web process. That fallback only produces anything on a `dev` bench, where `bench serve` wraps the app in Frappe's static middleware and serves `/assets` itself. It exists because a `bench watch` rebuild emits content-hashed filenames the baked nginx image has never seen. Gunicorn imports the bare WSGI app with no static middleware, so on a `prod` bench a bundle missing from the assets image is a 404, not something nginx can cover for: rebake instead.
+`/assets` is the interesting one, because where nginx looks depends on the [runtime](runtimes.md). Its document root is `/workspace/frappe-bench/sites`: on a **mount** bench that is the bind-mounted workspace, so nginx serves whatever `bench build` or `bench watch` last wrote to disk; on an **image** bench the container runs the release's paired `-nginx` image with the bundles baked in, and the image-mode binds are data-only, deliberately not covering `sites/assets`.
+
+A miss falls through to the web process, and that rescues a `dev` bench only: `bench serve` wraps the app in Frappe's static middleware and serves `/assets` itself, which is what covers the window after a `bench watch` rebuild emits content-hashed filenames nginx has not seen. Gunicorn imports the bare WSGI app with no static middleware, so on a `prod` bench a missing bundle is a 404 that nginx cannot cover for. Rebuild it (`fm shell mybench -c "bench build"`) on a mount bench; rebake on an image bench.
 
 ## The web process: dev server vs Gunicorn
 

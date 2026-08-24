@@ -26,7 +26,7 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
     fm bake mybench
     ```
 
-    Prints the new tag: `local/mybench:<timestamp>-<git sha>`.
+    A bake builds a **pair**: the app image `local/mybench:<timestamp>-<git sha>` (code, venv, assets) and `local/mybench-nginx:<same tag>`, which is the same tag with `-nginx` on the repo and carries the built bundles for the bench's nginx to serve. Only the app tag is ever named on the command line; fm derives the second one and the two travel, deploy and prune together.
 
 3. **Switch onto it.** This is the conversion moment; the deploy pipeline migrates your existing site onto the image (site data and DB carry over):
 
@@ -66,7 +66,7 @@ flowchart LR
     R -->|fm prune / --keep N| H[trimmed history,\ndumps, image tags]
 ```
 
-- `fm bake <bench>`: build the image only (prints the tag).
+- `fm bake <bench>`: build the image pair only, deploying nothing (prints both tags).
 - `fm deploy <bench>`: bake **and** run the full switch pipeline in one command.
 - `fm switch <bench> <tag>`: deploy an already-built tag (no bake).
 - `fm switch <bench> --previous`: roll back (same pipeline pointed backwards, migrate disabled).

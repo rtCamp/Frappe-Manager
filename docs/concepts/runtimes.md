@@ -24,11 +24,11 @@ Your apps live at `~/frappe/sites/<bench>/workspace/frappe-bench/apps/`, a norma
 ## Image: the immutable release
 
 ```bash
-fm bake mybench                                  # build an image from a bench (prints the tag)
+fm bake mybench                                  # build the image pair from a bench (prints both tags)
 fm create prodbench --runtime image --image repo:tag   # or create a bench directly on a pre-built image
 ```
 
-Code, venv, and built assets are inside the image; the bench only holds data (sites, DB, logs, config). There is nothing to edit, and that's the point:
+A bake produces two images: the app image holds the code, the venv and the built assets, and the paired `<repo>-nginx` image holds those assets again for the bench's nginx to serve. The bench itself keeps only mutable data host-side: the site directory, `common_site_config.json`, `apps.txt`, logs and config. The database is never in an image; it stays on whichever server the bench uses, `global-db` or an external one. There is nothing to edit, and that's the point:
 
 - deploys are atomic and repeatable, and rollback is one command away; see [Deployment](../deploy/index.md) and [Rolling back](../deploy/rollback.md)
 - `fm update` accepts settings only: environment, alias domains, admin tools, upload limit, restart policy, NewRelic, external-database CA. `--apps`, `--python`, `--node` and `--developer-mode enable` are refused, since those are baked in
