@@ -54,7 +54,7 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
 That's the whole loop. The rest of this page explains what happened underneath; the pages linked at the bottom cover [rolling back](rollback.md), [image transports and architectures](transports.md), and [every config key](../reference/configuration.md#deploy-tables).
 
 !!! tip "Starting fresh in image runtime"
-    A bench can also be *born* deployed: `fm create prodbench --runtime image --image <repo:tag>` creates the site directly from a pre-built image (baked elsewhere, e.g. CI via `fm bake --apps ... --image ... --push`). No conversion needed.
+    A bench can also be *born* deployed: `fm create prodbench --runtime image --base-image <repo:tag>` creates the site directly from a pre-built image (baked elsewhere, e.g. CI via `fm bake --apps ... --image ... --push`). No conversion needed. `--base-image` names the release the bench starts on rather than pinning it there: the repo half becomes the bench's `image` key and the tag half becomes `[deploy_state].current_tag`, which every later `fm switch` rewrites.
 
 ## The lifecycle at a glance
 

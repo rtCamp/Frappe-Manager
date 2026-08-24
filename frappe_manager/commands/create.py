@@ -56,7 +56,6 @@ _PANEL_EXTERNAL = "External Database and Redis Options"
 
 def _resolve_deploy_options(
     runtime: BenchRuntime | None,
-    image: str | None,
     base_image: str | None,
     apps: list,
     python_version: str | None,
@@ -64,20 +63,23 @@ def _resolve_deploy_options(
 ) -> tuple[BenchRuntime, str | None, str | None, str | None]:
     """Resolve the deploy model (#323) for ``fm create``.
 
-    Mode is selected only by ``--runtime`` (default ``mount``); ``--image``
-    no longer implies image mode and is no longer mode-scoped. ``--image`` is
-    image-runtime only: the pre-built app image to run. ``--base-image`` is
-    mount only: the base frappe image the containers run from. Returns
-    ``(resolved_mode, image_repo, current_tag, base_image_override)``.
+    Mode is selected only by ``--runtime`` (default ``mount``). ``--base-image`` is the
+    image the bench's containers RUN, in both runtimes: on mount it sits under the
+    editable workspace bind, on image runtime it IS the app. There is no ``--image``
+    here, because on ``fm bake`` that word means the image being PRODUCED, and one word
+    cannot point both ways.
+
+    The two runtimes persist it differently, which is why the return tuple splits it.
+    Mount keeps the whole ref in top-level ``base_image`` and nothing ever rewrites it.
+    Image runtime keeps the repo in top-level ``image`` and the tag in
+    ``[deploy_state].current_tag``, which ``fm switch`` moves on every deploy, so the
+    value is a starting point rather than a pin.
+
+    Returns ``(resolved_mode, image_repo, current_tag, base_image_override)``.
     """
     resolved = runtime or BenchRuntime.mount
 
     if resolved != BenchRuntime.image:
-        if image:
-            raise typer.BadParameter(
-                "--image is the pre-built app image an image-runtime bench runs, so it needs --runtime image; the "
-                "mount runtime's base frappe image is --base-image.",
-            )
         base_image_override = None
         if base_image:
             if not has_explicit_tag(base_image):
@@ -85,19 +87,14 @@ def _resolve_deploy_options(
             base_image_override = base_image
         return resolved, None, None, base_image_override
 
-    if base_image:
+    if not base_image:
         raise typer.BadParameter(
-            "--base-image does not apply to an image runtime bench: it runs the app image directly and never builds "
-            "FROM a base image. The app image to run is --image.",
+            "--runtime image requires --base-image <repo:tag>: the pre-built app image the bench runs, "
+            "built by 'fm bake' or otherwise present/pullable.",
         )
-    if not image:
+    if not has_explicit_tag(base_image):
         raise typer.BadParameter(
-            "Image deployment mode requires --image <repo:tag> -- an existing image built by 'fm bake' "
-            "or otherwise present/pullable.",
-        )
-    if not has_explicit_tag(image):
-        raise typer.BadParameter(
-            "--image must be a full reference with a tag, e.g. 'ghcr.io/acme/mybench:fm-20260722-abc123'.",
+            "--base-image must be a full reference with a tag, e.g. 'ghcr.io/acme/mybench:fm-20260722-abc123'.",
         )
     if apps:
         raise typer.BadParameter(
@@ -109,15 +106,20 @@ def _resolve_deploy_options(
     if node_version:
         raise typer.BadParameter("--node is not supported in image mode; the Node version is baked into the image.")
 
-    repo = image.rpartition(":")[0]
-    return resolved, repo, image, None
+    repo = base_image.rpartition(":")[0]
+    return resolved, repo, base_image, None
 
 
-def _validate_from_image(
-    from_image: str,
+def _validate_seed_image(
+    seed_image: str,
     resolved_runtime: BenchRuntime,
 ) -> None:
-    """``--from-image`` contract: mount-only, explicit tag.
+    """``--seed-image`` contract: mount-only, explicit tag.
+
+    Named for the ``seed_image`` key it writes. It is not an alternative to
+    ``--base-image``: this copies a baked workspace onto the host ONCE at create and is
+    then only a provenance record, while ``--base-image`` is read at every container
+    start. The two compose.
 
     ``--apps`` entries are per-app overrides grafted on top of the seed;
     ``--python``/``--node`` swap the seeded toolchain (venv recreated, apps
@@ -125,10 +127,11 @@ def _validate_from_image(
     """
     if resolved_runtime == BenchRuntime.image:
         raise typer.BadParameter(
-            "--from-image seeds a MOUNT workspace; image runtime already runs the image (use --image).",
+            "--seed-image seeds a MOUNT workspace; an image runtime bench already runs the image it is given "
+            "(use --base-image).",
         )
-    if not has_explicit_tag(from_image):
-        raise typer.BadParameter("--from-image requires an explicit ':tag' (e.g. local/myapp:20260724-abc).")
+    if not has_explicit_tag(seed_image):
+        raise typer.BadParameter("--seed-image requires an explicit ':tag' (e.g. local/myapp:20260724-abc).")
 
 
 def _resolve_developer_mode(
@@ -186,7 +189,6 @@ def _build_overlay_bench_config(
     newrelic: bool,
     newrelic_license_key: str | None,
     runtime: BenchRuntime | None,
-    image: str | None,
     base_image: str | None,
     db_name: str,
     explicit: set[str],
@@ -257,12 +259,11 @@ def _build_overlay_bench_config(
     else:
         bc.apps_list = _ensure_frappe_first(bc.apps_list)
 
-    # Runtime/image selection: an explicit --runtime/--image/--base-image re-resolves
-    # (flag path); otherwise keep whatever the config declared ([runtime]/[deploy]/[deploy_state]).
-    if "runtime" in explicit or "image" in explicit or "base_image" in explicit:
+    # Runtime/image selection: an explicit --runtime/--base-image re-resolves (flag path);
+    # otherwise keep whatever the config declared ([runtime]/[deploy]/[deploy_state]).
+    if "runtime" in explicit or "base_image" in explicit:
         r_runtime, r_image, r_tag, r_base = _resolve_deploy_options(
             runtime if "runtime" in explicit else bc.runtime,
-            image if "image" in explicit else None,
             base_image if "base_image" in explicit else None,
             apps if "apps" in explicit else [],
             python_version if "python_version" in explicit else None,
@@ -512,7 +513,14 @@ def _resolve_external_options(
 )
 @example(
     "Run a pre-built app image",
-    "{benchname} --runtime image --image ghcr.io/acme/mybench:v15-20260822",
+    "{benchname} --runtime image --base-image ghcr.io/acme/mybench:v15-20260822",
+    detail="--base-image is the image the containers run. Here it is the app image itself, and fm switch moves the bench to later tags from there.",
+    benchname="mybench",
+)
+@example(
+    "Seed an editable workspace from a baked image",
+    "{benchname} --seed-image ghcr.io/acme/mybench:v15-20260822",
+    detail="Copies the image's apps, env and built assets onto the host once, skipping clone and install. The bench still boots on the default base image unless --base-image says otherwise.",
     benchname="mybench",
 )
 @example(
@@ -621,29 +629,20 @@ def create(
             rich_help_panel=_PANEL_RUNTIME,
         ),
     ] = None,
-    image: Annotated[
-        str | None,
-        typer.Option(
-            "--image",
-            help="Image runtime: the pre-built app image to run (repo:tag), local or pullable. For the mount runtime's base image see --base-image.",
-            show_default=False,
-            rich_help_panel=_PANEL_RUNTIME,
-        ),
-    ] = None,
     base_image: Annotated[
         str | None,
         typer.Option(
             "--base-image",
-            help="Mount runtime: override the base frappe image (repo:tag) for frappe, socketio, schedule and workers. None = fm's default image.",
+            help="The image the bench's containers run (repo:tag). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another tag.",
             show_default=False,
-            rich_help_panel=_PANEL_MOUNT,
+            rich_help_panel=_PANEL_RUNTIME,
         ),
     ] = None,
-    from_image: Annotated[
+    seed_image: Annotated[
         str | None,
         typer.Option(
-            "--from-image",
-            help="Seed the workspace from a baked app image (repo:tag) instead of cloning and installing apps. --apps, --python and --node then override what it carries.",
+            "--seed-image",
+            help="Mount runtime: seed the workspace from a baked app image (repo:tag) instead of cloning and installing apps. --apps, --python and --node then override what it carries. This is a one-time copy, not what the containers run: see --base-image.",
             show_default=False,
             rich_help_panel=_PANEL_MOUNT,
         ),
@@ -828,7 +827,6 @@ def create(
                 "newrelic",
                 "newrelic_license_key",
                 "runtime",
-                "image",
                 "base_image",
                 "apps",
             )
@@ -852,7 +850,6 @@ def create(
                 newrelic=newrelic,
                 newrelic_license_key=newrelic_license_key,
                 runtime=runtime,
-                image=image,
                 base_image=base_image,
                 db_name=global_db_name,
                 explicit=explicit,
@@ -865,8 +862,8 @@ def create(
             current_tag = bench_config.deploy_state.current_tag if bench_config.deploy_state else None
             if not current_tag:
                 output.display_error(
-                    "Image runtime needs a pre-built image: pass --image <repo:tag>, or set "
-                    "top-level image + [deploy_state].current_tag in --config.",
+                    "Image runtime needs a pre-built image: pass --base-image <repo:tag>, or set "
+                    "top-level image + \\[deploy_state].current_tag in --config.",
                 )
                 raise typer.Exit(1)
             output.print(
@@ -884,17 +881,17 @@ def create(
     else:
         # For seeded creates --apps entries are overrides, used verbatim (no frappe
         # auto-injection -- the image's frappe must not be clobbered by a default).
-        final_apps_list = apps_config if from_image else _ensure_frappe_first(apps_config)
+        final_apps_list = apps_config if seed_image else _ensure_frappe_first(apps_config)
 
-        # Deploy model (#323): resolve runtime (mount|image) + the single-meaning
-        # --image (image runtime) / --base-image (mount runtime) flags.
+        # Deploy model (#323): resolve runtime (mount|image) plus --base-image, the image
+        # the containers run in either runtime.
         resolved_runtime, image_repo, deploy_current_tag, base_image_override = _resolve_deploy_options(
-            runtime, image, base_image, apps, python_version, node_version
+            runtime, base_image, apps, python_version, node_version
         )
-        if from_image:
-            _validate_from_image(from_image, resolved_runtime)
+        if seed_image:
+            _validate_seed_image(seed_image, resolved_runtime)
             output.print(
-                f"Mount bench: seeding workspace from baked image [fm.info]{from_image}[/fm.info].",
+                f"Mount bench: seeding workspace from baked image [fm.info]{seed_image}[/fm.info].",
                 emoji_code=":package:",
             )
         if resolved_runtime == BenchRuntime.image:
@@ -925,7 +922,7 @@ def create(
             runtime=resolved_runtime,
             image=image_repo,
             base_image=base_image_override,
-            seed_image=from_image,
+            seed_image=seed_image,
             deploy_state=DeployState(current_tag=deploy_current_tag)
             if resolved_runtime == BenchRuntime.image
             else None,

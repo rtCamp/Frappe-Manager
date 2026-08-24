@@ -28,9 +28,8 @@ $ fm create BENCHNAME [OPTIONS]
 * `--restart`: Docker restart policy. Defaults to 'no' (dev) or 'unless-stopped' (prod).
 * `--allow-domain-conflicts`: Skip the domain uniqueness check.
 * `--runtime`: 'mount' (default) live-mounts an editable workspace; 'image' runs a pre-built app image, moved to a new tag with 'fm switch'.
-* `--image`: Image runtime: the pre-built app image to run (repo:tag), local or pullable. For the mount runtime's base image see --base-image.
-* `--base-image`: Mount runtime: override the base frappe image (repo:tag) for frappe, socketio, schedule and workers. None = fm's default image.
-* `--from-image`: Seed the workspace from a baked app image (repo:tag) instead of cloning and installing apps. --apps, --python and --node then override what it carries.
+* `--base-image`: The image the bench's containers run (repo:tag). Mount runtime: the base frappe image, with your editable workspace mounted over it. Image runtime: the pre-built app image itself, which is where the bench starts and which 'fm switch' later moves to another tag.
+* `--seed-image`: Mount runtime: seed the workspace from a baked app image (repo:tag) instead of cloning and installing apps. --apps, --python and --node then override what it carries. This is a one-time copy, not what the containers run: see --base-image.
 * `--config`: TOML base config: file path or inline. Explicit flags win; later --config wins.
 * `--newrelic/--no-newrelic`: Enable NewRelic APM for the web process.
 * `--newrelic-license-key`: NewRelic ingest license key. Required with --newrelic.
@@ -71,8 +70,18 @@ fm create mybench -e prod --apps erpnext
 
 ### Run a pre-built app image
 
+--base-image is the image the containers run. Here it is the app image itself, and fm switch moves the bench to later tags from there.
+
 ```bash
-fm create mybench --runtime image --image ghcr.io/acme/mybench:v15-20260822
+fm create mybench --runtime image --base-image ghcr.io/acme/mybench:v15-20260822
+```
+
+### Seed an editable workspace from a baked image
+
+Copies the image's apps, env and built assets onto the host once, skipping clone and install. The bench still boots on the default base image unless --base-image says otherwise.
+
+```bash
+fm create mybench --seed-image ghcr.io/acme/mybench:v15-20260822
 ```
 
 ### Create a bench on an external database

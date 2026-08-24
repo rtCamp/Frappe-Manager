@@ -46,7 +46,6 @@ def _build(
     alias_domains=None,
     restart=None,
     runtime=None,
-    image=None,
     base_image=None,
 ):
     return _build_overlay_bench_config(
@@ -65,7 +64,6 @@ def _build(
         newrelic=False,
         newrelic_license_key=None,
         runtime=runtime,
-        image=image,
         base_image=base_image,
         db_name="fm_x_deadbeef",
         explicit=set(explicit),
@@ -118,13 +116,14 @@ def test_name_and_root_are_authoritative():
 def test_image_runtime_via_flags_resolves_tag():
     bc, _ = _build(
         ['environment = "prod"\n'],
-        explicit={"runtime", "image"},
+        explicit={"runtime", "base_image"},
         runtime=BenchRuntime.image,
-        image="ghcr.io/acme/app:fm-1",
+        base_image="ghcr.io/acme/app:fm-1",
     )
     assert bc.runtime == BenchRuntime.image
     assert bc.image == "ghcr.io/acme/app"  # tag stripped for top-level image
     assert bc.deploy_state.current_tag == "ghcr.io/acme/app:fm-1"
+    assert bc.base_image is None  # the ref went to image + deploy_state, not base_image
 
 
 def test_image_runtime_purely_from_config():

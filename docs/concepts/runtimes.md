@@ -12,7 +12,7 @@ The runtime is the most consequential property of a bench: it decides **where th
 
 ```bash
 fm create mybench                          # clone + install apps into a workspace
-fm create mybench --from-image repo:tag    # or seed the workspace from a baked image (near-instant)
+fm create mybench --seed-image repo:tag    # or seed the workspace from a baked image (near-instant)
 ```
 
 Your apps live at `~/frappe/sites/<bench>/workspace/frappe-bench/apps/`, a normal bench directory you can edit, commit from, and debug against. Everything code-related works here:
@@ -25,8 +25,10 @@ Your apps live at `~/frappe/sites/<bench>/workspace/frappe-bench/apps/`, a norma
 
 ```bash
 fm bake mybench                                  # build the image pair from a bench (prints both tags)
-fm create prodbench --runtime image --image repo:tag   # or create a bench directly on a pre-built image
+fm create prodbench --runtime image --base-image repo:tag   # or create a bench directly on a pre-built image
 ```
+
+In that second form, `--base-image` names the release the bench is *born* on, not a permanent pin: only the repo half is persisted to the bench's top-level `image` key, while the tag half is recorded in `[deploy_state].current_tag` and rewritten by `fm switch` on every deploy.
 
 A bake produces two images: the app image holds the code, the venv and the built assets, and the paired `<repo>-nginx` image holds those assets again for the bench's nginx to serve. The bench itself keeps only mutable data host-side: the site directory, `common_site_config.json`, `apps.txt`, logs and config. The database is never in an image; it stays on whichever server the bench uses, `global-db` or an external one. There is nothing to edit, and that's the point:
 
@@ -41,7 +43,7 @@ The full pipeline (baking, zero-downtime rolling swaps, rollbacks with DB restor
 stateDiagram-v2
     direction LR
     [*] --> mount : fm create
-    [*] --> image : fm create --runtime image --image TAG
+    [*] --> image : fm create --runtime image --base-image TAG
     mount --> image : config edit + fm switch BENCH TAG
     image --> mount : fm update --runtime mount
     mount --> mount : fm bake
@@ -61,7 +63,9 @@ Runtime says where code lives; [environment](../guides/environments.md) says how
 
 The one asymmetry: developer mode is refused on an image bench even in a `dev` environment, because DocType authoring writes app source files into the container layer that the next deploy throws away.
 
-One flag per direction, so nothing changes meaning with the runtime: `fm create --image` is image runtime only and names the *app image to run*, while a mount bench overrides the *base* frappe image its containers run on with `fm create --base-image` and seeds its workspace from a baked image with `fm create --from-image`.
+Three create-time flags, three different jobs. `--base-image` names the image the bench's containers actually run and always takes an explicit `repo:tag`: in the mount runtime that is the base frappe image sitting under your editable workspace, static once set; in the image runtime it *is* the app image, the release the bench starts on, and `fm switch` moves it to later tags from there. `--seed-image` is mount-only and fills a fresh workspace once from a baked image, after which `--apps`, `--python` and `--node` override whatever that image carried. `--image` is not a create flag at all: it belongs to `fm bake`, where it names the image the bake *produces*.
+
+`--base-image` and `--seed-image` are not alternatives, and one bench can carry both: `fm create b --base-image ghcr.io/acme/frappe:v16 --seed-image ghcr.io/acme/app:v42` boots its containers on the v16 frappe image and fills its workspace from the v42 app image. The base image is read at every start; the seed image is read once, at create, and is kept afterwards only as provenance in [`seed_image`](../reference/configuration.md#images).
 
 ## Where to next
 

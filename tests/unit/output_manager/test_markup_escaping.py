@@ -47,6 +47,7 @@ TABLES = (
     "deploy",
     "apps",
     "ssl",
+    "deploy_state",
 )
 UNESCAPED = re.compile(r"(?<!\\)\[(" + "|".join(TABLES) + r")\]")
 ESCAPED = re.compile(r"\\\[")

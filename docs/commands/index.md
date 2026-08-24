@@ -57,12 +57,14 @@ Core commands for creating and managing benches.
 ### :material-plus-circle: [`fm create`](create.md) {.command-heading}
 **Create a new bench with apps**
 
-Set up a fresh Frappe development or production environment with your choice of apps, Python/Node versions, and configuration.
+Set up a fresh Frappe development or production environment with your choice of apps, Python/Node versions, and configuration. `--base-image` names the image the bench's containers run: the base frappe image sitting under a mount workspace, or, with `--runtime image`, the pre-built app image itself. `--seed-image` is a different job, mount-only: it fills the workspace once from a baked image, and the bench still boots on the base image afterwards, so the two compose. There is no `--image` on create; that flag belongs to `fm bake` and names the image a bake produces.
 
 ```bash
 fm create mybench
 fm create mybench --apps erpnext --apps hrms
 fm create mybench -e prod
+fm create prodbench --runtime image --base-image ghcr.io/acme/mysite:v42
+fm create mybench --seed-image ghcr.io/acme/mysite:v42
 ```
 
 ### :material-play-circle: [`fm start`](start.md) {.command-heading}
