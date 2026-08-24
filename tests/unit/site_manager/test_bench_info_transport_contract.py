@@ -9,9 +9,9 @@ transport helpers, the BenchService facade) cannot silently change behaviour:
   from the certificate, admin-password precedence, the image-vs-mount runtime facts, the
   deploy-history "current" marker, and the live container-state gathering (which swallows
   a DockerException for workers and any Exception for admin tools).
-- ``transport``: the exact argv of the save/load pipeline, which failure is reported when
-  both ends fail, when a registry login happens at all, which missing tags are pulled and
-  which pull failure is survivable (nginx) versus fatal.
+- ``transport``: when a registry login happens at all, which missing tags are pulled and
+  which pull failure is survivable (nginx) versus fatal, and why a ``save_load``
+  distribution refuses to pull instead of guessing.
 - ``BenchService``: the guards -- delete without ``--yes`` delegates instead of removing,
   a missing config falls back to the cleanup bench, discovery ignores anything without a
   compose file, and a broken bench is *listed* rather than raised.
@@ -20,8 +20,6 @@ Version/apps parsing lives in test_bench_info_versions.py and is not repeated he
 """
 
 import json
-import os
-import subprocess
 from pathlib import Path
 from types import SimpleNamespace
 from typing import ClassVar
@@ -37,24 +35,18 @@ from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.bench_config import (
     AuthConfig,
     BenchRuntime,
-    DeployConfig,
     FMBenchEnvType,
     RegistryConfig,
 )
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.exceptions import BenchException
-from frappe_manager.site_manager.modules import transport
 from frappe_manager.site_manager.modules.bench_info import BenchInfo
 from frappe_manager.site_manager.modules.transport import (
     TransportError,
     fetch_image,
     image_present,
-    present_tags,
     push_images,
     registry_login,
-    remote_daemon_arch,
-    ssh_target,
-    transport_save_load,
 )
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
@@ -681,19 +673,6 @@ def test_image_present_treats_a_daemon_error_as_absent():
     assert image_present(docker, "r:t") is False
 
 
-def test_present_tags_filters_to_what_the_daemon_has():
-    docker = MagicMock()
-    docker.images.return_value = [{"Repository": "r", "Tag": "a"}, {"Repository": "r", "Tag": "b"}]
-    assert present_tags(docker, ["r:a", "", "r:c", "r:b"]) == ["r:a", "r:b"]
-
-
-def test_present_tags_assumes_everything_present_when_the_daemon_errors():
-    """Fail-open: an unreadable image list must not silently drop tags from the save set."""
-    docker = MagicMock()
-    docker.images.side_effect = RuntimeError("daemon down")
-    assert present_tags(docker, ["r:a", None, "r:b"]) == ["r:a", "r:b"]
-
-
 # =========================================================================== transport: fetch
 
 
@@ -720,6 +699,9 @@ def test_fetch_image_pulls_only_the_missing_tags_after_logging_in():
 
 
 def test_fetch_image_save_load_refuses_instead_of_pulling():
+    """``distribution = "save_load"`` asserts the image was placed on THIS daemon by hand, so
+    there is no registry to pull from: an absent tag must fail loudly and name both tags rather
+    than attempt a pull that can only 404."""
     docker = MagicMock()
     docker.images.return_value = []
     cfg = RegistryConfig(registry="ghcr.io", distribution="save_load")
@@ -786,145 +768,6 @@ def test_push_images_logs_in_once_then_pushes_every_tag_in_order():
     docker.login.assert_called_once()
     assert docker.push.call_args_list == [call("r:t", stream=False), call("r-nginx:t", stream=False)]
     assert [c.args[0] for c in output.print.call_args_list] == ["Pushed r:t", "Pushed r-nginx:t"]
-
-
-# =========================================================================== transport: ssh target
-
-
-def test_ssh_target_requires_an_ssh_server():
-    with pytest.raises(TransportError, match=r"\[deploy\].ssh_server"):
-        ssh_target(None)
-    with pytest.raises(TransportError, match=r"\[deploy\].ssh_server"):
-        ssh_target(DeployConfig())
-
-
-def test_ssh_target_defaults_user_and_port():
-    assert ssh_target(DeployConfig(ssh_server="prod.example")) == ("frappe@prod.example", 22)
-    assert ssh_target(DeployConfig(ssh_server="prod.example", ssh_user="deploy", ssh_port=2200)) == (
-        "deploy@prod.example",
-        2200,
-    )
-
-
-# =========================================================================== transport: save/load
-
-
-def _pipe(save_rc=0, load_rc=0):
-    save_proc = MagicMock()
-    save_proc.wait.return_value = save_rc
-    save_proc.stdout = MagicMock()
-    return save_proc, MagicMock(returncode=load_rc)
-
-
-@pytest.mark.timeout(15)
-def test_transport_save_load_argv_pipes_docker_save_into_remote_docker_load():
-    save_proc, load_proc = _pipe()
-    rc = DeployConfig(ssh_server="prod.example", ssh_user="deploy", ssh_port=2200)
-
-    with (
-        patch.object(subprocess, "Popen", return_value=save_proc) as popen,
-        patch.object(subprocess, "run", return_value=load_proc) as run,
-    ):
-        transport_save_load(["r:t", "", "r-nginx:t"], rc, output=MagicMock())
-
-    assert popen.call_args.args[0] == ["docker", "save", "r:t", "r-nginx:t"]
-    assert popen.call_args.kwargs == {"stdout": subprocess.PIPE}
-    assert run.call_args.args[0] == ["ssh", "-p", "2200", "deploy@prod.example", "docker", "load"]
-    assert run.call_args.kwargs["stdin"] is save_proc.stdout
-    assert run.call_args.kwargs["check"] is False
-    save_proc.stdout.close.assert_called_once()
-    save_proc.wait.assert_called_once()
-
-
-@pytest.mark.timeout(15)
-def test_transport_save_load_does_nothing_without_tags():
-    with patch.object(subprocess, "Popen") as popen, patch.object(subprocess, "run") as run:
-        transport_save_load([None, ""], DeployConfig(ssh_server="prod.example"))
-    popen.assert_not_called()
-    run.assert_not_called()
-
-
-@pytest.mark.timeout(15)
-def test_transport_save_load_checks_the_ssh_target_before_spawning_anything():
-    with patch.object(subprocess, "Popen") as popen, pytest.raises(TransportError):
-        transport_save_load(["r:t"], DeployConfig())
-    popen.assert_not_called()
-
-
-@pytest.mark.timeout(15)
-def test_transport_save_load_reports_the_local_save_failure_first():
-    """When both ends fail the save exit code is the one surfaced (it is the root cause)."""
-    save_proc, load_proc = _pipe(save_rc=3, load_rc=1)
-    with (
-        patch.object(subprocess, "Popen", return_value=save_proc),
-        patch.object(subprocess, "run", return_value=load_proc),
-        pytest.raises(TransportError, match=r"docker save failed \(exit 3\)"),
-    ):
-        transport_save_load(["r:t"], DeployConfig(ssh_server="prod.example"))
-
-
-@pytest.mark.timeout(15)
-def test_transport_save_load_reports_the_remote_load_failure():
-    save_proc, load_proc = _pipe(load_rc=7)
-    output = MagicMock()
-    with (
-        patch.object(subprocess, "Popen", return_value=save_proc),
-        patch.object(subprocess, "run", return_value=load_proc),
-        pytest.raises(TransportError, match=r"remote docker load failed \(exit 7\)"),
-    ):
-        transport_save_load(["r:t"], DeployConfig(ssh_server="prod.example"), output=output)
-    assert not any("Loaded" in str(c.args[0]) for c in output.print.call_args_list)
-
-
-@pytest.mark.timeout(15)
-def test_transport_save_load_reaps_the_save_process_even_when_the_ssh_run_explodes():
-    save_proc, _ = _pipe()
-    with (
-        patch.object(subprocess, "Popen", return_value=save_proc),
-        patch.object(subprocess, "run", side_effect=OSError("ssh missing")),
-        pytest.raises(OSError, match="ssh missing"),
-    ):
-        transport_save_load(["r:t"], DeployConfig(ssh_server="prod.example"))
-    save_proc.stdout.close.assert_called_once()
-    save_proc.wait.assert_called_once()
-
-
-# =========================================================================== transport: remote arch
-
-
-@pytest.mark.timeout(15)
-def test_remote_daemon_arch_never_touches_docker_without_a_host():
-    with patch.object(transport, "DockerClient") as dc:
-        assert remote_daemon_arch(None) is None
-        assert remote_daemon_arch("") is None
-    dc.assert_not_called()
-
-
-@pytest.mark.timeout(15)
-def test_remote_daemon_arch_queries_with_docker_host_set_and_restores_it(monkeypatch):
-    monkeypatch.delenv("DOCKER_HOST", raising=False)
-    seen = {}
-
-    def version():
-        seen["host"] = os.environ.get("DOCKER_HOST")
-        return {"Server": {"Arch": "amd64"}}
-
-    with patch.object(transport, "DockerClient") as dc:
-        dc.return_value.version.side_effect = version
-        assert remote_daemon_arch("ssh://deploy@prod:2200") == "amd64"
-
-    assert seen["host"] == "ssh://deploy@prod:2200"
-    assert "DOCKER_HOST" not in os.environ
-
-
-@pytest.mark.timeout(15)
-def test_remote_daemon_arch_is_none_when_unreachable_or_arch_absent():
-    with patch.object(transport, "DockerClient") as dc:
-        dc.return_value.version.side_effect = RuntimeError("unreachable")
-        assert remote_daemon_arch("ssh://deploy@prod:22") is None
-        dc.return_value.version.side_effect = None
-        dc.return_value.version.return_value = {}
-        assert remote_daemon_arch("ssh://deploy@prod:22") is None
 
 
 # =========================================================================== BenchService: facade

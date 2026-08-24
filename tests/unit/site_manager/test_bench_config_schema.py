@@ -2,7 +2,7 @@
 
 Locks the TOML shape: top-level `environment`/`image`, `[[apps]]` with per-app
 `hooks`/`hooks.host`, `[monitoring.newrelic]`, `[switch]` + `[switch.hooks]`/
-`[switch.hooks.host]`, `[build]`, `[registry]`, `[deploy]` (remote), and `[ssl]`
+`[switch.hooks.host]`, `[build]`, `[registry]`, and `[ssl]`
 (`dns_challenge_providers` + `certificates`). Import + export + re-import must
 preserve every value.
 """
@@ -50,10 +50,6 @@ node_version = "20"
 registry = "ghcr.io"
 distribution = "registry"
 
-[deploy]
-ssh_server = "prod-01.fm.com"
-ssh_user = "frappe"
-
 [ssl.dns_challenge_providers.cloudflare]
 api_token = "cf-token"
 [[ssl.certificates]]
@@ -80,8 +76,6 @@ def _assert_full(bc: BenchConfig):
     assert bc.build.python_version == "3.12"
     assert bc.build.node_version == "20"
     assert bc.registry.registry == "ghcr.io"
-    assert bc.deploy.ssh_server == "prod-01.fm.com"  # [deploy] == remote target
-    assert bc.deploy.ssh_user == "frappe"
     assert [c.domain for c in bc.ssl_certificates] == ["fm.com"]
     assert list((bc.dns_providers or {}).keys()) == ["cloudflare"]
 
@@ -121,14 +115,11 @@ def test_export_reimport_roundtrip(tmp_path):
     assert reimported.apps_list == []  # apps are input-only, not persisted on export
 
 
-def test_mount_bench_has_no_pipeline_or_remote(tmp_path):
+def test_mount_bench_has_no_pipeline_or_image_identity(tmp_path):
     p = tmp_path / "bench_config.toml"
-    p.write_text(
-        'name = "dev.localhost"\ndeveloper_mode = true\nadmin_tools = true\nenvironment = "dev"\n'
-    )
+    p.write_text('name = "dev.localhost"\ndeveloper_mode = true\nadmin_tools = true\nenvironment = "dev"\n')
     bc = BenchConfig.import_from_toml(p)
     assert bc.runtime == BenchRuntime.mount
     assert bc.switch is None
-    assert bc.deploy is None  # no remote target
     assert bc.image is None
     assert bc.build is None

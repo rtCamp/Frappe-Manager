@@ -30,7 +30,7 @@ fm prune mybench --dry-run
 
 ### Prune old releases now
 
-fm deploy and fm switch can do the same inline with --keep N.
+fm switch can do the same inline with --keep N.
 
 ```bash
 fm prune mybench

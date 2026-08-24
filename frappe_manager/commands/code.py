@@ -76,7 +76,7 @@ def code(
         output.warning(
             "Image-mode bench has no live-mounted workspace: VSCode edits target the "
             "immutable app image and do not persist. Use this to reproduce+observe only; "
-            "ship real code changes with 'fm deploy'.",
+            "ship real code changes with 'fm bake' then 'fm switch'.",
         )
 
     if force_start:

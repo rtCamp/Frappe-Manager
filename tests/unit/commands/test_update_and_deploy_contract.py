@@ -1,5 +1,5 @@
 """
-Characterization tests for the ``fm update`` and ``fm deploy``/``fm switch`` decision tables.
+Characterization tests for the ``fm update`` and ``fm switch``/``fm prune`` decision tables.
 
 ``fm update`` mutates a LIVE bench: it toggles developer mode, flips the environment, demotes the
 runtime, rewrites the restart policy, enables/disables admin tools, edits alias domains and the
@@ -15,9 +15,9 @@ The interesting content of that module is therefore not the plumbing but the DEC
 * whether the in-memory ``bench_config`` mutation is actually persisted
   (``bench_config_save``/``save_bench_config`` bookkeeping), including the paths where it is not.
 
-``fm deploy``/``fm switch`` ship an image. What is pinned here is how the TARGET TAG is resolved
-(bake's return value wins over ``--tag``; ``--previous`` reads deploy state; ``--restore-db`` needs a
-recorded dump that still exists) and what is refused on a mount-runtime bench.
+``fm switch``/``fm prune`` ship an already-built image. What is pinned here is how the TARGET TAG
+is resolved (``--previous`` reads deploy state; ``--restore-db`` needs a recorded dump that still
+exists), what is refused on a mount-runtime bench, and what the prune summary reports.
 
 These tests describe TODAY's behaviour so the module can be refactored safely. Where the behaviour
 looks wrong it is pinned as-is and called out below rather than fixed; the first two bullets are the
@@ -28,8 +28,6 @@ exception -- those suspicions turned out to be real defects and their pins are n
 * a failed ``--node`` validation used to abort after ``--python`` had been written to the in-memory
   config and announced, but before ``save_bench_config()``, so the accepted Python change was lost;
   both requested versions are now validated before either one is written.
-* ``fm deploy --config`` writes the overlay into ``bench_config.toml`` BEFORE the image-runtime
-  check, so a deploy refused for being mount-runtime still mutated the bench config on disk.
 
 Options carrying a typer callback (``--apps``, ``--add-alias``, ``--remove-alias``) are exercised
 with their POST-callback values (``AppConfig`` objects / lists of domains), which is what the
@@ -44,18 +42,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 import typer
 
-from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, EnableDisableOptionsEnum
-from frappe_manager.commands.deploy import deploy, prune, switch
+from frappe_manager import EnableDisableOptionsEnum
+from frappe_manager.commands.deploy import prune, switch
 from frappe_manager.commands.update import update
 from frappe_manager.output_manager import set_global_output_handler
 from frappe_manager.output_manager.base import OutputHandler
 from frappe_manager.site_manager.bench_config import BenchRuntime, FMBenchEnvType, RestartPolicyEnum
-from frappe_manager.site_manager.deploy_config_overlay import ConfigOverlayError
 from frappe_manager.site_manager.domain_conflict import DomainConflict, DomainConflictError
 from frappe_manager.site_manager.exceptions import BenchNotRunning
-from frappe_manager.site_manager.modules.bake import BakeError
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError
-from frappe_manager.site_manager.modules.transport import TransportError
 
 pytestmark = pytest.mark.timeout(15)
 
@@ -220,7 +215,7 @@ def world(tmp_path):
 
 IMMUTABLE_REFUSAL = (
     f"{BENCH} is image runtime; code, apps, Python/Node and developer mode are immutable -- "
-    "ship changes with 'fm deploy', or demote to an editable workspace "
+    "ship changes with 'fm bake' then 'fm switch', or demote to an editable workspace "
     f"(add --runtime mount, or run: fm update {BENCH} --runtime mount first). "
     "'fm update' on an image bench changes settings only (SSL/env/domains/policy)."
 )
@@ -1086,11 +1081,8 @@ class TestNoOptions:
 
 
 # ---------------------------------------------------------------------------
-# fm deploy / fm switch
+# fm switch / fm prune
 # ---------------------------------------------------------------------------
-
-BAKED_TAG = "local/mybench:20260101-abcdef"
-NGINX_TAG = "local/mybench-nginx:20260101-abcdef"
 
 NOT_IMAGE_RUNTIME_REFUSAL = (
     f"Bench '{BENCH}' is not in image runtime. To convert it: set runtime = 'image' "
@@ -1101,16 +1093,13 @@ NOT_IMAGE_RUNTIME_REFUSAL = (
 
 
 class DeployWorld:
-    """Drives the real ``deploy()``/``switch()``/``prune()`` with bake, transport and orchestration mocked."""
+    """Drives the real ``switch()``/``prune()`` with orchestration mocked."""
 
     def __init__(self, tmp_path: Path, stack: ExitStack) -> None:
         self.output = MagicMock(spec=OutputHandler)
         set_global_output_handler(self.output)
 
-        self.benches_root = tmp_path / "benches"
-        (self.benches_root / BENCH).mkdir(parents=True)
         self.tmp_path = tmp_path
-        self.events: list[tuple] = []
 
         self.services = MagicMock(name="services_manager")
 
@@ -1118,51 +1107,17 @@ class DeployWorld:
         self.bench.name = BENCH
         cfg = self.bench.bench_config
         cfg.runtime = BenchRuntime.image
-        cfg.registry = SimpleNamespace(distribution="registry")
-        cfg.deploy = SimpleNamespace(ssh_server=None)
         cfg.deploy_state = None
 
         self.bench_cls = MagicMock(name="Bench class")
         self.bench_cls.get_object.return_value = self.bench
 
-        self.bake_manager = MagicMock(name="bake_manager")
-        self.bake_manager.bake.return_value = BAKED_TAG
-        self.bake_cls = MagicMock(name="BakeManager", return_value=self.bake_manager)
-        self.bake_cls.nginx_image_tag.return_value = NGINX_TAG
-
         self.orchestrator = MagicMock(name="orchestrator")
-        self.orchestrator.deploy.side_effect = lambda *a, **kw: self.events.append(("deploy", a, kw))
         self.orchestrator_cls = MagicMock(name="DeployOrchestrator", return_value=self.orchestrator)
-
-        self.apply_config_overlays = MagicMock(name="apply_config_overlays")
-        self.build_docker_host = MagicMock(name="build_docker_host", return_value="ssh://user@host:22")
-        self.remote_docker_host = MagicMock(name="remote_docker_host", return_value=None)
-        self.remote_daemon_arch = MagicMock(name="remote_daemon_arch", return_value="arm64")
-        self.present_tags = MagicMock(name="present_tags", side_effect=lambda _client, tags: list(tags))
-        self.transport_save_load = MagicMock(
-            name="transport_save_load", side_effect=lambda *a, **kw: self.events.append(("transport", a, kw))
-        )
-
-        @contextmanager
-        def fake_docker_host_env(host):
-            self.events.append(("host_env:enter", host))
-            try:
-                yield
-            finally:
-                self.events.append(("host_env:exit", host))
 
         p = stack.enter_context
         p(patch("frappe_manager.commands.deploy.Bench", self.bench_cls))
-        p(patch("frappe_manager.commands.deploy.CLI_BENCHES_DIRECTORY", self.benches_root))
-        p(patch("frappe_manager.commands.deploy.apply_config_overlays", self.apply_config_overlays))
-        p(patch("frappe_manager.commands.deploy.BakeManager", self.bake_cls))
         p(patch("frappe_manager.commands.deploy.DeployOrchestrator", self.orchestrator_cls))
-        p(patch("frappe_manager.commands.deploy.build_docker_host", self.build_docker_host))
-        p(patch("frappe_manager.commands.deploy.remote_docker_host", self.remote_docker_host))
-        p(patch("frappe_manager.commands.deploy.remote_daemon_arch", self.remote_daemon_arch))
-        p(patch("frappe_manager.commands.deploy.present_tags", self.present_tags))
-        p(patch("frappe_manager.commands.deploy.transport_save_load", self.transport_save_load))
-        p(patch("frappe_manager.commands.deploy.docker_host_env", fake_docker_host_env))
 
     @property
     def config(self):
@@ -1181,9 +1136,6 @@ class DeployWorld:
         ctx.obj = {"services": self.services}
         return ctx
 
-    def deploy(self, **kwargs):
-        return deploy(self._ctx(), benchname=BENCH, **kwargs)
-
     def switch(self, **kwargs):
         return switch(self._ctx(), benchname=BENCH, **kwargs)
 
@@ -1198,17 +1150,6 @@ def ship(tmp_path):
 
 
 class TestMountRuntimeIsRefused:
-    def test_deploy_refuses_a_mount_runtime_bench(self, ship):
-        ship.config.runtime = BenchRuntime.mount
-
-        with pytest.raises(typer.Exit) as exc:
-            ship.deploy()
-
-        assert exc.value.exit_code == 1
-        assert ship.errors == [NOT_IMAGE_RUNTIME_REFUSAL]
-        ship.bake_cls.assert_not_called()
-        ship.orchestrator_cls.assert_not_called()
-
     def test_switch_refuses_a_mount_runtime_bench_before_resolving_a_tag(self, ship):
         ship.config.runtime = BenchRuntime.mount
 
@@ -1217,200 +1158,6 @@ class TestMountRuntimeIsRefused:
 
         assert exc.value.exit_code == 1
         assert ship.errors == [NOT_IMAGE_RUNTIME_REFUSAL]
-        ship.orchestrator_cls.assert_not_called()
-
-    def test_a_refused_deploy_never_writes_the_config_overlay(self, ship):
-        """WAS PINNED AS A SUSPICION, and it was a real defect: apply_config_overlays is a
-        PERSISTED rewrite of bench_config.toml, so running it before the runtime check left the
-        operator's config mutated on disk by a command that then exited 1. The runtime check now
-        gates the write, exactly as `fm bake` orders its own existence check."""
-        ship.config.runtime = BenchRuntime.mount
-
-        with pytest.raises(typer.Exit):
-            ship.deploy(config=["[build]\nplatform='linux/arm64'"])
-
-        ship.apply_config_overlays.assert_not_called()
-
-
-class TestDeployConfigOverlay:
-    def test_overlays_target_the_bench_config_file_and_keep_cli_order(self, ship):
-        ship.deploy(config=["a.toml", "b.toml"])
-
-        ship.apply_config_overlays.assert_called_once_with(
-            ship.benches_root / BENCH / CLI_BENCH_CONFIG_FILE_NAME, ["a.toml", "b.toml"]
-        )
-
-    def test_no_overlay_option_means_no_overlay_call(self, ship):
-        ship.deploy()
-
-        ship.apply_config_overlays.assert_not_called()
-
-    def test_the_bench_is_reloaded_so_the_deploy_sees_the_merged_config(self, ship):
-        """The bench has to be loaded BEFORE the overlay (the runtime check gates the write), so
-        that first load read the pre-overlay file: without the reload the deploy would run
-        against a config the overlay was supposed to change."""
-        ship.deploy(config=["a.toml"])
-
-        assert ship.bench_cls.get_object.call_count == 2
-        ship.apply_config_overlays.assert_called_once()
-        assert ship.orchestrator_cls.call_args.args == (ship.bench,)
-
-    def test_without_an_overlay_the_bench_is_loaded_once(self, ship):
-        ship.deploy()
-
-        assert ship.bench_cls.get_object.call_count == 1
-
-    def test_a_bad_overlay_aborts_the_deploy_before_anything_is_baked(self, ship):
-        """Was ``..._before_the_bench_is_loaded``: the bench is now loaded first on purpose (the
-        runtime check must gate the persisted overlay write). What matters is unchanged -- the
-        parser's message, exit 1, and nothing built or deployed."""
-        ship.apply_config_overlays.side_effect = ConfigOverlayError("inline TOML is not valid")
-
-        with pytest.raises(typer.Exit) as exc:
-            ship.deploy(config=["nope"])
-
-        assert exc.value.exit_code == 1
-        assert ship.errors == ["inline TOML is not valid"]
-        ship.bake_cls.assert_not_called()
-        ship.orchestrator_cls.assert_not_called()
-
-
-class TestDeployTargetTagResolution:
-    def test_the_deployed_tag_is_whatever_bake_returned_not_the_requested_tag(self, ship):
-        ship.bake_manager.bake.return_value = "local/mybench:normalized"
-
-        ship.deploy(tag="local/mybench:requested")
-
-        assert ship.bake_manager.bake.call_args.kwargs["tag"] == "local/mybench:requested"
-        assert ship.orchestrator.deploy.call_args.args == ("local/mybench:normalized",)
-
-    def test_without_a_tag_bake_auto_generates_it(self, ship):
-        ship.deploy()
-
-        assert ship.bake_manager.bake.call_args.kwargs == {"tag": None, "push": None, "deploy_platform": None}
-        assert ship.orchestrator.deploy.call_args.args == (BAKED_TAG,)
-
-    def test_image_option_overrides_the_repository_before_bake(self, ship):
-        ship.deploy(image="registry.example.com/team/mybench")
-
-        assert ship.config.image == "registry.example.com/team/mybench"
-        ship.bake_cls.assert_called_once_with(ship.config, output_handler=ship.output)
-
-    @pytest.mark.parametrize("push", [True, False, None])
-    def test_push_choice_is_forwarded_verbatim(self, ship, push):
-        ship.deploy(push=push)
-
-        assert ship.bake_manager.bake.call_args.kwargs["push"] is push
-
-    def test_rolling_and_keep_are_forwarded_to_the_orchestrator(self, ship):
-        ship.deploy(rolling=False, keep=3)
-
-        assert ship.orchestrator.deploy.call_args.kwargs == {"rolling": False, "prune_keep": 3}
-
-    def test_a_bake_failure_never_reaches_the_orchestrator(self, ship):
-        ship.bake_manager.bake.side_effect = BakeError("dockerfile missing")
-
-        with pytest.raises(typer.Exit) as exc:
-            ship.deploy()
-
-        assert exc.value.exit_code == 1
-        assert ship.errors == ["dockerfile missing"]
-        ship.orchestrator_cls.assert_not_called()
-
-    def test_a_deploy_failure_is_reported_as_exit_1(self, ship):
-        ship.orchestrator.deploy.side_effect = DeployError("pre-flight failed")
-
-        with pytest.raises(typer.Exit) as exc:
-            ship.deploy()
-
-        assert exc.value.exit_code == 1
-        assert ship.errors == ["pre-flight failed"]
-
-
-class TestDeployRemoteTargeting:
-    def test_without_remote_the_docker_host_comes_from_bench_config(self, ship):
-        ship.deploy()
-
-        ship.remote_docker_host.assert_called_once_with(ship.config.deploy)
-        ship.build_docker_host.assert_not_called()
-
-    def test_remote_option_builds_the_docker_host_from_the_flag(self, ship):
-        ship.deploy(remote="user@host")
-
-        ship.build_docker_host.assert_called_once_with("user@host", ship.config.deploy)
-        ship.remote_docker_host.assert_not_called()
-
-    def test_a_local_deploy_never_probes_a_remote_arch(self, ship):
-        ship.deploy()
-
-        ship.remote_daemon_arch.assert_not_called()
-        assert ship.bake_manager.bake.call_args.kwargs["deploy_platform"] is None
-
-    def test_the_remote_daemon_arch_becomes_the_bake_platform(self, ship):
-        ship.deploy(remote="user@host")
-
-        ship.remote_daemon_arch.assert_called_once_with("ssh://user@host:22")
-        assert ship.bake_manager.bake.call_args.kwargs["deploy_platform"] == "linux/arm64"
-
-    def test_an_unknown_remote_arch_leaves_the_platform_to_the_build_config(self, ship):
-        ship.remote_daemon_arch.return_value = None
-
-        ship.deploy(remote="user@host")
-
-        assert ship.bake_manager.bake.call_args.kwargs["deploy_platform"] is None
-
-    def test_the_orchestrator_runs_inside_the_docker_host_environment(self, ship):
-        ship.deploy(remote="user@host")
-
-        kinds = [event[0] for event in ship.events]
-        assert kinds == ["host_env:enter", "deploy", "host_env:exit"]
-        assert ship.events[0][1] == "ssh://user@host:22"
-
-
-class TestDeployTransport:
-    def test_registry_distribution_streams_nothing(self, ship):
-        ship.deploy()
-
-        ship.transport_save_load.assert_not_called()
-        ship.present_tags.assert_not_called()
-
-    def test_a_bench_without_a_registry_section_defaults_to_registry_distribution(self, ship):
-        ship.config.registry = None
-
-        ship.deploy()
-
-        ship.transport_save_load.assert_not_called()
-        ship.orchestrator.deploy.assert_called_once()
-
-    def test_save_load_streams_the_app_and_nginx_images_before_deploying(self, ship):
-        ship.config.registry = SimpleNamespace(distribution="save_load")
-
-        ship.deploy()
-
-        ship.bake_cls.nginx_image_tag.assert_called_once_with(BAKED_TAG)
-        ship.present_tags.assert_called_once_with(ship.bench.docker_client, [BAKED_TAG, NGINX_TAG])
-        assert ship.transport_save_load.call_args.args == ([BAKED_TAG, NGINX_TAG], ship.config.deploy)
-        assert ship.transport_save_load.call_args.kwargs == {"output": ship.output}
-        assert [event[0] for event in ship.events] == ["transport", "host_env:enter", "deploy", "host_env:exit"]
-
-    def test_only_locally_present_tags_are_streamed(self, ship):
-        ship.config.registry = SimpleNamespace(distribution="save_load")
-        ship.present_tags.return_value = [BAKED_TAG]
-        ship.present_tags.side_effect = None
-
-        ship.deploy()
-
-        assert ship.transport_save_load.call_args.args[0] == [BAKED_TAG]
-
-    def test_a_transport_failure_never_reaches_the_orchestrator(self, ship):
-        ship.config.registry = SimpleNamespace(distribution="save_load")
-        ship.transport_save_load.side_effect = TransportError("ssh: connection refused")
-
-        with pytest.raises(typer.Exit) as exc:
-            ship.deploy()
-
-        assert exc.value.exit_code == 1
-        assert ship.errors == ["ssh: connection refused"]
         ship.orchestrator_cls.assert_not_called()
 
 
@@ -1435,6 +1182,14 @@ class TestSwitchTargetTagResolution:
             "restore_db_dump": None,
             "prune_keep": None,
         }
+
+    def test_rolling_and_keep_are_forwarded_to_the_orchestrator(self, ship):
+        ship.config.deploy_state = _deploy_state()
+
+        ship.switch(tag="local/mybench:t9", rolling=False, keep=3)
+
+        assert ship.orchestrator.deploy.call_args.kwargs["rolling"] is False
+        assert ship.orchestrator.deploy.call_args.kwargs["prune_keep"] == 3
 
     def test_a_resolution_failure_is_surfaced_verbatim(self, ship):
         ship.config.deploy_state = _deploy_state()
@@ -1584,15 +1339,6 @@ class TestKeepFloor:
         assert exc.value.exit_code == 1
         assert ship.errors == [KEEP_FLOOR_REFUSAL]
         ship.orchestrator.prune_releases.assert_not_called()
-
-    def test_deploy_refuses_keep_below_one_before_it_bakes_anything(self, ship):
-        with pytest.raises(typer.Exit) as exc:
-            ship.deploy(keep=0)
-
-        assert exc.value.exit_code == 1
-        assert ship.errors == [KEEP_FLOOR_REFUSAL]
-        ship.bake_cls.assert_not_called()
-        ship.orchestrator.deploy.assert_not_called()
 
     def test_switch_refuses_keep_below_one(self, ship):
         with pytest.raises(typer.Exit) as exc:

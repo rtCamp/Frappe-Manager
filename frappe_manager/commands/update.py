@@ -50,8 +50,8 @@ def is_immutable_update_request(
     Image benches run a pre-built app image: Python/Node changes rebuild the venv
     in a mounted workspace that does not exist, app grafts edit that workspace,
     and developer mode would write DocType/app files into the ephemeral container
-    layer (silently lost on the next deploy). Ship such changes via ``fm deploy``,
-    or demote to an editable workspace first (``--runtime mount``).
+    layer (silently lost on the next deploy). Ship such changes via ``fm bake``
+    then ``fm switch``, or demote to an editable workspace first (``--runtime mount``).
     """
     return bool(python_version or node_version or apps or developer_mode == EnableDisableOptionsEnum.enable)
 
@@ -250,7 +250,7 @@ def update(
     """
     Change a bench's settings and runtime.
 
-    Not `bench update`: app code ships with fm deploy or fm switch. The bench must be running, and the mount-only options need an editable workspace, so demote an image bench with --runtime mount first.
+    Not `bench update`: app code ships with fm bake then fm switch. The bench must be running, and the mount-only options need an editable workspace, so demote an image bench with --runtime mount first.
     """
 
     services_manager = ctx.obj["services"]
@@ -271,7 +271,7 @@ def update(
     ):
         output.display_error(
             f"{bench.name} is image runtime; code, apps, Python/Node and developer mode are immutable -- "
-            "ship changes with 'fm deploy', or demote to an editable workspace "
+            "ship changes with 'fm bake' then 'fm switch', or demote to an editable workspace "
             f"(add --runtime mount, or run: fm update {bench.name} --runtime mount first). "
             "'fm update' on an image bench changes settings only (SSL/env/domains/policy).",
         )

@@ -11,7 +11,7 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
 
 ## Your first deploy
 
-`fm deploy`, `fm switch`, and `fm prune` operate on a bench in the **image runtime**. A `mount` bench (the default dev workspace) is converted once; after that, every release is one command.
+`fm bake`, `fm switch`, and `fm prune` operate on a bench in the **image runtime**, and all three run on the host that owns the bench. A `mount` bench (the default dev workspace) is converted once; after that, every release is a bake and a switch.
 
 1. **One-time conversion** of your working mount bench (if you don't have one yet, the [Quick Start](../getting-started/quick-start.md) gets you there). Give the bench a release image repo and flip its runtime in `bench_config.toml`:
 
@@ -34,13 +34,14 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
     fm switch mybench local/mybench:<tag>
     ```
 
-4. **Every release after that is one command:**
+4. **Every release after that is bake then switch:**
 
     ```bash
-    fm deploy mybench
+    fm bake mybench --tag local/mybench:v2
+    fm switch mybench local/mybench:v2
     ```
 
-    `fm deploy` is bake **and** switch in one: it builds a fresh image from the bench's app config, then runs the full switch pipeline against it. You'll see the bake print the tag, then the pipeline steps in order: fetch, a pre-flight boot check, the compose re-pin, the migrate decision, the worker drain, the DB dump, the migrate, the swap, a health gate, and finalize. If anything fails before the swap, the old stack never stopped serving.
+    `--tag` names the image ref outright, so the ref you bake is the ref you switch to; omit it and the bake generates and prints `local/mybench:<timestamp>-<git sha>` for you to pass along. The switch then runs the full pipeline, and you will see its steps in order: fetch, a pre-flight boot check, the compose re-pin, the migrate decision, the worker drain, the DB dump, the migrate, the swap, a health gate, and finalize. If anything fails before the swap, the old stack never stopped serving.
 
 5. **Verify it:**
 
@@ -50,7 +51,7 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
 
     The **deploys** section lists every release, newest first, with its migrate status and whether a DB dump was taken.
 
-That's the whole loop. The rest of this page explains what happened underneath; the pages linked at the bottom cover [rolling back](rollback.md), [remote targets and architectures](transports.md), and [every config key](../reference/configuration.md#deploy-tables).
+That's the whole loop. The rest of this page explains what happened underneath; the pages linked at the bottom cover [rolling back](rollback.md), [image transports and architectures](transports.md), and [every config key](../reference/configuration.md#deploy-tables).
 
 !!! tip "Starting fresh in image runtime"
     A bench can also be *born* deployed: `fm create prodbench --runtime image --image <repo:tag>` creates the site directly from a pre-built image (baked elsewhere, e.g. CI via `fm bake --apps ... --image ... --push`). No conversion needed.
@@ -60,17 +61,15 @@ That's the whole loop. The rest of this page explains what happened underneath; 
 ```mermaid
 flowchart LR
     W[bench workspace / app repos] -->|fm bake| I[immutable image\nrepo:timestamp-sha]
-    I -->|fm deploy = bake + switch| R[running bench]
     I -->|fm switch TAG| R
     R -->|fm switch --previous| P[previous release]
     R -->|fm prune / --keep N| H[trimmed history,\ndumps, image tags]
 ```
 
-- `fm bake <bench>`: build the image pair only, deploying nothing (prints both tags).
-- `fm deploy <bench>`: bake **and** run the full switch pipeline in one command.
+- `fm bake <bench> [--tag REF]`: build the image pair only, deploying nothing (prints both tags).
 - `fm switch <bench> <tag>`: deploy an already-built tag (no bake).
 - `fm switch <bench> --previous`: roll back (same pipeline pointed backwards, migrate disabled).
-- `fm prune <bench>`: remove old releases; also available inline as `--keep N` on deploy/switch.
+- `fm prune <bench>`: remove old releases; also available inline as `--keep N` on `fm switch`.
 
 Every deploy is recorded in the bench's `bench_config.toml` under `[deploy_state]`: the current tag, the previous tag (the rollback target), the timestamp of the last successful deploy, and one history row per release carrying its tag, timestamp, migrate status (`migrated`, `skipped`, `failed` or `rollback`) and the path of the DB dump taken. `fm info <bench>` shows the whole history in its **deploys** section.
 
@@ -161,7 +160,7 @@ The same engine powers `fm restart --rolling`: a zero-downtime web-tier recreate
 fm info mybench          # deploys section: every release, newest first, with migrate status
 fm prune mybench --dry-run
 fm prune mybench --keep 3
-fm deploy mybench --keep 7   # prune inline after a successful deploy (opt-in)
+fm switch mybench local/mybench:<tag> --keep 7   # prune inline after a successful switch (opt-in)
 ```
 
 Pruning splits two concerns:
@@ -185,12 +184,12 @@ Nothing a running or rollback-reachable release needs can be pruned.
 
     ---
 
-    Getting the image to where it runs: registry, airgapped save/load, remote daemons over SSH, and CPU architectures.
+    Getting the image to where it runs: registry pulls, airgapped save/load, CI pipelines, and CPU architectures.
 
 -   :lucide-settings-2:{ .lg .middle } &nbsp; **[Configuration](../reference/configuration.md#deploy-tables)**
 
     ---
 
-    Every `[build]`, `[switch]`, `[registry]`, and `[deploy]` key with its default.
+    Every `[build]`, `[switch]`, and `[registry]` key with its default.
 
 </div>

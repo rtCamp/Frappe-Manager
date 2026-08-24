@@ -22,7 +22,6 @@ MIGRATION_CHECK_WHITELIST_COMMANDS: list[str] = [
     "self update-images",
     "migrate",
     "bake",
-    "deploy",
     "switch",
     "rollback",
 ]

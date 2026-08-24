@@ -5,7 +5,7 @@ The runtime is the most consequential property of a bench: it decides **where th
 | | `mount` (default) | `image` |
 |---|---|---|
 | Code lives in | an editable **workspace** on your disk, bind-mounted into the containers | an immutable **Docker image**, baked ahead of time |
-| Change code by | editing files (changes are live) | building a new image and switching to it (`fm deploy` does both) |
+| Change code by | editing files (changes are live) | building a new image and switching to it (`fm bake` then `fm switch`) |
 | Made for | development, simple servers | production: repeatable deploys, instant rollbacks |
 
 ## Mount: the editable workspace
@@ -45,7 +45,7 @@ stateDiagram-v2
     mount --> image : config edit + fm switch BENCH TAG
     image --> mount : fm update --runtime mount
     mount --> mount : fm bake
-    image --> image : fm deploy / fm switch TAG / --previous
+    image --> image : fm bake then fm switch TAG / --previous
 ```
 
 Both directions preserve your site and database:

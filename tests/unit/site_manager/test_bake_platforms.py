@@ -1,8 +1,8 @@
-"""[build].platform contract (BakeManager.resolve_target_platform / effective_platform).
+"""[build].platform contract (BakeManager.resolve_target_platform).
 
-None = native (or the deploy target's arch in fm deploy). A single platform is
-honored, cross-building under emulation when it differs from the daemon arch --
-provision source only. Explicit config always beats deploy auto-detection.
+None = native. A single platform is honored, cross-building under emulation when it
+differs from the daemon arch -- provision source only, because a workspace snapshot
+already carries host-arch binaries.
 """
 
 import pytest
@@ -32,27 +32,6 @@ class TestResolveTargetPlatform:
     def test_unknown_daemon_arch_still_honors_target(self):
         # Introspection failure: pass the platform through; docker will enforce it.
         assert BakeManager.resolve_target_platform("linux/amd64", None, "provision") == ("linux/amd64", None)
-
-
-class TestEffectivePlatform:
-    def test_nothing_configured_nothing_detected(self):
-        assert BakeManager.effective_platform(None, None) == (None, None)
-
-    def test_deploy_target_fills_when_unconfigured(self):
-        platform, warning = BakeManager.effective_platform(None, "linux/amd64")
-        assert (platform, warning) == ("linux/amd64", None)
-
-    def test_explicit_config_wins_quietly_when_matching(self):
-        platform, warning = BakeManager.effective_platform("linux/amd64", "linux/amd64")
-        assert (platform, warning) == ("linux/amd64", None)
-
-    def test_explicit_config_beats_deploy_target_with_warning(self):
-        platform, warning = BakeManager.effective_platform("linux/arm64", "linux/amd64")
-        assert platform == "linux/arm64"
-        assert warning is not None and "differs from the deploy target" in warning
-
-    def test_config_without_deploy_target_is_quiet(self):
-        assert BakeManager.effective_platform("linux/arm64", None) == ("linux/arm64", None)
 
 
 class TestManifestArchitectures:

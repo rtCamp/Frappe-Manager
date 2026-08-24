@@ -1,16 +1,15 @@
-"""Deploy-config overlays for ``fm bake`` / ``fm deploy`` (#323).
+"""Bench-config overlays for ``fm bake`` and ``fm create`` (#323).
 
 Each ``--config`` value is a **path to a TOML file** or **inline TOML content**;
 multiple ``--config`` flags merge **left-to-right (later wins, deep merge)** into
-the bench's ``bench_config.toml`` before bake/deploy. This gives advanced config
-(`[deploy]`/`[build]`/`[registry]`/`[fc]`, hooks, ...) a first-class surface —
-including CI/GitOps configs committed in an app repo — without hand-editing the
-server-side toml.
+the bench's ``bench_config.toml`` before the bake. This gives advanced config
+(`[build]`/`[registry]`/`[fc]`, hooks, ...) a first-class surface, including
+CI configs committed in an app repo, without hand-editing the server-side toml.
 
 The overlay is **persisted**: it is merged into ``bench_config.toml`` (the single
-source of truth), so the bench config reflects exactly what was deployed.
+source of truth), so the bench config reflects exactly what was baked.
 Secrets should be written as ``${ENV_VAR}`` refs (resolved at use-time by the
-registry/transport layer), so they never land resolved in the file.
+registry layer), so they never land resolved in the file.
 """
 
 from pathlib import Path

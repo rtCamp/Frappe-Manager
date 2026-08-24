@@ -2,8 +2,8 @@
 
 The new schema splits the old monolithic deploy config into a top-level image
 identity, a `[switch]` migrate pipeline (SwitchConfig), a `[build]` image build
-config (BuildConfig), a `[registry]` transport config, and a `[deploy]` remote
-ship target (DeployConfig). These tests lock the round-trip of each.
+config (BuildConfig), and a `[registry]` transport config. These tests lock the
+round-trip of each.
 """
 
 import pytest
@@ -14,7 +14,6 @@ from frappe_manager.site_manager.bench_config import (
     BenchConfig,
     BenchRuntime,
     BuildConfig,
-    DeployConfig,
     FMBenchEnvType,
     RegistryConfig,
     SwitchConfig,
@@ -43,7 +42,6 @@ def _image_bench(path):
         switch=SwitchConfig(maintenance_mode_phases=["migrate"]),
         build=BuildConfig(base_image="ghcr.io/rtcamp/frappe-manager-frappe", python_version="3.11"),
         registry=RegistryConfig(registry="ghcr.io/acme", username="u", distribution="save_load"),
-        deploy=DeployConfig(ssh_server="host.example", ssh_user="frappe", ssh_port=2222),
     )
 
 
@@ -69,7 +67,6 @@ def test_missing_deploy_keys_loads_as_mount(tmp_path):
     assert bc.switch is None
     assert bc.build is None
     assert bc.registry is None
-    assert bc.deploy is None
 
 
 def test_image_deploy_roundtrip(tmp_path):
@@ -86,8 +83,6 @@ def test_image_deploy_roundtrip(tmp_path):
     assert bc.build.python_version == "3.11"
     assert bc.registry is not None
     assert bc.registry.distribution == "save_load"
-    assert bc.deploy is not None
-    assert bc.deploy.ssh_port == 2222
 
 
 def test_additive_optout_empty_phases_roundtrip(tmp_path):

@@ -605,9 +605,9 @@ Bench runtime model:
 
 ---
 
-### `[switch]`, `[build]`, `[registry]`, `[deploy]` {#deploy-tables}
+### `[switch]`, `[build]`, `[registry]` {#deploy-tables}
 
-Every key that drives the bake/switch pipeline (`fm bake`, `fm deploy`, `fm switch`, `fm prune`). For what the pipeline does with them, see the [Deployment overview](../deploy/index.md).
+Every key that drives the bake/switch pipeline (`fm bake`, `fm switch`, `fm prune`). For what the pipeline does with them, see the [Deployment overview](../deploy/index.md).
 
 **`[build]`** (read by `fm bake`):
 
@@ -620,7 +620,7 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm deploy`, `fm swit
 | `platform` | native / auto-detected | target architecture (see [Platforms](../deploy/transports.md#platforms-cpu-architectures)) |
 | `include` | `[]` | extra host paths baked in (`src` or `src:dest`) |
 
-**`[switch]`** (read by `fm deploy` / `fm switch`):
+**`[switch]`** (read by `fm switch`):
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -643,25 +643,13 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm deploy`, `fm swit
 
 | Key | Default | Meaning |
 |---|---|---|
-| `distribution` | `"registry"` | `"registry"` (push/pull) or `"save_load"` (airgap over SSH) |
+| `distribution` | `"registry"` | `"registry"` (`fm bake` pushes, `fm switch` pulls what is missing) or `"save_load"` (the image is already on the target daemon; `fm switch` never pulls and errors if it is absent) |
 | `registry` | (none) | registry host for `docker login`; omit to use ambient auth |
 | `username` | (none) | login username (env-substituted, e.g. `"${REGISTRY_USER}"`) |
 | `password` | (none) | login password/token (env-substituted, e.g. `"${REGISTRY_TOKEN}"`) |
 
-**`[deploy]`** (remote daemon target, read only by `fm deploy`):
-
-| Key | Default | Meaning |
-|---|---|---|
-| `ssh_server` | (none) | remote host to deploy to, as a bare hostname. fm assembles `ssh://<ssh_user>@<ssh_server>:<ssh_port>` itself and sets it as `DOCKER_HOST` |
-| `ssh_user` | `"frappe"` | SSH user in that URL |
-| `ssh_port` | `22` | SSH port in that URL |
-| `fm_source` | (none) | accepted and ignored: nothing reads it |
-| `benches_root` | (none) | accepted and ignored: nothing reads it |
-
-`fm deploy --remote HOST` also takes a bare host and overrides `ssh_server` only; `ssh_user` and `ssh_port` still come from this table. fm is never installed or run on the target: it drives the remote daemon over SSH and nothing else.
-
 !!! warning "An unknown key is a hard error"
-    `[switch]`, `[build]`, `[registry]`, `[deploy]`, `[workers]`, `[auth]`, `[monitoring]`, `[database]` and `[redis]` reject keys they do not define. A misspelled key is not ignored: every `fm` command that loads the bench fails with a validation error until you remove it.
+    `[switch]`, `[build]`, `[registry]`, `[workers]`, `[auth]`, `[monitoring]`, `[database]` and `[redis]` reject keys they do not define. A misspelled key is not ignored: every `fm` command that loads the bench fails with a validation error until you remove it.
 
 ---
 
@@ -771,7 +759,7 @@ Frappe is installed first whether or not it appears here.
 
 **File key:** `[deploy_state]` + `[[deploy_state.history]]`
 
-Image deploy state, managed by `fm deploy`/`fm switch`; do not edit.
+Image deploy state, managed by `fm switch`; do not edit.
 
 ```toml
 [deploy_state]

@@ -820,8 +820,8 @@ class BenchOrchestrator:
         has a reader, so no provenance field is needed: `false` short-circuits the `"auto"` probe,
         `schema_step` becomes false, and the maintenance window and the pre-migrate dump fall away
         with it, which also makes a zero-downtime rolling swap eligible. Left at its `True`
-        default, `fm deploy` and `fm switch` would migrate data that predates fm, against an app
-        set the parity check only warns about.
+        default, `fm switch` would migrate data that predates fm, against an app set the parity
+        check only warns about.
 
         It is written here, beside the site file, rather than after the pipeline. It is a setting,
         not a record of completion, and a create that dies in a later phase still leaves the

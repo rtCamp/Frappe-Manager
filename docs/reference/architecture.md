@@ -14,7 +14,7 @@ Many benches share one host, one database server and one proxy.
 Orthogonally, each bench runs in one of **two runtimes** ([`runtime`](configuration.md#runtime) in `bench_config.toml`):
 
 - **`mount`** (default): app code lives on the host in `workspace/frappe-bench/` and is live-mounted into the containers. Editable; built for development.
-- **`image`**: app code is baked into an immutable image (`fm bake`) and deploys happen by switching image tags (`fm deploy`, `fm switch`). Only mutable data is bound in from the workspace: the site directory, `common_site_config.json`, `apps.txt`, `logs` and `config`.
+- **`image`**: app code is baked into an immutable image (`fm bake`) and deploys happen by switching image tags (`fm switch`). Only mutable data is bound in from the workspace: the site directory, `common_site_config.json`, `apps.txt`, `logs` and `config`.
 
 The topology below is identical in both runtimes; only where the app code comes from differs. See the [Deployment guide](../deploy/index.md).
 

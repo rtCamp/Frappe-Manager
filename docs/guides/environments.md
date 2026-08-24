@@ -63,7 +63,7 @@ gunicorn -b 0.0.0.0:80 -w <workers> --worker-class=gthread --threads <threads>
 Every option on that line is **Gunicorn's own**, not an fm flag; fm only picks the values. It sizes `-w` from CPU count and RAM, `--threads` from CPU count, sets `--max-requests 1000` with a jitter of 10% of that, and takes `-t` from `http_timeout` (120 by default). See [Web Serving & Concurrency](../concepts/web-serving.md) for the sizing formula and the `common_site_config.json` keys that override each value.
 
 !!! warning "`--preload` rules out an in-place code reload"
-    fm always passes `--preload`, so Gunicorn imports `frappe.app` in the master process before forking workers. A HUP to the master therefore does not pick up changed Python, and restarting the web process takes the whole tier down for as long as the master needs to come back. Prod is not a place to edit code: ship it with `fm deploy`, or work on a `dev` bench.
+    fm always passes `--preload`, so Gunicorn imports `frappe.app` in the master process before forking workers. A HUP to the master therefore does not pick up changed Python, and restarting the web process takes the whole tier down for as long as the master needs to come back. Prod is not a place to edit code: ship it as an image with `fm bake` and `fm switch`, or work on a `dev` bench.
 
 ---
 

@@ -247,3 +247,43 @@ class TestGetBenchArgFromArgv:
         monkeypatch.setattr(sys, "argv", argv)
 
         assert get_bench_arg_from_argv(command_path) == expected
+
+
+class TestTheGlobalStackIsGatedOnTheCommand:
+    """Which commands make ``app_callback`` boot global-db + global-nginx-proxy.
+
+    The global stack is a bench RUNTIME dependency: a bench's schema lives in
+    global-db and the proxy is its only route in. Ensuring it is not free -- a
+    first run mints a DB password pair, allocates a Docker subnet and pulls
+    mariadb plus nginx-proxy -- so a command that never touches a bench must not
+    pay for it. This shares the ``cli_gate`` harness above because the decision
+    lives in the same group callback.
+    """
+
+    @staticmethod
+    def _checks(cli_gate) -> list[dict]:
+        calls = cli_gate.services_manager_cls.return_value.entrypoint_checks.call_args_list
+        return [call.kwargs for call in calls]
+
+    def test_bake_neither_creates_nor_starts_the_stack(self, cli_gate):
+        """A bake only builds an image: it never loads a Bench or a database manager.
+
+        On a throwaway CI runner the whole stack is discarded work, and creation also
+        needs a ``docker`` unix group the runner may not have.
+
+        ``--source bogus`` is rejected by ``fm bake``'s own guard, which runs after the
+        callback and before any docker work: it makes the callback observable without
+        letting a unit test build an image. A bare ``fm bake`` would prove nothing --
+        ``no_args_is_help`` makes ``is_cli_help_called`` true, which skips the whole
+        callback body and would pass with or without the gate.
+        """
+        result = cli_gate.invoke(["bake", "--apps", "frappe", "--source", "bogus"])
+
+        assert result.exit_code == 1, "guard should have refused the source, after the callback ran"
+        assert self._checks(cli_gate) == []
+
+    def test_a_bench_command_still_gets_the_stack_started(self, cli_gate):
+        """The default stays: anything that may touch a bench gets both services up."""
+        cli_gate.invoke(["list"])
+
+        assert self._checks(cli_gate) == [{"start": True}]

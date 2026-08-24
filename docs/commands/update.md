@@ -2,7 +2,7 @@
 
 Change a bench's settings and runtime.
 
-Not `bench update`: app code ships with fm deploy or fm switch. The bench must be running, and the mount-only options need an editable workspace, so demote an image bench with --runtime mount first.
+Not `bench update`: app code ships with fm bake then fm switch. The bench must be running, and the mount-only options need an editable workspace, so demote an image bench with --runtime mount first.
 
 **Usage**:
 

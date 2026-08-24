@@ -3,24 +3,11 @@ from typing import Annotated
 import typer
 from typer_examples import example
 
-from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY
 from frappe_manager.commands.arguments import RequiredBenchNameArgument
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_config import BenchRuntime
-from frappe_manager.site_manager.deploy_config_overlay import ConfigOverlayError, apply_config_overlays
-from frappe_manager.site_manager.modules.bake import BakeError, BakeManager
 from frappe_manager.site_manager.modules.deploy_orchestrator import DeployError, DeployOrchestrator
-from frappe_manager.site_manager.modules.transport import (
-    TransportError,
-    build_docker_host,
-    docker_host_env,
-    present_tags,
-    remote_daemon_arch,
-    remote_docker_host,
-    transport_save_load,
-)
 from frappe_manager.site_manager.site import Bench
-from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
 
 
 def _load_image_bench(ctx: typer.Context, benchname: str) -> Bench:
@@ -82,149 +69,6 @@ def _find_current_deploy_backup(state) -> "tuple[str | None, str | None]":
             f"Dumps live under <bench>/backups/deploy-*/ -- restore manually if one exists."
         )
     return entries[-1].backup, None
-
-
-@example(
-    "Bake and deploy the current bench code",
-    "{benchname}",
-    benchname="mybench",
-)
-@example(
-    "Deploy to a remote host",
-    "{benchname} --remote deploy.example.com",
-    detail="The image is baked for the remote daemon's architecture, not the local one.",
-    benchname="mybench",
-)
-@example(
-    "Deploy and trim old releases in one go",
-    "{benchname} --keep 3",
-    benchname="mybench",
-)
-def deploy(
-    ctx: typer.Context,
-    benchname: Annotated[
-        str,
-        typer.Argument(
-            help="Name of the bench to deploy.",
-            autocompletion=sites_autocompletion_callback,
-            callback=sitename_callback,
-        ),
-    ],
-    image: Annotated[
-        str | None,
-        typer.Option("--image", help="Image repository to bake into, e.g. local/mybench.", show_default=False),
-    ] = None,
-    tag: Annotated[
-        str | None,
-        typer.Option(
-            "--tag",
-            help="Full image tag to build, instead of the generated <repo>:<timestamp>-<sha>.",
-            show_default=False,
-        ),
-    ] = None,
-    remote: Annotated[
-        str | None,
-        typer.Option(
-            "--remote",
-            help="Host of the remote Docker daemon to deploy to, e.g. deploy.example.com. The SSH user and port come from the deploy config, which also supplies the default host.",
-            show_default=False,
-        ),
-    ] = None,
-    push: Annotated[
-        bool | None,
-        typer.Option(
-            "--push/--no-push",
-            help="Push the baked image to the registry. On by default when registry.distribution is 'registry'.",
-            show_default=False,
-        ),
-    ] = None,
-    rolling: Annotated[
-        bool | None,
-        typer.Option(
-            "--rolling/--no-rolling",
-            help="Force or forbid the rolling web swap. The default decides per deploy, rolling only when running old and new containers side by side is safe.",
-            show_default=False,
-        ),
-    ] = None,
-    keep: Annotated[
-        int | None,
-        typer.Option(
-            "--keep",
-            help="After a successful deploy, prune old releases keeping the newest N (minimum 1). Same as running fm prune afterwards.",
-            show_default=False,
-        ),
-    ] = None,
-    config: Annotated[
-        list[str],
-        typer.Option(
-            "--config",
-            help="TOML overlay, either a file path or inline TOML, merged into the bench's bench_config.toml before the bake and left there. Repeatable; later --config wins.",
-            show_default=False,
-        ),
-    ] = [],
-):
-    """
-    Bake an immutable image from the bench and deploy it.
-
-    fm bake and fm switch in one command. The bench must already be in image runtime; a mount-runtime bench is refused.
-    """
-    output = get_global_output_handler()
-    _reject_impossible_keep(output, keep)
-    # The runtime check comes FIRST: apply_config_overlays is a persisted rewrite
-    # of bench_config.toml, and running it before the check left a deploy that
-    # was then refused (mount runtime) with the operator's config already
-    # mutated on disk. Same ordering as `fm bake`. The reload is what keeps the
-    # overlay effective -- the first load read the pre-overlay file.
-    bench = _load_image_bench(ctx, benchname)
-    if config:
-        try:
-            apply_config_overlays(CLI_BENCHES_DIRECTORY / benchname / CLI_BENCH_CONFIG_FILE_NAME, config)
-        except ConfigOverlayError as e:
-            output.display_error(str(e))
-            raise typer.Exit(1) from e
-        bench = _load_image_bench(ctx, benchname)
-
-    if image:
-        bench.bench_config.image = image
-
-    registry = bench.bench_config.registry
-    remote_config = bench.bench_config.deploy
-    distribution = registry.distribution if registry else "registry"
-
-    docker_host = build_docker_host(remote, remote_config) if remote else remote_docker_host(remote_config)
-
-    # Bake for where the image will RUN: a remote target's daemon arch fills
-    # in when [build].platform is unset (explicit config always wins).
-    deploy_platform = None
-    if docker_host:
-        remote_arch = remote_daemon_arch(docker_host)
-        if remote_arch:
-            deploy_platform = f"linux/{remote_arch}"
-
-    try:
-        bake_manager = BakeManager(bench.bench_config, output_handler=output)
-        built_tag = bake_manager.bake(tag=tag, push=push, deploy_platform=deploy_platform)
-    except BakeError as e:
-        output.display_error(str(e))
-        raise typer.Exit(1) from e
-
-    # save_load (airgap): transport the images to the remote daemon before deploy.
-    if distribution == "save_load":
-        try:
-            nginx_tag = BakeManager.nginx_image_tag(built_tag)
-            tags = present_tags(bench.docker_client, [built_tag, nginx_tag])
-            transport_save_load(tags, remote_config, output=output)
-        except TransportError as e:
-            output.display_error(str(e))
-            raise typer.Exit(1) from e
-
-    try:
-        with docker_host_env(docker_host):
-            orchestrator = DeployOrchestrator(bench, output_handler=output)
-            orchestrator.deploy(built_tag, rolling=rolling, prune_keep=keep)
-    except DeployError as e:
-        output.display_error(str(e))
-        raise typer.Exit(1) from e
 
 
 @example(
@@ -345,7 +189,7 @@ def switch(
 @example(
     "Prune old releases now",
     "{benchname}",
-    detail="fm deploy and fm switch can do the same inline with --keep N.",
+    detail="fm switch can do the same inline with --keep N.",
     benchname="mybench",
 )
 @example(

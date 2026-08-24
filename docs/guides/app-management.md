@@ -19,7 +19,7 @@ fm update mybench --apps erpnext
 FM clones the app, installs its Python and Node dependencies, installs it to the site, builds that app's assets, runs `bench migrate`, and cycles the web and worker processes so the new code is live.
 
 !!! note "Mount benches only"
-    `--apps` needs an editable workspace (the default `mount` runtime). On an `image` bench, app code is baked into the image: ship changes with `fm deploy`, or demote first with `fm update mybench --runtime mount`. See the [Deployment guide](../deploy/index.md).
+    `--apps` needs an editable workspace (the default `mount` runtime). On an `image` bench, app code is baked into the image: ship changes with `fm bake` then `fm switch`, or demote first with `fm update mybench --runtime mount`. See the [Deployment guide](../deploy/index.md).
 
 Install a private app by passing a token (or `GITHUB_TOKEN` in the environment):
 

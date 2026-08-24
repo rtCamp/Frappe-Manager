@@ -516,14 +516,22 @@ def app_callback(
 
             services_manager.init()
 
-            # Don't start services for migrate command (migration handles its own service lifecycle)
-            should_start_services = invoked_command != "migrate"
-
-            try:
-                services_manager.entrypoint_checks(start=should_start_services)
-            except ServicesNotCreated as e:
-                services_manager.remove_itself()
-                output.exit(f"Not able to create services. {e}")
+            # The global stack (global-db, global-nginx-proxy) is a bench RUNTIME
+            # dependency: a bench's schema lives in global-db and the proxy is its only
+            # route in, so a command that acts on a running bench needs both up. `bake`
+            # touches neither -- it never loads a Bench, a database manager or the proxy,
+            # it only builds an image -- so it needs the stack neither started NOR
+            # created. That is what makes it usable on a throwaway runner: creation mints
+            # DB passwords, allocates a subnet and pulls mariadb + nginx-proxy, all of
+            # which a build discards. `migrate` owns its own service lifecycle, so the
+            # stack is ensured for it but not started. `switch` is deliberately absent
+            # from both lists: it runs bench migrate against global-db.
+            if invoked_command != "bake":
+                try:
+                    services_manager.entrypoint_checks(start=invoked_command != "migrate")
+                except ServicesNotCreated as e:
+                    services_manager.remove_itself()
+                    output.exit(f"Not able to create services. {e}")
 
             ctx.obj["services"] = services_manager
             ctx.obj["fm_config_manager"] = fm_config_manager
@@ -538,7 +546,7 @@ from frappe_manager.commands.code import code
 # Import extracted complex commands (Step 5)
 from frappe_manager.commands.create import create
 from frappe_manager.commands.delete import delete
-from frappe_manager.commands.deploy import deploy, prune, switch
+from frappe_manager.commands.deploy import prune, switch
 from frappe_manager.commands.info import info
 from frappe_manager.commands.list import list as list_benches
 from frappe_manager.commands.logs import logs
@@ -572,7 +580,6 @@ app.command(name="auth")(auth)
 app.command(name="ngrok")(ngrok)
 app.command(name="migrate")(migrate)
 app.command(name="bake", no_args_is_help=True)(bake)
-app.command(name="deploy", no_args_is_help=True)(deploy)
 app.command(name="switch", no_args_is_help=True)(switch)
 app.command(name="prune", no_args_is_help=True)(prune)
 

@@ -38,7 +38,7 @@ The list and the connecting user are stored as a `devcontainer.metadata` label o
 | `--work-dir` | Directory VS Code opens. Defaults to `/workspace/frappe-bench`. |
 
 !!! warning "Image-mode benches"
-    An `image` bench has no live-mounted workspace, so edits made through `fm code` live only in that container and are lost on the next `fm deploy` or `fm switch`. `fm code` warns when you do it. Use it to reproduce and observe; ship real changes through the [deployment pipeline](../deploy/index.md).
+    An `image` bench has no live-mounted workspace, so edits made through `fm code` live only in that container and are lost on the next `fm switch`. `fm code` warns when you do it. Use it to reproduce and observe; ship real changes through the [deployment pipeline](../deploy/index.md).
 
 ## How the debugger works
 

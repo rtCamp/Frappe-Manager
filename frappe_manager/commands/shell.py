@@ -161,8 +161,8 @@ def shell(
     if bench.bench_config.runtime == BenchRuntime.image:
         output.warning(
             "Image-mode shell is ephemeral: the app image has no workspace mount, "
-            "so edits made here do not persist and are lost on the next switch/deploy. "
-            "Use 'fm deploy' to ship code changes.",
+            "so edits made here do not persist and are lost on the next switch. "
+            "Use 'fm bake' then 'fm switch' to ship code changes.",
         )
 
     available_services = bench.get_available_services()

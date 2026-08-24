@@ -73,27 +73,9 @@ class BakeManager:
             bench_config.node_version = build.node_version
 
     @staticmethod
-    def effective_platform(configured: str | None, deploy_target: str | None) -> tuple[str | None, str | None]:
-        """``(platform, mismatch_warning)`` -- precedence for the bake target.
-
-        Explicit ``[build].platform`` always wins; the deploy target's detected
-        arch fills in only when nothing is configured. A configured platform
-        that differs from the deploy target gets a warning (the operator said
-        so; fm says what that means).
-        """
-        if configured:
-            warning = None
-            if deploy_target and deploy_target != configured:
-                warning = (
-                    f"build.platform={configured} differs from the deploy target's architecture "
-                    f"({deploy_target}); baking {configured} per config -- it will fail the "
-                    f"deploy's pre-flight boot check unless the target can emulate it."
-                )
-            return configured, warning
-        return deploy_target, None
-
-    @staticmethod
-    def resolve_target_platform(platform: str | None, daemon_arch: str | None, source: str) -> tuple[str | None, str | None]:
+    def resolve_target_platform(
+        platform: str | None, daemon_arch: str | None, source: str
+    ) -> tuple[str | None, str | None]:
         """``(platform, cross_info)`` for a bake.
 
         ``None`` = build native (no --platform, no message). Otherwise honored;
@@ -133,8 +115,7 @@ class BakeManager:
         repo = self.bench_config.image
         if not repo:
             raise BakeError(
-                "No image configured. Set top-level image (or pass --image) "
-                "before baking.",
+                "No image configured. Set top-level image (or pass --image) before baking.",
             )
         timestamp = datetime.now(UTC).strftime("%Y%m%d%H%M%S")
         return f"{repo}:{timestamp}-{self._git_short_sha()}"
@@ -230,8 +211,7 @@ class BakeManager:
             if candidate.exists():
                 return candidate
         raise BakeError(
-            "Could not find Docker/frappe/runtime.Dockerfile "
-            f"(looked in: {', '.join(str(c) for c in candidates)}).",
+            f"Could not find Docker/frappe/runtime.Dockerfile (looked in: {', '.join(str(c) for c in candidates)}).",
         )
 
     def _nginx_dockerfile(self) -> Path:
@@ -244,8 +224,7 @@ class BakeManager:
             if candidate.exists():
                 return candidate
         raise BakeError(
-            "Could not find Docker/nginx/Dockerfile "
-            f"(looked in: {', '.join(str(c) for c in candidates)}).",
+            f"Could not find Docker/nginx/Dockerfile (looked in: {', '.join(str(c) for c in candidates)}).",
         )
 
     @staticmethod
@@ -386,11 +365,7 @@ class BakeManager:
         manifests = data.get("manifests") if isinstance(data, dict) else None
         if not manifests:
             return None
-        arches = {
-            entry.get("platform", {}).get("architecture")
-            for entry in manifests
-            if isinstance(entry, dict)
-        }
+        arches = {entry.get("platform", {}).get("architecture") for entry in manifests if isinstance(entry, dict)}
         arches -= {None, "unknown"}
         return arches or None
 
@@ -427,14 +402,12 @@ class BakeManager:
                 f"the base for {platform} yourself and point build.base_image at it.",
             )
 
-    def bake(self, tag: str | None = None, push: bool | None = None, deploy_platform: str | None = None) -> str:
+    def bake(self, tag: str | None = None, push: bool | None = None) -> str:
         """Provision -> build the runtime image (+ optional registry push). Returns the built tag.
 
         ``tag`` overrides the auto-generated ``<repo>:<ts>-<sha>`` when given.
         ``push`` forces (``True``) or suppresses (``False``) the registry push;
         ``None`` (default) pushes when ``[registry].distribution == 'registry'``.
-        ``deploy_platform`` is the deploy target's detected arch (fm deploy
-        with a remote): used when ``[build].platform`` is unset.
         """
         base_image = self.resolve_base_image()
         tag = tag or self.resolve_tag()
@@ -446,13 +419,9 @@ class BakeManager:
         build_config = self.bench_config.build
         source_kind = (build_config.source if build_config else None) or "provision"
         configured = build_config.platform if build_config else None
-        requested, mismatch = self.effective_platform(configured, deploy_platform)
-        if mismatch:
-            self.output.warning(mismatch)
-        platform, cross_info = self.resolve_target_platform(requested, self._daemon_arch(), source_kind)
+        platform, cross_info = self.resolve_target_platform(configured, self._daemon_arch(), source_kind)
         if platform:
-            origin = "from config" if configured else "auto-detected from deploy target"
-            self.output.print(f"Target platform: {platform} ({origin})")
+            self.output.print(f"Target platform: {platform} (from config)")
         if cross_info:
             self.output.warning(cross_info)
         if platform:
@@ -643,7 +612,7 @@ class BakeManager:
             if entry.is_symlink():
                 link = str(entry.readlink())
                 if link.startswith(container_root):
-                    real = frappe_bench_dir / link[len(container_root):].lstrip("/")
+                    real = frappe_bench_dir / link[len(container_root) :].lstrip("/")
                 elif Path(link).is_absolute():
                     real = Path(link)
                 else:

@@ -1126,8 +1126,7 @@ class BuildConfig(BaseModel):
     platform: str | None = Field(
         None,
         description="Target build platform (e.g. 'linux/amd64'). None = the build daemon's "
-        "native arch -- except in `fm deploy` with a remote target, which auto-detects the "
-        "remote daemon's arch. Cross-arch bakes run under emulation (needs binfmt/Rosetta).",
+        "native arch. Cross-arch bakes run under emulation (needs binfmt/Rosetta).",
     )
     include: list[str] = Field(
         default_factory=list,
@@ -1147,20 +1146,6 @@ class RegistryConfig(BaseModel):
     distribution: str = Field(
         "registry", description="Image transport: 'registry' (push/pull) or 'save_load' (docker save/load over SSH)."
     )
-
-
-class DeployConfig(BaseModel):
-    """Remote ship target for `fm deploy --remote` (`[deploy]`; `DOCKER_HOST=ssh://` primary)."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    ssh_server: str | None = Field(None, description="Remote server hostname or IP address.")
-    ssh_user: str = Field("frappe", description="SSH username for the remote server.")
-    ssh_port: int = Field(22, description="SSH port number.")
-    fm_source: str | None = Field(
-        None, description="fm source for remote install (git URL or local path); ssh-fallback only."
-    )
-    benches_root: str | None = Field(None, description="Root directory for benches on the remote host.")
 
 
 class NewRelicConfig(BaseModel):
@@ -1268,7 +1253,6 @@ class BenchConfig(BaseModel):
         description="Mount runtime: workspace was seeded from this baked image at create "
         "(extracted; no clone/install/build). Provenance record.",
     )
-    deploy: DeployConfig | None = Field(None, description="Remote ship target for --remote deploys ([deploy]).")
     database: dict[str, DatabaseConfig] | None = Field(
         None,
         description="External database per site, keyed by site name ([database.\"<site>\"]). "
@@ -1486,7 +1470,7 @@ class BenchConfig(BaseModel):
         return all_domains
 
     def export_to_toml(self, path: Path) -> bool:
-        """Export to TOML: `environment`, [[apps]], [monitoring], [switch], [build], [registry], [deploy], [ssl],
+        """Export to TOML: `environment`, [[apps]], [monitoring], [switch], [build], [registry], [ssl],
         [database."<site>"], [redis]. Nested models round-trip through model_dump(exclude_none=True)."""
         exclude = {
             "root_path",
@@ -1640,7 +1624,6 @@ class BenchConfig(BaseModel):
             "workers": WorkersConfig(**dict(data["workers"])) if data.get("workers") else None,
             "build": BuildConfig(**dict(data["build"])) if data.get("build") else None,
             "registry": RegistryConfig(**dict(data["registry"])) if data.get("registry") else None,
-            "deploy": DeployConfig(**dict(data["deploy"])) if data.get("deploy") else None,
             "database": {str(k): DatabaseConfig(**dict(v)) for k, v in data["database"].items()}
             if data.get("database")
             else None,

@@ -264,7 +264,7 @@ def test_attach_never_reaches_a_writing_step(tmp_path, monkeypatch, _probe_says_
 def test_attach_persists_switch_migrate_false(tmp_path, monkeypatch, _probe_says_attach, runtime):
     """Without this the promise expires at the end of the create.
 
-    `[switch].migrate` defaults to True, so the next `fm deploy` or `fm switch` would migrate data
+    `[switch].migrate` defaults to True, so the next `fm switch` would migrate data
     that predates fm, against an app set the parity check only warns about.
     """
     if runtime == "image":
@@ -491,7 +491,7 @@ def test_attach_writes_migrate_false_before_the_pipeline_can_fail():
     It is a setting, not a record of completion. A create that dies in a later phase still
     leaves the bench directory and its `[database]` entry on disk, so writing the flag last
     produced exactly the bench it exists to prevent: attached to someone else's data with
-    migrate still on, which `fm deploy` would then act on. Measured live: a phase-5 failure
+    migrate still on, which `fm switch` would then act on. Measured live: a phase-5 failure
     left the flag unwritten.
     """
     import inspect

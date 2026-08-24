@@ -63,8 +63,8 @@ def test_default_platform_no_warning(tmp_path):
 
 
 def test_apply_build_overrides_never_warns_on_platform(tmp_path):
-    # Platform handling lives at bake-time (resolve_target_platform /
-    # effective_platform); overrides application is warning-free.
+    # Platform handling lives at bake-time (resolve_target_platform); overrides
+    # application is warning-free.
     out = _Out()
     BakeManager.apply_build_overrides(_bench(tmp_path, build=BuildConfig(platform="linux/arm64")), out)
     assert out.warnings == []

@@ -2,58 +2,77 @@
 
 ## Transports: getting the image to where it runs
 
-```mermaid
-flowchart LR
-    subgraph build [build machine]
-        B[fm bake] --> LI[local image]
-        P[fm deploy pipeline]
-    end
-    subgraph target [target daemon]
-        RD[docker daemon] --> RUN[bench containers]
-    end
-    LI -->|same machine| RD
-    LI -->|registry: docker push| REG[(registry)] -->|fetch: docker pull| RD
-    LI -->|save_load: docker save over ssh docker load| RD
-    P -.->|every deploy step| DH["DOCKER_HOST=ssh://user@host:port"]
-    DH -.-> RD
+A deploy is two commands, run on the host that owns the bench:
+
+```bash
+fm bake mybench --tag ghcr.io/acme/mybench:v42 --push
+fm switch mybench ghcr.io/acme/mybench:v42
 ```
 
-Configured in `bench_config.toml`:
+`--tag` takes a **full image ref**, so the tag you switch to is the tag you typed: nothing has to be read back out of the bake output. Omit `--tag` and the bake generates `<repo>:<timestamp>-<git sha>` from the bench's `image` repo and prints it, which you then pass to `fm switch`.
+
+Whether anything has to be transported at all depends on where those two commands run.
+
+```mermaid
+flowchart LR
+    B["fm bake --tag REF"] --> LI[image pair on the build daemon]
+    LI -->|"same host: fm switch finds it, no pull"| RD[target daemon]
+    LI -->|"push after bake"| REG[(registry)] -->|"distribution = registry: fm switch pulls"| RD
+    LI -->|"distribution = save_load: docker save over ssh docker load"| RD
+    RD --> RUN[bench containers]
+```
+
+**Same host, the single-server case.** `fm switch` begins by making sure both tags are on the daemon it talks to, and returns immediately when they already are. A bake on that same machine has just put them there, so the switch never pulls and you need no registry at all: skip `--push`, leave `[registry]` at its defaults, and an `image = "local/mybench"` repo is enough.
+
+**Bake here, run there.** Now the image has to cross the gap, and `[registry] distribution` in `bench_config.toml` says how:
 
 ```toml
 [registry]
-distribution = "registry"    # push after bake; the target pulls during fetch
-# distribution = "save_load" # airgap: docker save | ssh <target> docker load
+distribution = "registry"    # push after bake; fm switch pulls what is missing
+# distribution = "save_load" # the image is already on the target daemon; fm switch never pulls
 # registry = "ghcr.io"       # only needed for docker login
 # username = "ci-bot"        # ${VAR} env substitution supported
 # password = "${REGISTRY_TOKEN}"
-
-[deploy]
-ssh_server = "prod.example.com"   # bare host; fm builds the ssh:// URL itself
-ssh_user   = "frappe"
-ssh_port   = 22
 ```
 
-With a remote configured, `fm deploy` bakes on the local daemon, then drives every deploy step (fetch, pre-flight, migrate, swap, finalize) on the remote daemon over `DOCKER_HOST=ssh://`; the fm CLI is not used on the target. The remote is always named as a **bare host**, never a URL: both `ssh_server` and `--remote` take `prod.example.com`, and fm assembles `ssh://<ssh_user>@<host>:<ssh_port>` itself (defaulting to `frappe` and `22`). `--remote` overrides the host only; the user and port still come from `[deploy]`. Only `fm deploy` reads `[deploy]`; `fm switch` and `fm prune` act on whatever daemon fm itself talks to. Registry mode encodes the registry host in the top-level `image` (e.g. `ghcr.io/acme/mybench`); `[registry] registry` exists only for `docker login` (fm logs in first when credentials are set, otherwise ambient docker auth applies). Every `[registry]` and `[deploy]` key with its default is in the [configuration reference](../reference/configuration.md#deploy-tables).
+`distribution = "registry"` (the default): `fm bake` pushes, which is what `--push` does and what this mode turns on by default, and `fm switch` pulls any tag missing on the target daemon, logging in first when `username` and `password` are set. The registry host is part of the image ref itself (`ghcr.io/acme/mybench`); `[registry] registry` exists only to name what `docker login` talks to. Omit the credentials to use whatever ambient auth the daemon already has.
 
-Both transports carry two tags: the app image and its paired `-nginx` assets image. In `save_load` mode the transport happens before the pipeline starts, and `fetch` will not fall back to a pull: a tag missing on the target daemon is a hard error telling you to transport it first.
+`distribution = "save_load"` (airgap): fm never pulls. A tag missing on the target daemon is a hard error telling you to transport it first, so you ship the image yourself before switching:
+
+```bash
+docker save ghcr.io/acme/mybench:v42 ghcr.io/acme/mybench-nginx:v42 | ssh prod docker load
+ssh prod "fm switch mybench ghcr.io/acme/mybench:v42"
+```
+
+The loud failure is the point of this mode: a missing image means the transport did not happen, and quietly pulling something from a registry instead would be the wrong answer.
+
+Both modes carry a **pair** of tags. Every bake builds the app image and its paired `-nginx` assets image, which is the same tag with `-nginx` appended to the repo. Only the app tag is ever named on the command line; fm derives the second one, and both are what `fm switch` fetches, deploys and prunes together. That is why the `docker save` above names two tags.
 
 ## Platforms (CPU architectures)
 
-Images are architecture-specific. fm resolves the bake target as:
+Images are architecture-specific, and a bake has to target the architecture the image will *run* on, not necessarily the one it builds on. fm resolves the bake target as:
 
-1. `[build].platform` if set (explicit always wins; a mismatch with the deploy target warns),
-2. else, for `fm deploy` with a remote: the **remote daemon's architecture**, auto-detected (the image must match where it *runs*, not where it builds),
-3. else the build daemon's native arch.
+1. [`[build].platform`](../reference/configuration.md#deploy-tables) if set,
+2. else the build daemon's native arch.
 
-Cross-arch bakes (e.g. building `linux/amd64` on an Apple Silicon Mac) run the whole bake (provisioning containers and image builds) under `DOCKER_DEFAULT_PLATFORM`, which requires emulation (Rosetta/binfmt; Docker Desktop ships it) and only works with `[build].source = "provision"` (a `workspace` snapshot contains host-arch binaries, so fm refuses it). Before provisioning starts, fm checks the **base image** against the target architecture (a local copy of the right arch passes) and fails fast with the list of published architectures when the registry manifest provably lacks it. fm bakes single-platform images; it does not produce multi-arch manifest lists.
+So when the machine you bake on and the machine you run on differ, an Apple Silicon laptop building for an amd64 server, set `[build].platform = "linux/amd64"` explicitly. Nothing detects the target for you.
+
+Cross-arch bakes run the whole bake (provisioning containers and image builds) under `DOCKER_DEFAULT_PLATFORM`, which requires emulation (Rosetta/binfmt; Docker Desktop ships it) and only works with `[build].source = "provision"` (a `workspace` snapshot contains host-arch binaries, so fm refuses it). Before provisioning starts, fm checks the **base image** against the target architecture (a local copy of the right arch passes) and fails fast with the list of published architectures when the registry manifest provably lacks it. fm bakes single-platform images; it does not produce multi-arch manifest lists.
 
 ## Running fm in CI
 
 There is no dedicated CI integration or ready-made pipeline recipe yet. But fm has no special host requirements: it runs anywhere Docker and your SSH keys exist, including a CI runner.
 
-The typical shape: one `fm deploy <bench> --remote prod.example.com` on the runner (or plain `fm deploy <bench>` with the `[deploy]` remote above) bakes, pushes (registry mode) and drives the whole switch pipeline against the production daemon over `DOCKER_HOST=ssh://`.
+The shape is the same two commands, split across the two machines. Bake and push on the runner, then run the switch on the server that owns the bench:
 
-For image-only jobs there is also a bench-less bake: `fm bake --apps frappe --apps erpnext:version-15 --image ghcr.io/acme/mybench --push` builds and pushes without any bench on the runner.
+```bash
+# on the runner: no bench needed, just the app list and a ref you chose
+fm bake --apps frappe --apps erpnext:version-15 --tag ghcr.io/acme/mybench:$GIT_SHA --push
 
-The remote path never runs the fm CLI on the target server: every step goes through the target's Docker daemon over `DOCKER_HOST=ssh://`. So the target needs only SSH access and a running Docker daemon (in registry mode the daemon must also be able to reach the registry); whether fm happens to be installed there does not matter.
+# on the server that owns the bench
+ssh prod "fm switch mybench ghcr.io/acme/mybench:$GIT_SHA"
+```
+
+Because you picked the ref up front, the two halves need nothing from each other but that string: no output parsing, no handoff file.
+
+The bench-less bake (`--apps` or `--config` with no bench name) builds and pushes without any bench, compose project or site on the runner, so the runner needs Docker and a registry login and nothing else. The switch half has to run where the bench lives: it rewrites that bench's `bench_config.toml` and `docker-compose.yml`, drains its workers, dumps its database into the bench's `backups/` directory and moves its traffic. All of that is local filesystem and local daemon work, which is why the target runs fm itself over plain SSH.

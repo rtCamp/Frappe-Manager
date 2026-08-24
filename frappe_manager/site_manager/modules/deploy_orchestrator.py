@@ -355,8 +355,7 @@ class DeployOrchestrator:
         """Run a raw ``docker compose`` subcommand against the bench compose.
 
         The wrapper's ``up`` cannot express ``--scale``, so the rolling path
-        builds compose commands directly. Inherits ``DOCKER_HOST`` from the
-        surrounding deploy env, so it targets the same (possibly remote) daemon."""
+        builds compose commands directly."""
         cmd = list(self.docker.compose.docker_compose_cmd) + list(args)
         return run_command_with_exit_code(cmd, stream=False, capture_output=True)
 
@@ -849,14 +848,19 @@ class DeployOrchestrator:
         return _parse_installed_apps(getattr(result, "stdout", None))
 
     def _install_new_apps(self) -> None:
-        """Install apps baked into the image but not yet on the site (``[deploy].install_apps``).
+        """Install apps baked into the image but not yet on the site (``[switch].install_apps``).
 
-        ``config.apps_list`` is populated by bake's ``_derive_apps_list`` on the
-        ``fm deploy`` path; on ``switch``/``rollback`` (no bake) it is empty and
-        nothing is reconciled. Runs in the new container during finalize (under
-        maintenance when migrating). Defensive: only installs when the installed
-        set is read reliably (must contain ``frappe``) so a parse failure skips
-        rather than blindly reinstalling every app."""
+        Currently unreachable, and deliberately left in place rather than deleted. The
+        wanted set comes from ``config.apps_list``, which ``fm bake`` populates in memory
+        only: it is deliberately not persisted to ``bench_config.toml`` (see
+        ``BakeManager._derive_apps_list``). That was fine while one command baked and
+        switched in a single process, but with ``fm bake`` and ``fm switch`` as separate
+        commands the switch always loads an empty list, so nothing is reconciled. Making
+        it work again means deriving the baked set from the new image itself rather than
+        from bench config. Runs in the new container during finalize (under maintenance
+        when migrating). Defensive: only installs when the installed set is read reliably
+        (must contain ``frappe``) so a parse failure skips rather than blindly
+        reinstalling every app."""
         if not self.switch_config.install_apps:
             return
         wanted = [a.name for a in (self.config.apps_list or [])]
@@ -1373,7 +1377,7 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         self._require_image_mode()
         tag = self._current_deployed_tag()
         if not tag:
-            raise DeployError("No deployed image tag recorded; deploy first (fm deploy / fm switch).")
+            raise DeployError("No deployed image tag recorded; bake and switch first (fm bake, then fm switch).")
         if not self._frappe_running():
             raise DeployError("Web tier is not running; use a plain start/restart instead of --rolling.")
 

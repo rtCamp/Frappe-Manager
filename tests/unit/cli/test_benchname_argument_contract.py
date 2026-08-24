@@ -130,15 +130,6 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         autocompletion=sites_autocompletion_callback,
         callback=None,
     ),
-    # `deploy` REQUIRES a bench and says so in its own words.
-    "fm deploy": BenchnameSpec(
-        help="Name of the bench to deploy.",
-        default=None,
-        required=True,
-        type_name="text",
-        autocompletion=sites_autocompletion_callback,
-        callback=sitename_callback,
-    ),
     # `switch` / `prune`: canonical help and canonical callback, but REQUIRED.
     # These are the dangerous ones -- identical help text, different arity. A
     # dedup that reuses the canonical alias here would make the argument optional

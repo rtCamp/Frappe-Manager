@@ -59,7 +59,6 @@ nav = [
     { "fm code"     = "commands/code.md" },
     { "fm update"   = "commands/update.md" },
     { "fm bake"     = "commands/bake.md" },
-    { "fm deploy"   = "commands/deploy.md" },
     { "fm switch"   = "commands/switch.md" },
     { "fm prune"    = "commands/prune.md" },
     { "fm reset"    = "commands/reset.md" },
