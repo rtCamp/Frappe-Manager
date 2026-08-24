@@ -1102,19 +1102,28 @@ class SwitchConfig(BaseModel):
         return self
 
 
-def _drop_removed(table, *keys: str) -> dict:
-    """A config table with keys removed in this version filtered out.
+# Keys that used to be valid in a config table and no longer exist on its model.
+# Removing a field from any model below means adding ONE line here: the loader
+# filters the key so a bench that still carries it keeps loading, and the 0.20.0
+# bench migration (which reads this same table) strips it from the file.
+#
+# Both halves are needed. These models are ``extra="forbid"`` and
+# ``import_from_toml`` splats the whole TOML table into them, so a leftover key
+# makes EVERY command that loads the bench die on a pydantic error, and the gate
+# that offers to migrate is skipped for whitelisted commands (``list``, ``bake``,
+# ``switch``) -- one un-migrated bench would take `fm list` down for all of them.
+# The migration is what stops the key propagating, since ``export_to_toml`` cannot
+# write a field the model does not have.
+REMOVED_CONFIG_KEYS: dict[str, frozenset[str]] = {
+    "switch": frozenset({"search_replace"}),
+    "registry": frozenset({"distribution"}),
+}
 
-    These models are ``extra="forbid"`` and ``import_from_toml`` splats the whole
-    TOML table into them, so a key that used to be valid makes EVERY command that
-    loads such a bench die on a pydantic error. The 0.20.0 bench migration strips
-    these keys from disk, but the gate that offers to migrate is skipped for
-    whitelisted commands (``list``, ``bake``, ``switch``), so one un-migrated bench
-    would otherwise break `fm list` for all of them. Filtering here keeps a stale
-    file loadable; the migration is what stops it propagating, since ``export_to_toml``
-    can no longer write a field the model does not have.
-    """
-    return {k: v for k, v in dict(table).items() if k not in keys}
+
+def _table(data: dict, name: str) -> dict:
+    """``data[name]`` as a plain dict, minus any key removed in this version."""
+    removed = REMOVED_CONFIG_KEYS.get(name, frozenset())
+    return {k: v for k, v in dict(data[name]).items() if k not in removed}
 
 
 class BuildConfig(BaseModel):
@@ -1635,16 +1644,14 @@ class BenchConfig(BaseModel):
             "image": data.get("image", None),
             "base_image": data.get("base_image", None),
             "seed_image": data.get("seed_image", None),
-            "switch": SwitchConfig(**_drop_removed(data["switch"], "search_replace")) if data.get("switch") else None,
-            "workers": WorkersConfig(**dict(data["workers"])) if data.get("workers") else None,
-            "build": BuildConfig(**dict(data["build"])) if data.get("build") else None,
-            "registry": RegistryConfig(**_drop_removed(data["registry"], "distribution"))
-            if data.get("registry")
-            else None,
+            "switch": SwitchConfig(**_table(data, "switch")) if data.get("switch") else None,
+            "workers": WorkersConfig(**_table(data, "workers")) if data.get("workers") else None,
+            "build": BuildConfig(**_table(data, "build")) if data.get("build") else None,
+            "registry": RegistryConfig(**_table(data, "registry")) if data.get("registry") else None,
             "database": {str(k): DatabaseConfig(**dict(v)) for k, v in data["database"].items()}
             if data.get("database")
             else None,
-            "redis": RedisConfig(**dict(data["redis"])) if data.get("redis") else None,
+            "redis": RedisConfig(**_table(data, "redis")) if data.get("redis") else None,
         }
 
         return cls(**input_data)

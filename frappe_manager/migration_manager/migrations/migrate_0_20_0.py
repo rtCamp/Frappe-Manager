@@ -50,6 +50,7 @@ from frappe_manager.migration_manager.migration_helpers import MigrationBench
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager.context_managers import spinner
 from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo, MariaDBManager
+from frappe_manager.site_manager.bench_config import REMOVED_CONFIG_KEYS
 from frappe_manager.utils.helpers import get_template_path
 
 # Dropped from the engine command list: it was only ever needed on MariaDB
@@ -99,14 +100,6 @@ def rewrite_global_db_service(engine: MutableMapping, image: str = GLOBAL_DB_IMA
 
 class MigrationV0200(MigrationBase):
     version = Version("0.20.0")
-
-    # Keys removed from the config models in 0.20.0. Their tables are extra="forbid",
-    # so BenchConfig.import_from_toml filters them to keep a stale file loadable; this
-    # is what actually takes them off disk so they stop being carried forward.
-    REMOVED_KEYS: tuple[tuple[str, str], ...] = (
-        ("switch", "search_replace"),
-        ("registry", "distribution"),
-    )
 
     def migrate_bench(self, bench: MigrationBench):
         # Bench nginx config applies to every bench, before the admin-tools
@@ -237,13 +230,14 @@ class MigrationV0200(MigrationBase):
     def _drop_removed_config_keys(self, bench: MigrationBench):
         """Strip keys whose fields no longer exist from bench_config.toml.
 
+        Driven by ``REMOVED_CONFIG_KEYS``, the same table the loader filters on, so a
+        field deleted from a config model needs one line there and nothing here.
         ``[switch].search_replace`` never did anything (the switch pipeline runs no
         search-and-replace) and ``[registry].distribution`` restated something the daemon
-        can be asked directly: whether the tag is already present. Both are gone from the
-        models, and because those tables are ``extra="forbid"`` a leftover key on disk
-        would fail validation. ``BenchConfig.import_from_toml`` filters them so a bench
-        that has not migrated yet still loads; removing them here is what stops the file
-        carrying them forward.
+        can be asked directly: whether the tag is already present. Because those tables are
+        ``extra="forbid"``, a leftover key on disk would fail validation, so the loader
+        filters it to keep an un-migrated bench loadable; removing it here is what stops
+        the file carrying it forward.
         """
         config_path = bench.path / "bench_config.toml"
         if not config_path.exists():
@@ -251,11 +245,14 @@ class MigrationV0200(MigrationBase):
 
         doc = tomlkit.parse(config_path.read_text())
         dropped = []
-        for table, key in self.REMOVED_KEYS:
+        for table, keys in REMOVED_CONFIG_KEYS.items():
             section = doc.get(table)
-            if isinstance(section, MutableMapping) and key in section:
-                del section[key]
-                dropped.append(f"[{table}].{key}")
+            if not isinstance(section, MutableMapping):
+                continue
+            for key in sorted(keys):
+                if key in section:
+                    del section[key]
+                    dropped.append(f"[{table}].{key}")
 
         if not dropped:
             return

@@ -227,8 +227,10 @@ def test_a_bench_config_carrying_keys_removed_in_0_20_0_still_loads(tmp_path):
 
     cfg = BenchConfig.import_from_toml(path)
 
-    assert cfg.switch is not None and cfg.switch.migrate is True
-    assert cfg.registry is not None and cfg.registry.registry == "ghcr.io/acme"
+    assert cfg.switch is not None
+    assert cfg.switch.migrate is True
+    assert cfg.registry is not None
+    assert cfg.registry.registry == "ghcr.io/acme"
     assert not hasattr(cfg.switch, "search_replace")
     assert not hasattr(cfg.registry, "distribution")
 
