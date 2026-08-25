@@ -16,8 +16,10 @@ from pathlib import Path
 
 import tomlkit
 
+from frappe_manager.exceptions import FrappeManagerException
 
-class ConfigOverlayError(Exception):
+
+class ConfigOverlayError(FrappeManagerException):
     """Raised when a --config value cannot be read or parsed as TOML."""
 
 

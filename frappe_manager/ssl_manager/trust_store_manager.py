@@ -131,8 +131,7 @@ class TrustStoreManager:
 
         else:
             raise RuntimeError(
-                "No supported CA trust update tool found. "
-                "Install libnss3-tools (Debian/Ubuntu) or nss-tools (Fedora)."
+                "No supported CA trust update tool found. Install libnss3-tools (Debian/Ubuntu) or nss-tools (Fedora)."
             )
 
         self.output.debug("CA installed into Linux system trust store")

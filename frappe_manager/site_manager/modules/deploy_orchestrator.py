@@ -27,7 +27,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from frappe_manager.docker import DockerException
-from frappe_manager.exceptions import NonInteractiveError
+from frappe_manager.exceptions import FrappeManagerException, NonInteractiveError
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
@@ -75,7 +75,7 @@ def external_dump_tls_hint(site: str) -> str:
     )
 
 
-class DeployError(Exception):
+class DeployError(FrappeManagerException):
     """Raised when an image deploy cannot proceed or fails."""
 
 

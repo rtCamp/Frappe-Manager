@@ -209,9 +209,7 @@ class DevCertificateService:
         )
 
         # fullchain = leaf cert + CA cert (chain format required by nginx)
-        fullchain_path.write_bytes(
-            leaf_cert.public_bytes(serialization.Encoding.PEM) + self.ca_cert_path.read_bytes()
-        )
+        fullchain_path.write_bytes(leaf_cert.public_bytes(serialization.Encoding.PEM) + self.ca_cert_path.read_bytes())
 
         self.output.print(f"Dev certificate generated for {certificate.domain}")
         return key_path, fullchain_path

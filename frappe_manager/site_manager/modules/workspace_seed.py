@@ -16,13 +16,14 @@ the host; for a create it is seeded by the normal create flow.
 from datetime import UTC, datetime
 from pathlib import Path
 
+from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.utils.docker import fix_host_path_ownership
 
 # Everything code/runtime the image owns; deliberately excludes site data.
 SEED_PATHS = ("apps", "env", ".uv", ".fnm", "sites/assets")
 
 
-class WorkspaceSeedError(Exception):
+class WorkspaceSeedError(FrappeManagerException):
     """Workspace materialization from an image cannot proceed."""
 
 

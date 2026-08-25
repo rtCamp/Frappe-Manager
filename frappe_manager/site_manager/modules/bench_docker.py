@@ -144,10 +144,8 @@ class BenchDockerOps:
         # Production Let's Encrypt certs are trusted by default and don't need this.
         from frappe_manager.docker import DockerVolumeMount, DockerVolumeType
         from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
-        has_dev_ssl = any(
-            cert.ssl_type == SUPPORTED_SSL_TYPES.dev
-            for cert in self.config.ssl_certificates
-        )
+
+        has_dev_ssl = any(cert.ssl_type == SUPPORTED_SSL_TYPES.dev for cert in self.config.ssl_certificates)
         if has_dev_ssl:
             ca_cert_host = CLI_SERVICES_DIRECTORY / "nginx-proxy" / "ssl" / "dev" / "ca" / "rootCA.pem"
             if ca_cert_host.exists():
@@ -234,9 +232,7 @@ class BenchDockerOps:
             if rolling:
                 self.compose_file_manager.remove_container_name(spec.name)
             else:
-                self.compose_file_manager.set_container_name(
-                    spec.name, f"{prefix}{CLI_DEFAULT_DELIMETER}{spec.name}"
-                )
+                self.compose_file_manager.set_container_name(spec.name, f"{prefix}{CLI_DEFAULT_DELIMETER}{spec.name}")
 
         self.compose_file_manager.write_to_file()
         self.output.print(f"Rendered image-mode compose pinned to {deploy_tag}")
@@ -413,7 +409,9 @@ class BenchDockerOps:
                 timeout=timeout,
                 stream=True,
             )
-            self.output.live_lines(cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE)
+            self.output.live_lines(
+                cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE
+            )
             self.output.print("Removed bench containers")
         else:
             self.output.warning("Bench compose file not found. Skipping containers removal.")
@@ -598,7 +596,9 @@ class BenchDockerOps:
             return
 
         output = self.docker_client.compose.logs(services=services_list, follow=follow, stream=True)
-        self.output.live_lines(cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE)
+        self.output.live_lines(
+            cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE
+        )
 
     def frappe_logs_till_start(self) -> None:
         """

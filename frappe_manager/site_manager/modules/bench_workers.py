@@ -209,8 +209,7 @@ class BenchWorkers:
             # For dev SSL, workers need the CA cert mounted so outbound HTTPS
             # requests trust the self-signed dev certificate. Resolve this once.
             has_dev_ssl = any(
-                cert.ssl_type == SUPPORTED_SSL_TYPES.dev
-                for cert in self.bench.bench_config.ssl_certificates
+                cert.ssl_type == SUPPORTED_SSL_TYPES.dev for cert in self.bench.bench_config.ssl_certificates
             )
             ca_host = None
             if has_dev_ssl:

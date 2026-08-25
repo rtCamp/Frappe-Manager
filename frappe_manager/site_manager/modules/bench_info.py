@@ -13,7 +13,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-
 from frappe_manager.docker import DockerException
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
@@ -253,7 +252,9 @@ class BenchInfo:
 
         card = railcard.Card(
             self.bench_name,
-            railcard.bench_meta(active, config.runtime.value, config.environment_type.value, config.restart_policy.value),
+            railcard.bench_meta(
+                active, config.runtime.value, config.environment_type.value, config.restart_policy.value
+            ),
             active,
             link=f"{protocol}://{self.bench_name}",
         )

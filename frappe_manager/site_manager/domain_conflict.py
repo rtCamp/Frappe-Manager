@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from frappe_manager import CLI_BENCHES_DIRECTORY
+from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.site_manager.bench_config import BenchConfig
 
 
@@ -15,7 +16,7 @@ class DomainConflict:
         return f"'{self.domain}' → already used as {type_str} by bench '{self.owner_bench}'"
 
 
-class DomainConflictError(Exception):
+class DomainConflictError(FrappeManagerException):
     def __init__(self, conflicts: list[DomainConflict]):
         self.conflicts = conflicts
         conflict_msgs = "\n  - ".join(str(c) for c in conflicts)

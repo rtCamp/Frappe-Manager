@@ -1,4 +1,7 @@
-class ComposeFileException(Exception):
+from frappe_manager.exceptions import FrappeManagerException
+
+
+class ComposeFileException(FrappeManagerException):
     """Exception raised for Docker Compose file errors."""
 
     def __init__(self, error_msg: str, exception: Exception | None = None):
@@ -8,7 +11,7 @@ class ComposeFileException(Exception):
         super().__init__(error_msg)
 
 
-class ComposeServiceNotFound(Exception):
+class ComposeServiceNotFound(FrappeManagerException):
     """Exception raised when a Docker Compose service is not found."""
 
     def __init__(self, service_name: str, message: str = "Compose service not found.") -> None:
@@ -16,7 +19,7 @@ class ComposeServiceNotFound(Exception):
         super().__init__(self.msg)
 
 
-class ComposeSecretNotFoundError(Exception):
+class ComposeSecretNotFoundError(FrappeManagerException):
     """Exception raised when a Docker Compose secret value is not found."""
 
     def __init__(self, secret_name, compose_file_path: str, message="Docker Compose at {} secret value not found"):

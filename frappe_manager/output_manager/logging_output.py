@@ -343,5 +343,3 @@ class LoggingOutputHandler(OutputHandler):
             if os_exit:
                 sys.exit(1)
             raise typer.Exit(1)
-
-

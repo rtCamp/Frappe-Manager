@@ -436,8 +436,7 @@ class BenchSiteManager:
                 raise BenchOperationException(self.bench_name, lock_refusal(database_config.name)) from e
             failure = BenchOperationException(
                 self.bench_name,
-                f"Failed to provision schema {database_config.name} for {site} on"
-                f" {database_config.host}.",
+                f"Failed to provision schema {database_config.name} for {site} on {database_config.host}.",
             )
             failure.set_output(e.output)
             raise failure from e

@@ -4,10 +4,11 @@ from pathlib import Path
 from rich.box import Box
 
 from frappe_manager.docker.subprocess_output import SubprocessOutput
+from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.utils import helpers
 
 
-class BenchException(Exception):
+class BenchException(FrappeManagerException):
     """Base exception for all bench-related errors."""
 
     def __init__(
@@ -161,11 +162,33 @@ class BenchConfigValidationError(BenchException):
 
 
 class AdminToolsFailedToStart(BenchException):
-    """Raised when admin tools (mailpit, adminer, redis-queue-dashboard) fail to start."""
+    """Raised when admin tools (mailpit, adminer, redis-queue-dashboard) fail to start.
 
-    def __init__(self, bench_name, message="Failed to start admin tools."):
+    ``compose_path`` and ``services`` carry the same context the old
+    ``DockerComposeProjectFailedToStartError`` did, so callers keep naming what failed. That
+    class lived in ``frappe_manager/compose_project/``, a directory holding nothing but its
+    own exceptions file after the ``ComposeProject`` class it served was removed. Admin tools
+    were its only caller, and this file already owned the concern.
+    """
+
+    def __init__(self, bench_name, compose_path=None, services=None, message="Failed to start admin tools"):
         self.bench_name = bench_name
-        self.message = message
+        self.compose_path = compose_path
+        self.services = list(services or [])
+        named = f" ({', '.join(self.services)})" if self.services else ""
+        self.message = f"{message.rstrip('.')}{named}."
+        super().__init__(self.bench_name, self.message)
+
+
+class AdminToolsFailedToStop(BenchException):
+    """Raised when admin tools containers fail to stop."""
+
+    def __init__(self, bench_name, compose_path=None, services=None, message="Failed to stop admin tools"):
+        self.bench_name = bench_name
+        self.compose_path = compose_path
+        self.services = list(services or [])
+        named = f" ({', '.join(self.services)})" if self.services else ""
+        self.message = f"{message.rstrip('.')}{named}."
         super().__init__(self.bench_name, self.message)
 
 

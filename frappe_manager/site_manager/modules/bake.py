@@ -24,6 +24,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from frappe_manager.docker import DockerClient
+from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
@@ -35,7 +36,7 @@ from frappe_manager.utils.docker import host_run_cp, run_command_with_exit_code
 from frappe_manager.utils.site import read_bench_app_refs, read_bench_node_version, read_bench_python_version
 
 
-class BakeError(Exception):
+class BakeError(FrappeManagerException):
     """Raised when a bake cannot proceed or fails."""
 
 

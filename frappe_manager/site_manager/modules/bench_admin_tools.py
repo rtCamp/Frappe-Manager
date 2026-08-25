@@ -17,7 +17,7 @@ from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.docker import ComposeFile, DockerClient, DockerException
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.site_manager.exceptions import AdminToolsFailedToStart, BenchException
+from frappe_manager.site_manager.exceptions import AdminToolsFailedToStart, AdminToolsFailedToStop, BenchException
 from frappe_manager.utils.helpers import get_container_name_prefix, get_current_fm_version, get_template_path
 
 if TYPE_CHECKING:
@@ -227,9 +227,13 @@ class BenchAdminTools:
                 force_recreate=force_recreate_container,
             )
         except DockerException as e:
-            from frappe_manager.compose_project.exceptions import DockerComposeProjectFailedToStartError
-
-            raise DockerComposeProjectFailedToStartError(self.compose_path, [])
+            # `from e` so docker's own reason survives: without it the user is told only
+            # that admin tools failed, and the actual compose error is discarded.
+            raise AdminToolsFailedToStart(
+                self.bench_name,
+                compose_path=self.compose_path,
+                services=self.compose_file_manager.get_services_list(),
+            ) from e
 
         self.wait_till_services_started()
         self.save_nginx_location_config()
@@ -243,12 +247,11 @@ class BenchAdminTools:
         try:
             self.docker_client.compose.stop(services=[], timeout=2)
         except DockerException as e:
-            from frappe_manager.compose_project.exceptions import DockerComposeProjectFailedToStopError
-
-            raise DockerComposeProjectFailedToStopError(
-                self.compose_path,
-                self.compose_file_manager.get_services_list(),
-            )
+            raise AdminToolsFailedToStop(
+                self.bench_name,
+                compose_path=self.compose_path,
+                services=self.compose_file_manager.get_services_list(),
+            ) from e
 
     def disable(self):
         """Disable admin tools by stopping services and removing all configuration."""

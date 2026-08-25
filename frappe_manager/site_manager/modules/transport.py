@@ -21,9 +21,10 @@ missing and cannot be pulled, the pull failure says so.
 import os
 
 from frappe_manager.docker import DockerClient
+from frappe_manager.exceptions import FrappeManagerException
 
 
-class TransportError(Exception):
+class TransportError(FrappeManagerException):
     """Raised when an image transport step fails."""
 
 

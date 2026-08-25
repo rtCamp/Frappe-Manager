@@ -1,10 +1,11 @@
 from datetime import datetime
 
 from frappe_manager import CLI_FM_CONFIG_PATH
+from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.utils.helpers import format_ssl_certificate_time_remaining
 
 
-class SSLCertificateNotFoundError(Exception):
+class SSLCertificateNotFoundError(FrappeManagerException):
     """Exception raised when a certificate is not found."""
 
     def __init__(self, domain, message="No ssl certificate is issued for {}."):
@@ -13,7 +14,7 @@ class SSLCertificateNotFoundError(Exception):
         super().__init__(self.message)
 
 
-class SSLDNSChallengeCredentailsNotFound(Exception):
+class SSLDNSChallengeCredentailsNotFound(FrappeManagerException):
     """Exception raised for dns method required credential not found."""
 
     def __init__(self, message: str = f"Cloudflare dns credentials not found in {CLI_FM_CONFIG_PATH}"):
@@ -21,7 +22,7 @@ class SSLDNSChallengeCredentailsNotFound(Exception):
         super().__init__(message)
 
 
-class SSLCertificateChallengeFailed(Exception):
+class SSLCertificateChallengeFailed(FrappeManagerException):
     """Exception raised when a certificate generation failed."""
 
     def __init__(
@@ -33,7 +34,7 @@ class SSLCertificateChallengeFailed(Exception):
         super().__init__(msg)
 
 
-class SSLCertificateGenerateFailed(Exception):
+class SSLCertificateGenerateFailed(FrappeManagerException):
     """Exception raised when a certificate generation failed."""
 
     def __init__(
@@ -47,7 +48,7 @@ class SSLCertificateGenerateFailed(Exception):
         super().__init__(self.message)
 
 
-class SSLCertificateNotDueForRenewalError(Exception):
+class SSLCertificateNotDueForRenewalError(FrappeManagerException):
     """Exception raised when attempting to renew a certificate that is not due for renewal."""
 
     def __init__(

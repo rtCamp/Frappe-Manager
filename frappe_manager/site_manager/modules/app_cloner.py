@@ -18,12 +18,13 @@ from pathlib import Path
 
 from git import GitCommandError, Repo  # type: ignore
 
+from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.logger import ctx_submit, get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.site_manager.bench_config import AppConfig, extract_app_python_module_name
 
 
-class AppClonerError(Exception):
+class AppClonerError(FrappeManagerException):
     """Custom exception for app cloning errors."""
 
 

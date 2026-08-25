@@ -32,7 +32,6 @@ from frappe_manager.site_manager.modules.app_cloner import AppCloner, AppClonerE
 from frappe_manager.utils.docker import parameters_to_options
 
 
-
 def merge_app_overrides(current: list[AppConfig], overrides: list[AppConfig]) -> list[AppConfig]:
     """Merge override apps into an app list by RESOLVED module name.
 
@@ -45,6 +44,7 @@ def merge_app_overrides(current: list[AppConfig], overrides: list[AppConfig]) ->
     for app in overrides:
         merged[app.name] = app
     return list(merged.values())
+
 
 class BenchAppManager:
     """
@@ -563,9 +563,7 @@ fi
         # apps.txt on disk is the truth for what the bench currently has --
         # bench_config.apps_list can be stale/empty (e.g. image-created benches).
         apps_txt = self.frappe_bench_dir / "sites" / "apps.txt"
-        current_names = (
-            [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()] if apps_txt.exists() else []
-        )
+        current_names = [n.strip() for n in apps_txt.read_text().splitlines() if n.strip()] if apps_txt.exists() else []
         if not current_names:
             current_names = [a.name for a in self.bench_config.apps_list]
         existing = set(current_names)

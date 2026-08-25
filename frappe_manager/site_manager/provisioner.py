@@ -21,6 +21,7 @@ import tempfile
 import time
 from pathlib import Path
 
+from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.site_manager.bench_config import (
     AppConfig,
@@ -31,7 +32,7 @@ from frappe_manager.site_manager.hooks import app_has_build_hooks, hook_env, hoo
 from frappe_manager.site_manager.modules.bench_app import BenchAppManager
 
 
-class ProvisionHookError(Exception):
+class ProvisionHookError(FrappeManagerException):
     """Raised when a build hook fails during provisioning."""
 
 

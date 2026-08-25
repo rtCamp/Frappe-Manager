@@ -216,9 +216,7 @@ def redis_service_specs(config) -> tuple[ServiceSpec, ...]:
     ``enabled=True`` so dropping ``[redis]`` clears the profile again.
     """
     enabled = config.redis is None
-    return tuple(
-        ServiceSpec(name=name, image=None, managed_binds=(), enabled=enabled) for name in BENCH_REDIS_SERVICES
-    )
+    return tuple(ServiceSpec(name=name, image=None, managed_binds=(), enabled=enabled) for name in BENCH_REDIS_SERVICES)
 
 
 def bench_service_specs(config, ctx: RenderContext = DEFAULT_CONTEXT) -> tuple[ServiceSpec, ...]:
@@ -232,22 +230,21 @@ def bench_service_specs(config, ctx: RenderContext = DEFAULT_CONTEXT) -> tuple[S
     if shape is None:
         return ()
     db_env = db_cli_env(config)
-    return (
-        tuple(
-            ServiceSpec(
-                name=name,
-                image=shape.image(name),
-                managed_binds=tuple(shape.binds()),
-                rolling=meta["rolling"],
-                env=db_env if meta["db_cli"] else (),
-            )
-            for name, meta in BENCH_CODE_SERVICES.items()
+    return tuple(
+        ServiceSpec(
+            name=name,
+            image=shape.image(name),
+            managed_binds=tuple(shape.binds()),
+            rolling=meta["rolling"],
+            env=db_env if meta["db_cli"] else (),
         )
-        + redis_service_specs(config)
-    )
+        for name, meta in BENCH_CODE_SERVICES.items()
+    ) + redis_service_specs(config)
 
 
-def worker_service_specs(config, worker_names: list[str], ctx: RenderContext = DEFAULT_CONTEXT) -> tuple[ServiceSpec, ...]:
+def worker_service_specs(
+    config, worker_names: list[str], ctx: RenderContext = DEFAULT_CONTEXT
+) -> tuple[ServiceSpec, ...]:
     """Specs for the workers compose services. Pure function of (config, ctx).
 
     Every worker runs backup jobs (a desk "Download Backup" is one), so they all

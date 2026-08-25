@@ -1,4 +1,7 @@
-class ServicesComposeNotExist(Exception):
+from frappe_manager.exceptions import FrappeManagerException
+
+
+class ServicesComposeNotExist(FrappeManagerException):
     """Exception raised when services Docker Compose file does not exist."""
 
     def __init__(self, message):
@@ -6,7 +9,7 @@ class ServicesComposeNotExist(Exception):
         super().__init__(message)
 
 
-class ServicesSecretsDBRootPassNotExist(Exception):
+class ServicesSecretsDBRootPassNotExist(FrappeManagerException):
     """Exception raised when database root password secret does not exist."""
 
     def __init__(self, message):
@@ -14,7 +17,7 @@ class ServicesSecretsDBRootPassNotExist(Exception):
         super().__init__(message)
 
 
-class ServicesDBNotStart(Exception):
+class ServicesDBNotStart(FrappeManagerException):
     """Exception raised when database service fails to start."""
 
     def __init__(self, message):
@@ -22,7 +25,7 @@ class ServicesDBNotStart(Exception):
         super().__init__(message)
 
 
-class ServicesException(Exception):
+class ServicesException(FrappeManagerException):
     """Base exception for all services-related errors."""
 
     def __init__(self, message):
@@ -38,7 +41,7 @@ class ServicesNotCreated(ServicesException):
         super().__init__(message)
 
 
-class DatabaseServiceException(Exception):
+class DatabaseServiceException(FrappeManagerException):
     """Base exception for database service operations."""
 
     def __init__(self, service_name: str, message: str):
@@ -46,7 +49,7 @@ class DatabaseServiceException(Exception):
         super().__init__(self.message)
 
 
-class DatabaseServiceQueryAccessDenied(Exception):
+class DatabaseServiceQueryAccessDenied(FrappeManagerException):
     """Exception raised when database query access is denied."""
 
     def __init__(self, query: str, message="Access denied for query {}") -> None:

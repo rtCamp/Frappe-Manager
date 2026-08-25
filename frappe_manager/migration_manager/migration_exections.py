@@ -1,4 +1,7 @@
-class MigrationExceptionInBench(Exception):
+from frappe_manager.exceptions import FrappeManagerException
+
+
+class MigrationExceptionInBench(FrappeManagerException):
     def __init__(
         self,
         error_msg: str,
@@ -6,7 +9,7 @@ class MigrationExceptionInBench(Exception):
         super().__init__(error_msg)
 
 
-class BackupFailureException(Exception):
+class BackupFailureException(FrappeManagerException):
     """
     Raised when backup fails during migration.
 

@@ -36,7 +36,9 @@ class CustomWorkerSpec(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    timeout: int = Field(300, ge=1, description="RQ queue timeout; also the worker's supervisor stop grace (stopwaitsecs).")
+    timeout: int = Field(
+        300, ge=1, description="RQ queue timeout; also the worker's supervisor stop grace (stopwaitsecs)."
+    )
     background_workers: int | None = Field(None, ge=1, description="Process count override for this queue.")
 
 
@@ -435,11 +437,7 @@ class BenchSupervisor:
         cfg.set(
             "error_collector",
             "expected_classes",
-            (
-                "frappe.exceptions.ValidationError "
-                "frappe.exceptions.PermissionError "
-                "frappe.exceptions.DoesNotExistError"
-            ),
+            ("frappe.exceptions.ValidationError frappe.exceptions.PermissionError frappe.exceptions.DoesNotExistError"),
         )
         cfg.set("error_collector", "attributes.enabled", "true")
         cfg.set("error_collector", "max_event_samples_stored", "100")

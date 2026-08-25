@@ -53,13 +53,9 @@ from frappe_manager.commands.ssl.bench_helpers import (
     _list_bench_certificates,
     _remove_bench_certificate,
 )
-from frappe_manager.compose_project.exceptions import (
-    DockerComposeProjectFailedToStartError,
-    DockerComposeProjectFailedToStopError,
-)
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.site_manager.exceptions import AdminToolsFailedToStart, BenchException
+from frappe_manager.site_manager.exceptions import AdminToolsFailedToStart, AdminToolsFailedToStop, BenchException
 from frappe_manager.site_manager.modules.bench_admin_tools import BenchAdminTools
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
@@ -1110,13 +1106,13 @@ def test_enable_leaves_the_mail_server_alone_unless_force_configure(t):
 def test_enable_translates_a_docker_failure_and_stops_before_touching_nginx(t):
     t.docker.compose.up.side_effect = _docker_failure()
 
-    with pytest.raises(DockerComposeProjectFailedToStartError) as exc:
+    with pytest.raises(AdminToolsFailedToStart) as exc:
         t.tools.enable()
 
     assert exc.value.compose_path == t.tools.compose_path
-    # SUSPICION (pinned): the failure reports an empty service list, so the error message
-    # never names the services that failed -- unlike stop(), which passes the real list.
-    assert exc.value.services == []
+    # The SUSPICION that used to sit here is fixed: enable() passed an empty service list, so
+    # the message never named what failed. It now passes the real list, like stop() always did.
+    assert exc.value.services == ["mailpit", "adminer"]
     t.nginx_proxy.reload.assert_not_called()
     assert not t.location_conf.exists()
 
@@ -1132,7 +1128,7 @@ def test_stop_stops_the_containers_with_a_short_grace_period(t):
 def test_stop_translates_a_docker_failure_and_names_the_services(t):
     t.docker.compose.stop.side_effect = _docker_failure()
 
-    with pytest.raises(DockerComposeProjectFailedToStopError) as exc:
+    with pytest.raises(AdminToolsFailedToStop) as exc:
         t.tools.stop()
 
     assert exc.value.compose_path == t.tools.compose_path
@@ -1190,7 +1186,7 @@ def test_disable_aborts_before_touching_nginx_when_the_containers_will_not_stop(
     t.tools.save_nginx_location_config()
     t.docker.compose.stop.side_effect = _docker_failure()
 
-    with pytest.raises(DockerComposeProjectFailedToStopError):
+    with pytest.raises(AdminToolsFailedToStop):
         t.tools.disable()
 
     assert t.location_conf.exists()
