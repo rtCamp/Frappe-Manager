@@ -105,6 +105,25 @@ The bench-less bake (`--apps` or `--config` with no bench name) builds and pushe
 
 `image` is the repository and `tag` is separate, defaulting to the short commit sha. The action composes them, so it always knows the exact ref and never reads it back out of fm's output. The ref it shipped is available afterwards as the `image` output.
 
-Two things about the action are worth knowing before you rely on it. It installs fm from a **git ref**, not PyPI, because the released version predates the current bake and switch surface; `fm-version` takes any branch, tag or sha, and the `FM_VERSION` environment variable overrides it without editing the workflow. And the switch half needs fm **already installed on the target**: the action opens an SSH connection and runs fm there, it does not install it for you.
+It installs fm on the runner from a **git ref**, not PyPI, because the released version predates the current bake and switch surface. `fm-version` takes any branch, tag or sha, and the `FM_VERSION` environment variable overrides it without editing the workflow.
+
+On the **switch target** it installs nothing. fm has to be there already, and the action finds it rather than assuming a PATH: `ssh host "fm ..."` runs a non-interactive shell, which reads neither `.bashrc` nor `.profile`, so an fm installed by `uv tool install` into `~/.local/bin` is invisible to a bare `fm`. The action looks on PATH, then at `~/.local/bin/fm`, `/usr/local/bin/fm` and `/usr/bin/fm`, then runs `--version` on what it found, because a half-finished install still leaves the shim behind. `fm-remote-path` names it explicitly when it lives somewhere else.
+
+That check runs **before the bake**, deliberately. A bake is minutes of build plus a registry push, and finding out afterwards that the switch cannot start wastes all of it and leaves a pushed image nothing is going to deploy.
+
+Overlays reach the bake two ways, and they compose in this order: `config-files` (paths in your checked-out repo, one per line, later files winning) then `config` (a single path, or the TOML itself inline). Paths are relative to the workspace, so the job needs `actions/checkout` first, and a missing file is reported rather than silently skipped.
+
+```yaml
+- uses: rtCamp/Frappe-Manager@main
+  with:
+    phase: bake
+    image: ghcr.io/acme/mybench
+    config-files: |
+      ci/base.toml
+      ci/prod.toml
+    config: |
+      [build]
+      source = "provision"
+```
 
 Set `platform` when the runner and the server differ in architecture, since nothing detects the target for you. Set `ssh-known-hosts` to pin the host key; left empty the action falls back to `ssh-keyscan`, which trusts whatever answers on the first connection.
