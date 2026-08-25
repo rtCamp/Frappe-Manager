@@ -41,6 +41,20 @@ test-file FILE:
 test-debug FILE:
     pytest {{FILE}} -vv --show-app-logs -s
 
+# fmx is a separate package with its own interpreter range (>=3.10, vs fm's 3.13-only) and its
+# own deps (supervisor, redis, rq), none of which are in fm's venv -- fmx cannot even be
+# imported from it. So it gets an ephemeral env of its own here rather than coupling the two.
+# Not part of `just test` and deliberately not in CI.
+#
+# VIRTUAL_ENV is cleared so uv builds that env instead of warning about fm's active one.
+# --override-ini drops fm's addopts: rootdir discovery finds the repo pyproject.toml, and its
+# `--cov=frappe_manager` is an unrecognised argument for a run that is not measuring fm.
+
+# Run fmx's own tests (in-container CLI: SIGUSR1 kill ladder, timeouts, poll intervals)
+test-fmx:
+    cd Docker/frappe/fmx && VIRTUAL_ENV= uv run --with pytest python -m pytest tests/ -v \
+        --override-ini="addopts=" -W "ignore::pytest.PytestConfigWarning"
+
 # Mutation test: break covered lines one at a time and see if any test complains.
 # Coverage says a line ran; this says a bug in it would be CAUGHT. Read the SURVIVED
 # entries as a to-do list of missing assertions. Takes ~3 minutes for the default 60.

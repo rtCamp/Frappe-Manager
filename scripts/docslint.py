@@ -83,11 +83,22 @@ FOREIGN = {
 DASHES = {"\u2014": "em dash", "\u2013": "en dash", "\u2015": "horizontal bar", "\u2012": "figure dash"}
 
 
+# Anything under these is somebody else's markdown: a virtualenv, an installed package, a
+# node_modules tree. `just test-fmx` builds Docker/frappe/fmx/.venv, which put a vendored
+# typer SKILL.md inside the Docker/ glob and failed this check on a flag typer documents
+# about itself.
+VENDORED = {".venv", "venv", "site-packages", "node_modules", ".git", "dist", "build", "__pycache__"}
+
+
+def _ours(path: Path) -> bool:
+    return not VENDORED.intersection(path.parts)
+
+
 def hand_written() -> list[Path]:
     """Docs we author. Generated command pages and the changelog are excluded from style checks."""
-    md = sorted(Path("docs").rglob("*.md"))
+    md = sorted(p for p in Path("docs").rglob("*.md") if _ours(p))
     md = [p for p in md if p.parts[:2] != ("docs", "commands") and p != Path("docs/changelog.md")]
-    return md + sorted(Path("Docker").rglob("*.md"))
+    return md + sorted(p for p in Path("Docker").rglob("*.md") if _ours(p))
 
 
 def fm_flags() -> set[str]:
@@ -115,9 +126,16 @@ def fmx_flags() -> set[str]:
 
     Every string literal that looks like an option declaration counts, including the
     ``"--drain/--no-drain"`` pairs typer uses for negatable flags.
+
+    Vendored trees are excluded, and that matters more here than for the docs glob: every
+    flag found becomes an ALLOWED name, so sweeping in a venv's site-packages inflates the
+    allowlist (176 real flags became 638) and lets a doc typo pass by matching some flag in
+    an unrelated dependency.
     """
     flags: set[str] = set()
     for py in FMX_SRC.rglob("*.py"):
+        if not _ours(py):
+            continue
         try:
             tree = ast.parse(py.read_text())
         except SyntaxError:
@@ -163,7 +181,7 @@ def check_dashes(files: list[Path]) -> list[str]:
 
 def check_links() -> tuple[list[str], list[str]]:
     """Absolute links, and links whose target file or anchor does not exist."""
-    all_md = sorted(Path("docs").rglob("*.md"))
+    all_md = sorted(p for p in Path("docs").rglob("*.md") if _ours(p))
     anchors = {f: anchors_of(f.read_text()) for f in all_md}
 
     absolute: list[str] = []

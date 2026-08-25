@@ -101,6 +101,75 @@ class TestLiveFlagInventory:
         assert len(dl.fmx_flags()) > 5
 
 
+class TestVendoredTreesAreIgnored:
+    """`just test-fmx` builds Docker/frappe/fmx/.venv, which lands inside the Docker/ glob.
+
+    Both halves of this script broke on it, in opposite directions. The docs glob picked up a
+    vendored typer SKILL.md and failed on a flag typer documents about itself: noisy, but it
+    announces itself. The flag scan was worse and silent, because every flag it finds becomes
+    an ALLOWED name: the inventory went from 176 to 638, so a doc typo could pass by matching
+    some flag in an unrelated dependency.
+    """
+
+    @pytest.mark.parametrize(
+        "part",
+        [".venv", "venv", "site-packages", "node_modules", "dist", "build", "__pycache__", ".git"],
+    )
+    def test_a_vendored_path_component_is_not_ours(self, dl, part):
+        assert dl._ours(Path(f"Docker/frappe/fmx/{part}/lib/typer/SKILL.md")) is False
+
+    def test_our_own_paths_are_still_ours(self, dl):
+        assert dl._ours(Path("docs/deploy/transports.md")) is True
+        assert dl._ours(Path("Docker/frappe/fmx/fmx/commands/restart.py")) is True
+
+    def test_the_docs_glob_excludes_vendored_markdown(self, dl, tmp_path, monkeypatch):
+        """Both globs filter, so both are planted: `hand_written` walks docs/ AND Docker/."""
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "real.md").write_text("# ours\n")
+        in_docs = tmp_path / "docs" / "node_modules" / "pkg"
+        in_docs.mkdir(parents=True)
+        (in_docs / "README.md").write_text("# theirs\n")
+
+        (tmp_path / "Docker" / "pkg").mkdir(parents=True)
+        (tmp_path / "Docker" / "pkg" / "ours.md").write_text("# ours too\n")
+        in_docker = tmp_path / "Docker" / "pkg" / ".venv" / "site-packages"
+        in_docker.mkdir(parents=True)
+        (in_docker / "SKILL.md").write_text("# theirs\n")
+        monkeypatch.chdir(tmp_path)
+
+        found = {p.name for p in dl.hand_written()}
+
+        assert found == {"real.md", "ours.md"}
+
+    def test_the_link_scan_ignores_vendored_markdown(self, dl, tmp_path, monkeypatch):
+        """A vendored page's broken links are not ours to report, or to fail CI on."""
+        (tmp_path / "docs").mkdir()
+        (tmp_path / "docs" / "real.md").write_text("# ours\n")
+        vendored = tmp_path / "docs" / ".venv" / "site-packages"
+        vendored.mkdir(parents=True)
+        (vendored / "SKILL.md").write_text("See [gone](./no-such-file.md) and [abs](/x.md).\n")
+        monkeypatch.chdir(tmp_path)
+
+        absolute, broken = dl.check_links()
+
+        assert (absolute, broken) == ([], [])
+
+    def test_the_flag_inventory_excludes_vendored_python(self, dl, tmp_path, monkeypatch):
+        """The dangerous direction: a vendored flag would become an allowed name."""
+        src = tmp_path / "fmx"
+        (src / "fmx").mkdir(parents=True)
+        (src / "fmx" / "cli.py").write_text('opt = "--real-fmx-flag"\n')
+        vendored = src / ".venv" / "lib" / "site-packages" / "typer"
+        vendored.mkdir(parents=True)
+        (vendored / "main.py").write_text('opt = "--someone-elses-flag"\n')
+        monkeypatch.setattr(dl, "FMX_SRC", src)
+
+        flags = dl.fmx_flags()
+
+        assert "--real-fmx-flag" in flags
+        assert "--someone-elses-flag" not in flags
+
+
 class TestAnchors:
     def test_an_explicit_id_is_an_anchor(self, dl):
         assert "workers" in dl.anchors_of("## Worker care {#workers}\n")
