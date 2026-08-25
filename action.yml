@@ -246,19 +246,39 @@ runs:
           if [ -n "$app" ]; then args+=(--apps "$app"); fi
         done <<< "$APPS"
 
-        # `--config` is repeatable and later wins, which is the ordering both of these rely
-        # on: files in the order given, then the single inline/path config, then platform.
+        # Every overlay goes through the expander, which substitutes FM_ACTION_* environment
+        # variables so a config file committed to the repo can reference a secret instead of
+        # carrying it. Only FM_ACTION_* names are touched, an unset one is an error rather than a
+        # literal, and the result lands in a mode-600 file. Passing the expanded TOML as an
+        # argument instead would put the secret in argv, which any process can read.
+        #
+        # `--config` is repeatable and later wins, so the order here is the precedence:
+        # config-files in the order given, then config, then platform.
+        overlay_dir="${RUNNER_TEMP:-/tmp}/fm-action-config"
+        mkdir -p "$overlay_dir"
+        chmod 700 "$overlay_dir"
+        expander="${GITHUB_ACTION_PATH}/scripts/expand-config.py"
+        overlay_count=0
+
         while IFS= read -r file; do
           if [ -n "$file" ]; then
             if [ ! -f "$file" ]; then
               echo "::error::config-files entry not found: $file. Paths are relative to the workspace, so the job needs actions/checkout first."
               exit 1
             fi
-            args+=(--config "$file")
+            overlay_count=$((overlay_count + 1))
+            expanded="$overlay_dir/${overlay_count}.toml"
+            "$expander" --in "$file" --out "$expanded"
+            args+=(--config "$expanded")
           fi
         done <<< "$CONFIG_FILES"
 
-        if [ -n "$CONFIG" ]; then args+=(--config "$CONFIG"); fi
+        if [ -n "$CONFIG" ]; then
+          overlay_count=$((overlay_count + 1))
+          expanded="$overlay_dir/${overlay_count}.toml"
+          printf '%s\n' "$CONFIG" | "$expander" --in - --out "$expanded"
+          args+=(--config "$expanded")
+        fi
         # [build].platform has no flag of its own; an overlay is how it is set. Ours goes
         # last so it wins over a platform in the caller's config.
         if [ -n "$PLATFORM" ]; then

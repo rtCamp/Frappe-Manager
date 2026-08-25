@@ -126,4 +126,30 @@ Overlays reach the bake two ways, and they compose in this order: `config-files`
       source = "provision"
 ```
 
+#### Secrets in a committed config
+
+Every overlay the action passes is run through `FM_ACTION_*` environment expansion first, so a config file can live in the repo while its secrets live in the environment:
+
+```toml
+# ci/prod.toml, committed
+[registry]
+username = "acme-ci"
+password = "${FM_ACTION_REGISTRY_TOKEN}"
+```
+
+```yaml
+- uses: rtCamp/Frappe-Manager@main
+  env:
+    FM_ACTION_REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+  with:
+    image: ghcr.io/acme/mybench
+    config-files: ci/prod.toml
+```
+
+Three rules, each of them deliberate. Only names starting with `FM_ACTION_` are substituted, so a `$HOME` or `$PATH` inside a config value stays exactly as written. A referenced `FM_ACTION_*` variable that is not set is an **error**, not an empty string and not the literal text, because a typo that survives as a literal password fails much later and much more confusingly. And only the variable **names** are logged, never the values.
+
+Shell default syntax like `${FM_ACTION_TOKEN:-fallback}` is refused rather than passed through, since silently forwarding it would look like it worked. The expanded result is written to a mode-600 file and fm is given the path, so the secret never appears in a command line where other processes could read it.
+
+This is a CI-layer feature, not a config-file feature: fm itself does not expand these. Doing it at load time would write the plaintext straight back out, because `export_to_toml` builds from the model and normal operation rewrites `bench_config.toml` from dozens of call sites. The one exception predates it and is narrower: `[registry].username` and `password` are env-substituted by fm itself, at the moment of `docker login`, so nothing expanded is ever persisted.
+
 Set `platform` when the runner and the server differ in architecture, since nothing detects the target for you. Set `ssh-known-hosts` to pin the host key; left empty the action falls back to `ssh-keyscan`, which trusts whatever answers on the first connection.

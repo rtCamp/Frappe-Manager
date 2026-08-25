@@ -7,6 +7,7 @@ This directory contains helper scripts for installing and maintaining Frappe Man
 | [`install.sh`](#installation-script-installsh) | Install Frappe Manager and all its dependencies |
 | [`update_cli_docs.py`](#cli-documentation-generator-update_cli_docspy) | Generate Markdown CLI docs from the live Typer app |
 | [`deploy-preflight.sh`](#deploy-preflight-deploy-preflightsh) | Check a host can receive `fm switch`, before anything is built |
+| [`expand-config.py`](#config-expansion-expand-configpy) | Substitute `FM_ACTION_*` environment variables into a config file, for CI |
 | `docslint.py` | Docs checks mkdocs does not do: dash style, link hygiene, flags that no longer exist. Run via `just docs-lint` |
 | `mutation_test.py` | Mutation testing: does a bug in covered code get CAUGHT. Run via `just mutate` |
 
@@ -250,3 +251,43 @@ from the outside, which sent the reader after the wrong thing.
 
 Secrets go through the environment, not argv, because argv is readable by every other
 process on the machine.
+
+---
+
+## Config expansion (`expand-config.py`)
+
+Substitutes `FM_ACTION_*` environment variables into a config file, so a file committed to the
+repo can reference a secret instead of carrying it.
+
+```bash
+FM_ACTION_REGISTRY_TOKEN=... scripts/expand-config.py --in ci/prod.toml --out /tmp/prod.toml
+```
+
+```toml
+# before
+password = "${FM_ACTION_REGISTRY_TOKEN}"
+# after
+password = "ghp_..."
+```
+
+Used by the GitHub Action on every overlay it passes to `fm bake`. Three rules, each one a
+reaction to how `os.path.expandvars` behaves:
+
+- **Only `FM_ACTION_*` names.** `expandvars` rewrites anything, so a legitimate `$HOME` or `$PATH`
+  in a config value would silently become a host path. Everything without the prefix is
+  left exactly as written.
+- **An unset reference is an error.** `expandvars` leaves `${FM_ACTION_TOKENN}` as literal text,
+  so a typo becomes a password of `${FM_ACTION_TOKENN}` and surfaces much later as a registry
+  rejection. Every missing name is listed at once.
+- **Values are never printed.** Only the names that were substituted.
+
+`${FM_ACTION_TOKEN:-fallback}` is refused rather than passed through: shell defaults are not
+supported, and forwarding the text verbatim would look like it worked. Output is written
+mode 600.
+
+`--prefix` changes the prefix. `--in -` and `--out -` use stdin and stdout, which is how
+the action expands an inline overlay without ever putting it in a command line.
+
+This deliberately does not live in fm. Expanding at config-load time would write the
+plaintext back out on the next save, since `export_to_toml` builds from the model and
+normal operation rewrites `bench_config.toml` from dozens of call sites.
