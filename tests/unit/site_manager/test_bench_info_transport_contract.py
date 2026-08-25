@@ -705,7 +705,9 @@ def test_fetch_image_raises_when_the_app_image_pull_fails():
     with pytest.raises(TransportError) as err:
         fetch_image(docker, "r:t")
 
-    assert "Failed to fetch image r:t from registry" in str(err.value)
+    # The wording and its login diagnosis live in test_pull_diagnosis.py; here it is only
+    # that the app image's failure is fatal, names the tag, and keeps the cause attached.
+    assert "r:t" in str(err.value)
     assert isinstance(err.value.__cause__, DockerException)
     docker.pull.assert_called_once()  # stops at the first fatal tag
 

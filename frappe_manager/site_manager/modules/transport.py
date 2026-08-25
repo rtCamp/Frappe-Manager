@@ -18,11 +18,89 @@ ssh host docker load``) and the presence check finds it. If it is genuinely
 missing and cannot be pulled, the pull failure says so.
 """
 
+import os
+
 from frappe_manager.docker import DockerClient
 
 
 class TransportError(Exception):
     """Raised when an image transport step fails."""
+
+
+def registry_host(tag: str) -> str:
+    """The registry a tag pulls from, by docker's own rule.
+
+    The first path segment is a host only when it looks like one: it contains a dot or a
+    port, or is exactly ``localhost``. Otherwise the reference is a Docker Hub short name
+    (``erpnext/app``), whose host is ``docker.io``.
+    """
+    first = tag.split("/", 1)[0] if "/" in tag else ""
+    if first and ("." in first or ":" in first or first == "localhost"):
+        return first
+    return "docker.io"
+
+
+def logged_in_to(host: str) -> bool:
+    """Whether ``~/.docker/config.json`` shows a login for ``host``.
+
+    ``docker login`` records the host under ``auths`` even when the secret itself lives in
+    a credential helper, so the host's presence is a reliable signal that a login happened
+    and its absence that one did not. A ``credHelpers`` entry counts too: that is a
+    per-registry helper configured by hand.
+
+    Only ever used to sharpen an error message, so an unreadable or absent config is
+    treated as "no login" rather than raised.
+    """
+    import json
+    from pathlib import Path
+
+    config = Path(os.environ.get("DOCKER_CONFIG", Path.home() / ".docker")) / "config.json"
+    try:
+        data = json.loads(config.read_text())
+    except (OSError, ValueError):
+        return False
+    return host in (data.get("auths") or {}) or host in (data.get("credHelpers") or {})
+
+
+def _registry_said(error: object) -> str:
+    """The registry's own words, without docker's command and exit-code preamble.
+
+    ``DockerException``'s message is six lines of framing (the command, the exit code, a
+    note about stdout) with the one useful sentence at the bottom. Quoting all of it buries
+    the diagnosis below it, which is the whole thing this module is trying to avoid.
+    """
+    stderr = getattr(getattr(error, "output", None), "stderr", None)
+    if not stderr:
+        return str(error)
+    text = " ".join(line.strip().strip("'") for line in stderr if line.strip())
+    return text.replace("Error response from daemon:", "").strip() or str(error)
+
+
+def _pull_failure_message(tag: str, error: object) -> str:
+    """Why a pull failed, leading with what to do about it.
+
+    Registries disagree about how they refuse an anonymous request for a private image.
+    Docker Hub says "may require 'docker login'". GHCR says ``manifest unknown``, which
+    reads exactly like a tag that was never pushed, so an operator who is merely not
+    logged in goes hunting for a bad tag. fm holds no registry credentials of its own, so
+    this message is the only place it can point at the real fix.
+
+    The actionable sentence comes first and the registry's words last, because the reader
+    stops at the first line.
+    """
+    host = registry_host(tag)
+    if logged_in_to(host):
+        cause = (
+            f"this host is logged in to {host}, so check the tag was actually pushed "
+            f"(fm bake --push) and that this account can read it"
+        )
+    else:
+        cause = (
+            f"no docker login for {host} was found. If that image is private, run "
+            f"`docker login {host}` here and retry: fm uses the daemon's own credentials "
+            f"and holds none itself"
+        )
+    return f"Could not pull {tag}: {cause}. The registry said: {_registry_said(error)}"
 
 
 def image_present(docker: DockerClient, tag: str) -> bool:
@@ -62,7 +140,7 @@ def fetch_image(docker: DockerClient, tag: str, output=None) -> None:
                 if output is not None:
                     output.warning(f"Could not pull nginx image {t} (continuing): {e}")
                 continue
-            raise TransportError(f"Failed to fetch image {t} from registry: {e}") from e
+            raise TransportError(_pull_failure_message(t, e)) from e
 
 
 def push_images(docker: DockerClient, tags: list[str], output=None) -> None:

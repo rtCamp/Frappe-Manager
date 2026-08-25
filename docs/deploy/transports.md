@@ -37,6 +37,16 @@ push = true                  # or pass --push on the command line
 
 **Authentication is docker's, not fm's.** A private registry needs one `docker login` on each machine that pushes or pulls, or a login step in CI. That is all: `~/.docker/config.json` already stores credentials per registry, and supports credential helpers (osxkeychain, `pass`, `ecr-login`) that fm has no way to reach. fm holds no registry credentials of its own and never did anything with them beyond running `docker login` for you, which is why the `[registry]` table was removed in 0.20.0. A bench that still carries one loads fine and the 0.20.0 migration strips it.
 
+If a pull fails, fm says which of the two things is wrong. It cannot ask the registry whether you are authenticated, but `docker login` records the host in `~/.docker/config.json` even when the secret lives in a helper, so fm checks there and leads with the likely cause:
+
+```
+Could not pull ghcr.io/acme/mybench:v42: no docker login for ghcr.io was found. If that
+image is private, run `docker login ghcr.io` here and retry: fm uses the daemon's own
+credentials and holds none itself. The registry said: manifest unknown
+```
+
+That matters because registries disagree about how they refuse an anonymous request for a private image. Docker Hub says `pull access denied ... may require 'docker login'`. GHCR says `manifest unknown`, which is indistinguishable from a tag that was never pushed, so the raw message sends you hunting through the registry UI for a bad tag when the answer is a login. When you *are* logged in to that host, the same failure instead points at the tag and at `fm bake --push`.
+
 Or by hand, for an airgapped target with no registry at all:
 
 ```bash
