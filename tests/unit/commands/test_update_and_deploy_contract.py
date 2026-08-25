@@ -504,9 +504,7 @@ class TestRuntimeSwitch:
 
         world.run(runtime=BenchRuntime.mount)
 
-        world.fetch_image.assert_called_once_with(
-            world.bench.docker_client, world.config.registry, "local/mybench:t7", output=world.output
-        )
+        world.fetch_image.assert_called_once_with(world.bench.docker_client, "local/mybench:t7", output=world.output)
         frappe_bench_dir = world.bench_path / "workspace" / "frappe-bench"
         world.materialize.assert_called_once_with(
             world.bench.docker_client, "local/mybench:t7", frappe_bench_dir, output=world.output

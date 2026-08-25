@@ -605,7 +605,7 @@ Bench runtime model:
 
 ---
 
-### `[switch]`, `[build]`, `[registry]` {#deploy-tables}
+### `[switch]`, `[build]` {#deploy-tables}
 
 Every key that drives the bake/switch pipeline (`fm bake`, `fm switch`, `fm prune`). For what the pipeline does with them, see the [Deployment overview](../deploy/index.md).
 
@@ -639,16 +639,11 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm switch`, `fm prun
 | `site_config` | (none) | keys merged into `site_config.json` during finalize |
 | `hooks` | (none) | `before/after_migrate`, `before/after_restart` (container + `host.*` variants) |
 
-**`[registry]`** (registry auth, used for both push and pull):
-
-| Key | Default | Meaning |
-|---|---|---|
-| `registry` | (none) | registry host for `docker login`; omit to use ambient auth |
-| `username` | (none) | login username (env-substituted, e.g. `"${REGISTRY_USER}"`) |
-| `password` | (none) | login password/token (env-substituted, e.g. `"${REGISTRY_TOKEN}"`) |
+!!! info "There is no `[registry]` table"
+    Registry authentication is docker's. Run `docker login` once on each machine that pushes or pulls, or add a login step in CI: `~/.docker/config.json` stores credentials per registry and supports credential helpers (osxkeychain, `pass`, `ecr-login`) that fm cannot reach. The registry host is already part of the [`image`](#images) ref. The table existed until 0.20.0 and did nothing but run `docker login` for you; a bench that still carries it loads fine, and the 0.20.0 migration strips it.
 
 !!! warning "An unknown key is a hard error"
-    `[switch]`, `[build]`, `[registry]`, `[workers]`, `[auth]`, `[monitoring]`, `[database]` and `[redis]` reject keys they do not define. A misspelled key is not ignored: every `fm` command that loads the bench fails with a validation error until you remove it.
+    `[switch]`, `[build]`, `[workers]`, `[auth]`, `[monitoring]`, `[database]` and `[redis]` reject keys they do not define. A misspelled key is not ignored: every `fm` command that loads the bench fails with a validation error until you remove it.
 
 ---
 

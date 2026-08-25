@@ -2,7 +2,7 @@
 
 Locks the TOML shape: top-level `environment`/`image`, `[[apps]]` with per-app
 `hooks`/`hooks.host`, `[monitoring.newrelic]`, `[switch]` + `[switch.hooks]`/
-`[switch.hooks.host]`, `[build]`, `[registry]`, and `[ssl]`
+`[switch.hooks.host]`, `[build]`, and `[ssl]`
 (`dns_challenge_providers` + `certificates`). Import + export + re-import must
 preserve every value.
 """
@@ -55,9 +55,6 @@ mail_server = "smtp.internal"
 python_version = "3.12"
 node_version = "20"
 
-[registry]
-registry = "ghcr.io"
-distribution = "registry"
 
 [ssl.dns_challenge_providers.cloudflare]
 api_token = "cf-token"
@@ -84,7 +81,6 @@ def _assert_full(bc: BenchConfig):
     assert bc.switch.common_site_config == {"mail_server": "smtp.internal"}
     assert bc.build.python_version == "3.12"
     assert bc.build.node_version == "20"
-    assert bc.registry.registry == "ghcr.io"
     assert [c.domain for c in bc.ssl_certificates] == ["fm.com"]
     assert list((bc.dns_providers or {}).keys()) == ["cloudflare"]
 

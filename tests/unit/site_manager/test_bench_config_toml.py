@@ -209,30 +209,30 @@ class TestDelegatedCertificateSurvivesTheTomlBoundary:
 
 
 def test_a_bench_config_carrying_keys_removed_in_0_20_0_still_loads(tmp_path):
-    """Keys deleted from the models must not break benches that still carry them on disk.
+    """Keys and tables deleted from the models must not break benches that still carry them.
 
-    `[switch].search_replace` and `[registry].distribution` were both removed in 0.20.0.
-    Those models are `extra="forbid"` and `import_from_toml` splats the whole TOML table
-    into them, so a stale key would otherwise make EVERY command that loads the bench die
-    with a pydantic ValidationError. `search_replace` was deleted once before on the
+    `[switch].search_replace` was removed as a key, and `[registry]` as a whole table, in
+    0.20.0. The models are `extra="forbid"` and `import_from_toml` splats each TOML table
+    into its model, so a stale KEY would otherwise make every command that loads the bench
+    die with a pydantic ValidationError. `search_replace` was deleted once before on the
     grounds that nothing read it, and it took down `fm info` and `fm ssl list` on a live
-    bench whose config carried `search_replace = true`. The loader filters these keys now,
-    and the 0.20.0 bench migration strips them from disk so they stop propagating.
+    bench whose config carried `search_replace = true`.
+
+    A removed TABLE is safer by construction: the loader names the tables it reads, so an
+    unknown one never reaches a model. It is still stripped by the migration, so it stops
+    being carried forward into a version that might reuse the name for something else.
     """
     path = tmp_path / "bench_config.toml"
     path.write_text(
-        _BASE
-        + '[switch]\nmigrate = true\nsearch_replace = true\n\n[registry]\nregistry = "ghcr.io/acme"\ndistribution = "save_load"\n'
+        _BASE + '[switch]\nmigrate = true\nsearch_replace = true\n\n[registry]\nregistry = "ghcr.io/acme"\n'
     )
 
     cfg = BenchConfig.import_from_toml(path)
 
     assert cfg.switch is not None
     assert cfg.switch.migrate is True
-    assert cfg.registry is not None
-    assert cfg.registry.registry == "ghcr.io/acme"
     assert not hasattr(cfg.switch, "search_replace")
-    assert not hasattr(cfg.registry, "distribution")
+    assert not hasattr(cfg, "registry"), "the table is gone from the model, not merely emptied"
 
 
 def test_switch_config_still_rejects_a_genuinely_unknown_key():

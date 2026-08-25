@@ -198,8 +198,8 @@ class DockerClient:
     ):
         """Push an image (or repo:tag) to its registry (``docker push <image>``).
 
-        Mirrors :meth:`pull`. Assumes the daemon is already authenticated (see
-        :meth:`login`) or the registry is anonymous/insecure.
+        Mirrors :meth:`pull`. Registry authentication is the daemon's own, from
+        ``docker login`` or a credential helper; fm never handles it.
         """
         parameters: dict = locals()
 
@@ -214,28 +214,6 @@ class DockerClient:
             stream=stream,
         )
         return iterator
-
-    def login(
-        self,
-        registry: str,
-        username: str,
-        password: str,
-        stream: bool = False,
-    ):
-        """Authenticate the daemon to ``registry`` via ``docker login
-        <registry> -u <user> --password-stdin``.
-
-        The password is fed on stdin (never argv) so it never leaks into the
-        process table. Raises :class:`DockerException` on a failed login.
-        """
-        login_cmd: list[str] = ["login", registry, "-u", username, "--password-stdin"]
-
-        return run_command_with_exit_code(
-            self.docker_cmd + login_cmd,
-            stream=False,
-            capture_output=False,
-            input_data=password.encode() if isinstance(password, str) else password,
-        )
 
     def network_ls(
         self,

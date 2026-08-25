@@ -394,40 +394,6 @@ class TestPush:
         assert opts(runner) == {"stream": False}
 
 
-class TestLogin:
-    # Not a credential: a literal for the stdin plumbing, kept out of the credential-heuristic namespace.
-    STDIN_VALUE = "s3cret"
-
-    def test_password_travels_on_stdin_and_never_in_argv(self, client, runner):
-        client.login(registry="reg.local", username="bob", password=self.STDIN_VALUE)
-
-        assert argv(runner) == [DOCKER, "login", "reg.local", "-u", "bob", "--password-stdin"]
-        assert self.STDIN_VALUE not in argv(runner)
-        assert opts(runner) == {"stream": False, "capture_output": False, "input_data": b"s3cret"}
-
-    def test_a_bytes_password_is_forwarded_unencoded(self, client, runner):
-        client.login(registry="reg.local", username="bob", password=b"raw-bytes")
-
-        assert opts(runner)["input_data"] == b"raw-bytes"
-
-    def test_the_stream_argument_is_ignored_by_design_of_the_stdin_path(self, client, runner):
-        """SUSPICION (pinned, not fixed): `login(stream=True)` still runs non-streaming."""
-        client.login(registry="reg.local", username="bob", password=self.STDIN_VALUE, stream=True)
-
-        assert opts(runner)["stream"] is False
-
-    def test_a_failed_login_propagates_the_docker_exception(self, client, runner):
-        runner.side_effect = DockerException([DOCKER, "login"], _output(exit_code=1))
-
-        with pytest.raises(DockerException):
-            client.login(registry="reg.local", username="bob", password=self.STDIN_VALUE)
-
-    def test_the_boundary_result_is_returned_verbatim(self, client, runner):
-        runner.return_value = None
-
-        assert client.login(registry="reg.local", username="bob", password=self.STDIN_VALUE) is None
-
-
 class TestNetworkLs:
     def test_argv_requests_only_the_name_column(self, client, runner):
         runner.return_value = _output([])

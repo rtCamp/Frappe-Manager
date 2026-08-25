@@ -3,7 +3,7 @@
 Each ``--config`` value is a **path to a TOML file** or **inline TOML content**;
 multiple ``--config`` flags merge **left-to-right (later wins, deep merge)** into
 the bench's ``bench_config.toml`` before the bake. This gives advanced config
-(`[build]`/`[registry]`/`[fc]`, hooks, ...) a first-class surface, including
+(`[build]`/`[fc]`, hooks, ...) a first-class surface, including
 CI configs committed in an app repo, without hand-editing the server-side toml.
 
 The overlay is **persisted**: it is merged into ``bench_config.toml`` (the single

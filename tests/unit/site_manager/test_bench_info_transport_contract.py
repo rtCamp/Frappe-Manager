@@ -9,7 +9,7 @@ transport helpers, the BenchService facade) cannot silently change behaviour:
   from the certificate, admin-password precedence, the image-vs-mount runtime facts, the
   deploy-history "current" marker, and the live container-state gathering (which swallows
   a DockerException for workers and any Exception for admin tools).
-- ``transport``: when a registry login happens at all, which missing tags are pulled and
+- ``transport``: which missing tags are pulled and
   which pull failure is survivable (nginx) versus fatal, and why a ``save_load``
   distribution refuses to pull instead of guessing.
 - ``BenchService``: the guards -- delete without ``--yes`` delegates instead of removing,
@@ -36,7 +36,6 @@ from frappe_manager.site_manager.bench_config import (
     AuthConfig,
     BenchRuntime,
     FMBenchEnvType,
-    RegistryConfig,
 )
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.exceptions import BenchException
@@ -46,7 +45,6 @@ from frappe_manager.site_manager.modules.transport import (
     fetch_image,
     image_present,
     push_images,
-    registry_login,
 )
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
@@ -54,7 +52,6 @@ from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCer
 BENCH = "bench.localhost"
 ADMIN_PW = "admin-pass"  # a literal here would trip S106
 AUTH_PW = "s3cr3t"
-REG_PW = "regpw"
 ROOT_PW = "rootpass"
 
 
@@ -624,30 +621,6 @@ def test_display_info_headline_active_flag_comes_from_is_running(tmp_path, card_
     assert "mount" in card.meta
 
 
-# =========================================================================== transport: registry login
-
-
-def test_registry_login_needs_all_three_credentials():
-    docker = MagicMock()
-    assert registry_login(docker, None) is False
-    assert registry_login(docker, RegistryConfig(registry="ghcr.io", username="u")) is False
-    assert registry_login(docker, RegistryConfig(registry="ghcr.io", password=REG_PW)) is False
-    assert registry_login(docker, RegistryConfig(username="u", password=REG_PW)) is False
-    docker.login.assert_not_called()
-
-
-def test_registry_login_expands_env_before_logging_in(monkeypatch):
-    monkeypatch.setenv("FM_TEST_REG_USER", "ci-bot")
-    monkeypatch.setenv("FM_TEST_REG_PASS", "t0ken")
-    docker, output = MagicMock(), MagicMock()
-    env_pw = "${FM_TEST_REG_PASS}"
-    cfg = RegistryConfig(registry="ghcr.io", username="${FM_TEST_REG_USER}", password=env_pw)
-
-    assert registry_login(docker, cfg, output=output) is True
-    docker.login.assert_called_once_with("ghcr.io", "ci-bot", "t0ken")
-    assert "ghcr.io" in output.change_head.call_args.args[0]
-
-
 # =========================================================================== transport: presence
 
 
@@ -690,26 +663,24 @@ def test_fetch_image_does_nothing_when_both_tags_are_present():
         {"Repository": "ghcr.io/acme/erp", "Tag": "jun01"},
         {"Repository": "ghcr.io/acme/erp-nginx", "Tag": "jun01"},
     ]
-    fetch_image(docker, RegistryConfig(registry="ghcr.io"), "ghcr.io/acme/erp:jun01")
+    fetch_image(docker, "ghcr.io/acme/erp:jun01")
     docker.pull.assert_not_called()
     docker.login.assert_not_called()
 
 
-def test_fetch_image_pulls_only_the_missing_tags_after_logging_in():
+def test_fetch_image_pulls_only_the_missing_tags():
     docker = MagicMock()
     docker.images.return_value = [{"Repository": "ghcr.io/acme/erp", "Tag": "jun01"}]
-    cfg = RegistryConfig(registry="ghcr.io", username="u", password=REG_PW)
 
-    fetch_image(docker, cfg, "ghcr.io/acme/erp:jun01", output=MagicMock())
+    fetch_image(docker, "ghcr.io/acme/erp:jun01", output=MagicMock())
 
-    docker.login.assert_called_once()
     docker.pull.assert_called_once_with("ghcr.io/acme/erp-nginx:jun01", stream=False)
 
 
-def test_fetch_image_without_registry_config_defaults_to_pulling():
+def test_fetch_image_pulls_both_tags_when_neither_is_present():
     docker = MagicMock()
     docker.images.return_value = []
-    fetch_image(docker, None, "r:t")
+    fetch_image(docker, "r:t")
     assert [c.args[0] for c in docker.pull.call_args_list] == ["r:t", "r-nginx:t"]
 
 
@@ -720,7 +691,7 @@ def test_fetch_image_tolerates_a_missing_nginx_image():
     docker.pull.side_effect = _docker_exc()
     output = MagicMock()
 
-    fetch_image(docker, RegistryConfig(), "r:t", output=output)
+    fetch_image(docker, "r:t", output=output)
 
     assert output.warning.call_count == 1
     assert "r-nginx:t" in output.warning.call_args.args[0]
@@ -732,7 +703,7 @@ def test_fetch_image_raises_when_the_app_image_pull_fails():
     docker.pull.side_effect = _docker_exc()
 
     with pytest.raises(TransportError) as err:
-        fetch_image(docker, RegistryConfig(), "r:t")
+        fetch_image(docker, "r:t")
 
     assert "Failed to fetch image r:t from registry" in str(err.value)
     assert isinstance(err.value.__cause__, DockerException)
@@ -742,20 +713,16 @@ def test_fetch_image_raises_when_the_app_image_pull_fails():
 # =========================================================================== transport: push
 
 
-def test_push_images_skips_login_and_push_for_an_empty_tag_list():
+def test_push_images_does_nothing_for_an_empty_tag_list():
     docker = MagicMock()
-    push_images(docker, ["", None], RegistryConfig(registry="ghcr.io", username="u", password=REG_PW))
-    docker.login.assert_not_called()
+    push_images(docker, ["", None])
     docker.push.assert_not_called()
 
 
-def test_push_images_logs_in_once_then_pushes_every_tag_in_order():
+def test_push_images_pushes_every_tag_in_order():
     docker = MagicMock()
     output = MagicMock()
-    cfg = RegistryConfig(registry="g", username="u", password=REG_PW)
-    push_images(docker, ["r:t", "", "r-nginx:t"], cfg, output)
-
-    docker.login.assert_called_once()
+    push_images(docker, ["r:t", "", "r-nginx:t"], output)
     assert docker.push.call_args_list == [call("r:t", stream=False), call("r-nginx:t", stream=False)]
     assert [c.args[0] for c in output.print.call_args_list] == ["Pushed r:t", "Pushed r-nginx:t"]
 

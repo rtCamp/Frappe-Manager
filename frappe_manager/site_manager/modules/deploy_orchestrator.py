@@ -321,7 +321,7 @@ class DeployOrchestrator:
         from frappe_manager.site_manager.modules.transport import TransportError, fetch_image
 
         try:
-            fetch_image(self.docker, getattr(self.config, "registry", None), tag, output=self.output)
+            fetch_image(self.docker, tag, output=self.output)
         except (TransportError, BakeError) as e:
             raise DeployError(str(e)) from e
 

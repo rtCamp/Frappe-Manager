@@ -219,7 +219,7 @@ class BenchOrchestrator:
         bench.supervisor.setup_supervisor(bench.path, force=True, use_run=True)
 
         # Ensure the app image (+ its nginx-assets image) is present.
-        fetch_image(bench.docker_client, bench.bench_config.registry, tag, output=self.output)
+        fetch_image(bench.docker_client, tag, output=self.output)
 
         # Seed apps.txt from the baked image and drive apps_list off it.
         apps_txt = bench.path / "workspace" / "frappe-bench" / "sites" / "apps.txt"
@@ -334,7 +334,7 @@ class BenchOrchestrator:
         overrides = list(bench.bench_config.apps_list)
 
         self.output.change_head(f"Seeding workspace from image {tag}")
-        fetch_image(bench.docker_client, bench.bench_config.registry, tag, output=self.output)
+        fetch_image(bench.docker_client, tag, output=self.output)
         frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
         materialize_workspace_from_image(bench.docker_client, tag, frappe_bench_dir, output=self.output)
 
@@ -784,9 +784,7 @@ class BenchOrchestrator:
         )
         # Only from here does a later failure have something to offer to undo.
         self._provisioned = database
-        self.output.print(
-            f"Frappe created schema {database.name} and login {database.login_user} on {database.host}"
-        )
+        self.output.print(f"Frappe created schema {database.name} and login {database.login_user} on {database.host}")
 
     def _attach_existing_site(self) -> None:
         """Build the site directory around a database that already holds a Frappe site.
@@ -809,8 +807,7 @@ class BenchOrchestrator:
         self.output.change_head(f"Attaching {bench.name} to the existing site in {database.name}")
         bench.site_manager.create_site_dirs(bench.name)
         self.output.print(
-            f"Created the site directories for {bench.name}. Nothing was written to"
-            f" {database.name} on {database.host}."
+            f"Created the site directories for {bench.name}. Nothing was written to {database.name} on {database.host}."
         )
 
     def _disable_migrate_for_attach(self) -> None:

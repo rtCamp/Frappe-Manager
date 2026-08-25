@@ -536,18 +536,12 @@ class BakeManager:
                     os.environ["DOCKER_DEFAULT_PLATFORM"] = prior_platform
             shutil.rmtree(context_dir, ignore_errors=True)
 
-    def _registry_config(self):
-        return getattr(self.bench_config, "registry", None)
-
     def _should_push(self, push: bool | None) -> bool:
         """Resolve the push decision: the explicit flag wins, else ``[build].push``.
 
-        Deliberately not inferred from ``[registry]``: a bench configures a registry
-        so it can PULL as well (``fm switch``, ``fm create``, ``fm update`` all use
-        it), so the presence of creds says nothing about whether this bake should
-        publish. The registry host is normally encoded in the top-level ``image``
-        (e.g. ``localhost:5000/rtest``); a separate ``[registry].registry`` is only
-        needed for ``docker login``.
+        The registry host is encoded in the top-level ``image`` (e.g.
+        ``localhost:5000/rtest``), and authenticating to it is docker's job, not fm's:
+        ``~/.docker/config.json`` already holds credentials, with helpers fm cannot reach.
         """
         if push is not None:
             return push
@@ -555,8 +549,7 @@ class BakeManager:
         return bool(build and build.push)
 
     def _push_images(self, tags: list[str]) -> None:
-        reg = self._registry_config()
-        push_images(self.docker_client, tags, reg, output=self.output)
+        push_images(self.docker_client, tags, output=self.output)
 
     def _assert_buildx(self) -> None:
         """Fail early and clearly when the buildx plugin is absent."""

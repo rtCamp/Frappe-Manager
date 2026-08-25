@@ -6,48 +6,23 @@ daemon it is used as-is, otherwise it is pulled.
 
 - Built here: a bake loads the image into the local daemon, so a same-host
   ``fm switch`` finds it and never contacts a registry.
-- Built elsewhere: ``docker login`` from ``[registry]`` creds (env-substituted,
-  ``--password-stdin``) then ``docker pull``. With no creds configured the ambient
-  daemon credentials are used.
+- Built elsewhere: ``docker pull``, with the daemon's own credentials.
+
+Registry authentication is docker's, not fm's. ``~/.docker/config.json`` already
+holds it, with multi-registry support and credential helpers (osxkeychain, pass,
+ecr-login) that fm has no way to reach. So a private registry is a one-time
+``docker login`` on the host, or a login step in CI, and everything here inherits it.
 
 Airgap works without a mode flag: ship the image yourself (``docker save <img> |
 ssh host docker load``) and the presence check finds it. If it is genuinely
 missing and cannot be pulled, the pull failure says so.
 """
 
-import os
-
 from frappe_manager.docker import DockerClient
 
 
 class TransportError(Exception):
     """Raised when an image transport step fails."""
-
-
-def expand_env(value: str | None) -> str | None:
-    """Substitute ``${VAR}``/``$VAR`` from the environment; ``None`` passthrough."""
-    if value is None:
-        return None
-    return os.path.expandvars(value)
-
-
-def registry_login(docker: DockerClient, registry_config, output=None) -> bool:
-    """``docker login`` from ``[registry]`` creds when both username+password
-    (and a registry host) are set (Decision 8).
-
-    Returns ``True`` when a login was performed, ``False`` for ambient creds.
-    """
-    if registry_config is None:
-        return False
-    user = expand_env(registry_config.username)
-    password = expand_env(registry_config.password)
-    registry = registry_config.registry
-    if user and password and registry:
-        if output is not None:
-            output.change_head(f"Logging in to registry {registry}")
-        docker.login(registry, user, password)
-        return True
-    return False
 
 
 def image_present(docker: DockerClient, tag: str) -> bool:
@@ -62,11 +37,11 @@ def image_present(docker: DockerClient, tag: str) -> bool:
     return False
 
 
-def fetch_image(docker: DockerClient, registry_config, tag: str, output=None) -> None:
+def fetch_image(docker: DockerClient, tag: str, output=None) -> None:
     """Ensure ``tag`` (+ its derived nginx tag) is present on the target daemon.
 
     Present already (built here, or shipped by hand) means nothing to do. Anything
-    missing is pulled, logging in first when ``[registry]`` carries creds.
+    missing is pulled with the daemon's own registry credentials.
     """
     from frappe_manager.docker import DockerException
     from frappe_manager.site_manager.modules.bake import BakeManager
@@ -76,7 +51,6 @@ def fetch_image(docker: DockerClient, registry_config, tag: str, output=None) ->
     if not missing:
         return
 
-    registry_login(docker, registry_config, output=output)
     for t in missing:
         if output is not None:
             output.print(f"Fetching {t} from registry")
@@ -91,12 +65,11 @@ def fetch_image(docker: DockerClient, registry_config, tag: str, output=None) ->
             raise TransportError(f"Failed to fetch image {t} from registry: {e}") from e
 
 
-def push_images(docker: DockerClient, tags: list[str], registry_config, output=None) -> None:
-    """Log in (if creds) then ``docker push`` each tag in ``tags``."""
+def push_images(docker: DockerClient, tags: list[str], output=None) -> None:
+    """``docker push`` each tag in ``tags``, with the daemon's own credentials."""
     tags = [t for t in tags if t]
     if not tags:
         return
-    registry_login(docker, registry_config, output=output)
     for tag in tags:
         if output is not None:
             output.change_head(f"Pushing {tag}")

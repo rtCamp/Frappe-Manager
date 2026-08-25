@@ -22,7 +22,7 @@ flowchart LR
     RD --> RUN[bench containers]
 ```
 
-**Same host, the single-server case.** `fm switch` begins by making sure both tags are on the daemon it talks to, and returns immediately when they already are. A bake on that same machine has just put them there, so the switch never pulls and you need no registry at all: skip `--push`, leave `[registry]` out entirely, and an `image = "local/mybench"` repo is enough.
+**Same host, the single-server case.** `fm switch` begins by making sure both tags are on the daemon it talks to, and returns immediately when they already are. A bake on that same machine has just put them there, so the switch never pulls and you need no registry at all: skip `--push` and an `image = "local/mybench"` repo is enough.
 
 **Bake here, run there.** Now the image has to cross the gap. There is no mode to select: `fm switch` asks the target daemon whether each tag is already there, and pulls only what is missing. So you choose by how you get the image across, not by a config value.
 
@@ -31,14 +31,11 @@ Via a registry, which is the normal path:
 ```toml
 [build]
 push = true                  # or pass --push on the command line
-
-[registry]
-# registry = "ghcr.io"       # only needed for docker login
-# username = "ci-bot"        # ${VAR} env substitution supported
-# password = "${REGISTRY_TOKEN}"
 ```
 
-`fm bake --push` (or `[build] push = true`) publishes both tags, and `fm switch` on the target pulls whatever it does not already have, logging in first when `username` and `password` are set. The registry host is part of the image ref itself (`ghcr.io/acme/mybench`); `[registry] registry` exists only to name what `docker login` talks to. Omit the credentials to use whatever ambient auth the daemon already has.
+`fm bake --push` (or `[build] push = true`) publishes both tags, and `fm switch` on the target pulls whatever it does not already have. The registry host is part of the image ref itself (`image = "ghcr.io/acme/mybench"`), so there is nothing else to configure.
+
+**Authentication is docker's, not fm's.** A private registry needs one `docker login` on each machine that pushes or pulls, or a login step in CI. That is all: `~/.docker/config.json` already stores credentials per registry, and supports credential helpers (osxkeychain, `pass`, `ecr-login`) that fm has no way to reach. fm holds no registry credentials of its own and never did anything with them beyond running `docker login` for you, which is why the `[registry]` table was removed in 0.20.0. A bench that still carries one loads fine and the 0.20.0 migration strips it.
 
 Or by hand, for an airgapped target with no registry at all:
 
@@ -132,15 +129,14 @@ Every overlay the action passes is run through `FM_ACTION_*` environment expansi
 
 ```toml
 # ci/prod.toml, committed
-[registry]
-username = "acme-ci"
-password = "${FM_ACTION_REGISTRY_TOKEN}"
+[build]
+base_image = "ghcr.io/acme/frappe-private:${FM_ACTION_BASE_TAG}"
 ```
 
 ```yaml
 - uses: rtCamp/Frappe-Manager@main
   env:
-    FM_ACTION_REGISTRY_TOKEN: ${{ secrets.REGISTRY_TOKEN }}
+    FM_ACTION_BASE_TAG: ${{ vars.BASE_TAG }}
   with:
     image: ghcr.io/acme/mybench
     config-files: ci/prod.toml
@@ -150,6 +146,6 @@ Three rules, each of them deliberate. Only names starting with `FM_ACTION_` are 
 
 Shell default syntax like `${FM_ACTION_TOKEN:-fallback}` is refused rather than passed through, since silently forwarding it would look like it worked. The expanded result is written to a mode-600 file and fm is given the path, so the secret never appears in a command line where other processes could read it.
 
-This is a CI-layer feature, not a config-file feature: fm itself does not expand these. Doing it at load time would write the plaintext straight back out, because `export_to_toml` builds from the model and normal operation rewrites `bench_config.toml` from dozens of call sites. The one exception predates it and is narrower: `[registry].username` and `password` are env-substituted by fm itself, at the moment of `docker login`, so nothing expanded is ever persisted.
+This is a CI-layer feature, not a config-file feature: fm itself does not expand these. Doing it at load time would write the plaintext straight back out, because `export_to_toml` builds from the model and normal operation rewrites `bench_config.toml` from dozens of call sites.
 
 Set `platform` when the runner and the server differ in architecture, since nothing detects the target for you. Set `ssh-known-hosts` to pin the host key; left empty the action falls back to `ssh-keyscan`, which trusts whatever answers on the first connection.

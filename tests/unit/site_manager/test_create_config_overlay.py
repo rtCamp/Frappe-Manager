@@ -31,8 +31,6 @@ repo = "frappe/frappe"
 ref = "version-15"
 [switch]
 backup_db = true
-[registry]
-registry = "ghcr.io/acme"
 """
 
 
@@ -76,7 +74,6 @@ def test_config_supplies_fields_when_no_flags():
     assert bc.restart_policy == RestartPolicyEnum.always
     assert bc.image == "ghcr.io/acme/app"
     assert bc.switch.backup_db is True
-    assert bc.registry.registry == "ghcr.io/acme"
     assert apps_from_user is True
     assert [a.name for a in bc.apps_list] == ["frappe"]
 

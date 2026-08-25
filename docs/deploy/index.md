@@ -16,7 +16,7 @@ This section covers the image lifecycle: **bake** an image, **deploy** it, **rol
 1. **One-time conversion** of your working mount bench (if you don't have one yet, the [Quick Start](../getting-started/quick-start.md) gets you there). Give the bench a release image repo and flip its runtime in `bench_config.toml`:
 
     ```toml
-    image   = "local/mybench"   # where releases are tagged; a registry host prefix + [registry] enables push/pull
+    image   = "local/mybench"   # where releases are tagged; a registry host prefix enables push/pull
     runtime = "image"
     ```
 
@@ -190,6 +190,6 @@ Nothing a running or rollback-reachable release needs can be pruned.
 
     ---
 
-    Every `[build]`, `[switch]`, and `[registry]` key with its default.
+    Every `[build]` and `[switch]` key with its default.
 
 </div>

@@ -2,7 +2,7 @@
 
 The new schema splits the old monolithic deploy config into a top-level image
 identity, a `[switch]` migrate pipeline (SwitchConfig), a `[build]` image build
-config (BuildConfig), and a `[registry]` transport config. These tests lock the
+config (BuildConfig). These tests lock the
 round-trip of each.
 """
 
@@ -15,7 +15,6 @@ from frappe_manager.site_manager.bench_config import (
     BenchRuntime,
     BuildConfig,
     FMBenchEnvType,
-    RegistryConfig,
     SwitchConfig,
 )
 
@@ -41,7 +40,6 @@ def _image_bench(path):
         image="ghcr.io/acme/x",
         switch=SwitchConfig(maintenance_mode_phases=["migrate"]),
         build=BuildConfig(base_image="ghcr.io/rtcamp/frappe-manager-frappe", python_version="3.11", push=True),
-        registry=RegistryConfig(registry="ghcr.io/acme", username="u"),
     )
 
 
@@ -66,7 +64,6 @@ def test_missing_deploy_keys_loads_as_mount(tmp_path):
     assert bc.image is None
     assert bc.switch is None
     assert bc.build is None
-    assert bc.registry is None
 
 
 def test_image_deploy_roundtrip(tmp_path):
@@ -81,8 +78,6 @@ def test_image_deploy_roundtrip(tmp_path):
     assert bc.switch.migrate is True
     assert bc.build is not None
     assert bc.build.python_version == "3.11"
-    assert bc.registry is not None
-    assert bc.registry.registry == "ghcr.io/acme"
     assert bc.build.push is True
 
 
@@ -110,8 +105,3 @@ def test_additive_optout_empty_phases_roundtrip(tmp_path):
 def test_switch_config_forbids_unknown_keys():
     with pytest.raises(ValidationError):
         SwitchConfig(migrate=True, bogus_key=True)
-
-
-def test_registry_config_forbids_unknown_keys():
-    with pytest.raises(ValidationError):
-        RegistryConfig(registry="ghcr.io/acme", nope="x")

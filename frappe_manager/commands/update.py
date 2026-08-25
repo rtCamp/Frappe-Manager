@@ -394,7 +394,7 @@ def update(
                     raise typer.Exit(1)
 
                 output.change_head(f"Materializing editable workspace from {tag}")
-                fetch_image(bench.docker_client, bench.bench_config.registry, tag, output=output)
+                fetch_image(bench.docker_client, tag, output=output)
                 frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
                 # Leftover code trees from an earlier mount life are STALE vs the
                 # deployed tag; keeping them would break "code on disk == running

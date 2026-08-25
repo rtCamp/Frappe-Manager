@@ -50,7 +50,7 @@ from frappe_manager.migration_manager.migration_helpers import MigrationBench
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager.context_managers import spinner
 from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo, MariaDBManager
-from frappe_manager.site_manager.bench_config import REMOVED_CONFIG_KEYS
+from frappe_manager.site_manager.bench_config import REMOVED_CONFIG_KEYS, REMOVED_CONFIG_TABLES
 from frappe_manager.utils.helpers import get_template_path
 
 # Dropped from the engine command list: it was only ever needed on MariaDB
@@ -228,16 +228,21 @@ class MigrationV0200(MigrationBase):
         self.output.print(f"Moved admin tools credentials into \\[auth] for {bench.name}")
 
     def _drop_removed_config_keys(self, bench: MigrationBench):
-        """Strip keys whose fields no longer exist from bench_config.toml.
+        """Strip keys and whole tables that no longer exist from bench_config.toml.
 
-        Driven by ``REMOVED_CONFIG_KEYS``, the same table the loader filters on, so a
-        field deleted from a config model needs one line there and nothing here.
-        ``[switch].search_replace`` never did anything (the switch pipeline runs no
-        search-and-replace) and ``[registry].distribution`` restated something the daemon
-        can be asked directly: whether the tag is already present. Because those tables are
-        ``extra="forbid"``, a leftover key on disk would fail validation, so the loader
-        filters it to keep an un-migrated bench loadable; removing it here is what stops
-        the file carrying it forward.
+        Driven by ``REMOVED_CONFIG_KEYS`` and ``REMOVED_CONFIG_TABLES``, the same tables the
+        loader consults, so deleting a field or a table from the config models needs one line
+        there and nothing here.
+
+        ``[switch].search_replace`` never did anything: the switch pipeline runs no
+        search-and-replace. ``[registry]`` went entirely, because every field in it existed
+        only to run ``docker login``, and docker already owns that: ``~/.docker/config.json``
+        holds credentials with multi-registry support and credential helpers fm cannot reach.
+        A private registry is now a one-time ``docker login`` on the host, or a login step in
+        CI, which every pull and push here inherits.
+
+        Removing them here is what stops the file carrying them forward into a version that
+        might read the names again and mean something different by them.
         """
         config_path = bench.path / "bench_config.toml"
         if not config_path.exists():
@@ -254,11 +259,16 @@ class MigrationV0200(MigrationBase):
                     del section[key]
                     dropped.append(f"[{table}].{key}")
 
+        for table in sorted(REMOVED_CONFIG_TABLES):
+            if table in doc:
+                del doc[table]
+                dropped.append(f"[{table}]")
+
         if not dropped:
             return
 
         config_path.write_text(tomlkit.dumps(doc))
-        self.output.print(f"Dropped removed config key(s) {', '.join(dropped)} for {bench.name}")
+        self.output.print(f"Dropped removed config {', '.join(dropped)} for {bench.name}")
 
     def migrate_services(self):
         self._upgrade_global_db_engine()

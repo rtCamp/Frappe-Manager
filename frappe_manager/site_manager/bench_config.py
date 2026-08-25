@@ -1116,8 +1116,12 @@ class SwitchConfig(BaseModel):
 # write a field the model does not have.
 REMOVED_CONFIG_KEYS: dict[str, frozenset[str]] = {
     "switch": frozenset({"search_replace"}),
-    "registry": frozenset({"distribution"}),
 }
+
+# Whole tables that no longer exist. `import_from_toml` builds its input explicitly, so a
+# leftover table is already ignored at load; this is what tells the migration to take it
+# off disk so it stops being carried forward and re-read by a future version.
+REMOVED_CONFIG_TABLES: frozenset[str] = frozenset({"registry"})
 
 
 def _table(data: dict, name: str) -> dict:
@@ -1155,21 +1159,6 @@ class BuildConfig(BaseModel):
         description="Extra host paths baked into the image: 'src' or 'src:dest' (dest relative to "
         "/workspace/frappe-bench). Applied after source; overrides existing files.",
     )
-
-
-class RegistryConfig(BaseModel):
-    """Image registry configuration (`[registry]`).
-
-    Read in both directions, which is why it is not part of `[build]`: `fm bake`
-    pushes with it, and `fm switch`, `fm create` (image/attach) and `fm update` all
-    pull with it on hosts that never build anything.
-    """
-
-    model_config = ConfigDict(extra="forbid")
-
-    registry: str | None = Field(None, description="Registry host/namespace for push/pull.")
-    username: str | None = Field(None, description="Registry username (env-substituted).")
-    password: str | None = Field(None, description="Registry password/token (env-substituted, --password-stdin).")
 
 
 class NewRelicConfig(BaseModel):
@@ -1267,7 +1256,6 @@ class BenchConfig(BaseModel):
     )
     auth: AuthConfig | None = Field(None, description="HTTP basic auth configuration ([auth]).")
     build: BuildConfig | None = Field(None, description="Image build configuration for bake ([build]).")
-    registry: RegistryConfig | None = Field(None, description="Image registry / transport configuration ([registry]).")
     base_image: str | None = Field(
         None,
         description="Mount mode: override the base frappe image (repo:tag) for frappe/socketio/schedule/workers. None = default fm image.",
@@ -1492,7 +1480,7 @@ class BenchConfig(BaseModel):
         return all_domains
 
     def export_to_toml(self, path: Path) -> bool:
-        """Export to TOML: `environment`, [[apps]], [monitoring], [switch], [build], [registry], [ssl],
+        """Export to TOML: `environment`, [[apps]], [monitoring], [switch], [build], [ssl],
         [database."<site>"], [redis]. Nested models round-trip through model_dump(exclude_none=True)."""
         exclude = {
             "root_path",
@@ -1626,7 +1614,6 @@ class BenchConfig(BaseModel):
             "switch": SwitchConfig(**_table(data, "switch")) if data.get("switch") else None,
             "workers": WorkersConfig(**_table(data, "workers")) if data.get("workers") else None,
             "build": BuildConfig(**_table(data, "build")) if data.get("build") else None,
-            "registry": RegistryConfig(**_table(data, "registry")) if data.get("registry") else None,
             "monitoring": MonitoringConfig(**_table(data, "monitoring")) if data.get("monitoring") else None,
             "database": {str(k): DatabaseConfig(**dict(v)) for k, v in data["database"].items()}
             if data.get("database")
