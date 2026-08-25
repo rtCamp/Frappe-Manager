@@ -147,6 +147,10 @@ dev = [
     # indication of which test is at fault, which is far worse than a failure.
     "pytest-timeout>=2.4.0",
     "debugpy>=1.8.20",
+    # shellcheck as a wheel, so tests/unit/scripts/test_shell_lint.py runs instead of
+    # skipping. It covers the bash embedded in action.yml, which actionlint refuses to parse
+    # (it only understands workflow files), leaving that shell otherwise unlinted.
+    "shellcheck-py>=0.10.0",
     "zensical",
     "mike",
 ]

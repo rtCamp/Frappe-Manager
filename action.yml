@@ -179,93 +179,46 @@ runs:
         printf '%s' "$REGISTRY_PASSWORD" | docker login "$host" --username "$REGISTRY_USERNAME" --password-stdin
         echo "Logged in to $host"
 
-    - name: Prepare SSH
-      id: ssh
-      if: inputs.phase == 'switch' || inputs.phase == 'both'
-      shell: bash
-      env:
-        SSH_HOST: ${{ inputs.ssh-host }}
-        SSH_USER: ${{ inputs.ssh-user }}
-        SSH_PORT: ${{ inputs.ssh-port }}
-        SSH_KEY: ${{ inputs.ssh-key }}
-        SSH_KNOWN_HOSTS: ${{ inputs.ssh-known-hosts }}
-        BENCH: ${{ inputs.bench }}
-      run: |
-        set -euo pipefail
-        for name in BENCH SSH_HOST SSH_USER SSH_KEY; do
-          if [ -z "${!name}" ]; then echo "::error::${name} is required to switch"; exit 1; fi
-        done
-
-        # RUNNER_TEMP is wiped when the job ends, and unlike a mktemp dir it survives
-        # between the steps of this action, which the preflight and the switch both need.
-        dir="${RUNNER_TEMP:-/tmp}/fm-action-ssh"
-        mkdir -p "$dir"
-        chmod 700 "$dir"
-        key="$dir/id"
-        printf '%s\n' "$SSH_KEY" > "$key"
-        chmod 600 "$key"
-
-        known="$dir/known_hosts"
-        if [ -n "$SSH_KNOWN_HOSTS" ]; then
-          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$known"
-        else
-          # A fresh runner has an empty known_hosts, and BatchMode means nobody is there to
-          # answer the host-key prompt, so the first connection would simply fail. Keyscan
-          # trusts whatever answers right now; set ssh-known-hosts to pin it instead.
-          echo "::warning::ssh-known-hosts not set; trusting the host key ssh-keyscan returns"
-          # -H hashes the hostname, matching what ssh writes itself. A non-default port is
-          # recorded as [host]:port by both sides, so the lookup still matches.
-          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" > "$known" 2>/dev/null
-          if [ ! -s "$known" ]; then
-            echo "::error::ssh-keyscan got no host key from ${SSH_HOST}:${SSH_PORT}. Wrong host or port, or the port is filtered."
-            exit 1
-          fi
-        fi
-        echo "key=$key" >> "$GITHUB_OUTPUT"
-        echo "known-hosts=$known" >> "$GITHUB_OUTPUT"
-
     - name: Preflight the switch target
       id: preflight
       if: inputs.phase == 'switch' || inputs.phase == 'both'
       shell: bash
       env:
+        SSH_PRIVATE_KEY: ${{ inputs.ssh-key }}
+        SSH_KNOWN_HOSTS: ${{ inputs.ssh-known-hosts }}
+        BENCH: ${{ inputs.bench }}
         SSH_HOST: ${{ inputs.ssh-host }}
         SSH_USER: ${{ inputs.ssh-user }}
         SSH_PORT: ${{ inputs.ssh-port }}
-        SSH_KEY: ${{ steps.ssh.outputs.key }}
-        SSH_KNOWN: ${{ steps.ssh.outputs.known-hosts }}
         FM_REMOTE_PATH: ${{ inputs.fm-remote-path }}
       run: |
         set -euo pipefail
-        # Runs BEFORE the bake on purpose. A bake is minutes of build and a registry push;
-        # discovering only afterwards that the switch cannot run wastes all of it and leaves
-        # a pushed image nothing will deploy.
-        #
-        # `ssh host "fm ..."` gets a non-interactive shell, which reads neither .bashrc nor
-        # .profile, so PATH is the bare system default. An fm installed by `uv tool install`
-        # lives in ~/.local/bin and is invisible there. Resolving it explicitly is the
-        # difference between working and "command not found" on a correctly set-up server.
-        probe=$(cat <<'REMOTE'
-        for candidate in "$FM_OVERRIDE" "$(command -v fm 2>/dev/null)" \
-                         "$HOME/.local/bin/fm" /usr/local/bin/fm /usr/bin/fm; do
-          if [ -n "$candidate" ] && [ -x "$candidate" ]; then echo "$candidate"; exit 0; fi
+        for name in BENCH SSH_HOST SSH_USER SSH_PRIVATE_KEY; do
+          if [ -z "${!name}" ]; then echo "::error::${name} is required to switch"; exit 1; fi
         done
-        exit 1
-        REMOTE
-        )
-        ssh_opts=(-o BatchMode=yes -o StrictHostKeyChecking=yes
-                  -o UserKnownHostsFile="$SSH_KNOWN" -i "$SSH_KEY" -p "$SSH_PORT")
 
-        if ! bin=$(ssh "${ssh_opts[@]}" "${SSH_USER}@${SSH_HOST}" \
-                     "FM_OVERRIDE='${FM_REMOTE_PATH}' bash -s" <<< "$probe"); then
-          echo "::error::fm was not found on ${SSH_USER}@${SSH_HOST}. Looked on PATH, then ~/.local/bin/fm, /usr/local/bin/fm and /usr/bin/fm. Install it there (uv tool install frappe-manager) or set fm-remote-path to its absolute path. Nothing was baked."
-          exit 1
+        # Runs BEFORE the bake on purpose. A bake is minutes of build plus a registry push;
+        # discovering afterwards that the switch cannot start wastes all of it and leaves a
+        # pushed image nothing is going to deploy.
+        #
+        # The logic lives in a script rather than here because bash embedded in action.yml
+        # is the one shell in this repo no linter can reach: actionlint shellchecks `run:`
+        # blocks in workflows but refuses composite action files. The script is shellchecked
+        # and runnable by hand to reproduce a CI failure.
+        args=(--host "$SSH_HOST" --user "$SSH_USER" --port "$SSH_PORT")
+        # RUNNER_TEMP is wiped when the job ends and, unlike a mktemp dir, survives between
+        # the steps of this action, which the switch step needs.
+        args+=(--workdir "${RUNNER_TEMP:-/tmp}/fm-action-ssh")
+        args+=(--github-output "$GITHUB_OUTPUT")
+        if [ -n "$FM_REMOTE_PATH" ]; then args+=(--fm-path "$FM_REMOTE_PATH"); fi
+        if [ -z "$SSH_KNOWN_HOSTS" ]; then
+          echo "::warning::ssh-known-hosts not set; trusting the host key ssh-keyscan returns"
+          args+=(--keyscan)
         fi
 
-        # Present is not the same as working: a half-finished install still leaves the shim.
-        version=$(ssh "${ssh_opts[@]}" "${SSH_USER}@${SSH_HOST}" "'$bin' --version 2>&1" | tr -d '\r')
-        echo "Target fm: $bin ($version)"
-        echo "fm-bin=$bin" >> "$GITHUB_OUTPUT"
+        # SSH_PRIVATE_KEY and SSH_KNOWN_HOSTS reach the script through the environment, not
+        # argv, which every other process on the runner can read.
+        "${GITHUB_ACTION_PATH}/scripts/deploy-preflight.sh" "${args[@]}" > /dev/null
 
     - name: Bake
       if: inputs.phase != 'switch'
@@ -330,8 +283,8 @@ runs:
         SSH_HOST: ${{ inputs.ssh-host }}
         SSH_USER: ${{ inputs.ssh-user }}
         SSH_PORT: ${{ inputs.ssh-port }}
-        SSH_KEY: ${{ steps.ssh.outputs.key }}
-        SSH_KNOWN: ${{ steps.ssh.outputs.known-hosts }}
+        SSH_KEY: ${{ steps.preflight.outputs.key }}
+        SSH_KNOWN: ${{ steps.preflight.outputs.known-hosts }}
         FM_BIN: ${{ steps.preflight.outputs.fm-bin }}
         SWITCH_ARGS: ${{ inputs.switch-args }}
       run: |

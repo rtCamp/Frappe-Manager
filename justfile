@@ -75,15 +75,20 @@ lint:
 lint-tests:
     uv run ruff check tests/
 
-# Run Ruff linter + format check + docs checks (CI-style, full repo).
-# All three always run: `&&` would hide the docs check behind pre-existing ruff debt.
+# Run Ruff linter + format check + docs checks + shell checks (CI-style, full repo).
+# All of them always run: `&&` would hide the later checks behind pre-existing ruff debt.
 lint-all:
     #!/usr/bin/env bash
     rc=0
     uv run ruff check frappe_manager/ tests/ || rc=1
     uv run ruff format --check . || rc=1
     uv run python scripts/docslint.py || rc=1
+    uv run pytest tests/unit/scripts/test_shell_lint.py -q --no-cov || rc=1
     exit $rc
+
+# Shellcheck scripts/ and the bash embedded in action.yml, which actionlint cannot reach
+shell-lint:
+    uv run pytest tests/unit/scripts/test_shell_lint.py -v --no-cov
 
 # Auto-fix fixable lint issues on changed files only
 lint-fix:

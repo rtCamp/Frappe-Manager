@@ -6,6 +6,9 @@ This directory contains helper scripts for installing and maintaining Frappe Man
 |--------|---------|
 | [`install.sh`](#installation-script-installsh) | Install Frappe Manager and all its dependencies |
 | [`update_cli_docs.py`](#cli-documentation-generator-update_cli_docspy) | Generate Markdown CLI docs from the live Typer app |
+| [`deploy-preflight.sh`](#deploy-preflight-deploy-preflightsh) | Check a host can receive `fm switch`, before anything is built |
+| `docslint.py` | Docs checks mkdocs does not do: dash style, link hygiene, flags that no longer exist. Run via `just docs-lint` |
+| `mutation_test.py` | Mutation testing: does a bug in covered code get CAUGHT. Run via `just mutate` |
 
 ---
 
@@ -208,3 +211,42 @@ git add -A
 git commit -m "Update CLI docs"
 git push
 ```
+
+---
+
+## Deploy preflight (`deploy-preflight.sh`)
+
+Checks that a host can receive `fm switch`, before anything is built.
+
+```bash
+scripts/deploy-preflight.sh --host prod.example.com --user deploy
+```
+
+Prints the absolute path of `fm` on that host to stdout, or exits 1 explaining what is
+wrong. The GitHub Action runs it before the bake, so a target that cannot deploy is caught
+in seconds rather than after a build and a registry push.
+
+It exists because of one non-obvious failure mode. `ssh host "fm switch ..."` gets a
+**non-interactive** shell, which reads neither `.bashrc` nor `.profile`, so `PATH` is the
+bare system default. An `fm` installed by `uv tool install` lives in `~/.local/bin` and is
+invisible there: `command -v fm` returns nothing on a host where fm is installed and
+working. So the script resolves fm explicitly, against `PATH` then `~/.local/bin`,
+`/usr/local/bin` and `/usr/bin`, and runs `--version` on what it finds, because an
+interrupted install still leaves the shim behind.
+
+Connection problems are reported separately from a missing fm. Both used to look the same
+from the outside, which sent the reader after the wrong thing.
+
+| Option | Meaning |
+|--------|---------|
+| `--host`, `--user` | required |
+| `--port` | default 22 |
+| `--key-file` | private key file; or pass the key **content** in `SSH_PRIVATE_KEY` |
+| `--known-hosts` | known_hosts file; or its **content** in `SSH_KNOWN_HOSTS` |
+| `--keyscan` | no known_hosts supplied: accept what `ssh-keyscan` returns (trust on first use). Without it, ssh uses your own config |
+| `--fm-path` | absolute path to fm, skipping discovery |
+| `--workdir` | where generated files go; a temp dir is used and removed otherwise |
+| `--github-output` | append `key=`, `known-hosts=` and `fm-bin=` to a file |
+
+Secrets go through the environment, not argv, because argv is readable by every other
+process on the machine.
