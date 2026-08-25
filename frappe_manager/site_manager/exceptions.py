@@ -1,4 +1,3 @@
-from builtins import len
 from pathlib import Path
 
 from rich.box import Box
@@ -23,21 +22,6 @@ class BenchException(FrappeManagerException):
             self.message = f"[fm.info][bold]{bench_name} :[/bold][/fm.info] {message}"
 
         super().__init__(self.message)
-
-
-class BenchDockerComposeFileNotFound(BenchException):
-    """Raised when docker-compose.yml file is not found."""
-
-    def __init__(
-        self,
-        bench_name: str,
-        path: Path,
-        message: str = "Compose file not found at {}. Aborting operation.",
-    ):
-        self.bench_name = bench_name
-        self.path = path
-        self.message = message.format(self.path)
-        super().__init__(self.bench_name, self.message)
 
 
 class BenchServiceNotRunning(BenchException):
@@ -85,47 +69,6 @@ class BenchRemoveDirectoryError(BenchException):
         super().__init__(self.bench_name, self.message)
 
 
-class BenchLogFileNotFoundError(BenchException):
-    """Raised when bench log file is not found."""
-
-    def __init__(
-        self,
-        bench_name: str,
-        path: Path,
-        message: str = "Log file not found at {}.",
-    ):
-        self.bench_name = bench_name
-        self.path = path
-        self.message = message.format(self.path)
-        super().__init__(self.bench_name, self.message)
-
-
-class BenchWorkersStartError(BenchException):
-    """Raised when bench workers fail to start."""
-
-    def __init__(
-        self,
-        bench_name: str,
-        message: str = "Workers not able to start.",
-    ):
-        self.bench_name = bench_name
-        self.message = message
-        super().__init__(self.bench_name, self.message)
-
-
-class BenchWorkersSupervisorConfigurtionGenerateError(BenchException):
-    """Raised when supervisor worker configuration generation fails."""
-
-    def __init__(
-        self,
-        bench_name: str,
-        message: str = "Failed to configure workers.",
-    ):
-        self.bench_name = bench_name
-        self.message = message
-        super().__init__(self.bench_name, self.message)
-
-
 class BenchWorkersSupervisorConfigurtionNotFoundError(BenchException):
     """Raised when supervisor worker configuration file is not found."""
 
@@ -138,26 +81,6 @@ class BenchWorkersSupervisorConfigurtionNotFoundError(BenchException):
         self.bench_name = bench_name
         self.config_dir = config_dir
         self.message = message.format(self.config_dir)
-        super().__init__(self.bench_name, self.message)
-
-
-class BenchConfigFileNotFound(BenchException):
-    """Raised when bench configuration file (bench_config.toml) is not found."""
-
-    def __init__(self, bench_name, config_path, message="Config file not found at {}."):
-        self.bench_name = bench_name
-        self.config_path = config_path
-        self.message = message.format(config_path)
-        super().__init__(self.bench_name, self.message)
-
-
-class BenchConfigValidationError(BenchException):
-    """Raised when bench configuration validation fails."""
-
-    def __init__(self, bench_name, config_path, message="FM bench config not valid at {}"):
-        self.bench_name = bench_name
-        self.config_path = config_path
-        self.message = message.format(self.config_path)
         super().__init__(self.bench_name, self.message)
 
 
@@ -238,15 +161,6 @@ class BenchFailedToRemoveDevPackages(BenchException):
         super().__init__(self.bench_name, self.message)
 
 
-class BenchFrappeServiceSupervisorNotRunning(BenchException):
-    """Raised when supervisorctl is not running in the frappe service container."""
-
-    def __init__(self, bench_name, message="Supervisorctl is not running in frappe service"):
-        self.bench_name = bench_name
-        self.message = message
-        super().__init__(self.bench_name, self.message)
-
-
 class BenchOperationException(BenchException):
     """Base exception for bench operations that may include subprocess output."""
 
@@ -312,16 +226,6 @@ class BenchOperationException(BenchException):
         super().__init__(self.bench_name, self.message, prefix_bench_name=False)
 
 
-class BenchOperationFrappeBranchChangeFailed(BenchOperationException):
-    """Raised when changing a Frappe app branch fails."""
-
-    def __init__(self, bench_name, app: str, branch: str, message: str = "Failed to change {} app branch to {}."):
-        self.app = app
-        self.branch = branch
-        formatted_message = message.format(app, branch)
-        super().__init__(bench_name, formatted_message)
-
-
 class BenchOperationRequiredDockerImagesNotAvailable(BenchException):
     """Raised when required Docker images are not available locally."""
 
@@ -334,6 +238,28 @@ class BenchOperationRequiredDockerImagesNotAvailable(BenchException):
         self.bench_name = bench_name
         self.message = message.format(pull_command)
         super().__init__(self.bench_name, self.message)
+
+
+class BenchOperationBenchInstallAppInPythonEnvFailed(BenchOperationException):
+    """Raised when installing an app in the Python environment fails."""
+
+    def __init__(
+        self,
+        bench_name,
+        app_name: str,
+        message: str = "Failed to install app {} in python env.",
+        print_combined: bool = True,
+        print_stdout: bool = False,
+        print_stderr: bool = False,
+    ):
+        self.bench_name = bench_name
+        self.app_name = app_name
+        self.message = message.format(app_name)
+        self.print_stdout = print_stdout
+        self.print_stderr = print_stderr
+        self.print_combined = print_combined
+
+        super().__init__(self.bench_name, self.message, self.print_combined, self.print_stdout, self.print_stderr)
 
 
 class BenchOperationWaitForRequiredServiceFailed(BenchOperationException):
@@ -378,28 +304,6 @@ class BenchOperationBenchSiteCreateFailed(BenchOperationException):
         self.print_stdout = print_stdout
         self.print_stderr = print_stderr
         self.print_combined = print_combined
-        super().__init__(self.bench_name, self.message, self.print_combined, self.print_stdout, self.print_stderr)
-
-
-class BenchOperationBenchInstallAppInPythonEnvFailed(BenchOperationException):
-    """Raised when installing an app in the Python environment fails."""
-
-    def __init__(
-        self,
-        bench_name,
-        app_name: str,
-        message: str = "Failed to install app {} in python env.",
-        print_combined: bool = True,
-        print_stdout: bool = False,
-        print_stderr: bool = False,
-    ):
-        self.bench_name = bench_name
-        self.app_name = app_name
-        self.message = message.format(app_name)
-        self.print_stdout = print_stdout
-        self.print_stderr = print_stderr
-        self.print_combined = print_combined
-
         super().__init__(self.bench_name, self.message, self.print_combined, self.print_stdout, self.print_stderr)
 
 

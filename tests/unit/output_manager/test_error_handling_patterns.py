@@ -8,10 +8,19 @@ This module documents and tests the two error handling methods:
 
 import pytest
 
-from frappe_manager.exceptions import ValidationError
+from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.output_manager.json_output import JSONOutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
+
+
+class OutputTestError(FrappeManagerException):
+    """A distinctly-named exception for these tests to throw at the handlers.
+
+    Previously they borrowed `frappe_manager.exceptions.ValidationError`, which production
+    never raised and which shadowed pydantic's `ValidationError` of the same name. A local
+    double also keeps the "the type name reaches the log" assertion meaningful.
+    """
 
 
 class TestDisplayErrorPattern:
@@ -56,16 +65,16 @@ class TestErrorPattern:
         # handler.error("Error message")  # Missing required 'exception' parameter
 
         # Correct usage:
-        with pytest.raises(ValidationError):
-            handler.error("Error message", exception=ValidationError("Test"))
+        with pytest.raises(OutputTestError):
+            handler.error("Error message", exception=OutputTestError("Test"))
 
     def test_error_always_raises_with_rich_handler(self):
         """error() displays and raises exception with rich handler."""
         handler = RichOutputHandler()
 
-        exc = ValidationError("Invalid configuration")
+        exc = OutputTestError("Invalid configuration")
 
-        with pytest.raises(ValidationError, match="Invalid configuration"):
+        with pytest.raises(OutputTestError, match="Invalid configuration"):
             handler.error("Configuration error", exception=exc)
 
     def test_error_always_raises_with_silent_handler(self):
@@ -110,9 +119,9 @@ class TestErrorHandlingUseCases:
         handler = SilentOutputHandler()
 
         # Example: Critical dependency missing (fatal, stop execution)
-        exc = ValidationError("Docker is not installed")
+        exc = OutputTestError("Docker is not installed")
 
-        with pytest.raises(ValidationError):
+        with pytest.raises(OutputTestError):
             handler.error("Cannot proceed without Docker", exception=exc)
 
         # Execution stops here (exception propagates)
@@ -169,10 +178,10 @@ class TestMigrationFromOldAPI:
         handler.display_error("Service X is slow")
 
         # YES - use error():
-        with pytest.raises(ValidationError):
+        with pytest.raises(OutputTestError):
             handler.error(
                 "Critical dependency missing",
-                exception=ValidationError("Docker not found"),
+                exception=OutputTestError("Docker not found"),
             )
 
 
@@ -181,21 +190,21 @@ class TestErrorMessageConsistency:
 
     def test_same_error_produces_consistent_output(self):
         """Same error call produces consistent behavior across handlers."""
-        exc = ValidationError("Test error")
+        exc = OutputTestError("Test error")
 
         # Rich handler - displays and raises
         rich = RichOutputHandler()
-        with pytest.raises(ValidationError):
+        with pytest.raises(OutputTestError):
             rich.error("Error occurred", exception=exc)
 
         # Silent handler - raises without display
         silent = SilentOutputHandler()
-        with pytest.raises(ValidationError):
+        with pytest.raises(OutputTestError):
             silent.error("Error occurred", exception=exc)
 
         # JSON handler - captures and raises
         json = JSONOutputHandler()
-        with pytest.raises(ValidationError):
+        with pytest.raises(OutputTestError):
             json.error("Error occurred", exception=exc)
 
         # All handlers raised the same exception

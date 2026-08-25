@@ -9,22 +9,6 @@ class ServicesComposeNotExist(FrappeManagerException):
         super().__init__(message)
 
 
-class ServicesSecretsDBRootPassNotExist(FrappeManagerException):
-    """Exception raised when database root password secret does not exist."""
-
-    def __init__(self, message):
-        message = message
-        super().__init__(message)
-
-
-class ServicesDBNotStart(FrappeManagerException):
-    """Exception raised when database service fails to start."""
-
-    def __init__(self, message):
-        message = message
-        super().__init__(message)
-
-
 class ServicesException(FrappeManagerException):
     """Base exception for all services-related errors."""
 
@@ -67,26 +51,6 @@ class DatabaseServicePasswordNotFound(DatabaseServiceException):
         super().__init__(self.service_name, self.message)
 
 
-class DatabaseServiceUserRemoveFailError(DatabaseServiceException):
-    """Exception raised when database user removal fails."""
-
-    def __init__(self, username: str, service_name: str, message="Failed to remove user {}.") -> None:
-        self.service_name = service_name
-        self.username = username
-        self.message = message.format(self.username)
-        super().__init__(self.service_name, self.message)
-
-
-class DatabaseServiceDBRemoveFailError(DatabaseServiceException):
-    """Exception raised when database removal fails."""
-
-    def __init__(self, db_name: str, service_name: str, message="Failed to remove db {}.") -> None:
-        self.service_name = service_name
-        self.db_name = db_name
-        self.message = message.format(db_name)
-        super().__init__(self.service_name, self.message)
-
-
 class DatabaseServiceDBNotFoundError(DatabaseServiceException):
     """Exception raised when database is not found."""
 
@@ -121,6 +85,26 @@ class DatabaseServiceDBImportFailed(DatabaseServiceException):
     def __init__(self, service_name: str, db_dump_path: str, message="DB import failed for db dump {}.") -> None:
         self.service_name = service_name
         self.message = message.format(db_dump_path)
+        super().__init__(self.service_name, self.message)
+
+
+class DatabaseServiceUserRemoveFailError(DatabaseServiceException):
+    """Exception raised when database user removal fails."""
+
+    def __init__(self, username: str, service_name: str, message="Failed to remove user {}.") -> None:
+        self.service_name = service_name
+        self.username = username
+        self.message = message.format(self.username)
+        super().__init__(self.service_name, self.message)
+
+
+class DatabaseServiceDBRemoveFailError(DatabaseServiceException):
+    """Exception raised when database removal fails."""
+
+    def __init__(self, db_name: str, service_name: str, message="Failed to remove db {}.") -> None:
+        self.service_name = service_name
+        self.db_name = db_name
+        self.message = message.format(db_name)
         super().__init__(self.service_name, self.message)
 
 

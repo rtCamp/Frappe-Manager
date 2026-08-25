@@ -12,11 +12,20 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from frappe_manager.exceptions import ValidationError
+from frappe_manager.exceptions import FrappeManagerException
 from frappe_manager.logger.log import FMLogger
 from frappe_manager.output_manager.logging_output import LoggingOutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
+
+
+class OutputTestError(FrappeManagerException):
+    """A distinctly-named exception for these tests to throw at the handlers.
+
+    Previously they borrowed `frappe_manager.exceptions.ValidationError`, which production
+    never raised and which shadowed pydantic's `ValidationError` of the same name. A local
+    double also keeps the "the type name reaches the log" assertion meaningful.
+    """
 
 
 @pytest.fixture
@@ -115,11 +124,11 @@ class TestLoggingOutputHandlerDelegation:
         logger, _ = test_logger
         mock_handler = MagicMock(spec=RichOutputHandler)
         mock_handler.verbose = False
-        mock_handler.error.side_effect = ValidationError("Test error")
+        mock_handler.error.side_effect = OutputTestError("Test error")
         output = make_handler(mock_handler, logger)
 
-        with pytest.raises(ValidationError, match="Test error"):
-            output.error("Error occurred", ValidationError("Test error"))
+        with pytest.raises(OutputTestError, match="Test error"):
+            output.error("Error occurred", OutputTestError("Test error"))
 
         mock_handler.error.assert_called_once()
 
@@ -188,14 +197,14 @@ class TestLoggingOutputHandlerFileLogging:
         rich = SilentOutputHandler()
         output = make_handler(rich, logger)
 
-        exc = ValidationError("Invalid input")
+        exc = OutputTestError("Invalid input")
 
-        with pytest.raises(ValidationError):
+        with pytest.raises(OutputTestError):
             output.error("Operation failed", exc)
 
         content = log_file.read_text()
         assert "[ERROR] [OUTPUT] Operation failed" in content
-        assert "ValidationError" in content
+        assert "OutputTestError" in content
         assert "Invalid input" in content
 
 
@@ -380,7 +389,6 @@ class TestLoggingOutputHandlerInteractiveMode:
 
 
 class TestLoggingOutputHandlerExit:
-
     def test_exit_delegates_to_rich_handler(self, test_logger):
         logger, log_file = test_logger
         rich = RichOutputHandler()
