@@ -1018,7 +1018,7 @@ class BenchOrchestrator:
         try:
             bench.app_manager._container_run(
                 migrate_cmd,
-                raise_exception_obj=BenchOperationException(bench.name, "bench migrate failed"),
+                on_failure=lambda: BenchOperationException(bench.name, "bench migrate failed"),
             )
         except Exception as e:
             self.logger.warning(f"{bench.name}: bench migrate failed: {e}")

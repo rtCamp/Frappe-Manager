@@ -10,7 +10,7 @@ separation of concerns.
 
 import os
 import shlex
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any, cast
 
@@ -264,7 +264,7 @@ fi
                         self.output.print(f"Installing Python {python_version} via uv..")
                         quoted_pkg = shlex.quote(f"cpython-{python_version}")
                         install_cmd = f"uv python install {quoted_pkg}"
-                        self._container_run(install_cmd, raise_exception_obj=None, use_run=use_run)
+                        self._container_run(install_cmd, use_run=use_run)
 
                         detect_installed_cmd = (
                             f"ls -1 /workspace/frappe-bench/.uv/python/ | grep '^{quoted_pkg}' | sort -V | tail -1"
@@ -297,7 +297,7 @@ fi
                         rm -f python-default
                         ln -sf python/{selected_python_full} python-default
                         """
-                        self._container_run(update_symlink_cmd, raise_exception_obj=None, use_run=use_run)
+                        self._container_run(update_symlink_cmd, use_run=use_run)
 
                     if recreate_python_env:
                         self.output.change_head(f"Creating virtual environment with {selected_python_full}")
@@ -310,7 +310,7 @@ fi
                         fi
                         uv venv env --python {quoted_python} --seed --link-mode=copy
                         """
-                        self._container_run(recreate_venv_cmd, raise_exception_obj=None, use_run=use_run)
+                        self._container_run(recreate_venv_cmd, use_run=use_run)
                         selected_version_str = (
                             f"{selected_version[0]}.{selected_version[1]}.{selected_version[2]}"
                             if selected_version
@@ -643,7 +643,7 @@ fi
                         f"apps/{app.name}",
                     ]
                     install_cmd_str = " ".join(install_cmd)
-                    self._container_run(install_cmd_str, raise_exception_obj=None, use_run=use_run)
+                    self._container_run(install_cmd_str, use_run=use_run)
 
                 return
             except Exception as uv_error:
@@ -758,11 +758,10 @@ fi
         app_install_env_command += [app]
 
         app_install_env_command = " ".join(app_install_env_command)
-        app_install_exception = BenchOperationBenchInstallAppInPythonEnvFailed(bench_name=self.bench_name, app_name=app)
 
         self._container_run(
             app_install_env_command,
-            raise_exception_obj=app_install_exception,
+            on_failure=lambda: BenchOperationBenchInstallAppInPythonEnvFailed(bench_name=self.bench_name, app_name=app),
         )
 
     def remove_app_from_env(
@@ -800,7 +799,7 @@ fi
 
         self._container_run(
             app_rm_env_command,
-            raise_exception_obj=BenchOperationBenchRemoveAppFromPythonEnvFailed(
+            on_failure=lambda: BenchOperationBenchRemoveAppFromPythonEnvFailed(
                 bench_name=self.bench_name,
                 app_name=app,
             ),
@@ -836,7 +835,7 @@ fi
 
         self._container_run(
             app_install_site_command,
-            raise_exception_obj=BenchOperationBenchAppInSiteFailed(bench_name=self.bench_name, app_name=app),
+            on_failure=lambda: BenchOperationBenchAppInSiteFailed(bench_name=self.bench_name, app_name=app),
         )
 
     def install_apps_to_site(
@@ -886,10 +885,11 @@ fi
             for app in app_list:
                 build_cmd += ["--app"] + [app]
 
-        build_exception = BenchOperationBenchBuildFailed(bench_name=self.bench_name, apps=app_list)
-
-        build_cmd = " ".join(build_cmd)
-        self._container_run(build_cmd, build_exception, use_run=use_run)
+        self._container_run(
+            " ".join(build_cmd),
+            on_failure=lambda: BenchOperationBenchBuildFailed(bench_name=self.bench_name, apps=app_list),
+            use_run=use_run,
+        )
 
     def get_installed_apps_list(self) -> list[Path]:
         """
@@ -952,12 +952,12 @@ fi
         -- each caller either inspects ``exit_code`` or sits inside its own
         ``try``.
         """
-        return self._container_run(command, capture_output=True, raise_exception_obj=None, use_run=use_run)
+        return self._container_run(command, capture_output=True, use_run=use_run)
 
     def _container_run(
         self,
         command: str,
-        raise_exception_obj: BenchOperationException | None = None,
+        on_failure: Callable[[], BenchOperationException] | None = None,
         capture_output: bool = False,
         user: str = "frappe",
         workdir: str = "/workspace/frappe-bench",
@@ -973,7 +973,7 @@ fi
 
         Args:
             command: Shell command to execute
-            raise_exception_obj: Exception to raise on failure
+            on_failure: Builds the exception to raise if the command fails. Called only on failure
             capture_output: Whether to capture output instead of streaming
             user: User to run command as (default: frappe)
             workdir: Working directory (default: /workspace/frappe-bench)
@@ -988,7 +988,7 @@ fi
             SubprocessOutput if capture_output=True, None otherwise
 
         Raises:
-            BenchOperationException: If command fails and raise_exception_obj is provided
+            BenchOperationException: If command fails and on_failure is provided
             DockerException: If command fails and no exception object provided
         """
         # The narrow, exact-CA option file for anything fm runs itself; the
@@ -1036,10 +1036,14 @@ fi
             self.output.live_lines(streamed, line_filters=DOCKER_LINE_NOISE)
 
         except DockerException as e:
-            if raise_exception_obj:
-                raise_exception_obj.set_output(e.output)
-                raise raise_exception_obj
-            raise e
+            if on_failure is not None:
+                # Built here, not by the caller: the old signature took a ready-made exception, so
+                # every call constructed one on a path that usually succeeds, and the helper then
+                # mutated that caller-owned object.
+                error = on_failure()
+                error.set_output(e.output)
+                raise error from e
+            raise
 
     def _run_in_provision_image(
         self,

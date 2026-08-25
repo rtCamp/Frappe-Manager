@@ -564,7 +564,7 @@ class MigrationV0190(MigrationBase):
             htpasswd_file.unlink()
 
     def _pull_bench_images(self, bench: MigrationBench):
-        from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
+        from frappe_manager.migration_manager.migration_exceptions import MigrationExceptionInBench
 
         self.output.print(f"Pulling updated images ({self._get_image_tag_for_migration()})...", emoji_code="📦")
 

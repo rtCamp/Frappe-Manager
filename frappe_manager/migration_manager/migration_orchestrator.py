@@ -8,7 +8,7 @@ and service management during migrations.
 from typing import TYPE_CHECKING
 
 from frappe_manager.logger import bind, get_logger
-from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
+from frappe_manager.migration_manager.migration_exceptions import MigrationExceptionInBench
 from frappe_manager.utils.helpers import capture_and_format_exception
 
 if TYPE_CHECKING:

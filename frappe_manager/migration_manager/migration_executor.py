@@ -7,7 +7,7 @@ from frappe_manager.migration_manager.bench_migration_state import get_bench_mig
 from frappe_manager.migration_manager.migration_constants import MINIMUM_SUPPORTED_VERSION
 from frappe_manager.migration_manager.migration_discovery import MigrationDiscovery
 from frappe_manager.migration_manager.migration_error_handler import MigrationErrorHandler
-from frappe_manager.migration_manager.migration_exections import (
+from frappe_manager.migration_manager.migration_exceptions import (
     MigrationExceptionInBench,
 )
 from frappe_manager.migration_manager.migration_helpers import MigrationBench, MigrationBenches

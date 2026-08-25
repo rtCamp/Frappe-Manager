@@ -45,7 +45,7 @@ from ruamel.yaml import YAML
 from ruamel.yaml.scalarstring import DoubleQuotedScalarString
 
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
+from frappe_manager.migration_manager.migration_exceptions import MigrationExceptionInBench
 from frappe_manager.migration_manager.migrations.migrate_0_19_0 import MigrationV0190
 
 # ---------------------------------------------------------------------------

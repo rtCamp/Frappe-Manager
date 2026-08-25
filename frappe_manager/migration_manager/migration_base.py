@@ -6,7 +6,7 @@ from frappe_manager.logger import get_logger
 from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.migration_manager.bench_migration_state import get_bench_migration_version
 from frappe_manager.migration_manager.migration_constants import DOCKER_COMPOSE_DOWN_TIMEOUT_SECONDS
-from frappe_manager.migration_manager.migration_exections import (
+from frappe_manager.migration_manager.migration_exceptions import (
     MigrationExceptionInBench,
 )
 from frappe_manager.migration_manager.migration_helpers import (

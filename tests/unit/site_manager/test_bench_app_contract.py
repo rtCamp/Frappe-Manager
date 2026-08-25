@@ -327,8 +327,8 @@ class TestInstallAppToEnv:
         manager.install_app_to_env("erpnext")
 
         kwargs = manager._container_run.call_args.kwargs
-        assert set(kwargs) == {"raise_exception_obj"}  # no use_run -> exec transport
-        failure = kwargs["raise_exception_obj"]
+        assert set(kwargs) == {"on_failure"}  # no use_run -> exec transport
+        failure = kwargs["on_failure"]()
         assert isinstance(failure, BenchOperationBenchInstallAppInPythonEnvFailed)
         assert (failure.bench_name, failure.app_name) == (BENCH, "erpnext")
 
@@ -376,7 +376,7 @@ class TestRemoveAppFromEnv:
 
         manager.remove_app_from_env("erpnext")
 
-        failure = manager._container_run.call_args.kwargs["raise_exception_obj"]
+        failure = manager._container_run.call_args.kwargs["on_failure"]()
         assert isinstance(failure, BenchOperationBenchRemoveAppFromPythonEnvFailed)
         assert (failure.bench_name, failure.app_name) == (BENCH, "erpnext")
 
@@ -415,7 +415,7 @@ class TestInstallAppToSite:
 
         manager.install_app_to_site("erpnext", "other.localhost")
 
-        failure = manager._container_run.call_args.kwargs["raise_exception_obj"]
+        failure = manager._container_run.call_args.kwargs["on_failure"]()
         assert isinstance(failure, BenchOperationBenchAppInSiteFailed)
         # SUSPICION: the message names the BENCH, not the site it was installing into.
         assert failure.message.endswith(f"Failed to install app erpnext in site {BENCH}.")
@@ -511,18 +511,21 @@ class TestBuild:
         manager.build([])
 
         assert _commands(manager) == [f"{BENCH_CLI} build"]
-        assert manager._container_run.call_args.args[1].apps == []
+        assert manager._container_run.call_args.kwargs["on_failure"]().apps == []
 
-    def test_exception_object_is_positional_and_use_run_is_forwarded(self, tmp_path):
+    def test_the_failure_is_built_lazily_and_use_run_is_forwarded(self, tmp_path):
+        """`on_failure` is a factory, so nothing is constructed unless the build fails."""
         manager = _manager(tmp_path)
         manager._container_run = MagicMock()
 
         manager.build(["erpnext"], use_run=True)
 
-        args, kwargs = manager._container_run.call_args
-        assert isinstance(args[1], BenchOperationBenchBuildFailed)
-        assert args[1].apps == ["erpnext"]
-        assert kwargs == {"use_run": True}
+        kwargs = manager._container_run.call_args.kwargs
+        assert set(kwargs) == {"on_failure", "use_run"}
+        assert kwargs["use_run"] is True
+        built = kwargs["on_failure"]()
+        assert isinstance(built, BenchOperationBenchBuildFailed)
+        assert built.apps == ["erpnext"]
 
     def test_docker_failure_surfaces_as_the_build_exception(self, tmp_path, quiet_failure_rendering):
         manager = _manager(tmp_path)
@@ -562,8 +565,8 @@ class TestInstallPythonDeps:
         manager._install_python_deps_with_uv([AppConfig.from_string("frappe")])
 
         probe, install = manager._container_run.call_args_list
-        assert probe.kwargs == {"capture_output": True, "raise_exception_obj": None, "use_run": False}
-        assert install.kwargs == {"raise_exception_obj": None, "use_run": False}
+        assert probe.kwargs == {"capture_output": True, "use_run": False}
+        assert install.kwargs == {"use_run": False}
 
     def test_use_run_is_forwarded_to_every_call(self, tmp_path):
         manager = _manager(tmp_path)
@@ -584,7 +587,7 @@ class TestInstallPythonDeps:
     def test_use_uv_false_skips_the_probe_and_omits_the_exception_argument(self, tmp_path):
         # SUSPICION: the "fallback to pip" path documented in the docstring builds
         # the very same `uv pip install` command; the only real difference is that
-        # it passes no raise_exception_obj, so a docker failure escapes raw.
+        # it passes no on_failure, so a docker failure escapes raw.
         manager = _manager(tmp_path)
         manager._container_run = MagicMock()
 
@@ -668,7 +671,7 @@ class TestInstallNodeDeps:
         manager._install_node_deps()
 
         assert _commands(manager) == [f"{BENCH_CLI} setup requirements --node"]
-        # SUSPICION: no raise_exception_obj, so a node-deps failure surfaces as a
+        # SUSPICION: no on_failure, so a node-deps failure surfaces as a
         # bare DockerException rather than a BenchOperation* error.
         assert manager._container_run.call_args.kwargs == {"use_run": False}
 
@@ -1516,7 +1519,7 @@ class TestGetCurrentRuntimeVersions:
         manager.get_current_runtime_versions(use_run=True)
 
         for call in manager._container_run.call_args_list:
-            assert call.kwargs == {"capture_output": True, "raise_exception_obj": None, "use_run": True}
+            assert call.kwargs == {"capture_output": True, "use_run": True}
 
     def test_a_nonzero_exit_leaves_that_version_unknown(self, tmp_path):
         manager = _manager(tmp_path)

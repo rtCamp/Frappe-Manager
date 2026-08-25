@@ -10,7 +10,7 @@ separation of concerns.
 
 import json
 import shlex
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import cast
 from urllib.parse import urlsplit
@@ -235,7 +235,7 @@ class BenchSiteManager:
             "SubprocessOutput",
             self._container_run(
                 f"wait-for-it -t {timeout} {host}:{port}",
-                raise_exception_obj=BenchOperationWaitForRequiredServiceFailed(
+                on_failure=lambda: BenchOperationWaitForRequiredServiceFailed(
                     bench_name=self.bench_name,
                     host=host,
                     port=str(port),
@@ -331,14 +331,14 @@ class BenchSiteManager:
         # Create the site
         self._container_run(
             new_site_command,
-            raise_exception_obj=BenchOperationBenchSiteCreateFailed(self.bench_name),
+            on_failure=lambda: BenchOperationBenchSiteCreateFailed(self.bench_name),
             env=site_env,
         )
 
         # Set as default site
         self._container_run(
             " ".join(self.bench_cli_cmd + [f"use {self.bench_name}"]),
-            raise_exception_obj=BenchOperationException(
+            on_failure=lambda: BenchOperationException(
                 self.bench_name,
                 f"Failed to set {self.bench_name} as default site.",
             ),
@@ -348,7 +348,7 @@ class BenchSiteManager:
         # Enable scheduler
         self._container_run(
             " ".join(self.bench_cli_cmd + [f"--site {self.bench_name} scheduler enable"]),
-            raise_exception_obj=BenchOperationException(
+            on_failure=lambda: BenchOperationException(
                 self.bench_name,
                 f"Failed to enable {self.bench_name}'s scheduler.",
             ),
@@ -474,7 +474,7 @@ class BenchSiteManager:
             [BENCH_PYTHON, "-c", script],
             workdir=SITES_CONTAINER_ROOT,
             env=self._site_env(site),
-            raise_exception_obj=BenchOperationException(
+            on_failure=lambda: BenchOperationException(
                 self.bench_name,
                 f"Failed to create the site directories for {site}.",
             ),
@@ -550,7 +550,7 @@ class BenchSiteManager:
 
         self._container_run(
             reset_bench_site_command,
-            raise_exception_obj=BenchOperationException(
+            on_failure=lambda: BenchOperationException(
                 bench_name=self.bench_name,
                 message=f"Failed to reset bench site {self.bench_name}.",
             ),
@@ -559,7 +559,7 @@ class BenchSiteManager:
     def _container_run(
         self,
         command: str,
-        raise_exception_obj: BenchOperationException | None = None,
+        on_failure: Callable[[], BenchOperationException] | None = None,
         capture_output: bool = False,
         user: str = "frappe",
         workdir: str = "/workspace/frappe-bench",
@@ -575,7 +575,7 @@ class BenchSiteManager:
 
         Args:
             command: Shell command to execute
-            raise_exception_obj: Exception to raise on failure
+            on_failure: Builds the exception to raise if the command fails. Called only on failure
             capture_output: Whether to capture output instead of streaming
             user: User to run command as (default: frappe)
             workdir: Working directory (default: /workspace/frappe-bench)
@@ -588,7 +588,7 @@ class BenchSiteManager:
             SubprocessOutput if capture_output=True, None otherwise
 
         Raises:
-            BenchOperationException: If command fails and raise_exception_obj is provided
+            BenchOperationException: If command fails and on_failure is provided
             DockerException: If command fails and no exception object provided
         """
         # Empty or None leaves the invocation byte identical to what fm issued before `[database]`
@@ -656,16 +656,20 @@ class BenchSiteManager:
                 self.output.live_lines(output, line_filters=DOCKER_LINE_NOISE)
 
         except DockerException as e:
-            if raise_exception_obj:
-                raise_exception_obj.set_output(e.output)
-                raise raise_exception_obj
-            raise e
+            if on_failure is not None:
+                # Built here, not by the caller: the old signature took a ready-made exception, so
+                # every call constructed one on a path that usually succeeds, and the helper then
+                # mutated that caller-owned object.
+                error = on_failure()
+                error.set_output(e.output)
+                raise error from e
+            raise
 
     def _container_exec_argv(
         self,
         argv: list[str],
         stdin_data: str | None = None,
-        raise_exception_obj: BenchOperationException | None = None,
+        on_failure: Callable[[], BenchOperationException] | None = None,
         user: str = "frappe",
         workdir: str = "/workspace/frappe-bench",
         service: str = "frappe",
@@ -690,14 +694,14 @@ class BenchSiteManager:
         Args:
             argv: Command and arguments, passed to the container verbatim.
             stdin_data: Text fed to the command's stdin, or None to inherit fm's.
-            raise_exception_obj: Exception to raise on failure.
+            on_failure: Builds the exception to raise if the command fails. Called only on failure.
             user: User to run the command as (default: frappe).
             workdir: Working directory (default: /workspace/frappe-bench).
             service: Docker service name (default: frappe).
             env: Extra environment variables, as `--env K=V`.
 
         Raises:
-            BenchOperationException: If the command fails and raise_exception_obj is provided.
+            BenchOperationException: If the command fails and on_failure is provided.
             DockerException: If the command fails and no exception object is provided.
         """
         full_cmd = self.docker_client.compose.docker_compose_cmd + [
@@ -723,7 +727,11 @@ class BenchSiteManager:
                 input_data=stdin_data.encode() if stdin_data is not None else None,
             )
         except DockerException as e:
-            if raise_exception_obj:
-                raise_exception_obj.set_output(e.output)
-                raise raise_exception_obj
-            raise e
+            if on_failure is not None:
+                # Built here, not by the caller: the old signature took a ready-made exception, so
+                # every call constructed one on a path that usually succeeds, and the helper then
+                # mutated that caller-owned object.
+                error = on_failure()
+                error.set_output(e.output)
+                raise error from e
+            raise

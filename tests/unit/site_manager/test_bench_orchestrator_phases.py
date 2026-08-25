@@ -1691,7 +1691,7 @@ def test_the_migrate_command_is_built_from_the_benchs_own_cli_prefix(tmp_path):
         f"container_run(/workspace/frappe-bench/env/bin/bench --site {SITE} migrate)"
     ]
     assert isinstance(
-        harness.bench.app_manager._container_run.call_args.kwargs["raise_exception_obj"],
+        harness.bench.app_manager._container_run.call_args.kwargs["on_failure"](),
         BenchOperationException,
     )
 

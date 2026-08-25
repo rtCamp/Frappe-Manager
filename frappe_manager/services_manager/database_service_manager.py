@@ -1,5 +1,6 @@
 import json
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -264,7 +265,7 @@ class MariaDBManager(DatabaseServiceManager):
     def db_run_query(
         self,
         query: str,
-        raise_exception_obj: DatabaseServiceException | None = None,
+        on_failure: Callable[[], DatabaseServiceException] | None = None,
         capture_output: bool = False,
     ):
         base_command = self.base_command
@@ -285,9 +286,9 @@ class MariaDBManager(DatabaseServiceManager):
                 return output
             self.output.live_lines(output, line_filters=DOCKER_LINE_NOISE)
         except DockerException as e:
-            if raise_exception_obj:
-                raise raise_exception_obj
-            raise e
+            if on_failure is not None:
+                raise on_failure() from e
+            raise
 
     def wait_till_db_start(self, interval: int = 5, timeout: int = 30) -> bool:
         for i in range(timeout):
@@ -314,10 +315,11 @@ class MariaDBManager(DatabaseServiceManager):
 
     def get_db_users(self) -> dict[str, str]:
         show_db_user_command = "'SELECT User, Host FROM mysql.user;'"
-        exception = DatabaseServiceException(self.database_server_info.host, "Failed to determine mysql users.")
         output: SubprocessOutput = self.db_run_query(
             show_db_user_command,
-            raise_exception_obj=exception,
+            on_failure=lambda: DatabaseServiceException(
+                self.database_server_info.host, "Failed to determine mysql users."
+            ),
             capture_output=True,
         )
         user_list: dict[str, str] = {}
@@ -362,22 +364,28 @@ class MariaDBManager(DatabaseServiceManager):
 
         for user, host in users.items():
             if db_user == user:
-                remove_db_user_command = f"'DROP USER `{user}`@`{host}`;'"
-                remove_db_user_exception = DatabaseServiceUserRemoveFailError(user, host)
-                self.db_run_query(remove_db_user_command, remove_db_user_exception)
+                self.db_run_query(
+                    f"'DROP USER `{user}`@`{host}`;'",
+                    on_failure=lambda u=user, h=host: DatabaseServiceUserRemoveFailError(u, h),
+                )
 
     def remove_db(self, db_name: str):
         remove_db_command = f"'DROP DATABASE `{db_name}`;'"
-        remove_db_exception = DatabaseServiceDBRemoveFailError(db_name, self.database_server_info.host)
-        self.db_run_query(remove_db_command, remove_db_exception)
+
+        self.db_run_query(
+            remove_db_command,
+            on_failure=lambda: DatabaseServiceDBRemoveFailError(db_name, self.database_server_info.host),
+        )
 
     def grant_user_privilages(self, db_user: str, db_name: str):
         grant_user_command = f"'GRANT ALL PRIVILEGES ON `{db_name}`.* TO `{db_user}`@`%`;'"
-        grant_user_exception = DatabaseServiceException(
-            self.database_server_info.host,
-            f"Failed to grant prvilages for user {db_user} on {db_name}.",
+        self.db_run_query(
+            grant_user_command,
+            on_failure=lambda: DatabaseServiceException(
+                self.database_server_info.host,
+                f"Failed to grant prvilages for user {db_user} on {db_name}.",
+            ),
         )
-        self.db_run_query(grant_user_command, grant_user_exception)
 
     def add_user(self, db_user: str, db_pass: str, db_user_host: str = "%", force: bool = False, timeout=25):
         if self.check_user_exists(db_user, db_user_host):
@@ -390,8 +398,12 @@ class MariaDBManager(DatabaseServiceManager):
                 )
 
         add_user_command = f"'CREATE USER `{db_user}`@`%` IDENTIFIED BY \"{db_pass}\";'"
-        add_user_exception = DatabaseServiceException(self.database_server_info.host, f"Failed to add user {db_user}.")
-        self.db_run_query(add_user_command, add_user_exception)
+        self.db_run_query(
+            add_user_command,
+            on_failure=lambda: DatabaseServiceException(
+                self.database_server_info.host, f"Failed to add user {db_user}."
+            ),
+        )
 
     def db_export(self, db_name: str, export_file_path: str | Path):
         if not self.check_db_exists(db_name):
@@ -442,8 +454,10 @@ class MariaDBManager(DatabaseServiceManager):
 
     def db_create(self, db_name):
         create_db_command = f"'CREATE DATABASE IF NOT EXISTS `{db_name}`';"
-        create_db_exception = DatabaseServiceDBCreateFailed(self.run_on_compose_service, db_name)
-        self.db_run_query(create_db_command, create_db_exception)
+        self.db_run_query(
+            create_db_command,
+            on_failure=lambda: DatabaseServiceDBCreateFailed(self.run_on_compose_service, db_name),
+        )
 
     def db_import(self, db_name: str, host_db_file_path: Path, force: bool = False):
         if not self.check_db_exists(db_name):

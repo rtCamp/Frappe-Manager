@@ -464,7 +464,7 @@ def test_a_docker_failure_is_translated_into_the_domain_exception_the_caller_sup
     domain = DatabaseServiceException("global-db", "translated")
 
     with pytest.raises(DatabaseServiceException) as excinfo:
-        manager.db_run_query("'SELECT 1;'", raise_exception_obj=domain)
+        manager.db_run_query("'SELECT 1;'", on_failure=lambda: domain)
 
     assert excinfo.value is domain
 
@@ -615,7 +615,7 @@ def test_removing_a_user_drops_exactly_the_named_user_at_the_named_host():
         manager.remove_user("bench_user", "localhost")
 
     assert query.call_args.args[0] == "'DROP USER `bench_user`@`localhost`;'"
-    assert isinstance(query.call_args.args[1], DatabaseServiceUserRemoveFailError)
+    assert isinstance(query.call_args.kwargs["on_failure"](), DatabaseServiceUserRemoveFailError)
 
 
 def test_removing_a_user_from_all_hosts_never_touches_a_differently_named_user():
@@ -683,7 +683,7 @@ def test_creating_a_database_is_idempotent_by_statement():
 
     # Pinned verbatim, including the trailing semicolon sitting OUTSIDE the closing quote.
     assert query.call_args.args[0] == "'CREATE DATABASE IF NOT EXISTS `bench_db`';"
-    assert isinstance(query.call_args.args[1], DatabaseServiceDBCreateFailed)
+    assert isinstance(query.call_args.kwargs["on_failure"](), DatabaseServiceDBCreateFailed)
 
 
 def test_dropping_a_database_names_exactly_one_schema():
@@ -692,7 +692,7 @@ def test_dropping_a_database_names_exactly_one_schema():
         manager.remove_db("bench_db")
 
     assert query.call_args.args[0] == "'DROP DATABASE `bench_db`;'"
-    assert isinstance(query.call_args.args[1], DatabaseServiceDBRemoveFailError)
+    assert isinstance(query.call_args.kwargs["on_failure"](), DatabaseServiceDBRemoveFailError)
 
 
 # --- MariaDBManager: export and import ---

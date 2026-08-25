@@ -9,7 +9,7 @@ import shutil
 from typing import TYPE_CHECKING
 
 from frappe_manager import CLI_DIR, CLI_SITES_ARCHIVE
-from frappe_manager.migration_manager.migration_exections import MigrationExceptionInBench
+from frappe_manager.migration_manager.migration_exceptions import MigrationExceptionInBench
 
 if TYPE_CHECKING:
     from frappe_manager.migration_manager.migration_executor import MigrationExecutor

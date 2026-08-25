@@ -473,7 +473,7 @@ class _RecordingFailure(BenchOperationException):
 
 
 class TestDockerExceptionMapping:
-    """A DockerException becomes `raise_exception_obj` when one was supplied, else propagates."""
+    """A DockerException becomes `on_failure()` when one was supplied, else propagates."""
 
     def test_maps_to_the_supplied_exception_with_docker_output_attached(self):
         manager = _make_manager()
@@ -483,7 +483,7 @@ class TestDockerExceptionMapping:
         wrapper = _RecordingFailure()
 
         with pytest.raises(BenchOperationException) as excinfo:
-            manager._container_run("bench build", raise_exception_obj=wrapper)
+            manager._container_run("bench build", on_failure=lambda: wrapper)
 
         assert excinfo.value is wrapper
         assert wrapper.set_output_calls == [failure_output]
