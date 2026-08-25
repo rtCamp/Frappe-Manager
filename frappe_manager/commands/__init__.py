@@ -17,6 +17,7 @@ from frappe_manager import (
     CLI_FM_CONFIG_PATH,
     DEFAULT_EXTENSIONS,
     STABLE_APP_BRANCH_MAPPING_LIST,
+    STOCK_IMAGE_PREFETCH_SKIP_COMMANDS,
     EnableDisableOptionsEnum,
     SiteServicesEnum,
 )
@@ -348,7 +349,15 @@ def app_callback(
             if not DockerClient().server_running():
                 output.exit("Docker daemon not running. Please start docker service")
 
-            if not CLI_FM_CONFIG_PATH.exists():
+            invoked_command = ctx.invoked_subcommand or "no-command"
+
+            # The first-install prefetch warms the whole stock stack (frappe, nginx, two
+            # redis, mariadb, nginx-proxy, mailpit, adminer) so a first `fm create` does not
+            # stall halfway. Commands that never touch those containers are exempt: `fm bake`
+            # builds an image and pulls the one base image it is told to build FROM, so
+            # prefetching the stack is pure waste, and on a CI runner it is waste that gets
+            # paid on every job.
+            if not CLI_FM_CONFIG_PATH.exists() and invoked_command not in STOCK_IMAGE_PREFETCH_SKIP_COMMANDS:
                 output.print("First installation detected. Pulling docker images...️", "🔍")
 
                 completed_status = pull_docker_images()
@@ -361,8 +370,6 @@ def app_callback(
                 current_version = Version(get_current_fm_version())
                 fm_config_manager.version = current_version
                 fm_config_manager.export_to_toml()
-
-            invoked_command = ctx.invoked_subcommand or "no-command"
 
             from frappe_manager.migration_manager.migration_constants import (
                 MIGRATION_CHECK_WHITELIST_BENCH_COMMANDS,

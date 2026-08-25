@@ -66,7 +66,7 @@ Cross-arch bakes require emulation (Rosetta/binfmt; Docker Desktop ships it) and
 
 ## Running fm in CI
 
-There is no dedicated CI integration or ready-made pipeline recipe yet. But fm has no special host requirements: it runs anywhere Docker and your SSH keys exist, including a CI runner.
+fm has no special host requirements: it runs anywhere Docker and your SSH keys exist, including a CI runner. For GitHub Actions there is an action in this repository that wraps the two commands below; the raw shape is worth reading first, because the action is only those commands with the arguments filled in.
 
 The shape is the same two commands, split across the two machines. Bake and push on the runner, then run the switch on the server that owns the bench:
 
@@ -81,3 +81,30 @@ ssh prod "fm switch mybench ghcr.io/acme/mybench:$GIT_SHA"
 Because you picked the ref up front, the two halves need nothing from each other but that string: no output parsing, no handoff file.
 
 The bench-less bake (`--apps` or `--config` with no bench name) builds and pushes without any bench, compose project or site on the runner, so the runner needs Docker and a registry login and nothing else. The switch half has to run where the bench lives: it rewrites that bench's `bench_config.toml` and `docker-compose.yml`, drains its workers, dumps its database into the bench's `backups/` directory and moves its traffic. All of that is local filesystem and local daemon work, which is why the target runs fm itself over plain SSH.
+
+### The GitHub Action
+
+`rtCamp/Frappe-Manager` ships an `action.yml` that runs exactly those two halves. `phase` picks which: `bake`, `switch`, or `both`.
+
+```yaml
+- uses: rtCamp/Frappe-Manager@main
+  with:
+    phase: both
+    image: ghcr.io/acme/mybench
+    apps: |
+      frappe
+      erpnext:version-15
+    push: true
+    registry-username: ${{ github.actor }}
+    registry-password: ${{ secrets.GITHUB_TOKEN }}
+    bench: mybench
+    ssh-host: prod.example.com
+    ssh-user: deploy
+    ssh-key: ${{ secrets.DEPLOY_KEY }}
+```
+
+`image` is the repository and `tag` is separate, defaulting to the short commit sha. The action composes them, so it always knows the exact ref and never reads it back out of fm's output. The ref it shipped is available afterwards as the `image` output.
+
+Two things about the action are worth knowing before you rely on it. It installs fm from a **git ref**, not PyPI, because the released version predates the current bake and switch surface; `fm-version` takes any branch, tag or sha, and the `FM_VERSION` environment variable overrides it without editing the workflow. And the switch half needs fm **already installed on the target**: the action opens an SSH connection and runs fm there, it does not install it for you.
+
+Set `platform` when the runner and the server differ in architecture, since nothing detects the target for you. Set `ssh-known-hosts` to pin the host key; left empty the action falls back to `ssh-keyscan`, which trusts whatever answers on the first connection.

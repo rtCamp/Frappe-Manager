@@ -1,0 +1,263 @@
+name: Frappe Manager
+description: Bake a Frappe app image on a runner, and switch a bench onto it over SSH.
+author: rtCamp
+
+# Installs from a git ref, not PyPI. PyPI is behind: the released version predates the
+# current bake/switch surface, so an action installing from PyPI would get a different CLI
+# from the one this file drives. `fm-version` takes any ref (branch, tag, sha), and the
+# FM_VERSION environment variable overrides it without touching the workflow.
+
+inputs:
+  fm-version:
+    description: 'Git ref of Frappe Manager to install (branch, tag or sha). Defaults to the ref this action was called with. The FM_VERSION environment variable overrides this.'
+    required: false
+    default: ''
+  phase:
+    description: 'What to run: bake, switch, or both.'
+    required: false
+    default: 'bake'
+
+  bench:
+    description: 'Bench name. Required for a bench bake and for switch. Omit it with apps/config for a standalone bake.'
+    required: false
+    default: ''
+  image:
+    description: 'Image repository to bake into, without a tag, e.g. ghcr.io/acme/mysite. The tag comes from the tag input.'
+    required: false
+    default: ''
+  tag:
+    description: 'Tag to build. Defaults to the short commit sha, so the ref is deterministic and this action never has to read it back out of fm output.'
+    required: false
+    default: ''
+  base-image:
+    description: 'Image the runtime Dockerfile builds FROM (fm bake --base-image). Needs an explicit tag.'
+    required: false
+    default: ''
+  apps:
+    description: 'Standalone bake only: apps to bake, one per line (appname or appname:branch).'
+    required: false
+    default: ''
+  config:
+    description: 'TOML overlay passed to fm bake --config, either a file path or inline TOML.'
+    required: false
+    default: ''
+  platform:
+    description: 'Target platform for the build, e.g. linux/amd64. Set this when the runner arch differs from the server arch; nothing detects the target for you. Applied as [build].platform.'
+    required: false
+    default: ''
+  push:
+    description: 'Push the baked image pair to the registry.'
+    required: false
+    default: 'false'
+
+  registry-username:
+    description: 'Registry username. When set with registry-password the action runs docker login, and the bake pushes with the ambient credentials.'
+    required: false
+    default: ''
+  registry-password:
+    description: 'Registry password or token.'
+    required: false
+    default: ''
+  registry:
+    description: 'Registry host for docker login. Defaults to the host in the image repository.'
+    required: false
+    default: ''
+
+  ssh-host:
+    description: 'Host that owns the bench. The switch runs there, because it rewrites that bench dir, dumps its database and moves its traffic.'
+    required: false
+    default: ''
+  ssh-user:
+    description: 'SSH user on the bench host.'
+    required: false
+    default: ''
+  ssh-port:
+    description: 'SSH port on the bench host.'
+    required: false
+    default: '22'
+  ssh-key:
+    description: 'Private key for the bench host. Store it in a secret.'
+    required: false
+    default: ''
+  ssh-known-hosts:
+    description: 'known_hosts entries for the bench host. Supply this to pin the host key. Left empty, the action falls back to ssh-keyscan, which trusts whatever answers on the first connection.'
+    required: false
+    default: ''
+  switch-args:
+    description: 'Extra arguments appended to fm switch, e.g. --keep 5 or --no-backup-db.'
+    required: false
+    default: ''
+
+outputs:
+  image:
+    description: 'Full image ref that was baked, and switched to when phase includes switch.'
+    value: ${{ steps.resolve.outputs.image }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve install ref and image ref
+      id: resolve
+      shell: bash
+      env:
+        INPUT_FM_VERSION: ${{ inputs.fm-version }}
+        INPUT_IMAGE: ${{ inputs.image }}
+        INPUT_TAG: ${{ inputs.tag }}
+        INPUT_PHASE: ${{ inputs.phase }}
+        ACTION_REF: ${{ github.action_ref }}
+        ACTION_REPO: ${{ github.action_repository }}
+        COMMIT_SHA: ${{ github.sha }}
+      run: |
+        set -euo pipefail
+
+        case "$INPUT_PHASE" in
+          bake|switch|both) ;;
+          *) echo "::error::phase must be bake, switch or both (got '$INPUT_PHASE')"; exit 1 ;;
+        esac
+
+        # Precedence: FM_VERSION env, then the input, then the ref this action was called
+        # with. A local `uses: ./` leaves action_ref empty, hence the final fallback.
+        ref="${FM_VERSION:-}"
+        [ -n "$ref" ] || ref="$INPUT_FM_VERSION"
+        [ -n "$ref" ] || ref="$ACTION_REF"
+        [ -n "$ref" ] || ref="main"
+        repo="${ACTION_REPO:-rtCamp/Frappe-Manager}"
+        echo "spec=git+https://github.com/${repo}@${ref}" >> "$GITHUB_OUTPUT"
+        echo "Installing frappe-manager from ${repo}@${ref}"
+
+        # Required in every phase: a bake needs somewhere to put the image, and a switch
+        # needs to know which ref to move onto. The tag is kept separate so this action
+        # always knows the exact ref and never has to read it back out of fm's output.
+        [ -n "$INPUT_IMAGE" ] || { echo "::error::image is required"; exit 1; }
+        case "${INPUT_IMAGE##*/}" in
+          *:*) echo "::error::image must be a repository without a tag; pass the tag via the tag input (got '$INPUT_IMAGE')"; exit 1 ;;
+        esac
+
+        tag="$INPUT_TAG"
+        [ -n "$tag" ] || tag="${COMMIT_SHA:0:7}"
+        echo "image=${INPUT_IMAGE}:${tag}" >> "$GITHUB_OUTPUT"
+        echo "Image ref: ${INPUT_IMAGE}:${tag}"
+
+    - uses: astral-sh/setup-uv@v8.2.0
+
+    - name: Install frappe-manager
+      shell: bash
+      env:
+        SPEC: ${{ steps.resolve.outputs.spec }}
+      run: |
+        set -euo pipefail
+        uv tool install "$SPEC"
+        fm --version
+
+    - name: Registry login
+      if: inputs.registry-username != '' && inputs.registry-password != ''
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        REGISTRY_USERNAME: ${{ inputs.registry-username }}
+        REGISTRY_PASSWORD: ${{ inputs.registry-password }}
+        IMAGE: ${{ inputs.image }}
+      run: |
+        set -euo pipefail
+        host="$REGISTRY"
+        if [ -z "$host" ]; then
+          # A registry host is the first path segment only when it looks like one.
+          first="${IMAGE%%/*}"
+          case "$first" in
+            *.*|*:*|localhost) host="$first" ;;
+            *) host="docker.io" ;;
+          esac
+        fi
+        printf '%s' "$REGISTRY_PASSWORD" | docker login "$host" --username "$REGISTRY_USERNAME" --password-stdin
+        echo "Logged in to $host"
+
+    - name: Bake
+      if: inputs.phase != 'switch'
+      shell: bash
+      env:
+        BENCH: ${{ inputs.bench }}
+        IMAGE_REF: ${{ steps.resolve.outputs.image }}
+        BASE_IMAGE: ${{ inputs.base-image }}
+        APPS: ${{ inputs.apps }}
+        CONFIG: ${{ inputs.config }}
+        PLATFORM: ${{ inputs.platform }}
+        PUSH: ${{ inputs.push }}
+      run: |
+        set -euo pipefail
+        # Explicit `if` rather than `[ -n "$X" ] && args+=(...)`: under `set -e` a failing
+        # test as the left arm of an AND-list is exempt only by a subtlety, and an empty
+        # optional input is the normal case here, not an error.
+        args=(bake)
+        if [ -n "$BENCH" ]; then args+=("$BENCH"); fi
+        args+=(--image "$IMAGE_REF")
+        if [ -n "$BASE_IMAGE" ]; then args+=(--base-image "$BASE_IMAGE"); fi
+
+        while IFS= read -r app; do
+          if [ -n "$app" ]; then args+=(--apps "$app"); fi
+        done <<< "$APPS"
+
+        if [ -n "$CONFIG" ]; then args+=(--config "$CONFIG"); fi
+        # [build].platform has no flag of its own; an overlay is how it is set. Ours goes
+        # last so it wins over a platform in the caller's config.
+        if [ -n "$PLATFORM" ]; then
+          args+=(--config "$(printf '[build]\nplatform = "%s"\n' "$PLATFORM")")
+        fi
+
+        if [ "$PUSH" = "true" ]; then
+          args+=(--push)
+        else
+          args+=(--no-push)
+        fi
+
+        printf 'fm'; printf ' %q' "${args[@]}"; printf '\n'
+        fm "${args[@]}"
+
+    - name: Switch
+      if: inputs.phase == 'switch' || inputs.phase == 'both'
+      shell: bash
+      env:
+        IMAGE_REF: ${{ steps.resolve.outputs.image }}
+        BENCH: ${{ inputs.bench }}
+        SSH_HOST: ${{ inputs.ssh-host }}
+        SSH_USER: ${{ inputs.ssh-user }}
+        SSH_PORT: ${{ inputs.ssh-port }}
+        SSH_KEY: ${{ inputs.ssh-key }}
+        SSH_KNOWN_HOSTS: ${{ inputs.ssh-known-hosts }}
+        SWITCH_ARGS: ${{ inputs.switch-args }}
+      run: |
+        set -euo pipefail
+        for name in BENCH SSH_HOST SSH_USER SSH_KEY; do
+          [ -n "${!name}" ] || { echo "::error::${name} is required to switch"; exit 1; }
+        done
+
+        # The switch has to run where the bench lives: it rewrites that bench's config and
+        # compose file, drains its workers, dumps its database into the bench's backups
+        # directory and moves its traffic. All of that is local work on that host, which is
+        # why the target runs fm itself rather than being driven remotely. fm must already
+        # be installed there; this action does not install it for you.
+        dir="$(mktemp -d)"
+        trap 'rm -rf "$dir"' EXIT
+        key="$dir/id"
+        printf '%s\n' "$SSH_KEY" > "$key"
+        chmod 600 "$key"
+
+        known="$dir/known_hosts"
+        if [ -n "$SSH_KNOWN_HOSTS" ]; then
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > "$known"
+        else
+          # A fresh runner has no known_hosts, and BatchMode below means there is nobody to
+          # answer the host-key prompt, so the first connection would just fail. Keyscan
+          # trusts whatever answers right now; pass ssh-known-hosts to pin it instead.
+          echo "::warning::ssh-known-hosts not set; trusting the host key ssh-keyscan returns"
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" > "$known" 2>/dev/null
+        fi
+
+        remote="fm switch $(printf '%q' "$BENCH") $(printf '%q' "$IMAGE_REF") $SWITCH_ARGS"
+        echo "Running on ${SSH_USER}@${SSH_HOST}: ${remote}"
+        ssh -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o UserKnownHostsFile="$known" \
+            -i "$key" \
+            -p "$SSH_PORT" \
+            "${SSH_USER}@${SSH_HOST}" \
+            "$remote"

@@ -65,6 +65,13 @@ STABLE_APP_BRANCH_MAPPING_LIST = {
 # docker-compose.services templates by tests/unit/services_manager/test_global_db_image.py.
 GLOBAL_DB_IMAGE = "mariadb:11.8"
 
+# Commands that must not trigger the first-install prefetch of the stock image set.
+# The prefetch exists so a first `fm create` does not stall halfway through pulling
+# frappe, nginx, two redis, mariadb, nginx-proxy, mailpit and adminer. `fm bake` runs
+# none of those: it builds an image, pulling only the base image it is told to build
+# FROM. On a CI runner that prefetch is a per-job tax for images the job never runs.
+STOCK_IMAGE_PREFETCH_SKIP_COMMANDS: frozenset[str] = frozenset({"bake"})
+
 
 class EnableDisableOptionsEnum(str, Enum):
     enable = "enable"
