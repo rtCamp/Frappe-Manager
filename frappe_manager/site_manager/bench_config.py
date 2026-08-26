@@ -17,7 +17,8 @@ from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.dns_provider import DNSProviderConfig
 from frappe_manager.ssl_manager.letsencrypt_certificate import CERTIFICATE_ADAPTER
-from frappe_manager.utils.helpers import get_container_name_prefix, get_bench_connection_config
+from frappe_manager.utils import toml_document
+from frappe_manager.utils.helpers import get_bench_connection_config, get_container_name_prefix
 
 
 def extract_app_python_module_name(app_path: Path) -> str:
@@ -1395,11 +1396,8 @@ class BenchConfig(BaseModel):
         }
         bench_dict = self.model_dump(exclude=exclude, exclude_none=True)
 
-        toml_doc = tomlkit.document()
-        toml_doc["name"] = self.name
-        toml_doc["environment"] = self.environment_type.value
-
-        # Scalars first, then tables — so bare top-level keys don't fall under a table header.
+        # Scalars first, then tables, so a bare top-level key cannot fall under a table header.
+        desired: dict[str, Any] = {"name": self.name, "environment": self.environment_type.value}
         tables = {}
         for key, value in bench_dict.items():
             if key == "name":
@@ -1407,11 +1405,10 @@ class BenchConfig(BaseModel):
             if isinstance(value, dict):
                 tables[key] = value
             elif isinstance(value, Path):
-                toml_doc[key] = str(value.absolute())
+                desired[key] = str(value.absolute())
             else:
-                toml_doc[key] = value
-        for key, value in tables.items():
-            toml_doc[key] = value
+                desired[key] = value
+        desired.update(tables)
 
         # [ssl]
         ssl_table = tomlkit.table()
@@ -1427,7 +1424,13 @@ class BenchConfig(BaseModel):
             if len(certs_array) > 0:
                 ssl_table["certificates"] = certs_array
         if len(ssl_table) > 0:
-            toml_doc["ssl"] = ssl_table
+            desired["ssl"] = ssl_table
+
+        # Applied onto the document already on disk rather than a fresh one, so a comment the reader
+        # wrote survives the save. `apply` prunes keys the model no longer produces, which is what
+        # the old whole-file overwrite achieved by accident and what retires a removed key.
+        toml_doc = toml_document.load_or_new(path)
+        toml_document.apply(toml_doc, desired)
 
         try:
             with open(path, "w") as f:

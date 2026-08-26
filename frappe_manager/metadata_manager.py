@@ -8,6 +8,7 @@ from frappe_manager.migration_manager.version import Version
 from frappe_manager.ssl_manager import DNS_PROVIDER
 from frappe_manager.ssl_manager.dns_provider import DNSProviderConfig
 from frappe_manager.utils.helpers import get_current_fm_version
+from frappe_manager.utils import toml_document
 
 
 class FMLetsencryptConfig(BaseModel):
@@ -187,10 +188,7 @@ class FMConfigManager(BaseModel):
         if hasattr(self, "_raw_config") and "migration_state" in self._raw_config:
             fm_config_dict["migration_state"] = self._raw_config["migration_state"]
 
-        toml_doc = tomlkit.document()
-
-        for key, value in fm_config_dict.items():
-            toml_doc[key] = value
+        desired: dict = dict(fm_config_dict)
 
         # [ssl.dns_providers.<label>], matching the bench-side table so a label means the same thing
         # at either scope. Attached only when non-empty: a host with no labelled credentials must
@@ -204,7 +202,12 @@ class FMConfigManager(BaseModel):
             if len(dns) > 0:
                 ssl_table["dns_providers"] = dns
         if len(ssl_table) > 0:
-            toml_doc["ssl"] = ssl_table
+            desired["ssl"] = ssl_table
+
+        # Applied onto the document already on disk so a comment the reader wrote survives the save;
+        # `apply` prunes keys the model no longer produces, which is what retires `[cloudflare]`.
+        toml_doc = toml_document.load_or_new(path)
+        toml_document.apply(toml_doc, desired)
 
         try:
             with open(path, "w") as f:
