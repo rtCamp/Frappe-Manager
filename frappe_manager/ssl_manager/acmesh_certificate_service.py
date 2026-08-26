@@ -18,7 +18,6 @@ from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateGenerateFailed,
     SSLCertificateNotFoundError,
 )
-from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate
 from frappe_manager.utils.subprocess import stream_command_output
 
 LETSENCRYPT_PRODUCTION_SERVER = "https://acme-v02.api.letsencrypt.org/directory"
@@ -46,6 +45,7 @@ class AcmeShCertificateService:
         webroot_dir: Path,
         acmesh_home: Path | None = None,
         output_handler: OutputHandler | None = None,
+        bench_config=None,
     ):
         self.logger = get_logger(component="acmesh")
         self.webroot_dir = webroot_dir
@@ -53,6 +53,12 @@ class AcmeShCertificateService:
         self.acmesh_home = acmesh_home or (ssl_service_dir / "acmesh" / ".acme.sh")
         self.acmesh_bin = self.acmesh_home / "acme.sh"
         self.output = output_handler or RichOutputHandler()
+        # Carried solely so get_dns_credentials_for_certificate can reach the bench tier,
+        # `[ssl.dns_challenge_providers]`. Without it that tier is unreachable at issuance and
+        # renewal, which made `fm ssl dns-config cloudflare <bench>` a write-only command: the
+        # credential landed on disk, `--show` displayed it, and nothing could ever use it. None for
+        # standalone (`fm ssl add --standalone`) certificates, which have no bench.
+        self.bench_config = bench_config
 
         self.root_dir.mkdir(parents=True, exist_ok=True)
 
@@ -298,14 +304,17 @@ class AcmeShCertificateService:
             from frappe_manager.ssl_manager.ssl_utils import get_dns_credentials_for_certificate
 
             try:
-                dns_creds = get_dns_credentials_for_certificate(certificate)
+                dns_creds = get_dns_credentials_for_certificate(certificate, self.bench_config)
                 if dns_creds:
                     env.update(dns_creds)
             except Exception as e:
                 self.output.display_error(f"Failed to get DNS credentials: {e}")
                 raise
 
-            if isinstance(certificate, CustomDomainCertificate) and certificate.delegation_cname:
+            # Was `isinstance(certificate, CustomDomainCertificate) and certificate.delegation_cname`.
+            # The class is gone and the field is what mattered: the isinstance never added a
+            # condition, since only a delegated certificate ever carried a truthy value here.
+            if getattr(certificate, "delegation_cname", None):
                 self.output.info(f"Using challenge alias: {certificate.delegation_cname}")
                 args.extend(["--dns", "dns_cf", "--challenge-alias", certificate.delegation_cname])
             else:
@@ -366,8 +375,27 @@ class AcmeShCertificateService:
         """
         self.output.change_head(f"Renewing SSL certificate for {certificate.domain}")
 
+        env: dict[str, str] = {}
+
         if certificate.challenge_type.value == "dns01":
+            # The clear below wipes acme.sh's own SAVED_CF_* values, which for a --renew are the
+            # only credential it would otherwise have: unlike generate_certificate, renew passes no
+            # -d --dns flags and relies on the per-domain conf acme.sh already stored. Clearing
+            # without re-supplying left the dns_cf plugin with nothing to authenticate with, so
+            # every DNS-01 renewal failed and SSLCertificateManager silently re-issued instead
+            # ("Certificate not found in acme.sh"), burning Let's Encrypt duplicate-certificate
+            # allowance on what should have been a renewal.
             self._clear_cached_dns_credentials()
+
+            from frappe_manager.ssl_manager.ssl_utils import get_dns_credentials_for_certificate
+
+            try:
+                dns_creds = get_dns_credentials_for_certificate(certificate, self.bench_config)
+                if dns_creds:
+                    env.update(dns_creds)
+            except Exception as e:
+                self.output.display_error(f"Failed to get DNS credentials: {e}")
+                raise
 
         use_staging = os.getenv("FM_LETSENCRYPT_STAGING", "").lower() in ("1", "true", "yes")
         if use_staging:
@@ -390,7 +418,7 @@ class AcmeShCertificateService:
             "--debug",
         ]
 
-        exit_code = self._stream_acmesh_command(args, show_live_output=True)
+        exit_code = self._stream_acmesh_command(args, env=env, show_live_output=True)
 
         if exit_code != 0:
             self.output.display_error(f"Certificate renewal failed for {certificate.domain}")

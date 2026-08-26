@@ -22,6 +22,21 @@ class SSLDNSChallengeCredentailsNotFound(FrappeManagerException):
         super().__init__(message)
 
 
+class SSLDNSProviderNotConfigured(FrappeManagerException):
+    """Exception raised when a certificate names a dns provider label that is not configured."""
+
+    def __init__(self, label: str, available_labels: list[str]):
+        self.label = label
+        self.available_labels = available_labels
+        if available_labels:
+            self.message = (
+                f"DNS provider '{label}' is not configured. Configured labels: {', '.join(available_labels)}."
+            )
+        else:
+            self.message = f"DNS provider '{label}' is not configured. No dns provider labels are configured."
+        super().__init__(self.message)
+
+
 class SSLCertificateChallengeFailed(FrappeManagerException):
     """Exception raised when a certificate generation failed."""
 

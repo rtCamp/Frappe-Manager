@@ -33,8 +33,11 @@ file_level = "DEBUG"
 theme = "default"   # default | mono | high-contrast
 style = "rail"      # rail | box | flat | ascii
 
-[cloudflare]
+[ssl.dns_providers.cloudflare]
 api_token = "abc123..."
+
+[ssl.dns_providers.client-zones]
+api_token = "def456..."
 ```
 
 ### Bench Config (`bench_config.toml`)
@@ -61,7 +64,7 @@ password = "secret123"
 web = true
 tools = true
 
-[ssl.dns_challenge_providers.cloudflare]
+[ssl.dns_providers.cloudflare]
 api_token = "bench-override-token"
 
 [[ssl.certificates]]
@@ -147,63 +150,29 @@ file_level = "DEBUG"
 
 ---
 
-### `cloudflare.api_token` {#dns-providers-cloudflare-api-token}
+### `ssl.dns_providers` {#global-dns-providers}
 
-**Default:** `null`  
-**Type:** `string | null`  
-**File key:** `[cloudflare]` → `api_token`
+**Default:** (none)  
+**Type:** `table of tables`  
+**File key:** `[ssl.dns_providers.<label>]`
 
-Global Cloudflare API Token for DNS-01 SSL challenges. **Recommended over Global API Key** (scoped permissions, more secure).
-
-```toml
-[cloudflare]
-api_token = "abc123..."
-```
-
-!!! tip "Required scoped permissions"
-    Your API token needs:
-    
-    - **Zone → DNS → Edit** for target zones
-    - **Zone → Zone → Read** for all zones
-    
-    Create at: [Cloudflare Dashboard → My Profile → API Tokens](https://dash.cloudflare.com/profile/api-tokens)
-
-!!! info "Per-bench override available"
-    Bench-specific tokens in `bench_config.toml` (under `[ssl.dns_challenge_providers.cloudflare]`) take precedence over this global token.
-
-**Set via:** `fm ssl dns-config cloudflare --api-token YOUR_TOKEN`
-
-**See also:** [SSL guide: DNS-01 setup](../guides/ssl.md#dns-01-cloudflare-api-token), [fm ssl dns-config cloudflare](../commands/ssl-dns-config-cloudflare.md)
-
----
-
-### `cloudflare.api_key` {#dns-providers-cloudflare-api-key}
-
-**Default:** `null`  
-**Type:** `string | null`  
-**File key:** `[cloudflare]` → `api_key`
-
-Legacy Cloudflare Global API Key for DNS-01 challenges. Requires `email` field. Grants full account access; use `api_token` instead.
+DNS-01 credential sets available to every bench on this machine, each stored under a label you choose. The key is a label rather than a provider name, so two Cloudflare accounts sit side by side in one file. A bench's `bench_config.toml` accepts the identical key, and a certificate picks a set by naming its label in `dns_provider`.
 
 ```toml
-[cloudflare]
-api_key = "abc123..."
-email = "you@example.com"
+[ssl.dns_providers.cloudflare]
+api_token = "token-for-the-main-account"
+
+[ssl.dns_providers.client-zones]
+api_token = "token-for-the-client-account"
 ```
 
-**Set via:** `fm ssl dns-config cloudflare --api-key YOUR_KEY --email you@example.com`
+`cloudflare` is not a special table, only the label a certificate that names none falls back to. Store the account you issue most certificates against under it and everything issued without `--dns-provider` picks it up.
 
-**See also:** [`cloudflare.api_token`](#dns-providers-cloudflare-api-token)
+**Fields, and the resolution order across both scopes:** [DNS providers](#dns-providers), which documents the identical bench-scoped table.
 
----
+**Set via:** `fm ssl dns-config cloudflare --api-token TOKEN` writes the `cloudflare` label; `fm ssl dns-config cloudflare --name client-zones --api-token TOKEN` writes any other.
 
-### `cloudflare.email` {#dns-providers-cloudflare-email}
-
-**Default:** `null`  
-**Type:** `string | null`  
-**File key:** `[cloudflare]` → `email`
-
-Cloudflare account email. Required when using `api_key` (not needed for `api_token`).
+**See also:** [DNS providers](#dns-providers), [SSL guide: DNS-01 setup](../guides/ssl.md#dns-01-cloudflare-api-token), [fm ssl dns-config cloudflare](../commands/ssl-dns-config-cloudflare.md)
 
 ---
 
@@ -543,11 +512,12 @@ acme_client = "acme.sh"
 - `ssl_type`: `"letsencrypt"`, or `"dev"` for a certificate from FM's local CA (`fm ssl add --dev`). `"disable"` is accepted on read and means no certificate; FM never writes such an entry, it drops the domain from the array instead
 - `challenge_type`: `"http01"` or `"dns01"`, Let's Encrypt only. Absent, FM picks `dns01` when Cloudflare credentials exist and `http01` otherwise
 - `acme_client`: always `"acme.sh"`
-- `api_token` / `api_key`: per-certificate DNS credentials, taking precedence over `[ssl.dns_challenge_providers]` and the global `[cloudflare]` table
+- `dns_provider`: label of the [`[ssl.dns_providers]`](#dns-providers) entry that authenticates this domain's DNS-01 challenge, written by `fm ssl add --dns-provider`. Absent means the label `cloudflare`. A label that exists at neither scope is an error, not a fallback
 - `delegation_cname`: delegated zone for `_acme-challenge`, written by `fm ssl add --cname`
 - `hsts`: value for the `Strict-Transport-Security` header the proxy sends for this domain, or `"off"` (the default). There is no flag for it; set it here. Only the primary domain's certificate is consulted
+- `enabled`: `true` by default. `false` leaves the entry in the file but makes issuance and renewal a no-op for that domain. No flag writes it
 
-FM also writes bookkeeping keys into each entry (`enabled`, `status`, `cert_path`, `key_path`, `issued_date`, `last_renewal_attempt`). `issued_date`, `last_renewal_attempt` and `key_path` are outputs that nothing reads back, so editing them changes nothing.
+That is the whole entry, and an unrecognised key in one is an error. A certificate never holds a credential: DNS-01 credentials are resolved from [`[ssl.dns_providers]`](#dns-providers) at issuance and again at every renewal. Earlier releases copied the global token onto every certificate, which put a secret in this world readable file and kept it working after `fm ssl dns-config cloudflare --remove` had reported success; the 0.20.0 migration moves any such copy into `[ssl.dns_providers]` and deletes it from the certificate.
 
 **Managed by:** `fm ssl add`, `fm ssl remove`, `fm ssl renew`, `fm ssl list`
 
@@ -555,21 +525,66 @@ FM also writes bookkeeping keys into each entry (`enabled`, `status`, `cert_path
 
 ---
 
-### DNS challenge providers {#dns-providers}
+### DNS providers {#dns-providers}
 
-**Default:** (inherits from global config)  
-**File key:** `[ssl.dns_challenge_providers.<provider>]`
+**Default:** (none)  
+**Type:** `table of tables`  
+**File key:** `[ssl.dns_providers.<label>]`
 
-Bench-specific DNS provider credentials for DNS-01 challenges. Overrides the global `[cloudflare]` table in `fm_config.toml`. Each provider table accepts `api_token`, `api_key` and `email`; `cloudflare` is the only provider name FM feeds to acme.sh.
+Named DNS-01 credential sets. The table key is a **label** you choose, not a provider name, so one bench can hold certificates authenticated against different Cloudflare accounts, or against different least-privilege tokens for the same account. The global `~/frappe/fm_config.toml` accepts the same key, so a labelled set can be shared by every bench or confined to one.
+
+Each entry accepts:
+
+- `provider`: which DNS API drives the challenge. `"cloudflare"` is the default and, today, the only accepted value. The field exists because the table key is a label rather than a provider name
+- `api_token`: scoped Cloudflare API token, the recommended credential
+- `api_key`: legacy Cloudflare Global API Key. It grants full account access and cannot be scoped or revoked in isolation, so prefer `api_token`. Requires `email`
+- `email`: Cloudflare account email. Required with `api_key`, unused with `api_token`
+
+!!! tip "Required scoped permissions"
+    An API token needs:
+
+    - **Zone → DNS → Edit** for the target zones
+    - **Zone → Zone → Read** for all zones
+
+    Create at: [Cloudflare Dashboard → My Profile → API Tokens](https://dash.cloudflare.com/profile/api-tokens)
+
+Two accounts on one bench:
 
 ```toml
-[ssl.dns_challenge_providers.cloudflare]
-api_token = "bench-specific-token"
+[ssl.dns_providers.cloudflare]
+api_token = "token-for-the-main-account"
+
+[ssl.dns_providers.client-zones]
+api_token = "token-for-the-client-account"
+
+[[ssl.certificates]]
+domain = "mybench.com"
+ssl_type = "letsencrypt"
+challenge_type = "dns01"
+
+[[ssl.certificates]]
+domain = "client.example.com"
+ssl_type = "letsencrypt"
+challenge_type = "dns01"
+dns_provider = "client-zones"
 ```
 
-**Set via:** `fm ssl dns-config cloudflare BENCHNAME --api-token TOKEN`
+`mybench.com` names no label, so it authenticates with the entry labelled `cloudflare`. `client.example.com` names `client-zones` and authenticates against that account instead.
 
-**See also:** [`cloudflare.api_token`](#dns-providers-cloudflare-api-token), [fm ssl dns-config cloudflare](../commands/ssl-dns-config-cloudflare.md)
+**How a certificate's credentials are resolved:**
+
+| Certificate | Lookup order | Nothing matched |
+|---|---|---|
+| `dns_provider = "<label>"` | that label in the bench table, then that label in the global table | error naming the missing label and listing the labels that do exist |
+| no `dns_provider` | the label `cloudflare` in the bench table, then in the global table | error: no DNS-01 credentials configured |
+
+There is no third tier. A machine set up before 0.20.0 kept its default Cloudflare credential in a table of its own in `~/frappe/fm_config.toml`, consulted after the labels; the 0.20.0 migration moves that credential to the `cloudflare` label here, after which it is an ordinary labelled set a certificate can also name explicitly. See the [migration inventory](migrations.md#inventory).
+
+A named label is never quietly substituted. If a certificate sets `dns_provider = "client-zones"` and no `client-zones` entry exists at either scope, issuance and renewal fail. Falling back would authenticate against whichever account happened to be configured and report success, which is the one outcome worth failing over.
+
+**Set via:** `fm ssl dns-config cloudflare BENCHNAME --name client-zones --api-token TOKEN`, or the same command without `BENCHNAME` to store the label globally. Drop `--name` to write the `cloudflare` label instead. The [command reference](../commands/ssl-dns-config-cloudflare.md) has the full scope matrix.
+
+**See also:** [`ssl.dns_providers` in the global file](#global-dns-providers), [SSL guide](../guides/ssl.md)
 
 ---
 
@@ -643,7 +658,9 @@ Every key that drives the bake/switch pipeline (`fm bake`, `fm switch`, `fm prun
     Registry authentication is docker's. Run `docker login` once on each machine that pushes or pulls, or add a login step in CI: `~/.docker/config.json` stores credentials per registry and supports credential helpers (osxkeychain, `pass`, `ecr-login`) that fm cannot reach. The registry host is already part of the [`image`](#images) ref. The table existed until 0.20.0 and did nothing but run `docker login` for you; a bench that still carries it loads fine, and the 0.20.0 migration strips it.
 
 !!! warning "An unknown key is a hard error"
-    `[switch]`, `[build]`, `[workers]`, `[auth]`, `[monitoring]`, `[database]` and `[redis]` reject keys they do not define. A misspelled key is not ignored: every `fm` command that loads the bench fails with a validation error until you remove it.
+    `[switch]`, `[build]`, `[workers]`, `[auth]`, `[monitoring]`, `[database]`, `[redis]` and `[ssl]` reject keys they do not define. A misspelled key is not ignored: every `fm` command that loads the bench fails with a validation error until you remove it.
+
+    `[ssl]` carries one deliberately narrow exception. Keys fm itself used to write into a `[[ssl.certificates]]` entry (`api_token`, `api_key`, `email`, `preferred_challenge`, `status`, `cert_path`, `key_path`, `issued_date`, `last_renewal_attempt`, `toml_exclude`) are dropped on read instead of rejected, and the 0.20.0 migration removes them from the file. They are ignored, never interpreted, so a retired key cannot change what fm does. Rejecting them would mean a bench fm cannot load until it is migrated, and `fm list`, `fm bake` and `fm switch` skip the migration gate: one un-migrated file would take `fm list` down for every bench on the host.
 
 ---
 

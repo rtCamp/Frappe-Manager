@@ -18,6 +18,7 @@ def create_certificate_service(
     certificate: SSLCertificate,
     storage_config: SSLStorageConfig,
     output_handler: OutputHandler,
+    bench_config=None,
 ) -> SSLCertificateService:
     """
     Create an appropriate SSL certificate service based on certificate configuration.
@@ -28,6 +29,8 @@ def create_certificate_service(
         certificate: The SSL certificate to create a service for
         storage_config: Storage configuration with paths for SSL operations
         output_handler: Output handler for user-facing messages
+        bench_config: The owning bench's config, so DNS-01 issuance can read that bench's
+            `[ssl.dns_challenge_providers]`. None for standalone certificates, which have no bench.
 
     Returns:
         An SSL certificate service instance appropriate for the certificate
@@ -59,4 +62,5 @@ def create_certificate_service(
         ssl_service_dir=storage_config.ssl_dir,
         webroot_dir=storage_config.webroot_dir,
         output_handler=output_handler,
+        bench_config=bench_config,
     )

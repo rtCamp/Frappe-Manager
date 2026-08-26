@@ -1,6 +1,6 @@
 """Contracts around BenchConfig's TOML boundary and its create-time-only fields.
 
-Two things are defended here.
+Three things are defended here.
 
 1. ``[deploy_state]`` import is guarded by ``deploy_state_data and isinstance(..., dict)``.
    bench_config.toml is a user-editable file, so a hand-edited ``deploy_state = "..."`` scalar
@@ -14,14 +14,19 @@ Two things are defended here.
    one-shot provisioning flags in bench_config.toml, and `model_dump()`/`model_dump_json()` are
    the generic serialization paths that any future caller reaches for; only the field-level
    exclude protects those, since the explicit exclude set in export_to_toml covers export alone.
+
+3. ``[[ssl.certificates]]`` entries are parsed through ``CERTIFICATE_ADAPTER``, so ``ssl_type``
+   alone selects the variant and no field can be lost by a reader forgetting to name it. The
+   reader that this replaced dropped ``hsts`` once and ``delegation_cname`` once, each time by
+   omitting the key from a fixed kwarg list, so both are pinned across a full write/read cycle.
 """
 
-from unittest.mock import patch
+import pytest
 
-from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.site_manager.bench_config import BenchConfig, DeployState
-from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
-from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate, LetsencryptSSLCertificate
+from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager.certificate import RETIRED_CERTIFICATE_KEYS
+from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 
 _BASE = 'name = "dev.localhost"\ndeveloper_mode = true\nadmin_tools = true\nenvironment = "dev"\n'
 
@@ -158,54 +163,132 @@ _PLAIN_CERT = '\n[[ssl.certificates]]\ndomain = "b.gg.com"\nssl_type = "letsencr
 class TestDelegatedCertificateSurvivesTheTomlBoundary:
     """`delegation_cname` is written by ssl_certificate_to_toml_doc, so the reader must read it.
 
-    A bench certificate added with `fm ssl add --cname` is a CustomDomainCertificate: acme.sh only
-    gets `--challenge-alias` when `isinstance(cert, CustomDomainCertificate) and
-    cert.delegation_cname` holds (acmesh_certificate_service.py). The reader used to construct a
-    plain LetsencryptSSLCertificate from a fixed kwarg list, so the persisted key was dropped on
-    import and erased again on the next export -- every later Bench held a non-delegating cert and
-    re-issue tried to write _acme-challenge into a zone fm does not control.
+    acme.sh gets `--challenge-alias` exactly when a bench certificate's `delegation_cname` is
+    truthy, so losing the field silently downgrades a delegated certificate. The reader used to
+    construct the certificate from a fixed kwarg list, so the persisted key was dropped on import
+    and erased again on the next export: every later Bench held a non-delegating cert and re-issue
+    tried to write _acme-challenge into a zone fm does not control. Parsing through
+    `CERTIFICATE_ADAPTER` removes the kwarg list that could forget a field, and these tests hold
+    the reader to that at the file boundary.
     """
 
-    def _import_with_isolated_fm_config(self, tmp_path, text: str) -> BenchConfig:
-        """The Let's Encrypt branch of the reader consults the global fm config for Cloudflare
-        credentials; point it at an absent file so the test never reads the developer's ~/frappe."""
-        fm_config = FMConfigManager.import_from_toml(tmp_path / "absent-fm-config.toml")
-        with patch(
-            "frappe_manager.site_manager.bench_config.FMConfigManager.import_from_toml",
-            return_value=fm_config,
-        ):
-            return _import(tmp_path, text)
-
-    def test_delegation_cname_is_read_back_as_a_delegating_certificate(self, tmp_path):
-        bc = self._import_with_isolated_fm_config(tmp_path, _BASE + _DELEGATED_CERT)
+    def test_delegation_cname_is_read_back(self, tmp_path):
+        bc = _import(tmp_path, _BASE + _DELEGATED_CERT)
 
         cert = bc.ssl_certificates[0]
-        assert type(cert) is CustomDomainCertificate
+        assert type(cert) is LetsencryptSSLCertificate
         assert cert.delegation_cname == "a-gg-com.fm.gw"
         assert cert.domain == "a.gg.com"
         assert cert.challenge_type == LETSENCRYPT_PREFERRED_CHALLENGE.dns01
 
-    def test_a_certificate_without_delegation_stays_a_plain_letsencrypt_certificate(self, tmp_path):
-        bc = self._import_with_isolated_fm_config(tmp_path, _BASE + _PLAIN_CERT)
+    def test_a_certificate_without_delegation_reads_back_undelegated(self, tmp_path):
+        cert = _import(tmp_path, _BASE + _PLAIN_CERT).ssl_certificates[0]
 
-        assert type(bc.ssl_certificates[0]) is LetsencryptSSLCertificate
+        assert type(cert) is LetsencryptSSLCertificate
+        assert cert.delegation_cname is None
 
     def test_delegation_cname_survives_export_and_reimport(self, tmp_path):
         """The bug erased the key from the file on the next write, not just from the object."""
-        bc = self._import_with_isolated_fm_config(tmp_path, _BASE + _DELEGATED_CERT)
+        bc = _import(tmp_path, _BASE + _DELEGATED_CERT)
 
         out = tmp_path / "out.toml"
         assert bc.export_to_toml(out) is True
         assert 'delegation_cname = "a-gg-com.fm.gw"' in out.read_text()
 
-        fm_config = FMConfigManager.import_from_toml(tmp_path / "absent-fm-config.toml")
-        with patch(
-            "frappe_manager.site_manager.bench_config.FMConfigManager.import_from_toml",
-            return_value=fm_config,
-        ):
-            reimported = BenchConfig.import_from_toml(out)
+        assert BenchConfig.import_from_toml(out).ssl_certificates[0].delegation_cname == "a-gg-com.fm.gw"
 
-        assert reimported.ssl_certificates[0].delegation_cname == "a-gg-com.fm.gw"
+
+class TestCertificateVariantSelection:
+    """`ssl_type` on disk picks the certificate class, with no help from any other key."""
+
+    @pytest.mark.parametrize(
+        ("ssl_type", "expected"),
+        [
+            ("letsencrypt", SUPPORTED_SSL_TYPES.le),
+            ("dev", SUPPORTED_SSL_TYPES.dev),
+            ("disable", SUPPORTED_SSL_TYPES.none),
+        ],
+    )
+    def test_each_ssl_type_reads_back_as_itself(self, tmp_path, ssl_type, expected):
+        text = f'\n[[ssl.certificates]]\ndomain = "c.gg.com"\nssl_type = "{ssl_type}"\n'
+
+        assert _import(tmp_path, _BASE + text).ssl_certificates[0].ssl_type is expected
+
+    def test_a_disabled_certificate_is_dropped_by_the_writer(self, tmp_path):
+        """`disable` is accepted on read so an unmigrated bench loads, but fm never writes one."""
+        text = '\n[[ssl.certificates]]\ndomain = "c.gg.com"\nssl_type = "disable"\n'
+        bc = _import(tmp_path, _BASE + text)
+
+        out = tmp_path / "out.toml"
+        assert bc.export_to_toml(out) is True
+
+        assert "c.gg.com" not in out.read_text()
+        assert BenchConfig.import_from_toml(out).ssl_certificates == []
+
+
+class TestPreMigrationCertificateEntry:
+    """A bench whose file predates the 0.20.0 migration must still load.
+
+    `fm list`, `fm bake` and `fm switch` skip the migration gate, so a ValidationError here would
+    take `fm list` down for every bench on the host because one file had not been migrated yet.
+    """
+
+    def _pre_migration_toml(self) -> str:
+        retired = "".join(f'{key} = "carried"\n' for key in sorted(RETIRED_CERTIFICATE_KEYS) if key != "toml_exclude")
+        return (
+            "\n[[ssl.certificates]]\n"
+            'domain = "a.gg.com"\n'
+            'ssl_type = "letsencrypt"\n'
+            'challenge_type = "dns01"\n'
+            'delegation_cname = "a-gg-com.fm.gw"\n'
+            'hsts = "max-age=31536000"\n'
+            'toml_exclude = ["domain"]\n' + retired
+        )
+
+    def test_it_loads_and_keeps_the_fields_that_still_exist(self, tmp_path):
+        cert = _import(tmp_path, _BASE + self._pre_migration_toml()).ssl_certificates[0]
+
+        assert cert.hsts == "max-age=31536000"
+        assert cert.delegation_cname == "a-gg-com.fm.gw"
+        assert cert.challenge_type == LETSENCRYPT_PREFERRED_CHALLENGE.dns01
+
+    def test_the_retired_keys_are_not_written_back_out(self, tmp_path):
+        """Tolerating a key on read must not make the writer perpetuate it."""
+        bc = _import(tmp_path, _BASE + self._pre_migration_toml())
+
+        out = tmp_path / "out.toml"
+        assert bc.export_to_toml(out) is True
+        text = out.read_text()
+
+        for key in RETIRED_CERTIFICATE_KEYS:
+            assert f"{key} =" not in text, f"{key} must not survive a save"
+
+    def test_the_first_save_is_already_a_fixed_point(self, tmp_path):
+        """import -> export must converge in one step, on the pre-migration shape too.
+
+        `fm migrate` records its success with `set_bench_migration_version`, which round-trips the
+        whole file through this model the instant the migration finishes. Anything the model cannot
+        represent, or spells differently on the way out, is erased right there, so a migration can
+        only be trusted if this cycle is stable.
+        """
+        first = tmp_path / "first.toml"
+        assert _import(tmp_path, _BASE + self._pre_migration_toml()).export_to_toml(first) is True
+
+        reloaded = BenchConfig.import_from_toml(first)
+        second = tmp_path / "second.toml"
+        assert reloaded.export_to_toml(second) is True
+
+        assert second.read_text() == first.read_text()
+        assert reloaded.ssl_certificates[0].model_dump() == {
+            "domain": "a.gg.com",
+            "ssl_type": SUPPORTED_SSL_TYPES.le,
+            "challenge_type": LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
+            "enabled": True,
+            "hsts": "max-age=31536000",
+            "acme_client": "acme.sh",
+            "dns_provider": None,
+            "delegation_cname": "a-gg-com.fm.gw",
+        }
 
 
 def test_a_bench_config_carrying_keys_removed_in_0_20_0_still_loads(tmp_path):
@@ -237,7 +320,6 @@ def test_a_bench_config_carrying_keys_removed_in_0_20_0_still_loads(tmp_path):
 
 def test_switch_config_still_rejects_a_genuinely_unknown_key():
     """The compatibility field must not become a licence to accept typos."""
-    import pytest
     from pydantic import ValidationError
 
     from frappe_manager.site_manager.bench_config import SwitchConfig

@@ -13,12 +13,22 @@ statically has to be justified here, so adding one is a deliberate act rather
 than an oversight.
 """
 
+import ast
 import re
+from functools import lru_cache
 from pathlib import Path
 
 import pytest
 
-CONFIG_SOURCE = Path("frappe_manager/site_manager/bench_config.py")
+# Every module declaring a table a bench_config.toml can set. `DNSProviderConfig` lives in
+# ssl_manager because bench_config imports FMConfigManager from metadata_manager, so metadata_manager
+# cannot import from bench_config, and the global config now declares labelled providers too. A model
+# that moves out of this list stops being checked, which is how a relocation quietly shrinks the
+# guard: keep it whole-file, not per-class.
+CONFIG_SOURCES = (
+    Path("frappe_manager/site_manager/bench_config.py"),
+    Path("frappe_manager/ssl_manager/dns_provider.py"),
+)
 PACKAGE = Path("frappe_manager")
 
 # field -> why no static `.field` read exists. Anything not listed must have one.
@@ -33,37 +43,44 @@ DYNAMIC_OR_INDIRECT: dict[str, str] = {
     # (see bench_migration_state, line 48).
     "MigrationState.migrated_to": "raw TOML read in bench_migration_state.py",
     "MigrationState.last_migration_date": "raw TOML read in bench_migration_state.py",
-    # SUSPECT. Not verified as reachable; left failing-safe here rather than
-    # quietly deleted, because it is secret-bearing and user-visible.
-    # SSLConfig.dns_challenge_providers: no reader found anywhere, yet
-    # docs/reference/configuration.md describes per-certificate api_token/api_key
-    # as taking precedence over it.
-    "SSLConfig.dns_challenge_providers": "SUSPECT: no reader found",
+    # SSLConfig, the one entry this list used to carry, is gone: it was never constructed, and while
+    # it existed its `dns_challenge_providers` field shared a name with the live FMConfigManager one,
+    # so a name-keyed reader scan could not tell them apart and reported the dead field as read.
 }
 
 
 def _model_fields() -> list[tuple[str, str]]:
-    src = CONFIG_SOURCE.read_text()
     out: list[tuple[str, str]] = []
-    for name, body in re.findall(r"class (\w+)\(BaseModel\):(.*?)(?=\nclass |\Z)", src, re.S):
-        for field in re.findall(r"^    ([a-z_][a-z0-9_]*)\s*:", body, re.M):
-            out.append((name, field))
+    for source in CONFIG_SOURCES:
+        src = source.read_text()
+        for name, body in re.findall(r"class (\w+)\(BaseModel\):(.*?)(?=\nclass |\Z)", src, re.S):
+            for field in re.findall(r"^    ([a-z_][a-z0-9_]*)\s*:", body, re.M):
+                out.append((name, field))
     return out
 
 
-def _is_read(field: str) -> bool:
-    """True when some ``.field`` attribute access exists outside its own declaration.
+@lru_cache(maxsize=1)
+def _attribute_names_read() -> frozenset[str]:
+    """Every attribute name the package actually accesses, via AST rather than text.
 
-    Scanned in-process rather than by shelling out to grep: no PATH dependency, and
-    the declaration lines have to be excluded anyway or every field looks read.
+    A line-based ``\\.field`` search counts prose: a comment or a log message naming the TOML path
+    ``[ssl.dns_challenge_providers.cloudflare]`` reads as an attribute access and silently retires an
+    allowlist entry, which is the one failure this file cannot afford. Parsing also drops the need to
+    exclude declaration lines, since a declaration is an AnnAssign and never an Attribute.
     """
-    attr = re.compile(rf"\.{field}\b")
-    decl = re.compile(rf"^\s*{field}\s*:")
+    names: set[str] = set()
     for path in PACKAGE.rglob("*.py"):
-        for line in path.read_text().splitlines():
-            if attr.search(line) and not decl.match(line):
-                return True
-    return False
+        try:
+            tree = ast.parse(path.read_text())
+        except SyntaxError:  # a template or a partial file is not a reader
+            continue
+        names.update(n.attr for n in ast.walk(tree) if isinstance(n, ast.Attribute))
+    return frozenset(names)
+
+
+def _is_read(field: str) -> bool:
+    """True when some ``.field`` attribute access exists anywhere in the package."""
+    return field in _attribute_names_read()
 
 
 def test_every_config_field_is_read_by_something():

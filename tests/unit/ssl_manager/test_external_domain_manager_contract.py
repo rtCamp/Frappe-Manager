@@ -2,8 +2,8 @@
 
 `ExternalDomainConfigManager.to_ssl_certificate` is the only place that turns a stored
 `external_domains.toml` entry into a live certificate object, and it was uncovered (~16%).
-It builds the same two-branch shape that `commands/ssl/bench_helpers.py` and
-`commands/ssl/external_helpers.py` used to duplicate, with one extra input: `acme_client`
+It builds the same shape that `commands/ssl/bench_helpers.py` and
+`commands/ssl/external_helpers.py` build, with one extra input: `acme_client`
 comes from the stored config rather than from the model default.
 
 These tests pin the observable contract of that construction so any consolidation is provably
@@ -11,12 +11,13 @@ behaviour-preserving:
 
   * challenge selection is an exact string match on ``"dns01"``; EVERYTHING else -- including
     ``"DNS01"``, ``"dns-01"`` and ``""`` -- falls through to ``http01``;
-  * a truthy ``delegation_cname`` selects `CustomDomainCertificate`, a falsy one (None or "")
-    selects `LetsencryptSSLCertificate`; the exact class matters, not just isinstance, because
-    `CustomDomainCertificate` is a subclass;
+  * a truthy stored ``delegation_cname`` reaches the certificate's ``delegation_cname``, a falsy
+    one (None or "") leaves it None. That field, not a class, is what acme.sh dispatches on: it
+    receives ``--challenge-alias`` exactly when the value is truthy;
   * `ssl_type` is always `SUPPORTED_SSL_TYPES.le`, ignoring the stored `ssl_type` string;
-  * `api_token`/`api_key` are always None (credentials are resolved from fm config at issuance);
-  * `acme_client` is threaded through from the config in BOTH branches;
+  * the built certificate carries no credential of any kind (they are resolved from
+    ``[ssl.dns_providers]`` at issuance, so a certificate must never hold one);
+  * `acme_client` is threaded through from the config with and without delegation;
   * a missing domain yields None.
 
 Two levels are exercised: `to_ssl_certificate` in isolation (stubbing `get_domain`, so configs
@@ -30,8 +31,9 @@ from unittest.mock import patch
 import pytest
 
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager.certificate import RETIRED_CERTIFICATE_KEYS
 from frappe_manager.ssl_manager.external_domain_manager import ExternalDomainConfig, ExternalDomainConfigManager
-from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate, LetsencryptSSLCertificate
+from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 
 DOMAIN = "app.example.com"
 ADDED_AT = "2026-01-14T12:00:00"
@@ -110,51 +112,51 @@ class TestChallengeTypeSelection:
     def test_challenge_selection_applies_to_the_delegation_branch_too(self, tmp_path):
         cert = _cert_for(tmp_path, _config(challenge_type="dns01", delegation_cname="app-example-com.fm.com"))
 
-        assert type(cert) is CustomDomainCertificate
+        assert cert.delegation_cname == "app-example-com.fm.com"
         assert cert.challenge_type is LETSENCRYPT_PREFERRED_CHALLENGE.dns01
 
     def test_unknown_challenge_in_delegation_branch_also_falls_back(self, tmp_path):
         cert = _cert_for(tmp_path, _config(challenge_type="whatever", delegation_cname="app-example-com.fm.com"))
 
-        assert type(cert) is CustomDomainCertificate
+        assert cert.delegation_cname == "app-example-com.fm.com"
         assert cert.challenge_type is LETSENCRYPT_PREFERRED_CHALLENGE.http01
 
 
 # --------------------------------------------------------------------------------------
-# branch / class selection
+# delegation selection
 # --------------------------------------------------------------------------------------
 
 
-class TestCertificateClassSelection:
-    def test_no_cname_builds_plain_letsencrypt_certificate(self, tmp_path):
+class TestDelegationSelection:
+    """`delegation_cname` is a plain field, so its VALUE is the whole contract.
+
+    acme.sh gets `--challenge-alias` when the field is truthy and not otherwise, so the empty
+    string matters as much as None: a falsy value must not become a delegation.
+    """
+
+    def test_no_cname_leaves_the_delegation_unset(self, tmp_path):
         cert = _cert_for(tmp_path, _config())
 
         assert type(cert) is LetsencryptSSLCertificate
-        assert not isinstance(cert, CustomDomainCertificate)
-        assert not hasattr(cert, "delegation_cname")
+        assert cert.delegation_cname is None
 
-    def test_cname_builds_custom_domain_certificate_and_keeps_the_cname(self, tmp_path):
+    def test_cname_reaches_the_certificate(self, tmp_path):
         cert = _cert_for(tmp_path, _config(delegation_cname="app-example-com.fm.com"))
 
-        assert type(cert) is CustomDomainCertificate
+        assert type(cert) is LetsencryptSSLCertificate
         assert cert.delegation_cname == "app-example-com.fm.com"
 
     @pytest.mark.parametrize("falsy_cname", [None, ""])
-    def test_falsy_cname_builds_plain_certificate(self, tmp_path, falsy_cname):
-        """The branch is a truthiness check, so an empty string behaves like None."""
+    def test_falsy_cname_leaves_the_delegation_unset(self, tmp_path, falsy_cname):
+        """An empty string must not become a truthy `--challenge-alias` argument."""
         cert = _cert_for(tmp_path, _config(delegation_cname=falsy_cname))
 
-        assert type(cert) is LetsencryptSSLCertificate
+        assert not cert.delegation_cname
 
     def test_missing_domain_returns_none(self, tmp_path):
         manager = _manager(tmp_path)
 
         assert manager.to_ssl_certificate("nope.example.com") is None
-
-    def test_delegation_subdomain_is_derived_from_the_domain(self, tmp_path):
-        cert = _cert_for(tmp_path, _config(delegation_cname="app-example-com.fm.com"))
-
-        assert cert.get_delegation_subdomain() == "app-example-com"
 
 
 # --------------------------------------------------------------------------------------
@@ -177,12 +179,15 @@ class TestCertificateFields:
         assert cert.ssl_type is SUPPORTED_SSL_TYPES.le
 
     @pytest.mark.parametrize("cname", [None, "app-example-com.fm.com"])
-    def test_credentials_are_never_populated(self, tmp_path, cname):
-        """Cloudflare credentials are resolved from fm config at issuance, not stored here."""
+    def test_the_certificate_carries_no_credential_at_all(self, tmp_path, cname):
+        """Credentials are resolved from `[ssl.dns_providers]` at issuance, never stored here.
+
+        A copy on the certificate is not merely redundant: it outlives revocation, and it defeated
+        `fm ssl dns-config cloudflare --remove`.
+        """
         cert = _cert_for(tmp_path, _config(challenge_type="dns01", delegation_cname=cname))
 
-        assert cert.api_token is None
-        assert cert.api_key is None
+        assert RETIRED_CERTIFICATE_KEYS.isdisjoint(cert.model_dump())
 
     @pytest.mark.parametrize("cname", [None, "app-example-com.fm.com"])
     def test_acme_client_comes_from_the_stored_config(self, tmp_path, cname):
@@ -203,13 +208,9 @@ class TestCertificateFields:
 
         assert cert.enabled is True
         assert cert.hsts == "off"
-        assert cert.status == "pending"
-        assert cert.cert_path is None
-        assert cert.key_path is None
-        assert cert.issued_date is None
-        assert cert.last_renewal_attempt is None
+        assert cert.dns_provider is None
 
-    def test_exact_field_set_of_the_plain_branch(self, tmp_path):
+    def test_exact_field_set_without_delegation(self, tmp_path):
         """Guards against a kwarg being silently added or dropped by a refactor."""
         cert = _cert_for(tmp_path, _config(challenge_type="dns01", acme_client="certbot"))
 
@@ -218,19 +219,16 @@ class TestCertificateFields:
             "ssl_type": SUPPORTED_SSL_TYPES.le,
             "challenge_type": LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
             "enabled": True,
-            "acme_client": "certbot",
             "hsts": "off",
-            "cert_path": None,
-            "key_path": None,
-            "issued_date": None,
-            "last_renewal_attempt": None,
-            "status": "pending",
-            "toml_exclude": {"domain", "toml_exclude"},
-            "api_token": None,
-            "api_key": None,
+            "acme_client": "certbot",
+            # None because a standalone certificate has no bench, so there is no bench-scoped
+            # `[ssl.dns_providers]` for a label to name; `fm ssl add` refuses --dns-provider
+            # together with --standalone rather than record a binding nothing reads.
+            "dns_provider": None,
+            "delegation_cname": None,
         }
 
-    def test_exact_field_set_of_the_delegation_branch(self, tmp_path):
+    def test_exact_field_set_with_delegation(self, tmp_path):
         cert = _cert_for(
             tmp_path,
             _config(challenge_type="dns01", acme_client="certbot", delegation_cname="app-example-com.fm.com"),
@@ -241,16 +239,9 @@ class TestCertificateFields:
             "ssl_type": SUPPORTED_SSL_TYPES.le,
             "challenge_type": LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
             "enabled": True,
-            "acme_client": "certbot",
             "hsts": "off",
-            "cert_path": None,
-            "key_path": None,
-            "issued_date": None,
-            "last_renewal_attempt": None,
-            "status": "pending",
-            "toml_exclude": {"domain", "toml_exclude"},
-            "api_token": None,
-            "api_key": None,
+            "acme_client": "certbot",
+            "dns_provider": None,
             "delegation_cname": "app-example-com.fm.com",
         }
 
@@ -261,7 +252,7 @@ class TestCertificateFields:
 
 
 class TestRoundTripThroughStorage:
-    def test_added_dns01_delegated_domain_round_trips_to_a_custom_certificate(self, tmp_path):
+    def test_added_dns01_delegated_domain_round_trips_with_its_delegation(self, tmp_path):
         manager = _manager(tmp_path)
         manager.add_domain(
             _config(challenge_type="dns01", delegation_cname="app-example-com.fm.com", acme_client="certbot")
@@ -269,7 +260,7 @@ class TestRoundTripThroughStorage:
 
         cert = manager.to_ssl_certificate(DOMAIN)
 
-        assert type(cert) is CustomDomainCertificate
+        assert type(cert) is LetsencryptSSLCertificate
         assert cert.domain == DOMAIN
         assert cert.challenge_type is LETSENCRYPT_PREFERRED_CHALLENGE.dns01
         assert cert.delegation_cname == "app-example-com.fm.com"

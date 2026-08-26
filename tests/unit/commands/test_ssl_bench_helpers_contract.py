@@ -7,9 +7,9 @@ Two production surfaces are pinned here so a later refactor cannot change them s
 * which *refusals* fire and in what order.  ``_add_bench_certificate`` rejects an unknown
   domain before it even changes the status head, rejects ``--cname`` on a non-DNS-01
   challenge, and rejects ``--cname`` on a dev certificate only *after* the head changed.
-* which certificate *class* each flag combination builds -- ``SSLCertificate`` (dev),
-  ``CustomDomainCertificate`` (cname + dns01) or ``LetsencryptSSLCertificate`` (plain) --
-  and with which field values, since the class alone selects the downstream issuance path.
+* which certificate each flag combination builds -- a bare ``SSLCertificate`` for dev, a
+  ``LetsencryptSSLCertificate`` otherwise, delegating or not according to ``delegation_cname``
+  -- and with which field values, since those select the downstream issuance path.
 * what each path *writes*: ``dry_run`` suppresses the ``host_name`` rewrite entirely; a
   successful add flips ``host_name`` to ``https://``, a successful remove back to
   ``http://``, and both treat a failure of that write as non-fatal.
@@ -58,9 +58,9 @@ from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.site_manager.exceptions import AdminToolsFailedToStart, AdminToolsFailedToStop, BenchException
 from frappe_manager.site_manager.modules.bench_admin_tools import BenchAdminTools
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
-from frappe_manager.ssl_manager.certificate import SSLCertificate
+from frappe_manager.ssl_manager.certificate import RETIRED_CERTIFICATE_KEYS, SSLCertificate
 from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotFoundError
-from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate, LetsencryptSSLCertificate
+from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.utils.helpers import get_current_fm_version
 
 SSL_MODULE = "frappe_manager.commands.ssl.bench_helpers"
@@ -235,18 +235,18 @@ def test_add_dev_builds_a_plain_dev_certificate_with_no_challenge(h):
 
 
 @pytest.mark.timeout(15)
-def test_add_with_cname_builds_a_custom_domain_certificate_carrying_the_delegation(h):
+def test_add_with_cname_builds_a_certificate_carrying_the_delegation(h):
     _add(h, challenge=DNS01, cname="alias-example-com.fm.test")
 
     cert = h.added_cert()
-    assert type(cert) is CustomDomainCertificate
+    assert type(cert) is LetsencryptSSLCertificate
     assert cert.domain == DOMAIN
     assert cert.ssl_type == SUPPORTED_SSL_TYPES.le
     assert cert.challenge_type == DNS01
+    # The field, not a class, is what makes acme.sh receive --challenge-alias.
     assert cert.delegation_cname == "alias-example-com.fm.test"
-    # Credentials are deliberately left unset; they are resolved later from fm config.
-    assert cert.api_token is None
-    assert cert.api_key is None
+    # Credentials are deliberately absent; they are resolved from `[ssl.dns_providers]` at issuance.
+    assert RETIRED_CERTIFICATE_KEYS.isdisjoint(cert.model_dump())
 
 
 @pytest.mark.timeout(15)
@@ -266,8 +266,8 @@ def test_add_without_cname_or_dev_builds_a_letsencrypt_certificate_for_the_asked
     assert type(cert) is LetsencryptSSLCertificate
     assert cert.ssl_type == SUPPORTED_SSL_TYPES.le
     assert cert.challenge_type == challenge
-    assert cert.api_token is None
-    assert cert.api_key is None
+    assert cert.delegation_cname is None
+    assert RETIRED_CERTIFICATE_KEYS.isdisjoint(cert.model_dump())
     # No delegation notice on the plain path.
     assert not any(p.startswith("Using CNAME delegation") for p in h.prints())
 
@@ -515,7 +515,9 @@ def _rows(table: Table) -> list[tuple]:
 
 
 @pytest.mark.timeout(15)
-def test_list_renders_a_fixed_seven_column_certificate_table(h):
+def test_list_renders_a_fixed_eight_column_certificate_table(h):
+    """`DNS Provider` sits beside `Challenge` because it only means anything for a dns01 challenge,
+    and because a certificate bound to the wrong Cloudflare account is otherwise invisible here."""
     _list_bench_certificates(h.ctx, BENCH)
 
     table = h.table()
@@ -523,6 +525,7 @@ def test_list_renders_a_fixed_seven_column_certificate_table(h):
         "Domain",
         "Type",
         "Challenge",
+        "DNS Provider",
         "Status",
         "Expiry",
         "Days Left",
@@ -546,7 +549,7 @@ def test_list_shows_a_configured_domain_with_no_certificate_as_no_ssl(h):
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    assert _rows(h.table())[0] == (DOMAIN, "none", "N/A", "⚪ No SSL", "N/A", "N/A", "N/A")
+    assert _rows(h.table())[0] == (DOMAIN, "none", "N/A", "N/A", "⚪ No SSL", "N/A", "N/A", "N/A")
 
 
 @pytest.mark.timeout(15)
@@ -575,10 +578,12 @@ def test_list_reports_an_issued_certificate_with_expiry_and_days_left(h):
 
     _list_bench_certificates(h.ctx, BENCH)
 
+    # `N/A` for the provider: this is an http01 certificate, so no DNS credential is involved.
     assert _rows(h.table())[0] == (
         DOMAIN,
         "letsencrypt",
         "http01",
+        "N/A",
         "✅ Issued",
         "2026-03-04 05:06",
         "42",
@@ -607,7 +612,7 @@ def test_list_marks_a_configured_but_unissued_certificate_as_not_issued(h):
 
     row = _rows(h.table())[0]
     # The type/challenge survive, but nothing expiry-derived is claimed.
-    assert row == (DOMAIN, "letsencrypt", "http01", "❌ Not Issued", "N/A", "N/A", "N/A")
+    assert row == (DOMAIN, "letsencrypt", "http01", "N/A", "❌ Not Issued", "N/A", "N/A", "N/A")
 
 
 @pytest.mark.timeout(15)
@@ -617,7 +622,7 @@ def test_list_falls_back_to_na_when_an_issued_certificate_has_no_expiry_date(h):
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    assert _rows(h.table())[0] == (DOMAIN, "letsencrypt", "http01", "✅ Issued", "N/A", "N/A", "N/A")
+    assert _rows(h.table())[0] == (DOMAIN, "letsencrypt", "http01", "N/A", "✅ Issued", "N/A", "N/A", "N/A")
 
 
 @pytest.mark.timeout(15)

@@ -2,9 +2,8 @@
 
 Locks the TOML shape: top-level `environment`/`image`, `[[apps]]` with per-app
 `hooks`/`hooks.host`, `[monitoring.newrelic]`, `[switch]` + `[switch.hooks]`/
-`[switch.hooks.host]`, `[build]`, and `[ssl]`
-(`dns_challenge_providers` + `certificates`). Import + export + re-import must
-preserve every value.
+`[switch.hooks.host]`, `[build]`, and `[ssl]` (`dns_providers` + `certificates`).
+Import + export + re-import must preserve every value.
 """
 
 import pytest
@@ -56,7 +55,7 @@ python_version = "3.12"
 node_version = "20"
 
 
-[ssl.dns_challenge_providers.cloudflare]
+[ssl.dns_providers.cloudflare]
 api_token = "cf-token"
 [[ssl.certificates]]
 domain = "fm.com"
@@ -111,7 +110,7 @@ def test_export_reimport_roundtrip(tmp_path):
     # New table shape, not the old flat keys.
     assert "[monitoring.newrelic]" in text
     assert "[[ssl.certificates]]" in text
-    assert "[ssl.dns_challenge_providers.cloudflare]" in text
+    assert "[ssl.dns_providers.cloudflare]" in text
     assert "environment_type" not in text
     assert "newrelic_enabled" not in text
 
@@ -166,4 +165,39 @@ def test_a_misspelled_monitoring_key_is_refused(tmp_path, table):
     p.write_text('name = "nr.localhost"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n' + table)
 
     with pytest.raises(ValidationError):
+        BenchConfig.import_from_toml(p)
+
+
+_MINIMAL = 'name = "x.localhost"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
+
+
+def test_a_certificate_can_no_longer_carry_a_credential(tmp_path):
+    """An earlier release copied the global Cloudflare credential onto every parsed certificate and
+    the exporter dumped it straight into bench_config.toml, at mode 0644, where it also outlived
+    `fm ssl dns-config cloudflare --remove`. The field is gone from the model, so a copy left in an
+    old file is dropped on read and cannot come back on the next save. Relocating one that is the
+    only credential a bench has is the migration's job, not the loader's."""
+    p = tmp_path / "bench_config.toml"
+    p.write_text(
+        _MINIMAL + '[[ssl.certificates]]\ndomain = "x.localhost"\nssl_type = "letsencrypt"\n'
+        'challenge_type = "dns01"\napi_key = "LEAKED-KEY"\n'
+    )
+
+    bc = BenchConfig.import_from_toml(p)
+
+    assert not hasattr(bc.ssl_certificates[0], "api_key")
+    assert bc.export_to_toml(p) is True
+    assert "LEAKED-KEY" not in p.read_text()
+
+
+def test_a_misspelled_certificate_key_is_refused(tmp_path):
+    """`[ssl]` used to be the one table where a typo was silently ignored, because certificates were
+    hand-parsed with .get() calls. A misspelled `dns_provider` is the dangerous case: the binding
+    would be dropped and the certificate would issue against the default account instead."""
+    p = tmp_path / "bench_config.toml"
+    p.write_text(
+        _MINIMAL + '[[ssl.certificates]]\ndomain = "x.localhost"\nssl_type = "letsencrypt"\ndns_providr = "acct-b"\n'
+    )
+
+    with pytest.raises(ValidationError, match="dns_providr"):
         BenchConfig.import_from_toml(p)

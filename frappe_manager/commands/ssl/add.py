@@ -41,6 +41,12 @@ from .helpers import get_output_handler
     detail="acme.sh looks for _acme-challenge.acme.example.net instead of the bench's own zone.",
     benchname="mybench",
 )
+@example(
+    "Authenticate DNS-01 against a second Cloudflare account",
+    "{benchname} example.com --challenge dns01 --dns-provider acct-b",
+    detail="acct-b is a label stored by fm ssl dns-config cloudflare --name acct-b, at either global or bench scope.",
+    benchname="mybench",
+)
 def add_certificate(
     ctx: typer.Context,
     benchname: StandaloneBenchNameArgument = None,
@@ -52,6 +58,13 @@ def add_certificate(
     cname: Annotated[
         str | None,
         typer.Option("--cname", help="Delegated zone for _acme-challenge. dns01 only."),
+    ] = None,
+    dns_provider: Annotated[
+        str | None,
+        typer.Option(
+            "--dns-provider",
+            help="Label of the \\[ssl.dns_challenge_providers] credential set that authenticates this domain, from fm ssl dns-config cloudflare --name. Omit for the default account. dns01 only.",
+        ),
     ] = None,
     dry_run: Annotated[
         bool,
@@ -100,6 +113,13 @@ def add_certificate(
         output.display_error("--dev cannot be used with --standalone mode")
         raise typer.Exit(1)
 
+    # An external domain's config has no field to record the label, so a binding made here would be
+    # dropped on the next read and the certificate would renew against the default account instead.
+    if dns_provider and standalone:
+        output = get_output_handler(ctx)
+        output.display_error("--dns-provider is bench mode only; external domains use the default DNS credentials")
+        raise typer.Exit(1)
+
     if standalone:
         # Standalone mode: domain can be first arg (as benchname) or second arg
         actual_domain = domain if domain else benchname
@@ -129,4 +149,4 @@ def add_certificate(
                 typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
-        _add_bench_certificate(ctx, benchname, domain, challenge, cname, dry_run, dev=dev)
+        _add_bench_certificate(ctx, benchname, domain, challenge, cname, dry_run, dev=dev, dns_provider=dns_provider)

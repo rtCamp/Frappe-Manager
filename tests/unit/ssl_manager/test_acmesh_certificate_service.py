@@ -7,10 +7,13 @@ operations using the acme.sh client.
 
 import subprocess
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
 
+from frappe_manager.metadata_manager import FMConfigManager
+from frappe_manager.site_manager.bench_config import FMBenchEnvType
 from frappe_manager.ssl_manager.acmesh_certificate_service import (
     LETSENCRYPT_PRODUCTION_SERVER,
     LETSENCRYPT_STAGING_SERVER,
@@ -20,6 +23,16 @@ from frappe_manager.ssl_manager.certificate_exceptions import (
     SSLCertificateGenerateFailed,
     SSLCertificateNotFoundError,
 )
+
+
+def _no_global_dns_credentials():
+    """Pin the global scope empty, so only the bench scope can satisfy a DNS-01 run.
+
+    Without this the developer's own ~/frappe/fm_config.toml decides the result and the test passes
+    for the wrong reason.
+    """
+    stub = SimpleNamespace(dns_providers={})
+    return patch.object(FMConfigManager, "import_from_toml", staticmethod(lambda *a, **k: stub))
 
 
 class TestAcmeShCertificateServiceInitialization:
@@ -768,7 +781,13 @@ class TestAcmeShCertificateServiceCredentialCache:
 
         AcmeShCertificateService._acmesh_installed = False
 
-        with patch("frappe_manager.ssl_manager.acmesh_certificate_service.stream_command_output") as mock_stream:
+        with (
+            patch(
+                "frappe_manager.ssl_manager.ssl_utils.get_dns_credentials_for_certificate",
+                return_value={"CF_Token": "resolved_token"},
+            ),
+            patch("frappe_manager.ssl_manager.acmesh_certificate_service.stream_command_output") as mock_stream,
+        ):
             mock_stream.return_value = [("exit_code", b"0")]
 
             service = AcmeShCertificateService(
@@ -781,6 +800,136 @@ class TestAcmeShCertificateServiceCredentialCache:
 
             updated_content = account_conf.read_text()
             assert "SAVED_CF_Token=" not in updated_content
+
+    def test_renew_certificate_dns01_supplies_credentials_after_clearing_them(
+        self, mock_logger, tmp_path, mock_output_handler, mock_dns_certificate
+    ):
+        """A DNS-01 renewal must put credentials back in the environment after wiping the cache.
+
+        `renew_certificate` clears acme.sh's `SAVED_CF_*` values, which on a `--renew` are the only
+        credential acme.sh has: the flags come from the per-domain conf it already stored, not from
+        the fm command line. Clearing without re-supplying left `dns_cf` unable to authenticate, so
+        every DNS-01 renewal failed and `SSLCertificateManager` swallowed it as "Certificate not
+        found in acme.sh" and performed a full re-issue, spending Let's Encrypt duplicate-certificate
+        allowance. The three existing renewal tests all use an HTTP-01 fixture, which needs no
+        credentials, so nothing caught it.
+        """
+        ssl_dir = tmp_path / "ssl"
+        webroot_dir = tmp_path / "webroot"
+        webroot_dir.mkdir(parents=True)
+
+        acmesh_home = ssl_dir / "acmesh" / ".acme.sh"
+        acmesh_home.mkdir(parents=True)
+        (acmesh_home / "acme.sh").touch()
+        (acmesh_home / "account.conf").write_text("SAVED_CF_Token='stale_token'\n")
+
+        cert_dir = acmesh_home / "example.com_ecc"
+        cert_dir.mkdir(parents=True)
+        (cert_dir / "example.com.key").write_text("key")
+        (cert_dir / "fullchain.cer").write_text("cert")
+        (ssl_dir / "acmesh" / "example.com").mkdir(parents=True)
+
+        AcmeShCertificateService._acmesh_installed = False
+
+        captured_env: dict[str, str] = {}
+
+        def mock_stream_output(cmd, env, cwd):
+            captured_env.update(env)
+            yield ("exit_code", b"0")
+
+        def consume_generator(gen, **kwargs):
+            for _ in gen:
+                pass
+
+        mock_output_handler.live_lines.side_effect = consume_generator
+
+        with (
+            patch(
+                "frappe_manager.ssl_manager.ssl_utils.get_dns_credentials_for_certificate",
+                return_value={"CF_Token": "resolved_token"},
+            ),
+            patch(
+                "frappe_manager.ssl_manager.acmesh_certificate_service.stream_command_output",
+                side_effect=mock_stream_output,
+            ),
+        ):
+            service = AcmeShCertificateService(
+                ssl_service_dir=ssl_dir,
+                webroot_dir=webroot_dir,
+                output_handler=mock_output_handler,
+            )
+
+            assert service.renew_certificate(mock_dns_certificate) is True
+
+        assert "SAVED_CF_Token=" not in (acmesh_home / "account.conf").read_text()
+        assert captured_env.get("CF_Token") == "resolved_token"
+
+    def test_the_bench_dns_provider_tier_reaches_acme_sh(
+        self, mock_logger, tmp_path, mock_output_handler, mock_dns_certificate
+    ):
+        """`fm ssl dns-config cloudflare <bench>` must produce a credential issuance can use.
+
+        The service was built without a bench_config, so `get_dns_credentials_for_certificate` could
+        only ever reach the global `[cloudflare]` tier: a bench-scoped credential was written to
+        `[ssl.dns_challenge_providers]`, echoed by `--show`, and then unreachable. That made the
+        documented per-bench override a write-only feature, and it is the tier the credential
+        migration relocates a legacy cert-borne secret into, so it has to actually work.
+        """
+        from frappe_manager.site_manager.bench_config import BenchConfig
+        from frappe_manager.ssl_manager.dns_provider import DNSProviderConfig
+
+        ssl_dir = tmp_path / "ssl"
+        webroot_dir = tmp_path / "webroot"
+        webroot_dir.mkdir(parents=True)
+
+        acmesh_home = ssl_dir / "acmesh" / ".acme.sh"
+        acmesh_home.mkdir(parents=True)
+        (acmesh_home / "acme.sh").touch()
+        cert_dir = acmesh_home / "example.com_ecc"
+        cert_dir.mkdir(parents=True)
+        (cert_dir / "example.com.key").write_text("key")
+        (cert_dir / "fullchain.cer").write_text("cert")
+        (ssl_dir / "acmesh" / "example.com").mkdir(parents=True)
+
+        bench_config = BenchConfig(
+            name="example.com",
+            developer_mode=False,
+            admin_tools=False,
+            environment_type=FMBenchEnvType.prod,
+            root_path=tmp_path / "bench_config.toml",
+            dns_providers={"cloudflare": DNSProviderConfig(email=None, api_token="cf-bench-tier", api_key=None)},
+        )
+
+        AcmeShCertificateService._acmesh_installed = False
+        captured_env: dict[str, str] = {}
+
+        def mock_stream_output(cmd, env, cwd):
+            captured_env.update(env)
+            yield ("exit_code", b"0")
+
+        def consume_generator(gen, **kwargs):
+            for _ in gen:
+                pass
+
+        mock_output_handler.live_lines.side_effect = consume_generator
+
+        with (
+            _no_global_dns_credentials(),
+            patch(
+                "frappe_manager.ssl_manager.acmesh_certificate_service.stream_command_output",
+                side_effect=mock_stream_output,
+            ),
+        ):
+            service = AcmeShCertificateService(
+                ssl_service_dir=ssl_dir,
+                webroot_dir=webroot_dir,
+                output_handler=mock_output_handler,
+                bench_config=bench_config,
+            )
+
+            assert service.renew_certificate(mock_dns_certificate) is True
+
+        assert captured_env.get("CF_Token") == "cf-bench-tier"
 
 
 class TestAcmeShCertificateServiceLetsEncryptServer:

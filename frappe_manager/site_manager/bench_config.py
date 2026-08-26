@@ -9,14 +9,14 @@ from pathlib import Path
 from typing import Any, Literal
 
 import tomlkit
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from tomlkit.items import Array as TOMLArray
 
 from frappe_manager import CLI_DEFAULT_DELIMETER
-from frappe_manager.metadata_manager import FMConfigManager
-from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
-from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate, LetsencryptSSLCertificate
+from frappe_manager.ssl_manager.dns_provider import DNSProviderConfig
+from frappe_manager.ssl_manager.letsencrypt_certificate import CERTIFICATE_ADAPTER
 from frappe_manager.utils.helpers import get_container_name_prefix, get_bench_connection_config
 
 
@@ -802,113 +802,15 @@ class AppConfig(BaseModel):
         return AppBatchValidationResult(results=results)
 
 
-class DNSProviderConfig(BaseModel):
-    """DNS provider credentials for DNS-01 challenge at bench level."""
-
-    email: EmailStr | None = Field(None, description="DNS provider account email (if required).")
-    api_token: str | None = Field(None, description="DNS provider API Token.")
-    api_key: str | None = Field(None, description="DNS provider API Key.")
-
-    @property
-    def exists(self) -> bool:
-        """Check if any DNS credentials are configured."""
-        return bool(self.api_token or self.api_key)
-
-    def get_toml_doc(self):
-        """Convert to TOML document."""
-        model_dict = self.model_dump(exclude_none=True)
-        toml_doc = tomlkit.document()
-
-        for key, value in model_dict.items():
-            toml_doc[key] = value
-        return toml_doc
-
-    @classmethod
-    def import_from_toml_doc(cls, toml_doc):
-        """Import from TOML document."""
-        return cls(**toml_doc)
-
-
-def ssl_certificate_from_toml_data(ssl_data: dict, domain: str) -> SSLCertificate:
-    """Parse a single certificate from TOML data."""
-    ssl_type = ssl_data.get("ssl_type", SUPPORTED_SSL_TYPES.none)
-    # ssl_certificate_to_toml_doc dumps the whole model, so hsts is on disk; reading it back
-    # without this dropped it to the "off" default, which meant nginx-proxy never received the
-    # HSTS header a bench had configured (BenchConfig.export_to_compose_inputs reads it from the
-    # primary certificate). migrate_0_19_0 deliberately carries the old value forward, so the
-    # drop silently undid that migration. Same oversight as delegation_cname below.
-    hsts = ssl_data.get("hsts", "off")
-
-    if ssl_type == SUPPORTED_SSL_TYPES.le:
-        # Email field removed - Let's Encrypt discontinued notifications (June 2025)
-        # Remove email from TOML data if present (backward compatibility)
-        ssl_data.pop("email", None)
-
-        fm_config_manager = FMConfigManager.import_from_toml()
-
-        # Read challenge_type (new field) or preferred_challenge (backward compat)
-        challenge_type = ssl_data.get("challenge_type")
-        if not challenge_type:
-            # Fall back to preferred_challenge for backward compatibility
-            challenge_type = ssl_data.get("preferred_challenge")
-
-        api_token = ssl_data.get("api_token")
-        if not api_token:
-            api_token = fm_config_manager.cloudflare.api_token
-
-        api_key = ssl_data.get("api_key")
-        if not api_key:
-            api_key = fm_config_manager.cloudflare.api_key
-
-        # If no challenge type specified, infer from available credentials
-        if not challenge_type:
-            if fm_config_manager.cloudflare.exists:
-                challenge_type = LETSENCRYPT_PREFERRED_CHALLENGE.dns01
-            else:
-                challenge_type = LETSENCRYPT_PREFERRED_CHALLENGE.http01
-
-        # Read acme_client field (defaults to "acme.sh" if not specified)
-        acme_client = ssl_data.get("acme_client", "acme.sh")
-
-        # A CNAME-delegated certificate (`fm ssl add --cname`) is written as `delegation_cname` by
-        # ssl_certificate_to_toml_doc; reading it back into the plain LetsencryptSSLCertificate
-        # dropped the delegation target, so acme.sh re-issue lost `--challenge-alias` and tried to
-        # write _acme-challenge in a zone fm does not control.
-        delegation_cname = ssl_data.get("delegation_cname")
-        if delegation_cname:
-            return CustomDomainCertificate(
-                domain=domain,
-                ssl_type=ssl_type,
-                challenge_type=challenge_type,
-                api_key=api_key,
-                api_token=api_token,
-                acme_client=acme_client,
-                delegation_cname=delegation_cname,
-                hsts=hsts,
-            )
-
-        return LetsencryptSSLCertificate(
-            domain=domain,
-            ssl_type=ssl_type,
-            # Email removed - credentials loaded from FM config
-            challenge_type=challenge_type,
-            api_key=api_key,
-            api_token=api_token,
-            acme_client=acme_client,
-            hsts=hsts,
-        )
-    if ssl_type == SUPPORTED_SSL_TYPES.dev:
-        return SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.dev, hsts=hsts)
-    return SSLCertificate(domain=domain, ssl_type=SUPPORTED_SSL_TYPES.none)
-
-
 def ssl_certificate_to_toml_doc(cert: SSLCertificate) -> tomlkit.TOMLDocument | None:
     """Convert a single certificate to TOML document."""
     if cert.ssl_type == SUPPORTED_SSL_TYPES.none:
         return None
 
-    # Explicitly exclude only the computed field, but INCLUDE domain
-    model_dict = cert.model_dump(exclude={"toml_exclude"}, exclude_none=True)
+    # Nothing is excluded and nothing is renamed: the model holds exactly the keys that belong on
+    # disk, `domain` included. exclude_none drops the optional Let's Encrypt fields a certificate
+    # never set, so an http01 certificate does not gain an empty dns_provider line.
+    model_dict = cert.model_dump(exclude_none=True)
     toml_doc = tomlkit.document()
 
     for key, value in model_dict.items():
@@ -1178,17 +1080,6 @@ class MonitoringConfig(BaseModel):
     newrelic: NewRelicConfig | None = Field(None, description="NewRelic APM.")
 
 
-class SSLConfig(BaseModel):
-    """TLS configuration (`[ssl]`)."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    dns_challenge_providers: dict[str, DNSProviderConfig] | None = Field(
-        None, description="DNS provider credentials for the DNS-01 challenge (e.g. {'cloudflare': {...}})."
-    )
-    certificates: list[SSLCertificate] = Field(default_factory=list, description="SSL certificates for this bench.")
-
-
 class DatabaseConfig(BaseModel):
     """External database for one site (`[database."<site>"]`; absent means the `global-db` container)."""
 
@@ -1443,7 +1334,7 @@ class BenchConfig(BaseModel):
 
         Args:
             template_certificate: Certificate configuration to use as template
-                                 (email, acme_client, ssl_type, etc.)
+                                 (ssl_type, challenge_type, acme_client, etc.)
         """
         from copy import deepcopy
 
@@ -1530,7 +1421,7 @@ class BenchConfig(BaseModel):
                 if provider_config.exists:
                     dns[provider_name] = provider_config.get_toml_doc()
             if len(dns) > 0:
-                ssl_table["dns_challenge_providers"] = dns
+                ssl_table["dns_providers"] = dns
         if self.ssl_certificates:
             certs_array = ssl_certificates_to_toml_array(self.ssl_certificates)
             if len(certs_array) > 0:
@@ -1541,6 +1432,10 @@ class BenchConfig(BaseModel):
         try:
             with open(path, "w") as f:
                 f.write(tomlkit.dumps(toml_doc))
+            # The file carries DNS provider credentials, a GitHub token and the admin password, and
+            # is read only by fm on the host: nothing mounts it into a container. It was being left
+            # at the process umask, so 0644 in practice.
+            path.chmod(0o600)
             return True
         except Exception:
             return False
@@ -1557,9 +1452,13 @@ class BenchConfig(BaseModel):
         ssl_certificates_list: list[SSLCertificate] = []
         for cert_data in ssl_data.get("certificates") or []:
             if isinstance(cert_data, dict):
-                ssl_certificates_list.append(ssl_certificate_from_toml_data(cert_data, cert_data.get("domain", domain)))
+                # A certificate entry may omit `domain`: an entry for the bench's primary domain is
+                # meaningful without one, and that domain is the bench name.
+                ssl_certificates_list.append(CERTIFICATE_ADAPTER.validate_python({"domain": domain, **cert_data}))
         dns_providers_dict = {}
-        for provider_name, provider_data in (ssl_data.get("dns_challenge_providers") or {}).items():
+        # `dns_challenge_providers` was this key's old spelling. migrate_0_20_0 renames it on disk, so
+        # a bench that gets this far already carries the new one and there is nothing to fall back to.
+        for provider_name, provider_data in (ssl_data.get("dns_providers") or {}).items():
             if isinstance(provider_data, dict):
                 dns_providers_dict[provider_name] = DNSProviderConfig.import_from_toml_doc(provider_data)
 

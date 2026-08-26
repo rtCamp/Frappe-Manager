@@ -78,33 +78,21 @@ def mock_letsencrypt_certificate_http01():
         ssl_type=SUPPORTED_SSL_TYPES.le,
         challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
         hsts="off",
-        api_token=None,
-        api_key=None,
     )
 
 
 @pytest.fixture
 def mock_letsencrypt_certificate_dns01():
-    """Returns LetsencryptSSLCertificate configured for DNS-01 challenge with API token."""
+    """Returns LetsencryptSSLCertificate configured for DNS-01 challenge.
+
+    Deliberately carries no credential: a certificate never holds one. DNS-01 credentials are
+    resolved from `[ssl.dns_providers]` at issuance, selected by the certificate's `dns_provider`
+    label or, as here, by the default label 'cloudflare'.
+    """
     return LetsencryptSSLCertificate(
         domain="example.com",
         ssl_type=SUPPORTED_SSL_TYPES.le,
         challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
-        api_token="test_cloudflare_token_123",
-        api_key=None,
-        hsts="off",
-    )
-
-
-@pytest.fixture
-def mock_letsencrypt_certificate_dns01_with_key():
-    """Returns LetsencryptSSLCertificate configured for DNS-01 with API key."""
-    return LetsencryptSSLCertificate(
-        domain="example.com",
-        ssl_type=SUPPORTED_SSL_TYPES.le,
-        challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
-        api_token=None,
-        api_key="test_cloudflare_global_key_456",
         hsts="off",
     )
 
@@ -117,8 +105,6 @@ def mock_http_certificate():
         ssl_type=SUPPORTED_SSL_TYPES.le,
         challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.http01,
         hsts="off",
-        api_token=None,
-        api_key=None,
     )
 
 
@@ -129,8 +115,6 @@ def mock_dns_certificate():
         domain="example.com",
         ssl_type=SUPPORTED_SSL_TYPES.le,
         challenge_type=LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
-        api_token="test_cloudflare_token_123",
-        api_key=None,
         hsts="off",
     )
 
@@ -309,7 +293,6 @@ def ssl_certificate_manager(
 ):
     """Returns a fully initialized SSLCertificateManager for testing (multi-cert API)."""
     from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
-
 
     def certificate_service_factory(cert, storage_cfg, output_handler):
         return mock_ssl_service

@@ -33,9 +33,10 @@ from frappe_manager import SSL_RENEW_BEFORE_DAYS
 from frappe_manager.commands.ssl import external_helpers
 from frappe_manager.output_manager.silent_output import SilentOutputHandler
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
+from frappe_manager.ssl_manager.certificate import RETIRED_CERTIFICATE_KEYS
 from frappe_manager.ssl_manager.certificate_exceptions import SSLCertificateNotDueForRenewalError
 from frappe_manager.ssl_manager.external_domain_manager import ExternalDomainConfig
-from frappe_manager.ssl_manager.letsencrypt_certificate import CustomDomainCertificate, LetsencryptSSLCertificate
+from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 from frappe_manager.ssl_manager.standalone_nginx_config_manager import StandaloneNginxConfigManager
 
 MODULE = "frappe_manager.commands.ssl.external_helpers"
@@ -255,7 +256,7 @@ def test_add_allows_cname_with_dns01(h):
 # --------------------------------------------------------------------------------------
 
 
-def test_add_without_cname_builds_a_plain_letsencrypt_certificate(h):
+def test_add_without_cname_builds_an_undelegated_letsencrypt_certificate(h):
     _add(h, challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01)
 
     cert = h.cert_manager.add_certificate.call_args.args[0]
@@ -265,18 +266,21 @@ def test_add_without_cname_builds_a_plain_letsencrypt_certificate(h):
         SUPPORTED_SSL_TYPES.le,
         LETSENCRYPT_PREFERRED_CHALLENGE.dns01,
     )
-    assert cert.api_token is None
-    assert cert.api_key is None
+    assert cert.delegation_cname is None
+    # A standalone certificate carries no credential: they are resolved from the global
+    # `[ssl.dns_providers]` at issuance, and a copy here would outlive revocation.
+    assert RETIRED_CERTIFICATE_KEYS.isdisjoint(cert.model_dump())
 
 
-def test_add_with_cname_builds_a_custom_domain_certificate_carrying_the_delegation(h):
+def test_add_with_cname_builds_a_certificate_carrying_the_delegation(h):
     with ExitStack() as stack:
         validator = _dns_validator(stack).return_value
         validator.validate_cname_for_acme.return_value = SimpleNamespace(valid=True, actual_value=None)
         _add(h, cname="deleg.fm.com", challenge=LETSENCRYPT_PREFERRED_CHALLENGE.dns01, skip_dns_check=False)
 
     cert = h.cert_manager.add_certificate.call_args.args[0]
-    assert type(cert) is CustomDomainCertificate
+    assert type(cert) is LetsencryptSSLCertificate
+    # The field, not a class, is what makes acme.sh receive --challenge-alias.
     assert cert.delegation_cname == "deleg.fm.com"
     assert cert.challenge_type == LETSENCRYPT_PREFERRED_CHALLENGE.dns01
     assert "Using CNAME delegation: deleg.fm.com" in h.prints()

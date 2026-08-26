@@ -119,7 +119,10 @@ class Bench:
         link_manager = CertificateLinkManager(ssl_storage_config)
 
         def certificate_service_factory(cert, storage_cfg, output_handler):
-            return create_certificate_service(cert, storage_cfg, output_handler)
+            # bench_config is what makes this bench's `[ssl.dns_challenge_providers]` reachable at
+            # issuance and renewal; the standalone factory in commands/ssl/external_helpers.py has
+            # no bench and correctly passes nothing.
+            return create_certificate_service(cert, storage_cfg, output_handler, self.bench_config)
 
         self.certificate_manager = SSLCertificateManager(
             certificates=self.bench_config.ssl_certificates,

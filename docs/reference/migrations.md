@@ -77,10 +77,13 @@ Two migrations ship with the current CLI. Each one runs only if the target is be
 
 | Version | Infrastructure | Per bench |
 |---|---|---|
-| **v0.19.0** | `global-nginx-proxy` image bumped to `jwilder/nginx-proxy:1.11` | `[ssl]` table becomes the `[[ssl_certificates]]` array, `preferred_challenge` becomes `challenge_type`; nginx `SITENAME` becomes `SITE_MAPPINGS`; `alias_domains`, `upload_limit`, `restart_policy` added; runtime moves from pyenv/nvm to uv/fnm and from certbot to acme.sh; supervisor config regenerated |
-| **v0.20.0** | `global-db` moved off end-of-life `mariadb:10.6` to `mariadb:11.8`, with `MARIADB_AUTO_UPGRADE` letting the image upgrade the system tables | Adminer 4 to 5 with the FM login plugin; `admin_tools_username` / `admin_tools_password` move into the `[auth]` table; bench nginx gains the real-IP overlay and re-renders `default.conf` so it logs JSON |
+| **v0.19.0** | `global-nginx-proxy` image bumped to `jwilder/nginx-proxy:1.11` | the `[ssl]` table becomes a top-level `[[ssl_certificates]]` array and `preferred_challenge` becomes `challenge_type`, though nothing reads that array where it lands (see the v0.20.0 row and the warning below); nginx `SITENAME` becomes `SITE_MAPPINGS`; `alias_domains`, `upload_limit`, `restart_policy` added; runtime moves from pyenv/nvm to uv/fnm and from certbot to acme.sh; supervisor config regenerated |
+| **v0.20.0** | `global-db` moved off end-of-life `mariadb:10.6` to `mariadb:11.8`, with `MARIADB_AUTO_UPGRADE` letting the image upgrade the system tables; the global `[cloudflare]` table in `fm_config.toml` becomes the credential set labelled `cloudflare` under `[ssl.dns_providers]`, so both scopes now store labelled sets and nothing else | Adminer 4 to 5 with the FM login plugin; `admin_tools_username` / `admin_tools_password` move into the `[auth]` table; bench nginx gains the real-IP overlay and re-renders `default.conf` so it logs JSON; the `[ssl]` table is reshaped into the one form the loader reads: v0.19.0's top-level `ssl_certificates` array and `dns_providers` table move under `[ssl]`, `[ssl].dns_challenge_providers` is renamed `dns_providers`, a credential left on a certificate moves into the set labelled `cloudflare`, and the dead certificate keys (`email`, `status`, `cert_path`, `key_path`, `issued_date`, `last_renewal_attempt`, `toml_exclude`) are deleted |
 
 The v0.19.0 runtime rebuild is the slow part: it recreates the Python virtualenv with `uv`, reinstalls apps, and rebuilds assets.
+
+!!! warning "v0.19.0 left TLS configuration where nothing reads it"
+    v0.19.0 writes `ssl_certificates` and `dns_providers` at the **top level** of `bench_config.toml`, and no release has ever read them there: the loader only looks under `[ssl]`. A bench that stopped at v0.19.0 loads with zero certificates, and the next time fm saves the file those orphaned keys are dropped outright, taking the TLS configuration with them. v0.20.0 relocates both into `[ssl].certificates` and `[ssl].dns_providers`, so migrate before you go hunting for a certificate `fm ssl list` says is not there.
 
 ---
 

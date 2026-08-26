@@ -34,6 +34,16 @@ Global database engine:
 - moves global-db from mariadb:10.6, which reached end of life on 2026-07-06, to
   the tag frappe's own CI tests against, and lets the image entrypoint upgrade the
   system tables via MARIADB_AUTO_UPGRADE
+
+SSL configuration:
+
+- relocates the top-level ``ssl_certificates`` array and ``dns_providers`` table that 0.19
+  wrote into ``[ssl].certificates`` and ``[ssl].dns_providers``, where the loader looks
+- renames ``[ssl].dns_challenge_providers`` to ``[ssl].dns_providers``
+- moves any credential stored on a certificate into the ``[ssl].dns_providers`` set
+  labelled ``cloudflare``, and drops the issuance bookkeeping certificates no longer carry
+- relocates the global ``[cloudflare]`` table in fm_config.toml into
+  ``[ssl.dns_providers.cloudflare]``, so both scopes store labelled credential sets
 """
 
 import gzip
@@ -44,13 +54,14 @@ from pathlib import Path
 import tomlkit
 from ruamel.yaml import YAML
 
-from frappe_manager import GLOBAL_DB_IMAGE
+from frappe_manager import CLI_FM_CONFIG_PATH, GLOBAL_DB_IMAGE
 from frappe_manager.migration_manager.migration_base import MigrationBase
 from frappe_manager.migration_manager.migration_helpers import MigrationBench
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager.context_managers import spinner
 from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo, MariaDBManager
 from frappe_manager.site_manager.bench_config import REMOVED_CONFIG_KEYS, REMOVED_CONFIG_TABLES
+from frappe_manager.ssl_manager.dns_provider import DNSProviderConfig
 from frappe_manager.utils.helpers import get_template_path
 
 # Dropped from the engine command list: it was only ever needed on MariaDB
@@ -63,6 +74,24 @@ STALE_ENGINE_FLAG = "--skip-innodb-read-only-compressed"
 # there and copied out with `compose cp`, which needs no extra bind mount and
 # leaves nothing behind once the container is recreated.
 CONTAINER_TMP = Path("/tmp")  # noqa: S108
+
+# The label a certificate that names no `dns_provider` resolves to, at bench scope then global.
+# Credentials relocated by this migration land there, which is where they were already being read
+# from, so issuance and renewal keep working across the move.
+DEFAULT_DNS_LABEL = "cloudflare"
+
+# Keys 0.20 stopped storing on a certificate. `email` belongs to the credential set, and the rest
+# was issuance bookkeeping the certificate files on disk already answer for. Mirrors
+# RETIRED_CERTIFICATE_KEYS, which the model drops on read; here they go off disk for good.
+DEAD_CERTIFICATE_KEYS = (
+    "email",
+    "status",
+    "cert_path",
+    "key_path",
+    "issued_date",
+    "last_renewal_attempt",
+    "toml_exclude",
+)
 
 ADMINER_VOLUMES = [
     "./workspace/frappe-bench/sites:/fm-sites:ro",
@@ -98,6 +127,24 @@ def rewrite_global_db_service(engine: MutableMapping, image: str = GLOBAL_DB_IMA
     environment.setdefault("MARIADB_AUTO_UPGRADE", 1)
 
 
+def _carryable_email(value: object) -> bool:
+    """Whether ``[ssl.dns_providers]`` can hold this address.
+
+    The certificate models never had an email field after 0.19, so an ``email`` on a
+    certificate entry has gone unvalidated for two releases and can be anything, including
+    the ``someone@bench.local`` shape a hand edit produces. The credential set validates it
+    as an email address, so writing one it rejects would turn a bench whose config merely
+    holds a stale key into one that cannot be loaded at all. The credential itself is what
+    keeps DNS-01 working; the address only accompanies a Global API Key, and is re-enterable
+    with ``fm ssl dns-config cloudflare --email``.
+    """
+    try:
+        DNSProviderConfig(email=str(value))
+    except ValueError:
+        return False
+    return True
+
+
 class MigrationV0200(MigrationBase):
     version = Version("0.20.0")
 
@@ -107,6 +154,8 @@ class MigrationV0200(MigrationBase):
         self._place_realip_conf(bench)
         self._refresh_nginx_default_conf(bench)
         self._move_admin_tools_credentials(bench)
+        # Ahead of the key drop: this one renames keys the drop list may later be told to remove.
+        self._rewrite_ssl_table(bench)
         self._drop_removed_config_keys(bench)
 
         compose_path = bench.path / "docker-compose.admin-tools.yml"
@@ -270,8 +319,209 @@ class MigrationV0200(MigrationBase):
         config_path.write_text(tomlkit.dumps(doc))
         self.output.print(f"Dropped removed config {', '.join(dropped)} for {bench.name}")
 
+    def _rewrite_ssl_table(self, bench: MigrationBench):
+        """Bring a bench's TLS configuration into the one shape the loader reads: an [ssl]
+        table holding a certificate array and labelled DNS-01 credential sets.
+
+        0.19 wrote the certificate array and the credential table at the TOP LEVEL of
+        bench_config.toml and no later migration moved them under [ssl]. The loader only
+        ever looks in [ssl], so one of those benches loads with zero certificates and the
+        next save deletes the orphaned keys outright: the whole TLS configuration gone,
+        silently. Relocating them is the point of this step.
+
+        A credential stored on a certificate moves too. It was unreachable at issuance,
+        because the resolver reads the credential sets and never the certificate, and it
+        outlived revocation of the certificate carrying it.
+        """
+        config_path = bench.path / "bench_config.toml"
+        if not config_path.exists():
+            return
+
+        doc = tomlkit.parse(config_path.read_text())
+        changes: list[str] = []
+
+        ssl = doc.get("ssl")
+        if ssl is not None and not isinstance(ssl, MutableMapping):
+            # 0.19 tolerated an `ssl` that was an array rather than a table (its own transform
+            # bailed on one). Nothing can be merged into that shape, and replacing it would throw
+            # away whatever it holds, so the file is left for a human to look at.
+            self.logger.debug(f"[_rewrite_ssl_table] {bench.name}: [ssl] is not a table, skipping")
+            return
+
+        def ssl_table() -> MutableMapping:
+            nonlocal ssl
+            if ssl is None:
+                ssl = tomlkit.table()
+                doc["ssl"] = ssl
+            return ssl
+
+        def dns_providers_table() -> MutableMapping:
+            target = ssl_table()
+            providers = target.get("dns_providers")
+            if not isinstance(providers, MutableMapping):
+                providers = tomlkit.table()
+                target["dns_providers"] = providers
+            return providers
+
+        for old_key, new_key in (("ssl_certificates", "certificates"), ("dns_providers", "dns_providers")):
+            if old_key not in doc:
+                continue
+            relocated = doc[old_key]
+            del doc[old_key]
+            target = ssl_table()
+            if new_key in target:
+                # [ssl] already holds the copy the loader reads, so this one has never been loaded
+                # by any version and there is nothing in it to keep.
+                changes.append(f"dropped the orphaned top-level {old_key}")
+            else:
+                target[new_key] = relocated
+                changes.append(f"moved top-level {old_key} into \\[ssl].{new_key}")
+
+        if ssl is not None and "dns_challenge_providers" in ssl:
+            renamed = ssl["dns_challenge_providers"]
+            del ssl["dns_challenge_providers"]
+            if "dns_providers" in ssl:
+                changes.append("dropped \\[ssl].dns_challenge_providers, shadowed by dns_providers")
+            else:
+                ssl["dns_providers"] = renamed
+                changes.append("renamed \\[ssl].dns_challenge_providers to dns_providers")
+
+        certificates = ssl.get("certificates") if ssl is not None else None
+
+        for certificate in certificates or []:
+            if not isinstance(certificate, MutableMapping):
+                continue
+
+            domain = certificate.get("domain") or bench.name
+            cert_changes: list[str] = []
+
+            if "preferred_challenge" in certificate:
+                challenge = certificate["preferred_challenge"]
+                del certificate["preferred_challenge"]
+                # An existing challenge_type wins: it is the newer spelling, so it is the one a
+                # later fm wrote, and preferred_challenge is whatever it superseded.
+                if "challenge_type" not in certificate:
+                    certificate["challenge_type"] = challenge
+                cert_changes.append("preferred_challenge -> challenge_type")
+
+            # Before the sweep below, which drops the email that belongs with these credentials.
+            api_token = certificate.get("api_token")
+            api_key = certificate.get("api_key")
+
+            if api_token or api_key:
+                providers = dns_providers_table()
+                if DEFAULT_DNS_LABEL in providers:
+                    cert_changes.append(f"dropped a redundant {DEFAULT_DNS_LABEL} credential")
+                else:
+                    entry = tomlkit.table()
+                    entry["provider"] = DEFAULT_DNS_LABEL
+                    email = certificate.get("email")
+                    if email and _carryable_email(email):
+                        entry["email"] = email
+                    if api_token:
+                        entry["api_token"] = api_token
+                    if api_key:
+                        entry["api_key"] = api_key
+                    providers[DEFAULT_DNS_LABEL] = entry
+                    cert_changes.append(f"credential moved into \\[ssl].dns_providers.{DEFAULT_DNS_LABEL}")
+                for key in ("api_token", "api_key"):
+                    if key in certificate:
+                        del certificate[key]
+
+            dropped = []
+            for key in DEAD_CERTIFICATE_KEYS:
+                if key in certificate:
+                    del certificate[key]
+                    dropped.append(key)
+            if dropped:
+                cert_changes.append(f"dropped {', '.join(dropped)}")
+
+            if cert_changes:
+                changes.append(f"{domain}: {'; '.join(cert_changes)}")
+
+        if not changes:
+            return
+
+        config_path.write_text(tomlkit.dumps(doc))
+        self.output.print(f"Rewrote \\[ssl] config for {bench.name}: {', '.join(changes)}")
+
     def migrate_services(self):
+        # First: it is a small file rewrite, and it must not be skipped because the engine
+        # upgrade below failed on an unrelated container.
+        self._relocate_global_dns_credentials()
         self._upgrade_global_db_engine()
+
+    def _relocate_global_dns_credentials(self):
+        """Move the global [cloudflare] table in fm_config.toml into [ssl.dns_providers.cloudflare].
+
+        Global credentials are labelled sets now, exactly like the bench-scoped ones, so the
+        default Cloudflare account becomes the set labelled cloudflare instead of a table of
+        its own. `FMCloudflareConfig` and the table it read are gone from the model, so a file
+        left unconverted loses its credential the next time fm writes the file.
+
+        Raw tomlkit rather than FMConfigManager on purpose: a migration runs against whatever
+        version is on disk, and the model can no longer represent what is being read here.
+        """
+        config_path = CLI_FM_CONFIG_PATH
+
+        if not config_path.exists():
+            return
+
+        doc = tomlkit.parse(config_path.read_text())
+        legacy = doc.get("cloudflare")
+
+        if not isinstance(legacy, MutableMapping):
+            return
+
+        ssl = doc.get("ssl")
+        if ssl is not None and not isinstance(ssl, MutableMapping):
+            self.logger.debug("[_relocate_global_dns_credentials] [ssl] is not a table, skipping")
+            return
+
+        self.backup_manager.backup(config_path)
+
+        if ssl is None:
+            ssl = tomlkit.table()
+            doc["ssl"] = ssl
+
+        providers = ssl.get("dns_providers")
+        if not isinstance(providers, MutableMapping):
+            providers = tomlkit.table()
+            ssl["dns_providers"] = providers
+
+        api_token = legacy.get("api_token")
+        api_key = legacy.get("api_key")
+
+        if DEFAULT_DNS_LABEL in providers:
+            self.output.print(
+                f"Dropped the legacy global \\[cloudflare] table; \\[ssl.dns_providers.{DEFAULT_DNS_LABEL}] already "
+                "holds a credential and wins",
+            )
+        elif api_token or api_key:
+            entry = tomlkit.table()
+            entry["provider"] = DEFAULT_DNS_LABEL
+            email = legacy.get("email")
+            if email:
+                entry["email"] = email
+            if api_token:
+                entry["api_token"] = api_token
+            if api_key:
+                entry["api_key"] = api_key
+            providers[DEFAULT_DNS_LABEL] = entry
+            self.output.print(f"Moved the global Cloudflare credential into \\[ssl.dns_providers.{DEFAULT_DNS_LABEL}]")
+        else:
+            # Nothing to carry over. A credential-less set is not written, because the config
+            # writer drops one anyway and the resolver treats it as absent.
+            self.output.print("Dropped the legacy global \\[cloudflare] table, which held no credential")
+
+        del doc["cloudflare"]
+
+        if len(providers) == 0:
+            del ssl["dns_providers"]
+        if len(ssl) == 0:
+            del doc["ssl"]
+
+        config_path.write_text(tomlkit.dumps(doc))
 
     def _upgrade_global_db_engine(self):
         """Move global-db onto the engine tag frappe tests against.
@@ -370,7 +620,7 @@ class MigrationV0200(MigrationBase):
         return compressed_dump_path
 
     def undo_services_migrate(self):
-        """Put the compose file back; the datadir stays on the newer engine.
+        """Put the compose file and the global fm config back; the datadir stays on the newer engine.
 
         A restored compose alone would point an older engine at a datadir it cannot
         read, so this only rewinds the file and tells the operator where the dump is.
@@ -383,6 +633,12 @@ class MigrationV0200(MigrationBase):
             if backup.src == compose_path:
                 self.backup_manager.restore(backup, force=True)
                 self.output.print("Restored the services compose file")
+                break
+
+        for backup in self.backup_manager.backups:
+            if backup.src == CLI_FM_CONFIG_PATH:
+                self.backup_manager.restore(backup, force=True)
+                self.output.print("Restored the global fm config")
                 break
 
         self.output.warning(

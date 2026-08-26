@@ -93,24 +93,36 @@ curl -I https://example.com
 ### 2. Save credentials
 
 ```bash
-# Global: used by every bench that has no override
+# Global default: used by every bench that stores nothing of its own
 fm ssl dns-config cloudflare --api-token YOUR_TOKEN
 
-# Per-bench override
+# Per-bench default, which wins over the global one
 fm ssl dns-config cloudflare mybench --api-token DIFFERENT_TOKEN
+
+# A second Cloudflare account, stored under a label
+fm ssl dns-config cloudflare --name client-zones --api-token OTHER_TOKEN
 
 # Inspect what is stored (secrets masked, writes nothing)
 fm ssl dns-config cloudflare --show
 ```
 
-Global credentials land in the `[cloudflare]` table of `~/frappe/fm_config.toml`. A per-bench override lands in `[ssl.dns_challenge_providers.cloudflare]` in that bench's `bench_config.toml` and takes precedence.
+Without `--name`, the credentials land under the label `cloudflare`: in `[ssl.dns_providers.cloudflare]` of `~/frappe/fm_config.toml` globally, or of that bench's `bench_config.toml` when you pass a bench name, and the bench entry wins over the global one. That label is the default: it is what a certificate uses when it names none.
+
+With `--name`, the credentials land in `[ssl.dns_providers.<label>]` instead, at the global scope or the bench scope depending on whether you passed a bench name, and only a certificate that names that label uses them. Both scopes take the identical table, so a label means the same thing in either file. Labels are how one bench holds certificates for two separate Cloudflare accounts, or for two least-privilege tokens of the same account. Full field list and resolution order: [DNS providers](../reference/configuration.md#dns-providers).
 
 ### 3. Issue
 
 ```bash
 fm ssl add mybench example.com --challenge dns01 --dry-run
 fm ssl add mybench example.com --challenge dns01
+
+# Authenticate this domain against a labelled credential set
+fm ssl add mybench client.example.com --challenge dns01 --dns-provider client-zones
 ```
+
+`--dns-provider` records the label on the certificate, so every later renewal reaches for the same account. Omit it and the certificate uses the default pair described above. The flag applies to DNS-01 only, and `fm ssl add` resolves the label before it changes anything, so a typo is refused on the spot instead of halfway through issuance. A label stored at neither scope is an error at renewal too: fm refuses rather than authenticating against whichever other account happens to be configured.
+
+To see what a domain will actually use, `fm ssl list mybench` has a **DNS Provider** column: `default` for the unlabelled account, the label for a certificate that names one, and `missing` when the label resolves to nothing at either scope.
 
 acme.sh adds `_acme-challenge.example.com`, waits for propagation on its own, validates, then deletes the record. Propagation is usually well under a minute on Cloudflare; if a run fails on a missing TXT record, retry.
 
@@ -203,6 +215,8 @@ fm ssl renew mybench                        # every certificate on one bench
 fm ssl renew --all                          # every bench
 ```
 
+Renewal resolves a DNS-01 certificate's credentials afresh every time, from the `dns_provider` label recorded on the certificate, so rotating a Cloudflare token means re-saving it under the same label and nothing else.
+
 Because fm ships no scheduler, add the cron job yourself:
 
 ```bash
@@ -257,6 +271,7 @@ fm list
 | Cloudflare rejects the request | Token lacks **Zone > DNS > Edit**, or was scoped to a different zone | Recreate the token from the **Edit zone DNS** template and re-save it |
 | `Failed to get DNS credentials` | No credentials stored for this bench or globally | `fm ssl dns-config cloudflare --show` to confirm, then re-save |
 | Delegation validation fails with `--cname` | The `_acme-challenge` CNAME is missing or points at the wrong target | Expected target is `_acme-challenge.<value of --cname>`; fix the record, or poll with `--wait-for-dns` in standalone mode |
+| `DNS provider 'acct-b' is not configured` | The certificate's `dns_provider` label is stored at neither bench nor global scope | `fm ssl dns-config cloudflare --show` lists every label it can see; store the missing one with `--name acct-b`, or re-issue the certificate against a label that exists |
 
 ### Certificate errors in the browser
 
@@ -298,7 +313,7 @@ Everything lives under the global nginx-proxy service directory:
 
 ## Security notes
 
-- **Credentials.** Global Cloudflare credentials sit in plain text in `~/frappe/fm_config.toml`; per-bench overrides sit in that bench's `bench_config.toml`. Restrict permissions (`chmod 600 ~/frappe/fm_config.toml`) and delete them with `fm ssl dns-config cloudflare --remove` when they are no longer needed. Key reference: [DNS challenge providers](../reference/configuration.md#dns-providers).
+- **Credentials.** Cloudflare credentials sit in plain text under `[ssl.dns_providers]`: globally in `~/frappe/fm_config.toml`, per bench in that bench's `bench_config.toml`. Restrict permissions (`chmod 600 ~/frappe/fm_config.toml`) and delete a set with `fm ssl dns-config cloudflare --remove` when it is no longer needed. Name it with `--remove --name LABEL` whenever the scope holds more than one set; a bare `--remove` removes the only set stored there and otherwise refuses rather than guessing which you meant. Key reference: [DNS providers](../reference/configuration.md#dns-providers).
 - **Token scope.** A per-zone API Token can be revoked in isolation; the Global API Key cannot.
 
 ---

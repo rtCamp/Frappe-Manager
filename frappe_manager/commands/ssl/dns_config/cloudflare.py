@@ -17,8 +17,18 @@ from ..dns_helpers import _configure_dns_credentials, _remove_dns_credentials, _
     "--api-token cf_AbCdEf1234567890",
 )
 @example(
+    "Store a second account under a label",
+    "--api-token cf_ZyXwVu0987654321 --name acct-b",
+    detail="Labelled sets go to [ssl.dns_challenge_providers.acct-b]; bind one with fm ssl add BENCH DOMAIN --challenge dns01 --dns-provider acct-b.",
+)
+@example(
     "Override the token for one bench",
     "{benchname} --api-token cf_ZyXwVu0987654321",
+    benchname="mybench",
+)
+@example(
+    "Store a labelled set for one bench only",
+    "{benchname} --api-token cf_QqRrSs1122334455 --name acct-b",
     benchname="mybench",
 )
 @example(
@@ -28,7 +38,12 @@ from ..dns_helpers import _configure_dns_credentials, _remove_dns_credentials, _
 @example(
     "Show what is stored",
     "--show",
-    detail="With a bench name, prints that bench's entry as well as the global one.",
+    detail="Lists every labelled set at both scopes, secrets masked. With a bench name, prints that bench's sets as well as the global ones, and --name narrows to one label.",
+)
+@example(
+    "Drop one labelled set",
+    "--remove --name acct-b",
+    detail="Without --name, a scope holding more than one set is refused rather than guessed at.",
 )
 def dns_config_cloudflare(
     ctx: typer.Context,
@@ -51,6 +66,14 @@ def dns_config_cloudflare(
         str | None,
         typer.Option("--email", help="Cloudflare account email. Required with --api-key only."),
     ] = None,
+    name: Annotated[
+        str | None,
+        typer.Option(
+            "--name",
+            "-n",
+            help="Label for this credential set, e.g. an account name. Omit for the default account.",
+        ),
+    ] = None,
     show: Annotated[
         bool,
         typer.Option("--show", "-s", help="Print the stored credentials, secrets masked. Writes nothing."),
@@ -64,17 +87,19 @@ def dns_config_cloudflare(
     Store Cloudflare API credentials for DNS-01 certificate issuance.
 
     Credentials are global; pass a bench name to override them for that bench alone. An API token needs Zone > DNS > Edit, created at https://dash.cloudflare.com/profile/api-tokens
+
+    A --name stores the credentials as a labelled set, so one host or bench can hold several Cloudflare accounts (or several least-privilege tokens) at once. A certificate picks one with fm ssl add --dns-provider LABEL; certificates that name no label keep using the unlabelled default.
     """
     provider_name = DNS_PROVIDER.cloudflare.value
 
     # Show configuration
     if show:
-        _show_dns_credentials(ctx, provider_name, benchname)
+        _show_dns_credentials(ctx, provider_name, benchname, name)
         return
 
     # Remove configuration
     if remove:
-        _remove_dns_credentials(ctx, provider_name, benchname)
+        _remove_dns_credentials(ctx, provider_name, benchname, name)
         return
 
     # Validate Cloudflare-specific credentials
@@ -94,4 +119,4 @@ def dns_config_cloudflare(
         raise typer.Exit(1)
 
     # Configure credentials
-    _configure_dns_credentials(ctx, provider_name, benchname, api_token, api_key, email)
+    _configure_dns_credentials(ctx, provider_name, benchname, api_token, api_key, email, name)
