@@ -1,0 +1,59 @@
+# ~/frappe/fm_config.toml, fm's own settings, generated from the models by
+# `just config-example`. Committed and drift-tested, so it cannot fall behind the schema.
+#
+# fm writes this file itself. Everything below is commented out; comments you add are kept.
+
+# Ngrok authentication token [optional, unset by default]
+# ngrok_auth_token = ...
+
+# ---- [validation] --------------------------------------------------------------------------
+
+# Validation settings for Frappe Manager operations.
+# [validation]
+# Enforce domain uniqueness across benches [default: True]
+# enforce_domain_uniqueness = ...
+
+# ---- [logs] --------------------------------------------------------------------------------
+
+# Logging configuration for file and console output.
+# [logs]
+# Log level for file logs (DEBUG, INFO, WARNING, ERROR, CRITICAL) [default: 'DEBUG']
+# file_level = ...
+
+# ---- [network] -----------------------------------------------------------------------------
+
+# Network configuration for the global frontend network.
+# [network]
+# CIDR subnet for the global-frontend-network (e.g. 10.1.0.0/16) [optional, unset by default]
+# subnet_cidr = ...
+# Static IP of global-nginx-proxy on global-frontend-network (e.g. 10.1.0.2) [optional, unset by
+# default]
+# proxy_ip = ...
+
+# ---- [output] ------------------------------------------------------------------------------
+
+# Terminal output appearance: color THEME + layout STYLE + token overrides.
+# [output]
+# Output color theme: default, mono (color-blind safe), high-contrast. Env: FM_THEME. [default:
+# 'default']
+# theme = ...
+# Output layout style: rail, box, flat, ascii. Env: FM_STYLE. [default: 'rail']
+# style = ...
+# Per-token style overrides, e.g. 'fm.env.prod' = 'bold magenta'. [optional, empty by default]
+# colors = ...
+
+# ---- [ssl] -----------------------------------------------------------------------------------
+
+# DNS-01 credential sets shared by every bench on this host, keyed by a free-form label. A bench-
+# level set with the same label wins. Bind a certificate to one with `fm ssl add <bench> <domain>
+# --dns-provider <label>`.
+# A labelled set of DNS provider credentials for the DNS-01 challenge.
+# [ssl.dns_providers.<label>]
+# DNS provider this credential set is for. [default: 'cloudflare']
+# provider = ...
+# DNS provider account email (if required). [optional, unset by default]
+# email = ...
+# DNS provider API Token. [optional, unset by default]
+# api_token = ...
+# DNS provider API Key. [optional, unset by default]
+# api_key = ...

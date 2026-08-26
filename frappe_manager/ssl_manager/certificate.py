@@ -49,12 +49,16 @@ class SSLCertificate(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    domain: str
-    ssl_type: SUPPORTED_SSL_TYPES
+    domain: str = Field(description="Hostname this certificate covers.")
+    ssl_type: SUPPORTED_SSL_TYPES = Field(
+        description="'letsencrypt', 'dev' for a certificate from fm's local CA, or 'disable' for none."
+    )
     # Optional on the base because a dev or disabled certificate has no ACME challenge, while
     # `get_dns_credentials_for_certificate` reads this on whatever it is handed. The Let's Encrypt
     # variant narrows it to a real value.
-    challenge_type: LETSENCRYPT_PREFERRED_CHALLENGE | None = None
+    challenge_type: LETSENCRYPT_PREFERRED_CHALLENGE | None = Field(
+        None, description="ACME validation method: 'http01' or 'dns01'. Let's Encrypt only."
+    )
     enabled: bool = Field(default=True, description="Whether this certificate participates in issuance.")
     hsts: str = Field("off", description="Strict-Transport-Security value the proxy sends, or 'off'.")
 

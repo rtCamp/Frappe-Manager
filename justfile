@@ -170,6 +170,10 @@ check-actions:
 docs-gen:
     uv run python scripts/update_cli_docs.py
 
+# Generate the annotated example configs from the pydantic models
+config-example:
+    uv run python scripts/gen_config_example.py
+
 # Check docs against the live CLI: dash style, link hygiene, flags that no longer exist
 docs-lint:
     uv run python scripts/docslint.py

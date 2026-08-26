@@ -1026,6 +1026,33 @@ REMOVED_CONFIG_KEYS: dict[str, frozenset[str]] = {
 # off disk so it stops being carried forward and re-read by a future version.
 REMOVED_CONFIG_TABLES: frozenset[str] = frozenset({"registry"})
 
+# BenchConfig fields that never reach bench_config.toml: create-time inputs, derived values, secrets
+# the design keeps out of the file, and the two written by hand under [ssl]. Shared with the example
+# generator (scripts/gen_config_example.py) so the documented schema cannot claim a key fm refuses to
+# write, which is how the old templates/bench_config.toml drifted out of date unnoticed.
+NOT_WRITTEN_TO_DISK: frozenset[str] = frozenset(
+    {
+        "root_path",
+        "mariadb_root_pass",
+        "userid",
+        "mariadb_host",
+        "usergroup",
+        "apps_list",
+        "frappe_branch",
+        "admin_pass",
+        "use_uv",  # always uv + pip fallback; not a config option
+        "environment_type",  # written as `environment`
+        "ssl_certificates",  # written under [ssl]
+        "dns_providers",
+        "db_admin_user",
+        "db_admin_password",
+        "db_password",
+        "db_password_generated",
+        "attach_existing_site",
+        "encryption_key",
+    }
+)
+
 
 def _table(data: dict, name: str) -> dict:
     """``data[name]`` as a plain dict, minus any key removed in this version."""
@@ -1374,27 +1401,7 @@ class BenchConfig(BaseModel):
     def export_to_toml(self, path: Path) -> bool:
         """Export to TOML: `environment`, [[apps]], [monitoring], [switch], [build], [ssl],
         [database."<site>"], [redis]. Nested models round-trip through model_dump(exclude_none=True)."""
-        exclude = {
-            "root_path",
-            "mariadb_root_pass",
-            "userid",
-            "mariadb_host",
-            "usergroup",
-            "apps_list",
-            "frappe_branch",
-            "admin_pass",
-            "use_uv",  # always uv + pip fallback; not a config option
-            "environment_type",  # written as `environment`
-            "ssl_certificates",  # written under [ssl]
-            "dns_providers",
-            "db_admin_user",
-            "db_admin_password",
-            "db_password",
-            "db_password_generated",
-            "attach_existing_site",
-            "encryption_key",
-        }
-        bench_dict = self.model_dump(exclude=exclude, exclude_none=True)
+        bench_dict = self.model_dump(exclude=NOT_WRITTEN_TO_DISK, exclude_none=True)
 
         # Scalars first, then tables, so a bare top-level key cannot fall under a table header.
         desired: dict[str, Any] = {"name": self.name, "environment": self.environment_type.value}

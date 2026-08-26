@@ -10,6 +10,11 @@ Changes take effect on next `fm start` or service restart.
 !!! warning "Use `fm update` commands for safe editing"
     These files are managed by FM. Manual edits may be overwritten or cause validation errors. Use `fm update` commands whenever possible.
 
+!!! tip "Annotated examples, generated from the schema"
+    Every key with its description and default, in one file per scope: [`bench_config.example.toml`](bench_config.example.toml) and [`fm_config.example.toml`](fm_config.example.toml). Both are generated from the models by `just config-example` and a test fails if they fall behind, so they cannot describe a key fm no longer reads. Every line is commented out: they are references, not starting files, since fm writes both files itself.
+
+    Comments you add to a real config file are preserved when fm saves it, so notes about why a value was chosen survive `fm update` and `fm migrate`.
+
 ---
 
 ## Quick Reference

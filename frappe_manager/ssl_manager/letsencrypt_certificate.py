@@ -11,10 +11,15 @@ from frappe_manager.ssl_manager.certificate import DevCertificate, DisabledCerti
 class LetsencryptSSLCertificate(SSLCertificate):
     """A Let's Encrypt certificate, issued over HTTP-01 or DNS-01."""
 
-    ssl_type: Literal[SUPPORTED_SSL_TYPES.le] = SUPPORTED_SSL_TYPES.le
+    ssl_type: Literal[SUPPORTED_SSL_TYPES.le] = Field(
+        SUPPORTED_SSL_TYPES.le, description="Always 'letsencrypt' for this variant."
+    )
     # Non-optional, unlike the base: acme.sh code reads `.challenge_type.value` without a guard, and
     # every Let's Encrypt certificate has a challenge by definition.
-    challenge_type: LETSENCRYPT_PREFERRED_CHALLENGE = LETSENCRYPT_PREFERRED_CHALLENGE.http01
+    challenge_type: LETSENCRYPT_PREFERRED_CHALLENGE = Field(
+        LETSENCRYPT_PREFERRED_CHALLENGE.http01,
+        description="ACME validation method: 'http01' serves a file over HTTP, 'dns01' writes a DNS record and needs a credential set.",
+    )
     acme_client: str = Field("acme.sh", description="ACME client used for issuance.")
     dns_provider: str | None = Field(
         None,
