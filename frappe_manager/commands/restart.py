@@ -57,6 +57,19 @@ from frappe_manager.utils.callbacks import sitename_callback, sites_autocompleti
     detail="Restarts the nginx service for the bench, useful after configuration changes to proxy or TLS.",
     benchname="mybench",
 )
+@example(
+    "Graceful web reload (no upstream connection-refused window)",
+    "{benchname} --graceful",
+    detail=(
+        "Delivers SIGHUP to the frappe (gunicorn) container via supervisorctl instead of "
+        "stop/start. The gunicorn master keeps its listening socket open while it spawns "
+        "fresh workers and then retires the old ones, so an upstream proxy never observes a "
+        "closed listener. The socketio container is restarted normally because node has no "
+        "graceful-reload signal. Only affects supervisor mode; ignored when combined with "
+        "--container."
+    ),
+    benchname="mybench",
+)
 def restart(
     ctx: typer.Context,
     benchname: Annotated[
@@ -104,6 +117,20 @@ def restart(
             help="Force restart: --supervisor uses stop+start (kills processes), --container uses timeout=0 (immediate kill).",
         ),
     ] = False,
+    graceful: Annotated[
+        bool,
+        typer.Option(
+            "--graceful",
+            help=(
+                "Reload the frappe (gunicorn) web container in place by sending SIGHUP via "
+                "supervisorctl instead of stop/start. The gunicorn master keeps its "
+                "listening socket open across the reload, so upstream proxies see no "
+                "connection-refused window. The socketio container is restarted normally "
+                "(node has no graceful-reload signal). Applies only to supervisor mode; "
+                "ignored with --container. Mutually exclusive with --force."
+            ),
+        ),
+    ] = False,
 ):
     """
     Restart bench services (web, workers, redis, nginx).
@@ -129,9 +156,22 @@ def restart(
     if use_container_restart and use_supervisor_restart:
         output.error("Cannot use both --container and --supervisor flags simultaneously", exception=typer.Exit(code=1))
 
+    if graceful and force:
+        output.error("Cannot use both --graceful and --force flags simultaneously", exception=typer.Exit(code=1))
+
+    if graceful and use_container_restart:
+        output.warning(
+            "--graceful applies only to supervisor mode; ignoring it for --container restart."
+        )
+        graceful = False
+
     with spinner(output, f"Restarting {benchname}"):
         if web:
-            bench.restart_web_containers_services(use_container_restart=use_container_restart, force=force)
+            bench.restart_web_containers_services(
+                use_container_restart=use_container_restart,
+                force=force,
+                graceful=graceful,
+            )
 
         if workers:
             bench.restart_workers_containers_services(use_container_restart=use_container_restart, force=force)
