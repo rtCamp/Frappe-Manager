@@ -38,6 +38,7 @@ from frappe_manager.commands.services.stop import stop_services
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.output_manager import get_global_output_handler
+from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.modules.realip import build_proxy_realip_conf
 
 runner = CliRunner()
@@ -108,6 +109,9 @@ class StopHarness:
         with patch("frappe_manager.commands.self.stop.BenchService", return_value=self.bench_service):
             stop(self.ctx, **{"global_only": False, "benches_only": False, **kwargs})
 
+    def fail(self, name: str, exc: Exception):
+        self.benches[name].stop.side_effect = exc
+
 
 def test_a_partially_running_bench_is_still_stopped(out):
     """D57: the dropped `if bench.running` guard was strictly narrower than `bench.stop()`.
@@ -163,6 +167,66 @@ def test_an_already_stopped_service_is_still_skipped(out):
 
     assert h.calls == []
     assert "Skipping already stopped service global-db" in joined(out.print)
+
+
+def test_a_bench_that_could_not_be_stopped_makes_the_command_exit_nonzero(out):
+    """The best-effort loop is right, reporting success afterwards is not: `fm self stop` used to
+    warn about the bench it failed to stop and then exit 0, so a script was told the host was
+    quiet while containers were still up. The same file already exits 1 for a bad flag pair."""
+    h = StopHarness(bench_names=("a.localhost", "b.localhost"))
+    h.fail("a.localhost", RuntimeError("compose down failed"))
+
+    with pytest.raises(typer.Exit) as exc:
+        h.run()
+
+    assert exc.value.exit_code == 1
+    # Best effort preserved: the other bench and both global services were still stopped.
+    assert h.calls == [
+        "stop-bench:b.localhost",
+        "stop-service:global-nginx-proxy",
+        "stop-service:global-db",
+    ]
+    assert "Failed to stop a.localhost: compose down failed" in joined(out.warning)
+    assert "Still running: a.localhost" in joined(out.display_error)
+
+
+def test_the_failure_report_names_every_bench_still_up(out):
+    h = StopHarness(bench_names=("a.localhost", "b.localhost"))
+    h.fail("a.localhost", RuntimeError("boom"))
+    h.fail("b.localhost", RuntimeError("boom"))
+
+    with pytest.raises(typer.Exit):
+        h.run()
+
+    assert "Still running: a.localhost, b.localhost" in joined(out.display_error)
+
+
+def test_a_clean_shutdown_reports_nothing_still_running(out):
+    h = StopHarness(bench_names=("a.localhost",))
+
+    h.run()
+
+    out.display_error.assert_not_called()
+
+
+def test_a_bench_failure_is_reported_even_with_benches_only(out):
+    """--benches-only skips the global block, so the exit must not hang off it."""
+    h = StopHarness(bench_names=("a.localhost",))
+    h.fail("a.localhost", RuntimeError("boom"))
+
+    with pytest.raises(typer.Exit) as exc:
+        h.run(benches_only=True)
+
+    assert exc.value.exit_code == 1
+
+
+def test_global_only_cannot_fail_on_a_bench_it_never_looked_at(out):
+    h = StopHarness(bench_names=("a.localhost",))
+    h.fail("a.localhost", RuntimeError("boom"))
+
+    h.run(global_only=True)
+
+    out.display_error.assert_not_called()
 
 
 # =========================================================================== #
@@ -419,3 +483,27 @@ def test_services_shell_refuses_all_instead_of_running_a_bogus_exec():
     assert result.exit_code != 0
     assert "'all' is not supported" in " ".join(result.output.split())
     shell.assert_not_called()
+
+
+def test_services_shell_propagates_the_containers_exit_code():
+    """`fm shell` for a bench execs into the container and propagates its status. The global
+    services shell printed the code and exited 0, so the two disagreed and no script could branch
+    on it. Driven through the REAL ServicesManager.shell over a mocked docker client."""
+    app = typer.Typer()
+    app.command("shell")(shell_services)
+
+    manager = ServicesManager(path=Path("/nonexistent"), output_handler=get_global_output_handler())
+    manager.docker_client = MagicMock(name="docker_client")
+    manager.docker_client.compose.exec.side_effect = DockerException(
+        ["docker", "compose", "exec"],
+        SubprocessOutput(stdout=[], stderr=[], combined=[], exit_code=130),
+    )
+
+    @app.callback()
+    def _with_ctx(ctx: typer.Context):
+        ctx.obj = {"services": manager}
+
+    result = runner.invoke(app, ["shell", "global-db"])
+
+    assert result.exit_code == 130
+    manager.docker_client.compose.exec.assert_called_once_with("global-db", command="/bin/bash", capture_output=False)

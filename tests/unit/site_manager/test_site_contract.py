@@ -49,6 +49,7 @@ from frappe_manager.site_manager.exceptions import (
     BenchException,
     BenchNotFoundError,
     BenchRemoveDirectoryError,
+    BenchServiceNotRunning,
 )
 from frappe_manager.site_manager.modules.auth import (
     MAP_CONF_NAME,
@@ -625,9 +626,15 @@ class TestEnsureFmNginxConfs:
         harness.bench.ensure_fm_nginx_confs()
         harness.bench.bench_nginx_controller.reload.assert_not_called()
 
-    def test_a_reload_failure_is_swallowed_so_conf_writes_still_stand(self, harness):
+    def test_a_reload_failure_is_reported_and_the_conf_writes_still_stand(self, harness):
+        """The confs are already written when the reload runs, so they stay. What changed is that the
+        failure is no longer swallowed by a bare `except: pass`: `fm auth --protect web` used to
+        print the surface as protected and exit 0 while nginx kept serving it UNAUTHENTICATED."""
         harness.bench.bench_nginx_controller.reload.side_effect = RuntimeError("nginx is not up yet")
-        harness.bench.ensure_fm_nginx_confs()
+
+        with pytest.raises(BenchException, match="nginx rejected the updated configuration"):
+            harness.bench.ensure_fm_nginx_confs()
+
         assert (harness.conf_dir / "custom" / "real-ip.conf").exists()
 
     def _auth_bench(self, tmp_path, **auth_kwargs):
@@ -988,17 +995,18 @@ class TestSyncAdminToolsCompose:
 
 class TestGuards:
     def test_logs_for_a_stopped_service_are_refused_without_touching_docker(self, harness):
+        """Raises rather than printing and returning: this exited 0 after saying it could show
+        nothing, while `fm shell` exits 1 for the identical condition."""
         bench = harness.bench
         bench.docker_ops = MagicMock()
         bench.docker_ops._is_service_running.return_value = False
 
-        bench.logs(follow=False, service="socketio")
+        with pytest.raises(BenchServiceNotRunning) as excinfo:
+            bench.logs(follow=False, service="socketio")
 
         bench.docker_ops.logs.assert_not_called()
-        bench.output.display_error.assert_called_once()
-        message = bench.output.display_error.call_args.args[0]
-        assert "socketio" in message
-        assert SITE in message
+        assert "socketio" in str(excinfo.value)
+        assert SITE in str(excinfo.value)
 
     def test_logs_for_a_running_service_are_streamed(self, harness):
         bench = harness.bench
@@ -1179,12 +1187,17 @@ class TestRemoveBench:
         bench.remove_containers_and_dirs.assert_called_once_with()
         assert any("acme is down" in str(c) for c in bench.output.warning.call_args_list)
 
-    def test_a_failing_database_deletion_only_warns_and_removal_continues(self, harness):
+    def test_a_failing_database_deletion_keeps_the_bench_and_raises(self, harness):
+        """The bench directory carries the only record of the schema, so removing it after a failed
+        drop leaves a database in global-db that nothing points at and no way to find its name. This
+        used to warn "Continuing with bench removal", delete the directory anyway, and exit 0."""
         bench = self._removable(harness)
         bench._handle_database_deletion.side_effect = RuntimeError("db unreachable")
-        assert bench.remove_bench() is True
-        bench.remove_containers_and_dirs.assert_called_once_with()
-        assert any("Continuing with bench removal" in str(c) for c in bench.output.warning.call_args_list)
+
+        with pytest.raises(BenchException, match="Database deletion failed"):
+            bench.remove_bench()
+
+        bench.remove_containers_and_dirs.assert_not_called()
 
     def test_a_failing_directory_removal_aborts(self, harness):
         bench = self._removable(harness)
@@ -1599,10 +1612,10 @@ class TestServiceRouting:
     def test_a_stopped_admin_tools_service_is_still_refused(self, harness):
         bench = self._with_admin_tools(harness, services=["adminer"], running=False)
 
-        bench.logs(follow=False, service="adminer")
+        with pytest.raises(BenchServiceNotRunning, match="adminer"):
+            bench.logs(follow=False, service="adminer")
 
         bench.admin_tools.docker_client.compose.logs.assert_not_called()
-        assert "adminer" in bench.output.display_error.call_args.args[0]
 
     def test_shell_for_an_admin_tools_service_execs_against_its_own_compose_file(self, harness):
         bench = self._with_admin_tools(harness, services=["adminer"])

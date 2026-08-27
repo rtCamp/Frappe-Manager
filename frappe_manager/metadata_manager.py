@@ -1,7 +1,7 @@
 from pathlib import Path
 
 import tomlkit
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from frappe_manager import CLI_FM_CONFIG_PATH
 from frappe_manager.migration_manager.version import Version
@@ -11,38 +11,13 @@ from frappe_manager.utils.helpers import get_current_fm_version
 from frappe_manager.utils import toml_document
 
 
-class FMLetsencryptConfig(BaseModel):
-    """Let's Encrypt configuration for certificate registration."""
-
-    email: EmailStr | None = Field(
-        None,
-        description="Email for Let's Encrypt certificate registration and notifications.",
-    )
-
-    @property
-    def exists(self) -> bool:
-        """Check if Let's Encrypt email is configured."""
-        return bool(self.email and self.email != "dummy@fm.fm")
-
-    def get_toml_doc(self):
-        model_dict = self.model_dump(exclude_none=True)
-        toml_doc = tomlkit.document()
-
-        for key, value in model_dict.items():
-            if isinstance(value, Path):
-                toml_doc[key] = str(value.absolute())
-            else:
-                toml_doc[key] = value
-        return toml_doc
-
-    @classmethod
-    def import_from_toml_doc(cls, toml_doc):
-        config_object = cls(**toml_doc)
-        return config_object
-
-
 class FMValidationConfig(BaseModel):
     """Validation settings for Frappe Manager operations."""
+
+    # extra="forbid", matching every bench-side model. Without it a typo'd key was ignored at load
+    # and then DELETED from the user's file by the write-side prune, so the evidence of the typo
+    # disappeared along with the setting. The same key in a bench file is a hard error.
+    model_config = ConfigDict(extra="forbid")
 
     enforce_domain_uniqueness: bool = Field(default=True, description="Enforce domain uniqueness across benches")
 
@@ -60,6 +35,8 @@ class FMValidationConfig(BaseModel):
 
 class FMLogsConfig(BaseModel):
     """Logging configuration for file and console output."""
+
+    model_config = ConfigDict(extra="forbid")
 
     file_level: str = Field(
         default="DEBUG",
@@ -80,6 +57,8 @@ class FMLogsConfig(BaseModel):
 
 class FMOutputConfig(BaseModel):
     """Terminal output appearance: color THEME + layout STYLE + token overrides."""
+
+    model_config = ConfigDict(extra="forbid")
 
     theme: str = Field(
         default="default",
@@ -108,6 +87,8 @@ class FMOutputConfig(BaseModel):
 
 class FMNetworkConfig(BaseModel):
     """Network configuration for the global frontend network."""
+
+    model_config = ConfigDict(extra="forbid")
 
     subnet_cidr: str | None = Field(
         default=None,
@@ -174,8 +155,6 @@ class FMConfigManager(BaseModel):
             }
             self.export_to_toml()
 
-    _config_data: dict | None = None
-
     def export_to_toml(self, path: Path = CLI_FM_CONFIG_PATH) -> None:
         # dns_providers is written by hand below, nested under [ssl]; leaving it in the dump would
         # also emit it as a flat top-level key.
@@ -209,13 +188,11 @@ class FMConfigManager(BaseModel):
         toml_doc = toml_document.load_or_new(path)
         toml_document.apply(toml_doc, desired)
 
+        # Atomic, and 0600 from creation: see toml_document.save. This is the primary store for the
+        # DNS-01 credentials and the ngrok token now that certificates no longer carry a copy, and a
+        # truncating write left an EMPTY fm_config.toml, which breaks every fm command on the host.
         try:
-            with open(path, "w") as f:
-                f.write(tomlkit.dumps(toml_doc))
-            # Holds the DNS-01 credentials and the ngrok token, and is read only by fm on the
-            # host. This is the primary store now that certificates no longer carry a copy, so
-            # leaving it at the process umask (0644) would undo the point of that change.
-            path.chmod(0o600)
+            toml_document.save(path, toml_doc)
         except Exception as e:
             raise RuntimeError(f"Failed to write FM config to {path}: {e}") from e
 

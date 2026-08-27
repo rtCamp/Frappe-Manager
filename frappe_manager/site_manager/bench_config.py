@@ -1033,12 +1033,9 @@ REMOVED_CONFIG_TABLES: frozenset[str] = frozenset({"registry"})
 NOT_WRITTEN_TO_DISK: frozenset[str] = frozenset(
     {
         "root_path",
-        "mariadb_root_pass",
         "userid",
-        "mariadb_host",
         "usergroup",
         "apps_list",
-        "frappe_branch",
         "admin_pass",
         "use_uv",  # always uv + pip fallback; not a config option
         "environment_type",  # written as `environment`
@@ -1053,11 +1050,23 @@ NOT_WRITTEN_TO_DISK: frozenset[str] = frozenset(
     }
 )
 
+# Read by import_from_toml, never produced by the dump above. Excluding them is right (fm must not
+# write a secret it did not mint, nor an app list it learns from the container), but the file-level
+# prune in toml_document.apply would then DELETE them: `fm bake --config` persists `[[apps]]` and
+# promises it is the source of truth, and `admin_pass` is what `fm info` shows for an attached site
+# whose site_config.json has no admin_password. Both survived one command before this set existed.
+READ_ONLY_INPUT_KEYS: frozenset[str] = frozenset({"apps", "apps_list", "admin_pass"})
+
+
+def _filter_removed(table: Any, name: str) -> dict:
+    """`table` as a plain dict, minus any key removed from that model in this version."""
+    removed = REMOVED_CONFIG_KEYS.get(name, frozenset())
+    return {k: v for k, v in dict(table).items() if k not in removed}
+
 
 def _table(data: dict, name: str) -> dict:
     """``data[name]`` as a plain dict, minus any key removed in this version."""
-    removed = REMOVED_CONFIG_KEYS.get(name, frozenset())
-    return {k: v for k, v in dict(data[name]).items() if k not in removed}
+    return _filter_removed(data[name], name)
 
 
 class BuildConfig(BaseModel):
@@ -1398,9 +1407,14 @@ class BenchConfig(BaseModel):
             all_domains.extend(self.alias_domains)
         return all_domains
 
-    def export_to_toml(self, path: Path) -> bool:
-        """Export to TOML: `environment`, [[apps]], [monitoring], [switch], [build], [ssl],
-        [database."<site>"], [redis]. Nested models round-trip through model_dump(exclude_none=True)."""
+    def export_to_toml(self, path: Path) -> None:
+        """Export to TOML: `environment`, [monitoring], [switch], [build], [ssl],
+        [database."<site>"], [redis]. Nested models round-trip through model_dump(exclude_none=True).
+
+        Raises on a failed write rather than reporting it in a return value. The old `-> bool`
+        was discarded by every one of its six callers, and `save_bench_config` printed "Saved bench
+        config" straight afterwards, so a failed save looked like a successful one.
+        """
         bench_dict = self.model_dump(exclude=NOT_WRITTEN_TO_DISK, exclude_none=True)
 
         # Scalars first, then tables, so a bare top-level key cannot fall under a table header.
@@ -1437,18 +1451,11 @@ class BenchConfig(BaseModel):
         # wrote survives the save. `apply` prunes keys the model no longer produces, which is what
         # the old whole-file overwrite achieved by accident and what retires a removed key.
         toml_doc = toml_document.load_or_new(path)
-        toml_document.apply(toml_doc, desired)
+        toml_document.apply(toml_doc, desired, keep=READ_ONLY_INPUT_KEYS)
 
-        try:
-            with open(path, "w") as f:
-                f.write(tomlkit.dumps(toml_doc))
-            # The file carries DNS provider credentials, a GitHub token and the admin password, and
-            # is read only by fm on the host: nothing mounts it into a container. It was being left
-            # at the process umask, so 0644 in practice.
-            path.chmod(0o600)
-            return True
-        except Exception:
-            return False
+        # Atomic, and 0600 from creation: see toml_document.save. A truncating write here left an
+        # empty bench_config.toml behind whenever serialisation failed.
+        toml_document.save(path, toml_doc)
 
     @classmethod
     def import_from_toml(cls, path: Path) -> "BenchConfig":
@@ -1506,7 +1513,7 @@ class BenchConfig(BaseModel):
             "dns_providers": dns_providers_dict if dns_providers_dict else None,
             "alias_domains": alias_domains_list,
             "upload_limit": data.get("upload_limit", "50M"),
-            "auth": AuthConfig(**dict(data["auth"])) if data.get("auth") else None,
+            "auth": AuthConfig(**_table(data, "auth")) if data.get("auth") else None,
             "admin_pass": data.get("admin_pass", "admin"),
             "apps_list": apps_list,
             "github_token": data.get("github_token", None),
@@ -1524,7 +1531,7 @@ class BenchConfig(BaseModel):
             "workers": WorkersConfig(**_table(data, "workers")) if data.get("workers") else None,
             "build": BuildConfig(**_table(data, "build")) if data.get("build") else None,
             "monitoring": MonitoringConfig(**_table(data, "monitoring")) if data.get("monitoring") else None,
-            "database": {str(k): DatabaseConfig(**dict(v)) for k, v in data["database"].items()}
+            "database": {str(k): DatabaseConfig(**_filter_removed(v, "database")) for k, v in data["database"].items()}
             if data.get("database")
             else None,
             "redis": RedisConfig(**_table(data, "redis")) if data.get("redis") else None,

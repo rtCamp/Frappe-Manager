@@ -102,7 +102,7 @@ def test_export_reimport_roundtrip(tmp_path):
     bc = BenchConfig.import_from_toml(p)
 
     out = tmp_path / "out.toml"
-    assert bc.export_to_toml(out) is True
+    bc.export_to_toml(out)
     text = out.read_text()
     # Scalars must render before any table header (no bleed into [switch]).
     assert text.index("environment =") < text.index("[switch]")
@@ -142,7 +142,7 @@ def test_export_reimport_preserves_the_monitoring_table(tmp_path):
     )
 
     out = tmp_path / "out.toml"
-    assert bc.export_to_toml(out) is True
+    bc.export_to_toml(out)
     assert "[monitoring.newrelic]" in out.read_text()
 
     reimported = BenchConfig.import_from_toml(out)
@@ -186,7 +186,7 @@ def test_a_certificate_can_no_longer_carry_a_credential(tmp_path):
     bc = BenchConfig.import_from_toml(p)
 
     assert not hasattr(bc.ssl_certificates[0], "api_key")
-    assert bc.export_to_toml(p) is True
+    bc.export_to_toml(p)
     assert "LEAKED-KEY" not in p.read_text()
 
 

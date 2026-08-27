@@ -174,7 +174,7 @@ class BenchAppManager:
 
             from frappe_manager.site_manager.bench_config import extract_python_version_requirement
 
-            frappe_app_path = self.bench_config.root_path / "workspace" / "frappe-bench" / "apps" / "frappe"
+            frappe_app_path = self.frappe_bench_dir / "apps" / "frappe"
             frappe_python_req = None
             if frappe_app_path.exists():
                 frappe_python_req = extract_python_version_requirement(frappe_app_path)
@@ -331,7 +331,7 @@ fi
 
             from frappe_manager.site_manager.bench_config import extract_node_version_requirement
 
-            frappe_app_path = self.bench_config.root_path / "workspace" / "frappe-bench" / "apps" / "frappe"
+            frappe_app_path = self.frappe_bench_dir / "apps" / "frappe"
             frappe_node_req = None
             if frappe_app_path.exists():
                 frappe_node_req = extract_node_version_requirement(frappe_app_path)

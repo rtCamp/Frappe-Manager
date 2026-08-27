@@ -46,6 +46,7 @@ from frappe_manager.site_manager import (
 from frappe_manager.site_manager.bench_config import AppConfig
 from frappe_manager.site_manager.exceptions import (
     BenchAttachTocontainerFailed,
+    BenchFailedToInstallDevPackages,
     BenchFailedToRemoveDevPackages,
     BenchNotRunning,
 )
@@ -783,23 +784,35 @@ def test_install_dev_packages_builds_a_quiet_upgrading_install(devtools):
     tools.output.print.assert_called_once_with("Installed dev packages in env")
 
 
-def test_a_failed_uninstall_raises_the_bench_scoped_error(devtools):
+def test_a_failed_uninstall_raises_the_bench_scoped_error_carrying_pips_output(devtools):
     tools = devtools()
-    tools.docker_client.compose.exec.side_effect = _docker_error()
+    error = _docker_error()
+    tools.docker_client.compose.exec.side_effect = error
 
-    with pytest.raises(BenchFailedToRemoveDevPackages):
+    with pytest.raises(BenchFailedToRemoveDevPackages) as excinfo:
         tools.remove_dev_packages()
 
+    assert "pip uninstall" in str(excinfo.value)
+    assert "boom" in str(excinfo.value)
+    assert excinfo.value.__cause__ is error
     tools.output.print.assert_not_called()
 
 
-def test_a_failed_install_also_raises_the_remove_error(devtools):
-    """SUSPICION pinned, not fixed: install failures surface as 'failed to REMOVE dev packages'."""
+def test_a_failed_install_raises_an_install_specific_error_carrying_pips_output(devtools):
+    """An install failure reported as a failed REMOVAL sends the user after the wrong problem,
+    and dropping the DockerException loses the only text that says why pip failed."""
     tools = devtools()
-    tools.docker_client.compose.exec.side_effect = _docker_error()
+    error = _docker_error()
+    tools.docker_client.compose.exec.side_effect = error
 
-    with pytest.raises(BenchFailedToRemoveDevPackages):
+    with pytest.raises(BenchFailedToInstallDevPackages) as excinfo:
         tools.install_dev_packages()
+
+    assert not isinstance(excinfo.value, BenchFailedToRemoveDevPackages)
+    assert "pip install" in str(excinfo.value)
+    assert "boom" in str(excinfo.value)
+    assert excinfo.value.__cause__ is error
+    tools.output.print.assert_not_called()
 
 
 # --------------------------------------------------------------------------- BenchDevTools: attach guards

@@ -20,7 +20,7 @@ from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
-from frappe_manager.site_manager.site import Bench
+from frappe_manager.site_manager.site import Bench, orphaned_database_error
 
 
 class BenchService:
@@ -170,8 +170,9 @@ class BenchService:
                 try:
                     self._handle_database_deletion(bench, delete_db_from_global_db)
                 except Exception as e:
-                    self.output.warning(f"Database deletion failed: {e!s}")
-                    self.output.warning("Continuing with bench removal...")
+                    # Deliberately fatal: continuing to remove_containers_and_dirs() destroyed the
+                    # only record of the schema that is still there. See orphaned_database_error.
+                    raise orphaned_database_error(bench, e) from e
 
                 bench.remove_containers_and_dirs()
             return True

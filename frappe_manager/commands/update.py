@@ -287,21 +287,119 @@ def update(
     if newrelic is True and not (newrelic_license_key or (current_newrelic and current_newrelic.license_key)):
         raise typer.BadParameter("--newrelic-license-key is required when enabling NewRelic.")
 
+    # Every refusal below runs BEFORE the mutating blocks, for the same reason the NewRelic check
+    # above was hoisted: a refusal that lands mid-table has already re-rendered compose files and
+    # force-recreated containers by the time it fires, and it exits before the terminal
+    # save_bench_config(), leaving bench_config.toml and the running containers permanently
+    # disagreeing. A refused `fm update` must change nothing.
+    materializing_workspace = demoting_to_mount and bench.bench_config.runtime == BenchRuntime.image
+
+    if runtime == BenchRuntime.image and bench.bench_config.runtime != BenchRuntime.image:
+        output.display_error(
+            "mount -> image conversion runs through the deploy pipeline (it must migrate the "
+            "site onto the baked image): set runtime = 'image' and a top-level image in "
+            f"bench_config.toml, then run fm switch {bench.name} <repo:tag>.",
+        )
+        raise typer.Exit(1)
+
+    # The tag the demotion extracts the workspace from; an image bench with no recorded deploy has
+    # nothing to materialize.
+    demotion_tag: str | None = None
+    if materializing_workspace:
+        deploy_state = bench.bench_config.deploy_state
+        demotion_tag = deploy_state.current_tag if deploy_state else None
+        if not demotion_tag:
+            output.display_error("No deployed tag recorded; cannot materialize the workspace.")
+            raise typer.Exit(1)
+
+    database_config = None
+    if db_ca is not None:
+        database_config = bench.bench_config.get_database_config()
+        if database_config is None:
+            output.display_error(
+                f"{bench.name} has no \\[database] entry in bench_config.toml: the bench uses the fm-managed "
+                "'global-db' container, whose TLS material fm owns, so there is no external CA to refresh.",
+            )
+            raise typer.Exit(1)
+
+    add_domains_list = add_alias if add_alias else []
+    remove_domains_list = remove_alias if remove_alias else []
+    if add_domains_list:
+        skip_check = allow_domain_conflicts or not fm_config.validation.enforce_domain_uniqueness
+        try:
+            validate_domains_unique(
+                add_domains_list,
+                benches_root=CLI_BENCHES_DIRECTORY,
+                exclude_bench=bench.name,
+                skip_check=skip_check,
+            )
+        except DomainConflictError as e:
+            output.display_error(str(e))
+            output.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
+            raise typer.Exit(1) from e
+
     bench_config_save = False
 
     if not bench.running:
         raise BenchNotRunning(bench_name=bench.name)
 
+    def validate_version_requests() -> tuple[dict, str | None, str | None]:
+        """Refuse an incompatible --python/--node before either one is written, and hand the block
+        that applies them the values it reports with.
+
+        A callable rather than another entry in the validation block above because frappe's own
+        requirement is read from the workspace's apps/frappe, and when the same command demotes an
+        image bench that workspace does not exist until the demotion has run.
+        """
+        frappe_app_path = bench.path / "workspace" / "frappe-bench" / "apps" / "frappe"
+        current_versions = bench.app_manager.get_current_runtime_versions(use_run=True)
+
+        python_req = None
+        node_req = None
+        if frappe_app_path.exists():
+            if python_version:
+                python_req = extract_python_version_requirement(frappe_app_path)
+            if node_version:
+                node_req = extract_node_version_requirement(frappe_app_path)
+
+        # BOTH requested versions are validated before EITHER is written: the node refusal used to
+        # run after python_version had been assigned to the in-memory bench_config and announced as
+        # updated, then exited before save_bench_config() -- so the accepted half of the request was
+        # reported as done and silently discarded.
+        if python_version and python_req and not skip_version_check:
+            is_compatible, error_msg = validate_python_version_compatibility(python_version, python_req)
+            if not is_compatible:
+                output.change_head("Python version validation failed")
+                output.print(f"Python: {current_versions.get('python') or 'not set'} -> {python_version}")
+                output.print(f"Frappe requires: {python_req}")
+                output.display_error(f"{error_msg}", emoji_code=":cross_mark:")
+                suggested = parse_python_version_for_runtime(python_req)
+                if suggested:
+                    output.print(f"Hint: Try --python {suggested}", emoji_code=":light_bulb:")
+                output.print("Use --skip-version-check to bypass this validation (not recommended)")
+                raise typer.Exit(code=1)
+
+        if node_version and node_req and not skip_version_check:
+            is_compatible, error_msg = validate_node_version_compatibility(node_version, node_req)
+            if not is_compatible:
+                output.change_head("Node version validation failed")
+                output.print(f"Node: {current_versions.get('node') or 'not set'} -> {node_version}")
+                output.print(f"Frappe requires: {node_req}")
+                output.display_error(f"{error_msg}", emoji_code=":cross_mark:")
+                suggested = parse_node_version_for_runtime(node_req)
+                if suggested:
+                    output.print(f"Hint: Try --node {suggested}", emoji_code=":light_bulb:")
+                output.print("Use --skip-version-check to bypass this validation (not recommended)")
+                raise typer.Exit(code=1)
+
+        return current_versions, python_req, node_req
+
+    version_requests = None
+    if (python_version or node_version) and not materializing_workspace:
+        version_requests = validate_version_requests()
+
     with spinner(output, "Updating bench configuration"):
         if db_ca is not None:
-            database_config = bench.bench_config.get_database_config()
-            if database_config is None:
-                output.display_error(
-                    f"{bench.name} has no \\[database] entry in bench_config.toml: the bench uses the fm-managed "
-                    "'global-db' container, whose TLS material fm owns, so there is no external CA to refresh.",
-                )
-                raise typer.Exit(1)
-
             output.change_head("Refreshing the external database CA")
             # Captured BEFORE the rewrite below: [database.<site>].ca is what put db_ssl_ca into
             # sites/<site>/site_config.json at create time, and nothing rewrites that file on update.
@@ -370,31 +468,18 @@ def update(
         if runtime:
             if runtime == bench.bench_config.runtime:
                 output.print(f"Bench runtime is already '{runtime.value}'")
-            elif runtime == BenchRuntime.image:
-                output.display_error(
-                    "mount -> image conversion runs through the deploy pipeline (it must migrate the "
-                    "site onto the baked image): set runtime = 'image' and a top-level image in "
-                    f"bench_config.toml, then run fm switch {bench.name} <repo:tag>.",
-                )
-                raise typer.Exit(1)
             else:
-                # image -> mount demotion: extract the editable workspace from the
-                # CURRENTLY DEPLOYED tag -- code on disk == running code, so no
-                # migrate is needed; site data already lives host-side and is untouched.
+                # image -> mount demotion (mount -> image was refused up front): extract the
+                # editable workspace from the CURRENTLY DEPLOYED tag -- code on disk == running
+                # code, so no migrate is needed; site data already lives host-side and is untouched.
                 from frappe_manager.site_manager.modules.transport import fetch_image
                 from frappe_manager.site_manager.modules.workspace_seed import (
                     materialize_workspace_from_image,
                     stash_conflicting_seed_paths,
                 )
 
-                deploy_state = bench.bench_config.deploy_state
-                tag = deploy_state.current_tag if deploy_state else None
-                if not tag:
-                    output.display_error("No deployed tag recorded; cannot materialize the workspace.")
-                    raise typer.Exit(1)
-
-                output.change_head(f"Materializing editable workspace from {tag}")
-                fetch_image(bench.docker_client, tag, output=output)
+                output.change_head(f"Materializing editable workspace from {demotion_tag}")
+                fetch_image(bench.docker_client, demotion_tag, output=output)
                 frappe_bench_dir = bench.path / "workspace" / "frappe-bench"
                 # Leftover code trees from an earlier mount life are STALE vs the
                 # deployed tag; keeping them would break "code on disk == running
@@ -402,9 +487,11 @@ def update(
                 stash = stash_conflicting_seed_paths(frappe_bench_dir, output=output)
                 if stash:
                     output.warning(
-                        f"Existing workspace code was stale vs {tag}; moved to {stash} -- review and delete it.",
+                        f"Existing workspace code was stale vs {demotion_tag}; moved to {stash} -- review and delete it.",
                     )
-                extracted = materialize_workspace_from_image(bench.docker_client, tag, frappe_bench_dir, output=output)
+                extracted = materialize_workspace_from_image(
+                    bench.docker_client, demotion_tag, frappe_bench_dir, output=output
+                )
                 output.print(
                     f"Extracted from image: {', '.join(extracted) if extracted else 'nothing (already present)'}"
                 )
@@ -422,8 +509,15 @@ def update(
                 bench.docker_client.compose.up(detach=True, force_recreate=True, pull="never")
                 bench.workers.docker_client.compose.up(services=[], detach=True, pull="never", stream=False)
 
-                output.print(f"Switched runtime to mount (workspace from {tag})")
-                bench_config_save = True
+                output.print(f"Switched runtime to mount (workspace from {demotion_tag})")
+                # Persisted the moment the demotion completes, like the NewRelic block below.
+                # The workspace is extracted and the containers already run it, and the one refusal
+                # still ahead of us -- an incompatible --python/--node -- can only be checked
+                # against the workspace this step just created, so it cannot be hoisted with the
+                # others. Deferring this write to the terminal save would let that refusal leave
+                # bench_config.toml claiming image runtime for a bench now running on mount.
+                bench.save_bench_config()
+                bench_config_save = False
 
         if restart:
             old_policy = bench.bench_config.restart_policy.value
@@ -500,24 +594,6 @@ def update(
                     bench_config_save = True
 
         if add_alias or remove_alias:
-            add_domains_list = add_alias if add_alias else []
-            remove_domains_list = remove_alias if remove_alias else []
-
-            if add_domains_list:
-                skip_check = allow_domain_conflicts or not fm_config.validation.enforce_domain_uniqueness
-
-                try:
-                    validate_domains_unique(
-                        add_domains_list,
-                        benches_root=CLI_BENCHES_DIRECTORY,
-                        exclude_bench=bench.name,
-                        skip_check=skip_check,
-                    )
-                except DomainConflictError as e:
-                    output.display_error(str(e))
-                    output.print("\nTo proceed anyway, use: --allow-domain-conflicts", emoji_code="")
-                    raise typer.Exit(1)
-
             output.change_head("Updating alias domains")
             bench.update_alias_domains(add_domains=add_domains_list, remove_domains=remove_domains_list)
             output.print("Alias domains updated successfully")
@@ -570,51 +646,11 @@ def update(
             bench_config_save = True
 
         if python_version or node_version:
-            frappe_app_path = bench.path / "workspace" / "frappe-bench" / "apps" / "frappe"
-
-            current_versions = bench.app_manager.get_current_runtime_versions(use_run=True)
-
-            frappe_python_req = None
-            frappe_node_req = None
-            if frappe_app_path.exists():
-                if python_version:
-                    frappe_python_req = extract_python_version_requirement(frappe_app_path)
-                if node_version:
-                    frappe_node_req = extract_node_version_requirement(frappe_app_path)
-
-            # BOTH requested versions are validated before EITHER is written: the node refusal used to
-            # run after python_version had been assigned to the in-memory bench_config and announced as
-            # updated, then exited before save_bench_config() -- so the accepted half of the request was
-            # reported as done and silently discarded.
-            if python_version and frappe_python_req and not skip_version_check:
-                is_compatible, error_msg = validate_python_version_compatibility(
-                    python_version,
-                    frappe_python_req,
-                )
-                if not is_compatible:
-                    output.change_head("Python version validation failed")
-                    output.print(f"Python: {current_versions.get('python') or 'not set'} -> {python_version}")
-                    output.print(f"Frappe requires: {frappe_python_req}")
-                    output.display_error(f"{error_msg}", emoji_code=":cross_mark:")
-                    suggested = parse_python_version_for_runtime(frappe_python_req)
-                    if suggested:
-                        output.print(f"Hint: Try --python {suggested}", emoji_code=":light_bulb:")
-                    output.print("Use --skip-version-check to bypass this validation (not recommended)")
-                    raise typer.Exit(code=1)
-
-            if node_version and frappe_node_req and not skip_version_check:
-                is_compatible, error_msg = validate_node_version_compatibility(node_version, frappe_node_req)
-                if not is_compatible:
-                    output.change_head("Node version validation failed")
-                    output.print(f"Node: {current_versions.get('node') or 'not set'} -> {node_version}")
-                    output.print(f"Frappe requires: {frappe_node_req}")
-                    output.display_error(f"{error_msg}", emoji_code=":cross_mark:")
-
-                    suggested = parse_node_version_for_runtime(frappe_node_req)
-                    if suggested:
-                        output.print(f"Hint: Try --node {suggested}", emoji_code=":light_bulb:")
-                    output.print("Use --skip-version-check to bypass this validation (not recommended)")
-                    raise typer.Exit(code=1)
+            # Refused up front unless this same command materializes the workspace the requirement
+            # is read from, in which case it could not be checked any earlier than here.
+            current_versions, frappe_python_req, frappe_node_req = (
+                version_requests if version_requests is not None else validate_version_requests()
+            )
 
             if python_version:
                 old_python = current_versions.get("python") or "not set"

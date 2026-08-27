@@ -62,6 +62,7 @@ from frappe_manager.output_manager.context_managers import spinner
 from frappe_manager.services_manager.database_service_manager import DatabaseServerServiceInfo, MariaDBManager
 from frappe_manager.site_manager.bench_config import REMOVED_CONFIG_KEYS, REMOVED_CONFIG_TABLES
 from frappe_manager.ssl_manager.dns_provider import DNSProviderConfig
+from frappe_manager.utils import toml_document
 from frappe_manager.utils.helpers import get_template_path
 
 # Dropped from the engine command list: it was only ever needed on MariaDB
@@ -273,7 +274,7 @@ class MigrationV0200(MigrationBase):
             auth["tools"] = True
             doc["auth"] = auth
 
-        config_path.write_text(tomlkit.dumps(doc))
+        toml_document.save(config_path, doc)
         self.output.print(f"Moved admin tools credentials into \\[auth] for {bench.name}")
 
     def _drop_removed_config_keys(self, bench: MigrationBench):
@@ -316,7 +317,7 @@ class MigrationV0200(MigrationBase):
         if not dropped:
             return
 
-        config_path.write_text(tomlkit.dumps(doc))
+        toml_document.save(config_path, doc)
         self.output.print(f"Dropped removed config {', '.join(dropped)} for {bench.name}")
 
     def _rewrite_ssl_table(self, bench: MigrationBench):
@@ -442,7 +443,7 @@ class MigrationV0200(MigrationBase):
         if not changes:
             return
 
-        config_path.write_text(tomlkit.dumps(doc))
+        toml_document.save(config_path, doc)
         self.output.print(f"Rewrote \\[ssl] config for {bench.name}: {', '.join(changes)}")
 
     def migrate_services(self):
@@ -521,7 +522,7 @@ class MigrationV0200(MigrationBase):
         if len(ssl) == 0:
             del doc["ssl"]
 
-        config_path.write_text(tomlkit.dumps(doc))
+        toml_document.save(config_path, doc)
 
     def _upgrade_global_db_engine(self):
         """Move global-db onto the engine tag frappe tests against.

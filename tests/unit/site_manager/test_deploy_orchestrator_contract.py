@@ -619,7 +619,7 @@ class TestMaintenanceWindow:
         r = rig(switch=SwitchConfig(migrate=False))
         r.orch.deploy(NEW_TAG, restore_db_dump=dump)
         assert [a[0] for a, _k in r.calls("_set_maintenance")] == [1, 0]
-        r.orch._restore_db.assert_called_once_with(dump)
+        r.orch._restore_db.assert_called_once_with(dump, requested=True, confirmed=False)
 
     def test_empty_maintenance_phases_skips_the_maintenance_window(self, rig):
         """``maintenance_mode_phases = []`` is the operator asserting the migration is
@@ -1440,7 +1440,7 @@ class TestRollingRestart:
 
 
 class TestRestoreConfirmation:
-    """``_restore_db`` / ``_confirm_external_restore``: what is REFUSED."""
+    """``_restore_db`` / ``_confirm_restore``: what is REFUSED."""
 
     def _restorer(self, tmp_path, external=True, interactive=True, answer="shopdb"):
         orch = make_orch(tmp_path)
@@ -1468,12 +1468,17 @@ class TestRestoreConfirmation:
         orch._restore_db(dump)
         manager.db_import.assert_not_called()
 
-    def test_the_global_db_is_restored_without_a_prompt(self, tmp_path):
+    def test_the_global_db_is_confirmed_like_any_other_schema(self, tmp_path):
+        """fm owning the container is not a reason to drop its tables unasked: the
+        operator loses the same site data either way, so the typed-name question is
+        the same. Only the wording naming the owner differs."""
         orch, manager, dump = self._restorer(tmp_path, external=False)
         orch._restore_db(dump)
-        orch.output.prompt_ask.assert_not_called()
-        manager.db_run_query.assert_not_called()
+        orch.output.prompt_ask.assert_called_once()
+        manager.db_run_query.assert_called_once()
         manager.db_import.assert_called_once_with("shopdb", dump, force=True)
+        warned = " ".join(str(c.args) for c in orch.output.warning.call_args_list)
+        assert "fm's own global-db container" in warned
 
     def test_typing_the_schema_name_authorises_the_overwrite(self, tmp_path):
         orch, manager, dump = self._restorer(tmp_path, answer=" shopdb ")

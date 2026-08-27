@@ -17,6 +17,7 @@ from pathlib import Path
 import tomlkit
 
 from frappe_manager.exceptions import FrappeManagerException
+from frappe_manager.utils import toml_document
 
 
 class ConfigOverlayError(FrappeManagerException):
@@ -68,4 +69,6 @@ def apply_config_overlays(bench_config_path: Path, configs: list[str]) -> None:
     if not bench_config_path.is_file():
         raise ConfigOverlayError(f"Bench config not found for --config overlay: {bench_config_path}")
     merged = merge_overlays(bench_config_path.read_text(), configs)
-    bench_config_path.write_text(merged)
+    # Atomic and 0600: this file holds the bench's basic-auth password and any token an overlay
+    # brought with it, and a plain write_text left it at the process umask.
+    toml_document.save_text(bench_config_path, merged)

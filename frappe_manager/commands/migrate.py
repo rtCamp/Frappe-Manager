@@ -250,3 +250,4 @@ def migrate(
 
     if benches_failed:
         output.display_error("Check logs for details", emoji_code=":warning:")
+        raise typer.Exit(1)

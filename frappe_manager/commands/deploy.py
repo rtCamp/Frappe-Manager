@@ -95,6 +95,12 @@ def _find_current_deploy_backup(state) -> "tuple[str | None, str | None]":
     benchname="mybench",
 )
 @example(
+    "Roll back code and database unattended",
+    "{benchname} --previous --restore-db --yes",
+    detail="Without --yes fm asks you to type the schema name, and refuses when there is no terminal to ask on.",
+    benchname="mybench",
+)
+@example(
     "Roll back more than one release",
     "{benchname} local/mybench:20260718-9f21e0 --no-migrate",
     detail="--previous only knows the last tag, so name an older one explicitly and keep migrate off.",
@@ -121,7 +127,18 @@ def switch(
     ] = None,
     restore_db: Annotated[
         bool,
-        typer.Option("--restore-db", help="Also restore the DB dump taken during the deploy you are undoing."),
+        typer.Option(
+            "--restore-db",
+            help="Also restore the DB dump taken during the deploy you are undoing. This REPLACES the current database: the dump drops and recreates every table, so everything written since that deploy is lost. fm asks you to confirm before importing.",
+        ),
+    ] = False,
+    yes: Annotated[
+        bool,
+        typer.Option(
+            "--yes",
+            "-y",
+            help="Accept the --restore-db overwrite without being asked. The only way to restore a dump unattended, and the only thing this flag skips.",
+        ),
     ] = False,
     keep: Annotated[
         int | None,
@@ -175,7 +192,14 @@ def switch(
 
     try:
         orchestrator = DeployOrchestrator(bench, output_handler=output)
-        orchestrator.deploy(target, rolling=rolling, migrate_override=migrate, restore_db_dump=dump, prune_keep=keep)
+        orchestrator.deploy(
+            target,
+            rolling=rolling,
+            migrate_override=migrate,
+            restore_db_dump=dump,
+            prune_keep=keep,
+            restore_confirmed=yes,
+        )
     except DeployError as e:
         output.display_error(str(e))
         raise typer.Exit(1) from e

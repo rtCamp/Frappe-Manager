@@ -248,7 +248,9 @@
 
 # ---- [[apps]] ---------------------------------------------------------------------------------
 
-# Apps installed in this bench, in install order.
+# Apps installed in this bench, in install order. fm READS this array but never writes it: the
+# list it maintains comes from the container. `fm create --config` and `fm bake --config` supply
+# it, and a copy persisted here is preserved across saves rather than pruned.
 # [[apps]]
 # App name (e.g., 'erpnext') [required]
 # name = ...

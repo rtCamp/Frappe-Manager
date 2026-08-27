@@ -10,6 +10,7 @@ from frappe_manager import (
     CLI_RECENT_USED_SITES_CACHE_PATH,
     DEFAULT_EXTENSIONS,
 )
+from frappe_manager.exceptions import NonInteractiveError
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchNotFoundError
 from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version
@@ -160,14 +161,14 @@ def sitename_callback(sitename: str | None):
 
                 if sitename:
                     update_sites_cache(sitename)
-            except Exception:
-                output.error(
+            except Exception as e:
+                raise NonInteractiveError(
                     "Bench name is required in non-interactive mode",
-                    exception=Exception(
-                        "Specify bench name as positional argument. Use 'fm list' to see available benches.",
-                    ),
-                )
-                raise typer.Exit(1)
+                    suggestions=[
+                        "Specify the bench name as a positional argument",
+                        "Run 'fm list' to see available benches",
+                    ],
+                ) from e
 
     if sitename is None:
         raise typer.BadParameter("Invalid selection. Must match existing sites")

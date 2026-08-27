@@ -592,8 +592,12 @@ class BenchDockerOps:
 
         services_list = services or []
         if services_list and not self._is_service_running(services_list[0]):
-            self.output.display_error(f"Cannot show logs. Service '{services_list[0]}' not running!")
-            return
+            # Raise rather than print-and-return: this exited 0 after telling the user it could show
+            # nothing, so a caller could not distinguish empty logs from a container that was down.
+            from frappe_manager.site_manager.exceptions import BenchServiceNotRunning
+
+            bench_name = self.config.container_name_prefix.replace("-", ".")
+            raise BenchServiceNotRunning(bench_name, services_list[0])
 
         output = self.docker_client.compose.logs(services=services_list, follow=follow, stream=True)
         self.output.live_lines(

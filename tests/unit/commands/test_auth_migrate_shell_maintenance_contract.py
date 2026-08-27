@@ -870,10 +870,51 @@ def test_a_bench_that_raised_is_reported_as_failed_and_never_stamped(out, tmp_pa
             "a.localhost": {"last_migration_version": Version("0.19.0"), "exception": RuntimeError("boom")}
         },
     )
-    assert r.exit is None
+    # `display_error` prints without raising, so the command used to fall off the end and exit 0
+    # with a failed bench on screen. A per-bench failure is a command failure.
+    assert r.exit.exit_code == 1
     r.set_bench_version.assert_not_called()
     assert "Migration failed" in render(out.print_data.call_args.args[0])
     assert "Check logs for details" in joined(out.display_error)
+
+
+def test_all_benches_exits_nonzero_when_only_some_benches_failed(out, tmp_path):
+    """A partially failed fleet migration must not report success to a CI job checking $?.
+
+    The total-executor-failure guard earlier in the body does not cover this: `execute()`
+    returned True and the good bench really was migrated and stamped.
+    """
+    _bench_dir(tmp_path, "a.localhost")
+    _bench_dir(tmp_path, "b.localhost")
+    r = _run_migrate(
+        tmp_path,
+        all_benches=True,
+        current_version="0.19.0",
+        migrate_benches={
+            "a.localhost": {"last_migration_version": Version("0.19.0"), "exception": None},
+            "b.localhost": {"last_migration_version": Version("0.19.0"), "exception": RuntimeError("boom")},
+        },
+    )
+    assert r.exit.exit_code == 1
+    r.set_bench_version.assert_called_once_with(tmp_path / "a.localhost", Version("0.19.0"))
+    table = render(out.print_data.call_args.args[0])
+    assert "Migration failed" in table
+
+
+def test_all_benches_exits_zero_when_every_bench_migrated(out, tmp_path):
+    _bench_dir(tmp_path, "a.localhost")
+    _bench_dir(tmp_path, "b.localhost")
+    r = _run_migrate(
+        tmp_path,
+        all_benches=True,
+        current_version="0.19.0",
+        migrate_benches={
+            "a.localhost": {"last_migration_version": Version("0.19.0"), "exception": None},
+            "b.localhost": {"last_migration_version": Version("0.19.0"), "exception": None},
+        },
+    )
+    assert r.exit is None
+    assert "Migration failed" not in render(out.print_data.call_args.args[0])
 
 
 def test_a_bench_left_behind_at_an_older_version_is_neither_stamped_nor_flagged(out, tmp_path):

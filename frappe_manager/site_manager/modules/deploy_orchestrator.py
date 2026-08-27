@@ -676,7 +676,20 @@ class DeployOrchestrator:
             return final
         return None
 
-    def _restore_db(self, db_dump: Path) -> None:
+    def _restore_db(self, db_dump: Path, *, requested: bool = False, confirmed: bool = False) -> None:
+        """Import ``db_dump`` over this site's live schema.
+
+        ``requested`` marks the operator's own ``--restore-db``: an OLD dump
+        landing on top of everything written since it was taken. That is the case
+        that must never run unconfirmed, so it refuses when it cannot ask.
+        The default is fm's insurance restore (``rollback_db``), where the dump is
+        the one fm took minutes ago from this same database at the quiesced point;
+        a human who cannot be reached must not stand between a failed migrate and
+        its recovery, so that path still warns and proceeds.
+
+        ``confirmed`` is the ``--yes`` bypass: the operator answering the question
+        before it is asked.
+        """
         if not db_dump or not db_dump.exists():
             self.output.warning("No DB backup available to restore.")
             return
@@ -684,8 +697,7 @@ class DeployOrchestrator:
         if not db_name:
             self.output.warning("Could not resolve DB name; skipping DB restore.")
             return
-        if self._external_db() is not None:
-            self._confirm_external_restore(manager, db_name, db_dump)
+        self._confirm_restore(manager, db_name, db_dump, requested=requested, confirmed=confirmed)
         self.output.change_head("Restoring database backup")
         try:
             manager.db_import(db_name, db_dump, force=True)
@@ -696,28 +708,59 @@ class DeployOrchestrator:
                 f"Restoring {db_dump} into {db_name} failed: {e}\n{external_dump_tls_hint(self.site)}",
             ) from e
 
-    def _confirm_external_restore(self, manager: MariaDBManager, schema: str, db_dump: Path) -> None:
-        """Typed confirmation before a dump lands on a database fm does not own.
+    def _confirm_restore(
+        self,
+        manager: MariaDBManager,
+        schema: str,
+        db_dump: Path,
+        *,
+        requested: bool = False,
+        confirmed: bool = False,
+    ) -> None:
+        """Typed confirmation before a dump lands on a live schema.
 
         ``db_import(force=True)`` imports OVER the live schema, and a Frappe dump
         opens with ``DROP TABLE IF EXISTS`` per table, so this is the most
-        destructive operation fm owns. ``--restore-db <path>`` proves the operator
-        meant that dump; it does not prove they meant this database, and that is
-        the half that bites. The table count is read here and not carried over from
-        an earlier phase, because a stale count is exactly the reassurance this
-        guard must not give.
+        destructive operation fm owns. ``--restore-db`` proves the operator meant
+        that dump; it does not prove they meant this database, and that is the half
+        that bites. The table count is read here and not carried over from an
+        earlier phase, because a stale count is exactly the reassurance this guard
+        must not give.
 
-        Reached only when the site has a `[database]` entry: a global-db restore
-        neither prompts nor queries, since that schema is fm's own. A `bench
-        restore` typed by hand inside `fm shell` never reaches fm at all, and this
-        guard makes no claim over it.
+        Both databases are guarded. A schema on a server fm does not own is the
+        louder case, but fm's own global-db schema holds the same site, and "fm
+        owns the container" is not a reason to drop its tables without asking:
+        the operator loses the same data either way. The wording differs, the
+        question does not.
+
+        A ``bench restore`` typed by hand inside ``fm shell`` never reaches fm at
+        all, and this guard makes no claim over it.
         """
+        if confirmed:
+            return
+
         endpoint = manager.database_server_info
         host = f"{endpoint.host}:{endpoint.port}"
+        external = self._external_db() is not None
+        owner = "a database fm does not own" if external else "fm's own global-db container"
+
+        def refuse(reason: str) -> RestoreNotConfirmed:
+            return RestoreNotConfirmed(
+                f"Restoring {db_dump} into schema '{schema}' on {host} was not confirmed: {reason} "
+                "Nothing was imported.",
+            )
 
         if not self.output.is_interactive():
-            # The global --non-interactive escape hatch (and a missing TTY), so
-            # unattended deploys keep working. No prompt means no reason to query.
+            # No TTY, or the global --non-interactive flag. An explicit
+            # --restore-db has no safe unattended reading: it replaces live data
+            # with an older dump, so refuse and name the way through. fm's own
+            # insurance restore keeps working, because refusing it would leave a
+            # failed migrate with no recovery at all.
+            if requested:
+                raise refuse(
+                    "there is no terminal to ask on. Re-run without --non-interactive, or pass --yes to accept "
+                    "that the current database is replaced.",
+                )
             self.output.warning(
                 f"Non-interactive: importing {db_dump.name} over schema '{schema}' on {host} unconfirmed.",
             )
@@ -732,21 +775,21 @@ class DeployOrchestrator:
             holds = f"it holds {state[1]} tables right now, every one of which the dump drops and recreates"
 
         self.output.warning(
-            f"About to import {db_dump} into schema '{schema}' on {host}, a database fm does not own: {holds}.",
+            f"About to import {db_dump} into schema '{schema}' on {host}, {owner}: {holds}.",
         )
         try:
             answer = self.output.prompt_ask(prompt=f"Type the schema name '{schema}' to confirm this overwrite")
         except NonInteractiveError:
-            # Output modes that cannot prompt even on a TTY (json, silent) are the
-            # same escape hatch under another name.
+            # Output modes that cannot prompt even on a TTY (json, silent).
+            if requested:
+                raise refuse(
+                    "this output mode cannot prompt. Pass --yes to accept that the database is replaced.",
+                ) from None
             self.output.warning(f"This output mode cannot prompt: importing into '{schema}' on {host} unconfirmed.")
             return
 
         if answer.strip() != schema:
-            raise RestoreNotConfirmed(
-                f"Restore into schema '{schema}' on {host} was not confirmed: the schema name was not typed. "
-                "Nothing was imported.",
-            )
+            raise refuse("the schema name was not typed.")
 
     def _live_schema_state(self, manager: MariaDBManager, schema: str) -> tuple[bool, int] | None:
         """``(schema exists, table count)`` read from the server now, None if unreadable.
@@ -761,7 +804,8 @@ class DeployOrchestrator:
             output = manager.db_run_query(shlex.quote(sql), capture_output=True)
         except Exception as e:
             self.output.warning(f"Could not count the tables in '{schema}': {e}")
-            self.output.warning(external_dump_tls_hint(self.site))
+            if self._external_db():
+                self.output.warning(external_dump_tls_hint(self.site))
             return None
         for line in getattr(output, "stdout", None) or ():
             columns = line.split("\t")
@@ -1147,6 +1191,7 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         migrate_override: bool | None = None,
         restore_db_dump: Path | None = None,
         prune_keep: int | None = None,
+        restore_confirmed: bool = False,
     ) -> None:
         """Run the image deploy to ``new_tag``.
 
@@ -1158,7 +1203,8 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
         (rollbacks pass False: old code must never migrate a newer schema).
         ``restore_db_dump`` imports the given dump at the quiesced point before
         the swap -- code and data go back together. A restore is a schema-grade
-        step: it gates maintenance/rolling exactly like a migrate."""
+        step: it gates maintenance/rolling exactly like a migrate, and it is
+        confirmed before it runs unless ``restore_confirmed`` (``--yes``)."""
         self._require_image_mode()
         old_tag = self._current_deployed_tag()
 
@@ -1260,13 +1306,32 @@ print("{MIGRATE_PROBE_MARKER}", status, "pending=%d" % len(pending), "drift=%s" 
             if do_backup:
                 self.output.change_head("Backing up DB + site config")
                 db_dump = self._backup(backup_dir)
+                if db_dump is None and requested_backup != "auto" and self.switch_config.rollback_db:
+                    # The operator asked for a dump AND asked fm to restore it if
+                    # the deploy goes wrong. Every way ``_backup`` gives up
+                    # (frappe stopped, DB name unresolvable, mariadb-dump refused,
+                    # dump file never appeared) lands here as None, and they all
+                    # have one consequence: the rollback_db guard at the migrate
+                    # failure path is `and db_dump`, so it would silently restore
+                    # nothing. A deploy without its insurance is not the deploy
+                    # that was asked for, so abort while the abort is still free:
+                    # nothing has been migrated or swapped, and the handler below
+                    # drops the page and resumes the workers.
+                    raise DeployError(
+                        "DB backup failed and \\[switch].rollback_db is on, so a failed migrate would have "
+                        "nothing to restore. Deploy aborted before migrate/swap; the old stack keeps serving. "
+                        "Fix the dump (see the warning above), or set \\[switch].rollback_db = false to deploy "
+                        "without a database rollback.",
+                    )
             elif requested_backup == "auto":
                 self.output.print("Backup skipped (backup_db=auto: no schema change)")
 
             # 7b. Restore a recorded dump (rollback path): after the insurance
-            # backup of the CURRENT state, before migrate/swap.
+            # backup of the CURRENT state, before migrate/swap. ``requested``:
+            # this is the operator's --restore-db, not fm's own insurance, so it
+            # must be confirmed and refuses when it cannot ask.
             if restore_db_dump is not None:
-                self._restore_db(restore_db_dump)
+                self._restore_db(restore_db_dump, requested=True, confirmed=restore_confirmed)
 
             # 8. Migrate in a one-shot new-image container.
             if migrate:

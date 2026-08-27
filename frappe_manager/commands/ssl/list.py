@@ -46,7 +46,7 @@ def list_certificates(
 
     Lists one bench by default, including its domains that have no certificate yet. --standalone lists external Docker project domains instead, and --all lists both.
 
-    The DNS Provider column names the \\[ssl.dns_challenge_providers] credential set each DNS-01 certificate authenticates with, "default" for the unlabelled account, and "(missing)" when the label or the default account is not stored at either scope.
+    The DNS Provider column names the \\[ssl.dns_providers] credential set each DNS-01 certificate authenticates with, "default" for the unlabelled account, and "(missing)" when the label or the default account is not stored at either scope.
     """
 
     if all:

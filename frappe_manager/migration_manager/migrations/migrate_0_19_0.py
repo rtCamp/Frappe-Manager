@@ -27,6 +27,7 @@ from frappe_manager.migration_manager.migration_base import MigrationBase
 from frappe_manager.migration_manager.migration_helpers import MigrationBench
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager.context_managers import spinner
+from frappe_manager.utils import toml_document
 
 
 @contextmanager
@@ -207,7 +208,7 @@ class MigrationV0190(MigrationBase):
         self._transform_ssl_config(doc, bench.name)
         self._add_new_config_fields(doc)
 
-        config_path.write_text(tomlkit.dumps(doc))
+        toml_document.save(config_path, doc)
         self.output.print("Updated SSL configuration format")
 
     def _transform_ssl_config(self, doc: tomlkit.TOMLDocument, bench_name: str):
@@ -688,7 +689,7 @@ class MigrationV0190(MigrationBase):
                     config_doc["python_version"] = target_python
                 if target_node:
                     config_doc["node_version"] = target_node
-                bench_config_path.write_text(tomlkit.dumps(config_doc))
+                toml_document.save(bench_config_path, config_doc)
                 self.output.print("Updated bench_config.toml with detected versions")
 
         return target_python, target_node, config_doc

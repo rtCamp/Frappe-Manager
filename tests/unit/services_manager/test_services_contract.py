@@ -24,6 +24,7 @@ from pathlib import Path
 from unittest import mock
 
 import pytest
+import typer
 
 from frappe_manager import GLOBAL_DB_IMAGE
 from frappe_manager.docker.docker_exceptions import DockerException
@@ -292,8 +293,34 @@ def test_a_failed_creation_is_reported_as_services_not_created_and_keeps_the_ori
         manager.entrypoint_checks()
 
     assert excinfo.value.__cause__ is cause
-    manager.output.error.assert_called_once()
+    # `output.error()` ALWAYS raises, so it used to propagate the raw cause and the
+    # ServicesNotCreated wrapper below it was dead code, along with the caller's
+    # `except ServicesNotCreated: remove_itself()` cleanup of the half-built directory.
+    manager.output.display_error.assert_called_once_with("Error during service creation")
+    manager.output.error.assert_not_called()
     manager.docker_client.compose.pull.assert_not_called()
+
+
+def test_a_failed_creation_still_wraps_the_cause_with_the_real_output_handler(tmp_path):
+    """The teeth for the above: with a MagicMock handler `output.error()` returns, so the wrapper
+    below it appeared to work. Against the REAL handler, `error()` raises and the raw cause
+    escaped instead, taking the caller's `except ServicesNotCreated: remove_itself()` with it and
+    leaving a half-built ~/frappe/services no fm command recovers.
+    """
+    services_path = tmp_path / "services"
+    manager = make_manager(services_path)
+    manager.output = RichOutputHandler()
+    cause = RuntimeError("disk full")
+    maria, info = _patch_database_manager()
+    with (
+        maria,
+        info,
+        mock.patch.object(ServicesManager, "create", side_effect=cause),
+        pytest.raises(ServicesNotCreated) as excinfo,
+    ):
+        manager.entrypoint_checks()
+
+    assert excinfo.value.__cause__ is cause
 
 
 def test_an_existing_services_directory_is_never_recreated(tmp_path):
@@ -591,15 +618,19 @@ def test_a_shell_with_a_user_execs_as_that_user(tmp_path):
     )
 
 
-def test_a_nonzero_shell_exit_is_a_warning_not_a_crash(tmp_path):
+def test_a_nonzero_shell_exit_is_propagated_as_the_commands_exit_code(tmp_path):
+    """`fm shell` for a bench execs into the container and propagates its status; the global
+    services shell used to print the code and then exit 0, so no script could tell the two apart."""
     manager = make_manager(tmp_path)
     manager.docker_client.compose.exec.side_effect = DockerException(
         ["docker", "compose", "exec"],
         SubprocessOutput(stdout=[], stderr=[], combined=[], exit_code=130),
     )
 
-    manager.shell("global-db")
+    with pytest.raises(typer.Exit) as excinfo:
+        manager.shell("global-db")
 
+    assert excinfo.value.exit_code == 130
     assert "130" in manager.output.warning.call_args.args[0]
 
 
@@ -981,3 +1012,19 @@ def test_create_fails_loudly_when_a_required_directory_cannot_be_made(tmp_path):
         manager.create()
 
     assert "Failed to create global services required dir" in str(excinfo.value)
+    assert "read-only fs" in str(excinfo.value)
+    assert isinstance(excinfo.value.__cause__, PermissionError)
+
+
+def test_a_failed_compose_generation_names_the_underlying_cause(tmp_path):
+    """The user could not tell a permission error from a missing template: the bound `e` was
+    never interpolated and the chain was dropped."""
+    manager = make_manager(tmp_path)
+    cause = PermissionError("read-only fs")
+    manager.compose_file_manager.with_envs.side_effect = cause
+
+    with pytest.raises(ServicesNotCreated) as excinfo:
+        manager.generate_compose({"environment": {"global-db": {"A": "1"}}})
+
+    assert "read-only fs" in str(excinfo.value)
+    assert excinfo.value.__cause__ is cause

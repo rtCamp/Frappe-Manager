@@ -30,6 +30,7 @@ import typer
 
 from frappe_manager.commands import app
 from frappe_manager.commands.maintenance import _maintenance_sitename_callback
+from frappe_manager.exceptions import FrappeManagerException, NonInteractiveError
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchException, BenchNotFoundError
 from frappe_manager.utils import callbacks
@@ -470,19 +471,24 @@ class TestSitenameCallbackWithNoValue:
             sitename_callback(None)
         assert "picked.localhost" in callbacks.CLI_RECENT_USED_SITES_CACHE_PATH.read_text()
 
-    def test_a_failing_prompt_surfaces_the_non_interactive_error(self, benches):
-        # Non-interactive shells make prompt_fuzzy blow up. output.error() raises
-        # its `exception` argument, so the `raise typer.Exit(1)` written on the
-        # next line is unreachable -- callers see a bare Exception, not Exit(1).
-        # Pinned as today's behaviour; see final report.
+    def test_a_failing_prompt_raises_a_clean_non_interactive_error(self, benches):
+        # A missing bench name in a non-interactive shell is a usage error, not an fm crash.
+        # NonInteractiveError is a FrappeManagerException, so main.py prints it under
+        # "Error Occurred" instead of the "Unexpected Error" banner reserved for internal
+        # crashes, and the callback prints nothing itself so the message appears exactly once.
         make_bench(benches, "picked.localhost")
         handler = get_global_output_handler()
         with (
             mock.patch.object(handler, "prompt_fuzzy", side_effect=EOFError("no tty")),
-            pytest.raises(Exception, match="Specify bench name as positional argument") as excinfo,
+            mock.patch.object(handler, "display_error") as display_error,
+            pytest.raises(NonInteractiveError) as excinfo,
         ):
             sitename_callback(None)
-        assert not isinstance(excinfo.value, typer.Exit)
+        assert isinstance(excinfo.value, FrappeManagerException)
+        assert "Bench name is required in non-interactive mode" in str(excinfo.value)
+        assert "fm list" in str(excinfo.value)
+        assert isinstance(excinfo.value.__cause__, EOFError)
+        display_error.assert_not_called()
 
 
 # --------------------------------------------------------------------------- #

@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import typer
 from jinja2 import Template
 
 from frappe_manager import CLI_DIR, CLI_SERVICES_DIRECTORY, GLOBAL_DB_IMAGE
@@ -63,10 +64,10 @@ class ServicesManager:
                 self.create(clean_install=True)
 
             except Exception as e:
-                self.output.error("Error during service creation", e)
-                import traceback
-
-                traceback.print_exc()
+                # display_error does not raise, so the ServicesNotCreated wrapper below actually
+                # propagates and the caller's `except ServicesNotCreated: remove_itself()` cleanup
+                # gets to remove the half-built services directory.
+                self.output.display_error("Error during service creation")
                 raise ServicesNotCreated(
                     f"Not able to create global services [blue]{', '.join(self.compose_file_manager.get_services_list())}[/blue].",
                 ) from e
@@ -278,7 +279,9 @@ class ServicesManager:
             try:
                 temp_dir.mkdir(parents=True, exist_ok=True)
             except Exception as e:
-                raise ServicesNotCreated(f"Failed to create global services required dir {temp_dir.absolute()}.")
+                raise ServicesNotCreated(
+                    f"Failed to create global services required dir {temp_dir.absolute()}: {e}"
+                ) from e
 
         # populate secrets for db
         db_password_path = self.path / "secrets" / "db_password.txt"
@@ -336,9 +339,8 @@ class ServicesManager:
             if environments or labels or users:
                 cf.commit()
 
-        # TODO do something about this exception
         except Exception as e:
-            raise ServicesNotCreated("Not able to generate global services compose file.")
+            raise ServicesNotCreated(f"Not able to generate global services compose file: {e}") from e
 
     def shell(self, container: str, user: str | None = None):
         self.output.stop()
@@ -349,7 +351,10 @@ class ServicesManager:
             else:
                 self.docker_client.compose.exec(container, command=shell_path, capture_output=False)
         except DockerException as e:
+            # `fm shell` for a bench execs into the container and propagates its status; the global
+            # shell must agree, otherwise a script cannot tell a failed command from a clean exit.
             self.output.warning(f"Shell exited with error code: {e.output.exit_code}")
+            raise typer.Exit(e.output.exit_code) from e
 
     def remove_itself(self):
         shutil.rmtree(self.path)

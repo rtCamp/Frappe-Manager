@@ -45,6 +45,11 @@ def stop(
     stop_global = not benches_only
     stop_benches = not global_only
 
+    # Best effort: every bench is attempted, and the global services after them, before the
+    # command reports failure. Reporting has to happen, otherwise a caller checking $? is told
+    # the host is quiet while containers are still up.
+    benches_failed: list[str] = []
+
     if stop_benches:
         bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
         bench_names = bench_service.get_bench_names()
@@ -65,6 +70,7 @@ def stop(
                     output.print(f"Stopped bench {bench_name}")
                 except Exception as e:
                     output.warning(f"Failed to stop {bench_name}: {e}")
+                    benches_failed.append(bench_name)
 
     if stop_global:
         with spinner(output, "Stopping global services"):
@@ -77,3 +83,7 @@ def stop(
 
                 services_manager.stop_service(services=[service.value])
                 output.print(f"Stopped service {service.value}")
+
+    if benches_failed:
+        output.display_error(f"Still running: {', '.join(benches_failed)}")
+        raise typer.Exit(1)

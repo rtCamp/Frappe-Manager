@@ -28,7 +28,7 @@ import pytest
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
 from frappe_manager.site_manager.bench_config import BenchConfig, DeployState, FMBenchEnvType, SwitchConfig
-from frappe_manager.site_manager.exceptions import BenchOperationException
+from frappe_manager.site_manager.exceptions import BenchException, BenchOperationException
 from frappe_manager.site_manager.modules import db_probe, db_tls
 from frappe_manager.site_manager.modules.bench_orchestrator import BenchOrchestrator
 
@@ -521,25 +521,29 @@ def test_a_public_domain_is_told_to_edit_the_hosts_file(tmp_path):
 
 
 def test_a_failed_phase_six_offers_to_remove_the_bench(tmp_path):
-    """Phase 6 fails gracefully -- it returns False rather than raising -- and a create whose apps
-    did not install offers to tear the bench down instead of reporting it ready."""
+    """A create whose apps did not install offers to tear the bench down, then RAISES so the command
+    exits nonzero. It used to fall off the end of the try and exit 0, leaving the operator a
+    half-built bench and a shell that said success."""
     harness = _Harness(_config(tmp_path), tmp_path)
     orchestrator = harness.reraising_orchestrator()
     orchestrator._phase6_install_apps = harness.events.hook("phase6_install_apps", result=False)
 
-    orchestrator.create_bench()
+    with pytest.raises(BenchException):
+        orchestrator.create_bench()
 
     assert harness.events.only("remove_bench", "info") == ["remove_bench(default_choice=False)"]
 
 
 def test_declining_the_removal_still_prints_the_bench_info(tmp_path):
-    """`remove_bench` returning False means the operator kept the bench; it gets described."""
+    """`remove_bench` returning False means the operator kept the bench; it gets described, and the
+    create still fails, because the apps the operator asked for are not installed."""
     harness = _Harness(_config(tmp_path), tmp_path)
     harness.remove_status = False
     orchestrator = harness.reraising_orchestrator()
     orchestrator._phase6_install_apps = harness.events.hook("phase6_install_apps", result=False)
 
-    orchestrator.create_bench()
+    with pytest.raises(BenchException):
+        orchestrator.create_bench()
 
     harness.events.before("remove_bench(default_choice=False)", "info")
 
@@ -1493,7 +1497,8 @@ def test_a_failed_image_create_offers_to_remove_the_bench(tmp_path, monkeypatch)
     orchestrator = harness.reraising_orchestrator(real=("_create_image_bench",))
     orchestrator._phase6_install_apps = harness.events.hook("phase6_install_apps", result=False)
 
-    orchestrator.create_bench()
+    with pytest.raises(BenchException):
+        orchestrator.create_bench()
 
     assert harness.events.only("remove_bench", "info") == ["remove_bench(default_choice=False)"]
 
@@ -1506,7 +1511,8 @@ def test_a_kept_image_bench_is_described_instead(tmp_path, monkeypatch):
     orchestrator = harness.reraising_orchestrator(real=("_create_image_bench",))
     orchestrator._phase6_install_apps = harness.events.hook("phase6_install_apps", result=False)
 
-    orchestrator.create_bench()
+    with pytest.raises(BenchException):
+        orchestrator.create_bench()
 
     harness.events.before("remove_bench(default_choice=False)", "info")
 
@@ -1650,14 +1656,16 @@ def test_phase_six_installs_the_apps_then_migrates(tmp_path):
     ]
 
 
-def test_phase_six_failure_is_graceful_and_keeps_the_bench(tmp_path):
-    """The bench itself is configured and running; only the site-level installs failed, so the
-    error is reported as guidance and phase 6 returns False instead of raising."""
+def test_a_failed_app_install_reports_guidance_offers_removal_and_fails(tmp_path):
+    """The bench itself is configured and running; only the site-level installs failed. That still
+    reports the reason as guidance and offers the teardown, but it no longer exits 0: a bench whose
+    apps never installed is not the bench that was asked for."""
     harness = _Harness(_config(tmp_path), tmp_path)
     harness.bench.app_manager.install_apps_to_site.side_effect = RuntimeError("dependency conflict")
     orchestrator = harness.orchestrator(real=("_phase6_install_apps",))
 
-    orchestrator.create_bench()
+    with pytest.raises(BenchException):
+        orchestrator.create_bench()
 
     warned = " ".join(str(call) for call in harness.output.warning.call_args_list)
     assert "App Installation Failed" in warned
@@ -1666,19 +1674,22 @@ def test_phase_six_failure_is_graceful_and_keeps_the_bench(tmp_path):
     orchestrator._handle_creation_failure.assert_not_called()
 
 
-def test_a_failing_migrate_does_not_fail_phase_six(tmp_path):
-    """The apps ARE installed; a migrate failure is a warning with the command to re-run, and
-    phase 6 still reports success."""
+def test_a_failing_migrate_fails_the_create(tmp_path):
+    """The apps ARE installed but the schema is not migrated, so the site does not work. This used
+    to print "Database migrations completed" and exit 0 regardless, handing the operator a bench
+    that looked ready. The warning still names the command to re-run."""
     harness = _Harness(_config(tmp_path), tmp_path)
     harness.bench.app_manager._container_run.side_effect = RuntimeError("migrate exploded")
     orchestrator = harness.orchestrator(real=("_phase6_install_apps", "_run_bench_migrate"))
 
-    orchestrator.create_bench()
+    with pytest.raises(BenchException):
+        orchestrator.create_bench()
 
     warned = " ".join(str(call) for call in harness.output.warning.call_args_list)
     assert "Database migration failed" in warned
-    assert harness.events.has("remove_bench") is False
-    assert harness.events.has("info") is True
+    assert "migrate" in warned
+    printed = " ".join(str(call) for call in harness.output.print.call_args_list)
+    assert "Database migrations completed" not in printed
 
 
 def test_the_migrate_command_is_built_from_the_benchs_own_cli_prefix(tmp_path):
@@ -2017,16 +2028,17 @@ def test_a_no_op_request_saves_nothing_and_touches_no_container(tmp_path):
     assert "is not an alias" in warned
 
 
-def test_an_applied_change_saves_the_config_before_regenerating_the_compose(tmp_path):
-    """The compose file is generated FROM the config, so the config is updated first, and the alias
-    list is stored sorted."""
+def test_an_applied_change_regenerates_the_compose_before_saving_the_config(tmp_path):
+    """Order reversed deliberately. `generate_compose` is handed `export_to_compose_inputs()` from
+    the in-memory config and never reads the file back, so writing bench_config.toml LAST means a
+    render failure leaves nothing on disk to roll back. The alias list is still stored sorted."""
     harness = _Harness(_config(tmp_path), tmp_path)
     harness.config.alias_domains = ["b.example.com"]
 
     harness.orchestrator().update_alias_domains(add_domains=["a.example.com"])
 
     assert harness.config.alias_domains == ["a.example.com", "b.example.com"]
-    harness.events.before("save_bench_config", "generate_compose")
+    harness.events.before("generate_compose", "save_bench_config")
     assert harness.bench.docker_client.compose.up.call_args.kwargs == {
         "services": ["nginx"],
         "detach": True,
@@ -2048,10 +2060,15 @@ def test_the_stale_nginx_vhost_is_deleted_so_it_gets_rebuilt(tmp_path):
     assert conf.exists() is False
 
 
-def test_a_failure_after_the_save_rolls_back_memory_only(tmp_path):
-    """Characterized, not endorsed: the rollback restores `alias_domains` on the config object but
-    does not save again, so a compose failure AFTER a successful save leaves the new alias on disk
-    and the old list in memory. Reported as a suspicion rather than fixed here."""
+def test_a_render_failure_never_leaves_the_new_alias_on_disk(tmp_path):
+    """The previous shape saved bench_config.toml FIRST, so a compose failure left the new alias on
+    disk while the `except` arm restored the old list in memory only and threw it away with the
+    process. The next fm run then read an alias that compose and nginx did not have.
+
+    Two things now prevent that: the render happens before the explicit save, and the restore is
+    persisted, because `ensure_fm_nginx_confs` (reached through `generate_compose`) can write the
+    file on its own when it mints an auth password. So whatever is on disk afterwards is the OLD
+    list, never the requested one."""
     harness = _Harness(_config(tmp_path), tmp_path)
     harness.config.alias_domains = ["a.example.com"]
     saved: list[list[str]] = []
@@ -2062,8 +2079,8 @@ def test_a_failure_after_the_save_rolls_back_memory_only(tmp_path):
     with pytest.raises(Exception, match="Failed to update alias domains: template blew up"):
         orchestrator.update_alias_domains(add_domains=["b.example.com"])
 
-    assert saved == [["a.example.com", "b.example.com"]]  # what was written
-    assert harness.config.alias_domains == ["a.example.com"]  # what memory believes afterwards
+    assert all("b.example.com" not in written for written in saved), saved
+    assert harness.config.alias_domains == ["a.example.com"]
 
 
 def test_a_wildcard_alias_is_flagged_as_needing_dns01(tmp_path):

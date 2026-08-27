@@ -54,7 +54,7 @@ class AcmeShCertificateService:
         self.acmesh_bin = self.acmesh_home / "acme.sh"
         self.output = output_handler or RichOutputHandler()
         # Carried solely so get_dns_credentials_for_certificate can reach the bench tier,
-        # `[ssl.dns_challenge_providers]`. Without it that tier is unreachable at issuance and
+        # `[ssl.dns_providers]`. Without it that tier is unreachable at issuance and
         # renewal, which made `fm ssl dns-config cloudflare <bench>` a write-only command: the
         # credential landed on disk, `--show` displayed it, and nothing could ever use it. None for
         # standalone (`fm ssl add --standalone`) certificates, which have no bench.

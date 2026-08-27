@@ -31,7 +31,7 @@ from frappe_manager.logger import get_logger
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.site_manager.bench_config import BenchRuntime, DatabaseConfig, FMBenchEnvType, SwitchConfig
-from frappe_manager.site_manager.exceptions import BenchOperationException
+from frappe_manager.site_manager.exceptions import BenchException, BenchOperationException
 from frappe_manager.site_manager.modules import db_probe, db_tls
 from frappe_manager.site_manager.provisioner import provision
 
@@ -148,16 +148,35 @@ class BenchOrchestrator:
 
         bench.docker_ops.check_required_docker_images_available()
 
+        apps_installed = self._run_creation(is_template_bench)
+
+        if apps_installed is False:
+            # The teardown was already offered (and possibly declined); what is left is to fail.
+            # Falling off the end here reported exit 0 on a bench whose site was never finished.
+            # Phase 6 fails for either reason, so this stays generic: the specific cause was already
+            # printed as a warning, with the exact command to re-run.
+            raise BenchException(
+                bench.name,
+                message="Bench creation failed: the site was not fully set up. See the warning above.",
+            )
+
+    def _run_creation(self, is_template_bench: bool) -> bool | None:
+        """Run the creation pipeline and hand back phase 6's verdict.
+
+        None means there is no verdict: a template bench has no phase 6, and a phase that raised
+        was already reported and cleaned up after by `_handle_creation_failure`.
+        """
+        bench = self.bench
+
         try:
             self._phase1_prepare_structure()
 
             if is_template_bench:
                 self._create_template_bench()
-                return
+                return None
 
             if bench.bench_config.runtime == BenchRuntime.image:
-                self._create_image_bench()
-                return
+                return self._create_image_bench()
 
             # Between phase 1 and phase 2, and the placement is the whole point. See
             # `_external_database_gate`. No-op for a bench on the `global-db` container.
@@ -184,22 +203,30 @@ class BenchOrchestrator:
                 except Exception as e:
                     self.logger.warning(f"{bench.name}: clear-cache failed: {e}")
 
-            if apps_installed:
-                bench.info()
-
-                if ".localhost" not in bench.name:
-                    self.output.print(
-                        "Please note that You will have to add a host entry to your system's hosts file to access the bench locally.",
-                    )
-            else:
-                remove_status = bench.remove_bench(default_choice=False)
-                if not remove_status:
-                    bench.info()
+            self._report_created_bench(apps_installed)
+            return apps_installed
 
         except Exception as e:
             self._handle_creation_failure(e)
+            return None
 
-    def _create_image_bench(self) -> None:
+    def _report_created_bench(self, apps_installed: bool) -> None:
+        """Describe the finished bench, or offer to tear down one whose apps never installed."""
+        bench = self.bench
+
+        if apps_installed:
+            bench.info()
+
+            if ".localhost" not in bench.name:
+                self.output.print(
+                    "Please note that You will have to add a host entry to your system's hosts file to access the bench locally.",
+                )
+        else:
+            remove_status = bench.remove_bench(default_choice=False)
+            if not remove_status:
+                bench.info()
+
+    def _create_image_bench(self) -> bool:
         """Bootstrap an image-mode bench from a pre-built app image.
 
         No provisioning: the image already carries app code, Python/Node and
@@ -248,17 +275,8 @@ class BenchOrchestrator:
         # Workers compose was generated image-shaped in phase 5; just bring them up.
         bench.workers.docker_client.compose.up(services=[], detach=True, pull="never", wait=True, stream=False)
 
-        if apps_installed:
-            bench.info()
-
-            if ".localhost" not in bench.name:
-                self.output.print(
-                    "Please note that You will have to add a host entry to your system's hosts file to access the bench locally.",
-                )
-        else:
-            remove_status = bench.remove_bench(default_choice=False)
-            if not remove_status:
-                bench.info()
+        self._report_created_bench(apps_installed)
+        return apps_installed
 
     def _phase1_prepare_structure(self) -> None:
         """Phase 1: Create directories and docker-compose.yml"""
@@ -975,10 +993,11 @@ class BenchOrchestrator:
             self.output.print("All apps installed successfully")
 
             self.output.change_head("Running bench migrate")
-            self._run_bench_migrate()
-            self.output.print("Database migrations completed")
-            return True
-
+            if not self._run_bench_migrate():
+                # The site schema is unmigrated, so the bench is not usable. Printing
+                # "Database migrations completed" and returning True here reported a
+                # successful create and exited 0 on an unmigrated schema.
+                return False
         except Exception as e:
             from frappe_manager import CLI_DIR
             from frappe_manager.utils.helpers import capture_and_format_exception
@@ -1008,9 +1027,16 @@ class BenchOrchestrator:
                 f"📋 Check detailed logs at: {CLI_DIR / 'logs' / 'fm.log'}\n",
             )
             return False
+        else:
+            self.output.print("Database migrations completed")
+            return True
 
-    def _run_bench_migrate(self) -> None:
-        """Run bench migrate after app installation"""
+    def _run_bench_migrate(self) -> bool:
+        """Run bench migrate after app installation.
+
+        Returns True when the migration ran, False when it failed, so the caller can fail the
+        phase instead of announcing migrations that never completed.
+        """
         bench = self.bench
 
         migrate_cmd = " ".join(bench.app_manager.bench_cli_cmd + ["--site", bench.name, "migrate"])
@@ -1022,10 +1048,14 @@ class BenchOrchestrator:
             )
         except Exception as e:
             self.logger.warning(f"{bench.name}: bench migrate failed: {e}")
+            self.output.stop()
             self.output.warning(
-                "⚠️  Database migration failed. You may need to run:\n"
+                "⚠️  Database migration failed. The site schema is NOT migrated. You may need to run:\n"
                 f"  fm shell {bench.name} -- bench --site {bench.name} migrate",
             )
+            return False
+        else:
+            return True
 
     def _create_template_bench(self):
         """Create a template bench (minimal configuration without full site setup)."""
@@ -1211,11 +1241,13 @@ class BenchOrchestrator:
         bench.bench_config.alias_domains = updated_aliases
 
         try:
+            # An alias is only real once compose and nginx carry it, so bench_config.toml is
+            # written after the render succeeds. Nothing in that path reads the file back.
+            self._update_alias_domains_lightweight()
+
             self.output.change_head("Saving configuration")
             bench.save_bench_config()
             self.output.print("Configuration saved")
-
-            self._update_alias_domains_lightweight()
 
             if added_domains:
                 self.output.print("To add SSL certificates for new alias domains, use:", emoji_code="")
@@ -1224,9 +1256,16 @@ class BenchOrchestrator:
 
         except Exception as e:
             bench.bench_config.alias_domains = backup_aliases
+            # `ensure_fm_nginx_confs`, reached through generate_compose, writes the file on its
+            # own when it mints an auth password, so the restore is persisted rather than left
+            # as an in-memory assignment the next fm run reads straight past.
+            try:
+                bench.save_bench_config(print_message=False)
+            except Exception as restore_error:
+                self.logger.error(f"{bench.name}: failed to restore alias domains on disk: {restore_error}")
             self.output.stop()
             self.logger.error(f"Failed to update alias domains: {e}")
-            raise Exception(f"Failed to update alias domains: {e}")
+            raise Exception(f"Failed to update alias domains: {e}") from e
 
     def _update_alias_domains_lightweight(self):
         bench = self.bench

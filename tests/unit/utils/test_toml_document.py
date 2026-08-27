@@ -10,6 +10,10 @@ made a removed key actually disappear, so a merge that only ever adds would leav
 deleted tables on disk forever, and the migration would stop meaning anything.
 """
 
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
 import tomlkit
 
 from frappe_manager.metadata_manager import FMConfigManager
@@ -107,3 +111,59 @@ def test_a_new_scalar_does_not_fall_under_an_existing_table(tmp_path):
     text = tomlkit.dumps(doc)
     assert text.index("added") < text.index("[switch]")
     assert tomlkit.parse(text)["added"] == "V"
+
+
+def test_a_failed_save_leaves_the_previous_file_intact(tmp_path):
+    """The reason `save` exists. `open(path, "w")` truncates before `tomlkit.dumps` is evaluated, so
+    a serialisation error, a full disk or a Ctrl-C left a 425-byte bench_config.toml at 0 bytes with
+    no copy anywhere, and every later fm command on that bench died."""
+    path = tmp_path / "bench_config.toml"
+    path.write_text(_BENCH)
+    bc = BenchConfig.import_from_toml(path)
+
+    with patch("tomlkit.dumps", side_effect=RuntimeError("disk full")), pytest.raises(RuntimeError):
+        bc.export_to_toml(path)
+
+    assert path.read_text() == _BENCH
+    assert BenchConfig.import_from_toml(path).name == "x.localhost"
+
+
+def test_a_failed_save_leaves_no_temp_file_behind(tmp_path):
+    path = tmp_path / "bench_config.toml"
+    path.write_text(_BENCH)
+    bc = BenchConfig.import_from_toml(path)
+
+    with patch("tomlkit.dumps", side_effect=RuntimeError("disk full")), pytest.raises(RuntimeError):
+        bc.export_to_toml(path)
+
+    assert [p.name for p in tmp_path.iterdir()] == [path.name]
+
+
+def test_a_saved_file_is_not_world_readable(tmp_path):
+    """It holds DNS API tokens, a GitHub token and the basic-auth password. The temp file is created
+    0600 rather than chmod'd after the secrets are already on disk at the process umask."""
+    path = tmp_path / "bench_config.toml"
+
+    assert oct(Path(_saved(path, _BENCH) and path).stat().st_mode & 0o777) == "0o600"
+
+
+def test_a_key_fm_reads_but_never_writes_survives_a_save(tmp_path):
+    """`fm bake --config` persists `[[apps]]` and its docstring calls the file the source of truth;
+    `admin_pass` is what `fm info` shows for an attached site whose site_config.json has none. Both
+    are read by `import_from_toml` and absent from the dump, so the prune deleted them after exactly
+    one command."""
+    body = 'admin_pass = "kept"\n' + _BENCH + '\n[[apps]]\nname = "hrms"\nrepo = "frappe/hrms"\n'
+    text = _saved(tmp_path / "bench_config.toml", body)
+
+    assert "admin_pass" in text
+    assert "[[apps]]" in text
+    assert tomlkit.parse(text)["apps"][0]["name"] == "hrms"
+
+
+def test_a_kept_key_is_never_synthesised_when_absent(tmp_path):
+    """The other half: fm must not write a secret it did not mint, so a file without `admin_pass`
+    must not grow one just because the key is preserved when present."""
+    text = _saved(tmp_path / "bench_config.toml", _BENCH)
+
+    assert "admin_pass" not in text
+    assert "apps" not in text

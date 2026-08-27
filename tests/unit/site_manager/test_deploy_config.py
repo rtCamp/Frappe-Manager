@@ -68,7 +68,7 @@ def test_missing_deploy_keys_loads_as_mount(tmp_path):
 
 def test_image_deploy_roundtrip(tmp_path):
     path = tmp_path / "bench_config.toml"
-    assert _image_bench(path).export_to_toml(path) is True
+    _image_bench(path).export_to_toml(path)
 
     bc = BenchConfig.import_from_toml(path)
     assert bc.runtime == BenchRuntime.image

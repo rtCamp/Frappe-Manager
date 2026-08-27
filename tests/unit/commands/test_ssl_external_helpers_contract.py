@@ -995,6 +995,12 @@ def test_renew_all_forwards_positional_args_for_every_domain(h):
 
 
 def test_renew_all_warns_and_continues_when_one_domain_fails(h):
+    """Best effort across the fleet, then a nonzero exit.
+
+    The old assertions stopped at the warning and let the function return normally, which is the
+    defect: a cron-driven `fm ssl renew --standalone --all` reported success while certificates
+    expired. Every domain is still attempted; the failure is reported at the end.
+    """
     h.external_manager.list_domains.return_value = [
         SimpleNamespace(domain="a.example.com"),
         SimpleNamespace(domain="b.example.com"),
@@ -1002,22 +1008,67 @@ def test_renew_all_warns_and_continues_when_one_domain_fails(h):
 
     with patch(f"{MODULE}._renew_external_certificate") as one:
         one.side_effect = [RuntimeError("first failed"), None]
-        external_helpers._renew_all_external_certificates(h.ctx, dry_run=False)
+        with pytest.raises(typer.Exit) as exc:
+            external_helpers._renew_all_external_certificates(h.ctx, dry_run=False)
 
+    assert exc.value.exit_code == 1
     h.output.warning.assert_called_once_with("Failed to renew a.example.com: first failed")
     assert one.call_count == 2
+    h.output.display_error.assert_called_once_with("Failed to renew 1 of 2 certificate(s): a.example.com")
 
 
-def test_renew_all_swallows_typer_exit_from_a_single_domain(h):
-    """`typer.Exit` subclasses RuntimeError, so the per-domain guard catches it and the
-    warning shows the bare exit code rather than a message."""
+def test_renew_all_propagates_a_typer_exit_from_a_single_domain(h):
+    """`typer.Exit` subclasses RuntimeError, so a blanket `except Exception` used to catch it,
+    report the bare exit code as the reason and then return 0. It is now caught separately and
+    counted as a failure."""
     h.external_manager.list_domains.return_value = [SimpleNamespace(domain="a.example.com")]
 
     with patch(f"{MODULE}._renew_external_certificate") as one:
         one.side_effect = typer.Exit(1)
-        external_helpers._renew_all_external_certificates(h.ctx, dry_run=False)
+        with pytest.raises(typer.Exit) as exc:
+            external_helpers._renew_all_external_certificates(h.ctx, dry_run=False)
 
-    h.output.warning.assert_called_once_with("Failed to renew a.example.com: 1")
+    assert exc.value.exit_code == 1
+    reason = h.output.warning.call_args.args[0].split(":", 1)[1].strip()
+    assert reason
+    assert reason != "1"
+    h.output.display_error.assert_called_once_with("Failed to renew 1 of 1 certificate(s): a.example.com")
+
+
+def test_renew_all_real_error_message_survives_the_new_typer_exit_arm(h):
+    """The separate `except typer.Exit` must not shadow a genuine exception's message."""
+    h.external_manager.list_domains.return_value = [SimpleNamespace(domain="a.example.com")]
+
+    with patch(f"{MODULE}._renew_external_certificate") as one:
+        one.side_effect = OSError("acme.sh not found")
+        with pytest.raises(typer.Exit) as exc:
+            external_helpers._renew_all_external_certificates(h.ctx, dry_run=False)
+
+    assert exc.value.exit_code == 1
+    h.output.warning.assert_called_once_with("Failed to renew a.example.com: acme.sh not found")
+
+
+def test_renew_all_exits_zero_when_every_domain_succeeds(h):
+    h.external_manager.list_domains.return_value = [
+        SimpleNamespace(domain="a.example.com"),
+        SimpleNamespace(domain="b.example.com"),
+    ]
+
+    with patch(f"{MODULE}._renew_external_certificate"):
+        assert external_helpers._renew_all_external_certificates(h.ctx, dry_run=False) is None
+
+    h.output.display_error.assert_not_called()
+
+
+def test_renew_all_treats_a_domain_that_exited_zero_as_a_success(h):
+    """A `typer.Exit(0)` is a clean early return, not a failed certificate."""
+    h.external_manager.list_domains.return_value = [SimpleNamespace(domain="a.example.com")]
+
+    with patch(f"{MODULE}._renew_external_certificate") as one:
+        one.side_effect = typer.Exit(0)
+        assert external_helpers._renew_all_external_certificates(h.ctx, dry_run=False) is None
+
+    h.output.display_error.assert_not_called()
 
 
 # --------------------------------------------------------------------------------------

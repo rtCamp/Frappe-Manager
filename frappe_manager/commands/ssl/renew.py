@@ -17,15 +17,7 @@ from frappe_manager.utils.callbacks import prompt_for_bench_selection
 from .external_helpers import _renew_all_external_certificates, _renew_external_certificate
 from .helpers import get_output_handler
 
-ssl_renew_command = typer.Typer(no_args_is_help=True)
 
-# Ensure examples panel is installed for this sub-typer
-from typer_examples import install
-
-install(ssl_renew_command)
-
-
-@ssl_renew_command.command()
 @example(
     "Renew every certificate on a bench",
     "{benchname}",

@@ -1188,6 +1188,9 @@ class TestSwitchTargetTagResolution:
             "migrate_override": None,
             "restore_db_dump": None,
             "prune_keep": None,
+            # False because no --yes was passed: a restore that would overwrite fm's own global-db
+            # has to be confirmed, not just requested.
+            "restore_confirmed": False,
         }
 
     def test_rolling_and_keep_are_forwarded_to_the_orchestrator(self, ship):

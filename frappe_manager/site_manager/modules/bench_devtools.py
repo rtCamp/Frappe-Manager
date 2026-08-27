@@ -29,6 +29,7 @@ from frappe_manager.site_manager import (
 )
 from frappe_manager.site_manager.exceptions import (
     BenchAttachTocontainerFailed,
+    BenchFailedToInstallDevPackages,
     BenchFailedToRemoveDevPackages,
     BenchNotRunning,
 )
@@ -37,6 +38,13 @@ from frappe_manager.utils.helpers import capture_and_format_exception
 if TYPE_CHECKING:
     from frappe_manager.docker.compose_file import ComposeFile
     from frappe_manager.docker.docker_client import DockerClient
+
+
+def _pip_failure_message(summary: str, error: DockerException) -> str:
+    """pip's own output is the only thing that says WHY the packages failed, so it
+    travels with the message instead of dying with the DockerException."""
+    reason = "\n".join(error.output.combined).strip()
+    return f"{summary}\n{reason}" if reason else summary
 
 
 class BenchDevTools:
@@ -103,7 +111,12 @@ class BenchDevTools:
         try:
             self.docker_client.compose.exec("frappe", command=remove_command, user="frappe", stream=False)
         except DockerException as e:
-            raise BenchFailedToRemoveDevPackages(self.bench_name)
+            # `from e` so docker's own reason survives: without it the user is told only that
+            # dev packages failed, and the actual pip error is discarded.
+            raise BenchFailedToRemoveDevPackages(
+                self.bench_name,
+                _pip_failure_message("Not able pip uninstall dev packages.", e),
+            ) from e
         self.output.print("Removed dev packages from env")
 
     def install_dev_packages(self):
@@ -116,7 +129,12 @@ class BenchDevTools:
         try:
             self.docker_client.compose.exec("frappe", command=install_command, user="frappe", stream=False)
         except DockerException as e:
-            raise BenchFailedToRemoveDevPackages(self.bench_name)
+            # Install-specific: reporting a failed install as a failed REMOVAL sends the user
+            # looking for the wrong problem.
+            raise BenchFailedToInstallDevPackages(
+                self.bench_name,
+                _pip_failure_message("Not able pip install dev packages.", e),
+            ) from e
         self.output.print("Installed dev packages in env")
 
     def attach_to_bench(self, user: str, extensions: list[str], workdir: str, debugger: bool = False) -> None:

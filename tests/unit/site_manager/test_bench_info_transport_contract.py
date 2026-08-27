@@ -828,19 +828,20 @@ def test_delete_bench_warns_but_continues_when_certificate_removal_fails(tmp_pat
     bench.remove_containers_and_dirs.assert_called_once()
 
 
-def test_delete_bench_warns_twice_and_still_removes_when_db_deletion_fails(tmp_path):
-    """A failed DB drop must never strand the containers/directories."""
+def test_delete_bench_keeps_the_directory_when_db_deletion_fails(tmp_path):
+    """The old contract was the bug: the directory holds the only record of the schema name and its
+    password, so removing it after a failed drop orphans a database in global-db that can then only
+    be found by hand. It warned, deleted anyway, and returned True."""
     service = _service(tmp_path)
     bench = MagicMock()
     with (
         patch.object(BenchService, "get_bench", return_value=bench),
         patch.object(BenchService, "_handle_database_deletion", side_effect=RuntimeError("db gone")),
+        pytest.raises(BenchException, match="Database deletion failed"),
     ):
-        assert service.delete_bench("a.localhost", yes=True) is True
+        service.delete_bench("a.localhost", yes=True)
 
-    warnings = [c.args[0] for c in service.output.warning.call_args_list]
-    assert warnings == ["Database deletion failed: db gone", "Continuing with bench removal..."]
-    bench.remove_containers_and_dirs.assert_called_once()
+    bench.remove_containers_and_dirs.assert_not_called()
 
 
 def test_delete_bench_falls_back_to_the_cleanup_bench_when_the_config_is_missing(tmp_path):

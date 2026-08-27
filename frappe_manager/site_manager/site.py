@@ -19,6 +19,7 @@ from frappe_manager.site_manager.bench_config import AuthConfig, BenchConfig, Da
 from frappe_manager.site_manager.exceptions import (
     BenchException,
     BenchRemoveDirectoryError,
+    BenchServiceNotRunning,
 )
 from frappe_manager.site_manager.modules.bench_admin_tools import BenchAdminTools
 from frappe_manager.site_manager.modules.bench_app import BenchAppManager
@@ -43,6 +44,47 @@ from frappe_manager.utils.helpers import (
     save_dict_to_file,
 )
 from frappe_manager.utils.site import domain_level
+
+
+def orphaned_database_error(bench: "Bench", cause: Exception) -> BenchException:
+    """The refusal raised when a bench's schema could not be dropped.
+
+    Removing the bench directory after a failed drop destroys `bench_config.toml` and
+    `sites/<site>/site_config.json`, which hold the only record of the schema name and its
+    password, so the schema left behind in global-db can afterwards only be found by hand.
+    The directory stays put and the operator is handed the statements that finish the job.
+    """
+    try:
+        db_info = bench.get_db_connection_info()
+    except Exception:
+        db_info = {}
+
+    db_name = db_info.get("name")
+    db_user = db_info.get("user")
+
+    lines = [
+        f"Database deletion failed: {cause}",
+        "",
+        f"The bench directory was kept at {bench.path}: it carries the only record of the schema,",
+        "so removing it now would leave a database in global-db that nothing points at.",
+        "",
+    ]
+
+    if db_name and db_user:
+        lines += [
+            "Drop it on global-db, then delete the bench again:",
+            f"  DROP DATABASE IF EXISTS `{db_name}`;",
+            f"  DROP USER IF EXISTS '{db_user}'@'%';",
+            f"  fm delete {bench.name} --yes --no-delete-db-from-global-db",
+        ]
+    else:
+        site_config = bench.path / "workspace" / "frappe-bench" / "sites" / bench.name / "site_config.json"
+        lines += [
+            f"The schema name could not be read from {site_config}. Find it there, or in global-db,",
+            f"drop it, then run: fm delete {bench.name} --yes --no-delete-db-from-global-db",
+        ]
+
+    return BenchException(bench.name, message="\n".join(lines))
 
 
 class Bench:
@@ -119,7 +161,7 @@ class Bench:
         link_manager = CertificateLinkManager(ssl_storage_config)
 
         def certificate_service_factory(cert, storage_cfg, output_handler):
-            # bench_config is what makes this bench's `[ssl.dns_challenge_providers]` reachable at
+            # bench_config is what makes this bench's `[ssl.dns_providers]` reachable at
             # issuance and renewal; the standalone factory in commands/ssl/external_helpers.py has
             # no bench and correctly passes nothing.
             return create_certificate_service(cert, storage_cfg, output_handler, self.bench_config)
@@ -900,10 +942,11 @@ class Bench:
             else:
                 ops = self._docker_ops_for_service(service)
                 if not ops._is_service_running(service):  # noqa: SLF001
-                    self.output.display_error(
-                        f"Cannot show logs. [fm.info]{self.name}[/fm.info]'s compose service '{service}' not running!",
-                    )
-                    return
+                    # Raise, do not print-and-return: `fm logs BENCH --service nginx` printed this
+                    # error and still exited 0, so a script could not tell empty logs from a
+                    # container that was never up. `fm shell` already exits 1 for this exact
+                    # condition, so the two disagreed.
+                    raise BenchServiceNotRunning(self.name, service)
                 ops.logs(services=[service], follow=follow)
 
         except KeyboardInterrupt:
@@ -977,8 +1020,9 @@ class Bench:
                 try:
                     self._handle_database_deletion(delete_db_from_global_db)
                 except Exception as e:
-                    self.output.warning(f"Database deletion failed: {e!s}")
-                    self.output.warning("Continuing with bench removal...")
+                    # Deliberately fatal: continuing to remove_containers_and_dirs() destroyed the
+                    # only record of the schema that is still there. See orphaned_database_error.
+                    raise orphaned_database_error(self, e) from e
 
                 self.remove_containers_and_dirs()
 
@@ -1321,7 +1365,8 @@ class Bench:
 
     def ensure_fm_nginx_confs(self) -> None:
         """Materialize the fm-managed bench nginx confs, reloading once when
-        anything changed (graceful; no-op when nginx is not up yet).
+        anything changed. A no-op when nginx is not up yet; a reload nginx REJECTED
+        raises, because the files on disk then describe a state the server is not in.
 
         Only runtime-dependent config lives here. The JSON access-log format is
         static and ships in the nginx image template instead.
@@ -1414,10 +1459,26 @@ class Bench:
                 pass
 
         if changed:
+            # The confs and the htpasswd are already on disk, so a reload that did not happen
+            # leaves nginx serving the PREVIOUS config: for `fm auth --protect` that means the
+            # site keeps answering unauthenticated while the command reports it protected. The
+            # two failure shapes differ and only one of them is a live problem.
             try:
-                self.bench_nginx_controller.reload()
-            except Exception:
-                pass
+                reloaded = self.bench_nginx_controller.reload()
+            except Exception as e:
+                # nginx is up and rejected the new config, so it is still serving the old one.
+                raise BenchException(
+                    self.name,
+                    message=f"nginx rejected the updated configuration and is still serving the previous one: {e}",
+                ) from e
+
+            if not reloaded:
+                # The nginx container is not running, so nothing is being served with the stale
+                # config; the files are in place and apply when it next starts.
+                self.logger.debug(
+                    f"Bench nginx is not running; fm nginx confs apply on next start: {self.name}",
+                    extra_fields={"operation": "nginx_confs_ensure", "bench_name": self.name},
+                )
 
     def _parse_size_to_bytes(self, size_str: str) -> int:
         """

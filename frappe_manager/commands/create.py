@@ -190,6 +190,7 @@ def _build_overlay_bench_config(
     newrelic_license_key: str | None,
     runtime: BenchRuntime | None,
     base_image: str | None,
+    seed_image: str | None = None,
     db_name: str,
     explicit: set[str],
 ) -> tuple[BenchConfig, bool]:
@@ -251,6 +252,12 @@ def _build_overlay_bench_config(
             newrelic_config.license_key = newrelic_license_key
         monitoring.newrelic = newrelic_config
         bc.monitoring = monitoring
+    if "seed_image" in explicit:
+        # Same precedence as every other flag here. Without this the seed was silently dropped on
+        # the --config path and the bench cloned and installed its apps from scratch instead.
+        if seed_image:
+            _validate_seed_image(seed_image, bc.runtime)
+        bc.seed_image = seed_image
     if not bc.db_name:
         bc.db_name = db_name
 
@@ -828,6 +835,7 @@ def create(
                 "newrelic_license_key",
                 "runtime",
                 "base_image",
+                "seed_image",
                 "apps",
             )
             if ctx.get_parameter_source(name)
@@ -851,6 +859,7 @@ def create(
                 newrelic_license_key=newrelic_license_key,
                 runtime=runtime,
                 base_image=base_image,
+                seed_image=seed_image,
                 db_name=global_db_name,
                 explicit=explicit,
             )

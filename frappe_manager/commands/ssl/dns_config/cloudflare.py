@@ -19,7 +19,7 @@ from ..dns_helpers import _configure_dns_credentials, _remove_dns_credentials, _
 @example(
     "Store a second account under a label",
     "--api-token cf_ZyXwVu0987654321 --name acct-b",
-    detail="Labelled sets go to [ssl.dns_challenge_providers.acct-b]; bind one with fm ssl add BENCH DOMAIN --challenge dns01 --dns-provider acct-b.",
+    detail="Labelled sets go to [ssl.dns_providers.acct-b]; bind one with fm ssl add BENCH DOMAIN --challenge dns01 --dns-provider acct-b.",
 )
 @example(
     "Override the token for one bench",

@@ -89,7 +89,7 @@ def test_toml_roundtrip_preserves_the_database_entry_and_redis(tmp_path):
         database={_SITE: _db(user="app_svc", ca="/host/rds-bundle.pem", check_hostname=False)},
         redis=RedisConfig(cache="redis://r.example:6379/0", queue="redis://r.example:6379/1"),
     )
-    assert bc.export_to_toml(path) is True
+    bc.export_to_toml(path)
 
     # Site names carry dots, so the table key has to survive quoting.
     assert '[database."x.localhost"]' in path.read_text()
@@ -109,7 +109,7 @@ def test_toml_roundtrip_preserves_the_database_entry_and_redis(tmp_path):
 def test_absent_user_is_not_written_and_login_user_falls_back_to_name(tmp_path):
     path = tmp_path / "bench_config.toml"
     bc = _bc(tmp_path, database={_SITE: _db()})
-    assert bc.export_to_toml(path) is True
+    bc.export_to_toml(path)
     assert "user =" not in path.read_text()
 
     entry = BenchConfig.import_from_toml(path).get_database_config()
@@ -130,7 +130,7 @@ def test_runtime_only_credentials_are_never_persisted(tmp_path):
         attach_existing_site=True,
         encryption_key="enc-key-77c",
     )
-    assert bc.export_to_toml(path) is True
+    bc.export_to_toml(path)
     text = path.read_text()
 
     for field in _RUNTIME_ONLY:

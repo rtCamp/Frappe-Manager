@@ -88,9 +88,13 @@ def cli_entrypoint():
 
         output.display_error(f"[fm.error]Error Occurred[/fm.error] {str(e).strip()}")
 
-        # Show details if available
-        if e.details:
-            output.display_error(f"Details: {e.details}")
+        # getattr, not e.details: this is the last handler standing, so it must not raise on an
+        # exception whose __init__ never reached FrappeManagerException. When it did raise, the
+        # AttributeError escaped cli_entrypoint and the user got a traceback INSTEAD of the log
+        # line below, so nothing was recorded anywhere.
+        details = getattr(e, "details", None)
+        if details:
+            output.display_error(f"Details: {details}")
 
         output.print(f"More info about error is logged in {CLI_LOG_DIRECTORY / 'fm.log'}", emoji_code=":mag:")
         output.stop()

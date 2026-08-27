@@ -230,7 +230,7 @@ def test_auth_defaults_to_none_and_writes_no_table(tmp_path):
     path = tmp_path / "bench_config.toml"
     bc = _bench(path)
     assert bc.auth is None
-    assert bc.export_to_toml(path) is True
+    bc.export_to_toml(path)
     assert "[auth]" not in path.read_text()
 
 
@@ -247,7 +247,7 @@ def test_auth_survives_the_toml_round_trip(tmp_path):
             allow_paths=["/api/method/ping"],
         ),
     )
-    assert bc.export_to_toml(path) is True
+    bc.export_to_toml(path)
     assert "[auth]" in path.read_text()
 
     reloaded = BenchConfig.import_from_toml(path)
@@ -262,7 +262,7 @@ def test_auth_survives_the_toml_round_trip(tmp_path):
 
 def test_unset_password_is_absent_rather_than_empty(tmp_path):
     path = tmp_path / "bench_config.toml"
-    assert _bench(path, AuthConfig(web=True)).export_to_toml(path) is True
+    _bench(path, AuthConfig(web=True)).export_to_toml(path)
     # An empty string would round-trip as a real (blank) password and be written
     # into the htpasswd file instead of triggering generation on first enable.
     assert 'password = ""' not in path.read_text()

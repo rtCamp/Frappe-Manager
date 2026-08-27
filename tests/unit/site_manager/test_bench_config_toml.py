@@ -86,7 +86,7 @@ class TestDeployStateImportGuard:
         bc = _import(tmp_path, _BASE + _DEPLOY_STATE)
 
         out = tmp_path / "out.toml"
-        assert bc.export_to_toml(out) is True
+        bc.export_to_toml(out)
         reimported = BenchConfig.import_from_toml(out)
 
         assert isinstance(reimported.deploy_state, DeployState)
@@ -142,7 +142,7 @@ class TestCreateTimeOnlyFieldsAreNeverSerialized:
         bc = self._config(tmp_path)
         out = tmp_path / "out.toml"
 
-        assert bc.export_to_toml(out) is True
+        bc.export_to_toml(out)
         text = out.read_text()
         assert "db_password_generated" not in text
         assert "generated-secret" not in text
@@ -192,7 +192,7 @@ class TestDelegatedCertificateSurvivesTheTomlBoundary:
         bc = _import(tmp_path, _BASE + _DELEGATED_CERT)
 
         out = tmp_path / "out.toml"
-        assert bc.export_to_toml(out) is True
+        bc.export_to_toml(out)
         assert 'delegation_cname = "a-gg-com.fm.gw"' in out.read_text()
 
         assert BenchConfig.import_from_toml(out).ssl_certificates[0].delegation_cname == "a-gg-com.fm.gw"
@@ -220,7 +220,7 @@ class TestCertificateVariantSelection:
         bc = _import(tmp_path, _BASE + text)
 
         out = tmp_path / "out.toml"
-        assert bc.export_to_toml(out) is True
+        bc.export_to_toml(out)
 
         assert "c.gg.com" not in out.read_text()
         assert BenchConfig.import_from_toml(out).ssl_certificates == []
@@ -257,7 +257,7 @@ class TestPreMigrationCertificateEntry:
         bc = _import(tmp_path, _BASE + self._pre_migration_toml())
 
         out = tmp_path / "out.toml"
-        assert bc.export_to_toml(out) is True
+        bc.export_to_toml(out)
         text = out.read_text()
 
         for key in RETIRED_CERTIFICATE_KEYS:
@@ -272,11 +272,11 @@ class TestPreMigrationCertificateEntry:
         only be trusted if this cycle is stable.
         """
         first = tmp_path / "first.toml"
-        assert _import(tmp_path, _BASE + self._pre_migration_toml()).export_to_toml(first) is True
+        _import(tmp_path, _BASE + self._pre_migration_toml()).export_to_toml(first)
 
         reloaded = BenchConfig.import_from_toml(first)
         second = tmp_path / "second.toml"
-        assert reloaded.export_to_toml(second) is True
+        reloaded.export_to_toml(second)
 
         assert second.read_text() == first.read_text()
         assert reloaded.ssl_certificates[0].model_dump() == {

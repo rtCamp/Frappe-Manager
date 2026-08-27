@@ -94,7 +94,7 @@ def restart(
         bool,
         typer.Option(
             "--rolling",
-            help="Zero-downtime recreate of the web tier on the current image tag; image benches only.",
+            help="Zero-downtime recreate of the web tier on the current image tag; image benches only. Web-only, so it conflicts with --redis, --nginx and --no-web.",
             rich_help_panel=_PANEL_CARE,
         ),
     ] = False,
@@ -153,6 +153,37 @@ def restart(
                 exception=typer.Exit(code=1),
             )
 
+    # --rolling swaps the web containers and, at most, cycles the workers afterwards: its branch
+    # returns before the redis, nginx and web legs below, so a scope flag it cannot honour is
+    # refused here instead of being silently dropped.
+    if rolling:
+        if redis:
+            output.error(
+                "--redis cannot be combined with --rolling (the rolling swap only replaces web containers; "
+                "bounce redis in its own run: fm restart <bench> --redis --no-web --no-workers)",
+                exception=typer.Exit(code=1),
+            )
+        if nginx:
+            output.error(
+                "--nginx cannot be combined with --rolling (the rolling swap only replaces web containers; "
+                "restart nginx in its own run: fm restart <bench> --nginx --no-web --no-workers)",
+                exception=typer.Exit(code=1),
+            )
+        if not web:
+            output.error(
+                "--no-web cannot be combined with --rolling (--rolling IS the zero-downtime web restart)",
+                exception=typer.Exit(code=1),
+            )
+
+    # Nothing selected is a usage error, not a successful no-op: it used to restart nothing, skip the
+    # server health check and exit 0. --service replaces the group flags, so it is exempt.
+    if not service and not (web or workers or redis or nginx):
+        output.error(
+            "--no-web with --no-workers leaves nothing to restart: add --redis or --nginx, "
+            "or name a service with --service",
+            exception=typer.Exit(code=1),
+        )
+
     # Targeted restarts are surgical and force means kill-fast: both imply no drain.
     if force or service:
         drain = False
@@ -160,7 +191,6 @@ def restart(
     check_bench_migration_required(benchname)
 
     services_manager = ctx.obj["services"]
-    verbose = ctx.obj["verbose"]
 
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 

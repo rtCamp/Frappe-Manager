@@ -39,12 +39,16 @@ def test_deploy_state_roundtrip(tmp_path):
         previous_tag="local/x:20260720-def",
         last_deploy_at="2026-07-21T10:00:00+00:00",
         history=[
-            DeployStateEntry(tag="local/x:20260720-def", deployed_at="2026-07-20T09:00:00+00:00", migrate_status="migrated"),
-            DeployStateEntry(tag="local/x:20260721-abc", deployed_at="2026-07-21T10:00:00+00:00", migrate_status="skipped"),
+            DeployStateEntry(
+                tag="local/x:20260720-def", deployed_at="2026-07-20T09:00:00+00:00", migrate_status="migrated"
+            ),
+            DeployStateEntry(
+                tag="local/x:20260721-abc", deployed_at="2026-07-21T10:00:00+00:00", migrate_status="skipped"
+            ),
         ],
     )
 
-    assert bc.export_to_toml(path) is True
+    bc.export_to_toml(path)
 
     reloaded = BenchConfig.import_from_toml(path)
     assert reloaded.deploy_state is not None
@@ -62,7 +66,7 @@ def test_deploy_state_absent_roundtrip(tmp_path):
     # A bench without deploy_state must round-trip with deploy_state None.
     path = tmp_path / "bench_config.toml"
     bc = _image_bench(path)
-    assert bc.export_to_toml(path) is True
+    bc.export_to_toml(path)
     reloaded = BenchConfig.import_from_toml(path)
     assert reloaded.deploy_state is None
 
@@ -85,7 +89,7 @@ def test_deploy_state_backup_roundtrip(tmp_path):
             ),
         ],
     )
-    assert bc.export_to_toml(path) is True
+    bc.export_to_toml(path)
     reloaded = BenchConfig.import_from_toml(path)
     assert reloaded.deploy_state.history[0].backup is None  # old entries tolerate absence
     assert reloaded.deploy_state.history[1].backup == "/benches/x/backups/deploy-20260721/db-fm_x.sql"

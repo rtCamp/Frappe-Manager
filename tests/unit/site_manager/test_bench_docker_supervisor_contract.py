@@ -44,7 +44,7 @@ from frappe_manager.site_manager.bench_config import (
     MonitoringConfig,
     NewRelicConfig,
 )
-from frappe_manager.site_manager.exceptions import BenchOperationException
+from frappe_manager.site_manager.exceptions import BenchOperationException, BenchServiceNotRunning
 from frappe_manager.site_manager.modules.bench_docker import BenchDockerOps
 from frappe_manager.site_manager.modules.bench_supervisor import BenchSupervisor
 from frappe_manager.site_manager.modules.compose_shape import ServiceSpec
@@ -984,13 +984,15 @@ class TestGuardsThatRefuseAnAction:
 
     @pytest.mark.timeout(15)
     def test_logs_refuses_for_a_service_that_is_not_running(self, tmp_path):
+        """Raises rather than printing and returning: `fm logs BENCH --service X` exited 0 after
+        saying it could show nothing, so a caller could not tell empty logs from a dead container."""
         ops = _ops(tmp_path)
         ops.docker_client.compose.get_all_services_status.return_value = []
 
-        ops.logs(services=["frappe"])
+        with pytest.raises(BenchServiceNotRunning, match="frappe"):
+            ops.logs(services=["frappe"])
 
         ops.docker_client.compose.logs.assert_not_called()
-        ops.output.display_error.assert_called_once_with("Cannot show logs. Service 'frappe' not running!")
 
     @pytest.mark.timeout(15)
     def test_logs_for_all_services_skips_the_running_check(self, tmp_path):

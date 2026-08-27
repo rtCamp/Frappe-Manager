@@ -1624,6 +1624,26 @@ class TestSetupEnvironmentsPython:
 
         assert _said(manager.output.print, "(Frappe requires: >=3.10,<3.14)")
 
+    def test_frappes_requirement_is_read_under_the_bench_dir_not_the_config_file(self, tmp_path):
+        """In production ``bench_config.root_path`` is the bench_config.toml FILE, not the bench
+        directory (``create.py`` and ``bench_service.py`` both pass the file, and
+        ``import_from_toml`` sets it to the path it read). Deriving the frappe app path from it
+        looks under ``<bench>/bench_config.toml/workspace/...``, which can never exist, so the
+        annotation silently disappears. The lookup must go through ``frappe_bench_dir``."""
+        frappe_bench = _bench_layout(tmp_path)
+        (frappe_bench / "apps" / "frappe").mkdir()
+        (frappe_bench / "apps" / "frappe" / "pyproject.toml").write_text(
+            '[project]\nrequires-python = ">=3.10,<3.14"\n',
+        )
+        manager = _manager(tmp_path)
+        manager.bench_config.root_path = tmp_path / "bench_config.toml"
+        manager.bench_config.python_version = ">=3.10,<3.14"
+        _script(manager, [(PY_VERSION_CMD, _output(["Python 3.12.4"]))])
+
+        manager.setup_python_and_node_environments()
+
+        assert _said(manager.output.print, "(Frappe requires: >=3.10,<3.14)")
+
     def test_an_unsatisfied_requirement_reuses_the_newest_installed_interpreter(self, tmp_path):
         manager = _manager(tmp_path)
         manager.bench_config.python_version = "^3.13"
@@ -1799,6 +1819,20 @@ class TestSetupEnvironmentsNode:
         (frappe_bench / "apps" / "frappe").mkdir()
         (frappe_bench / "apps" / "frappe" / "package.json").write_text('{"engines": {"node": ">=18"}}')
         manager = _manager(tmp_path)
+        manager.bench_config.node_version = ">=18"
+        _script(manager, [("node --version", _output(["v20.11.1"]))])
+
+        manager.setup_python_and_node_environments()
+
+        assert _said(manager.output.print, "(Frappe requires: >=18)")
+
+    def test_frappes_engine_range_is_read_under_the_bench_dir_not_the_config_file(self, tmp_path):
+        """Same production shape as the Python side: ``root_path`` is the config FILE."""
+        frappe_bench = _bench_layout(tmp_path)
+        (frappe_bench / "apps" / "frappe").mkdir()
+        (frappe_bench / "apps" / "frappe" / "package.json").write_text('{"engines": {"node": ">=18"}}')
+        manager = _manager(tmp_path)
+        manager.bench_config.root_path = tmp_path / "bench_config.toml"
         manager.bench_config.node_version = ">=18"
         _script(manager, [("node --version", _output(["v20.11.1"]))])
 

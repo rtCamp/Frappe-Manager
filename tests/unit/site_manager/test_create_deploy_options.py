@@ -131,7 +131,7 @@ def test_created_image_bench_persists_deploy_fields(tmp_path):
         base_image=base_image,
         deploy_state=DeployState(current_tag=current_tag),
     )
-    assert bc.export_to_toml(path) is True
+    bc.export_to_toml(path)
 
     reloaded = BenchConfig.import_from_toml(path)
     assert reloaded.runtime == BenchRuntime.image
@@ -154,7 +154,7 @@ def test_created_mount_bench_persists_base_image(tmp_path):
         image=image_repo,
         base_image=base_image,
     )
-    assert bc.export_to_toml(path) is True
+    bc.export_to_toml(path)
 
     reloaded = BenchConfig.import_from_toml(path)
     assert reloaded.runtime == BenchRuntime.mount

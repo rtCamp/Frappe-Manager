@@ -251,7 +251,14 @@ def bake(
     output = get_global_output_handler()
 
     apps_config = cast("list[AppConfig]", apps)
-    standalone = benchname is None and (bool(apps_config) or bool(config))
+
+    if benchname is None and not (apps_config or config):
+        # Falling through to sitename_callback here would open the interactive bench picker and
+        # bake whatever bench it lands on, instead of refusing a usage error.
+        output.display_error("Standalone bake needs apps: pass --apps or a --config providing \\[\\[apps]].")
+        raise typer.Exit(1)
+
+    standalone = benchname is None
 
     if standalone:
         try:

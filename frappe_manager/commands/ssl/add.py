@@ -63,7 +63,7 @@ def add_certificate(
         str | None,
         typer.Option(
             "--dns-provider",
-            help="Label of the \\[ssl.dns_challenge_providers] credential set that authenticates this domain, from fm ssl dns-config cloudflare --name. Omit for the default account. dns01 only.",
+            help="Label of the \\[ssl.dns_providers] credential set that authenticates this domain, from fm ssl dns-config cloudflare --name. Omit for the default account. dns01 only.",
         ),
     ] = None,
     dry_run: Annotated[
@@ -118,6 +118,24 @@ def add_certificate(
     if dns_provider and standalone:
         output = get_output_handler(ctx)
         output.display_error("--dns-provider is bench mode only; external domains use the default DNS credentials")
+        raise typer.Exit(1)
+
+    # Both of these steer the standalone branch's DNS pre-check. The bench branch has no such
+    # pre-check to skip or poll, and _add_bench_certificate takes neither, so accepting them here
+    # would drop them without a word.
+    if skip_dns_check and not standalone:
+        output = get_output_handler(ctx)
+        output.display_error(
+            "--skip-dns-check is --standalone only; a bench certificate is issued without a DNS pre-check, "
+            "so there is nothing to skip"
+        )
+        raise typer.Exit(1)
+
+    if wait_for_dns and not standalone:
+        output = get_output_handler(ctx)
+        output.display_error(
+            "--wait-for-dns is --standalone only; a bench certificate is issued without waiting on DNS propagation"
+        )
         raise typer.Exit(1)
 
     if standalone:

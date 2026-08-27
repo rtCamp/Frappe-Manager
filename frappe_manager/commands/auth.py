@@ -116,7 +116,7 @@ def auth(
         bool,
         typer.Option(
             "--status",
-            help="Report which surfaces are protected, with the credentials and allow lists. Writes nothing.",
+            help="Report which surfaces are protected, with the credentials and allow lists while a surface is protected. Writes nothing.",
         ),
     ] = False,
     user: Annotated[

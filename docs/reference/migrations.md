@@ -112,8 +112,8 @@ Unless you skip them, backups are taken **per migration version** immediately be
 !!! info "Timestamp format"
     `DD-Mon-YY--HH-MM-SS`, for example `12-Apr-26--14-30-45`. Collisions within one run get microseconds appended.
 
-!!! warning "`fm_config.toml` is not backed up"
-    FM rewrites the version in `fm_config.toml` in place and rewinds it on rollback. There is no copy in the backup directory.
+!!! warning "`fm_config.toml` is backed up only when a step rewrites it"
+    FM rewrites the version in `fm_config.toml` in place and rewinds it on rollback, without taking a copy. A step that reshapes the file does take one: v0.20.0's DNS-credential relocation backs it up before rewriting and restores it on rollback, so look for it under that run's backup directory.
 
 ---
 

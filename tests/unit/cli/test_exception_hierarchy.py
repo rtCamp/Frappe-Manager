@@ -22,6 +22,7 @@ exception added tomorrow is covered without anyone remembering to come back here
 
 import ast
 import importlib
+import inspect
 from pathlib import Path
 
 import pytest
@@ -110,7 +111,10 @@ class TestTheHandlerContractHolds:
         the arm that is supposed to be the clean one.
 
         Checked at source level because these constructors take domain-specific arguments
-        (a compose path, a service list, a challenge name) and cannot be called generically.
+        (a compose path, a service list, a challenge name) and cannot all be called generically.
+        An explicit `Base.__init__(self, ...)` counts: `BenchNotFoundError` has to use that form
+        because `super()` follows the MRO into `OSError`. The runtime test below is what actually
+        proves the call lands.
         """
         offenders = []
         for path in sorted(PACKAGE.rglob("*.py")):
@@ -122,14 +126,46 @@ class TestTheHandlerContractHolds:
                 own_init = next((c for c in node.body if isinstance(c, ast.FunctionDef) and c.name == "__init__"), None)
                 if own_init is None:
                     continue
-                calls_super = any(
-                    isinstance(c, ast.Call) and "super" in ast.unparse(c.func) and "__init__" in ast.unparse(c.func)
+                delegates = any(
+                    isinstance(c, ast.Call)
+                    and ast.unparse(c.func).endswith(".__init__")
+                    and ("super" in ast.unparse(c.func) or (c.args and ast.unparse(c.args[0]) == "self"))
                     for c in ast.walk(own_init)
                 )
-                if not calls_super:
+                if not delegates:
                     offenders.append(f"{path}:{own_init.lineno} {node.name}.__init__")
 
         assert offenders == [], "these never reach FrappeManagerException.__init__:\n" + "\n".join(offenders)
+
+    def test_every_constructible_exception_really_has_details(self):
+        """The runtime form of the rule above, and the only form that catches an MRO diversion.
+
+        The source check cannot. `BenchNotFoundError` textually called `super().__init__(name, path)`
+        and satisfied it for a whole release, while `FileNotFoundError` preceding `BenchException` in
+        its MRO sent that call to `OSError.__init__`, which reads two positional arguments as
+        (errno, strerror). So `.details` was never set, the bench name rendered as a bogus
+        "[Errno nope.localhost]" prefix, and `main.py`'s clean arm died with an AttributeError on
+        every "bench not found" -- the single most common error in the CLI.
+        """
+        checked, missing = 0, []
+        for name, cls in EXCEPTIONS:
+            try:
+                params = [p for n, p in inspect.signature(cls.__init__).parameters.items() if n != "self"]
+                required = [
+                    "x"
+                    for p in params
+                    if p.default is inspect.Parameter.empty
+                    and p.kind not in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD)
+                ]
+                error = cls(*required)
+            except Exception:  # noqa: S112 -- nothing to log: a constructor we cannot synthesise
+                continue  # domain-specific arguments; the source-level check above covers it
+            checked += 1
+            if not hasattr(error, "details"):
+                missing.append(name)
+
+        assert checked > 30, f"expected most exceptions to be constructible, only built {checked}"
+        assert missing == [], "these do not reach FrappeManagerException.__init__ at runtime:\n" + "\n".join(missing)
 
     def test_the_base_defaults_details_to_an_empty_mapping(self):
         assert FrappeManagerException("boom").details == {}

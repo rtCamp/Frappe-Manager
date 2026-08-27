@@ -27,7 +27,7 @@ def update(
     An install already ahead of PyPI, such as a dev or pre-release build, is reported as up to date and left alone: fm is never downgraded under benches whose on-disk state a newer fm wrote.
     """
     output = get_global_output_handler()
-    output.change_head("Checking for udpates")
+    output.change_head("Checking for updates")
     url = "https://pypi.org/pypi/frappe-manager/json"
     try:
         update_info = requests.get(url, timeout=2)

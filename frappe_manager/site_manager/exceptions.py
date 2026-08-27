@@ -51,7 +51,13 @@ class BenchNotFoundError(FileNotFoundError, BenchException):
         self.bench_name = bench_name
         self.path = path
         self.message = message.format(self.path)
-        super().__init__(self.bench_name, self.message)
+        # Chain explicitly, NOT via super(). `FileNotFoundError` precedes `BenchException` in
+        # the MRO, so `super().__init__(name, message)` reaches `OSError.__init__`, which reads
+        # two positional args as (errno, strerror) and renders the bench name as a bogus
+        # "[Errno nope.localhost]" prefix. It also skips `FrappeManagerException.__init__`
+        # entirely, leaving no `.details`, which the top-level handler in main.py reads -- so
+        # every "bench not found" ended in an AttributeError traceback and logged nothing.
+        BenchException.__init__(self, self.bench_name, self.message)
 
 
 class BenchRemoveDirectoryError(BenchException):
@@ -156,6 +162,15 @@ class BenchFailedToRemoveDevPackages(BenchException):
     """Raised when pip uninstall of development packages fails."""
 
     def __init__(self, bench_name, message="Not able pip uninstall dev packages."):
+        self.bench_name = bench_name
+        self.message = message
+        super().__init__(self.bench_name, self.message)
+
+
+class BenchFailedToInstallDevPackages(BenchException):
+    """Raised when pip install of development packages fails."""
+
+    def __init__(self, bench_name, message="Not able pip install dev packages."):
         self.bench_name = bench_name
         self.message = message
         super().__init__(self.bench_name, self.message)

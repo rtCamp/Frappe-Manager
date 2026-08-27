@@ -577,9 +577,27 @@ def _renew_all_external_certificates(ctx: typer.Context, dry_run: bool, force: b
 
     output.change_head(f"Renewing {len(external_domains)} external certificate(s)")
 
+    failed: list[str] = []
+
     for domain_config in external_domains:
         domain = domain_config.domain
         try:
             _renew_external_certificate(ctx, domain, dry_run, force)
+        except typer.Exit as e:
+            # _renew_external_certificate has already printed the real reason and signalled
+            # failure with `raise typer.Exit(1)`. click.exceptions.Exit carries no message, so
+            # `str(e)` is empty -- catching it here as Exception printed a bare "Failed to
+            # renew <domain>: " and, worse, swallowed the nonzero exit.
+            if e.exit_code == 0:
+                continue
+            output.warning(f"Failed to renew {domain}: renewal exited with code {e.exit_code} (reason reported above)")
+            failed.append(domain)
         except Exception as e:
             output.warning(f"Failed to renew {domain}: {e}")
+            failed.append(domain)
+
+    if failed:
+        output.display_error(
+            f"Failed to renew {len(failed)} of {len(external_domains)} certificate(s): {', '.join(failed)}"
+        )
+        raise typer.Exit(1)

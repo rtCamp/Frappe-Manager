@@ -167,7 +167,11 @@ def bench_config_example() -> str:
         lines += _scalar_lines(name, field)
 
     lines += ["", "# ---- [[apps]] " + "-" * (WRAP - 15), ""]
-    lines += _comment("Apps installed in this bench, in install order.")
+    lines += _comment(
+        "Apps installed in this bench, in install order. fm READS this array but never writes it: "
+        "the list it maintains comes from the container. `fm create --config` and `fm bake --config` "
+        "supply it, and a copy persisted here is preserved across saves rather than pruned."
+    )
     lines.append("# [[apps]]")
     for name, field in AppConfig.model_fields.items():
         if field.exclude:
