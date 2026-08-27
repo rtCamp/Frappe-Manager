@@ -50,12 +50,28 @@ DYNAMIC_OR_INDIRECT: dict[str, str] = {
 
 
 def _model_fields() -> list[tuple[str, str]]:
+    """Every pydantic field a config model declares, as (class, field).
+
+    AST rather than a text scan, for the same reason ``_attribute_names_read`` is: a regex sweeping
+    from ``class X`` to the next ``class `` swallows any module-level function declared in between,
+    and that function's annotated parameters then read as fields of the preceding model. The result
+    is a phantom entry this file demands a justification for. A declaration is an ``AnnAssign`` in a
+    ``ClassDef`` body and nothing else is, so ask the tree.
+    """
     out: list[tuple[str, str]] = []
     for source in CONFIG_SOURCES:
-        src = source.read_text()
-        for name, body in re.findall(r"class (\w+)\(BaseModel\):(.*?)(?=\nclass |\Z)", src, re.S):
-            for field in re.findall(r"^    ([a-z_][a-z0-9_]*)\s*:", body, re.M):
-                out.append((name, field))
+        tree = ast.parse(source.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.ClassDef):
+                continue
+            if not any(isinstance(base, ast.Name) and base.id == "BaseModel" for base in node.bases):
+                continue
+            for stmt in node.body:
+                if not isinstance(stmt, ast.AnnAssign) or not isinstance(stmt.target, ast.Name):
+                    continue
+                field = stmt.target.id
+                if re.fullmatch(r"[a-z_][a-z0-9_]*", field):
+                    out.append((node.name, field))
     return out
 
 

@@ -20,6 +20,7 @@ from frappe_manager.site_manager.bench_config import (
     extract_python_version_requirement,
     parse_node_version_for_runtime,
     parse_python_version_for_runtime,
+    requests_immutable_runtime_inputs,
     validate_node_version_compatibility,
     validate_python_version_compatibility,
 )
@@ -49,13 +50,16 @@ def is_immutable_update_request(
 ) -> bool:
     """True when an update requests changes that are immutable in image runtime.
 
-    Image benches run a pre-built app image: Python/Node changes rebuild the venv
-    in a mounted workspace that does not exist, app grafts edit that workspace,
-    and developer mode would write DocType/app files into the ephemeral container
-    layer (silently lost on the next deploy). Ship such changes via ``fm bake``
-    then ``fm switch``, or demote to an editable workspace first (``--runtime mount``).
+    Thin adapter over ``requests_immutable_runtime_inputs``, which holds the rule beside the
+    schema so ``fm create`` enforces the same one. This maps update's tri-state
+    ``--developer-mode`` onto the predicate's boolean.
     """
-    return bool(python_version or node_version or apps or developer_mode == EnableDisableOptionsEnum.enable)
+    return requests_immutable_runtime_inputs(
+        python_version=python_version,
+        node_version=node_version,
+        apps=apps,
+        developer_mode_enable=developer_mode == EnableDisableOptionsEnum.enable,
+    )
 
 
 @example(

@@ -957,6 +957,13 @@ class BenchOrchestrator:
         )
         self.output.print("Configured bench workers")
 
+        # The site exists by now, so site_config.json and the proxy vhost can both take the limit.
+        # Without this a new bench advertised its configured upload_limit and served nginx's 1M
+        # default, so the value only became true after an unrelated `fm update --upload-limit`.
+        self.output.change_head("Applying upload size limit")
+        bench.apply_upload_limit()
+        self.output.print(f"Applied upload size limit ({bench.bench_config.upload_limit})")
+
         from datetime import datetime
 
         from frappe_manager.migration_manager.version import Version

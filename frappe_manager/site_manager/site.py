@@ -1,3 +1,4 @@
+import json
 import shutil
 import time
 from collections.abc import Iterator
@@ -542,6 +543,13 @@ class Bench:
             # seeding above, and surfaced rather than swallowed.
             try:
                 self.ensure_fm_nginx_confs()
+                # The proxy vhost entry is the other half, and it is the binding one: a bench with
+                # no entry gets the proxy's 1M default and answers 413 however permissive its own
+                # nginx conf is. Existing benches have no entry at all, so this is what heals them
+                # without a migration. Reload only when something actually changed, because the
+                # proxy is shared by every bench.
+                if self.apply_upload_limit() and self.services.is_service_running("global-nginx-proxy"):
+                    self.services.nginx_controller.reload()
             except Exception as e:
                 self.logger.warning(f"Failed to refresh bench nginx overlay: {self.name}", extra_fields=extra)
                 self.output.warning(f"Could not refresh bench nginx config: {e!s}")
@@ -1279,12 +1287,52 @@ class Bench:
             force=force,
         )
 
-    def update_upload_limit(self, upload_limit: str):
+    def apply_upload_limit(self) -> bool:
+        """Push ``bench_config.upload_limit`` to the two places outside the nginx conf.
+
+        Idempotent, and reads the limit off the config rather than taking it as an argument, so the
+        create pipeline, ``fm start`` and ``fm update --upload-limit`` apply one value the same way.
+        The bench's own nginx conf is NOT written here: it is an fm-managed conf, so
+        ``ensure_fm_nginx_confs`` owns it and reloads once for whatever changed.
+
+        Both steps are skipped when their target does not exist yet, which is what a template bench
+        (no site, no served domain) and a not-yet-provisioned services dir look like.
+
+        Returns True when something on disk changed, so a caller can reload the global proxy only
+        when it needs to. The proxy is shared by every bench, so reloading it on each ``fm start``
+        would be a cost paid by benches that changed nothing.
         """
-        Update upload size limit across all three required locations:
-        1. site_config.json (max_file_size in bytes)
-        2. Bench nginx config (via template regeneration)
-        3. nginx-proxy vhost.d files (for all domains)
+        upload_limit = self.bench_config.upload_limit
+        changed = False
+
+        site_config = self.path / "workspace" / "frappe-bench" / "sites" / self.name / "site_config.json"
+        if site_config.is_file():
+            wanted_bytes = self._parse_size_to_bytes(upload_limit)
+            try:
+                current = json.loads(site_config.read_text()).get("max_file_size")
+            except (OSError, ValueError):
+                current = None
+            if current != wanted_bytes:
+                self.set_bench_site_config({"max_file_size": wanted_bytes})
+                changed = True
+
+        # The global proxy caps the request before bench nginx ever sees it, so the bench conf alone
+        # is not enough: whichever limit is lower wins, and a bench with no vhost entry at all gets
+        # the proxy's own 1M default no matter what its own nginx allows.
+        vhostd_dir = self.services.path / "nginx-proxy" / "vhostd"
+        if vhostd_dir.exists():
+            domains = [self.name, *self.bench_config.alias_domains]
+            before = {d: (vhostd_dir / d).read_text() if (vhostd_dir / d).is_file() else None for d in domains}
+            UploadLimitManager(vhostd_dir).set_upload_limit_for_domains(domains, upload_limit.lower())
+            for domain, previous in before.items():
+                path = vhostd_dir / domain
+                if path.is_file() and path.read_text() != previous:
+                    changed = True
+
+        return changed
+
+    def update_upload_limit(self, upload_limit: str):
+        """Change the upload size limit and apply it everywhere it is enforced.
 
         Args:
             upload_limit: Size string (e.g., "50M", "100M", "1G")
@@ -1294,53 +1342,27 @@ class Bench:
         """
         import re
 
-        # Validate format (e.g., "50M", "100M", "500M", "1G")
         if not re.match(r"^\d+[MG]$", upload_limit, re.IGNORECASE):
             raise BenchException(
                 self.name,
                 message=f"Invalid upload limit format: '{upload_limit}'. Use format like '50M' or '1G'",
             )
 
-        # 1. Update site_config.json (convert to bytes)
-        size_bytes = self._parse_size_to_bytes(upload_limit)
-        self.set_bench_site_config({"max_file_size": size_bytes})
-        self.output.print(f"Updated site_config.json (max_file_size: {size_bytes} bytes)")
-
-        # 2. Update BenchConfig (will affect nginx template on restart)
         self.bench_config.upload_limit = upload_limit.upper()
         self.save_bench_config()
-        self.output.print("Updated bench configuration")
 
-        # 2b. Regenerate docker-compose to include new environment variable
-        inputs = self.bench_config.export_to_compose_inputs()
-        self.generate_compose(inputs)
-        self.output.print("Regenerated docker-compose configuration")
+        # Writes conf/custom/upload-limit.conf from the config just saved, and reloads bench nginx
+        # once if it changed. Compose is deliberately NOT regenerated: `upload_limit` reaches no
+        # compose input and no template, so the old regeneration step here did nothing.
+        self.ensure_fm_nginx_confs()
+        self.apply_upload_limit()
 
-        # 3. Create custom nginx config file for bench nginx
-        custom_conf_dir = self.path / "configs" / "nginx" / "conf" / "custom"
-        custom_conf_dir.mkdir(parents=True, exist_ok=True)
-        upload_limit_conf = custom_conf_dir / "upload-limit.conf"
-        upload_limit_conf.write_text(f"client_max_body_size {upload_limit.lower()};\n")
-        self.output.print("Created custom nginx configuration")
-
-        # 4. Reload bench nginx to apply configuration
-        self.bench_nginx_controller.reload()
-
-        # 5. Update nginx-proxy vhost.d for all domains (primary + aliases)
-        all_domains = [self.name] + self.bench_config.alias_domains
-        vhostd_dir = self.services.path / "nginx-proxy" / "vhostd"
-
-        if vhostd_dir.exists():
-            upload_mgr = UploadLimitManager(vhostd_dir)
-            upload_mgr.set_upload_limit_for_domains(all_domains, upload_limit.lower())
-            self.output.print(f"Updated nginx-proxy vhost.d for {len(all_domains)} domain(s)")
-
-        # 6. Reload nginx-proxy to pick up vhost.d changes
         if self.services.is_service_running("global-nginx-proxy"):
             self.services.nginx_controller.reload()
 
         self.output.print(
-            f"Upload size limit updated to {upload_limit} (site_config: {size_bytes} bytes, nginx: {upload_limit.lower()})",
+            f"Upload size limit updated to {upload_limit} "
+            f"(site_config: {self._parse_size_to_bytes(upload_limit)} bytes, nginx: {upload_limit.lower()})",
         )
 
     def _frontend_network_subnet(self) -> str | None:
@@ -1406,6 +1428,14 @@ class Bench:
         subnet = self._frontend_network_subnet()
         if subnet:
             wanted[conf_dir / "custom" / "real-ip.conf"] = build_bench_realip_conf(subnet)
+
+        # The bench's own client_max_body_size. Unconditional, because `upload_limit` always has a
+        # value (default 50M) and nothing else ever wrote this file at create: a bench came up on
+        # nginx's built-in 1M default while its config advertised 50M, so uploads over 1M were
+        # refused with a 413 until someone happened to run `fm update --upload-limit`.
+        wanted[conf_dir / "custom" / "upload-limit.conf"] = (
+            f"client_max_body_size {self.bench_config.upload_limit.lower()};\n"
+        )
 
         auth = self.bench_config.auth or AuthConfig()
         needs_auth = auth.web or (auth.tools and bool(self.bench_config.admin_tools))

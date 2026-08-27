@@ -73,7 +73,11 @@ def _bench(path: Path, docker_ops) -> Bench:
     bench.output = MagicMock()
     bench.docker_ops = docker_ops
     bench.orchestrator = MagicMock()
-    bench.bench_config = SimpleNamespace(auth=None, admin_tools=False)
+    # `upload_limit` is read by the same overlay refresh these tests exercise, and it always has a
+    # value on a real BenchConfig (default 50M). Omitting it here made the refresh raise
+    # AttributeError, which the best-effort start path then swallowed as a warning -- so every
+    # assertion below about real-ip.conf passed or failed for the wrong reason.
+    bench.bench_config = SimpleNamespace(auth=None, admin_tools=False, upload_limit="50M")
     bench.bench_nginx_controller = MagicMock()
     # The overlay refresh reads the subnet from the services compose, which is the pinned
     # source of truth. Wiring it keeps these tests off the live-docker fallback, which would
@@ -232,6 +236,39 @@ def test_a_bench_missing_the_real_ip_overlay_gains_it_on_start(tmp_path):
     assert "real_ip_header X-Real-IP;" in written
 
 
+def test_an_existing_bench_gains_its_upload_limit_on_start(tmp_path):
+    """Benches created before the limit was applied at all have no proxy vhost entry, so the proxy
+    refuses anything over its own 1M default and the bench answers 413 however permissive its own
+    nginx conf is. `fm start` heals both halves, so no migration is needed.
+    """
+    conf = _healthy_base(tmp_path)
+    vhostd = tmp_path / "services" / "nginx-proxy" / "vhostd"
+    vhostd.mkdir(parents=True)
+    bench = _bench(tmp_path, _real_ops(tmp_path))
+    bench.services.path = tmp_path / "services"
+    bench.bench_config.alias_domains = []
+
+    bench.start()
+
+    assert (conf / "custom" / "upload-limit.conf").read_text() == "client_max_body_size 50m;\n"
+    assert "client_max_body_size 50m;" in (vhostd / "heal.localhost").read_text()
+
+
+def test_the_proxy_is_not_reloaded_when_the_limit_already_matches(tmp_path):
+    """The proxy is shared by every bench, so a start that changed nothing must not reload it."""
+    _healthy_base(tmp_path)
+    vhostd = tmp_path / "services" / "nginx-proxy" / "vhostd"
+    vhostd.mkdir(parents=True)
+    (vhostd / "heal.localhost").write_text("\nclient_max_body_size 50m;\n")
+    bench = _bench(tmp_path, _real_ops(tmp_path))
+    bench.services.path = tmp_path / "services"
+    bench.bench_config.alias_domains = []
+
+    bench.start()
+
+    bench.services.nginx_controller.reload.assert_not_called()
+
+
 def test_the_real_ip_overlay_lands_before_any_container_is_started(tmp_path):
     """Same ordering rule as the seeding: nginx reads its includes once, at boot."""
     conf = _healthy_base(tmp_path)
@@ -249,6 +286,9 @@ def test_an_up_to_date_overlay_is_not_rewritten_and_triggers_no_reload(tmp_path)
     conf = _healthy_base(tmp_path)
     (conf / "custom").mkdir(parents=True)
     (conf / "custom" / "real-ip.conf").write_text(build_bench_realip_conf("10.1.0.0/16"))
+    # Every fm-managed conf has to be current for "nothing changed" to mean anything; one stale
+    # file is enough to trigger the reload this test says must not happen.
+    (conf / "custom" / "upload-limit.conf").write_text("client_max_body_size 50m;\n")
     bench = _bench(tmp_path, _real_ops(tmp_path))
 
     bench.start()
@@ -260,8 +300,20 @@ def test_a_failed_overlay_refresh_does_not_block_the_start_and_is_reported(tmp_p
     """Best effort, like the seeding: a bench must still come up, and the operator must hear."""
 
     class _UnreadableConfig:
+        """Every field the refresh reads raises, so the test does not depend on which is read
+        first: reordering the refresh should not silently turn this into an AttributeError with a
+        different message."""
+
         @property
         def auth(self):
+            raise RuntimeError("bench config unreadable")
+
+        @property
+        def upload_limit(self):
+            raise RuntimeError("bench config unreadable")
+
+        @property
+        def admin_tools(self):
             raise RuntimeError("bench config unreadable")
 
     _healthy_base(tmp_path)

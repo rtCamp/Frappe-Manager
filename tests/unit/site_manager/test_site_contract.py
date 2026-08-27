@@ -613,12 +613,46 @@ class TestEnsureFmNginxConfs:
         conf = h.conf_dir / "custom" / "real-ip.conf"
         conf.parent.mkdir(parents=True, exist_ok=True)
         conf.write_text(build_bench_realip_conf("192.168.0.0/16"))
+        # Already correct on disk, so this pass has nothing to write. Without it the upload conf
+        # would be the change that triggers the reload, and the assertion below would say nothing
+        # about the subnet.
+        (h.conf_dir / "custom" / "upload-limit.conf").write_text(
+            f"client_max_body_size {h.bench.bench_config.upload_limit.lower()};\n"
+        )
         with patch("frappe_manager.utils.network.detect_running_network", return_value=None):
             h.bench.ensure_fm_nginx_confs()
         # real-ip.conf is never removed: losing it silently would make every request
         # look like it came from the proxy. Nothing else changed either, so no reload.
         assert conf.read_text() == build_bench_realip_conf("192.168.0.0/16")
         h.bench.bench_nginx_controller.reload.assert_not_called()
+
+    def test_the_upload_limit_conf_is_written_from_the_config(self, harness):
+        """The bug: nothing wrote this file at create, so a bench advertised its configured
+        upload_limit while nginx enforced its own 1M default and refused larger uploads with a 413.
+        It is an fm-managed conf like the others, so it is written from bench_config and nowhere
+        else -- there is no argument to forget to pass."""
+        harness.bench.ensure_fm_nginx_confs()
+        conf = harness.conf_dir / "custom" / "upload-limit.conf"
+        assert conf.read_text() == f"client_max_body_size {harness.bench.bench_config.upload_limit.lower()};\n"
+
+    def test_the_upload_limit_conf_tracks_a_changed_config(self, tmp_path):
+        bench_path = tmp_path / SITE
+        bench_path.mkdir(parents=True, exist_ok=True)
+        config = make_bench_config(bench_path / "bench_config.toml", auth=AuthConfig(web=False, tools=False))
+        config.upload_limit = "512M"
+        h = build_bench(tmp_path, bench_config=config)
+        h.bench.ensure_fm_nginx_confs()
+        assert (h.conf_dir / "custom" / "upload-limit.conf").read_text() == "client_max_body_size 512m;\n"
+
+    def test_nginx_wants_the_limit_lowercased(self, tmp_path):
+        """`50M` is what the config carries and what fm prints; nginx wants `50m`."""
+        bench_path = tmp_path / SITE
+        bench_path.mkdir(parents=True, exist_ok=True)
+        config = make_bench_config(bench_path / "bench_config.toml", auth=AuthConfig(web=False, tools=False))
+        config.upload_limit = "1G"
+        h = build_bench(tmp_path, bench_config=config)
+        h.bench.ensure_fm_nginx_confs()
+        assert "1g;" in (h.conf_dir / "custom" / "upload-limit.conf").read_text()
 
     def test_a_second_pass_that_changes_nothing_does_not_reload_nginx(self, harness):
         harness.bench.ensure_fm_nginx_confs()

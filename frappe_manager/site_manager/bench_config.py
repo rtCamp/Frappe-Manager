@@ -18,7 +18,7 @@ from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.dns_provider import DNSProviderConfig
 from frappe_manager.ssl_manager.letsencrypt_certificate import CERTIFICATE_ADAPTER
 from frappe_manager.utils import toml_document
-from frappe_manager.utils.helpers import get_bench_connection_config, get_container_name_prefix
+from frappe_manager.utils.helpers import get_bench_connection_config, get_container_name_prefix, has_explicit_tag
 
 
 def extract_app_python_module_name(app_path: Path) -> str:
@@ -1166,6 +1166,26 @@ class RedisConfig(BaseModel):
 AppConfig.model_rebuild()
 
 
+def requests_immutable_runtime_inputs(
+    *,
+    python_version: str | None = None,
+    node_version: str | None = None,
+    apps: list | None = None,
+    developer_mode_enable: bool = False,
+) -> bool:
+    """True when an input set asks for something an image runtime cannot honour.
+
+    Image benches run a pre-built app image: Python/Node changes rebuild the venv in a mounted
+    workspace that does not exist, app grafts edit that workspace, and developer mode would write
+    DocType/app files into the ephemeral container layer (silently lost on the next deploy).
+
+    Lives here rather than in a command because ``fm create`` and ``fm update`` must agree on the
+    rule. They keep their own messages: the remedy differs (do not ask for it at all, versus bake
+    and switch, or demote first).
+    """
+    return bool(python_version or node_version or apps or developer_mode_enable)
+
+
 class BenchConfig(BaseModel):
     name: str = Field(..., description="The name of the bench")
     developer_mode: bool = Field(..., description="Whether developer mode is enabled")
@@ -1303,6 +1323,42 @@ class BenchConfig(BaseModel):
                 return RestartPolicyEnum.unless_stopped
             return RestartPolicyEnum.no
         return v if v is not None else RestartPolicyEnum.no
+
+    def assert_runtime_coherent(self) -> None:
+        """The runtime rules, held with the schema so every caller enforces the same ones.
+
+        Deliberately a method and not a ``@model_validator``: an automatic invariant would run on
+        every load, so any bench already on disk that violates a rule added here would stop being
+        readable by every ``fm`` command at once. Callers that ACCEPT input invoke this; loading does
+        not. Raises ``ValueError``, which the CLI layer turns into its own refusal.
+        """
+        if self.base_image and not has_explicit_tag(self.base_image):
+            raise ValueError(
+                f"base_image must include a tag, e.g. 'ghcr.io/acme/frappe-custom:v15' (got {self.base_image!r})."
+            )
+
+        if self.seed_image:
+            if self.runtime == BenchRuntime.image:
+                raise ValueError(
+                    "seed_image seeds a MOUNT workspace; an image runtime bench already runs the image it is given (use base_image)."
+                )
+            if not has_explicit_tag(self.seed_image):
+                raise ValueError(f"seed_image requires an explicit ':tag' (got {self.seed_image!r}).")
+
+        if self.runtime != BenchRuntime.image:
+            return
+
+        current_tag = self.deploy_state.current_tag if self.deploy_state else None
+        if not current_tag:
+            raise ValueError(
+                "image runtime needs a pre-built image: set base_image <repo:tag>, or top-level image plus [deploy_state].current_tag."
+            )
+        if not has_explicit_tag(current_tag):
+            raise ValueError(f"the image runtime tag must be a full reference with a tag (got {current_tag!r}).")
+        if self.developer_mode:
+            raise ValueError(
+                "developer_mode is not supported with image runtime: DocType authoring writes app files into the ephemeral container layer (lost on the next deploy, never re-derivable from the DB). Use runtime = 'mount'."
+            )
 
     def get_apps_config(self) -> list[AppConfig]:
         """

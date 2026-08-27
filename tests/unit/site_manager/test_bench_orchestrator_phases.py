@@ -219,6 +219,7 @@ class _Harness:
         bench.sync_workers_compose.side_effect = events.hook(
             "sync_workers_compose", formatter=lambda **kw: f"sync_workers_compose(start={kw.get('start')})"
         )
+        bench.apply_upload_limit.side_effect = events.hook("apply_upload_limit")
         bench.save_bench_config.side_effect = self._save_bench_config
         bench.is_bench_created.return_value = True
 
@@ -412,6 +413,31 @@ def test_a_mount_create_runs_the_phases_in_this_exact_order(tmp_path):
         "phase6_install_apps",
         "info",
     ]
+
+
+def test_the_create_pipeline_applies_the_configured_upload_limit(tmp_path):
+    """The gap that produced the bug: `upload_limit` was persisted at create and applied by nothing,
+    so a new bench advertised its limit while nginx enforced its own 1M default and answered 413.
+
+    Phase 5 is the earliest point where both targets exist: the site (site_config.json) and the
+    served domain (the proxy vhost). The bench nginx conf is not checked here because it is an
+    fm-managed conf written by ensure_fm_nginx_confs, which generate_compose already drives.
+    """
+    harness = _Harness(_config(tmp_path), tmp_path)
+
+    harness.orchestrator(real=("_phase5_finalize",)).create_bench()
+
+    assert harness.events.has("apply_upload_limit") is True
+    harness.bench.apply_upload_limit.assert_called_once_with()
+
+
+def test_a_template_bench_never_reaches_the_upload_limit_step(tmp_path):
+    """A template bench has no site and serves no domain, so there is nothing to apply it to."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+
+    harness.orchestrator(real=("_phase5_finalize",)).create_bench(is_template_bench=True)
+
+    assert harness.events.has("apply_upload_limit") is False
 
 
 def test_the_image_check_happens_outside_the_try_so_it_is_not_a_creation_failure(tmp_path):

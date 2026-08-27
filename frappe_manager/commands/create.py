@@ -3,13 +3,14 @@ import secrets
 import string
 import tempfile
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Annotated, cast
 
 import tomlkit
 import typer
 from click.core import ParameterSource
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 from typer_examples import example
 
 from frappe_manager import (
@@ -29,10 +30,9 @@ from frappe_manager.site_manager.bench_config import (
     DatabaseConfig,
     DeployState,
     FMBenchEnvType,
-    MonitoringConfig,
-    NewRelicConfig,
     RedisConfig,
     RestartPolicyEnum,
+    requests_immutable_runtime_inputs,
 )
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.deploy_config_overlay import ConfigOverlayError, merge_overlays
@@ -42,7 +42,6 @@ from frappe_manager.utils.callbacks import (
     apps_list_validation_callback,
     create_command_sitename_callback,
 )
-from frappe_manager.utils.helpers import has_explicit_tag
 from frappe_manager.utils.site import validate_sitename
 
 # Rich help panels for `fm create --help`, grouped by concern / runtime applicability
@@ -54,108 +53,81 @@ _PANEL_MONITORING = "Monitoring Options"
 _PANEL_EXTERNAL = "External Database and Redis Options"
 
 
-def _resolve_deploy_options(
-    runtime: BenchRuntime | None,
-    base_image: str | None,
-    apps: list,
-    python_version: str | None,
-    node_version: str | None,
-) -> tuple[BenchRuntime, str | None, str | None, str | None]:
-    """Resolve the deploy model (#323) for ``fm create``.
+# The flags that are simply a config value under another name. Each maps to the TOML key path it
+# writes; everything else about them (precedence, validation, defaults) is the merge and the model.
+# Absent on purpose: `--base-image` is overloaded per runtime (see _apply_base_image); `--template`,
+# `--config` and `--allow-domain-conflicts` are not BenchConfig fields; the external database and
+# redis flags are resolved separately because five of them are secrets that never reach disk.
+_FLAG_TO_CONFIG: dict[str, tuple[str, ...]] = {
+    "admin_pass": ("admin_pass",),
+    "alias_domains": ("alias_domains",),
+    "apps": ("apps",),
+    "developer_mode": ("developer_mode",),
+    "environment": ("environment",),
+    "github_token": ("github_token",),
+    "newrelic": ("monitoring", "newrelic", "enabled"),
+    "newrelic_license_key": ("monitoring", "newrelic", "license_key"),
+    "node_version": ("node_version",),
+    "python_version": ("python_version",),
+    "restart": ("restart_policy",),
+    "runtime": ("runtime",),
+    "seed_image": ("seed_image",),
+}
 
-    Mode is selected only by ``--runtime`` (default ``mount``). ``--base-image`` is the
-    image the bench's containers RUN, in both runtimes: on mount it sits under the
-    editable workspace bind, on image runtime it IS the app. There is no ``--image``
-    here, because on ``fm bake`` that word means the image being PRODUCED, and one word
-    cannot point both ways.
 
-    The two runtimes persist it differently, which is why the return tuple splits it.
-    Mount keeps the whole ref in top-level ``base_image`` and nothing ever rewrites it.
-    Image runtime keeps the repo in top-level ``image`` and the tag in
-    ``[deploy_state].current_tag``, which ``fm switch`` moves on every deploy, so the
-    value is a starting point rather than a pin.
+def _toml_value(value: object) -> object:
+    """A flag's Python value as TOML-able data."""
+    if isinstance(value, BaseModel):
+        return value.model_dump(exclude_none=True, mode="json")
+    if isinstance(value, Enum):
+        return value.value
+    if isinstance(value, (list, tuple)):
+        return [_toml_value(item) for item in value]
+    if isinstance(value, Path):
+        return str(value)
+    return value
 
-    Returns ``(resolved_mode, image_repo, current_tag, base_image_override)``.
+
+def _flag_overlay(requested: set[str], values: dict[str, object]) -> str:
+    """The flags the user actually passed, rendered as the last overlay in the merge.
+
+    This is what makes "an explicit flag beats --config" a property of the merge order rather than a
+    per-field assignment. The previous shape applied each flag with its own ``if "name" in explicit``
+    line, so a field whose line was missing was silently dropped, which is how ``--seed-image`` came
+    to be ignored whenever ``--config`` was passed alongside it.
     """
-    resolved = runtime or BenchRuntime.mount
-
-    if resolved != BenchRuntime.image:
-        base_image_override = None
-        if base_image:
-            if not has_explicit_tag(base_image):
-                raise typer.BadParameter("--base-image must include a tag, e.g. 'ghcr.io/acme/frappe-custom:v15'.")
-            base_image_override = base_image
-        return resolved, None, None, base_image_override
-
-    if not base_image:
-        raise typer.BadParameter(
-            "--runtime image requires --base-image <repo:tag>: the pre-built app image the bench runs, "
-            "built by 'fm bake' or otherwise present/pullable.",
-        )
-    if not has_explicit_tag(base_image):
-        raise typer.BadParameter(
-            "--base-image must be a full reference with a tag, e.g. 'ghcr.io/acme/mybench:fm-20260722-abc123'.",
-        )
-    if apps:
-        raise typer.BadParameter(
-            "--apps is not supported in image mode; apps are baked into the image. "
-            "Build the image with 'fm bake' (its --config/--apps).",
-        )
-    if python_version:
-        raise typer.BadParameter("--python is not supported in image mode; the Python version is baked into the image.")
-    if node_version:
-        raise typer.BadParameter("--node is not supported in image mode; the Node version is baked into the image.")
-
-    repo = base_image.rpartition(":")[0]
-    return resolved, repo, base_image, None
+    doc = tomlkit.document()
+    for name in sorted(requested):
+        path = _FLAG_TO_CONFIG.get(name)
+        value = values.get(name)
+        if path is None or value is None:
+            continue
+        target = doc
+        for key in path[:-1]:
+            if key not in target:
+                target[key] = tomlkit.table()
+            target = target[key]
+        target[path[-1]] = _toml_value(value)
+    return tomlkit.dumps(doc)
 
 
-def _validate_seed_image(
-    seed_image: str,
-    resolved_runtime: BenchRuntime,
-) -> None:
-    """``--seed-image`` contract: mount-only, explicit tag.
+def _apply_base_image(bc: BenchConfig, base_image: str) -> None:
+    """Write ``--base-image`` to the key its runtime reads it from.
 
-    Named for the ``seed_image`` key it writes. It is not an alternative to
-    ``--base-image``: this copies a baked workspace onto the host ONCE at create and is
-    then only a provenance record, while ``--base-image`` is read at every container
-    start. The two compose.
-
-    ``--apps`` entries are per-app overrides grafted on top of the seed;
-    ``--python``/``--node`` swap the seeded toolchain (venv recreated, apps
-    reinstalled) exactly like ``fm update``.
+    The flag is overloaded deliberately: it names the image the bench's containers RUN, in both
+    runtimes. There is no ``--image`` here, because on ``fm bake`` that word means the image being
+    PRODUCED, and one word cannot point both ways. The runtimes persist it differently, which is the
+    only reason this is code and not another row in ``_FLAG_TO_CONFIG``: mount keeps the whole ref in
+    top-level ``base_image`` and nothing ever rewrites it, while image runtime keeps the repo in
+    ``image`` and the tag in ``[deploy_state].current_tag``, which ``fm switch`` moves on every
+    deploy. Tag validation belongs to ``BenchConfig.assert_runtime_coherent``.
     """
-    if resolved_runtime == BenchRuntime.image:
-        raise typer.BadParameter(
-            "--seed-image seeds a MOUNT workspace; an image runtime bench already runs the image it is given "
-            "(use --base-image).",
-        )
-    if not has_explicit_tag(seed_image):
-        raise typer.BadParameter("--seed-image requires an explicit ':tag' (e.g. local/myapp:20260724-abc).")
-
-
-def _resolve_developer_mode(
-    environment: FMBenchEnvType,
-    resolved_runtime: BenchRuntime,
-    explicit_enable: bool,
-) -> bool:
-    """Developer mode for a new bench.
-
-    dev-environment benches default to enabled -- EXCEPT image runtime, where it
-    is refused outright: DocType authoring writes app SOURCE files, and standard
-    doctypes sync files -> DB (never DB -> files), so writes into an image
-    bench's ephemeral container layer are unrecoverable schema-work loss.
-    """
-    if resolved_runtime == BenchRuntime.image:
-        if explicit_enable:
-            raise typer.BadParameter(
-                "--developer-mode enable is not supported with image runtime: DocType authoring "
-                "writes app files into the ephemeral container layer (lost on the next deploy, "
-                "never re-derivable from the DB). Develop on a mount bench, or demote later with "
-                "'fm update <bench> --runtime mount'.",
-            )
-        return False
-    return environment == FMBenchEnvType.dev or explicit_enable
+    if bc.runtime != BenchRuntime.image:
+        bc.base_image = base_image
+        return
+    bc.image = base_image.rpartition(":")[0] or None
+    bc.deploy_state = DeployState(current_tag=base_image)
+    bc.base_image = None
 
 
 def _ensure_frappe_first(apps: list[AppConfig]) -> list[AppConfig]:
@@ -172,41 +144,24 @@ def _ensure_frappe_first(apps: list[AppConfig]) -> list[AppConfig]:
     return [frappe_app, *others]
 
 
-def _build_overlay_bench_config(
+def _build_bench_config(
     *,
     config: list[str],
+    flag_overlay: str,
     benchname: str,
     root_path: Path,
-    apps: list[AppConfig],
-    environment: FMBenchEnvType,
-    developer_mode_status: bool,
-    admin_pass: str,
-    alias_domains: list[str] | None,
-    github_token: str | None,
-    python_version: str | None,
-    node_version: str | None,
-    restart: RestartPolicyEnum | None,
-    newrelic: bool,
-    newrelic_license_key: str | None,
-    runtime: BenchRuntime | None,
     base_image: str | None,
-    seed_image: str | None = None,
-    db_name: str,
-    explicit: set[str],
-) -> tuple[BenchConfig, bool]:
-    """Build a ``BenchConfig`` from a ``--config`` overlay with precedence B:
-    explicit CLI flags > ``--config`` values > create defaults.
+) -> BenchConfig:
+    """The one construction path: create defaults, then each ``--config``, then the flags.
 
-    ``explicit`` is the set of create parameter names the user actually passed
-    (Click COMMANDLINE/ENVIRONMENT). Returns the config plus whether apps came
-    from the user (flag or config) so the caller can gate repo validation.
+    Precedence is the overlay order, later winning, so no field needs its own line to stay in step.
     """
     seed = tomlkit.document()
     seed["name"] = benchname
     seed["developer_mode"] = False
     seed["admin_tools"] = False
     seed["environment"] = FMBenchEnvType.dev.value
-    merged = merge_overlays(tomlkit.dumps(seed), config)
+    merged = merge_overlays(tomlkit.dumps(seed), [*config, flag_overlay])
 
     handle = tempfile.NamedTemporaryFile("w", suffix=".toml", delete=False)  # noqa: SIM115
     try:
@@ -216,72 +171,93 @@ def _build_overlay_bench_config(
     finally:
         Path(handle.name).unlink(missing_ok=True)
 
-    apps_from_user = "apps" in explicit or bool(bc.apps_list)
-
     bc.name = benchname
     bc.root_path = root_path
+    if base_image:
+        _apply_base_image(bc, base_image)
+    return bc
 
-    if "environment" in explicit:
-        bc.environment_type = environment
 
-    # Dev forces developer/admin tools on (create policy); prod honors flag/config.
-    if bc.environment_type == FMBenchEnvType.dev:
+def _refuse_immutable_inputs(bc: BenchConfig) -> None:
+    """Refuse mount-only inputs on an image bench, whichever way they were spelled.
+
+    Read off the merged config rather than off the flags, so ``--runtime image`` and a ``--config``
+    declaring ``runtime = "image"`` reach the same answer. They did not before: the flag path refused
+    ``--apps``/``--python``/``--node`` while the config path accepted them and left the values in
+    bench_config.toml doing nothing.
+    """
+    if bc.runtime != BenchRuntime.image:
+        return
+    if not requests_immutable_runtime_inputs(
+        python_version=bc.python_version,
+        node_version=bc.node_version,
+        apps=bc.apps_list,
+        developer_mode_enable=bc.developer_mode,
+    ):
+        return
+    raise typer.BadParameter(
+        "image runtime carries its own apps, Python/Node toolchain and app sources, so apps, --python, --node and developer mode cannot be set for it, in flags or in --config. Bake them into the image with 'fm bake' (its --config/--apps), or create a mount bench.",
+    )
+
+
+def _derive_create_defaults(bc: BenchConfig, *, db_name: str) -> bool:
+    """Create-time policy over the merged config, applied once whatever spelled it.
+
+    Returns whether the app list came from the user, which is what gates repo validation: the
+    default frappe entry injected below is not something to go and check against GitHub.
+    """
+    apps_from_user = bool(bc.apps_list)
+
+    # An image bench can never carry developer mode (refused above when asked for). A dev bench gets
+    # it, and the admin tools with it; prod honours whatever was passed.
+    if bc.runtime == BenchRuntime.image:
+        bc.developer_mode = False
+    elif bc.environment_type == FMBenchEnvType.dev:
         bc.developer_mode = True
         bc.admin_tools = True
-    elif "developer_mode" in explicit:
-        bc.developer_mode = developer_mode_status
 
-    if "admin_pass" in explicit:
-        bc.admin_pass = admin_pass
-    if "alias_domains" in explicit:
-        bc.alias_domains = list(alias_domains) if alias_domains else []
-    if "github_token" in explicit:
-        bc.github_token = github_token
-    if "python_version" in explicit:
-        bc.python_version = python_version
-    if "node_version" in explicit:
-        bc.node_version = node_version
-    if "restart" in explicit:
-        bc.restart_policy = restart
-    if "newrelic" in explicit or "newrelic_license_key" in explicit:
-        monitoring = bc.monitoring or MonitoringConfig()
-        newrelic_config = monitoring.newrelic or NewRelicConfig()
-        if "newrelic" in explicit:
-            newrelic_config.enabled = newrelic
-        if "newrelic_license_key" in explicit:
-            newrelic_config.license_key = newrelic_license_key
-        monitoring.newrelic = newrelic_config
-        bc.monitoring = monitoring
-    if "seed_image" in explicit:
-        # Same precedence as every other flag here. Without this the seed was silently dropped on
-        # the --config path and the bench cloned and installed its apps from scratch instead.
-        if seed_image:
-            _validate_seed_image(seed_image, bc.runtime)
-        bc.seed_image = seed_image
+    # A seeded workspace already contains its own frappe, and injecting a default would clobber it.
+    # There, --apps entries are per-app overrides used verbatim.
+    if not bc.seed_image:
+        bc.apps_list = _ensure_frappe_first(bc.apps_list)
+
     if not bc.db_name:
         bc.db_name = db_name
 
-    if "apps" in explicit:
-        bc.apps_list = _ensure_frappe_first(apps)
-    else:
-        bc.apps_list = _ensure_frappe_first(bc.apps_list)
+    return apps_from_user
 
-    # Runtime/image selection: an explicit --runtime/--base-image re-resolves (flag path);
-    # otherwise keep whatever the config declared ([runtime]/[deploy]/[deploy_state]).
-    if "runtime" in explicit or "base_image" in explicit:
-        r_runtime, r_image, r_tag, r_base = _resolve_deploy_options(
-            runtime if "runtime" in explicit else bc.runtime,
-            base_image if "base_image" in explicit else None,
-            apps if "apps" in explicit else [],
-            python_version if "python_version" in explicit else None,
-            node_version if "node_version" in explicit else None,
-        )
-        bc.runtime = r_runtime
-        bc.image = r_image
-        bc.base_image = r_base
-        bc.deploy_state = DeployState(current_tag=r_tag) if r_runtime == BenchRuntime.image else None
 
-    return bc, apps_from_user
+def bench_config_from_inputs(
+    *,
+    config: list[str],
+    flag_overlay: str,
+    benchname: str,
+    root_path: Path,
+    base_image: str | None,
+    db_name: str,
+) -> tuple[BenchConfig, bool]:
+    """Everything between the CLI parameters and ``create_bench``: merge, refuse, validate, derive.
+
+    One function so there is one seam. ``create`` calls exactly this and nothing else on the way to
+    a ``BenchConfig``, which is what lets a test exercise the real decision chain instead of
+    re-assembling it and thereby entering the system downstream of any step that gets dropped.
+
+    Returns the config plus whether the app list came from the user.
+    """
+    bc = _build_bench_config(
+        config=config,
+        flag_overlay=flag_overlay,
+        benchname=benchname,
+        root_path=root_path,
+        base_image=base_image,
+    )
+    _refuse_immutable_inputs(bc)
+    try:
+        bc.assert_runtime_coherent()
+    except ValueError as e:
+        # The model states the rule; the CLI owns how a refusal reaches the operator.
+        raise typer.BadParameter(str(e)) from e
+    return bc, _derive_create_defaults(bc, db_name=db_name)
 
 
 _DB_PASSWORD_ALPHABET = string.ascii_letters + string.digits
@@ -819,126 +795,55 @@ def create(
     # names a schema on a server fm does not own.
     global_db_name = f"fm_{sanitized_bench_name}_{secrets.token_hex(8)}"
 
-    if config:
-        explicit = {
-            name
-            for name in (
-                "environment",
-                "developer_mode",
-                "admin_pass",
-                "alias_domains",
-                "github_token",
-                "python_version",
-                "node_version",
-                "restart",
-                "newrelic",
-                "newrelic_license_key",
-                "runtime",
-                "base_image",
-                "seed_image",
-                "apps",
-            )
-            if ctx.get_parameter_source(name)
-            in (ParameterSource.COMMANDLINE, ParameterSource.ENVIRONMENT, ParameterSource.PROMPT)
-        }
-        try:
-            bench_config, apps_from_user = _build_overlay_bench_config(
-                config=config,
-                benchname=benchname,
-                root_path=bench_config_path,
-                apps=apps_config,
-                environment=environment,
-                developer_mode_status=developer_mode_status,
-                admin_pass=admin_pass,
-                alias_domains=alias_domains,
-                github_token=github_token,
-                python_version=python_version,
-                node_version=node_version,
-                restart=restart,
-                newrelic=newrelic,
-                newrelic_license_key=newrelic_license_key,
-                runtime=runtime,
-                base_image=base_image,
-                seed_image=seed_image,
-                db_name=global_db_name,
-                explicit=explicit,
-            )
-        except ConfigOverlayError as e:
-            output.display_error(str(e))
-            raise typer.Exit(1) from e
-
-        if bench_config.runtime == BenchRuntime.image:
-            current_tag = bench_config.deploy_state.current_tag if bench_config.deploy_state else None
-            if not current_tag:
-                output.display_error(
-                    "Image runtime needs a pre-built image: pass --base-image <repo:tag>, or set "
-                    "top-level image + \\[deploy_state].current_tag in --config.",
-                )
-                raise typer.Exit(1)
-            output.print(
-                f"Image bench: creating the site from pre-built image [fm.info]{current_tag}[/fm.info].",
-                emoji_code=":package:",
-            )
-
-        if bench_config.runtime == BenchRuntime.image and bench_config.developer_mode:
-            output.display_error(
-                "developer_mode = true is not supported with image runtime: DocType authoring writes "
-                "app files into the ephemeral container layer (lost on the next deploy). Remove it "
-                "from the config overlay or use runtime = 'mount'.",
-            )
-            raise typer.Exit(1)
-    else:
-        # For seeded creates --apps entries are overrides, used verbatim (no frappe
-        # auto-injection -- the image's frappe must not be clobbered by a default).
-        final_apps_list = apps_config if seed_image else _ensure_frappe_first(apps_config)
-
-        # Deploy model (#323): resolve runtime (mount|image) plus --base-image, the image
-        # the containers run in either runtime.
-        resolved_runtime, image_repo, deploy_current_tag, base_image_override = _resolve_deploy_options(
-            runtime, base_image, apps, python_version, node_version
-        )
-        if seed_image:
-            _validate_seed_image(seed_image, resolved_runtime)
-            output.print(
-                f"Mount bench: seeding workspace from baked image [fm.info]{seed_image}[/fm.info].",
-                emoji_code=":package:",
-            )
-        if resolved_runtime == BenchRuntime.image:
-            output.print(
-                f"Image bench: creating the site from pre-built image [fm.info]{deploy_current_tag}[/fm.info].",
-                emoji_code=":package:",
-            )
-
-        bench_config = BenchConfig(
-            name=benchname,
-            apps_list=final_apps_list,
-            developer_mode=_resolve_developer_mode(environment, resolved_runtime, developer_mode_status),
-            admin_tools=True if environment == FMBenchEnvType.dev else False,
-            admin_pass=admin_pass,
-            environment_type=environment,
+    # One construction path: create defaults, then each --config overlay, then the flags the user
+    # actually passed. Precedence is the merge order, so no field needs a per-field application step
+    # that can fall out of step with the model. Two paths used to disagree here: `--runtime image`
+    # refused --apps/--python/--node while a --config declaring `runtime = "image"` accepted them.
+    requested = {
+        name for name in (*_FLAG_TO_CONFIG, "base_image") if ctx.get_parameter_source(name) in _EXPLICIT_SOURCES
+    }
+    try:
+        bench_config, apps_from_user = bench_config_from_inputs(
+            config=config,
+            flag_overlay=_flag_overlay(
+                requested,
+                {
+                    "admin_pass": admin_pass,
+                    "alias_domains": alias_domains,
+                    "apps": apps_config,
+                    "developer_mode": developer_mode_status,
+                    "environment": environment,
+                    "github_token": github_token,
+                    "newrelic": newrelic,
+                    "newrelic_license_key": newrelic_license_key,
+                    "node_version": node_version,
+                    "python_version": python_version,
+                    "restart": restart,
+                    "runtime": runtime,
+                    "seed_image": seed_image,
+                },
+            ),
+            benchname=benchname,
             root_path=bench_config_path,
-            ssl_certificates=[],
-            alias_domains=alias_domains if alias_domains else [],
-            github_token=github_token,
-            use_uv=True,
-            python_version=python_version,
-            node_version=node_version,
+            base_image=base_image if "base_image" in requested else None,
             db_name=global_db_name,
-            restart_policy=restart,
-            monitoring=MonitoringConfig(newrelic=NewRelicConfig(enabled=newrelic, license_key=newrelic_license_key))
-            if newrelic or newrelic_license_key
-            else None,
-            runtime=resolved_runtime,
-            image=image_repo,
-            base_image=base_image_override,
-            seed_image=seed_image,
-            deploy_state=DeployState(current_tag=deploy_current_tag)
-            if resolved_runtime == BenchRuntime.image
-            else None,
         )
-        apps_from_user = bool(apps)
+    except ConfigOverlayError as e:
+        output.display_error(str(e))
+        raise typer.Exit(1) from e
 
-    # --- shared validation + creation (both paths) ---
+    if bench_config.seed_image:
+        output.print(
+            f"Mount bench: seeding workspace from baked image [fm.info]{bench_config.seed_image}[/fm.info].",
+            emoji_code=":package:",
+        )
+    if bench_config.runtime == BenchRuntime.image and bench_config.deploy_state:
+        output.print(
+            f"Image bench: creating the site from pre-built image "
+            f"[fm.info]{bench_config.deploy_state.current_tag}[/fm.info].",
+            emoji_code=":package:",
+        )
+
     # External database / redis. Every refusal is raised here, before the bench directory,
     # the compose file or a single connection exists.
     database_config, redis_config, credentials = _resolve_external_options(
