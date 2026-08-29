@@ -7,7 +7,7 @@ import typer
 from typer_examples import example
 
 from frappe_manager.commands import check_bench_migration_required
-from frappe_manager.commands.arguments import BenchNameArgument
+from frappe_manager.commands.arguments import BenchSiteArgument
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager import NON_BASH_SUPPORTED_SERVICES
 from frappe_manager.site_manager.bench_config import BenchRuntime
@@ -115,7 +115,7 @@ frappe.connect()
 )
 def shell(
     ctx: typer.Context,
-    benchname: BenchNameArgument = None,
+    benchname: BenchSiteArgument = None,
     command: Annotated[str | None, typer.Option("-c", "--command", help="Run this command and exit.")] = None,
     user: Annotated[
         str | None,
@@ -139,16 +139,23 @@ def shell(
             help="Enter the Frappe context on the frappe service: bench console interactively, Python from -c or stdin.",
         ),
     ] = False,
-    site: Annotated[
-        str | None,
-        typer.Option(help="Site the bench console connects to. Defaults to the bench name.", show_default=False),
-    ] = None,
 ):
     """
     Open a shell in one of a bench's containers, or run a command in it.
 
     A command can come from -c, from the arguments after --, or from stdin when stdin is not a terminal, and its exit code becomes fm's. --bench-console works on the frappe service only: interactively it is bench console, and with -c or piped input it runs Python with frappe already initialised and connected.
     """
+
+    site = ctx.obj.get("site") if ctx.obj else None
+
+    # Pure guard, before any bench lookup: nginx and redis have no site context, so naming
+    # one is a user error worth reporting rather than ignoring.
+    if site and service != "frappe":
+        output_early = get_global_output_handler()
+        output_early.error(
+            f"--service {service} has no site context: drop the '/{site}' from the address",
+            exception=typer.Exit(code=1),
+        )
 
     check_bench_migration_required(benchname)
 
@@ -204,7 +211,7 @@ def shell(
 
     if has_stdin_data and not command and not passthrough_args:
         stdin_commands = sys.stdin.read()
-        exit_code = bench.execute_command(service, stdin_commands, user, shell_path=shell_path, use_run=run)
+        exit_code = bench.execute_command(service, stdin_commands, user, shell_path=shell_path, use_run=run, site=site)
         if exit_code != 0:
             raise typer.Exit(exit_code)
         return
@@ -222,6 +229,8 @@ def shell(
             # above the bench), so `bench ...` needs the same --workdir exec gets.
             if service == "frappe":
                 exec_cmd += ["--workdir", "/workspace/frappe-bench"]
+            if site:
+                exec_cmd += ["--env", f"FRAPPE_SITE={site}"]
             exec_cmd += [service, shell_path, "-c", " ".join(passthrough_args)]
         else:
             exec_cmd = bench.docker_client.compose.docker_compose_cmd + ["exec"]
@@ -229,21 +238,25 @@ def shell(
                 exec_cmd += ["--user", user]
             if service == "frappe":
                 exec_cmd += ["--workdir", "/workspace/frappe-bench"]
+            if site:
+                exec_cmd += ["--env", f"FRAPPE_SITE={site}"]
             exec_cmd += [service, shell_path, "-c", " ".join(passthrough_args)]
 
         if is_interactive:
             os.execvp(exec_cmd[0], exec_cmd)
         else:
             command_str = " ".join(passthrough_args)
-            exit_code = bench.execute_command(service, command_str, user, shell_path=shell_path, use_run=run)
+            exit_code = bench.execute_command(
+                service, command_str, user, shell_path=shell_path, use_run=run, site=site
+            )
             if exit_code != 0:
                 raise typer.Exit(exit_code)
         return
 
     if command:
-        exit_code = bench.execute_command(service, command, user, shell_path=shell_path, use_run=run)
+        exit_code = bench.execute_command(service, command, user, shell_path=shell_path, use_run=run, site=site)
         if exit_code != 0:
             raise typer.Exit(exit_code)
         return
 
-    bench.shell(service, user, shell_path=shell_path, use_run=run)
+    bench.shell(service, user, shell_path=shell_path, use_run=run, site=site)

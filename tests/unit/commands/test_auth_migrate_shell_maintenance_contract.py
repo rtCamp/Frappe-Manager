@@ -1079,6 +1079,8 @@ def test_bench_console_with_a_command_runs_frappe_initialised_python_instead_of_
     service, payload, user = bench.execute_command.call_args.args
     assert service == "frappe"
     assert user is None
+    # No FRAPPE_SITE here, deliberately: the console embeds `frappe.init(site=...)` in the
+    # payload (asserted below), which is explicit and outranks any environment variable.
     assert bench.execute_command.call_args.kwargs == {"use_run": False}
     encoded = payload.split("FM_EXEC_CODE='", 1)[1].split("'", 1)[0]
     code = base64.b64decode(encoded).decode()
@@ -1115,9 +1117,13 @@ def test_bench_console_propagates_a_non_zero_exit_code(tmp_path):
 
 
 # --- shell command body ---------------------------------------------------- #
-def _run_shell(bench, *, args=None, interactive=True, isatty=True, stdin_data="", **kwargs):
+def _run_shell(bench, *, args=None, interactive=True, isatty=True, stdin_data="", site=None, **kwargs):
     ctx = MagicMock()
     ctx.obj = {"services": MagicMock()}
+    # The site half of a `bench/site` address arrives on the context, not as a parameter:
+    # `bench_site_callback` puts it there so command bodies keep receiving a bench name.
+    if site is not None:
+        ctx.obj["site"] = site
     ctx.args = list(args) if args else []
     params = {
         "benchname": "mybench",
@@ -1127,7 +1133,6 @@ def _run_shell(bench, *, args=None, interactive=True, isatty=True, stdin_data=""
         "shell_path": None,
         "run": False,
         "bench_console": False,
-        "site": None,
     }
     params.update(kwargs)
     handler = get_global_output_handler()
@@ -1183,7 +1188,7 @@ def test_a_bare_shell_delegates_to_bench_shell_with_the_resolved_defaults(tmp_pa
     bench = _shell_bench(tmp_path)
     r = _run_shell(bench)
     assert r.exit is None
-    bench.shell.assert_called_once_with("frappe", "frappe", shell_path="/bin/bash", use_run=False)
+    bench.shell.assert_called_once_with("frappe", "frappe", shell_path="/bin/bash", use_run=False, site=None)
     r.execvp.assert_not_called()
 
 
@@ -1191,7 +1196,7 @@ def test_a_bare_shell_delegates_to_bench_shell_with_the_resolved_defaults(tmp_pa
 def test_a_bare_shell_on_a_non_bash_service_uses_sh_and_no_default_user(tmp_path):
     bench = _shell_bench(tmp_path)
     _run_shell(bench, service="mailpit")
-    bench.shell.assert_called_once_with("mailpit", None, shell_path="sh", use_run=False)
+    bench.shell.assert_called_once_with("mailpit", None, shell_path="sh", use_run=False, site=None)
 
 
 @pytest.mark.usefixtures("out")
@@ -1200,7 +1205,7 @@ def test_piped_stdin_without_a_command_is_executed_verbatim(tmp_path):
     r = _run_shell(bench, isatty=False, stdin_data="ls -la\nbench --version\n")
     assert r.exit is None
     bench.execute_command.assert_called_once_with(
-        "frappe", "ls -la\nbench --version\n", "frappe", shell_path="/bin/bash", use_run=False
+        "frappe", "ls -la\nbench --version\n", "frappe", shell_path="/bin/bash", use_run=False, site=None
     )
     r.execvp.assert_not_called()
     bench.shell.assert_not_called()
@@ -1299,7 +1304,7 @@ def test_non_interactive_passthrough_runs_the_command_instead_of_exec(tmp_path):
     r = _run_shell(bench, args=["bench", "migrate"], interactive=False)
     r.execvp.assert_not_called()
     bench.execute_command.assert_called_once_with(
-        "frappe", "bench migrate", "frappe", shell_path="/bin/bash", use_run=False
+        "frappe", "bench migrate", "frappe", shell_path="/bin/bash", use_run=False, site=None
     )
     assert r.exit is None
 
@@ -1327,10 +1332,72 @@ def test_dash_c_command_is_executed_without_exec(tmp_path):
     r = _run_shell(bench, command="bench --version")
     r.execvp.assert_not_called()
     bench.execute_command.assert_called_once_with(
-        "frappe", "bench --version", "frappe", shell_path="/bin/bash", use_run=False
+        "frappe", "bench --version", "frappe", shell_path="/bin/bash", use_run=False, site=None
     )
     bench.shell.assert_not_called()
     assert r.exit is None
+
+
+# --- the site half of the address reaches every exec path ------------------- #
+# `fm shell` has four ways to reach a container and only one of them is the interactive
+# shell. The address exists so a bare `bench` command targets the named site, so a path
+# that drops the site is a silent wrong-database bug -- the exact class of thing the
+# address was introduced to prevent. One test per path.
+@pytest.mark.usefixtures("out")
+def test_dash_c_carries_the_site(tmp_path):
+    """The scripted form: `fm shell BENCH/SITE -c 'bench migrate'`."""
+    bench = _shell_bench(tmp_path)
+    _ = _run_shell(bench, command="bench migrate", site="a.localhost")
+    assert bench.execute_command.call_args.kwargs["site"] == "a.localhost"
+
+
+@pytest.mark.usefixtures("out")
+def test_piped_stdin_carries_the_site(tmp_path):
+    bench = _shell_bench(tmp_path)
+    _ = _run_shell(bench, isatty=False, stdin_data="bench migrate\n", site="a.localhost")
+    assert bench.execute_command.call_args.kwargs["site"] == "a.localhost"
+
+
+@pytest.mark.usefixtures("out")
+def test_non_interactive_passthrough_carries_the_site(tmp_path):
+    bench = _shell_bench(tmp_path)
+    _ = _run_shell(bench, args=["bench", "migrate"], interactive=False, site="a.localhost")
+    assert bench.execute_command.call_args.kwargs["site"] == "a.localhost"
+
+
+@pytest.mark.usefixtures("out")
+def test_interactive_passthrough_execs_with_the_site_in_the_environment(tmp_path):
+    """This path builds its own argv inline rather than going through the docker layer, so
+    it needs its own check: the flag must land before the service name, or docker reads it
+    as an argument to the containerised command instead of a flag to itself."""
+    bench = _shell_bench(tmp_path)
+    r = _run_shell(bench, args=["bench", "migrate"], site="a.localhost")
+    argv = r.execvp.call_args.args[1]
+    assert argv[argv.index("--env") + 1] == "FRAPPE_SITE=a.localhost"
+    # The trailing four are the docker-side boundary; `frappe` also appears earlier as the
+    # value of `--user`, so the service is located by position, not by searching for it.
+    assert argv[-4:] == ["frappe", "/bin/bash", "-c", "bench migrate"]
+    assert argv.index("--env") < len(argv) - 4
+
+
+@pytest.mark.usefixtures("out")
+def test_interactive_passthrough_carries_the_site_on_the_run_branch_too(tmp_path):
+    """`--run` builds a second, byte-identical inline argv next to the exec one. Two copies
+    of the same construction is exactly where a flag gets added to one and not the other."""
+    bench = _shell_bench(tmp_path)
+    r = _run_shell(bench, args=["bench", "migrate"], run=True, site="a.localhost")
+    argv = r.execvp.call_args.args[1]
+    assert "run" in argv
+    assert argv[argv.index("--env") + 1] == "FRAPPE_SITE=a.localhost"
+    assert argv[-4:] == ["frappe", "/bin/bash", "-c", "bench migrate"]
+    assert argv.index("--env") < len(argv) - 4
+
+
+@pytest.mark.usefixtures("out")
+def test_the_bare_interactive_shell_carries_the_site(tmp_path):
+    bench = _shell_bench(tmp_path)
+    _ = _run_shell(bench, site="a.localhost")
+    assert bench.shell.call_args.kwargs["site"] == "a.localhost"
 
 
 @pytest.mark.usefixtures("out")

@@ -785,6 +785,37 @@ class TestExecuteCommandOutputAndExitCodes:
 
         assert "workdir" not in ops.docker_client.compose.run.call_args.kwargs
 
+    @pytest.mark.timeout(15)
+    def test_a_site_reaches_the_exec_branch_as_frappe_site(self, tmp_path):
+        """`fm shell BENCH/SITE -c 'bench migrate'` is the scripted form of the address, and
+        it goes through `execute_command`, not `shell`. Wiring only the interactive path
+        would leave every scripted invocation silently targeting the bench-wide default."""
+        ops = self._ops_with_running_frappe(tmp_path)
+        ops.docker_client.compose.exec.return_value = SimpleNamespace(stdout=[], stderr=[], exit_code=0)
+
+        ops.execute_command("frappe", "bench migrate", site="a.localhost")
+
+        assert ops.docker_client.compose.exec.call_args.kwargs["env"] == ["FRAPPE_SITE=a.localhost"]
+
+    @pytest.mark.timeout(15)
+    def test_a_site_reaches_the_run_branch_too(self, tmp_path):
+        ops = self._ops_with_running_frappe(tmp_path)
+        ops.docker_client.compose.run.return_value = SimpleNamespace(stdout=[], stderr=[], exit_code=0)
+
+        ops.execute_command("frappe", "bench migrate", use_run=True, site="a.localhost")
+
+        assert ops.docker_client.compose.run.call_args.kwargs["env"] == ["FRAPPE_SITE=a.localhost"]
+
+    @pytest.mark.timeout(15)
+    def test_no_site_passes_no_env_at_all(self, tmp_path):
+        """An empty `env` list would still be a behaviour change for every existing caller."""
+        ops = self._ops_with_running_frappe(tmp_path)
+        ops.docker_client.compose.exec.return_value = SimpleNamespace(stdout=[], stderr=[], exit_code=0)
+
+        ops.execute_command("frappe", "true")
+
+        assert "env" not in ops.docker_client.compose.exec.call_args.kwargs
+
 
 class TestFrappeLogsTillStart:
     @pytest.mark.timeout(15)
@@ -901,6 +932,52 @@ class TestShellArgv:
 
         assert captured[0][1][-2:] == ["frappe", "/bin/zsh"]
         assert captured[0][1][captured[0][1].index("--user") + 1] == "root"
+
+    @pytest.mark.timeout(15)
+    def test_a_site_becomes_frappe_site_in_the_exec_environment(self, tmp_path, monkeypatch):
+        """The payload of the `bench/site` address. FRAPPE_SITE sits above
+        common_site_config's default_site in Frappe's own resolution, so this is what makes a
+        bare `bench` command inside the shell target the site the operator addressed instead
+        of the bench-wide default."""
+        ops = _ops(tmp_path)
+        self._running(ops)
+        captured = self._capture_execvp(monkeypatch)
+
+        ops.shell("frappe", site="a.localhost")
+
+        argv = captured[0][1]
+        assert "--env" in argv
+        assert argv[argv.index("--env") + 1] == "FRAPPE_SITE=a.localhost"
+        # Before the service and the shell path, or docker reads it as an argument to the
+        # containerised command. `frappe` also appears earlier as the value of `--user`, so
+        # the service is located by position (the trailing pair), not by searching for it.
+        assert argv[-2:] == ["frappe", "/bin/bash"]
+        assert argv.index("--env") < len(argv) - 2
+
+    @pytest.mark.timeout(15)
+    def test_no_site_means_no_env_flag_at_all(self, tmp_path, monkeypatch):
+        """`fm shell BENCH` with no site part must behave exactly as it did before addresses."""
+        ops = _ops(tmp_path)
+        self._running(ops)
+        captured = self._capture_execvp(monkeypatch)
+
+        ops.shell("frappe")
+
+        assert "--env" not in captured[0][1]
+
+    @pytest.mark.timeout(15)
+    def test_the_run_branch_carries_frappe_site_too(self, tmp_path, monkeypatch):
+        """`--run` builds a separate argv through `compose run`; injecting into only one of
+        the two branches is the easy mistake here."""
+        ops = _ops(tmp_path)
+        self._running(ops)
+        captured = self._capture_execvp(monkeypatch)
+
+        ops.shell("frappe", use_run=True, site="a.localhost")
+
+        argv = captured[0][1]
+        assert "run" in argv
+        assert argv[argv.index("--env") + 1] == "FRAPPE_SITE=a.localhost"
 
     @pytest.mark.timeout(15)
     def test_shell_refuses_when_the_service_is_not_running(self, tmp_path, monkeypatch):

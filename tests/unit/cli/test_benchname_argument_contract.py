@@ -35,7 +35,12 @@ from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchException, BenchNotFoundError
 from frappe_manager.utils import callbacks
 from frappe_manager.utils import site as site_utils
-from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
+from frappe_manager.utils.callbacks import (
+    bench_site_callback,
+    sitename_callback,
+    sites_autocompletion_callback,
+    standalone_address_callback,
+)
 
 PARAM_NAME = "benchname"
 
@@ -74,7 +79,6 @@ KNOWN_CANONICAL = frozenset(
         "fm ngrok",
         "fm reset",
         "fm restart",
-        "fm shell",
         "fm start",
         "fm stop",
         "fm update",
@@ -160,8 +164,12 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         autocompletion=None,
         callback=None,
     ),
-    # The four `ssl` subcommands all support standalone (bench-less) certificates,
-    # so they share their own variant: completion yes, must-exist callback no.
+    # The four `ssl` subcommands all support standalone (bench-less) certificates, so they
+    # share their own variant: completion yes, must-exist validation no. They DO carry
+    # `standalone_address_callback`, which parses the `BENCH[/SITE]` address and refuses a
+    # site part without normalising the name or requiring the bench to exist. Before it,
+    # a slashed value reached `Bench.get_object` and died as a not-found error on a nested
+    # path rather than as a parse error.
     **{
         f"fm ssl {sub}": BenchnameSpec(
             help="Name of the bench (omit for standalone mode).",
@@ -169,10 +177,23 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
             required=False,
             type_name="text",
             autocompletion=sites_autocompletion_callback,
-            callback=None,
+            callback=standalone_address_callback,
         )
         for sub in ("add", "list", "remove", "renew")
     },
+    # `shell` is the one command that addresses a SITE, because a shell is the one place a
+    # site is addressable today: the site half of the address becomes FRAPPE_SITE in the
+    # container, which Frappe reads above common_site_config's default_site, so bare
+    # `bench` commands inside the shell target it. Hence its own help text and its own
+    # callback, `bench_site_callback`, the only one that accepts a site part.
+    "fm shell": BenchnameSpec(
+        help="Bench, or bench/site.",
+        default=None,
+        required=False,
+        type_name="text",
+        autocompletion=sites_autocompletion_callback,
+        callback=bench_site_callback,
+    ),
     # dns-config credentials can be global, hence its own wording.
     "fm ssl dns-config cloudflare": BenchnameSpec(
         help="Bench to configure. Omit for global credentials.",
@@ -349,14 +370,43 @@ def test_shared_callables_are_the_same_object_everywhere():
     assert completers == {sites_autocompletion_callback}
 
 
-def test_commands_without_the_must_exist_callback_are_only_the_documented_ones():
-    # Dropping `callback=sitename_callback` removes validation *and* the
-    # interactive picker -- the most user-visible thing a careless dedup can do.
+def test_commands_without_any_benchname_callback_are_only_the_documented_ones():
+    # Dropping the callback entirely removes validation *and* the interactive picker --
+    # the most user-visible thing a careless dedup can do.
     unvalidated = {name for name, param in BENCHNAME_ARGUMENTS.items() if unwrap_callback(param) is None}
     expected = {name for name, spec in EXCEPTIONS.items() if spec.callback is None}
     assert unvalidated == expected, (
-        f"set of commands with NO benchname validation callback changed: "
+        f"set of commands with NO benchname callback changed: "
         f"gained {sorted(unvalidated - expected)}, lost {sorted(expected - unvalidated)}"
+    )
+
+
+def test_commands_that_skip_the_must_exist_check_are_only_the_documented_ones():
+    """The narrower contract the test above stopped covering once the `ssl` commands gained
+    `standalone_address_callback`: they have a callback now, but it deliberately does NOT
+    require the bench to exist, because they also manage domains belonging to no bench.
+
+    Only `sitename_callback` and `bench_site_callback` run the must-exist check (both go
+    through `_resolve_bench`). A command that silently moves off one of those loses the
+    check and the picker, which is exactly what this pins.
+    """
+    must_exist = {sitename_callback, bench_site_callback}
+    skipping = {name for name, param in BENCHNAME_ARGUMENTS.items() if unwrap_callback(param) not in must_exist}
+    expected = {
+        "fm bake",
+        "fm create",
+        "fm maintenance",
+        "fm migrate",
+        "fm self compose",
+        "fm ssl add",
+        "fm ssl dns-config cloudflare",
+        "fm ssl list",
+        "fm ssl remove",
+        "fm ssl renew",
+    }
+    assert skipping == expected, (
+        f"set of commands skipping the benchname must-exist check changed: "
+        f"gained {sorted(skipping - expected)}, lost {sorted(expected - skipping)}"
     )
 
 

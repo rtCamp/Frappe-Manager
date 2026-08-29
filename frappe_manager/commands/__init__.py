@@ -104,7 +104,10 @@ def get_bench_arg_from_argv(command_path: str) -> str | None:
             continue
         if token.startswith(("-", "/", "~")):
             break
-        return token
+        # The bench half only: this feeds `CLI_BENCHES_DIRECTORY / bench_arg` below, and a
+        # `bench/site` address would silently become a nested non-existent path, taking the
+        # migration gate quiet with it.
+        return token.split("/", 1)[0]
 
     return None
 

@@ -848,7 +848,14 @@ class Bench:
                 )
         return self.docker_ops
 
-    def shell(self, compose_service: str, user: str | None, shell_path: str | None = None, use_run: bool = False):
+    def shell(
+        self,
+        compose_service: str,
+        user: str | None,
+        shell_path: str | None = None,
+        use_run: bool = False,
+        site: str | None = None,
+    ):
         """
         Spawns a shell for the specified service and user.
 
@@ -857,10 +864,12 @@ class Bench:
             user (str | None): The name of the user. If None, defaults to "frappe".
             shell_path (str | None): Path to shell executable (e.g., /bin/sh, /bin/bash).
             use_run (bool): Use 'docker compose run --rm' instead of 'docker compose exec'.
+            site (str | None): Exported as FRAPPE_SITE so bare `bench` commands in the shell
+                target this site instead of the bench-wide default.
 
         """
         return self._docker_ops_for_service(compose_service).shell(
-            compose_service, user, shell_path=shell_path, use_run=use_run
+            compose_service, user, shell_path=shell_path, use_run=use_run, site=site
         )
 
     def execute_command(
@@ -870,6 +879,7 @@ class Bench:
         user: str | None = None,
         shell_path: str | None = None,
         use_run: bool = False,
+        site: str | None = None,
     ) -> int:
         """
         Execute a single command in the specified service and return exit code.
@@ -880,12 +890,14 @@ class Bench:
             user: The name of the user (defaults to "frappe" for frappe service)
             shell_path: Path to shell executable (e.g., /bin/sh, /bin/bash)
             use_run: Use 'docker compose run --rm' instead of 'docker compose exec'
+            site: Exported as FRAPPE_SITE so a bare `bench` command in `command` targets
+                this site instead of the bench-wide default.
 
         Returns:
             Exit code of the executed command
         """
         return self._docker_ops_for_service(compose_service).execute_command(
-            compose_service, command, user, shell_path=shell_path, use_run=use_run
+            compose_service, command, user, shell_path=shell_path, use_run=use_run, site=site
         )
 
     def get_log_file_paths(self):

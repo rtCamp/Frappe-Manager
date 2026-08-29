@@ -422,6 +422,7 @@ class BenchDockerOps:
         user: str | None = None,
         shell_path: str | None = None,
         use_run: bool = False,
+        site: str | None = None,
     ) -> None:
         """
         Spawn a shell for the specified service.
@@ -431,6 +432,9 @@ class BenchDockerOps:
             user: The name of the user (defaults to "frappe" for frappe service)
             shell_path: Path to shell executable (overrides auto-detection)
             use_run: Use 'docker compose run --rm' instead of 'docker compose exec'
+            site: Exported into the container as FRAPPE_SITE, which sits above
+                common_site_config's default_site in Frappe's own resolution, so bare
+                `bench` commands in the shell target this site.
         """
         self.output.change_head("Spawning shell")
 
@@ -453,6 +457,8 @@ class BenchDockerOps:
                 "--entrypoint",
                 "/exec-entrypoint.sh",
             ]
+            if site:
+                run_cmd += ["--env", f"FRAPPE_SITE={site}"]
             # Use lightweight exec-entrypoint.sh that only handles UID/GID mismatch.
             # It never cds and the image's WORKDIR is /workspace, one level above
             # the bench, so the frappe service needs the same --workdir exec gets.
@@ -465,6 +471,9 @@ class BenchDockerOps:
             os.execvp(run_cmd[0], run_cmd)
         else:
             exec_cmd = self.docker_client.compose.docker_compose_cmd + ["exec"]
+
+            if site:
+                exec_cmd += ["--env", f"FRAPPE_SITE={site}"]
 
             if user:
                 exec_cmd += ["--user", user]
@@ -485,6 +494,7 @@ class BenchDockerOps:
         user: str | None = None,
         shell_path: str | None = None,
         use_run: bool = False,
+        site: str | None = None,
     ) -> int:
         """
         Execute a single command in the specified service and return exit code.
@@ -495,6 +505,9 @@ class BenchDockerOps:
             user: The name of the user (defaults to "frappe" for frappe service)
             shell_path: Path to shell executable (overrides auto-detection)
             use_run: Use 'docker compose run --rm' instead of 'docker compose exec'
+            site: Exported into the container as FRAPPE_SITE, which sits above
+                common_site_config's default_site in Frappe's own resolution, so a bare
+                `bench` command in `command` targets this site.
 
         Returns:
             Exit code of the executed command
@@ -525,6 +538,9 @@ class BenchDockerOps:
             # directory and fails.
             if compose_service == "frappe":
                 run_args["workdir"] = "/workspace/frappe-bench"
+
+            if site:
+                run_args["env"] = [f"FRAPPE_SITE={site}"]
 
             try:
                 result = cast("SubprocessOutput", self.docker_client.compose.run(**run_args))
@@ -559,6 +575,9 @@ class BenchDockerOps:
 
             if user:
                 exec_args["user"] = user
+
+            if site:
+                exec_args["env"] = [f"FRAPPE_SITE={site}"]
 
             try:
                 result = self.docker_client.compose.exec(**exec_args)

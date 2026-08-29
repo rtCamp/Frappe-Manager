@@ -13,6 +13,7 @@ from frappe_manager import (
 from frappe_manager.exceptions import NonInteractiveError
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchNotFoundError
+from frappe_manager.utils.address import Address, parse_address
 from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version
 from frappe_manager.utils.site import get_sitename_from_current_path, is_fqdn, is_wildcard_fqdn, validate_sitename
 
@@ -138,7 +139,26 @@ def sites_autocompletion_callback() -> list[Path]:
     return sites_list
 
 
-def sitename_callback(sitename: str | None):
+RESERVED_BENCH_NAME = "all"
+"""Refused as a bench name: a bare `all` is the address meaning every bench."""
+
+_SITE_PART_REFUSAL = "this command takes a bench, not a site: use '{bench}'"
+
+
+def _parse_or_refuse(value: str) -> Address:
+    """Parse an address, turning a parse failure into the CLI's own refusal.
+
+    `parse_address` is pure and raises `ValueError`; the CLI layer owns how a refusal
+    reaches the operator, so it becomes `typer.BadParameter` here and nowhere deeper.
+    """
+    try:
+        return parse_address(value)
+    except ValueError as e:
+        raise typer.BadParameter(str(e)) from e
+
+
+def _resolve_bench(sitename: str | None) -> str:
+    """A bench name: the CWD fallback, then the picker, then normalise and require it exists."""
     if not sitename:
         sitename = get_sitename_from_current_path()
 
@@ -181,6 +201,70 @@ def sitename_callback(sitename: str | None):
         raise BenchNotFoundError(sitename, bench_path)
 
     return sitename
+
+
+def sitename_callback(sitename: str | None):
+    """`BENCH` for every command that acts on a whole bench.
+
+    An address carrying a site part is refused rather than ignored: containers, the
+    workspace and the workers are shared by every site in a bench, so there is no
+    per-site meaning to invent for these commands.
+    """
+    if sitename:
+        address = _parse_or_refuse(sitename)
+        if address.site is not None:
+            raise typer.BadParameter(_SITE_PART_REFUSAL.format(bench=address.bench))
+        sitename = address.bench
+
+    return _resolve_bench(sitename)
+
+
+def bench_site_callback(ctx: typer.Context, value: str | None) -> str | None:
+    """`BENCH[/SITE]` for the one command that addresses a site.
+
+    Returns the BENCH name, exactly as `sitename_callback` does, so command bodies keep
+    receiving a plain bench-directory name and the 21 `Bench.get_object` call sites are
+    untouched. A named site rides on `ctx.obj["site"]` instead.
+
+    `ctx` must be annotated: typer matches the context parameter by annotation and then
+    takes the last un-annotated parameter as the value.
+    """
+    site = None
+
+    if value:
+        address = _parse_or_refuse(value)
+        value = address.bench
+        site = address.site
+
+    bench = _resolve_bench(value)
+
+    if site is not None:
+        site = validate_sitename(site)
+        if site != bench:
+            raise typer.BadParameter(f"bench '{bench}' has no site '{site}': its site is '{bench}'")
+        # `ctx.obj` is None under --help, which short-circuits before app_callback fills it.
+        if ctx.obj is not None:
+            ctx.obj["site"] = site
+
+    return bench
+
+
+def standalone_address_callback(value: str | None) -> str | None:
+    """`BENCH` for the `ssl` commands, which resolve the bench themselves.
+
+    Parses and refuses a site part, then returns the value otherwise UNCHANGED: no
+    normalisation and no must-exist check, because these commands also manage
+    certificates for domains that belong to no bench. Without this, a slashed value
+    reached `Bench.get_object` and died as a not-found error on a nested path.
+    """
+    if not value:
+        return value
+
+    address = _parse_or_refuse(value)
+    if address.site is not None:
+        raise typer.BadParameter(_SITE_PART_REFUSAL.format(bench=address.bench))
+
+    return address.bench
 
 
 def get_cache_file() -> Path:
@@ -281,8 +365,21 @@ def code_command_extensions_callback(extensions: list[str]) -> list[str]:
 
 
 def create_command_sitename_callback(sitename: str):
+    address = _parse_or_refuse(sitename)
+
+    if address.site is not None:
+        # `fm create` cannot add a site to a bench that does not exist yet, so a site part
+        # here is always a mistake.
+        raise typer.BadParameter("fm create takes a bench name, not a bench/site address")
+
+    if address.bench == RESERVED_BENCH_NAME:
+        # Checked before validate_sitename, which would turn it into `all.localhost`.
+        raise typer.BadParameter(
+            f"'{RESERVED_BENCH_NAME}' is reserved as an address meaning every bench, so it cannot be a bench name"
+        )
+
     # validate the site
-    sitename = validate_sitename(sitename)
+    sitename = validate_sitename(address.bench)
 
     # check if already exists
     bench_path = CLI_BENCHES_DIRECTORY / sitename

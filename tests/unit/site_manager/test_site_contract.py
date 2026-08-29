@@ -1682,7 +1682,7 @@ class TestServiceRouting:
         bench.shell("nginx", None)
 
         bench.docker_ops.logs.assert_called_once_with(services=["nginx"], follow=True)
-        bench.docker_ops.shell.assert_called_once_with("nginx", None, shell_path=None, use_run=False)
+        bench.docker_ops.shell.assert_called_once_with("nginx", None, shell_path=None, use_run=False, site=None)
         bench.admin_tools.docker_client.compose.logs.assert_not_called()
 
 
@@ -1756,11 +1756,11 @@ class TestThinDelegations:
         bench.docker_ops.frappe_logs_till_start.assert_called_once_with()
 
         bench.shell("frappe", None, shell_path="/bin/sh", use_run=True)
-        bench.docker_ops.shell.assert_called_once_with("frappe", None, shell_path="/bin/sh", use_run=True)
+        bench.docker_ops.shell.assert_called_once_with("frappe", None, shell_path="/bin/sh", use_run=True, site=None)
 
         bench.execute_command("frappe", "ls", user="root", shell_path="/bin/bash", use_run=False)
         bench.docker_ops.execute_command.assert_called_once_with(
-            "frappe", "ls", "root", shell_path="/bin/bash", use_run=False
+            "frappe", "ls", "root", shell_path="/bin/bash", use_run=False, site=None
         )
 
     def test_devtools_and_supervisor_routes(self, harness):

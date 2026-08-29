@@ -6,13 +6,14 @@ normalises a bare name to `<name>.localhost` -- used to be copy-pasted into
 every command module. These aliases are that one declaration, so a change to the
 help text or the validator lands on every command at once instead of drifting.
 
-There are deliberately THREE aliases, not one. They differ in ways a user or a
+There are deliberately FOUR aliases, not one. They differ in ways a user or a
 shell can observe, so they are not interchangeable:
 
 * :data:`BenchNameArgument` -- optional, validated. The default for a command
   that operates on an existing bench: omitting the name falls back to the bench
   in the current directory and, failing that, `sitename_callback` opens an
-  interactive picker.
+  interactive picker. An address carrying a site part is REFUSED, because these
+  commands act on the whole bench.
 
 * :data:`RequiredBenchNameArgument` -- same help text and same validator, but
   REQUIRED. Used by `fm prune` and `fm switch`. This is the trap: because the
@@ -22,10 +23,20 @@ shell can observe, so they are not interchangeable:
   would silently offer to prune whatever bench the picker lands on instead of
   refusing. Do not collapse these two aliases into one.
 
-* :data:`StandaloneBenchNameArgument` -- optional and deliberately UNvalidated,
-  for the `fm ssl` subcommands. They also manage certificates for domains that
-  belong to no bench, so the must-exist check of `sitename_callback` would
-  reject valid input; they resolve the bench themselves.
+* :data:`StandaloneBenchNameArgument` -- optional, and deliberately WITHOUT the
+  must-exist check, for the `fm ssl` subcommands. They also manage certificates
+  for domains that belong to no bench, so `sitename_callback`'s must-exist check
+  would reject valid input; they resolve the bench themselves. It does carry
+  `standalone_address_callback`, which parses the address and refuses a site part
+  but neither normalises the name nor requires the bench to exist. Without it a
+  slashed value reached `Bench.get_object` and died as a not-found error on a
+  nested path.
+
+* :data:`BenchSiteArgument` -- optional, validated, and the ONLY alias that
+  accepts a site part. `fm shell` is its only user: a shell is the one place a
+  site is addressable today, because `FRAPPE_SITE` in the container makes bare
+  `bench` commands target it. The bench name is what reaches the command body,
+  exactly as with the other aliases; the site rides on `ctx.obj["site"]`.
 
 Commands whose `benchname` genuinely differs (`create`, `migrate`,
 `self compose`, `bake`, `deploy`, `maintenance`, `ssl dns-config cloudflare`)
@@ -36,7 +47,12 @@ from typing import Annotated
 
 import typer
 
-from frappe_manager.utils.callbacks import sitename_callback, sites_autocompletion_callback
+from frappe_manager.utils.callbacks import (
+    bench_site_callback,
+    sitename_callback,
+    sites_autocompletion_callback,
+    standalone_address_callback,
+)
 
 BenchNameArgument = Annotated[
     str | None,
@@ -63,6 +79,17 @@ StandaloneBenchNameArgument = Annotated[
     typer.Argument(
         help="Name of the bench (omit for standalone mode).",
         autocompletion=sites_autocompletion_callback,
+        callback=standalone_address_callback,
     ),
 ]
-"""Optional bench name with completion but no must-exist validation."""
+"""Optional bench name, address-parsed but with no must-exist validation."""
+
+BenchSiteArgument = Annotated[
+    str | None,
+    typer.Argument(
+        help="Bench, or bench/site.",
+        autocompletion=sites_autocompletion_callback,
+        callback=bench_site_callback,
+    ),
+]
+"""Optional address. The only alias that accepts a site part; `fm shell` is its one user."""
