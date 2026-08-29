@@ -29,6 +29,14 @@ from frappe_manager.site_manager.modules.bench_docker import BenchDockerOps
 from frappe_manager.site_manager.modules.realip import build_bench_realip_conf
 from frappe_manager.site_manager.site import Bench
 
+# `bench.name` reaches these tests as a DOMAIN, not a bench name: the overlay refresh builds
+# `domains = [self.name, *alias_domains]` (`frappe_manager/site_manager/site.py:1336`) and writes
+# one nginx-proxy `vhostd/<domain>` file per entry. Being a peer of `alias_domains` in that list is
+# what settles it. The bench name and the served domain are one string until phase 3 splits them,
+# so the vhostd assertions below key off this constant rather than repeating the literal: when the
+# domain stops coming from `bench.name`, they move with it instead of still matching by accident.
+DOMAIN = "heal.localhost"
+
 pytestmark = pytest.mark.timeout(15)
 
 IMAGE_FILES = {
@@ -67,7 +75,7 @@ def _real_ops(path: Path) -> BenchDockerOps:
 
 def _bench(path: Path, docker_ops) -> Bench:
     bench = Bench.__new__(Bench)  # bypass __init__: no docker, no compose, no services
-    bench.name = "heal.localhost"
+    bench.name = DOMAIN
     bench.path = path
     bench.logger = MagicMock()
     bench.output = MagicMock()
@@ -251,7 +259,7 @@ def test_an_existing_bench_gains_its_upload_limit_on_start(tmp_path):
     bench.start()
 
     assert (conf / "custom" / "upload-limit.conf").read_text() == "client_max_body_size 50m;\n"
-    assert "client_max_body_size 50m;" in (vhostd / "heal.localhost").read_text()
+    assert "client_max_body_size 50m;" in (vhostd / DOMAIN).read_text()
 
 
 def test_the_proxy_is_not_reloaded_when_the_limit_already_matches(tmp_path):
@@ -259,7 +267,7 @@ def test_the_proxy_is_not_reloaded_when_the_limit_already_matches(tmp_path):
     _healthy_base(tmp_path)
     vhostd = tmp_path / "services" / "nginx-proxy" / "vhostd"
     vhostd.mkdir(parents=True)
-    (vhostd / "heal.localhost").write_text("\nclient_max_body_size 50m;\n")
+    (vhostd / DOMAIN).write_text("\nclient_max_body_size 50m;\n")
     bench = _bench(tmp_path, _real_ops(tmp_path))
     bench.services.path = tmp_path / "services"
     bench.bench_config.alias_domains = []

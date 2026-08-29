@@ -304,13 +304,21 @@ def test_create_bench_site_config_writes_a_file_that_does_not_exist_yet(tmp_path
     """
     from frappe_manager.site_manager.site import Bench
 
+    # `bench.path` is the BENCH directory and `bench.name` is read here purely as the SITE name:
+    # `create_bench_site_config` builds `<path>/workspace/frappe-bench/sites/<name>/`
+    # (`frappe_manager/site_manager/site.py:439`). The two roles are one attribute until phase 2
+    # gives the site its own identity, so the expected path is built from the same constant the
+    # fixture declares as the site rather than from a second literal: when the site stops coming
+    # from `bench.name`, this assertion moves with it instead of quietly still matching.
+    site = "shop.localhost"
+
     bench = object.__new__(Bench)
     bench.path = tmp_path
-    bench.name = "shop.localhost"
+    bench.name = site
 
     Bench.create_bench_site_config(bench, {"db_name": "app_prod", "db_host": "mydb.example.com"})
 
-    written = tmp_path / "workspace/frappe-bench/sites/shop.localhost/site_config.json"
+    written = tmp_path / "workspace/frappe-bench/sites" / site / "site_config.json"
     assert json.loads(written.read_text()) == {"db_name": "app_prod", "db_host": "mydb.example.com"}
 
     # second call merges rather than replacing, so an earlier key survives

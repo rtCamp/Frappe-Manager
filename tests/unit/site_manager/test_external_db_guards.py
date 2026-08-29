@@ -23,6 +23,12 @@ from frappe_manager.site_manager.site import Bench
 
 GLOBAL_DB_SITE = "local.localhost"
 EXTERNAL_SITE = "app.example.com"
+# The bench holding that site, deliberately NOT the same string. `[database]` is keyed by SITE
+# (`bench_config.py:1374`, `self.database.get(site or self.name)`) and the toml's `name` is the
+# bench, so a fixture that uses one string for both cannot tell a site-keyed lookup from a
+# bench-keyed one: the guard would still fire if the code read the wrong identity. Keeping them
+# distinct is what makes these tests fail when the `[database]` lookup stops being site-keyed.
+EXTERNAL_BENCH = "shop"
 EXTERNAL_HOST = "mydb.abc.rds.amazonaws.com"
 SCHEMA = "app_prod"
 ROOT_PASSWORD = "global-db-root-secret"
@@ -62,7 +68,7 @@ def _printed(output: MagicMock) -> str:
 @pytest.mark.parametrize("preference", [None, True, False])
 def test_delete_never_drops_an_external_schema(tmp_path, preference):
     """Not even when the operator passed --delete-db-from-global-db: it is not fm's schema."""
-    bench = _bench(_config(tmp_path, name=EXTERNAL_SITE, external_site=EXTERNAL_SITE), EXTERNAL_SITE)
+    bench = _bench(_config(tmp_path, name=EXTERNAL_BENCH, external_site=EXTERNAL_SITE), EXTERNAL_SITE)
 
     bench._handle_database_deletion(preference)
 
@@ -124,7 +130,7 @@ def _service(output: MagicMock) -> BenchService:
 def test_bench_service_delete_shares_the_guard(tmp_path):
     """`fm delete` on a broken bench goes through BenchService, which must refuse identically."""
     output = MagicMock()
-    bench = _bench(_config(tmp_path, name=EXTERNAL_SITE, external_site=EXTERNAL_SITE), EXTERNAL_SITE)
+    bench = _bench(_config(tmp_path, name=EXTERNAL_BENCH, external_site=EXTERNAL_SITE), EXTERNAL_SITE)
 
     _service(output)._handle_database_deletion(bench, None)
 
@@ -154,7 +160,7 @@ def test_common_site_config_carries_no_endpoint_key_at_all(tmp_path):
     too, and a `db_ssl_ca` there was measured breaking a `global-db` sibling outright: it began
     failing with `TLS/SSL error: self-signed certificate` for as long as the key was present.
     """
-    config = _config(tmp_path, name=EXTERNAL_SITE, external_site=EXTERNAL_SITE, ca="/host/rds-bundle.pem")
+    config = _config(tmp_path, name=EXTERNAL_BENCH, external_site=EXTERNAL_SITE, ca="/host/rds-bundle.pem")
     # The keys do exist -- in the per-site file, which is where they belong.
     site_config = config.get_site_config_data(EXTERNAL_SITE)
     assert site_config["db_host"] == EXTERNAL_HOST
@@ -197,6 +203,13 @@ def test_no_global_db_secret_or_endpoint_reaches_an_external_create(tmp_path):
     they take the same env.
     """
     captured: list[tuple[str, dict]] = []
+    # `config.name` is the SITE here, not the bench: `create_bench_site` creates the site the
+    # config names, and the external branch triggers on `[database."<that site>"]`. Splitting the
+    # two the way the delete guards above do would describe a bench holding a `[database]` entry
+    # for a site it is not creating, which is a misconfiguration rather than this scenario. It was
+    # measured: with the names split, the argv came out as global-db, carrying the root password
+    # and no `--no-setup-db`. That is the phase 3 failure mode, and it belongs in a test of its
+    # own once a site has an identity separate from the bench.
     config = _config(tmp_path, name=EXTERNAL_SITE, external_site=EXTERNAL_SITE)
 
     _site_manager(captured, config).create_bench_site()
@@ -223,7 +236,7 @@ def test_external_create_pairs_no_setup_db_with_force_even_when_forced(tmp_path)
     asks for `--force` explicitly rather than getting it from the external branch.
     """
     captured: list[tuple[str, dict]] = []
-    config = _config(tmp_path, name=EXTERNAL_SITE, external_site=EXTERNAL_SITE)
+    config = _config(tmp_path, name=EXTERNAL_SITE, external_site=EXTERNAL_SITE)  # the site, per the note above
 
     _site_manager(captured, config).create_bench_site(force=True)
 
