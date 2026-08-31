@@ -19,7 +19,8 @@ $ fm switch BENCHNAME TAG [OPTIONS]
 
 * `--previous`: Roll back to the previously deployed tag, with migrate disabled.
 * `--migrate/--no-migrate`: Force or skip bench migrate for this run, overriding the bench config.
-* `--restore-db`: Also restore the DB dump taken during the deploy you are undoing.
+* `--restore-db`: Also restore the DB dump taken during the deploy you are undoing. This REPLACES the current database: the dump drops and recreates every table, so everything written since that deploy is lost. fm asks you to confirm before importing.
+* `-y, --yes`: Accept the --restore-db overwrite without being asked. The only way to restore a dump unattended, and the only thing this flag skips.
 * `--keep`: After a successful deploy, prune old releases keeping the newest N (minimum 1; see fm prune).
 * `--rolling/--no-rolling`: Force or disable the rolling web swap; the default is automatic whenever the overlap is safe. Forcing it is only safe when both versions run against the same database schema.
 
@@ -54,6 +55,14 @@ For when the migration is the problem: the dump taken before it goes back with t
 
 ```bash
 fm switch mybench --previous --restore-db
+```
+
+### Roll back code and database unattended
+
+Without --yes fm asks you to type the schema name, and refuses when there is no terminal to ask on.
+
+```bash
+fm switch mybench --previous --restore-db --yes
 ```
 
 ### Roll back more than one release

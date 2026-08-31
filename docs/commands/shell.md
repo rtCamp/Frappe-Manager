@@ -12,7 +12,7 @@ $ fm shell BENCHNAME [OPTIONS]
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench.
+* `BENCHNAME`: Bench, or bench/site.
 
 **Options**:
 
@@ -22,7 +22,6 @@ $ fm shell BENCHNAME [OPTIONS]
 * `--shell-path`: Shell to spawn. Defaults to /bin/bash, or sh on images without bash.
 * `--run`: Use a throwaway 'docker compose run --rm' container instead of the bench's.
 * `--bench-console`: Enter the Frappe context on the frappe service: bench console interactively, Python from -c or stdin.
-* `--site`: Site the bench console connects to. Defaults to the bench name.
 
 
 ## Examples

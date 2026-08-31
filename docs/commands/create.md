@@ -12,7 +12,7 @@ $ fm create BENCHNAME [OPTIONS]
 
 **Arguments**:
 
-* `BENCHNAME`: Bench name, also its domain. A bare name becomes mybench.localhost.  [required]
+* `BENCHNAME`: Bench to create, or BENCH/SITE to add a site to a bench that already exists. A bench name is just a name: 'shop' creates a bench 'shop' serving a site 'shop.localhost', and a name that is already a domain serves that domain.  [required]
 
 **Options**:
 

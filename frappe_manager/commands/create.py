@@ -384,6 +384,84 @@ def record_site(
     )
     return recorded
 
+def _add_site_to_bench(
+    *,
+    benchname: str,
+    site: str,
+    services_manager: ServicesManager,
+    verbose: bool,
+    apps: list[AppConfig],
+) -> None:
+    """Add `site` to the bench `benchname`, which already exists and may be serving.
+
+    The order is the whole point, and it is NOT the order a fresh create uses. A create can bring
+    routing up early because nothing is serving yet; here the bench's other sites are live, so the
+    compose re-render and the nginx recreate go LAST, after the new site is known to work. Doing it
+    first would take every existing site down for the duration of a `new-site` that may fail.
+
+    Not run: the workspace and the apps are already cloned, the containers are already up, and the
+    migration stamp already describes the bench. What runs is the site itself, its apps, and then
+    the routing change.
+    """
+    output = get_global_output_handler()
+    bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
+    bench = bench_service.get_bench(benchname)
+
+    output.print(
+        f"Adding site [fm.info]{site}[/fm.info] to bench [fm.info]{benchname}[/fm.info].",
+        emoji_code=":globe_with_meridians:",
+    )
+
+    # A schema of this site's own on the global-db container. Never the bench's `db_name`: that one
+    # names the first site's schema, and two sites sharing a schema is data loss.
+    schema = mint_global_db_schema_name(site)
+
+    # Recorded BEFORE `new-site`, because `get_site_config_data` and the TLS paths are keyed by site
+    # and are read during creation. Saved to disk only once the site works, below.
+    bench.bench_config.sites = record_site(bench.bench_config.sites, site, None)
+
+    try:
+        output.change_head(f"Creating site {site}")
+        bench.site_manager.create_bench_site(site=site, db_name=schema, set_default=False)
+
+        if apps:
+            output.change_head(f"Installing apps into {site}")
+            bench.app_manager.install_apps_to_site(site)
+    except Exception:
+        # Site-scoped cleanup: the bench and its other sites are untouched. `remove_bench` is what a
+        # failed CREATE calls and would be catastrophic here.
+        output.stop()
+        output.warning(
+            f"Could not add {site}. The bench and its other sites are untouched. Any partial site "
+            f"directory is at {bench.path / 'workspace' / 'frappe-bench' / 'sites' / site}, and a "
+            f"schema named {schema} may exist on global-db; neither is recorded in bench_config.toml, "
+            f"so nothing else refers to them.",
+        )
+        raise
+
+    # Routing last: the new site is in `[sites]`, so `export_to_compose_inputs` now publishes its
+    # domain in VIRTUAL_HOST and maps it in SITE_MAPPINGS. Until this runs the site exists and works
+    # but is not reachable from outside, which is the safe half of the ordering.
+    bench.save_bench_config(print_message=False)
+    output.change_head("Publishing the new site's address")
+    compose_inputs = bench.bench_config.export_to_compose_inputs()
+    compose_inputs.setdefault("environment", {})
+    compose_inputs["environment"]["frappe"] = compose_inputs["environment"].get("frappe", {})
+    compose_inputs["environment"]["frappe"]["FRAPPE_ENV"] = bench.bench_config.environment_type.value
+    bench.generate_compose(compose_inputs)
+
+    # The site map reaches nginx through an environment variable read at container start, so the
+    # container has to be recreated rather than reloaded.
+    bench.restart_nginx_service(force=True)
+
+    output.print(
+        f"Added [fm.info]{site}[/fm.info]. The bench now serves "
+        f"{', '.join(bench.bench_config.site_names)}.",
+        emoji_code=":white_check_mark:",
+    )
+
+
+
 
 def _resolve_external_options(
     *,
@@ -553,7 +631,7 @@ def create(
     benchname: Annotated[
         str,
         typer.Argument(
-            help="Bench name, also its domain. A bare name becomes mybench.localhost.",
+            help="Bench to create, or BENCH/SITE to add a site to a bench that already exists. A bench name is just a name: 'shop' creates a bench 'shop' serving a site 'shop.localhost', and a name that is already a domain serves that domain.",
             callback=create_command_sitename_callback,
         ),
     ],
@@ -818,6 +896,21 @@ def create(
     services_manager: ServicesManager = ctx.obj["services"]
     verbose = ctx.obj["verbose"]
     fm_config: FMConfigManager = ctx.obj["fm_config_manager"]
+
+    # `BENCH/SITE` adds a site to a bench that already exists. The callback resolved the bench and
+    # put the new site here, so this branch has to come before ANY bench-creation work: phase 1
+    # mkdirs and re-renders compose, which on a running bench would disturb the sites already
+    # serving before the new one is known to work.
+    added_site = ctx.obj.get("site") if ctx.obj else None
+    if added_site:
+        _add_site_to_bench(
+            benchname=benchname,
+            site=added_site,
+            services_manager=services_manager,
+            verbose=verbose,
+            apps=cast("list[AppConfig]", apps),
+        )
+        return
 
     # The BENCH keeps the name as typed; the SITE is its FQDN form. `fm create shop` yields bench
     # `shop` serving site `shop.localhost`, and `fm create a.example.com` yields bench

@@ -399,19 +399,38 @@ def code_command_extensions_callback(extensions: list[str]) -> list[str]:
     return unique_ext_list
 
 
-def create_command_sitename_callback(sitename: str):
-    address = _parse_or_refuse(sitename)
+def create_command_sitename_callback(ctx: typer.Context, sitename: str):
+    """`BENCH` to create a bench, or `BENCH/SITE` to add a site to one that exists.
 
-    if address.site is not None:
-        # `fm create` cannot add a site to a bench that does not exist yet, so a site part
-        # here is always a mistake.
-        raise typer.BadParameter("fm create takes a bench name, not a bench/site address")
+    The site half rides on `ctx.obj["site"]`, the same channel `bench_site_callback` uses, so the
+    command body keeps receiving a bench name and nothing downstream has to learn a new type.
+    """
+    address = _parse_or_refuse(sitename)
 
     if address.bench == RESERVED_BENCH_NAME:
         # Checked before validate_sitename, which would turn it into `all.localhost`.
         raise typer.BadParameter(
             f"'{RESERVED_BENCH_NAME}' is reserved as an address meaning every bench, so it cannot be a bench name"
         )
+
+    if address.site is not None:
+        # Adding a site to an existing bench. The bench MUST exist: there is nothing to add to
+        # otherwise, and creating both at once would hide which half the operator got wrong.
+        _ = validate_sitename(address.bench)
+        site = validate_sitename(address.site)
+        bench = _resolve_bench(address.bench)
+
+        recorded = _recorded_sites(bench)
+        if site in recorded:
+            raise typer.BadParameter(
+                f"bench '{bench}' already serves the site '{site}'. It serves "
+                f"{', '.join(repr(s) for s in sorted(recorded))}."
+            )
+
+        # `ctx.obj` is None under --help, which short-circuits before app_callback fills it.
+        if ctx.obj is not None:
+            ctx.obj["site"] = site
+        return bench
 
     # Validate the name WITHOUT taking the `.localhost` form it returns. A bench name is just a
     # name from here on: `fm create shop` makes a bench called `shop`, and the site it serves is

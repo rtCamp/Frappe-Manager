@@ -20,7 +20,7 @@ $ fm auth BENCHNAME [OPTIONS]
 
 * `--protect`: Surface that asks for the password (repeatable). web = frappe and socketio, tools = /adminer/ and /mailpit/.
 * `--off`: Turn the prompt off on both surfaces, keeping the credentials.
-* `--status`: Report which surfaces are protected, with the credentials and allow lists. Writes nothing.
+* `--status`: Report which surfaces are protected, with the credentials and allow lists while a surface is protected. Writes nothing.
 * `--user`: Basic auth username, shared by both surfaces. Defaults to 'admin'.
 * `--password`: Basic auth password. Pass - to read it from stdin, keeping it out of the shell history. A random one is minted on the first enable.
 * `--rotate`: Replace the password with a fresh random one, invalidating browser sessions that cached the old one.

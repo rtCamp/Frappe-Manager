@@ -16,7 +16,8 @@ $ fm reset BENCHNAME [OPTIONS]
 
 **Options**:
 
-* `--admin-pass`: Administrator password for the reinstalled site. Taken from site_config.json, or prompted for, when omitted.
+* `-y, --yes`: Reset without the confirmation. The site data is gone either way.
+* `--admin-pass`: Administrator password for the reinstalled site. Taken from site_config.json, then common_site_config.json, or prompted for, when omitted.
 
 
 ## Examples
@@ -31,5 +32,13 @@ fm reset mybench
 
 ```bash
 fm reset mybench --admin-pass 'new-password'
+```
+
+### Reset unattended
+
+Skips the confirmation. Nothing else about the reset changes.
+
+```bash
+fm reset mybench --yes
 ```
 

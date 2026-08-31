@@ -24,7 +24,7 @@ $ fm restart BENCHNAME [OPTIONS]
 * `--nginx`: Restart the bench nginx service, e.g. after a proxy or TLS config change.
 * `--container`: Restart whole containers instead of supervisor processes: slower, and it starts a stopped bench.
 * `--force`: Kill everything fast instead of restarting it gracefully. Implies --no-drain; conflicts with --drain and --rolling.
-* `--rolling`: Zero-downtime recreate of the web tier on the current image tag; image benches only.
+* `--rolling`: Zero-downtime recreate of the web tier on the current image tag; image benches only. Web-only, so it conflicts with --redis, --nginx and --no-web.
 * `--drain/--no-drain`: Wait for in-flight RQ jobs before restarting workers, and abort the restart if they outlast \[workers].drain_timeout.
 * `--service`: Restart only the named service (repeatable); overrides the group flags and skips the drain.
 

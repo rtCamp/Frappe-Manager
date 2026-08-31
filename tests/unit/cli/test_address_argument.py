@@ -10,7 +10,7 @@ BEFORE the must-exist check, which is the property that makes a mistyped address
 cheap to diagnose. The two that need a bench say so.
 """
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 import typer
@@ -20,6 +20,7 @@ from frappe_manager.commands.create import create
 from frappe_manager.commands.restart import restart
 from frappe_manager.commands.shell import shell
 from frappe_manager.commands.ssl.list import list_certificates
+from frappe_manager.site_manager.exceptions import BenchNotFoundError
 
 runner = CliRunner()
 
@@ -33,6 +34,13 @@ def benches(tmp_path):
     (root / BENCH).mkdir(parents=True)
     with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
         yield root
+
+
+def _ctx():
+    """A stand-in typer context. `ctx.obj` is where the site half of an address is handed on."""
+    ctx = MagicMock()
+    ctx.obj = {}
+    return ctx
 
 
 def _app(name, fn):
@@ -108,19 +116,56 @@ def test_a_bench_scoped_command_still_accepts_a_plain_bench(benches):
 # ------------------------------------------------------------------- fm create
 
 
-def test_create_refuses_an_address():
-    """`fm create` cannot add a site to a bench that does not exist yet."""
-    result = runner.invoke(_app("create", create), ["shop/a.localhost"])
-    assert result.exit_code == 2
-    assert "not a bench/site address" in _said(result)
-
-
 def test_create_refuses_the_reserved_name():
-    """A bare `all` is to become the address meaning every bench. Reserved now so no bench
-    can be created that the keyword would later collide with."""
+    """A bare `all` is to become the address meaning every bench. Reserved now so no bench can be
+    created that the keyword would later collide with."""
     result = runner.invoke(_app("create", create), ["all"])
     assert result.exit_code == 2
     assert "'all' is reserved" in _said(result)
+
+
+def test_create_refuses_a_site_on_a_bench_that_does_not_exist(tmp_path):
+    """`fm create shop/a.localhost` adds a site to `shop`. There is nothing to add to when `shop`
+    is absent, and creating both at once would hide which half the operator got wrong.
+
+    Asserted on the exception, not the output: `BenchNotFoundError` is rendered by `main.py`, and
+    this bare test app has none of that, so it propagates instead of printing.
+    """
+    root = tmp_path / "sites"
+    root.mkdir(parents=True)
+    with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
+        result = runner.invoke(_app("create", create), ["shop/a.localhost"])
+    assert result.exit_code != 0
+    assert isinstance(result.exception, BenchNotFoundError)
+    assert "shop" in str(result.exception)
+
+
+def test_create_accepts_a_site_on_a_bench_that_exists(tmp_path):
+    """The site-add form. It gets past argument parsing; the body then does the work, which is not
+    what this asserts."""
+    root = tmp_path / "sites"
+    (root / "shop").mkdir(parents=True)
+    (root / "shop" / "bench_config.toml").write_text(
+        'name = "shop"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n\n[sites."shop.localhost"]\n'
+    )
+    with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
+        result = runner.invoke(_app("create", create), ["shop/b.example.com"])
+    assert "not found" not in _said(result).lower()
+    assert "already serves" not in _said(result)
+
+
+def test_create_refuses_a_site_the_bench_already_serves(tmp_path):
+    """Adding a site that is already there would either fail deep inside `new-site` or, worse,
+    re-run it against the existing schema."""
+    root = tmp_path / "sites"
+    (root / "shop").mkdir(parents=True)
+    (root / "shop" / "bench_config.toml").write_text(
+        'name = "shop"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n\n[sites."shop.localhost"]\n'
+    )
+    with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
+        result = runner.invoke(_app("create", create), ["shop/shop.localhost"])
+    assert result.exit_code == 2
+    assert "already serves the site 'shop.localhost'" in _said(result)
 
 
 def test_the_reserved_name_is_refused_before_the_localhost_suffix_is_added():
@@ -150,7 +195,7 @@ def test_create_keeps_the_bench_name_as_typed(tmp_path):
     root = tmp_path / "sites"
     root.mkdir(parents=True)
     with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
-        assert create_command_sitename_callback("shop") == "shop"
+        assert create_command_sitename_callback(_ctx(), "shop") == "shop"
 
 
 def test_create_leaves_a_name_that_is_already_a_domain_alone(tmp_path):
@@ -159,7 +204,7 @@ def test_create_leaves_a_name_that_is_already_a_domain_alone(tmp_path):
     root = tmp_path / "sites"
     root.mkdir(parents=True)
     with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
-        assert create_command_sitename_callback("a.example.com") == "a.example.com"
+        assert create_command_sitename_callback(_ctx(), "a.example.com") == "a.example.com"
 
 
 def test_create_refuses_a_name_whose_legacy_bench_already_exists(tmp_path):
@@ -173,7 +218,7 @@ def test_create_refuses_a_name_whose_legacy_bench_already_exists(tmp_path):
         patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root),
         pytest.raises(typer.BadParameter, match="already exists"),
     ):
-        create_command_sitename_callback("shop")
+        create_command_sitename_callback(_ctx(), "shop")
 
 
 # -------------------------------------------------------------------- fm shell

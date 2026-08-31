@@ -18,8 +18,8 @@ $ fm start BENCHNAME [OPTIONS]
 * `--reconfigure-supervisor`: Regenerate the supervisord config before starting processes.
 * `--reconfigure-common-site-config`: Rewrite common_site_config.json with fm's defaults.
 * `--reconfigure-workers`: Regenerate the workers compose file from the bench config.
-* `--include-default-workers`: Include the default workers when regenerating.
-* `--include-custom-workers`: Include custom workers when regenerating.
+* `--include-default-workers`: Include the default workers when regenerating. Needs --reconfigure-workers.
+* `--include-custom-workers`: Include custom workers when regenerating. Needs --reconfigure-workers.
 * `--sync-dev-packages`: Install dev packages on a dev bench, remove them on a prod one.
 
 

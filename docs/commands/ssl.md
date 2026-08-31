@@ -87,6 +87,8 @@ List SSL certificates with their expiry and renewal status.
 
 Lists one bench by default, including its domains that have no certificate yet. --standalone lists external Docker project domains instead, and --all lists both.
 
+The DNS Provider column names the \[ssl.dns_providers] credential set each DNS-01 certificate authenticates with, "default" for the unlabelled account, and "(missing)" when the label or the default account is not stored at either scope.
+
 **Usage**:
 
 ```console
@@ -145,6 +147,7 @@ $ fm ssl add BENCHNAME DOMAIN [OPTIONS]
 
 * `-c, --challenge`: ACME validation method.
 * `--cname`: Delegated zone for _acme-challenge. dns01 only.
+* `--dns-provider`: Label of the \[ssl.dns_providers] credential set that authenticates this domain, from fm ssl dns-config cloudflare --name. Omit for the default account. dns01 only.
 * `--dry-run`: Rehearse against Let's Encrypt staging. Nothing is kept: no certificate, no nginx change.
 * `--standalone`: For an external Docker project on the fm-global-frontend-network network.
 * `--dev`: Issue from fm's local CA, so no internet or public DNS is needed. Bench mode only.
@@ -186,6 +189,14 @@ acme.sh looks for _acme-challenge.acme.example.net instead of the bench's own zo
 
 ```bash
 fm ssl add mybench example.com --challenge dns01 --cname acme.example.net
+```
+
+### Authenticate DNS-01 against a second Cloudflare account
+
+acct-b is a label stored by fm ssl dns-config cloudflare --name acct-b, at either global or bench scope.
+
+```bash
+fm ssl add mybench example.com --challenge dns01 --dns-provider acct-b
 ```
 
 
@@ -302,6 +313,8 @@ Store Cloudflare API credentials for DNS-01 certificate issuance.
 
 Credentials are global; pass a bench name to override them for that bench alone. An API token needs Zone > DNS > Edit, created at https://dash.cloudflare.com/profile/api-tokens
 
+A --name stores the credentials as a labelled set, so one host or bench can hold several Cloudflare accounts (or several least-privilege tokens) at once. A certificate picks one with fm ssl add --dns-provider LABEL; certificates that name no label keep using the unlabelled default.
+
 **Usage**:
 
 ```console
@@ -317,6 +330,7 @@ $ fm ssl dns-config cloudflare BENCHNAME [OPTIONS]
 * `--api-token`: Cloudflare API token, scoped to the zones you issue for.
 * `--api-key`: Legacy Global API Key, which grants full account access. Requires --email.
 * `--email`: Cloudflare account email. Required with --api-key only.
+* `-n, --name`: Label for this credential set, e.g. an account name. Omit for the default account.
 * `-s, --show`: Print the stored credentials, secrets masked. Writes nothing.
 * `-r, --remove`: Delete the stored credentials.
 
@@ -329,10 +343,24 @@ $ fm ssl dns-config cloudflare BENCHNAME [OPTIONS]
 fm ssl dns-config cloudflare --api-token cf_AbCdEf1234567890
 ```
 
+### Store a second account under a label
+
+Labelled sets go to [ssl.dns_providers.acct-b]; bind one with fm ssl add BENCH DOMAIN --challenge dns01 --dns-provider acct-b.
+
+```bash
+fm ssl dns-config cloudflare --api-token cf_ZyXwVu0987654321 --name acct-b
+```
+
 ### Override the token for one bench
 
 ```bash
 fm ssl dns-config cloudflare mybench --api-token cf_ZyXwVu0987654321
+```
+
+### Store a labelled set for one bench only
+
+```bash
+fm ssl dns-config cloudflare mybench --api-token cf_QqRrSs1122334455 --name acct-b
 ```
 
 ### Use a legacy Global API Key instead
@@ -343,10 +371,18 @@ fm ssl dns-config cloudflare --api-key 1234567890abcdef1234 --email admin@exampl
 
 ### Show what is stored
 
-With a bench name, prints that bench's entry as well as the global one.
+Lists every labelled set at both scopes, secrets masked. With a bench name, prints that bench's sets as well as the global ones, and --name narrows to one label.
 
 ```bash
 fm ssl dns-config cloudflare --show
+```
+
+### Drop one labelled set
+
+Without --name, a scope holding more than one set is refused rather than guessed at.
+
+```bash
+fm ssl dns-config cloudflare --remove --name acct-b
 ```
 
 ## Related
