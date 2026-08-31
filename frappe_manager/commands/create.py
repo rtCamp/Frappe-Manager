@@ -56,7 +56,7 @@ _PANEL_EXTERNAL = "External Database and Redis Options"
 
 # The flags that are simply a config value under another name. Each maps to the TOML key path it
 # writes; everything else about them (precedence, validation, defaults) is the merge and the model.
-# Absent on purpose: `--base-image` is overloaded per runtime (see _apply_base_image); `--template`,
+# Absent on purpose: `--base-image` is overloaded per runtime (see _apply_base_image); `--bench-only`,
 # `--config` and `--allow-domain-conflicts` are not BenchConfig fields; the external database and
 # redis flags are resolved separately because five of them are secrets that never reach disk.
 _FLAG_TO_CONFIG: dict[str, tuple[str, ...]] = {
@@ -657,7 +657,7 @@ def create(
             rich_help_panel=_PANEL_MOUNT,
         ),
     ] = EnableDisableOptionsEnum.disable,
-    template: Annotated[bool, typer.Option(help="Create the bench config and directory only, no site.")] = False,
+    bench_only: Annotated[bool, typer.Option(help="Create the bench (config, directory, containers) with no site in it. Sites are added afterwards with 'fm create BENCH/SITE'.")] = False,
     admin_pass: Annotated[
         str,
         typer.Option(help="Administrator password."),
@@ -1062,4 +1062,4 @@ def create(
         output.warning("    Containers will not auto-recover from failures or system reboots")
 
     with spinner(output, "Creating bench"):
-        bench_service.create_bench(benchname, bench_config, is_template=template)
+        bench_service.create_bench(benchname, bench_config, bench_only=bench_only)

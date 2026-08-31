@@ -768,7 +768,7 @@ def test_create_bench_wires_the_compose_path_then_runs_creation(tmp_path):
         patch("frappe_manager.site_manager.bench_service.DockerClient") as docker_cls,
         patch("frappe_manager.site_manager.bench_service.set_context") as set_ctx,
     ):
-        got = service.create_bench("a.localhost", config, is_template=True)
+        got = service.create_bench("a.localhost", config, bench_only=True)
 
     compose_path = tmp_path / "a.localhost" / "docker-compose.yml"
     compose_cls.assert_called_once_with(compose_path)
@@ -776,86 +776,64 @@ def test_create_bench_wires_the_compose_path_then_runs_creation(tmp_path):
     set_ctx.assert_called_once_with(bench="a.localhost", operation="create")
     assert bench_cls.call_args.kwargs["path"] == tmp_path / "a.localhost"
     assert bench_cls.call_args.kwargs["bench_config"] is config
-    got.create.assert_called_once_with(is_template_bench=True)
+    got.create.assert_called_once_with(bench_only=True)
     assert got is bench_cls.return_value
 
 
 # --------------------------------------------------------------------------- delete guards
 
 
-def test_delete_bench_without_yes_delegates_and_removes_nothing_itself(tmp_path):
-    """No ``--yes``: BenchService must NOT remove containers; Bench.remove_bench owns the
-    interactive path and its return value is the command's exit signal."""
+def test_delete_bench_delegates_the_whole_sequence(tmp_path):
+    """`BenchService` owns resolving the bench and NOTHING else about removal.
+
+    It used to carry a second copy of the cert/db/containers sequence for the `--yes` path, which
+    differed from `Bench.remove_bench` only in skipping the confirmation, and the two had already
+    drifted in the wording of the database question. The sequence itself, its order, and its
+    partial-failure rules are pinned on `Bench.remove_bench` in `test_site_contract.py`.
+    """
     service = _service(tmp_path)
     bench = MagicMock()
-    bench.remove_bench.return_value = False
     with patch.object(BenchService, "get_bench", return_value=bench):
-        assert service.delete_bench("a.localhost", yes=False, delete_db_from_global_db=True) is False
+        service.delete_bench("a.localhost", delete_db_from_global_db=True)
 
-    bench.remove_bench.assert_called_once_with(delete_db_from_global_db=True)
+    bench.remove_bench.assert_called_once_with(delete_db_from_global_db=True, prompt=True)
     bench.remove_containers_and_dirs.assert_not_called()
     bench.remove_certificate.assert_not_called()
 
 
-def test_delete_bench_with_yes_runs_certificate_db_then_containers(tmp_path):
+def test_the_yes_flag_becomes_prompt_false(tmp_path):
+    """The only thing `--yes` changes, and the reason the second copy existed."""
     service = _service(tmp_path)
     bench = MagicMock()
-    order = []
-    bench.remove_certificate.side_effect = lambda: order.append("cert")
-    bench.remove_containers_and_dirs.side_effect = lambda: order.append("containers")
-    with (
-        patch.object(BenchService, "get_bench", return_value=bench),
-        patch.object(BenchService, "_handle_database_deletion", side_effect=lambda *_: order.append("db")) as db,
-    ):
-        assert service.delete_bench("a.localhost", yes=True, delete_db_from_global_db=False) is True
+    with patch.object(BenchService, "get_bench", return_value=bench):
+        service.delete_bench("a.localhost", yes=True, delete_db_from_global_db=False)
 
-    assert order == ["cert", "db", "containers"]
-    assert db.call_args.args == (bench, False)
-    bench.remove_bench.assert_not_called()
+    bench.remove_bench.assert_called_once_with(delete_db_from_global_db=False, prompt=False)
 
 
-def test_delete_bench_warns_but_continues_when_certificate_removal_fails(tmp_path):
+def test_delete_bench_returns_what_the_removal_returned(tmp_path):
+    """A declined confirmation is a False, not an exception, and it has to reach the exit code."""
     service = _service(tmp_path)
     bench = MagicMock()
-    bench.remove_certificate.side_effect = RuntimeError("no cert")
-    with (
-        patch.object(BenchService, "get_bench", return_value=bench),
-        patch.object(BenchService, "_handle_database_deletion"),
-    ):
-        assert service.delete_bench("a.localhost", yes=True) is True
-
-    assert "no cert" in service.output.warning.call_args_list[0].args[0]
-    bench.remove_containers_and_dirs.assert_called_once()
-
-
-def test_delete_bench_keeps_the_directory_when_db_deletion_fails(tmp_path):
-    """The old contract was the bug: the directory holds the only record of the schema name and its
-    password, so removing it after a failed drop orphans a database in global-db that can then only
-    be found by hand. It warned, deleted anyway, and returned True."""
-    service = _service(tmp_path)
-    bench = MagicMock()
-    with (
-        patch.object(BenchService, "get_bench", return_value=bench),
-        patch.object(BenchService, "_handle_database_deletion", side_effect=RuntimeError("db gone")),
-        pytest.raises(BenchException, match="Database deletion failed"),
-    ):
-        service.delete_bench("a.localhost", yes=True)
-
-    bench.remove_containers_and_dirs.assert_not_called()
+    bench.remove_bench.return_value = False
+    with patch.object(BenchService, "get_bench", return_value=bench):
+        assert service.delete_bench("a.localhost") is False
+    bench.remove_certificate.assert_not_called()
 
 
 def test_delete_bench_falls_back_to_the_cleanup_bench_when_the_config_is_missing(tmp_path):
+    """A bench whose `bench_config.toml` is gone is exactly the bench most in need of deleting, so
+    resolution falls back to a stand-in rather than refusing."""
     service = _service(tmp_path)
     stub = MagicMock()
     with (
         patch.object(BenchService, "get_bench", side_effect=FileNotFoundError("bench_config.toml")),
         patch.object(BenchService, "_create_cleanup_bench", return_value=stub) as cleanup,
-        patch.object(BenchService, "_handle_database_deletion"),
     ):
-        assert service.delete_bench("a.localhost", yes=True) is True
+        service.delete_bench("a.localhost", yes=True)
 
     cleanup.assert_called_once_with("a.localhost")
-    stub.remove_containers_and_dirs.assert_called_once()
+    stub.remove_bench.assert_called_once_with(delete_db_from_global_db=None, prompt=False)
 
 
 def test_create_cleanup_bench_builds_an_unchecked_bench_with_a_placeholder_config(tmp_path):
@@ -877,47 +855,6 @@ def test_create_cleanup_bench_builds_an_unchecked_bench_with_a_placeholder_confi
     assert fake.environment_type is FMBenchEnvType.dev
     assert fake.root_path == tmp_path / "a.localhost" / "bench_config.toml"
     set_ctx.assert_called_once_with(bench="a.localhost", operation="cleanup")
-
-
-# --------------------------------------------------------------------------- db deletion prompt
-
-
-def _bench_for_db(external=None):
-    bench = MagicMock()
-    bench.name = "a.localhost"
-    bench.external_database_config.return_value = external
-    return bench
-
-
-def test_handle_database_deletion_explicit_true_skips_the_prompt(tmp_path):
-    service = _service(tmp_path)
-    bench = _bench_for_db()
-    service._handle_database_deletion(bench, delete_db_from_global_db=True)
-    service.output.prompt_ask.assert_not_called()
-    bench.remove_database_and_user.assert_called_once_with()
-
-
-def test_handle_database_deletion_explicit_false_skips_the_prompt_and_the_drop(tmp_path):
-    service = _service(tmp_path)
-    bench = _bench_for_db()
-    service._handle_database_deletion(bench, delete_db_from_global_db=False)
-    service.output.prompt_ask.assert_not_called()
-    bench.remove_database_and_user.assert_not_called()
-    assert "Skipping database deletion from global-db" in service.output.print.call_args.args[0]
-
-
-def test_handle_database_deletion_prompt_answer_no_keeps_the_schema(tmp_path):
-    service = _service(tmp_path)
-    service.output.prompt_ask.return_value = "no"
-    bench = _bench_for_db()
-    service._handle_database_deletion(bench, None)
-
-    params = service.output.prompt_ask.call_args.kwargs
-    assert params["choices"] == ["yes", "no"]
-    assert params["default"] == "yes"
-    assert "--delete-db-from-global-db" in params["required_flag"]
-    bench.remove_database_and_user.assert_not_called()
-
 
 # --------------------------------------------------------------------------- discovery
 

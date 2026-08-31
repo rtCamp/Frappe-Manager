@@ -20,7 +20,7 @@ from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
-from frappe_manager.site_manager.site import Bench, orphaned_database_error
+from frappe_manager.site_manager.site import Bench
 
 
 class BenchService:
@@ -103,7 +103,7 @@ class BenchService:
         self,
         bench_name: str,
         bench_config: BenchConfig,
-        is_template: bool = False,
+        bench_only: bool = False,
     ) -> Bench:
         """
         Create a new bench.
@@ -117,7 +117,7 @@ class BenchService:
         Args:
             bench_name: Name for the new bench
             bench_config: Configuration for the bench
-            is_template: Whether to create a template bench
+            bench_only: Build the bench and stop, with no site in it
 
         Returns:
             Created Bench instance
@@ -144,7 +144,7 @@ class BenchService:
             output_handler=self.output,
         )
 
-        bench.create(is_template_bench=is_template)
+        bench.create(bench_only=bench_only)
         return bench
 
     def delete_bench(
@@ -153,30 +153,17 @@ class BenchService:
         yes: bool = False,
         delete_db_from_global_db: bool | None = None,
     ) -> bool:
+        """Resolve the bench, then hand it to the one removal sequence.
+
+        `--yes` used to be a second copy of that sequence here, differing only in skipping the
+        confirmation. It is now `prompt=False` on the one implementation.
+        """
         try:
             bench = self.get_bench(bench_name, workers_check=False, admin_tools_check=False)
         except FileNotFoundError:
             bench = self._create_cleanup_bench(bench_name)
 
-        if yes:
-            from frappe_manager.output_manager import spinner
-
-            with spinner(self.output, "Removing bench"):
-                try:
-                    bench.remove_certificate()
-                except Exception as e:
-                    self.output.warning(str(e))
-
-                try:
-                    self._handle_database_deletion(bench, delete_db_from_global_db)
-                except Exception as e:
-                    # Deliberately fatal: continuing to remove_containers_and_dirs() destroyed the
-                    # only record of the schema that is still there. See orphaned_database_error.
-                    raise orphaned_database_error(bench, e) from e
-
-                bench.remove_containers_and_dirs()
-            return True
-        return bench.remove_bench(delete_db_from_global_db=delete_db_from_global_db)
+        return bench.remove_bench(delete_db_from_global_db=delete_db_from_global_db, prompt=not yes)
 
     def discover_benches(self) -> dict[str, Path]:
         """
@@ -381,42 +368,3 @@ class BenchService:
             verbose=self.verbose,
             output_handler=self.output,
         )
-
-    def _handle_database_deletion(self, bench: Bench, delete_db_from_global_db: bool | None):
-        """
-        Handle database deletion based on user preference and where the schema lives.
-
-        Args:
-            bench: Bench instance
-            delete_db_from_global_db: User preference for database deletion.
-                                     None = prompt if using global-db
-                                     True = delete from global-db
-                                     False = don't delete from global-db
-        """
-        external_db = bench.external_database_config()
-
-        if external_db is not None:
-            # fm could drop this schema: the site's own grant carries DROP and its password is in
-            # site_config.json. It does not, because the schema is not fm's to drop.
-            self.output.print(
-                f"Database '[bold]{external_db.name}[/bold]' lives on '[bold]{external_db.host}[/bold]', "
-                "a server fm does not own. Skipping database deletion"
-            )
-            return
-
-        should_delete = delete_db_from_global_db
-
-        if should_delete is None:
-            params = {
-                "prompt": f"🗄️  Do you want to remove the database for site '[bold]{bench.site_name}[/bold]' from global-db?",
-                "choices": ["yes", "no"],
-                "default": "yes",
-                "required_flag": "--delete-db-from-global-db or --no-delete-db-from-global-db",
-            }
-            choice = self.output.prompt_ask(**params)
-            should_delete = choice == "yes"
-
-        if should_delete:
-            bench.remove_database_and_user()
-        else:
-            self.output.print("Skipping database deletion from global-db")

@@ -89,7 +89,7 @@ class TestLifecycleOperationLogging:
         bench.orchestrator = MagicMock()
         bench.orchestrator.create_bench = MagicMock()
 
-        bench.create(is_template_bench=False)
+        bench.create(bench_only=False)
 
         # Verify debug log was called
         debug_calls = mock_logger.debug.call_args_list
@@ -100,7 +100,7 @@ class TestLifecycleOperationLogging:
         extra = first_call_kwargs["extra_fields"]
         assert extra["operation"] == "bench_create"
         assert extra["bench_name"] == "test.localhost"
-        assert extra["is_template_bench"] is False
+        assert extra["bench_only"] is False
 
         # Verify info log was called on success
         info_calls = mock_logger.info.call_args_list

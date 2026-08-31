@@ -6,7 +6,7 @@ directory created before the image copy that has to precede it. Neither is visib
 only checks the happy path finished, so these tests pin the sequence itself -- which phase runs
 before which, where the external-database probe sits relative to provisioning, when the per-site
 `site_config.json` is written relative to `bench new-site`, and which phases are skipped on the
-attach and template paths.
+attach and bench-only paths.
 
 Everything is characterization: it pins what the code does TODAY so a later refactor that reorders
 a side effect fails here instead of in someone's database. Docker is never reached; every
@@ -297,7 +297,7 @@ class _Harness:
             "_phase5_finalize": None,
             "_phase6_install_apps": True,
             "_skip_phase6_for_attach": True,
-            "_create_template_bench": None,
+            "_create_bench_only": None,
             "_create_image_bench": None,
             "_recheck_external_schema": None,
             "_provision_external_schema": None,
@@ -438,11 +438,11 @@ def test_the_create_pipeline_applies_the_configured_upload_limit(tmp_path):
     harness.bench.apply_upload_limit.assert_called_once_with()
 
 
-def test_a_template_bench_never_reaches_the_upload_limit_step(tmp_path):
-    """A template bench has no site and serves no domain, so there is nothing to apply it to."""
+def test_a_bench_only_create_never_reaches_the_upload_limit_step(tmp_path):
+    """A bench with no site serves no domain, so there is nothing to apply it to."""
     harness = _Harness(_config(tmp_path), tmp_path)
 
-    harness.orchestrator(real=("_phase5_finalize",)).create_bench(is_template_bench=True)
+    harness.orchestrator(real=("_phase5_finalize",)).create_bench(bench_only=True)
 
     assert harness.events.has("apply_upload_limit") is False
 
@@ -461,21 +461,21 @@ def test_the_image_check_happens_outside_the_try_so_it_is_not_a_creation_failure
     orchestrator._handle_creation_failure.assert_not_called()
 
 
-def test_a_template_bench_stops_after_phase_one(tmp_path):
-    """Phase 1 still runs -- a template bench is directories and a compose file -- but the gate,
+def test_a_bench_only_create_stops_after_phase_one(tmp_path):
+    """Phase 1 still runs -- a bench is directories and a compose file -- but the gate,
     every later phase and site creation do not."""
     harness = _Harness(_config(tmp_path), tmp_path)
 
-    harness.reraising_orchestrator().create_bench(is_template_bench=True)
+    harness.reraising_orchestrator().create_bench(bench_only=True)
 
-    assert list(harness.events) == ["check_images", "phase1_prepare_structure", "create_template_bench"]
+    assert list(harness.events) == ["check_images", "phase1_prepare_structure", "create_bench_only"]
 
 
-def test_a_template_bench_ignores_an_external_database_entry(tmp_path):
-    """No probe on the template path: it creates no site, so there is nothing to preflight."""
+def test_a_bench_only_create_ignores_an_external_database_entry(tmp_path):
+    """No probe on the bench-only path: it creates no site, so there is nothing to preflight."""
     harness = _Harness(_config(tmp_path, external=True), tmp_path)
 
-    harness.reraising_orchestrator().create_bench(is_template_bench=True)
+    harness.reraising_orchestrator().create_bench(bench_only=True)
 
     assert harness.events.has("external_database_gate") is False
 
@@ -1673,11 +1673,11 @@ def test_phase_five_stamps_the_current_fm_version_as_the_migration_state(tmp_pat
     assert state.last_migration_date
 
 
-def test_a_template_bench_is_stamped_and_saved_too(tmp_path):
-    """The template path skips phase 5 entirely, so it does its own version stamp."""
+def test_a_bench_only_create_is_stamped_and_saved_too(tmp_path):
+    """The bench-only path skips phase 5 entirely, so it does its own version stamp."""
     harness = _Harness(_config(tmp_path), tmp_path)
 
-    harness.reraising_orchestrator(real=("_create_template_bench",)).create_bench(is_template_bench=True)
+    harness.reraising_orchestrator(real=("_create_bench_only",)).create_bench(bench_only=True)
 
     assert harness.config.migration_state is not None
     harness.events.before("sync_common_site_config", "save_bench_config(migrate=None)")

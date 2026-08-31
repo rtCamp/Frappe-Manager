@@ -19,7 +19,7 @@ $ fm create BENCHNAME [OPTIONS]
 * `-a, --apps`: App to install: appname or owner/repo, optional :branch (repeatable). Frappe is always first.
 * `-e, --environment`: Bench environment; sets the dev-mode and restart defaults.
 * `--developer-mode`: Let DocType edits write app source files. Already on for a dev-environment bench.
-* `--template`: Create the bench config and directory only, no site.
+* `--bench-only`: Create the bench (config, directory, containers) with no site in it. Sites are added afterwards with 'fm create BENCH/SITE'.
 * `--admin-pass`: Administrator password.
 * `--alias-domains`: Extra domains this bench answers on (comma-separated). Certificates come from 'fm ssl add'.
 * `-t, --github-token`: Token for cloning private app repos.

@@ -76,7 +76,7 @@ class BenchOrchestrator:
 
     Example:
         >>> orchestrator = BenchOrchestrator(bench_instance)
-        >>> orchestrator.create_bench(is_template=False)
+        >>> orchestrator.create_bench(bench_only=False)
     """
 
     def __init__(self, bench: "Bench", output_handler: OutputHandler | None = None):
@@ -100,7 +100,7 @@ class BenchOrchestrator:
         # admin credentials and has no business dropping anything.
         self._provisioned: DatabaseConfig | None = None
 
-    def create_bench(self, is_template_bench: bool = False) -> None:
+    def create_bench(self, bench_only: bool = False) -> None:
         """
         Orchestrate the complete bench creation workflow using 5-phase approach.
 
@@ -139,7 +139,7 @@ class BenchOrchestrator:
             - Graceful failure (bench remains functional if app installation fails)
 
         Args:
-            is_template_bench: If True, creates a minimal bench without site creation
+            bench_only: If True, creates the bench (config, directory, containers) with no site in it
 
         Raises:
             Exception: If any step in the creation process fails
@@ -148,7 +148,7 @@ class BenchOrchestrator:
 
         bench.docker_ops.check_required_docker_images_available()
 
-        apps_installed = self._run_creation(is_template_bench)
+        apps_installed = self._run_creation(bench_only)
 
         if apps_installed is False:
             # The teardown was already offered (and possibly declined); what is left is to fail.
@@ -160,10 +160,10 @@ class BenchOrchestrator:
                 message="Bench creation failed: the site was not fully set up. See the warning above.",
             )
 
-    def _run_creation(self, is_template_bench: bool) -> bool | None:
+    def _run_creation(self, bench_only: bool) -> bool | None:
         """Run the creation pipeline and hand back phase 6's verdict.
 
-        None means there is no verdict: a template bench has no phase 6, and a phase that raised
+        None means there is no verdict: a bench-only create has no phase 6, and a phase that raised
         was already reported and cleaned up after by `_handle_creation_failure`.
         """
         bench = self.bench
@@ -171,8 +171,8 @@ class BenchOrchestrator:
         try:
             self._phase1_prepare_structure()
 
-            if is_template_bench:
-                self._create_template_bench()
+            if bench_only:
+                self._create_bench_only()
                 return None
 
             if bench.bench_config.runtime == BenchRuntime.image:
@@ -1068,8 +1068,8 @@ class BenchOrchestrator:
         else:
             return True
 
-    def _create_template_bench(self):
-        """Create a template bench (minimal configuration without full site setup)."""
+    def _create_bench_only(self):
+        """Create the bench with no site in it (config and directory only, no site setup)."""
         bench = self.bench
         bench.sync_bench_common_site_config()
 
@@ -1086,7 +1086,7 @@ class BenchOrchestrator:
         )
 
         bench.save_bench_config()
-        self.output.print(f"Created template bench: {bench.name}", emoji_code=":white_check_mark:")
+        self.output.print(f"Created bench: {bench.name}", emoji_code=":white_check_mark:")
 
     def _handle_creation_failure(self, exception: Exception):
         """Handle failures during bench creation with cleanup."""

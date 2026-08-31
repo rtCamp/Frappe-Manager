@@ -65,6 +65,10 @@ def _bench(config: BenchConfig, name: str) -> Bench:
     # The real drop path: Bench.remove_database_and_user() delegates here. Asserting on this
     # rather than on the Bench method keeps the whole chain under test.
     bench.database = MagicMock()
+    # The other two steps of the removal sequence, stubbed: these tests are about which schemas it
+    # will and will not drop, and the sequence reaches them either side of that decision.
+    bench.remove_certificate = MagicMock()  # type: ignore[method-assign]
+    bench.remove_containers_and_dirs = MagicMock()  # type: ignore[method-assign]
     return bench
 
 
@@ -131,33 +135,63 @@ def test_the_guard_resolves_per_site_not_per_bench(tmp_path):
     assert EXTERNAL_HOST in _printed(external.output)
 
 
-def _service(output: MagicMock) -> BenchService:
+def _service(output: MagicMock, bench: Bench) -> BenchService:
     service = BenchService.__new__(BenchService)  # bypass __init__: no docker client, no services
     service.output = output
+    service.get_bench = MagicMock(return_value=bench)  # type: ignore[method-assign]
     return service
 
 
 def test_bench_service_delete_shares_the_guard(tmp_path):
-    """`fm delete` on a broken bench goes through BenchService, which must refuse identically."""
+    """`fm delete` goes through `BenchService`, which must refuse identically.
+
+    It cannot differ any more: `BenchService` carried its own copy of this sequence for the `--yes`
+    path, the two drifted in the wording of the database question, and the copy is now gone. Asserted
+    through the public entry point rather than the handler, so it stays true however the delegation
+    is spelled.
+    """
     output = MagicMock()
     bench = _bench(_config(tmp_path, name=EXTERNAL_BENCH, external_site=EXTERNAL_SITE), EXTERNAL_SITE)
 
-    _service(output)._handle_database_deletion(bench, None)
+    _service(output, bench).delete_bench(EXTERNAL_BENCH, yes=True)
 
     assert bench.database.remove_database_and_user.called is False
-    assert output.prompt_ask.called is False
-    assert EXTERNAL_HOST in _printed(output)
+    assert bench.output.prompt_ask.called is False
+    assert EXTERNAL_HOST in _printed(bench.output)
 
 
 def test_bench_service_delete_still_drops_a_global_db_schema(tmp_path):
-    output = MagicMock()
-    output.prompt_ask.return_value = "yes"
     bench = _bench(_config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE)
+    bench.output.prompt_ask.return_value = "yes"
 
-    _service(output)._handle_database_deletion(bench, None)
+    _service(MagicMock(), bench).delete_bench(GLOBAL_DB_SITE, yes=True)
 
-    assert output.prompt_ask.call_count == 1
+    assert bench.output.prompt_ask.call_count == 1
     assert bench.database.remove_database_and_user.call_count == 1
+
+
+def test_the_yes_flag_skips_only_the_removal_confirmation(tmp_path):
+    """`--yes` means "do not ask whether to remove the bench". It does NOT mean "drop the schema":
+    that question is separate and `--delete-db-from-global-db` answers it, so one prompt remains."""
+    bench = _bench(_config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE)
+    bench.output.prompt_ask.return_value = "no"
+
+    _service(MagicMock(), bench).delete_bench(GLOBAL_DB_SITE, yes=True)
+
+    asked = [str(call.kwargs.get("prompt", "")) for call in bench.output.prompt_ask.call_args_list]
+    assert len(asked) == 1
+    # Both prompts contain "want to remove", so the schema question is what names a database.
+    assert "global-db" in asked[0]
+    assert "the database" in asked[0]
+
+
+def test_without_the_yes_flag_the_removal_is_confirmed_first(tmp_path):
+    """And answering no removes nothing at all, including the schema."""
+    bench = _bench(_config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE)
+    bench.output.prompt_ask.return_value = "no"
+
+    assert _service(MagicMock(), bench).delete_bench(GLOBAL_DB_SITE, yes=False) is False
+    assert bench.database.remove_database_and_user.called is False
 
 
 # --------------------------------------------------------------------------- common_site_config

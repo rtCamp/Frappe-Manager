@@ -448,9 +448,9 @@ class TestRunningState:
 
 
 class TestLifecycleSequencing:
-    def test_create_delegates_the_template_flag_to_the_orchestrator(self, harness):
+    def test_create_delegates_the_bench_only_flag_to_the_orchestrator(self, harness):
         harness.bench.orchestrator = MagicMock()
-        harness.bench.create(is_template_bench=True)
+        harness.bench.create(bench_only=True)
         harness.bench.orchestrator.create_bench.assert_called_once_with(True)
 
     def test_create_defaults_to_a_full_bench(self, harness):

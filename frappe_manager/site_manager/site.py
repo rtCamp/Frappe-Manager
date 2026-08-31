@@ -437,20 +437,21 @@ class Bench:
     def exists(self):
         return self.path.exists()
 
-    def create(self, is_template_bench: bool = False):
+    def create(self, bench_only: bool = False):
         """
-        Creates a new bench using the provided template inputs.
+        Create this bench.
 
         Args:
-            is_template_bench: If True, creates a minimal bench without full site setup
+            bench_only: If True, build the bench and stop: no site is created in it. Sites are added
+                afterwards with `fm create BENCH/SITE`.
 
         Returns:
             None
         """
-        extra = {"operation": "bench_create", "bench_name": self.name, "is_template_bench": is_template_bench}
+        extra = {"operation": "bench_create", "bench_name": self.name, "bench_only": bench_only}
         self.logger.debug(f"Starting bench creation: {self.name}", extra_fields=extra)
         try:
-            self.orchestrator.create_bench(is_template_bench)
+            self.orchestrator.create_bench(bench_only)
             self.logger.info(f"Bench created successfully: {self.name}", extra_fields=extra)
         except Exception as e:
             extra["error"] = str(e)
@@ -1065,29 +1066,40 @@ class Bench:
             self.logger.exception(f"Failed to remove database and user for bench: {self.name}", extra_fields=extra)
             raise
 
-    def remove_bench(self, default_choice: bool = True, delete_db_from_global_db: bool | None = None):
-        """
-        Removes the bench.
+    def _confirm_removal(self, default_choice: bool) -> bool:
+        """Ask whether to remove this bench. `--yes` skips the caller, not this."""
+        params: dict[str, Any] = {
+            "prompt": f"🤔 Do you want to remove [bold][fm.ok]'{self.name}'[/bold][/fm.ok]",
+            "choices": ["yes", "no"],
+            "required_flag": "--yes or -y",
+        }
+        if default_choice:
+            params["default"] = "no"
+        return self.output.prompt_ask(**params) == "yes"
+
+    def remove_bench(
+        self,
+        default_choice: bool = True,
+        delete_db_from_global_db: bool | None = None,
+        prompt: bool = True,
+    ) -> bool:
+        """Remove the bench: its certificate, then its schema, then its containers and directory.
+
+        This is the ONE implementation of that sequence. `BenchService.delete_bench` carried a second
+        copy for the `--yes` path that differed only in skipping the confirmation below, and the two
+        had already drifted: the database question named the bench here and the site there. Under
+        multi-site each copy would have grown a per-site loop and partial-failure gating, so they are
+        collapsed before that happens.
 
         Args:
-            default_choice: If True, defaults to 'no' for confirmation prompt
-            delete_db_from_global_db: Whether to delete DB from global-db.
-                                     If None, prompts interactively when DB is in global-db.
+            default_choice: confirmation default; True defaults to 'no'
+            delete_db_from_global_db: None prompts when the schema is fm's to drop
+            prompt: False skips the confirmation entirely, which is what `--yes` means
         """
         extra = {"operation": "bench_remove", "bench_name": self.name, "default_choice": default_choice}
         self.logger.debug(f"Attempting to remove bench: {self.name}", extra_fields=extra)
 
-        params: dict[str, Any] = {}
-        params["prompt"] = f"🤔 Do you want to remove [bold][fm.ok]'{self.name}'[/bold][/fm.ok]"
-        params["choices"] = ["yes", "no"]
-
-        if default_choice:
-            params["default"] = "no"
-
-        params["required_flag"] = "--yes or -y"
-        continue_remove = self.output.prompt_ask(**params)
-
-        if continue_remove == "no":
+        if prompt and not self._confirm_removal(default_choice):
             self.logger.debug(f"Bench removal cancelled by user: {self.name}", extra_fields=extra)
             return False
 
@@ -1370,8 +1382,8 @@ class Bench:
         The bench's own nginx conf is NOT written here: it is an fm-managed conf, so
         ``ensure_fm_nginx_confs`` owns it and reloads once for whatever changed.
 
-        Both steps are skipped when their target does not exist yet, which is what a template bench
-        (no site, no served domain) and a not-yet-provisioned services dir look like.
+        Both steps are skipped when their target does not exist yet, which is what a bench with no
+        sites in it (so no served domain) and a not-yet-provisioned services dir look like.
 
         Returns True when something on disk changed, so a caller can reload the global proxy only
         when it needs to. The proxy is shared by every bench, so reloading it on each ``fm start``
