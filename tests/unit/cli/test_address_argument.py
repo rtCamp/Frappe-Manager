@@ -169,9 +169,11 @@ def test_create_refuses_a_name_whose_legacy_bench_already_exists(tmp_path):
 
     root = tmp_path / "sites"
     (root / "shop.localhost").mkdir(parents=True)
-    with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
-        with pytest.raises(typer.BadParameter, match="already exists"):
-            create_command_sitename_callback("shop")
+    with (
+        patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root),
+        pytest.raises(typer.BadParameter, match="already exists"),
+    ):
+        create_command_sitename_callback("shop")
 
 
 # -------------------------------------------------------------------- fm shell
@@ -185,17 +187,58 @@ def test_shell_accepts_the_benchs_own_site(benches):
     assert "has no site" not in _said(result)
 
 
+def test_shell_accepts_a_site_whose_name_is_not_the_benchs(tmp_path):
+    """The shape after the decoupling: bench `shop` serving site `shop.localhost`. Validating the
+    site against the BENCH NAME rather than against the recorded sites refused exactly this, the
+    correct address, and said "its site is 'shop'"."""
+    root = tmp_path / "sites"
+    (root / "shop").mkdir(parents=True)
+    (root / "shop" / "bench_config.toml").write_text(
+        'name = "shop"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n\n[sites."shop.localhost"]\n'
+    )
+    with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
+        result = runner.invoke(_app("shell", shell), ["shop/shop.localhost"])
+    assert "has no site" not in _said(result)
+
+
+def test_shell_accepts_either_site_of_a_multi_site_bench(tmp_path):
+    """A bench serving several sites is addressable at each of them."""
+    root = tmp_path / "sites"
+    (root / "multi").mkdir(parents=True)
+    (root / "multi" / "bench_config.toml").write_text(
+        'name = "multi"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
+        '\n[sites."a.example.com"]\n\n[sites."b.example.com"]\n'
+    )
+    with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
+        for site in ("a.example.com", "b.example.com"):
+            assert "has no site" not in _said(runner.invoke(_app("shell", shell), [f"multi/{site}"]))
+
+
 def test_shell_refuses_a_site_the_bench_does_not_have(benches):
-    """A bench holds exactly one site and its name is the bench's, so anything else is a
-    typo worth catching before any container is touched."""
+    """Checked against the sites the bench records, before any container is touched."""
     result = runner.invoke(_app("shell", shell), [f"{BENCH}/nope.localhost"])
     assert result.exit_code == 2
     assert f"bench '{BENCH}' has no site 'nope.localhost'" in _said(result)
 
 
-def test_shell_names_the_site_it_does_have(benches):
+def test_the_refusal_lists_the_sites_the_bench_does_serve(benches):
+    """Naming what IS available is the difference between a typo the operator can fix and one they
+    have to go and look up."""
     result = runner.invoke(_app("shell", shell), [f"{BENCH}/nope.localhost"])
-    assert f"its site is '{BENCH}'" in _said(result)
+    assert f"It serves '{BENCH}'" in _said(result)
+
+
+def test_the_refusal_lists_every_site_of_a_multi_site_bench(tmp_path):
+    root = tmp_path / "sites"
+    (root / "multi").mkdir(parents=True)
+    (root / "multi" / "bench_config.toml").write_text(
+        'name = "multi"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
+        '\n[sites."a.example.com"]\n\n[sites."b.example.com"]\n'
+    )
+    with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
+        said = _said(runner.invoke(_app("shell", shell), ["multi/c.example.com"]))
+    assert "'a.example.com'" in said
+    assert "'b.example.com'" in said
 
 
 def test_shell_has_no_site_option():

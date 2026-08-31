@@ -5,6 +5,7 @@ from pathlib import Path
 import typer
 
 from frappe_manager import (
+    CLI_BENCH_CONFIG_FILE_NAME,
     CLI_BENCHES_DIRECTORY,
     CLI_CACHE_PATH,
     CLI_RECENT_USED_SITES_CACHE_PATH,
@@ -228,6 +229,27 @@ def sitename_callback(sitename: str | None):
     return _resolve_bench(sitename)
 
 
+def _recorded_sites(bench: str) -> list[str]:
+    """The sites a bench serves, from its `[sites]` table.
+
+    Falls back to `[bench]` when the config is absent, unreadable or records nothing. That is not a
+    compatibility branch for an old shape: this runs in a parameter callback, so it must not be the
+    thing that turns a broken config into a stack trace before the command body gets a chance to
+    report it properly. A bench whose config cannot be read will fail again, and better, in the body.
+    """
+    # Deferred: bench_config pulls in the site_manager package, which imports this module.
+    from frappe_manager.site_manager.bench_config import BenchConfig
+
+    config_path = CLI_BENCHES_DIRECTORY / bench / CLI_BENCH_CONFIG_FILE_NAME
+    if not config_path.is_file():
+        return [bench]
+    try:
+        recorded = BenchConfig.import_from_toml(config_path).sites
+    except Exception:
+        return [bench]
+    return list(recorded) if recorded else [bench]
+
+
 def bench_site_callback(ctx: typer.Context, value: str | None) -> str | None:
     """`BENCH[/SITE]` for the one command that addresses a site.
 
@@ -249,8 +271,12 @@ def bench_site_callback(ctx: typer.Context, value: str | None) -> str | None:
 
     if site is not None:
         site = validate_sitename(site)
-        if site != bench:
-            raise typer.BadParameter(f"bench '{bench}' has no site '{site}': its site is '{bench}'")
+        recorded = _recorded_sites(bench)
+        if site not in recorded:
+            known = ", ".join(f"'{s}'" for s in sorted(recorded))
+            raise typer.BadParameter(
+                f"bench '{bench}' has no site '{site}'. It serves {known}."
+            )
         # `ctx.obj` is None under --help, which short-circuits before app_callback fills it.
         if ctx.obj is not None:
             ctx.obj["site"] = site
