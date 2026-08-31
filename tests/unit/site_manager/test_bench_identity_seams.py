@@ -272,6 +272,72 @@ def test_the_config_domain_is_the_site_and_not_the_bench(tmp_path):
     assert config.get_site_mappings() == {SITE: SITE}
 
 
+# --------------------------------------------------------------------- routing N sites
+# What makes a second site reachable at all: every site's own domain has to be published, and each
+# has to map to ITSELF. Mapping both hostnames to one site would route them at the same schema, so
+# the second site would answer with the first site's data rather than 404 -- a wrong answer, not a
+# missing one.
+
+SECOND = "b.example.com"
+
+
+def _multi(tmp_path, *sites: str, aliases: str = "") -> BenchConfig:
+    toml = tmp_path / "bench_config.toml"
+    body = "".join(f'\n[sites."{s}"]\n' for s in sites)
+    toml.write_text(
+        f'name = "{BENCH}"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n{aliases}{body}'
+    )
+    return BenchConfig.import_from_toml(toml)
+
+
+def test_every_site_is_published_as_a_domain(tmp_path):
+    config = _multi(tmp_path, SITE, SECOND)
+
+    assert config.domains == [SITE, SECOND]
+
+
+def test_each_site_maps_to_itself(tmp_path):
+    config = _multi(tmp_path, SITE, SECOND)
+
+    assert config.get_site_mappings() == {SITE: SITE, SECOND: SECOND}
+
+
+def test_the_primary_sites_domain_leads(tmp_path):
+    """nginx-proxy treats the first host in `VIRTUAL_HOST` as the canonical one, so the order is
+    behaviour and not presentation."""
+    config = _multi(tmp_path, SITE, SECOND)
+
+    assert config.domains[0] == config.primary_site
+
+
+def test_a_bench_alias_is_served_by_the_primary_site(tmp_path):
+    """`alias_domains` is still bench-level, so an alias has no site of its own to belong to."""
+    config = _multi(tmp_path, SITE, SECOND, aliases='alias_domains = ["www.shop.example.com"]\n')
+
+    assert config.get_site_mappings()["www.shop.example.com"] == SITE
+    assert "www.shop.example.com" in config.domains
+
+
+def test_sites_can_be_enumerated_even_when_no_primary_can_be_chosen(tmp_path):
+    """Enumeration is not selection. A bench whose recorded sites include none named after it cannot
+    say which one a bench-scoped command means, and `primary_site` refuses; but routing still has to
+    publish both, so listing them must not depend on that choice."""
+    config = _multi(tmp_path, "a.example.com", SECOND)
+
+    assert set(config.site_names) == {"a.example.com", SECOND}
+    assert set(config.get_site_mappings()) == {"a.example.com", SECOND}
+    with pytest.raises(ValueError, match="cannot tell which one"):
+        _ = config.primary_site
+
+
+def test_a_single_site_bench_routes_exactly_as_before(tmp_path):
+    """The N-site change must not alter the one-site case, which is every existing bench."""
+    config = _multi(tmp_path, SITE)
+
+    assert config.domains == [SITE]
+    assert config.get_site_mappings() == {SITE: SITE}
+
+
 # --------------------------------------------------------------- the roles are not interchangeable
 
 

@@ -2,6 +2,7 @@ import json
 import os
 import re
 import subprocess
+from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from enum import Enum
@@ -12,7 +13,6 @@ import tomlkit
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 from tomlkit.items import Array as TOMLArray
 
-from frappe_manager import CLI_DEFAULT_DELIMETER
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.certificate import SSLCertificate
 from frappe_manager.ssl_manager.dns_provider import DNSProviderConfig
@@ -1146,6 +1146,38 @@ class DatabaseConfig(BaseModel):
         return self.user or self.name
 
 
+def resolve_primary_site(bench_name: str, sites: Mapping[str, Any] | None) -> str | None:
+    """Which of a bench's recorded sites is its own, or None when none can be called "the" one.
+
+    The one implementation of this rule. `BenchConfig.primary_site` and `Bench.site_name` both call
+    it: they each carried a copy, and the copies drifted the moment one learned to recognise the
+    site named after the bench in its FQDN form, so a two-site bench resolved in one place and
+    refused in the other.
+
+    Takes the bench name and the table rather than a config object, so a caller holding a duck-typed
+    stand-in can use it too, and so `Bench` can pass its own directory name.
+
+    Enumeration must not depend on this: routing has to publish every site of a bench whose primary
+    is ambiguous, and only a caller asking "which site does a bench-scoped command mean" needs to
+    fail. Hence None rather than an exception.
+    """
+    if not sites:
+        # Nothing recorded: mid-create, or a migration part-way through writing the table.
+        return bench_name
+    if bench_name in sites:
+        return bench_name
+    if "." not in bench_name:
+        # The site named after the bench in its FQDN form, which is the relationship `fm create shop`
+        # establishes. Without this a bench called `shop` serving `shop.localhost` and
+        # `b.example.com` would have no primary and every bench-scoped command on it would refuse.
+        suffixed = f"{bench_name}.localhost"
+        if suffixed in sites:
+            return suffixed
+    if len(sites) == 1:
+        return next(iter(sites))
+    return None
+
+
 class SiteConfig(BaseModel):
     """One Frappe site inside a bench (`[sites."<name>"]`).
 
@@ -1255,7 +1287,7 @@ class BenchConfig(BaseModel):
     sites: dict[str, SiteConfig] | None = Field(
         None,
         description='The Frappe sites this bench holds, keyed by site name ([sites."<site>"]). '
-        "Exactly one entry today. Replaces the old [database.\"<site>\"] table, whose contents now "
+        'Exactly one entry today. Replaces the old [database."<site>"] table, whose contents now '
         'live at [sites."<site>".database].',
     )
     redis: RedisConfig | None = Field(
@@ -1727,6 +1759,10 @@ class BenchConfig(BaseModel):
             data["encryption_key"] = self.encryption_key
         return data
 
+    def _primary_site_or_none(self) -> str | None:
+        """The bench's own site, or None when nothing recorded can be called "the" one."""
+        return resolve_primary_site(self.name, self.sites)
+
     @property
     def primary_site(self) -> str:
         """The site this bench serves, read from `[sites]`.
@@ -1739,22 +1775,15 @@ class BenchConfig(BaseModel):
         Falls back to `name` only when nothing is recorded, which is the mid-create state and a
         migration part-way through writing the table, not an old file shape.
         """
-        if not self.sites:
-            return self.name
-        if self.name in self.sites:
-            # An entry named after the bench: every bench before the decoupling, and the tie-break
-            # when a config describes more than one site.
-            return self.name
-        if len(self.sites) == 1:
-            # One recorded site under a different name: the bench name and the site name have come
-            # apart, which is exactly what the table is for.
-            return next(iter(self.sites))
-        # Several, none named after the bench. Nothing here can choose, and guessing would point a
-        # bench-scoped operation at another site's schema.
+        resolved = self._primary_site_or_none()
+        if resolved is not None:
+            return resolved
+        # Several recorded, none named after the bench. Nothing here can choose, and guessing would
+        # point a bench-scoped operation at another site's schema.
         raise ValueError(
-            f"bench_config.toml for {self.name!r} records {len(self.sites)} sites "
-            f"({', '.join(sorted(self.sites))}) and none is named after the bench, so fm cannot tell "
-            f"which one a bench-scoped command means."
+            f"bench_config.toml for {self.name!r} records {len(self.sites or {})} sites "
+            f"({', '.join(sorted(self.sites or {}))}) and none is named after the bench, so fm cannot "
+            f"tell which one a bench-scoped command means."
         )
 
     @property
@@ -1770,22 +1799,51 @@ class BenchConfig(BaseModel):
         return self.primary_site
 
     @property
-    def domains(self) -> list[str]:
-        """Every hostname this bench serves: the primary domain, then its aliases.
+    def site_names(self) -> list[str]:
+        """Every site this bench serves, primary first.
 
-        `get_site_mappings` and `export_to_compose_inputs` each built this list themselves before,
-        which is two places to update when a domain stops being the bench name.
+        One entry today for a bench created by fm; the list exists because the routing below has to
+        cover all of them, and iterating `[sites]` is the only way to know what "all" is.
         """
-        return [self.primary_domain, *(self.alias_domains or [])]
+        if not self.sites:
+            return [self.name]
+        # Enumeration, not selection: a bench whose primary is ambiguous still has to route all of
+        # its sites, so the order falls back to the recorded one rather than failing.
+        primary = self._primary_site_or_none()
+        if primary is None or primary not in self.sites:
+            return list(self.sites)
+        return [primary, *(s for s in self.sites if s != primary)]
+
+    @property
+    def domains(self) -> list[str]:
+        """Every hostname this bench serves: each site's own domain, then the bench's aliases.
+
+        A site's name IS its domain, so every site contributes one. `alias_domains` is still
+        bench-level, so an alias is served by the PRIMARY site; per-site aliases are a later change,
+        and until then a second site cannot have an alias of its own.
+
+        Order matters: `export_to_compose_inputs` joins this into `VIRTUAL_HOST` and nginx-proxy
+        treats the first host as the canonical one, so the primary site's domain leads.
+        """
+        return [*self.site_names, *(self.alias_domains or [])]
 
     def get_site_mappings(self) -> dict[str, str]:
         """domain -> site, for the nginx entrypoint's `SITE_MAPPINGS`.
 
-        Every domain this bench serves maps to its one site. The value is the SITE and not the bench
-        name: nginx hands it to Frappe as the site to serve, so a bench called `shop` sending `shop`
-        instead of `shop.localhost` would name a `sites/` directory that does not exist.
+        Each site's domain maps to that site, which is what makes a second site reachable at all:
+        nginx hands the value to Frappe as the site to serve, so mapping every domain to one site
+        would route both hostnames at the first site's schema. The bench's aliases map to the
+        primary site, matching where `alias_domains` currently lives.
         """
-        return dict.fromkeys(self.domains, self.primary_site)
+        mappings = {site: site for site in self.site_names}
+        # `alias_domains` is bench-level, so an alias has no site of its own to belong to. It goes to
+        # the primary, or to the first recorded site when there is no unambiguous primary, which is
+        # the one case where an alias could reach a site the operator did not intend. Per-site
+        # aliases are what removes the guess.
+        alias_target = self._primary_site_or_none() or self.site_names[0]
+        for alias in self.alias_domains or []:
+            mappings[alias] = alias_target
+        return mappings
 
     def get_newrelic_config(self) -> NewRelicConfig | None:
         """`[monitoring.newrelic]`, or None when the bench configures no monitoring at all."""

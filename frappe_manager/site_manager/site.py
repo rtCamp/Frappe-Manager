@@ -16,7 +16,13 @@ from frappe_manager.migration_manager.backup_manager import BackupManager
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
 from frappe_manager.services_manager.services import ServicesManager
-from frappe_manager.site_manager.bench_config import AuthConfig, BenchConfig, DatabaseConfig, FMBenchEnvType
+from frappe_manager.site_manager.bench_config import (
+    AuthConfig,
+    BenchConfig,
+    DatabaseConfig,
+    FMBenchEnvType,
+    resolve_primary_site,
+)
 from frappe_manager.site_manager.exceptions import (
     BenchException,
     BenchRemoveDirectoryError,
@@ -327,39 +333,31 @@ class Bench:
         """The Frappe site this bench acts on: the schema, the `sites/<name>/` directory, the
         `--site` argument.
 
-        Read from `[sites]`, which is where every bench now records its one site. That is the whole
-        purpose of the table: the site's name is a FACT about the bench, not something derivable
-        from the directory once `fm create shop` starts yielding a site called `shop.localhost`.
+        Delegates to `BenchConfig.primary_site`, which reads `[sites]`. It used to carry its own
+        copy of that rule, and the copies drifted the moment the config learned to recognise the
+        site named after the bench in its FQDN form: a two-site bench called `shop` resolved to
+        `shop.localhost` there and refused here.
 
         `self.name` is the BENCH: its directory under `~/frappe/sites/`, its compose project, the
-        address a user types. The two are still the same string for existing benches, and reading
-        them from different places is what lets that stop being true without touching any caller.
+        address a user types. Reading the two from different places is what lets them differ.
 
-        A bench with no recorded site falls back to its own name. That is not a compatibility
-        branch for an old file shape: `Bench` objects are also built mid-create, before the config
-        has been assembled, and during a migration that is in the middle of writing the table.
+        A bench with no config falls back to its own name. Not a compatibility branch for an old
+        file shape: `Bench` objects are built mid-create, before the config is assembled, and during
+        a migration part-way through writing the table.
         """
-        sites = self.bench_config.sites if self.bench_config else None
-        if not sites:
-            # No recorded site. NOT a compatibility branch for an old file shape: `Bench` objects
-            # are built mid-create, before the config is assembled, and during a migration that is
-            # part-way through writing the table.
-            return self.name
-        if self.name in sites:
-            # An entry named after the bench: that is every bench today, and it is also what keeps
-            # a config describing several sites resolving to the right one.
-            return self.name
-        if len(sites) == 1:
-            # One recorded site under a different name: the bench name and the site name have come
-            # apart, which is the whole point of recording it.
-            return next(iter(sites))
-        # Several sites, none named after the bench. Nothing here can choose between them, and
-        # guessing would silently target someone else's schema.
+        config = getattr(self, "bench_config", None)
+        sites = getattr(config, "sites", None) if config is not None else None
+        resolved = resolve_primary_site(self.name, sites)
+        if resolved is not None:
+            return resolved
+        # A bench-scoped command cannot proceed without knowing its site, and guessing would
+        # silently target someone else's schema. The address form is what resolves it.
+        known = ", ".join(sorted(sites or {}))
         raise BenchException(
             self.name,
-            message=f"bench_config.toml records {len(sites)} sites ({', '.join(sorted(sites))}) and none is "
-            f"named after the bench, so fm cannot tell which one a bench-scoped command means. Name the site "
-            f"explicitly, or repair \\[sites] so one entry matches the bench.",
+            message=f"bench_config.toml records {len(sites or {})} sites ({known}) and none is named after "
+            f"the bench, so fm cannot tell which one this command means. Name the site explicitly as "
+            f"{self.name}/<site>, or repair \\[sites] so one entry matches the bench.",
         )
 
     @property
