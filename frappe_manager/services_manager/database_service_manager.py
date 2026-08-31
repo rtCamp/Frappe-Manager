@@ -89,7 +89,7 @@ class DatabaseServerServiceInfo(BaseModel):
         )
 
     @classmethod
-    def import_from_bench(cls, bench_name: str, bench_path: Path, raise_exception=False, external: bool = False):
+    def import_from_bench(cls, site_name: str, bench_path: Path, raise_exception=False, external: bool = False):
         """
         Provides info about a database server
 
@@ -98,7 +98,10 @@ class DatabaseServerServiceInfo(BaseModel):
         as a fallback for benches created before that cutover.
         """
 
-        site_config_file: Path = bench_path / "workspace" / "frappe-bench" / "sites" / bench_name / "site_config.json"
+        # Keyed by SITE: `sites/<site>/site_config.json` is where the endpoint lives. The
+        # parameter was called `bench_name`, which is the same string only while a bench holds one
+        # site named after it.
+        site_config_file: Path = bench_path / "workspace" / "frappe-bench" / "sites" / site_name / "site_config.json"
         common_site_config_file: Path = bench_path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
 
         info: dict[str, Any] = {"external": external}
@@ -129,7 +132,7 @@ class DatabaseServerServiceInfo(BaseModel):
 
         if raise_exception and not info["password"]:
             raise BenchException(
-                bench_name,
+                site_name,
                 f"Password for the db user doesn't exits in either {common_site_config_file.name},{site_config_file.name}",
             )
 

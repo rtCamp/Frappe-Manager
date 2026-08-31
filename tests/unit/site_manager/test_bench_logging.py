@@ -9,14 +9,27 @@ extra fields and exception handling for all operation categories:
 - Worker/admin tool operations (sync, ensure running)
 """
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
 import pytest
 
 from frappe_manager.logger import FMLogger, current_context, reset_context
-from frappe_manager.site_manager.bench_config import DatabaseConfig
 from frappe_manager.site_manager.site import Bench
+
+
+def write_site_on_disk(bench_path: Path, site: str, db_name: str | None = None) -> Path:
+    """Put one site under `<bench>/workspace/frappe-bench/sites/<site>/`.
+
+    Sites are enumerated from DISK, not from `bench_config.toml`, so a bench that is only a
+    MagicMock has no sites at all and the database paths walk nothing.
+    """
+    site_dir = bench_path / "workspace" / "frappe-bench" / "sites" / site
+    site_dir.mkdir(parents=True, exist_ok=True)
+    config = {"db_name": db_name} if db_name else {}
+    (site_dir / "site_config.json").write_text(json.dumps(config))
+    return site_dir
 
 
 @pytest.fixture
@@ -347,45 +360,57 @@ class TestDatabaseOperationLogging:
     """Test logging for database operations."""
 
     def test_remove_database_and_user_logs_with_correct_operation(self, mock_bench_dependencies, mock_logger, mocker):
-        """remove_database_and_user() should log with operation=db_remove."""
+        """remove_database_and_user() should log with operation=db_remove and the site it drops."""
         mocker.patch.object(Bench, "__init__", lambda *args, **kwargs: None)
         bench = Bench.__new__(Bench)
-        bench.name = "test.localhost"
+        bench.name = "shop"
         bench.logger = mock_logger
         bench.database = MagicMock()
         bench.database.remove_database_and_user = MagicMock()
 
-        bench.remove_database_and_user()
+        bench.remove_database_and_user("shop.localhost")
 
         debug_calls = mock_logger.debug.call_args_list
         assert len(debug_calls) > 0
         call_args, call_kwargs = debug_calls[0]
         extra = call_kwargs["extra_fields"]
         assert extra["operation"] == "db_remove"
+        assert extra["bench_name"] == "shop"
+        # The drop is per SITE now, so the record has to say which one: a bench has several.
+        assert extra["site"] == "shop.localhost"
+        bench.database.remove_database_and_user.assert_called_once_with("shop.localhost")
 
     def test_handle_database_deletion_logs_deletion_handler_operation(
         self,
         mock_bench_dependencies,
         mock_logger,
         mocker,
+        tmp_path,
     ):
-        """_handle_database_deletion() should log with operation=db_deletion_handler."""
+        """_handle_database_deletion() should log with operation=db_deletion_handler.
+
+        The handler walks the sites on disk now, so the bench needs a real `path` to walk.
+        """
         mocker.patch.object(Bench, "__init__", lambda *args, **kwargs: None)
         bench = Bench.__new__(Bench)
-        bench.name = "test.localhost"
+        bench.name = "shop"
+        bench.path = tmp_path / "shop"
         bench.logger = mock_logger
-        bench.external_database_config = MagicMock(
-            return_value=DatabaseConfig(host="db.example.com", name="app_prod"),
-        )
+        bench.bench_config = MagicMock()
+        bench.bench_config.get_database_config.return_value = None
+        bench.remove_database_and_user = MagicMock()
         bench.output = MagicMock()
+        write_site_on_disk(bench.path, "shop.localhost", "fm_shop_localhost_ab12")
 
-        bench._handle_database_deletion(None)
+        bench._handle_database_deletion(True)
 
         debug_calls = mock_logger.debug.call_args_list
         assert len(debug_calls) > 0
         call_args, call_kwargs = debug_calls[0]
         extra = call_kwargs["extra_fields"]
         assert extra["operation"] == "db_handle_deletion"
+        assert extra["bench_name"] == "shop"
+        bench.remove_database_and_user.assert_called_once_with("shop.localhost")
 
 
 class TestWorkerOperationLogging:

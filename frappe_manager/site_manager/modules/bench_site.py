@@ -514,7 +514,7 @@ class BenchSiteManager:
             return {}
         return {"MYSQL_HOME": db_tls.site_mysql_home(site)}
 
-    def reset_bench_site(self, admin_password: str) -> None:
+    def reset_bench_site(self, admin_password: str, site: str | None = None) -> None:
         """
         Reset (reinstall) a Frappe site, wiping all data.
 
@@ -522,13 +522,20 @@ class BenchSiteManager:
         site's database, effectively resetting it to a fresh state.
 
         Only for a site on the `global-db` container fm owns. A site with a `[database]` entry is
-        refused, for the reason `_handle_database_deletion` gives when `fm delete` skips the same
-        schema: `reinstall` drops and recreates it, and it is not fm's to drop. The refusal is also
-        what keeps the global-db root credential -- which means nothing on a host fm does not own --
-        out of the argv, out of the container's process listing and off the wire.
+        refused, for the reason `_resolve_site_schema` gives when `fm delete` skips the same schema:
+        `reinstall` drops and recreates it, and it is not fm's to drop. The refusal is also what
+        keeps the global-db root credential -- which means nothing on a host fm does not own -- out
+        of the argv, out of the container's process listing and off the wire.
+
+        Keyed by SITE, both for the refusal and for `--site`. Both read the BENCH name before, which
+        was the same string only while a bench held one site named after it. On a bench `shop`
+        serving `shop.localhost` the refusal looked up a site that is not in the table, found no
+        `[database]` entry, and so an EXTERNAL site read as global-db and was reinstalled with the
+        wrong root credentials against a server fm does not own.
 
         Args:
             admin_password: New administrator password for the reset site
+            site: which site to reinstall. None means the bench's own site.
 
         Raises:
             BenchOperationException: If the site's database lives on a server fm does not own, or
@@ -540,13 +547,13 @@ class BenchSiteManager:
         Example:
             >>> site_manager.reset_bench_site(admin_password="new_admin_pass")
         """
-        # Keyed on the site being reinstalled, which is what `--site` below names: one bench can
-        # hold two sites on two different servers.
-        database_config = self.bench_config.get_database_config(self.bench_name)
+        target = site or self.bench_config.primary_site
+
+        database_config = self.bench_config.get_database_config(target)
         if database_config is not None:
             raise BenchOperationException(
                 bench_name=self.bench_name,
-                message=f"Refusing to reset {self.bench_name}: its database '{database_config.name}' lives on "
+                message=f"Refusing to reset {target}: its database '{database_config.name}' lives on "
                 f"'{database_config.host}', a server fm does not own. `bench reinstall` drops and recreates the "
                 f"schema, and that schema is not fm's to drop.",
             )
@@ -558,7 +565,7 @@ class BenchSiteManager:
         # The list is joined into one string that `_container_run` hands to `compose.exec`, which
         # shlex-splits it again, so an unquoted password carrying a space fragments into extra
         # positional arguments and one carrying an apostrophe breaks the split outright.
-        reset_bench_site_command = self.bench_cli_cmd + ["--site", self.bench_name]
+        reset_bench_site_command = self.bench_cli_cmd + ["--site", target]
         reset_bench_site_command += ["reinstall", "--admin-password", shlex.quote(admin_password)]
         reset_bench_site_command += ["--db-root-username", global_db_info.user]
         reset_bench_site_command += ["--db-root-password", shlex.quote(global_db_info.password)]
@@ -570,7 +577,7 @@ class BenchSiteManager:
             reset_bench_site_command,
             on_failure=lambda: BenchOperationException(
                 bench_name=self.bench_name,
-                message=f"Failed to reset bench site {self.bench_name}.",
+                message=f"Failed to reset bench site {target}.",
             ),
         )
 

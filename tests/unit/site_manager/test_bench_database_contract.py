@@ -11,12 +11,15 @@ Contracts pinned:
    `output_handler=None` means a fresh `RichOutputHandler`. Construction is inert: it
    touches neither the filesystem nor `services`. Unlike `BenchInfo`, there is **no**
    `docker_client` parameter, so this module can never reach docker directly.
-2. **How connection details are resolved.** `get_connection_info` is a pure delegation
-   to `get_bench_db_connection_info(bench_name, bench_path)`; the resolution rules that
-   delegation inherits (common config supplies host/port, `sites/<bench>/site_config.json`
-   supplies name/user/password and *overrides* host/port, `user` is the db *name*,
-   `password` is always present and `None` by default) are pinned against a real
-   `tmp_path` tree because `remove_database_and_user` branches on that dict's shape.
+2. **How connection details are resolved.** `get_connection_info` is a delegation to
+   `get_bench_db_connection_info(site, bench_path)`, keyed by SITE: an explicit `site`
+   is passed straight through and `None` means `bench_config.primary_site`. The
+   resolution rules that delegation inherits (common config supplies host/port,
+   `sites/<site>/site_config.json` supplies name/user/password and *overrides* host/port,
+   `user` is the db *name*, `password` is always present and `None` by default) are
+   pinned against a real `tmp_path` tree because `remove_database_and_user` branches on
+   that dict's shape. A bench holds N sites and its name is not one of them, so the site
+   is the only key that finds the right `site_config.json`.
 3. **The destructive guards.** `remove_database_and_user` refuses to do anything without
    a `name` key; it refuses to drop a database that `check_db_exists` denies, and a user
    that `check_user_exists` denies, warning instead. Database and user are decided
@@ -45,6 +48,11 @@ from frappe_manager.site_manager.modules.bench_database import BenchDatabase
 MODULE = "frappe_manager.site_manager.modules.bench_database"
 
 BENCH_NAME = "site1.local"
+# The bench is a directory and a compose project; the sites it serves are named separately, and
+# none of them has to be named after it. These two differ on purpose: keying anything below by
+# the bench name reads a directory that does not exist.
+SITE_NAME = "site1.localhost"
+SECOND_SITE = "b.example.com"
 # get_container_name_prefix("site1.local") -> "fm__site1_local"
 MANAGED_CACHE = "redis://fm__site1_local__redis-cache:6379"
 MANAGED_QUEUE = "redis://fm__site1_local__redis-queue:6379"
@@ -53,13 +61,20 @@ MANAGED_QUEUE = "redis://fm__site1_local__redis-queue:6379"
 class _Harness:
     """A `BenchDatabase` wired to mocks that share one parent, so call order is visible."""
 
-    def __init__(self, tmp_path, bench_name=BENCH_NAME, redis=None, output_handler=MagicMock):
+    def __init__(
+        self,
+        tmp_path,
+        bench_name=BENCH_NAME,
+        primary_site=SITE_NAME,
+        redis=None,
+        output_handler=MagicMock,
+    ):
         self.recorder = MagicMock()
         self.output = self.recorder.output if output_handler is MagicMock else output_handler
         self.db = self.recorder.db
         self.set_config = self.recorder.set_config
         self.bench_path = tmp_path / "benches" / bench_name
-        self.bench_config = SimpleNamespace(redis=redis)
+        self.bench_config = SimpleNamespace(redis=redis, primary_site=primary_site)
         self.services = SimpleNamespace(database_manager=self.db)
         self.database = BenchDatabase(
             bench_name=bench_name,
@@ -97,8 +112,13 @@ def _sites_dir(bench_path):
     return bench_path / "workspace" / "frappe-bench" / "sites"
 
 
-def _write_site_config(bench_path, bench_name, data):
-    _write_json(_sites_dir(bench_path) / bench_name / "site_config.json", data)
+def _write_site_config(bench_path, site, data):
+    """Put one SITE's config on disk, at `<bench>/workspace/frappe-bench/sites/<site>/`.
+
+    That directory path is the whole point: the wiring is read from disk under the site's own
+    name, so a bench serving a differently named site has nothing at `sites/<bench name>/`.
+    """
+    _write_json(_sites_dir(bench_path) / site / "site_config.json", data)
 
 
 def _write_common_site_config(bench_path, data):
@@ -174,13 +194,57 @@ def test_init_is_inert(tmp_path):
 # --------------------------------------------------------------------------------------
 
 
-def test_get_connection_info_delegates_with_bench_name_and_path(tmp_path, conn_info):
+def test_get_connection_info_defaults_to_the_benchs_primary_site(tmp_path, conn_info):
+    """`None` means the bench's primary site, not the bench. It meant the bench name while a
+    bench held exactly one site named after it, and there is no such guarantee any more."""
     h = _Harness(tmp_path)
 
     result = h.database.get_connection_info()
 
-    assert conn_info.call_args == call(BENCH_NAME, h.bench_path)
+    assert conn_info.call_args == call(SITE_NAME, h.bench_path)
     assert result is conn_info.return_value
+
+
+def test_get_connection_info_passes_an_explicit_site_straight_through(tmp_path, conn_info):
+    """A bench holds N sites, so the caller says which one; the bench's own is not assumed."""
+    h = _Harness(tmp_path)
+
+    h.database.get_connection_info(SECOND_SITE)
+
+    assert conn_info.call_args == call(SECOND_SITE, h.bench_path)
+
+
+def test_a_site_not_named_after_its_bench_still_resolves_its_schema(tmp_path):
+    """The regression this keying exists for. A bench `shop` serves `shop.localhost`, so there is
+    no `sites/shop/`: reading it by the bench name found no file, returned a dict without `name`,
+    and `remove_database_and_user` then dropped nothing while reporting success."""
+    h = _Harness(tmp_path, bench_name="shop", primary_site="shop.localhost")
+    _write_site_config(
+        h.bench_path,
+        "shop.localhost",
+        {"db_name": "fm_shop_localhost_ab12", "db_password": "s3cret"},
+    )
+
+    info = h.database.get_connection_info()
+
+    assert not (_sites_dir(h.bench_path) / "shop").exists()
+    assert info["name"] == "fm_shop_localhost_ab12"
+    assert info["user"] == "fm_shop_localhost_ab12"
+
+
+def test_each_site_on_a_bench_resolves_its_own_schema(tmp_path):
+    """Two sites, two schemas, one bench. Anything bench-keyed would hand back one answer for
+    both, which on the destructive path means dropping the wrong site's database."""
+    h = _Harness(tmp_path)
+    _write_common_site_config(h.bench_path, {"db_host": "global-db", "db_port": 3306})
+    _write_site_config(h.bench_path, SITE_NAME, {"db_name": "fm_site1_aaa", "db_password": "one"})
+    _write_site_config(h.bench_path, SECOND_SITE, {"db_name": "fm_b_bbb", "db_password": "two"})
+
+    first = h.database.get_connection_info(SITE_NAME)
+    second = h.database.get_connection_info(SECOND_SITE)
+
+    assert (first["name"], first["password"]) == ("fm_site1_aaa", "one")
+    assert (second["name"], second["password"]) == ("fm_b_bbb", "two")
 
 
 def test_connection_info_merges_common_and_site_config(tmp_path):
@@ -188,7 +252,7 @@ def test_connection_info_merges_common_and_site_config(tmp_path):
     _write_common_site_config(h.bench_path, {"db_host": "global-db", "db_port": 3306})
     _write_site_config(
         h.bench_path,
-        BENCH_NAME,
+        SITE_NAME,
         {"db_name": "site1_local_db", "db_password": "s3cret"},
     )
 
@@ -206,7 +270,7 @@ def test_site_config_endpoint_overrides_the_common_one(tmp_path):
     _write_common_site_config(h.bench_path, {"db_host": "global-db", "db_port": 3306})
     _write_site_config(
         h.bench_path,
-        BENCH_NAME,
+        SITE_NAME,
         {"db_name": "db", "db_password": "p", "db_host": "external.example", "db_port": 5432},
     )
 
@@ -236,7 +300,7 @@ def test_connection_info_from_common_config_alone_has_no_name(tmp_path):
 def test_db_user_is_the_db_name(tmp_path):
     """`site_config.json` has no user key; the db name doubles as the user."""
     h = _Harness(tmp_path)
-    _write_site_config(h.bench_path, BENCH_NAME, {"db_name": "the_db", "db_password": "p"})
+    _write_site_config(h.bench_path, SITE_NAME, {"db_name": "the_db", "db_password": "p"})
 
     info = h.database.get_connection_info()
 
@@ -246,6 +310,61 @@ def test_db_user_is_the_db_name(tmp_path):
 # --------------------------------------------------------------------------------------
 # 3. remove_database_and_user: guards, ordering, command shape
 # --------------------------------------------------------------------------------------
+
+
+def test_removal_drops_the_named_sites_schema(tmp_path, conn_info):
+    """The drop is keyed by SITE. The site named here is the site whose wiring is read."""
+    h = _Harness(tmp_path)
+
+    h.database.remove_database_and_user(SECOND_SITE)
+
+    assert conn_info.call_args == call(SECOND_SITE, h.bench_path)
+
+
+def test_removal_without_a_site_drops_the_primary_sites_schema(tmp_path, conn_info):
+    h = _Harness(tmp_path)
+
+    h.database.remove_database_and_user()
+
+    assert conn_info.call_args == call(SITE_NAME, h.bench_path)
+
+
+def test_a_drop_on_a_site_not_named_after_its_bench_reaches_the_database(tmp_path):
+    """Was a silent no-op: keyed by the bench name, `sites/shop/site_config.json` did not exist,
+    the info dict had no `name`, and this returned having dropped nothing while the caller
+    reported success, leaving the schema orphaned in global-db."""
+    h = _Harness(tmp_path, bench_name="shop", primary_site="shop.localhost")
+    _write_site_config(
+        h.bench_path,
+        "shop.localhost",
+        {"db_name": "fm_shop_localhost_ab12", "db_password": "p"},
+    )
+    h.db.check_db_exists.return_value = True
+    h.db.check_user_exists.return_value = True
+
+    h.database.remove_database_and_user()
+
+    h.db.remove_db.assert_called_once_with("fm_shop_localhost_ab12")
+    h.db.remove_user.assert_called_once_with("fm_shop_localhost_ab12", remove_all_host=True)
+
+
+def test_dropping_one_site_leaves_the_other_sites_schema_untouched(tmp_path):
+    """Deleting a site off a bench must not take its neighbour's data with it."""
+    h = _Harness(tmp_path)
+    _write_site_config(h.bench_path, SITE_NAME, {"db_name": "fm_site1_aaa", "db_password": "one"})
+    _write_site_config(h.bench_path, SECOND_SITE, {"db_name": "fm_b_bbb", "db_password": "two"})
+    h.db.check_db_exists.return_value = True
+    h.db.check_user_exists.return_value = True
+
+    h.database.remove_database_and_user(SECOND_SITE)
+
+    assert h.db.mock_calls == [
+        call.check_db_exists("fm_b_bbb"),
+        call.remove_db("fm_b_bbb"),
+        call.check_user_exists("fm_b_bbb"),
+        call.remove_user("fm_b_bbb", remove_all_host=True),
+    ]
+
 
 
 @pytest.mark.usefixtures("conn_info")

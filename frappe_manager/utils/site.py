@@ -242,9 +242,16 @@ def validate_sitename(sitename: str | None) -> str:
     return sitename
 
 
-def get_bench_db_connection_info(bench_name: str, bench_path: Path):
+def get_bench_db_connection_info(site_name: str, bench_path: Path):
+    """Read one SITE's database wiring from Frappe's own files.
+
+    Keyed by SITE, which is the directory `sites/<site>/site_config.json` actually lives in. It was
+    named `bench_name` while a bench held exactly one site named after it. It is not the bench name
+    any more: a bench `shop` serves `shop.localhost`, so passing the bench name here finds no file,
+    returns a dict with no `name` key, and every caller silently does nothing.
+    """
     db_info = {}
-    site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / bench_name / "site_config.json"
+    site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / site_name / "site_config.json"
     common_site_config_file = bench_path / "workspace" / "frappe-bench" / "sites" / "common_site_config.json"
 
     db_info["password"] = None

@@ -59,6 +59,9 @@ from frappe_manager.site_manager.modules.app_cloner import AppClonerError
 from frappe_manager.site_manager.modules.bench_app import BenchAppManager, merge_app_overrides
 
 BENCH = "example.localhost"
+# Deliberately NOT the bench name: a fixture giving one string to both roles cannot catch
+# code that reaches for a site under the bench's name.
+SITE = "web.example.com"
 BENCH_CLI = "/opt/user/.bin/bench"
 VENV_PYTHON = "/workspace/frappe-bench/env/bin/python"
 BENCH_MOUNT = "/workspace/frappe-bench"
@@ -74,6 +77,7 @@ def _manager(tmp_path, *, provision_image=None, external_db=False, apps_list=Non
     bench_config = MagicMock()
     bench_config.get_database_config.return_value = MagicMock() if external_db else None
     bench_config.apps_list = list(apps_list or [])
+    bench_config.primary_site = SITE
     bench_config.github_token = "gh-token"
     bench_config.use_uv = True
     bench_config.root_path = tmp_path
@@ -445,13 +449,18 @@ class TestInstallAppsToSite:
             ("hrms", "other.localhost"),
         ]
 
-    def test_site_defaults_to_the_bench_name(self, tmp_path):
+    def test_site_defaults_to_the_benchs_own_site(self, tmp_path):
+        """The bench's SITE, not its name. It defaulted to the bench name, and on a bench `shop`
+        serving `shop.localhost` every install ran `bench --site shop install-app`, which Frappe
+        answered with "404 Not Found: shop does not exist". `fm create` then reported "App
+        Installation Failed" for a site that was fine and offered to roll the bench back."""
         manager = _manager(tmp_path, apps_list=[AppConfig.from_string("erpnext")])
         manager.install_app_to_site = MagicMock()
 
         manager.install_apps_to_site()
 
-        assert manager.install_app_to_site.call_args.args == ("erpnext", BENCH)
+        assert manager.install_app_to_site.call_args.args == ("erpnext", SITE)
+        assert manager.install_app_to_site.call_args.args[1] != BENCH
 
     def test_frappe_is_not_excluded_from_the_site_installs(self, tmp_path):
         # SUSPICION: graft_apps deliberately skips frappe ("the framework is never
@@ -462,7 +471,7 @@ class TestInstallAppsToSite:
 
         manager.install_apps_to_site()
 
-        assert manager.install_app_to_site.call_args.args == ("frappe", BENCH)
+        assert manager.install_app_to_site.call_args.args == ("frappe", SITE)
 
     def test_empty_config_installs_nothing(self, tmp_path):
         manager = _manager(tmp_path, apps_list=[])

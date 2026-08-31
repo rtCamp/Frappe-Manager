@@ -14,6 +14,7 @@ would pass just as well if a caller went back to reading `bench.name` directly, 
 below are about the seam, not the string.
 """
 
+import json
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -362,37 +363,62 @@ def test_a_mock_bench_that_sets_only_name_does_not_satisfy_the_seams():
 # `orphaned_database_error` had no test at all, which is how a site-meaning read of `bench.name`
 # survived the first sweep through this file. It is a data-safety path: it fires when a schema
 # could not be dropped, and it keeps the bench directory precisely because that directory holds
-# the only record of the schema's name and password.
+# the only record of the schema's name and password. With N sites it is also the partial-failure
+# report, so it takes the per-site outstanding list rather than one exception.
+
+SECOND_SCHEMA = "fm_b_def456"
+SCHEMA = "fm_shop_abc123"
 
 
-def _orphaned(tmp_path, db_info: dict) -> str:
+def _write_site(bench_path, site: str, db_name: str | None = None, *, raw: str | None = None):
+    """Put one site on disk at `<bench>/workspace/frappe-bench/sites/<site>/`.
+
+    The refusal counts and names the sites `Bench.site_schemas()` enumerates, and that
+    enumeration is from DISK rather than from `bench_config.toml`: the filesystem is the only
+    map from a bench to the schemas it owns, and delete runs precisely when the config may be
+    missing or stale.
+    """
+    site_dir = bench_path / "workspace" / "frappe-bench" / "sites" / site
+    site_dir.mkdir(parents=True, exist_ok=True)
+    (site_dir / "site_config.json").write_text(raw if raw is not None else json.dumps({"db_name": db_name}))
+
+
+def _bench_on_disk(tmp_path, *sites: tuple[str, str | None]) -> Bench:
+    """A real `Bench` over a real sites tree, whose name DIFFERS from every site it serves."""
+    bench = Bench.__new__(Bench)
+    bench.name = BENCH
+    bench.path = tmp_path / BENCH
+    bench.bench_config = SimpleNamespace(get_database_config=lambda site: None)
+    for site, db_name in sites:
+        _write_site(bench.path, site, db_name)
+    return bench
+
+
+def _refusal(bench: Bench, *failed: tuple[str, str]) -> str:
     from frappe_manager.site_manager.site import orphaned_database_error
 
-    # A duck-typed stand-in rather than a real Bench, and deliberately so: this is a module-level
-    # function, so a stand-in can carry a bench name that DIFFERS from its site name. A real Bench
-    # cannot today (`site_name` is a property over `name`), which means a real one could not tell
-    # a site-meaning read from a bench-meaning one and the assertions below would prove nothing.
-    bench = SimpleNamespace(
-        name=BENCH,
-        site_name=SITE,
-        path=tmp_path / BENCH,
-        get_db_connection_info=lambda: db_info,
-    )
-    return orphaned_database_error(bench, RuntimeError("global-db refused the drop")).message
+    by_site = {entry.site: entry for entry in bench.site_schemas()}
+    outstanding = [(by_site[site], why) for site, why in failed]
+    return orphaned_database_error(bench, outstanding).message
 
 
 def test_the_refusal_hands_over_the_statements_when_the_schema_is_known(tmp_path):
-    message = _orphaned(tmp_path, {"name": "fm_shop_abc123", "user": "fm_shop_abc123"})
+    bench = _bench_on_disk(tmp_path, (SITE, SCHEMA))
 
-    assert "DROP DATABASE IF EXISTS `fm_shop_abc123`;" in message
-    assert "DROP USER IF EXISTS 'fm_shop_abc123'@'%';" in message
+    message = _refusal(bench, (SITE, "global-db refused the drop"))
+
+    assert f"  {SITE}: global-db refused the drop" in message
+    assert f"DROP DATABASE IF EXISTS `{SCHEMA}`;" in message
+    assert f"DROP USER IF EXISTS '{SCHEMA}'@'%';" in message
 
 
 def test_the_refusal_points_at_the_site_config_when_the_schema_is_unreadable(tmp_path):
     """The fallback names the file to read the schema out of. That file sits under the SITE
-    directory, while the `fm delete` command beside it takes the BENCH: one statement, both
+    directory, while the `fm delete` command beside it takes the BENCH: one message, both
     identities. With the two names distinct, reading the wrong one fails here."""
-    message = _orphaned(tmp_path, {}).replace("\\", "/")
+    bench = _bench_on_disk(tmp_path, (SITE, None))
+
+    message = _refusal(bench, (SITE, "schema name could not be read from its site config")).replace("\\", "/")
 
     assert f"sites/{SITE}/site_config.json" in message
     assert f"sites/{BENCH}/site_config.json" not in message
@@ -402,23 +428,48 @@ def test_the_refusal_points_at_the_site_config_when_the_schema_is_unreadable(tmp
 def test_the_refusal_keeps_the_bench_directory_and_says_so(tmp_path):
     """Removing it would destroy the only record of the schema, so the message must not read as
     though the bench is already gone."""
-    message = _orphaned(tmp_path, {})
+    bench = _bench_on_disk(tmp_path, (SITE, None))
+
+    message = _refusal(bench, (SITE, "schema name could not be read from its site config"))
 
     assert str(tmp_path / BENCH) in message
     assert "kept at" in message
 
 
-def test_an_unreadable_connection_does_not_break_the_refusal(tmp_path):
-    """The drop has already failed; a second failure while composing the explanation would replace
-    a useful message with a traceback."""
-    from frappe_manager.site_manager.site import orphaned_database_error
+def test_a_corrupt_site_config_does_not_break_the_refusal(tmp_path):
+    """The drop has already failed; a second failure while reading the config to explain it would
+    replace a useful message with a traceback. Unparseable reads as unreadable."""
+    bench = _bench_on_disk(tmp_path)
+    _write_site(bench.path, SITE, raw="{not json")
 
-    bench = _bench(SITE)
-    bench.path = tmp_path / SITE
+    message = _refusal(bench, (SITE, "schema name could not be read from its site config"))
 
-    def explode():
-        raise OSError("site_config.json is unreadable")
+    assert "site_config.json" in message
+    assert "DROP DATABASE" not in message
 
-    bench.get_db_connection_info = explode
 
-    assert "site_config.json" in orphaned_database_error(bench, RuntimeError("boom")).message
+def test_the_refusal_names_only_the_site_that_failed(tmp_path):
+    """A partial failure across N sites. One site dropped cleanly and one did not, so the
+    directory survives for the failed site alone: naming the other would send the operator
+    hunting a schema that is already gone."""
+    bench = _bench_on_disk(tmp_path, (SITE, SCHEMA), (SECOND, SECOND_SCHEMA))
+
+    message = _refusal(bench, (SECOND, "global-db refused the drop"))
+
+    assert "Database deletion failed for 1 of 2 site(s)." in message
+    assert f"DROP DATABASE IF EXISTS `{SECOND_SCHEMA}`;" in message
+    assert f"DROP USER IF EXISTS '{SECOND_SCHEMA}'@'%';" in message
+    assert SCHEMA not in message
+    assert SITE not in message
+
+
+def test_every_site_failing_is_counted_against_the_whole_bench(tmp_path):
+    """The count is outstanding against total, so the operator can tell a single stuck site from
+    a global-db that refused everything."""
+    bench = _bench_on_disk(tmp_path, (SITE, SCHEMA), (SECOND, SECOND_SCHEMA))
+
+    message = _refusal(bench, (SITE, "global-db refused the drop"), (SECOND, "global-db refused the drop"))
+
+    assert "Database deletion failed for 2 of 2 site(s)." in message
+    assert f"DROP DATABASE IF EXISTS `{SCHEMA}`;" in message
+    assert f"DROP DATABASE IF EXISTS `{SECOND_SCHEMA}`;" in message

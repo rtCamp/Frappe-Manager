@@ -42,8 +42,10 @@ def bench(events):
 
     b.site_manager.create_bench_site.side_effect = lambda **kw: events.append(f"new-site:{kw.get('site')}")
     b.app_manager.install_apps_to_site.side_effect = lambda site: events.append(f"install-apps:{site}")
-    b.generate_compose.side_effect = lambda _inputs: events.append("generate-compose")
-    b.restart_nginx_service.side_effect = lambda force=False: events.append(f"restart-nginx:force={force}")
+    # One step now: `Bench.republish_site_map` re-renders compose from the recorded sites and
+    # force-recreates nginx. What it does is pinned in test_site_map_publication.py; what matters
+    # here is WHEN it runs.
+    b.republish_site_map.side_effect = lambda: events.append("publish")
     b.save_bench_config.side_effect = lambda **_kw: events.append("save-config")
     return b
 
@@ -80,30 +82,14 @@ def test_the_site_is_created_before_its_address_is_published(run, events):
     that may fail, for a site that might never work."""
     run()
 
-    assert events.index(f"new-site:{SECOND}") < events.index("generate-compose")
+    assert events.index(f"new-site:{SECOND}") < events.index("publish")
 
 
 def test_the_apps_are_installed_before_the_address_is_published(run, events):
     """A site reachable before its apps are in is a site serving errors to real traffic."""
     run()
 
-    assert events.index(f"install-apps:{SECOND}") < events.index("generate-compose")
-
-
-def test_nginx_is_recreated_after_the_compose_is_rewritten(run, events):
-    """The site map reaches nginx as an environment variable read at container start, so the order
-    the other way round would recreate the container against the old map."""
-    run()
-
-    assert events.index("generate-compose") < events.index("restart-nginx:force=True")
-
-
-def test_nginx_is_forced_rather_than_reloaded(run, events):
-    """A reload rereads config files; the site map is an env var, which only a new container picks
-    up."""
-    run()
-
-    assert "restart-nginx:force=True" in events
+    assert events.index(f"install-apps:{SECOND}") < events.index("publish")
 
 
 def test_the_config_is_saved_before_the_compose_is_rendered(run, events):
@@ -111,7 +97,7 @@ def test_the_config_is_saved_before_the_compose_is_rendered(run, events):
     the object before the render, or the new site's domain is absent from VIRTUAL_HOST."""
     run()
 
-    assert events.index("save-config") < events.index("generate-compose")
+    assert events.index("save-config") < events.index("publish")
 
 
 # ------------------------------------------------------------------- what it records
@@ -162,8 +148,8 @@ def test_a_failed_site_is_never_published(run, bench, events):
     with pytest.raises(RuntimeError):
         run()
 
-    assert "generate-compose" not in events
-    assert not any(e.startswith("restart-nginx") for e in events)
+    assert "publish" not in events
+    assert "publish" not in events
 
 
 def test_a_failed_site_is_not_recorded_on_disk(run, bench):
@@ -186,4 +172,4 @@ def test_a_failed_app_install_also_leaves_the_bench_alone(run, bench, events):
         run()
 
     bench.remove_bench.assert_not_called()
-    assert "generate-compose" not in events
+    assert "publish" not in events

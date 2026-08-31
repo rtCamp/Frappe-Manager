@@ -1,5 +1,6 @@
 import json
 import shlex
+import subprocess
 from pathlib import Path
 from typing import Literal
 
@@ -93,6 +94,23 @@ class DockerClient:
 
         iterator = run_command_with_exit_code(self.docker_cmd + cp_cmd, stream=stream)
         return iterator
+
+    def container_names(self, name_prefix: str) -> list[str]:
+        """Names of every container, running or not, whose name starts with ``name_prefix``.
+
+        Docker's own record of what exists, which is what makes this usable when the compose file
+        that created the containers is gone. ``docker ps`` matches ``--filter name=`` as a substring,
+        so the prefix is re-checked here.
+        """
+        result = subprocess.run(  # noqa: S603
+            [*self.docker_cmd, "ps", "-a", "--filter", f"name={name_prefix}", "--format", "{{.Names}}"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode != 0:
+            return []
+        return [line for line in (n.strip() for n in result.stdout.splitlines()) if line.startswith(name_prefix)]
 
     def kill(
         self,

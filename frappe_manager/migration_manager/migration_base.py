@@ -214,7 +214,9 @@ class MigrationBase(ABC):
 
         bench_db_info = DatabaseServerServiceInfo.import_from_bench(
             bench_path=bench.path,
-            bench_name=bench.name,
+            # Pre-decoupling benches are the only ones a migration below 0.20.0 runs on, and on
+            # those the bench name IS the site name.
+            site_name=bench.name,
             raise_exception=False,
         )
 

@@ -57,23 +57,33 @@ class BenchDatabase:
         self.set_common_bench_config = set_common_bench_config_fn
         self.output = output_handler or RichOutputHandler()
 
-    def get_connection_info(self) -> dict:
+    def get_connection_info(self, site: str | None = None) -> dict:
         """
-        Get database connection information for the bench.
+        Get database connection information for one site.
+
+        Args:
+            site: which site's wiring to read. None means the bench's own site, which is the only
+                one a single-site bench has.
 
         Returns:
             dict: Database connection info containing name, user, password, host, port
         """
-        return get_bench_db_connection_info(self.bench_name, self.bench_path)
+        return get_bench_db_connection_info(site or self.bench_config.primary_site, self.bench_path)
 
-    def remove_database_and_user(self):
+    def remove_database_and_user(self, site: str | None = None):
         """
-        Remove database and user from global-db for this bench.
+        Drop one site's schema and its user from global-db.
 
-        This function removes both the database and user associated with the bench
-        from the global database service.
+        Keyed by SITE. It read `sites/<bench name>/site_config.json` before, which stopped being the
+        site directory when bench and site names came apart: it found nothing, `name` was absent, and
+        this method returned having dropped nothing while the caller reported success. The schema was
+        left behind in global-db with the only record of its name inside a directory about to be
+        removed.
+
+        Args:
+            site: which site's schema to drop. None means the bench's own site.
         """
-        bench_db_info = self.get_connection_info()
+        bench_db_info = self.get_connection_info(site)
         self.output.change_head("Removing bench db and db users from global-db")
 
         if "name" in bench_db_info:

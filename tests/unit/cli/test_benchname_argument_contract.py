@@ -73,11 +73,9 @@ KNOWN_CANONICAL = frozenset(
     {
         "fm auth",
         "fm code",
-        "fm delete",
         "fm info",
         "fm logs",
         "fm ngrok",
-        "fm reset",
         "fm restart",
         "fm start",
         "fm stop",
@@ -190,19 +188,29 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         )
         for sub in ("add", "list", "remove", "renew")
     },
-    # `shell` is the one command that addresses a SITE, because a shell is the one place a
-    # site is addressable today: the site half of the address becomes FRAPPE_SITE in the
-    # container, which Frappe reads above common_site_config's default_site, so bare
-    # `bench` commands inside the shell target it. Hence its own help text and its own
-    # callback, `bench_site_callback`, the only one that accepts a site part.
-    "fm shell": BenchnameSpec(
-        help="Bench, or bench/site.",
-        default=None,
-        required=False,
-        type_name="text",
-        autocompletion=sites_autocompletion_callback,
-        callback=bench_site_callback,
-    ),
+    # Three commands address a SITE, for two different reasons, and all three share the one
+    # alias `BenchSiteArgument`: same help text, same callback, `bench_site_callback`, the only
+    # one that accepts a site part.
+    #
+    # `fm shell`: the site half of the address becomes FRAPPE_SITE in the container, which Frappe
+    # reads above common_site_config's default_site, so bare `bench` commands inside the shell
+    # target it.
+    #
+    # `fm delete` and `fm reset`: a bench holds several sites, so destroying one site is a
+    # different act from destroying the bench, and the address is how the operator says which.
+    # They are here rather than in KNOWN_CANONICAL because moving off `sitename_callback` is
+    # exactly the change that must not happen by accident.
+    **{
+        f"fm {command}": BenchnameSpec(
+            help="Bench, or bench/site.",
+            default=None,
+            required=False,
+            type_name="text",
+            autocompletion=sites_autocompletion_callback,
+            callback=bench_site_callback,
+        )
+        for command in ("shell", "delete", "reset")
+    },
     # dns-config credentials can be global, hence its own wording.
     "fm ssl dns-config cloudflare": BenchnameSpec(
         help="Bench to configure. Omit for global credentials.",

@@ -31,6 +31,7 @@ EXTERNAL_SITE = "app.example.com"
 EXTERNAL_BENCH = "shop"
 EXTERNAL_HOST = "mydb.abc.rds.amazonaws.com"
 SCHEMA = "app_prod"
+GLOBAL_SCHEMA = "fm_local_localhost_a1b2"  # what fm mints for a site of its own: `fm_<site>_<hex>`
 ROOT_PASSWORD = "global-db-root-secret"
 
 
@@ -56,12 +57,28 @@ def _config(tmp_path: Path, *, name: str, external_site: str | None = None, ca: 
     return BenchConfig.import_from_toml(path)
 
 
-def _bench(config: BenchConfig, name: str) -> Bench:
+def _site_on_disk(bench_path: Path, site: str, schema: str) -> None:
+    """Write `sites/<site>/site_config.json`, the file `Bench.site_schemas()` enumerates.
+
+    The enumeration is from DISK rather than from `bench_config.toml`, because that file is the
+    only record of the schema fm minted for a site and because delete has to work on a bench whose
+    config is stale or missing. A bench with no site directory therefore holds no sites at all.
+    """
+    site_dir = bench_path / "workspace" / "frappe-bench" / "sites" / site
+    site_dir.mkdir(parents=True, exist_ok=True)
+    (site_dir / "site_config.json").write_text(json.dumps({"db_name": schema}))
+
+
+def _bench(tmp_path: Path, config: BenchConfig, name: str, sites: dict[str, str]) -> Bench:
+    """A stand-in bench called `name`, serving `sites` (site name -> its `db_name`) on disk."""
     bench = Bench.__new__(Bench)  # bypass __init__: no Docker, no compose, no services
     bench.name = name
+    bench.path = tmp_path / name
     bench.bench_config = config
     bench.logger = MagicMock()
     bench.output = MagicMock()
+    for site, schema in sites.items():
+        _site_on_disk(bench.path, site, schema)
     # The real drop path: Bench.remove_database_and_user() delegates here. Asserting on this
     # rather than on the Bench method keeps the whole chain under test.
     bench.database = MagicMock()
@@ -70,6 +87,11 @@ def _bench(config: BenchConfig, name: str) -> Bench:
     bench.remove_certificate = MagicMock()  # type: ignore[method-assign]
     bench.remove_containers_and_dirs = MagicMock()  # type: ignore[method-assign]
     return bench
+
+
+def _dropped(bench: Bench) -> list[str]:
+    """The sites whose schema was dropped, in order. Keyed by site, which is the whole point."""
+    return [c.args[0] for c in bench.database.remove_database_and_user.call_args_list]
 
 
 def _printed(output: MagicMock) -> str:
@@ -82,7 +104,12 @@ def _printed(output: MagicMock) -> str:
 @pytest.mark.parametrize("preference", [None, True, False])
 def test_delete_never_drops_an_external_schema(tmp_path, preference):
     """Not even when the operator passed --delete-db-from-global-db: it is not fm's schema."""
-    bench = _bench(_config(tmp_path, name=EXTERNAL_BENCH, external_site=EXTERNAL_SITE), EXTERNAL_SITE)
+    bench = _bench(
+        tmp_path,
+        _config(tmp_path, name=EXTERNAL_BENCH, external_site=EXTERNAL_SITE),
+        EXTERNAL_BENCH,
+        {EXTERNAL_SITE: SCHEMA},
+    )
 
     bench._handle_database_deletion(preference)
 
@@ -95,44 +122,42 @@ def test_delete_never_drops_an_external_schema(tmp_path, preference):
 
 def test_delete_prompts_and_drops_on_global_db(tmp_path):
     """Unchanged behaviour for a bench on the container fm owns."""
-    bench = _bench(_config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE)
+    bench = _bench(tmp_path, _config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE, {GLOBAL_DB_SITE: GLOBAL_SCHEMA})
     bench.output.prompt_ask.return_value = "yes"
 
     bench._handle_database_deletion(None)
 
     assert bench.output.prompt_ask.call_count == 1
-    assert bench.database.remove_database_and_user.call_count == 1
+    assert _dropped(bench) == [GLOBAL_DB_SITE]
 
 
-@pytest.mark.parametrize(("preference", "dropped"), [(True, 1), (False, 0)])
+@pytest.mark.parametrize(("preference", "dropped"), [(True, [GLOBAL_DB_SITE]), (False, [])])
 def test_delete_honours_an_explicit_preference_on_global_db(tmp_path, preference, dropped):
-    bench = _bench(_config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE)
+    bench = _bench(tmp_path, _config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE, {GLOBAL_DB_SITE: GLOBAL_SCHEMA})
 
     bench._handle_database_deletion(preference)
 
     assert bench.output.prompt_ask.called is False
-    assert bench.database.remove_database_and_user.call_count == dropped
+    assert _dropped(bench) == dropped
 
 
 def test_the_guard_resolves_per_site_not_per_bench(tmp_path):
-    """One bench, two sites: the `global-db` one is dropped, the external one is refused.
+    """One bench, two sites on disk: the `global-db` one is dropped, the external one is refused.
 
     The switch is the presence of *that site's own* `[database]` entry. A bench-level test
     (`if config.database:`) would refuse both and quietly leak a `global-db` schema on every
-    delete; the mirror bug drops the external one.
+    delete; the mirror bug drops the external one. One pass over one bench is what makes the two
+    outcomes comparable: they are decisions the same loop takes about different sites.
     """
     config = _config(tmp_path, name=GLOBAL_DB_SITE, external_site=EXTERNAL_SITE)
+    bench = _bench(tmp_path, config, GLOBAL_DB_SITE, {GLOBAL_DB_SITE: GLOBAL_SCHEMA, EXTERNAL_SITE: SCHEMA})
+    bench.output.prompt_ask.return_value = "yes"
 
-    internal = _bench(config, GLOBAL_DB_SITE)
-    internal.output.prompt_ask.return_value = "yes"
-    internal._handle_database_deletion(None)
+    bench._handle_database_deletion(None)
 
-    external = _bench(config, EXTERNAL_SITE)
-    external._handle_database_deletion(None)
-
-    assert internal.database.remove_database_and_user.call_count == 1
-    assert external.database.remove_database_and_user.called is False
-    assert EXTERNAL_HOST in _printed(external.output)
+    assert _dropped(bench) == [GLOBAL_DB_SITE]
+    assert bench.output.prompt_ask.call_count == 1  # the external site is never asked about
+    assert EXTERNAL_HOST in _printed(bench.output)
 
 
 def _service(output: MagicMock, bench: Bench) -> BenchService:
@@ -151,29 +176,36 @@ def test_bench_service_delete_shares_the_guard(tmp_path):
     is spelled.
     """
     output = MagicMock()
-    bench = _bench(_config(tmp_path, name=EXTERNAL_BENCH, external_site=EXTERNAL_SITE), EXTERNAL_SITE)
+    bench = _bench(
+        tmp_path,
+        _config(tmp_path, name=EXTERNAL_BENCH, external_site=EXTERNAL_SITE),
+        EXTERNAL_BENCH,
+        {EXTERNAL_SITE: SCHEMA},
+    )
 
     _service(output, bench).delete_bench(EXTERNAL_BENCH, yes=True)
 
     assert bench.database.remove_database_and_user.called is False
     assert bench.output.prompt_ask.called is False
     assert EXTERNAL_HOST in _printed(bench.output)
+    # Resolved, not outstanding: a schema fm does not own does not block the directory.
+    bench.remove_containers_and_dirs.assert_called_once_with()
 
 
 def test_bench_service_delete_still_drops_a_global_db_schema(tmp_path):
-    bench = _bench(_config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE)
+    bench = _bench(tmp_path, _config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE, {GLOBAL_DB_SITE: GLOBAL_SCHEMA})
     bench.output.prompt_ask.return_value = "yes"
 
     _service(MagicMock(), bench).delete_bench(GLOBAL_DB_SITE, yes=True)
 
     assert bench.output.prompt_ask.call_count == 1
-    assert bench.database.remove_database_and_user.call_count == 1
+    assert _dropped(bench) == [GLOBAL_DB_SITE]
 
 
 def test_the_yes_flag_skips_only_the_removal_confirmation(tmp_path):
     """`--yes` means "do not ask whether to remove the bench". It does NOT mean "drop the schema":
     that question is separate and `--delete-db-from-global-db` answers it, so one prompt remains."""
-    bench = _bench(_config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE)
+    bench = _bench(tmp_path, _config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE, {GLOBAL_DB_SITE: GLOBAL_SCHEMA})
     bench.output.prompt_ask.return_value = "no"
 
     _service(MagicMock(), bench).delete_bench(GLOBAL_DB_SITE, yes=True)
@@ -183,11 +215,12 @@ def test_the_yes_flag_skips_only_the_removal_confirmation(tmp_path):
     # Both prompts contain "want to remove", so the schema question is what names a database.
     assert "global-db" in asked[0]
     assert "the database" in asked[0]
+    assert GLOBAL_DB_SITE in asked[0]  # and it names the SITE whose schema is at stake
 
 
 def test_without_the_yes_flag_the_removal_is_confirmed_first(tmp_path):
     """And answering no removes nothing at all, including the schema."""
-    bench = _bench(_config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE)
+    bench = _bench(tmp_path, _config(tmp_path, name=GLOBAL_DB_SITE), GLOBAL_DB_SITE, {GLOBAL_DB_SITE: GLOBAL_SCHEMA})
     bench.output.prompt_ask.return_value = "no"
 
     assert _service(MagicMock(), bench).delete_bench(GLOBAL_DB_SITE, yes=False) is False

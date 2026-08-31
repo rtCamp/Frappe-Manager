@@ -1,8 +1,10 @@
 ## `fm reset`
 
-Destroy a site: drop its database and reinstall every app, losing all site data.
+Destroy one site: drop its database and reinstall every app, losing all site data.
 
-Only sites on the database server fm owns can be reset. A bench with its own \[database] entry is refused, because that schema is not fm's to drop.
+The address picks the site. `fm reset BENCH` resets the bench's own site; `fm reset BENCH/SITE` resets exactly SITE and leaves the bench's other sites alone.
+
+Only a site whose database is on the server fm owns can be reset. A site with its own \[database] entry is refused, because that schema is not fm's to drop.
 
 **Usage**:
 
@@ -12,7 +14,7 @@ $ fm reset BENCHNAME [OPTIONS]
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench.
+* `BENCHNAME`: Bench, or bench/site.
 
 **Options**:
 
@@ -26,6 +28,14 @@ $ fm reset BENCHNAME [OPTIONS]
 
 ```bash
 fm reset mybench
+```
+
+### Reset one named site of a bench that serves several
+
+Only that site is reinstalled. The bench and its other sites keep running and keep their data.
+
+```bash
+fm reset mybench/shop.example.com
 ```
 
 ### Reset and set a new administrator password

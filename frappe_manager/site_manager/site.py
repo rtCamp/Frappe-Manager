@@ -1,7 +1,9 @@
+import contextlib
 import json
 import shutil
 import time
 from collections.abc import Iterator
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -48,50 +50,80 @@ from frappe_manager.ssl_manager.service_factory import create_certificate_servic
 from frappe_manager.ssl_manager.ssl_certificate_manager import SSLCertificateManager
 from frappe_manager.ssl_manager.storage_config import SSLStorageConfig
 from frappe_manager.utils.helpers import (
+    get_container_name_prefix,
     save_dict_to_file,
 )
 from frappe_manager.utils.site import domain_level
 
 
-def orphaned_database_error(bench: "Bench", cause: Exception) -> BenchException:
-    """The refusal raised when a bench's schema could not be dropped.
+@dataclass(frozen=True)
+class SiteSchema:
+    """What a destructive command needs to know about ONE site.
 
-    Removing the bench directory after a failed drop destroys `bench_config.toml` and
-    `sites/<site>/site_config.json`, which hold the only record of the schema name and its
-    password, so the schema left behind in global-db can afterwards only be found by hand.
-    The directory stays put and the operator is handed the statements that finish the job.
+    Read from `sites/<site>/site_config.json` on disk, not from `bench_config.toml`. The filesystem
+    is the better source here for two reasons. It is the only map from a bench to the schemas it
+    owns, because a schema name is minted at create as `fm_<site>_<hex>` and written nowhere else.
+    And delete's job is cleaning up what exists, which is exactly the situation where the config may
+    be missing or stale.
     """
-    try:
-        db_info = bench.get_db_connection_info()
-    except Exception:
-        db_info = {}
 
-    db_name = db_info.get("name")
-    db_user = db_info.get("user")
+    site: str
+    schema: str | None
+    """`db_name`, or None when the site config is missing, unparseable, or has no `db_name`."""
+    external_host: str | None
+    """None means fm's own `global-db` container, which fm may drop. A host means a server fm does
+    not own, whose schema is never dropped and never asked about."""
 
+    @property
+    def droppable(self) -> bool:
+        """True when this is a schema fm minted and can therefore remove."""
+        return self.schema is not None and self.external_host is None
+
+    @property
+    def unreadable(self) -> bool:
+        """True when fm cannot tell what schema this site uses.
+
+        Neither dropped nor deliberately left, so it BLOCKS removal of the bench directory: that
+        directory may hold the only record of a schema still present in global-db.
+        """
+        return self.schema is None
+
+
+def orphaned_database_error(bench: "Bench", outstanding: "list[tuple[SiteSchema, str]]") -> BenchException:
+    """The refusal raised when a site's schema could not be accounted for.
+
+    Removing the bench directory destroys `bench_config.toml` and every
+    `sites/<site>/site_config.json`, which hold the only record of those schemas and their
+    passwords, so a schema left behind in global-db can afterwards only be found by hand. The
+    directory stays put and the operator is handed the statements that finish the job.
+
+    With N sites this is also the partial-failure report: sites 1 and 2 may have dropped cleanly
+    while site 3 failed, and the directory must survive for site 3's sake alone.
+    """
     lines = [
-        f"Database deletion failed: {cause}",
+        f"Database deletion failed for {len(outstanding)} of {len(bench.site_schemas())} site(s).",
         "",
-        f"The bench directory was kept at {bench.path}: it carries the only record of the schema,",
-        "so removing it now would leave a database in global-db that nothing points at.",
+        f"The bench directory was kept at {bench.path}: it carries the only record of these schemas,",
+        "so removing it now would leave databases in global-db that nothing points at.",
         "",
     ]
 
-    if db_name and db_user:
-        lines += [
-            "Drop it on global-db, then delete the bench again:",
-            f"  DROP DATABASE IF EXISTS `{db_name}`;",
-            f"  DROP USER IF EXISTS '{db_user}'@'%';",
-            f"  fm delete {bench.name} --yes --no-delete-db-from-global-db",
-        ]
-    else:
-        # `bench.path` is the BENCH directory; the `sites/<X>/` segment inside it is the SITE. One
-        # statement, both identities, which is the shape this whole split exists to separate.
-        site_config = bench.path / "workspace" / "frappe-bench" / "sites" / bench.site_name / "site_config.json"
-        lines += [
-            f"The schema name could not be read from {site_config}. Find it there, or in global-db,",
-            f"drop it, then run: fm delete {bench.name} --yes --no-delete-db-from-global-db",
-        ]
+    for entry, why in outstanding:
+        lines.append(f"  {entry.site}: {why}")
+        if entry.schema:
+            lines += [
+                f"    DROP DATABASE IF EXISTS `{entry.schema}`;",
+                f"    DROP USER IF EXISTS '{entry.schema}'@'%';",
+            ]
+        else:
+            # `bench.path` is the BENCH directory; the `sites/<X>/` segment inside it is the SITE.
+            lines.append(f"    schema name unreadable; find it in {bench.sites_dir / entry.site / 'site_config.json'}")
+
+    lines += [
+        "",
+        "Drop them on global-db, then delete the bench again:",
+        f"  fm delete {bench.name} --yes --no-delete-db-from-global-db",
+    ]
 
     return BenchException(bench.name, message="\n".join(lines))
 
@@ -670,21 +702,64 @@ class Bench:
             self.logger.exception(f"Failed to stop bench: {self.name}", extra_fields=extra)
             raise
 
-    def remove_containers_and_dirs(self):
-        """
-        Removes the site by stopping and removing the containers associated with it,
-        and deleting the site directory.
+    def _sweep_leftover_containers(self) -> None:
+        """Remove any container still named after this bench, and refuse to continue if one survives.
 
-        Returns:
-            bool: True if the site is successfully removed, False otherwise.
+        Docker's own list is the authority, so this reaches containers whose compose file is missing:
+        a bench with no sites has no workers or admin-tools compose, and a partly created bench may
+        have none at all. Without this the compose-file checks above silently skipped them.
+
+        Raising rather than warning is the point. The caller's next act is to delete the directory,
+        which is what makes a surviving container unreachable.
+        """
+        prefix = get_container_name_prefix(self.name)
+        leftover = self.docker_client.container_names(prefix)
+        if not leftover:
+            return
+
+        self.output.change_head("Removing containers left without a compose file")
+        for container in leftover:
+            try:
+                self.docker_client.rm(container, force=True, volumes=True, stream=False)
+            except Exception as e:
+                self.logger.debug(f"Could not remove container {container}: {e}")
+
+        still_there = self.docker_client.container_names(prefix)
+        if still_there:
+            names = "\n  ".join(still_there)
+            raise BenchException(
+                self.name,
+                message=(
+                    "These containers are still present and would be stranded by removing the bench "
+                    f"directory:\n  {names}\n\n"
+                    f"The directory was kept at {self.path}. Remove them, then delete the bench again:\n"
+                    f"  docker rm -f -v {' '.join(still_there)}"
+                ),
+            )
+
+        self.output.print(f"Removed {len(leftover)} container(s) that had no compose file")
+
+    def remove_containers_and_dirs(self):
+        """Remove this bench's containers, then its directory.
+
+        The directory goes only once NO container of this bench is left, for the same reason the
+        schema gate exists: the directory holds the compose files that are docker's only link back
+        to these containers from fm's side, so deleting it while a container survives strands that
+        container forever.
+
+        Each compose file is removed through compose when it is present, which is what handles
+        volumes and networks properly. Whether a compose FILE exists used to decide whether the
+        containers were removed at all, and the directory was deleted regardless: a bench whose
+        workers or admin-tools compose was missing warned "Skipping containers removal", then had
+        its directory deleted, and its containers kept running under names no fm command could find
+        again. The next `fm create` of the same name adopted them, with every bind mount pointing
+        into a directory that no longer existed, and failed on an nginx with no configuration.
         """
         # TODO handle low level errors like read only, write only, etc.
         if self.compose_file_manager.exists():
             self.output.change_head("Removing bench containers")
             self.docker_ops.remove_containers(remove_volumes=True, timeout=5)
             self.output.print("Removed bench containers")
-        else:
-            self.output.warning("Bench compose file not found. Skipping containers removal.")
 
         if self.workers.compose_file_manager.exists():
             self.output.change_head("Removing bench workers containers")
@@ -693,8 +768,6 @@ class Bench:
                 cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE
             )
             self.output.print("Removed bench workers containers")
-        else:
-            self.output.warning("Bench workers compose file not found. Skipping containers removal.")
 
         if self.admin_tools.compose_file_manager.exists():
             self.output.change_head("Removing bench admin tools containers")
@@ -704,8 +777,8 @@ class Bench:
             except Exception:
                 pass  # Best effort cleanup
             self.output.print("Removed bench admin tools containers")
-        else:
-            self.output.warning("Bench admin tools compose file not found. Skipping containers removal.")
+
+        self._sweep_leftover_containers()
 
         self.output.change_head("Removing all bench files and directories")
         try:
@@ -1052,14 +1125,44 @@ class Bench:
         """
         return self.devtools.attach_to_bench(user, extensions, workdir, debugger)
 
-    def remove_database_and_user(self):
+    @property
+    def sites_dir(self) -> Path:
+        """Frappe's `sites/` directory, which holds one directory per site plus its shared files."""
+        return self.path / "workspace" / "frappe-bench" / "sites"
+
+    def site_schemas(self) -> list[SiteSchema]:
+        """Every site present on disk, sorted by name. See :class:`SiteSchema` for why on disk.
+
+        A directory counts as a site when it contains `site_config.json`. That file is what Frappe
+        writes for a site and what carries `db_name`, so its presence is the same question as "is
+        there a schema here to account for". It also excludes `sites/assets` and the other shared
+        entries without needing a list of names to skip.
         """
-        This function is used to remove db and user of the site at self.name and path at self.path.
-        """
-        extra = {"operation": "db_remove", "bench_name": self.name}
+        if not self.sites_dir.is_dir():
+            return []
+
+        schemas: list[SiteSchema] = []
+        for entry in sorted(self.sites_dir.iterdir(), key=lambda p: p.name):
+            config = entry / "site_config.json"
+            if not entry.is_dir() or not config.is_file():
+                continue
+
+            schema: str | None = None
+            # Unreadable rather than absent, which `SiteSchema.unreadable` treats as blocking.
+            with contextlib.suppress(OSError, ValueError):
+                schema = json.loads(config.read_text()).get("db_name") or None
+
+            external = self.bench_config.get_database_config(entry.name)
+            schemas.append(SiteSchema(site=entry.name, schema=schema, external_host=external.host if external else None))
+
+        return schemas
+
+    def remove_database_and_user(self, site: str | None = None):
+        """Drop one site's schema and user from global-db. None means this bench's own site."""
+        extra = {"operation": "db_remove", "bench_name": self.name, "site": site}
         self.logger.debug(f"Removing database and user for bench: {self.name}", extra_fields=extra)
         try:
-            self.database.remove_database_and_user()
+            self.database.remove_database_and_user(site)
             self.logger.info(f"Database and user removed for bench: {self.name}", extra_fields=extra)
         except Exception as e:
             extra["error"] = str(e)
@@ -1076,6 +1179,89 @@ class Bench:
         if default_choice:
             params["default"] = "no"
         return self.output.prompt_ask(**params) == "yes"
+
+    def republish_site_map(self) -> None:
+        """Re-render compose from the recorded sites and RECREATE nginx so it picks the map up.
+
+        `export_to_compose_inputs` builds `VIRTUAL_HOST` and `SITE_MAPPINGS` from `[sites]`, so this
+        is the step that makes an added site reachable and a removed one unreachable.
+
+        Recreated, not restarted or reloaded. Both of those keep the container, and a container keeps
+        the environment it was created with: a restart re-ran the old `SITE_MAPPINGS` and the added
+        site got a 503 from its own bench's nginx while `fm` reported it published. `VIRTUAL_HOST` is
+        read off this container by the global proxy too, so the same recreation is what makes the new
+        hostname routable from outside at all.
+
+        Callers save the config first: this reads it, it does not write it.
+        """
+        compose_inputs = self.bench_config.export_to_compose_inputs()
+        compose_inputs.setdefault("environment", {})
+        compose_inputs["environment"]["frappe"] = compose_inputs["environment"].get("frappe", {})
+        compose_inputs["environment"]["frappe"]["FRAPPE_ENV"] = self.bench_config.environment_type.value
+        self.generate_compose(compose_inputs)
+
+        self.output.change_head("Publishing the site map to nginx")
+        output = self.docker_client.compose.up(
+            services=["nginx"], detach=True, pull="never", force_recreate=True, stream=True
+        )
+        self.output.live_lines(
+            cast("Iterator[tuple[str, bytes]]", output), padding=(0, 0, 0, 2), line_filters=DOCKER_LINE_NOISE
+        )
+
+    def remove_site(self, site: str, delete_db_from_global_db: bool | None = None) -> bool:
+        """Remove ONE site. The bench, its containers and its other sites keep running.
+
+        The order is the reverse question to the one `fm create BENCH/SITE` answers. There, routing
+        goes last so traffic never reaches a site that does not work yet. Here the map is rewritten
+        last too, but for a different reason: the config is the record of what exists, so it must not
+        claim the site is gone while its files are still on disk. An abort part-way leaves the site
+        recorded, present and routed, which is a state a retry fixes. Removing it from the config
+        first would leave config and disk disagreeing, which no retry reaches.
+        """
+        extra = {"operation": "site_remove", "bench_name": self.name, "site": site}
+        self.logger.debug(f"Removing site {site} from bench {self.name}", extra_fields=extra)
+
+        recorded = {entry.site: entry for entry in self.site_schemas()}
+        entry = recorded.get(site)
+        if entry is None:
+            raise BenchException(
+                self.name,
+                message=f"{self.name} has no site '{site}' on disk. It serves {', '.join(sorted(recorded)) or 'no sites'}.",
+            )
+
+        why = self._resolve_site_schema(entry, delete_db_from_global_db)
+        if why is not None:
+            raise orphaned_database_error(self, [(entry, why)])
+
+        # Its own domains only: the site map is what says which of the bench's hostnames are this
+        # site's, and the other sites' certificates must survive.
+        site_domains = {domain for domain, mapped in self.bench_config.get_site_mappings().items() if mapped == site}
+        for domain in sorted(site_domains):
+            try:
+                self.ssl.remove_certificate(domain)
+            except Exception as e:
+                self.output.warning(f"Could not remove the certificate for {domain}: {e}")
+
+        site_dir = self.sites_dir / site
+        if site_dir.exists():
+            shutil.rmtree(site_dir)
+
+        self.bench_config.sites.pop(site, None)
+        # Its own domains, so a certificate covering another site's hostname survives. The bench's
+        # aliases map to the primary site, so removing the primary takes its aliases with it.
+        self.bench_config.ssl_certificates = [
+            cert for cert in (self.bench_config.ssl_certificates or []) if cert.domain not in site_domains
+        ]
+        self.save_bench_config(print_message=False)
+
+        self.republish_site_map()
+        self.logger.info(f"Site removed: {site} from {self.name}", extra_fields=extra)
+        return True
+
+    def _require_every_schema_resolved(self, outstanding: "list[tuple[SiteSchema, str]]") -> None:
+        """The gate. Nothing may destroy the bench directory while a schema is unaccounted for."""
+        if outstanding:
+            raise orphaned_database_error(self, outstanding)
 
     def remove_bench(
         self,
@@ -1112,12 +1298,17 @@ class Bench:
                 except Exception as e:
                     self.output.warning(str(e))
 
+                # The gate. With one site there were two outcomes: the schema was dealt with, or
+                # nothing was removed. With N there is a partial: sites 1 and 2 drop, site 3 fails,
+                # and site 3's schema name exists ONLY inside the directory about to be deleted. So
+                # the directory goes only once EVERY site is resolved, where resolved means dropped,
+                # deliberately left because it is external, or declined by the operator.
                 try:
-                    self._handle_database_deletion(delete_db_from_global_db)
+                    outstanding = self._handle_database_deletion(delete_db_from_global_db)
                 except Exception as e:
-                    # Deliberately fatal: continuing to remove_containers_and_dirs() destroyed the
-                    # only record of the schema that is still there. See orphaned_database_error.
-                    raise orphaned_database_error(self, e) from e
+                    raise orphaned_database_error(self, [(entry, str(e)) for entry in self.site_schemas()]) from e
+
+                self._require_every_schema_resolved(outstanding)
 
                 self.remove_containers_and_dirs()
 
@@ -1128,68 +1319,85 @@ class Bench:
             self.logger.exception(f"Failed to remove bench: {self.name}", extra_fields=extra)
             raise
 
-    def external_database_config(self) -> DatabaseConfig | None:
-        """
-        The `[database."<site>"]` entry for this bench's site, or None when there is none.
+    def external_database_config(self, site: str | None = None) -> DatabaseConfig | None:
+        """The `[database]` entry for one site, or None when its schema is on fm's `global-db`.
 
-        Presence is the switch: an entry means the schema lives on a server fm does not own, absence
-        means the fm-managed `global-db` container, exactly as before `[database]` existed. This is
-        the single place that decision is made; `BenchService` calls it on the bench it is deleting.
+        Presence is the switch: an entry means the schema lives on a server fm does not own. Keyed
+        by SITE, because one bench can hold one site on `global-db` and another on an external
+        server, and that mixture is normal rather than exceptional.
         """
-        return self.bench_config.get_database_config(self.site_name)
+        return self.bench_config.get_database_config(site or self.site_name)
 
-    def _handle_database_deletion(self, delete_db_from_global_db: bool | None):
+    def _resolve_site_schema(self, entry: SiteSchema, delete_db_from_global_db: bool | None) -> str | None:
+        """Deal with ONE site's schema. None when resolved, else why it is still outstanding.
+
+        Resolved means dropped, deliberately left because it is external, or declined. Declining is
+        a resolution: the operator chose to keep the schema, so nothing is orphaned by surprise.
         """
-        Handle database deletion based on user preference and where the schema lives.
+        if entry.unreadable:
+            # Not resolvable: fm cannot say whether a schema is out there, so it must not destroy
+            # the directory that would answer the question.
+            return "schema name could not be read from its site config"
+
+        if entry.external_host is not None:
+            # fm could drop this: the site's own grant carries DROP and its password is in
+            # site_config.json. It does not, because the schema is not fm's to drop. Never dropped
+            # and never asked about, only reported, so manual cleanup is possible.
+            self.output.print(
+                f"[fm.info]{entry.site}[/fm.info]: schema '[bold]{entry.schema}[/bold]' on "
+                f"'[bold]{entry.external_host}[/bold]' left in place (fm does not own it)"
+            )
+            return None
+
+        should_delete = delete_db_from_global_db
+
+        if should_delete is None:
+            should_delete = (
+                self.output.prompt_ask(
+                    prompt=f"🗄️  Do you want to remove the database for site '[bold]{entry.site}[/bold]' from global-db?",
+                    choices=["yes", "no"],
+                    default="yes",
+                    required_flag="--delete-db-from-global-db or --no-delete-db-from-global-db",
+                )
+                == "yes"
+            )
+
+        if should_delete:
+            self.remove_database_and_user(entry.site)
+        else:
+            self.output.print(f"[fm.info]{entry.site}[/fm.info]: skipping database deletion from global-db")
+
+        return None
+
+    def _handle_database_deletion(self, delete_db_from_global_db: bool | None) -> list[tuple[SiteSchema, str]]:
+        """Account for every site's schema, and report the ones left outstanding.
+
+        Returns the sites the caller must NOT destroy the directory for. An empty list means every
+        schema was dropped or deliberately left, which is the only state where the bench directory
+        can go. A drop that raises is caught here rather than aborting the loop, so one broken site
+        does not leave the other schemas unaccounted for as well.
 
         Args:
-            delete_db_from_global_db: User preference for database deletion.
-                                     None = prompt if using global-db
-                                     True = delete from global-db
-                                     False = don't delete from global-db
+            delete_db_from_global_db: None asks per site, True drops, False keeps
         """
         extra = {"operation": "db_handle_deletion", "bench_name": self.name}
         self.logger.debug(f"Handling database deletion for bench: {self.name}", extra_fields=extra)
-        try:
-            external_db = self.external_database_config()
 
-            if external_db is not None:
-                # fm could drop this schema: the site's own grant carries DROP and its password is in
-                # site_config.json. It does not, because the schema is not fm's to drop.
-                self.output.print(
-                    f"Database '[bold]{external_db.name}[/bold]' lives on '[bold]{external_db.host}[/bold]', "
-                    "a server fm does not own. Skipping database deletion"
-                )
-                self.logger.info(
-                    f"Skipping database deletion - external database {external_db.name} on {external_db.host}: "
-                    f"{self.name}",
-                    extra_fields=extra,
-                )
-                return
+        outstanding: list[tuple[SiteSchema, str]] = []
+        for entry in self.site_schemas():
+            try:
+                why = self._resolve_site_schema(entry, delete_db_from_global_db)
+            except Exception as e:
+                self.logger.exception(f"Database deletion failed for site {entry.site}", extra_fields=extra)
+                why = str(e)
 
-            should_delete = delete_db_from_global_db
+            if why is not None:
+                outstanding.append((entry, why))
 
-            if should_delete is None:
-                params = {
-                    "prompt": f"🗄️  Do you want to remove the database '[bold]{self.name}[/bold]' from global-db?",
-                    "choices": ["yes", "no"],
-                    "default": "yes",
-                    "required_flag": "--delete-db-from-global-db or --no-delete-db-from-global-db",
-                }
-                choice = self.output.prompt_ask(**params)
-                should_delete = choice == "yes"
-
-            if should_delete:
-                self.remove_database_and_user()
-            else:
-                self.output.print("Skipping database deletion from global-db")
-                self.logger.info(f"Database deletion skipped by user: {self.name}", extra_fields=extra)
-
-            self.logger.info(f"Database deletion handled: {self.name}", extra_fields=extra)
-        except Exception as e:
-            extra["error"] = str(e)
-            self.logger.exception(f"Failed to handle database deletion for bench: {self.name}", extra_fields=extra)
-            raise
+        self.logger.info(
+            f"Database deletion handled: {self.name} ({len(outstanding)} outstanding)", extra_fields=extra
+        )
+        return outstanding
 
     def ensure_workers_running_if_available(self):
         extra = {"operation": "workers_ensure_running", "bench_name": self.name}
@@ -1275,7 +1483,9 @@ class Bench:
     def is_supervisord_running(self, interval: int = 2, timeout: int = 30):
         return self.supervisor.is_supervisord_running(interval, timeout)
 
-    def reset(self, admin_password: str | None = None):
+    def reset(self, admin_password: str | None = None, site: str | None = None):
+        """Reinstall one site: drop its schema and recreate it empty. None means the bench's own."""
+        target = site or self.site_name
         admin_pass = None
 
         if admin_password:
@@ -1295,16 +1505,16 @@ class Bench:
 
         if not admin_pass:
             admin_pass = self.output.prompt_ask(
-                prompt=f"Please enter admin password for site {self.name}",
+                prompt=f"Please enter admin password for site {target}",
                 required_flag="--admin-pass",
             )
 
-        self.output.change_head(f"Resetting bench site {self.site_name}")
+        self.output.change_head(f"Resetting bench site {target}")
 
-        self.site_manager.reset_bench_site(admin_pass)
+        self.site_manager.reset_bench_site(admin_pass, site=target)
         self.set_bench_site_config({"admin_password": admin_pass})
 
-        self.output.print(f"Reset bench site {self.site_name}")
+        self.output.print(f"Reset bench site {target}")
 
     def restart_supervisor_service(
         self,
@@ -1578,24 +1788,37 @@ class Bench:
         if changed:
             # The confs and the htpasswd are already on disk, so a reload that did not happen
             # leaves nginx serving the PREVIOUS config: for `fm auth --protect` that means the
-            # site keeps answering unauthenticated while the command reports it protected. The
-            # two failure shapes differ and only one of them is a live problem.
+            # site keeps answering unauthenticated while the command reports it protected. There
+            # are THREE failure shapes here and only one of them is a live problem.
             try:
                 reloaded = self.bench_nginx_controller.reload()
             except Exception as e:
-                # nginx is up and rejected the new config, so it is still serving the old one.
-                raise BenchException(
-                    self.name,
-                    message=f"nginx rejected the updated configuration and is still serving the previous one: {e}",
-                ) from e
+                # A reload that errored means nginx was reachable but would not take the config.
+                # That is only dangerous when nginx HAS a config, because then it is still serving
+                # the old one. A bench being created has an empty `configs/nginx/conf`: the
+                # container may already be up from the compose file fm just wrote, but with no
+                # nginx.conf it is serving nothing at all, so there is nothing to be stale. That is
+                # the same situation as the not-running case below, and it used to abort the whole
+                # create with "nginx rejected the updated configuration", then offer to roll the
+                # bench back.
+                if (conf_dir / "nginx.conf").exists():
+                    raise BenchException(
+                        self.name,
+                        message=f"nginx rejected the updated configuration and is still serving the previous one: {e}",
+                    ) from e
 
-            if not reloaded:
-                # The nginx container is not running, so nothing is being served with the stale
-                # config; the files are in place and apply when it next starts.
                 self.logger.debug(
-                    f"Bench nginx is not running; fm nginx confs apply on next start: {self.name}",
-                    extra_fields={"operation": "nginx_confs_ensure", "bench_name": self.name},
+                    f"Bench nginx has no configuration loaded yet; fm nginx confs apply on next start: {self.name}",
+                    extra_fields={"operation": "nginx_confs_ensure", "bench_name": self.name, "reason": str(e)},
                 )
+            else:
+                if not reloaded:
+                    # The nginx container is not running, so nothing is being served with the stale
+                    # config; the files are in place and apply when it next starts.
+                    self.logger.debug(
+                        f"Bench nginx is not running; fm nginx confs apply on next start: {self.name}",
+                        extra_fields={"operation": "nginx_confs_ensure", "bench_name": self.name},
+                    )
 
     def _parse_size_to_bytes(self, size_str: str) -> int:
         """

@@ -632,7 +632,7 @@ class DeployOrchestrator:
 
     def _db_manager(self) -> tuple[MariaDBManager, str | None]:
         db_info = DatabaseServerServiceInfo.import_from_bench(
-            bench_name=self.site,
+            site_name=self.site,
             bench_path=self.bench_path,
             raise_exception=False,
         )

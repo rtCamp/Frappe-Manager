@@ -33,9 +33,11 @@ shell can observe, so they are not interchangeable:
   nested path.
 
 * :data:`BenchSiteArgument` -- optional, validated, and the ONLY alias that
-  accepts a site part. `fm shell` is its only user: a shell is the one place a
-  site is addressable today, because `FRAPPE_SITE` in the container makes bare
-  `bench` commands target it. The bench name is what reaches the command body,
+  accepts a site part. Three commands use it, for two different reasons.
+  `fm shell` addresses a site because `FRAPPE_SITE` in the container makes bare
+  `bench` commands inside the shell target it. `fm delete` and `fm reset`
+  address one because a bench holds several sites now, and destroying one site
+  is not destroying the bench. The bench name is what reaches the command body,
   exactly as with the other aliases; the site rides on `ctx.obj["site"]`.
 
 Commands whose `benchname` genuinely differs (`create`, `migrate`,
@@ -92,4 +94,4 @@ BenchSiteArgument = Annotated[
         callback=bench_site_callback,
     ),
 ]
-"""Optional address. The only alias that accepts a site part; `fm shell` is its one user."""
+"""Optional address. The only alias that accepts a site part; `fm shell`, `fm delete` and `fm reset` use it."""

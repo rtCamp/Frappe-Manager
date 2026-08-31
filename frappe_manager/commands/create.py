@@ -439,20 +439,12 @@ def _add_site_to_bench(
         )
         raise
 
-    # Routing last: the new site is in `[sites]`, so `export_to_compose_inputs` now publishes its
-    # domain in VIRTUAL_HOST and maps it in SITE_MAPPINGS. Until this runs the site exists and works
-    # but is not reachable from outside, which is the safe half of the ordering.
+    # Routing last: the new site is in `[sites]`, so the republished map now carries its domain in
+    # VIRTUAL_HOST and points it at this site in SITE_MAPPINGS. Until this runs the site exists and
+    # works but is not reachable from outside, which is the safe half of the ordering.
     bench.save_bench_config(print_message=False)
     output.change_head("Publishing the new site's address")
-    compose_inputs = bench.bench_config.export_to_compose_inputs()
-    compose_inputs.setdefault("environment", {})
-    compose_inputs["environment"]["frappe"] = compose_inputs["environment"].get("frappe", {})
-    compose_inputs["environment"]["frappe"]["FRAPPE_ENV"] = bench.bench_config.environment_type.value
-    bench.generate_compose(compose_inputs)
-
-    # The site map reaches nginx through an environment variable read at container start, so the
-    # container has to be recreated rather than reloaded.
-    bench.restart_nginx_service(force=True)
+    bench.republish_site_map()
 
     output.print(
         f"Added [fm.info]{site}[/fm.info]. The bench now serves "

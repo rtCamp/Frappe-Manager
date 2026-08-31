@@ -11,7 +11,8 @@ Read this first: it is the part you have to trust, and it is deliberate rather t
 | Operation | On `global-db` | On your server |
 |---|---|---|
 | `fm reset <bench>` | drops the schema and reinstalls every app | **refused**: `bench reinstall` would drop a schema that is not fm's |
-| `fm delete <bench> --delete-db-from-global-db` | drops the schema and the user | schema and user are **left in place**, flag or no flag |
+| `fm delete <bench>/<site> --delete-db-from-global-db` | drops that site's schema and the user | schema and user are **left in place**, flag or no flag |
+| `fm delete <bench> --delete-db-from-global-db` | drops the schema and the user of every site in the bench | any schema on your server is **left in place**, flag or no flag |
 | `fm switch <bench> --restore-db` | imports the dump | typed confirmation naming the host, the schema and its current table count; **refused** in non-interactive mode |
 | `fm create` into a schema that already has tables | n/a: fm creates the schema | **refused**, unless you pass `--attach-existing-site` |
 | `fm create` with a login that already exists and a password fm minted | n/a | **refused**: Frappe's `CREATE USER IF NOT EXISTS` would keep the old password and the site would be unconnectable |

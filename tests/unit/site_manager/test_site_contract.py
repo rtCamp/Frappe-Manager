@@ -30,6 +30,7 @@ Suspicions found while writing these are pinned as-is (never "fixed") and are ca
 out in comments beginning with "SUSPICION".
 """
 
+import json
 import shutil
 from pathlib import Path
 from unittest.mock import MagicMock, call, patch
@@ -43,7 +44,9 @@ from frappe_manager.site_manager.bench_config import (
     AuthConfig,
     BenchConfig,
     BenchRuntime,
+    DatabaseConfig,
     FMBenchEnvType,
+    SiteConfig,
 )
 from frappe_manager.site_manager.exceptions import (
     BenchException,
@@ -59,7 +62,7 @@ from frappe_manager.site_manager.modules.auth import (
     htpasswd_name,
 )
 from frappe_manager.site_manager.modules.realip import build_bench_realip_conf
-from frappe_manager.site_manager.site import Bench
+from frappe_manager.site_manager.site import Bench, SiteSchema
 
 SITE = "test.localhost"
 SUBNET = "10.20.0.0/16"
@@ -176,6 +179,33 @@ def harness(tmp_path):
 
 def status(service: str, name: str, state: str) -> dict:
     return {"Service": service, "Name": name, "State": state}
+
+
+def put_site_on_disk(bench_path: Path, site: str, *, schema: str | None = None, raw: str | None = None) -> Path:
+    """Write `sites/<site>/site_config.json`, which is where a site's schema name actually lives.
+
+    `Bench.site_schemas()` enumerates the FILESYSTEM rather than `bench_config.toml`: the schema is
+    minted as `fm_<site>_<hex>` and written nowhere else, and delete has to work on a bench whose
+    config is missing or stale. So a bench with no site directory holds no sites at all, and any
+    test about the removal path has to put one here.
+
+    `raw` writes the file verbatim, for the unreadable case.
+    """
+    site_dir = bench_path / "workspace" / "frappe-bench" / "sites" / site
+    site_dir.mkdir(parents=True, exist_ok=True)
+    body = raw if raw is not None else json.dumps({"db_name": schema} if schema else {})
+    (site_dir / "site_config.json").write_text(body)
+    return site_dir
+
+
+def record_removal_steps(harness) -> list[tuple]:
+    """Stub the three destructive steps of `remove_bench` and record the order they run in."""
+    bench = harness.bench
+    calls: list[tuple] = []
+    bench.remove_certificate = MagicMock(side_effect=lambda: calls.append(("cert",)))
+    bench.remove_database_and_user = MagicMock(side_effect=lambda site=None: calls.append(("drop", site)))
+    bench.remove_containers_and_dirs = MagicMock(side_effect=lambda: calls.append(("dirs",)))
+    return calls
 
 
 # --------------------------------------------------------------------------------------
@@ -660,14 +690,38 @@ class TestEnsureFmNginxConfs:
         harness.bench.ensure_fm_nginx_confs()
         harness.bench.bench_nginx_controller.reload.assert_not_called()
 
-    def test_a_reload_failure_is_reported_and_the_conf_writes_still_stand(self, harness):
+    def test_a_reload_failure_on_a_configured_nginx_is_reported(self, harness):
         """The confs are already written when the reload runs, so they stay. What changed is that the
         failure is no longer swallowed by a bare `except: pass`: `fm auth --protect web` used to
-        print the surface as protected and exit 0 while nginx kept serving it UNAUTHENTICATED."""
-        harness.bench.bench_nginx_controller.reload.side_effect = RuntimeError("nginx is not up yet")
+        print the surface as protected and exit 0 while nginx kept serving it UNAUTHENTICATED.
+
+        The premise of that refusal is that nginx HAS a config, so it is still serving the old one.
+        `nginx.conf` on disk is what says so, because `configs/nginx/conf` is bind-mounted at
+        `/etc/nginx`."""
+        harness.conf_dir.mkdir(parents=True, exist_ok=True)
+        (harness.conf_dir / "nginx.conf").write_text("worker_processes 1;\n")
+        harness.bench.bench_nginx_controller.reload.side_effect = RuntimeError("rejected: invalid directive")
 
         with pytest.raises(BenchException, match="nginx rejected the updated configuration"):
             harness.bench.ensure_fm_nginx_confs()
+
+        assert (harness.conf_dir / "custom" / "real-ip.conf").exists()
+
+    def test_a_reload_failure_with_no_nginx_conf_at_all_is_not_fatal(self, harness):
+        """A bench being created has an empty `configs/nginx/conf`, so its nginx container can be up
+        with NO configuration: `/etc/nginx/nginx.conf` does not exist inside it and every reload
+        exits non-zero. Nothing is being served, so there is nothing stale to warn about, and the
+        confs apply when the container next starts.
+
+        This aborted every `fm create` whose nginx container came up before the confs were written,
+        with "nginx rejected the updated configuration and is still serving the previous one", and
+        then offered to roll the new bench back."""
+        assert not (harness.conf_dir / "nginx.conf").exists()
+        harness.bench.bench_nginx_controller.reload.side_effect = RuntimeError(
+            'open() "/etc/nginx/nginx.conf" failed (2: No such file or directory)'
+        )
+
+        harness.bench.ensure_fm_nginx_confs()  # no raise
 
         assert (harness.conf_dir / "custom" / "real-ip.conf").exists()
 
@@ -1183,7 +1237,8 @@ class TestRemoveBench:
         bench = harness.bench
         bench.output.prompt_ask.return_value = answer
         bench.remove_certificate = MagicMock()
-        bench._handle_database_deletion = MagicMock()
+        # Returns the per-site outstanding list now, and an empty one is what lets the directory go.
+        bench._handle_database_deletion = MagicMock(return_value=[])
         bench.remove_containers_and_dirs = MagicMock()
         return bench
 
@@ -1221,11 +1276,28 @@ class TestRemoveBench:
         bench.remove_containers_and_dirs.assert_called_once_with()
         assert any("acme is down" in str(c) for c in bench.output.warning.call_args_list)
 
-    def test_a_failing_database_deletion_keeps_the_bench_and_raises(self, harness):
-        """The bench directory carries the only record of the schema, so removing it after a failed
-        drop leaves a database in global-db that nothing points at and no way to find its name. This
-        used to warn "Continuing with bench removal", delete the directory anyway, and exit 0."""
+    def test_an_outstanding_site_keeps_the_bench_and_raises(self, harness):
+        """The gate. The bench directory carries the only record of the schema, so removing it after
+        a failed drop leaves a database in global-db that nothing points at and no way to find its
+        name. This used to warn "Continuing with bench removal", delete the directory anyway, and
+        exit 0."""
         bench = self._removable(harness)
+        put_site_on_disk(harness.path, SITE, schema="fm_test_ab12")
+        entry = SiteSchema(site=SITE, schema="fm_test_ab12", external_host=None)
+        bench._handle_database_deletion.return_value = [(entry, "db unreachable")]
+
+        with pytest.raises(BenchException, match="Database deletion failed for 1 of 1 site") as excinfo:
+            bench.remove_bench()
+
+        bench.remove_containers_and_dirs.assert_not_called()
+        assert "fm_test_ab12" in str(excinfo.value)
+
+    def test_an_unexpected_failure_of_the_whole_deletion_step_keeps_the_bench_too(self, harness):
+        """A per-site failure comes back as an outstanding entry rather than an exception, so nothing
+        routine raises out of the step any more. The catch stays because the directory must survive
+        an unexpected failure as well."""
+        bench = self._removable(harness)
+        put_site_on_disk(harness.path, SITE, schema="fm_test_ab12")
         bench._handle_database_deletion.side_effect = RuntimeError("db unreachable")
 
         with pytest.raises(BenchException, match="Database deletion failed"):
@@ -1241,33 +1313,39 @@ class TestRemoveBench:
 
 
 class TestHandleDatabaseDeletion:
-    def _bench(self, harness, external=None):
+    def _bench(self, harness, *, schema="fm_test_ab12", external=None):
+        """One site on disk, because the loop enumerates the filesystem rather than the config.
+
+        `external` is that site's `[sites."<site>".database]` entry, whose mere presence is the
+        switch for "this schema is not fm's to drop".
+        """
         bench = harness.bench
+        put_site_on_disk(harness.path, SITE, schema=schema)
+        bench.bench_config.sites = {SITE: SiteConfig(database=external)}
         bench.remove_database_and_user = MagicMock()
-        bench.external_database_config = MagicMock(return_value=external)
         return bench
 
     def test_an_external_schema_is_never_dropped_and_is_never_prompted_for(self, harness):
-        external = MagicMock()
-        external.name = "shopdb"
-        external.host = "db.example.com"
-        bench = self._bench(harness, external=external)
+        bench = self._bench(harness, schema="shopdb", external=DatabaseConfig(host="db.example.com", name="shopdb"))
 
-        bench._handle_database_deletion(None)
+        # Deliberately left counts as resolved: nothing is orphaned by surprise.
+        assert bench._handle_database_deletion(None) == []
 
         bench.remove_database_and_user.assert_not_called()
         bench.output.prompt_ask.assert_not_called()
-        assert any("db.example.com" in str(c) for c in bench.output.print.call_args_list)
+        printed = [str(c) for c in bench.output.print.call_args_list]
+        # Where the data was left, so manual cleanup is possible.
+        assert any("db.example.com" in line and "shopdb" in line for line in printed)
 
     def test_an_explicit_yes_drops_without_prompting(self, harness):
         bench = self._bench(harness)
-        bench._handle_database_deletion(True)
-        bench.remove_database_and_user.assert_called_once_with()
+        assert bench._handle_database_deletion(True) == []
+        bench.remove_database_and_user.assert_called_once_with(SITE)
         bench.output.prompt_ask.assert_not_called()
 
     def test_an_explicit_no_keeps_the_schema_without_prompting(self, harness):
         bench = self._bench(harness)
-        bench._handle_database_deletion(False)
+        assert bench._handle_database_deletion(False) == []
         bench.remove_database_and_user.assert_not_called()
         bench.output.prompt_ask.assert_not_called()
 
@@ -1275,13 +1353,16 @@ class TestHandleDatabaseDeletion:
         bench = self._bench(harness)
         bench.output.prompt_ask.return_value = "yes"
         bench._handle_database_deletion(None)
-        bench.remove_database_and_user.assert_called_once_with()
+        bench.remove_database_and_user.assert_called_once_with(SITE)
         assert bench.output.prompt_ask.call_args.kwargs["default"] == "yes"
+        # The question names the SITE whose schema is about to go, not the bench.
+        assert SITE in str(bench.output.prompt_ask.call_args.kwargs["prompt"])
 
     def test_no_preference_prompts_and_anything_but_yes_keeps(self, harness):
         bench = self._bench(harness)
         bench.output.prompt_ask.return_value = "no"
-        bench._handle_database_deletion(None)
+        # Declining is a resolution: the operator chose to keep the schema.
+        assert bench._handle_database_deletion(None) == []
         bench.remove_database_and_user.assert_not_called()
 
     def test_external_database_config_is_looked_up_for_this_site(self, harness):
@@ -1293,8 +1374,104 @@ class TestHandleDatabaseDeletion:
         harness.bench.bench_config.get_database_config.assert_called_once_with(SITE)
 
 
+class TestMultiSiteRemoval:
+    """A bench holds N sites, which is the whole reason the removal path became per-site.
+
+    Driven through `remove_bench` rather than through the handler: what matters is WHEN the
+    directory goes, and that decision is the gate in `remove_bench`. Order is read off a recorded
+    call list, because "both schemas were dropped" and "they were dropped before the directory
+    holding their names was destroyed" are different claims.
+    """
+
+    ALIAS = "shop.example.com"  # sorts before `test.localhost`, so it is enumerated FIRST
+
+    def _bench(self, harness, sites, *, externals=None):
+        """`sites` maps site name -> its `db_name` on disk; `externals` site name -> DatabaseConfig."""
+        externals = externals or {}
+        for site, schema in sites.items():
+            put_site_on_disk(harness.path, site, schema=schema)
+        harness.bench.bench_config.sites = {site: SiteConfig(database=externals.get(site)) for site in sites}
+        return harness.bench
+
+    def test_a_two_site_bench_drops_both_schemas_before_removing_the_directory(self, harness):
+        bench = self._bench(harness, {self.ALIAS: "fm_shop_a1", SITE: "fm_test_b2"})
+        calls = record_removal_steps(harness)
+
+        assert bench.remove_bench(delete_db_from_global_db=True, prompt=False) is True
+
+        assert calls.count(("dirs",)) == 1
+        dirs = calls.index(("dirs",))
+        assert calls.index(("drop", self.ALIAS)) < dirs
+        assert calls.index(("drop", SITE)) < dirs
+
+    def test_an_external_site_beside_a_global_db_one_drops_exactly_one_and_still_removes_the_directory(self, harness):
+        """A deliberately left schema counts as resolved: it is not fm's to drop, so nothing is
+        outstanding and the directory goes. The operator is told where it was left."""
+        bench = self._bench(
+            harness,
+            {self.ALIAS: "shop_prod", SITE: "fm_test_b2"},
+            externals={self.ALIAS: DatabaseConfig(host="mydb.abc.rds.amazonaws.com", name="shop_prod")},
+        )
+        calls = record_removal_steps(harness)
+
+        assert bench.remove_bench(delete_db_from_global_db=True, prompt=False) is True
+
+        assert [c for c in calls if c[0] == "drop"] == [("drop", SITE)]
+        assert calls.index(("dirs",)) > calls.index(("drop", SITE))
+        printed = [str(c) for c in bench.output.print.call_args_list]
+        assert any("mydb.abc.rds.amazonaws.com" in line and "shop_prod" in line for line in printed)
+
+    def test_the_second_site_is_still_attempted_after_the_first_one_fails(self, harness):
+        """One broken site must not leave the others unaccounted for, so the loop catches per site
+        instead of aborting. The directory stays for the failed site's sake alone: its schema name
+        exists only inside it."""
+        bench = self._bench(harness, {self.ALIAS: "fm_shop_a1", SITE: "fm_test_b2"})
+        calls = record_removal_steps(harness)
+
+        def drop(site=None):
+            calls.append(("drop", site))
+            if site == self.ALIAS:
+                raise RuntimeError("global-db unreachable")
+
+        bench.remove_database_and_user.side_effect = drop
+
+        with pytest.raises(BenchException, match="Database deletion failed for 1 of 2 site") as excinfo:
+            bench.remove_bench(delete_db_from_global_db=True, prompt=False)
+
+        assert ("drop", SITE) in calls
+        assert ("dirs",) not in calls
+        message = str(excinfo.value)
+        assert self.ALIAS in message
+        assert "fm_shop_a1" in message  # the statements that finish the job by hand
+
+    def test_an_unreadable_site_config_blocks_the_directory_removal(self, harness):
+        """Nothing raised: fm just cannot tell which schema this site uses, and the file that could
+        answer is inside the directory, so the directory stays."""
+        bench = self._bench(harness, {SITE: "fm_test_b2"})
+        put_site_on_disk(harness.path, self.ALIAS, raw="{not json")
+        calls = record_removal_steps(harness)
+
+        with pytest.raises(BenchException, match="Database deletion failed for 1 of 2 site") as excinfo:
+            bench.remove_bench(delete_db_from_global_db=True, prompt=False)
+
+        assert ("dirs",) not in calls
+        assert ("drop", SITE) in calls  # the readable site was still accounted for
+        config = harness.path / "workspace" / "frappe-bench" / "sites" / self.ALIAS / "site_config.json"
+        assert str(config) in str(excinfo.value)
+
+    def test_a_bench_with_no_sites_on_disk_removes_cleanly_without_prompting(self, harness):
+        """A `--bench-only` bench: no site directory, so no schema to account for and nothing to
+        ask about."""
+        calls = record_removal_steps(harness)
+
+        assert harness.bench.remove_bench(prompt=False) is True
+
+        assert calls == [("cert",), ("dirs",)]
+        harness.bench.output.prompt_ask.assert_not_called()
+
+
 class TestRemoveContainersAndDirs:
-    def _bench(self, harness, *, main=True, workers=True, admin=True):
+    def _bench(self, harness, *, main=True, workers=True, admin=True, leftover=()):
         bench = harness.bench
         bench.docker_ops = MagicMock()
         bench.compose_file_manager.exists.return_value = main
@@ -1302,6 +1479,11 @@ class TestRemoveContainersAndDirs:
         bench.workers.compose_file_manager.exists.return_value = workers
         bench.admin_tools = MagicMock()
         bench.admin_tools.compose_file_manager.exists.return_value = admin
+        # Docker's own record of what exists, which is what the sweep consults. Two calls: the
+        # containers found, then what survived the removal.
+        remaining = list(leftover)
+        bench.docker_client.container_names.side_effect = lambda _prefix: list(remaining)
+        bench.docker_client.rm.side_effect = lambda name, **_kw: remaining.remove(name)
         return bench
 
     def test_all_three_compose_projects_are_torn_down_then_the_directory(self, harness):
@@ -1316,14 +1498,38 @@ class TestRemoveContainersAndDirs:
         )
         assert not harness.path.exists()
 
-    def test_missing_compose_files_are_warned_about_and_skipped(self, harness):
-        bench = self._bench(harness, main=False, workers=False, admin=False)
+    def test_containers_without_a_compose_file_are_removed_by_name(self, harness):
+        """The bug this replaces: a missing compose file only produced a warning, the containers were
+        left running, and the directory was deleted anyway. That destroyed the compose files that
+        were fm's only route back to them, so they ran forever under names no command could find and
+        the next create of the same name adopted them with every bind mount pointing at nothing."""
+        bench = self._bench(harness, main=False, workers=False, admin=False, leftover=["fm__x__nginx", "fm__x__frappe"])
+
         bench.remove_containers_and_dirs()
-        bench.docker_ops.remove_containers.assert_not_called()
-        bench.workers.docker_client.compose.down.assert_not_called()
-        bench.admin_tools.docker_client.compose.down.assert_not_called()
-        assert bench.output.warning.call_count == 3
+
+        assert [c.args[0] for c in bench.docker_client.rm.call_args_list] == ["fm__x__nginx", "fm__x__frappe"]
         assert not harness.path.exists()
+
+    def test_a_container_that_survives_removal_keeps_the_directory(self, harness):
+        """Same gate as the schema one, for the same reason: the directory is the only link back."""
+        bench = self._bench(harness, leftover=["fm__x__nginx"])
+        bench.docker_client.rm.side_effect = RuntimeError("docker is wedged")
+
+        with pytest.raises(BenchException) as refusal:
+            bench.remove_containers_and_dirs()
+
+        assert harness.path.exists()
+        assert "fm__x__nginx" in str(refusal.value)
+        assert "docker rm -f -v fm__x__nginx" in str(refusal.value)
+
+    def test_nothing_left_over_is_the_quiet_path(self, harness):
+        """The common case must not print about containers it did not have to chase."""
+        bench = self._bench(harness)
+
+        bench.remove_containers_and_dirs()
+
+        bench.docker_client.rm.assert_not_called()
+        assert not any("no compose file" in str(c) for c in bench.output.print.call_args_list)
 
     def test_a_failing_admin_tools_teardown_does_not_block_removal(self, harness):
         bench = self._bench(harness)
@@ -1428,7 +1634,8 @@ class TestReset:
         bench = self._resettable(harness)
         bench.get_bench_site_config.return_value = {"admin_password": "from-site"}
         bench.reset(admin_password="explicit")
-        bench.site_manager.reset_bench_site.assert_called_once_with("explicit")
+        # The site travels by keyword, and defaults to the bench's own primary site.
+        bench.site_manager.reset_bench_site.assert_called_once_with("explicit", site=SITE)
         bench.set_bench_site_config.assert_called_once_with({"admin_password": "explicit"})
 
     def test_site_config_beats_common_site_config(self, harness):
@@ -1436,26 +1643,37 @@ class TestReset:
         bench.get_bench_site_config.return_value = {"admin_password": "from-site"}
         bench.get_common_bench_config.return_value = {"admin_password": "from-common"}
         bench.reset()
-        bench.site_manager.reset_bench_site.assert_called_once_with("from-site")
+        bench.site_manager.reset_bench_site.assert_called_once_with("from-site", site=SITE)
 
     def test_common_site_config_is_the_fallback(self, harness):
         bench = self._resettable(harness)
         bench.get_common_bench_config.return_value = {"admin_password": "from-common"}
         bench.reset()
-        bench.site_manager.reset_bench_site.assert_called_once_with("from-common")
+        bench.site_manager.reset_bench_site.assert_called_once_with("from-common", site=SITE)
 
     def test_with_nothing_stored_the_user_is_prompted(self, harness):
         bench = self._resettable(harness)
         bench.output.prompt_ask.return_value = "typed"
         bench.reset()
-        bench.site_manager.reset_bench_site.assert_called_once_with("typed")
+        bench.site_manager.reset_bench_site.assert_called_once_with("typed", site=SITE)
         assert bench.output.prompt_ask.call_args.kwargs["required_flag"] == "--admin-pass"
+        # The password being asked for belongs to a SITE, so the prompt names one.
+        assert SITE in str(bench.output.prompt_ask.call_args.kwargs["prompt"])
 
     def test_the_password_used_is_written_back_into_site_config(self, harness):
         bench = self._resettable(harness)
         bench.get_common_bench_config.return_value = {"admin_password": "from-common"}
         bench.reset()
         bench.set_bench_site_config.assert_called_once_with({"admin_password": "from-common"})
+
+    def test_an_explicit_site_is_the_one_reset_and_the_one_named(self, harness):
+        """A bench holds N sites, so `reset` takes the one it means. Reinstalling the bench's
+        primary when the operator named another would drop the wrong schema."""
+        bench = self._resettable(harness)
+        bench.reset(admin_password="explicit", site="b.example.com")
+        bench.site_manager.reset_bench_site.assert_called_once_with("explicit", site="b.example.com")
+        printed = [str(c) for c in bench.output.print.call_args_list]
+        assert any("b.example.com" in line for line in printed)
 
 
 class TestRestarts:
@@ -1812,8 +2030,13 @@ class TestThinDelegations:
         bench.get_db_connection_info()
         bench.database.get_connection_info.assert_called_once_with()
 
+        # The site travels through: None means the bench's primary, which the module resolves.
         bench.remove_database_and_user()
-        bench.database.remove_database_and_user.assert_called_once_with()
+        bench.database.remove_database_and_user.assert_called_once_with(None)
+
+        bench.database.remove_database_and_user.reset_mock()
+        bench.remove_database_and_user("b.example.com")
+        bench.database.remove_database_and_user.assert_called_once_with("b.example.com")
 
     def test_alias_domain_updates_are_an_orchestrator_workflow(self, harness):
         bench = harness.bench

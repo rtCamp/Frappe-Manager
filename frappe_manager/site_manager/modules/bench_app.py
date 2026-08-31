@@ -848,13 +848,18 @@ fi
         Installs apps in the same order as provided by the user to respect dependencies.
 
         Args:
-            site_name: Site name. Defaults to bench_name.
+            site_name: Site to install into. Defaults to the bench's own site.
 
         Example:
             >>> app_manager.install_apps_to_site("example.localhost")
         """
+        # The bench's SITE, not its name. It defaulted to the bench name, which is the same string
+        # only while a bench holds one site named after it: on a bench `shop` serving
+        # `shop.localhost` every install ran `bench --site shop install-app` and Frappe answered
+        # "404 Not Found: shop does not exist", so `fm create shop` reported "App Installation
+        # Failed" and offered to roll the whole bench back.
         if site_name is None:
-            site_name = self.bench_name
+            site_name = self.bench_config.primary_site
 
         for app_config in self.bench_config.apps_list:
             app_name = app_config.name

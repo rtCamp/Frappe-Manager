@@ -50,6 +50,9 @@ from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
 
 BENCH = "bench.localhost"
+# Deliberately NOT the bench name. Reading a site's files under the bench name is the bug these
+# stand-ins have to be able to catch, and a fixture that gives one string to both roles cannot.
+SITE = "web.example.com"
 ADMIN_PW = "admin-pass"  # a literal here would trip S106
 AUTH_PW = "s3cr3t"
 ROOT_PW = "rootpass"
@@ -63,7 +66,11 @@ def _docker_exc(cmd="docker pull x"):
 
 
 def _config(**over):
-    """Minimal duck-typed BenchConfig: display_info only ever reads these attributes."""
+    """Minimal duck-typed BenchConfig: display_info only ever reads these attributes.
+
+    `primary_site` is deliberately DIFFERENT from the bench name, because reading the site config
+    under the bench name is the bug this stand-in has to be able to catch.
+    """
     base = {
         "runtime": BenchRuntime.mount,
         "environment_type": FMBenchEnvType.prod,
@@ -75,6 +82,8 @@ def _config(**over):
         "seed_image": None,
         "admin_tools": False,
         "auth": None,
+        "primary_site": SITE,
+        "primary_domain": SITE,
     }
     base.update(over)
     return SimpleNamespace(**base)
@@ -151,10 +160,14 @@ def test_get_common_config_missing_raises_bench_exception(tmp_path):
 
 
 def test_get_site_config_reads_the_per_site_file(tmp_path):
-    site_dir = _sites_dir(tmp_path) / BENCH
+    """Under the SITE's name, not the bench's: on a bench whose site is differently named, reading
+    `sites/<bench>/` raised "site_config.json not found" at the end of a successful create."""
+    site_dir = _sites_dir(tmp_path) / SITE
     site_dir.mkdir()
     (site_dir / "site_config.json").write_text(json.dumps({"db_name": "_abc"}))
     assert _info(tmp_path).get_site_config() == {"db_name": "_abc"}
+    # And the bench-named directory is NOT where it looked.
+    assert not (_sites_dir(tmp_path) / BENCH).exists()
 
 
 def test_get_site_config_missing_raises_bench_exception(tmp_path):
@@ -162,7 +175,7 @@ def test_get_site_config_missing_raises_bench_exception(tmp_path):
     (_sites_dir(tmp_path) / "common_site_config.json").write_text("{}")
     with pytest.raises(BenchException) as err:
         _info(tmp_path).get_site_config()
-    assert "site_config.json not found." in str(err.value)
+    assert f"site_config.json not found for site '{SITE}'." in str(err.value)
 
 
 # =========================================================================== BenchInfo: log paths
@@ -344,7 +357,7 @@ def card_spy(monkeypatch):
 
 
 def _displayable(tmp_path, *, site_config=None, apps=None, **over):
-    site_dir = _sites_dir(tmp_path) / BENCH
+    site_dir = _sites_dir(tmp_path) / SITE
     site_dir.mkdir(exist_ok=True)
     (site_dir / "site_config.json").write_text(json.dumps(site_config or {}))
     info = _info(tmp_path, **over)
@@ -363,8 +376,8 @@ def test_display_info_without_certificate_uses_http_and_says_not_enabled(tmp_pat
     info.display_info()
 
     (card,) = card_spy.made
-    assert card.link == f"http://{BENCH}"
-    assert card.facts["url"] == f"http://{BENCH}"
+    assert card.link == f"http://{SITE}"
+    assert card.facts["url"] == f"http://{SITE}"
     assert card.facts["https"] == "[fm.muted]not enabled[/fm.muted]"
     info.certificate_manager.get_certificate_expiry.assert_not_called()
     assert card.sections[:2] == ["site", "runtime"]
@@ -385,10 +398,14 @@ def test_display_info_with_certificate_switches_every_url_to_https(tmp_path, car
         info.display_info()
 
     (card,) = card_spy.made
-    assert card.facts["url"] == f"https://{BENCH}"
-    assert card.link == f"https://{BENCH}"
+    # Every URL is the DOMAIN the site is served on, never the bench name: `http://shop` resolves
+    # nowhere, and printing it sent operators to a dead address.
+    assert card.facts["url"] == f"https://{SITE}"
+    assert card.link == f"https://{SITE}"
     assert card.facts["https"] == "DEV [fm.muted]·[/fm.muted] 42 days"
-    assert card.facts["tools"] == (f"https://{BENCH}/mailpit [fm.muted]·[/fm.muted] https://{BENCH}/adminer")
+    assert card.facts["tools"] == (f"https://{SITE}/mailpit [fm.muted]·[/fm.muted] https://{SITE}/adminer")
+    # The card is still TITLED with the bench, which is what commands take.
+    assert card.name == BENCH
 
 
 def test_display_info_letsencrypt_prefixes_the_challenge_type(tmp_path, card_spy):

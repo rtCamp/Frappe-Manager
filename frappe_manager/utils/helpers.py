@@ -412,11 +412,18 @@ def get_frappe_manager_own_files(file_path: str):
 
 
 def rich_object_to_string(obj) -> str:
-    """Convert a rich Traceback object to a string."""
+    """Render a rich object to plain text.
+
+    The console carries fm's theme. Without it any `fm.*` style in the object raises
+    "Failed to get style 'fm.muted'; unable to parse 'fm.muted' as color", and because this is used
+    to format the stdout/stderr panels of a FAILED subprocess, that error replaced the output the
+    operator needed in order to see why the command failed.
+    """
+    from frappe_manager.output_manager.theme import build_theme
 
     capture_buffer = StringIO()
 
-    fake_console = Console(force_terminal=False, file=capture_buffer)
+    fake_console = Console(force_terminal=False, file=capture_buffer, theme=build_theme())
     fake_console.print(obj, crop=False, overflow="ignore")
 
     captured_str = capture_buffer.getvalue()  # Retrieve the captured output as a string

@@ -108,9 +108,12 @@ class BenchInfo:
             raise BenchException(self.bench_name, message="common_site_config.json not found.")
         return json.loads(common_bench_config_path.read_text())
 
-    def get_site_config(self) -> dict:
+    def get_site_config(self, site: str | None = None) -> dict:
         """
         Get site-specific configuration from site_config.json.
+
+        Args:
+            site: which site to read. None means the bench's own site.
 
         Returns:
             dict: Site configuration
@@ -118,9 +121,14 @@ class BenchInfo:
         Raises:
             BenchException: If site_config.json not found
         """
-        site_config_path = self.bench_path / "workspace/frappe-bench/sites" / self.bench_name / "site_config.json"
+        # The SITE directory. It read `sites/<bench name>/`, which is the site directory only while
+        # a bench holds one site named after it: on a bench `shop` serving `shop.localhost` this
+        # raised "site_config.json not found" at the end of a successful create, and `fm create`
+        # then offered to roll the finished bench back.
+        target = site or self.bench_config.primary_site
+        site_config_path = self.bench_path / "workspace/frappe-bench/sites" / target / "site_config.json"
         if not site_config_path.exists():
-            raise BenchException(self.bench_name, message="site_config.json not found.")
+            raise BenchException(self.bench_name, message=f"site_config.json not found for site '{target}'.")
         return json.loads(site_config_path.read_text())
 
     def get_bench_apps(self) -> list[dict]:
@@ -250,18 +258,23 @@ class BenchInfo:
         if "admin_password" in site_config:
             admin_pass = site_config["admin_password"]
 
+        # The bench NAME titles the card, because that is what every command takes. Every URL below
+        # is the primary DOMAIN, because that is what nginx routes and what a browser can open: a
+        # bench `shop` printed `http://shop`, which resolves nowhere, while the site it serves is at
+        # `http://shop.localhost`.
+        domain = config.primary_domain
         card = railcard.Card(
             self.bench_name,
             railcard.bench_meta(
                 active, config.runtime.value, config.environment_type.value, config.restart_policy.value
             ),
             active,
-            link=f"{protocol}://{self.bench_name}",
+            link=f"{protocol}://{domain}",
         )
 
         # ---- site
         card.section("site")
-        card.fact("url", f"{protocol}://{self.bench_name}")
+        card.fact("url", f"{protocol}://{domain}")
         if self.has_certificate():
             ssl_cert = config.get_primary_certificate()
             ssl_service_type = f"{ssl_cert.ssl_type.value}"
@@ -329,7 +342,7 @@ class BenchInfo:
         if config.admin_tools:
             card.fact(
                 "tools",
-                f"{protocol}://{self.bench_name}/mailpit [fm.muted]·[/fm.muted] {protocol}://{self.bench_name}/adminer",
+                f"{protocol}://{domain}/mailpit [fm.muted]·[/fm.muted] {protocol}://{domain}/adminer",
             )
         else:
             card.fact("tools", "[fm.muted]not enabled[/fm.muted]")

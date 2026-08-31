@@ -135,13 +135,37 @@ def test_the_refusal_resolves_per_site_not_per_bench(tmp_path):
     """`--site <name>` is what reinstall acts on, so the lookup follows that name.
 
     One bench, two sites: the `global-db` one resets, the external one is refused.
-    """
-    config = _config(tmp_path, name=GLOBAL_DB_SITE, external_site=EXTERNAL_SITE)
 
-    _manager(config, site=GLOBAL_DB_SITE).reset_bench_site("pw")  # no raise
+    The site now arrives as an argument rather than as the manager's bench name. It was read off the
+    bench name, which is the same string only while a bench holds one site named after it: on a bench
+    `shop` serving `shop.localhost` the lookup missed the table entirely, so an EXTERNAL site read as
+    global-db and this refusal never fired.
+    """
+    manager = _manager(_config(tmp_path, name=GLOBAL_DB_SITE, external_site=EXTERNAL_SITE))
+
+    manager.reset_bench_site("pw", site=GLOBAL_DB_SITE)  # no raise
 
     with pytest.raises(BenchOperationException, match=EXTERNAL_HOST):
-        _manager(config, site=EXTERNAL_SITE).reset_bench_site("pw")
+        manager.reset_bench_site("pw", site=EXTERNAL_SITE)
+
+
+def test_the_site_argument_is_what_reinstall_acts_on(tmp_path):
+    """The refusal and the argv must name the same site, or fm refuses on one site's behalf and
+    reinstalls another."""
+    manager = _manager(_config(tmp_path, name=GLOBAL_DB_SITE, external_site=EXTERNAL_SITE))
+
+    manager.reset_bench_site("pw", site=GLOBAL_DB_SITE)
+
+    assert _argv(_commands(manager)[0])[:4] == ["bench", "--site", GLOBAL_DB_SITE, "reinstall"]
+
+
+def test_without_a_site_the_benchs_own_is_reinstalled(tmp_path):
+    """`fm reset BENCH` names no site, so the bench's own recorded site is the target."""
+    manager = _manager(_config(tmp_path, name=GLOBAL_DB_SITE))
+
+    manager.reset_bench_site("pw")
+
+    assert _argv(_commands(manager)[0])[2] == GLOBAL_DB_SITE
 
 
 def test_reset_on_global_db_still_sends_the_root_credential(tmp_path):
