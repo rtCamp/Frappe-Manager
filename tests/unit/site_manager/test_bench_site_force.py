@@ -27,7 +27,9 @@ def _manager(captured, database_config: DatabaseConfig | None = None):
     m = object.__new__(BenchSiteManager)  # bypass __init__ (no Docker/services setup)
     m.bench_name = "fm.alok.rt.gw"
     m.bench_cli_cmd = ["bench"]
-    m.bench_config = MagicMock(db_name="db1", admin_pass="admin")
+    # `primary_site` is a real string, not a Mock: `create_bench_site` defaults the site it creates
+    # to it and joins it into the argv, so a Mock here fails the join rather than the assertion.
+    m.bench_config = MagicMock(db_name="db1", admin_pass="admin", primary_site="fm.alok.rt.gw")
     # No `[database]` entry by default: the global-db container, which is the bench the
     # forcing tests below are about. Left as a bare MagicMock this returns a truthy Mock
     # and every create silently takes the external branch instead.

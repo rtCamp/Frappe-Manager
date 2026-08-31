@@ -245,7 +245,14 @@ class BenchSiteManager:
             ),
         )
 
-    def create_bench_site(self, admin_pass: str | None = None, force: bool = False) -> None:
+    def create_bench_site(
+        self,
+        admin_pass: str | None = None,
+        force: bool = False,
+        site: str | None = None,
+        db_name: str | None = None,
+        set_default: bool = True,
+    ) -> None:
         """
         Create a new Frappe site in the bench.
 
@@ -275,8 +282,12 @@ class BenchSiteManager:
         if admin_pass is None:
             admin_pass = self.bench_config.admin_pass
 
-        database_config = self.bench_config.get_database_config()
-        site_env = self._site_env()
+        # The site this call creates. Defaults to the bench's own, which is every call today; a
+        # site-add names the new one, and everything below has to follow it rather than the bench.
+        site = site or self.bench_config.primary_site
+
+        database_config = self.bench_config.get_database_config(site)
+        site_env = self._site_env(site)
 
         # Build new-site command
         new_site_command = self.bench_cli_cmd + ["new-site"]
@@ -305,8 +316,11 @@ class BenchSiteManager:
                 "--db-root-password",
                 shlex.quote(self.services.database_manager.database_server_info.password),
             ]
-            if self.bench_config.db_name:
-                new_site_command += ["--db-name", self.bench_config.db_name]
+            # A schema of this site's own. `bench_config.db_name` names the FIRST site's schema, so
+            # a site-add has to pass a fresh one or Frappe would try to reuse it.
+            schema = db_name or (self.bench_config.db_name if site == self.bench_config.primary_site else None)
+            if schema:
+                new_site_command += ["--db-name", schema]
             new_site_command += ["--db-host", self.services.database_manager.database_server_info.host]
             new_site_command += ["--admin-password", shlex.quote(admin_pass)]
             new_site_command += ["--db-port", str(self.services.database_manager.database_server_info.port)]
@@ -315,7 +329,7 @@ class BenchSiteManager:
                 # Image runtime pre-binds sites/<site>, so `compose up` created an empty dir;
                 # --force lets new-site populate that existing (empty) dir instead of aborting.
                 new_site_command += ["--force"]
-        new_site_command += [self.bench_name]
+        new_site_command += [site]
 
         # The guard, asserted on the argv rather than trusted to the branch above: never --force
         # together with schema setup against a database fm does not own.
@@ -335,22 +349,26 @@ class BenchSiteManager:
             env=site_env,
         )
 
-        # Set as default site
-        self._container_run(
-            " ".join(self.bench_cli_cmd + [f"use {self.bench_name}"]),
-            on_failure=lambda: BenchOperationException(
-                self.bench_name,
-                f"Failed to set {self.bench_name} as default site.",
-            ),
-            env=site_env,
-        )
+        # Set as default site. `bench use` writes `default_site` into common_site_config, which is
+        # bench-WIDE, so a site added to an existing bench must not run it: doing so would silently
+        # move every bare `bench` command in that bench onto the new site.
+        if set_default:
+            self._container_run(
+                " ".join(self.bench_cli_cmd + [f"use {site}"]),
+                on_failure=lambda: BenchOperationException(
+                    self.bench_name,
+                    f"Failed to set {site} as default site.",
+                ),
+                env=site_env,
+            )
 
-        # Enable scheduler
+        # Enable scheduler for this site. `--site` is explicit so it never depends on which site
+        # happens to be the bench default.
         self._container_run(
-            " ".join(self.bench_cli_cmd + [f"--site {self.bench_name} scheduler enable"]),
+            " ".join(self.bench_cli_cmd + [f"--site {site} scheduler enable"]),
             on_failure=lambda: BenchOperationException(
                 self.bench_name,
-                f"Failed to enable {self.bench_name}'s scheduler.",
+                f"Failed to enable {site}'s scheduler.",
             ),
             env=site_env,
         )
