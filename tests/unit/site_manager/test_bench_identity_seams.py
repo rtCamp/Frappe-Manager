@@ -20,65 +20,101 @@ from unittest.mock import MagicMock
 import pytest
 
 from frappe_manager.site_manager.bench_config import BenchConfig
+from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.site_manager.site import Bench
 
 BENCH = "shop"
 SITE = "shop.localhost"
 
 
-def _bench(name: str, *, alias_domains: list[str] | None = None) -> Bench:
+def _bench(name: str = BENCH, *, site: str | None = SITE, alias_domains: list[str] | None = None) -> Bench:
+    """A bench whose name and site are DIFFERENT strings by default.
+
+    This is what the `[sites]` table bought. While a bench was its own site, no fixture here could
+    tell a site-meaning read from a bench-meaning one, and these tests could only pre-wire the
+    roles. Now the site is recorded separately, so `shop` versus `shop.localhost` makes reading the
+    wrong one fail.
+    """
     bench = Bench.__new__(Bench)  # bypass __init__: no docker, no compose, no services
     bench.name = name
-    bench.bench_config = SimpleNamespace(alias_domains=alias_domains or [])
+    bench.bench_config = SimpleNamespace(
+        name=name,
+        alias_domains=alias_domains or [],
+        sites={site: SimpleNamespace(database=None)} if site else None,
+    )
     return bench
 
 
 # --------------------------------------------------------------------------- the site seam
 
 
-def test_the_site_comes_from_the_bench_directory_not_the_config():
-    """The config's `name` is the BENCH. The target shape is `name = "shop"` beside
-    `[sites."shop.localhost"]`, so reading the site off the config would be wrong the moment the
-    two differ, and it is the bench directory that production writes `sites/<name>/` from."""
-    bench = _bench(SITE)
-    bench.bench_config.name = "something-else-entirely"
+def test_the_site_is_the_recorded_one_and_not_the_bench_name():
+    """The whole point of recording it: the bench directory says `shop` and the Frappe site is
+    `shop.localhost`, so anything that reads the directory where it means the site is now wrong."""
+    bench = _bench()
 
+    assert bench.name == BENCH
     assert bench.site_name == SITE
+
+
+def test_an_entry_named_after_the_bench_wins():
+    """A config describing several sites still resolves to the bench's own, which is the tie-break
+    a bench-scoped command needs."""
+    bench = _bench(BENCH, site=None)
+    bench.bench_config.sites = {"other.localhost": SimpleNamespace(database=None), BENCH: SimpleNamespace(database=None)}
+
+    assert bench.site_name == BENCH
+
+
+def test_nothing_recorded_falls_back_to_the_bench_name():
+    """Not a compatibility branch: `Bench` objects exist mid-create, before the config is
+    assembled, and during a migration part-way through writing the table."""
+    assert _bench(BENCH, site=None).site_name == BENCH
+
+
+def test_several_sites_none_matching_is_refused_rather_than_guessed():
+    """Guessing would point a bench-scoped command at another site's schema."""
+    bench = _bench(BENCH, site=None)
+    bench.bench_config.sites = {
+        "a.example.com": SimpleNamespace(database=None),
+        "b.example.com": SimpleNamespace(database=None),
+    }
+
+    with pytest.raises(BenchException, match="cannot tell which one"):
+        _ = bench.site_name
 
 
 # ------------------------------------------------------------------------- the domain seam
 
 
-def test_the_primary_domain_comes_from_the_bench_and_not_the_config():
-    """Same reasoning as the site: after decoupling the primary domain is the site's name, not
-    `BenchConfig.name`, so sourcing it from the config would have to be undone."""
-    bench = _bench(SITE)
-    bench.bench_config.name = "something-else-entirely"
-
-    assert bench.primary_domain == SITE
+def test_the_served_domain_is_the_site_and_not_the_bench():
+    """A site is a schema addressed by hostname, so the domain follows the site. Returning the bench
+    name would put an unroutable host into `VIRTUAL_HOST` and a `Host:` header the readiness probe
+    cannot match."""
+    assert _bench().primary_domain == SITE
 
 
 def test_the_domain_list_is_the_primary_then_the_aliases_in_order():
     """Order is load-bearing: `export_to_compose_inputs` joins this into `VIRTUAL_HOST`, and
     nginx-proxy treats the first host as the canonical one."""
-    bench = _bench(SITE, alias_domains=["www.shop.example.com", "shop.example.com"])
+    bench = _bench(alias_domains=["www.shop.example.com", "shop.example.com"])
 
     assert bench.domains == [SITE, "www.shop.example.com", "shop.example.com"]
 
 
 def test_the_domain_list_is_built_from_the_single_domain_accessor():
-    bench = _bench(SITE, alias_domains=["alias.localhost"])
+    bench = _bench(alias_domains=["alias.localhost"])
     assert bench.domains[0] == bench.primary_domain
 
 
 def test_a_bench_with_no_aliases_serves_only_its_primary_domain():
-    assert _bench(SITE).domains == [SITE]
+    assert _bench().domains == [SITE]
 
 
 def test_a_none_alias_list_is_treated_as_empty():
     """`alias_domains` defaults to `[]` on a real config, but a partially built one and older
     configs can carry None, and this list is spread into compose material."""
-    bench = _bench(SITE)
+    bench = _bench()
     bench.bench_config.alias_domains = None
 
     assert bench.domains == [SITE]
@@ -89,17 +125,26 @@ def test_a_none_alias_list_is_treated_as_empty():
 
 @pytest.fixture
 def config(tmp_path):
-    """A real BenchConfig, because `get_site_mappings` is what reaches the nginx entrypoint."""
+    """A real BenchConfig whose bench name and site name DIFFER, because that is the shape now."""
     toml = tmp_path / "bench_config.toml"
     toml.write_text(
-        f'name = "{SITE}"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
+        f'name = "{BENCH}"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
         'alias_domains = ["www.shop.example.com"]\n'
+        f'\n[sites."{SITE}"]\n'
     )
     return BenchConfig.import_from_toml(toml)
 
 
-def test_the_config_serves_its_name_then_its_aliases(config):
+def test_the_config_serves_its_site_then_its_aliases(config):
     assert config.domains == [SITE, "www.shop.example.com"]
+
+
+def test_the_config_site_lookup_defaults_to_the_recorded_site(config):
+    """`get_site()` with no argument must reach the recorded entry. Defaulting to `name` would find
+    nothing the moment the bench is called `shop` and its site `shop.localhost`."""
+    assert config.get_site() is not None
+    assert config.get_site(SITE) is not None
+    assert config.get_site(BENCH) is None
 
 
 def test_the_config_domain_list_starts_at_its_primary_domain(config):
@@ -113,25 +158,127 @@ def test_site_mappings_map_every_served_domain(config):
 
 
 def test_site_mappings_point_every_domain_at_the_site(config):
-    """domain -> site. Both halves are the bench name today, which is the identity collapse in one
-    expression; when `[sites]` lands the value comes from the site owning each domain."""
+    """domain -> site, and the value is the SITE not the bench: nginx hands it to Frappe as the site
+    to serve, so a bench called `shop` sending `shop` would name a `sites/` directory that does not
+    exist. With the two names distinct this fails if the wrong one is used."""
     assert set(config.get_site_mappings().values()) == {SITE}
+    assert BENCH not in config.get_site_mappings().values()
 
 
-def test_the_config_does_not_offer_a_site_accessor():
-    """Deliberate absence, not an oversight. A `primary_site` on the config model would return
-    `self.name`, look authoritative, and be wrong as soon as a bench named `shop` serves
-    `shop.localhost`. The site question belongs to `Bench`, which reads the directory."""
-    assert not hasattr(BenchConfig, "primary_site")
+
+# ------------------------------------------------------- what create records, and under which name
+
+
+def test_the_site_is_recorded_under_the_site_name():
+    """Keyed by the SITE. Keying it by the bench would put the entry under `shop` while everything
+    that reads it asks for `shop.localhost`, so the record would never be found."""
+    from frappe_manager.commands.create import record_site
+
+    recorded = record_site(None, SITE, None)
+
+    assert list(recorded) == [SITE]
+    assert BENCH not in recorded
+
+
+def test_recording_a_site_carries_its_database():
+    from frappe_manager.commands.create import record_site
+    from frappe_manager.site_manager.bench_config import DatabaseConfig
+
+    database = DatabaseConfig(host="rds.internal", name="app_prod")
+    recorded = record_site(None, SITE, database)
+
+    assert recorded[SITE].database is not None
+    assert recorded[SITE].database.host == "rds.internal"
+
+
+def test_recording_a_site_that_a_config_overlay_already_described_updates_it():
+    """A `--config` file can declare the site; the database is merged into that entry rather than
+    replacing it, so anything else the overlay set survives."""
+    from frappe_manager.commands.create import record_site
+    from frappe_manager.site_manager.bench_config import DatabaseConfig, SiteConfig
+
+    database = DatabaseConfig(host="rds.internal", name="app_prod")
+    recorded = record_site({SITE: SiteConfig()}, SITE, database)
+
+    assert list(recorded) == [SITE]
+    assert recorded[SITE].database.host == "rds.internal"
+
+
+def test_a_bench_with_no_external_database_still_records_its_site():
+    """The global-db case, which is most benches. Without the entry the site would have no name of
+    its own anywhere on disk."""
+    from frappe_manager.commands.create import record_site
+
+    recorded = record_site(None, SITE, None)
+
+    assert recorded[SITE].database is None
+
+
+def test_the_global_db_schema_is_minted_from_the_site_not_the_bench():
+    """The schema belongs to the site, so two benches serving differently-named sites must not be
+    able to collide, and renaming a bench must not imply a different schema."""
+    from frappe_manager.commands.create import mint_global_db_schema_name
+
+    minted = mint_global_db_schema_name(SITE)
+
+    assert minted.startswith("fm_shop_localhost_")
+    assert not minted.startswith("fm_shop_f")  # i.e. not minted from the bare bench name
+
+
+def test_the_minted_schema_name_is_a_legal_identifier():
+    """Dots and hyphens are illegal in a MariaDB schema name unquoted, and this one is interpolated
+    into `bench new-site --db-name`."""
+    from frappe_manager.commands.create import mint_global_db_schema_name
+
+    minted = mint_global_db_schema_name("a-b.example.com")
+
+    assert "." not in minted
+    assert "-" not in minted
+
+
+def test_two_mints_for_one_site_still_differ():
+    """The random suffix is what actually guarantees uniqueness; the prefix is for a human reading
+    `SHOW DATABASES`."""
+    from frappe_manager.commands.create import mint_global_db_schema_name
+
+    assert mint_global_db_schema_name(SITE) != mint_global_db_schema_name(SITE)
+
+
+def test_the_config_reads_its_site_from_the_recorded_table(tmp_path):
+    """A `primary_site` on the config was deliberately absent while there was no `[sites]` table,
+    because one returning `self.name` would look authoritative and be wrong as soon as a bench named
+    `shop` served `shop.localhost`. The table records it now, so the accessor exists and the thing
+    worth asserting is that it reads the RECORD and not the bench name."""
+    toml = tmp_path / "bench_config.toml"
+    toml.write_text(
+        f'name = "{BENCH}"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n\n[sites."{SITE}"]\n'
+    )
+    config = BenchConfig.import_from_toml(toml)
+
+    assert config.name == BENCH
+    assert config.primary_site == SITE
+
+
+def test_the_config_domain_is_the_site_and_not_the_bench(tmp_path):
+    """A site is a schema addressed by hostname, so its name IS its domain. Returning the bench name
+    would put an unroutable host into `VIRTUAL_HOST` and a certificate subject nothing resolves."""
+    toml = tmp_path / "bench_config.toml"
+    toml.write_text(
+        f'name = "{BENCH}"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n\n[sites."{SITE}"]\n'
+    )
+    config = BenchConfig.import_from_toml(toml)
+
+    assert config.primary_domain == SITE
+    assert config.get_site_mappings() == {SITE: SITE}
 
 
 # --------------------------------------------------------------- the roles are not interchangeable
 
 
 def test_the_site_and_the_domain_are_separate_accessors():
-    """They return the same string today and are read by different call sites for different
-    reasons: 30 mean the site, 9 mean the domain. Collapsing them back into one accessor is what
-    this asserts against, because that is the state the seams exist to leave behind."""
+    """They resolve to the same string, because a site's name is its domain, but they are read by
+    different call sites for different reasons: 30 mean the site, 9 mean the domain. Collapsing them
+    into one accessor is what this asserts against."""
     assert Bench.site_name is not Bench.primary_domain
 
 

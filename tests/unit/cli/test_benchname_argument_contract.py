@@ -449,11 +449,29 @@ def make_bench(benches_dir: Path, name: str) -> Path:
 
 
 class TestSitenameCallbackNormalisation:
-    """Bare names get `.localhost` appended; anything already qualified is kept."""
+    """A bench name is taken as typed, with `<name>.localhost` as a legacy fallback.
 
-    def test_bare_name_gains_the_localhost_suffix(self, benches):
+    A bench used to BE its site, so a bare `hello` was normalised to `hello.localhost` and resolved
+    against that directory. Now the bench is just a name: `fm create shop` makes a bench called
+    `shop` serving a site called `shop.localhost`. Resolution therefore prefers the name as typed
+    and only then tries the suffixed form, so benches created under the old rule keep resolving.
+    """
+
+    def test_a_name_that_exists_as_typed_resolves_to_itself(self, benches):
+        make_bench(benches, "hello")
+        assert sitename_callback("hello") == "hello"
+
+    def test_a_bare_name_falls_back_to_the_suffixed_bench(self, benches):
+        """The legacy shape: a bench created before the names came apart is called
+        `hello.localhost`, and `fm start hello` has to keep finding it."""
         make_bench(benches, "hello.localhost")
         assert sitename_callback("hello") == "hello.localhost"
+
+    def test_the_name_as_typed_wins_over_the_suffixed_one(self, benches):
+        """With both on disk the fallback must not shadow the real thing, so it is tried second."""
+        make_bench(benches, "hello")
+        make_bench(benches, "hello.localhost")
+        assert sitename_callback("hello") == "hello"
 
     def test_name_already_ending_in_localhost_is_returned_unchanged(self, benches):
         make_bench(benches, "hello.localhost")
@@ -463,9 +481,9 @@ class TestSitenameCallbackNormalisation:
         make_bench(benches, "shop.example.com")
         assert sitename_callback("shop.example.com") == "shop.example.com"
 
-    def test_suffix_is_appended_before_the_existence_check(self, benches):
-        # A bare name resolves against the SUFFIXED directory, not the bare one.
-        make_bench(benches, "hello")  # deliberately unsuffixed
+    def test_a_name_on_disk_nowhere_is_still_not_found(self, benches):
+        """The fallback widens resolution; it must not make a missing bench resolve to something."""
+        make_bench(benches, "other.localhost")
         with pytest.raises(BenchNotFoundError):
             sitename_callback("hello")
 

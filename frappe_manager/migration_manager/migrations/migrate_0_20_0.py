@@ -159,7 +159,7 @@ class MigrationV0200(MigrationBase):
         self._rewrite_ssl_table(bench)
         # Also ahead of it, and for the same reason: this moves `[database]` rather than dropping
         # it, so it has to run while the table is still there.
-        self._move_database_under_sites(bench)
+        self._write_sites_table(bench)
         self._drop_removed_config_keys(bench)
 
         compose_path = bench.path / "docker-compose.admin-tools.yml"
@@ -323,13 +323,15 @@ class MigrationV0200(MigrationBase):
         toml_document.save(config_path, doc)
         self.output.print(f"Dropped removed config {', '.join(dropped)} for {bench.name}")
 
-    def _move_database_under_sites(self, bench: MigrationBench):
-        """`[database."<site>"]` becomes `[sites."<site>".database]`.
+    def _write_sites_table(self, bench: MigrationBench):
+        """Give every bench a `[sites."<site>"]` entry, and move `[database."<site>"]` under it.
 
-        A bench holds exactly one site today and its name is the bench's, so this table already had
-        a site as its key: the move gives that site somewhere to hold its other per-site facts
-        later, instead of them accumulating as top-level keys that only happen to be per-site
-        because there is only one site.
+        Two things, because they are the same write. A bench holds exactly one site today and its
+        name is the bench's, so the `[database]` table already had a site as its key; and a bench
+        with no external database had nowhere at all that named its site. After this, every bench
+        records its site, which is the only fact that survives the bench name and the site name
+        coming apart. An entry with no keys is a bare `[sites."<name>"]` header, which round-trips
+        and is exactly the record wanted for a bench on the global-db container.
 
         `import_from_toml` reads only the new spelling, which is the established pattern here
         rather than a new risk: the same release renamed `dns_challenge_providers` to
@@ -345,35 +347,48 @@ class MigrationV0200(MigrationBase):
             return
 
         doc = tomlkit.parse(config_path.read_text())
-        old = doc.get("database")
-        if not isinstance(old, MutableMapping):
-            # Either already migrated, or the bench never had an external database. Both are
-            # nothing to do, and dropping a non-table `database` key is not this step's business.
-            return
-
         sites = doc.get("sites")
         if not isinstance(sites, MutableMapping):
             sites = tomlkit.table(is_super_table=True)
             doc["sites"] = sites
 
-        moved = []
-        for site_name, database in old.items():
-            if not isinstance(database, MutableMapping):
-                continue
-            site = sites.get(site_name)
-            if not isinstance(site, MutableMapping):
-                site = tomlkit.table(is_super_table=True)
-                sites[site_name] = site
-            # A `database` already under the site wins: it is the migrated copy, and overwriting it
-            # with the stale top-level one would undo a previous run of this step.
-            if "database" not in site:
-                site["database"] = database
-                moved.append(site_name)
+        def site_entry(name: str) -> MutableMapping:
+            entry = sites.get(name)
+            if not isinstance(entry, MutableMapping):
+                # A real table, NOT a super table: an empty super table renders only through its
+                # children, so tomlkit drops it and the site with no external database, which is
+                # exactly the one that needs recording, would leave no trace in the file.
+                entry = tomlkit.table()
+                sites[name] = entry
+            return entry
 
-        del doc["database"]
+        old = doc.get("database")
+        moved = []
+        if isinstance(old, MutableMapping):
+            for site_name, database in old.items():
+                if not isinstance(database, MutableMapping):
+                    continue
+                entry = site_entry(site_name)
+                # A `database` already under the site wins: it is the migrated copy, and overwriting
+                # it with the stale top-level one would undo a previous run of this step.
+                if "database" not in entry:
+                    entry["database"] = database
+                    moved.append(site_name)
+            del doc["database"]
+
+        # The bench's own site, named after the bench. Runs whether or not there was a `[database]`
+        # table, because this is the entry a global-db bench never had.
+        created = bench.name not in sites
+        _ = site_entry(bench.name)
+
+        if not moved and not created and not isinstance(old, MutableMapping):
+            return
+
         toml_document.save(config_path, doc)
         if moved:
             self.output.print(f"Moved \\[database] under \\[sites] for {', '.join(moved)}")
+        elif created:
+            self.output.print(f"Recorded site {bench.name} under \\[sites]")
         else:
             self.output.print(f"Dropped the empty \\[database] table for {bench.name}")
 

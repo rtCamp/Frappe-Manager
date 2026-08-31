@@ -193,11 +193,20 @@ def _resolve_bench(sitename: str | None) -> str:
     if sitename is None:
         raise typer.BadParameter("Invalid selection. Must match existing sites")
 
-    sitename = validate_sitename(sitename)
+    # A bench name is a name, not a domain: it is taken as typed. `validate_sitename` still runs,
+    # because the name has to be a legal DNS label to serve as a directory and a compose prefix,
+    # but its `.localhost` form is only used as the LEGACY fallback below.
+    fqdn = validate_sitename(sitename)
 
     bench_path = CLI_BENCHES_DIRECTORY / sitename
 
     if not bench_path.exists():
+        # Benches created before the names came apart are named `shop.localhost`, so `fm start shop`
+        # has to keep finding one. Tried second, so a bench genuinely called `shop` always wins and
+        # the fallback can never shadow it.
+        legacy_path = CLI_BENCHES_DIRECTORY / fqdn
+        if legacy_path != bench_path and legacy_path.exists():
+            return fqdn
         raise BenchNotFoundError(sitename, bench_path)
 
     return sitename
@@ -378,16 +387,30 @@ def create_command_sitename_callback(sitename: str):
             f"'{RESERVED_BENCH_NAME}' is reserved as an address meaning every bench, so it cannot be a bench name"
         )
 
-    # validate the site
-    sitename = validate_sitename(address.bench)
+    # Validate the name WITHOUT taking the `.localhost` form it returns. A bench name is just a
+    # name from here on: `fm create shop` makes a bench called `shop`, and the site it serves is
+    # `shop.localhost`, minted from this same name inside the command. `validate_sitename` is still
+    # the right validator, because a bench name has to be a legal DNS label either way: it becomes
+    # a directory name and a compose project prefix.
+    _ = validate_sitename(address.bench)
+    benchname = address.bench
 
     # check if already exists
-    bench_path = CLI_BENCHES_DIRECTORY / sitename
+    bench_path = CLI_BENCHES_DIRECTORY / benchname
 
     if bench_path.exists():
-        raise typer.BadParameter(f"The bench '{sitename}' already exists at {bench_path}. Aborting operation.")
+        raise typer.BadParameter(f"The bench '{benchname}' already exists at {bench_path}. Aborting operation.")
 
-    return sitename
+    # A bench created before the names came apart is named `shop.localhost`, so `fm create shop`
+    # would otherwise happily make a second bench beside it serving the same site.
+    legacy_path = CLI_BENCHES_DIRECTORY / validate_sitename(address.bench)
+    if legacy_path != bench_path and legacy_path.exists():
+        raise typer.BadParameter(
+            f"The bench '{legacy_path.name}' already exists at {legacy_path} and serves the site "
+            f"'{legacy_path.name}', which is the site '{benchname}' would serve. Aborting operation."
+        )
+
+    return benchname
 
 
 def alias_domains_validation_callback(value: str | None) -> list[str]:

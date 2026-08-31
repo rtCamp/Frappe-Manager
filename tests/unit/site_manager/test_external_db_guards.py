@@ -35,8 +35,18 @@ ROOT_PASSWORD = "global-db-root-secret"
 
 
 def _config(tmp_path: Path, *, name: str, external_site: str | None = None, ca: str | None = None) -> BenchConfig:
-    """A bench config whose `[database]` table holds an entry for `external_site` only."""
+    """A bench config recording its own site, plus `external_site` on an external database.
+
+    Every site the config describes gets a `[sites."<site>"]` entry, because that is now the
+    invariant: create and the migration both write one per bench, and it is how a bench-scoped
+    command knows which site it means. `external_site` differs from `name` in the test that proves
+    the guard resolves per site rather than per bench, and there the config legitimately describes
+    two: the bench's own on global-db, and the external one.
+    """
     toml = f'name = "{name}"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
+    toml += f'\n[sites."{name}"]\n'
+    if external_site and external_site != name:
+        toml += f'\n[sites."{external_site}"]\n'
     if external_site:
         toml += f'\n[sites."{external_site}".database]\nhost = "{EXTERNAL_HOST}"\nname = "{SCHEMA}"\n'
         if ca:

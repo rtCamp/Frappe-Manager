@@ -1421,7 +1421,9 @@ class BenchConfig(BaseModel):
         """
         if not self.sites:
             return None
-        return self.sites.get(site or self.name)
+        # Defaults to the RECORDED site, not to `name`: `name` is the bench, and a bench called
+        # `shop` would find no entry for a site called `shop.localhost`.
+        return self.sites.get(site or self.primary_site)
 
     def get_database_config(self, site: str | None = None) -> DatabaseConfig | None:
         """
@@ -1696,7 +1698,9 @@ class BenchConfig(BaseModel):
         # module, so a top-level import here is a cycle.
         from frappe_manager.site_manager.modules import db_tls
 
-        site = site or self.name
+        # The recorded site, not the bench name: this path writes `sites/<site>/site_config.json`
+        # and picks the TLS material out of `config/tls/<site>/`.
+        site = site or self.primary_site
         db_config = self.get_database_config(site)
         if db_config is None:
             return {}
@@ -1724,19 +1728,46 @@ class BenchConfig(BaseModel):
         return data
 
     @property
+    def primary_site(self) -> str:
+        """The site this bench serves, read from `[sites]`.
+
+        This accessor was deliberately absent until the table existed. The objection then was that
+        one returning `self.name` would look authoritative and be wrong the moment a bench is named
+        `shop` and serves `shop.localhost`; now the table records the site, so the config can answer
+        it truthfully and that objection is spent.
+
+        Falls back to `name` only when nothing is recorded, which is the mid-create state and a
+        migration part-way through writing the table, not an old file shape.
+        """
+        if not self.sites:
+            return self.name
+        if self.name in self.sites:
+            # An entry named after the bench: every bench before the decoupling, and the tie-break
+            # when a config describes more than one site.
+            return self.name
+        if len(self.sites) == 1:
+            # One recorded site under a different name: the bench name and the site name have come
+            # apart, which is exactly what the table is for.
+            return next(iter(self.sites))
+        # Several, none named after the bench. Nothing here can choose, and guessing would point a
+        # bench-scoped operation at another site's schema.
+        raise ValueError(
+            f"bench_config.toml for {self.name!r} records {len(self.sites)} sites "
+            f"({', '.join(sorted(self.sites))}) and none is named after the bench, so fm cannot tell "
+            f"which one a bench-scoped command means."
+        )
+
+    @property
     def primary_domain(self) -> str:
         """The hostname the primary site is served on: nginx `VIRTUAL_HOST`, the certificate
         subject, an HTTP `Host:` header.
 
-        This is the DOMAIN role of `name`, not the site role. `BenchConfig.name` is the bench (the
-        design's target shape is `name = "shop"` alongside `[sites."a.example.com"]`), so the
-        config cannot answer "which site" until that table exists; `Bench.site_name` owns that
-        question and reads the bench directory, which is what production actually uses for
-        `sites/<name>/`. Keeping the site question off this model is deliberate: an accessor here
-        returning `self.name` would look authoritative and be wrong the moment a bench is named
-        `shop` and serves `shop.localhost`.
+        The site's name IS its domain: a site is a Frappe schema addressed by hostname, and
+        `validate_sitename` is what mints `shop` into `shop.localhost`. So this is the site, NOT
+        `name`: a bench called `shop` serves `shop.localhost`, and returning `shop` here would put
+        an unroutable host into `VIRTUAL_HOST` and a certificate subject nothing resolves.
         """
-        return self.name
+        return self.primary_site
 
     @property
     def domains(self) -> list[str]:
@@ -1750,12 +1781,11 @@ class BenchConfig(BaseModel):
     def get_site_mappings(self) -> dict[str, str]:
         """domain -> site, for the nginx entrypoint's `SITE_MAPPINGS`.
 
-        The value is the identity collapse in one expression: it must be the SITE serving that
-        domain, and the only thing this model knows is its own name. It is correct today because a
-        bench holds one site named after it. When `[sites]` lands, the value comes from the site
-        that owns the domain and this becomes a real per-domain map.
+        Every domain this bench serves maps to its one site. The value is the SITE and not the bench
+        name: nginx hands it to Frappe as the site to serve, so a bench called `shop` sending `shop`
+        instead of `shop.localhost` would name a `sites/` directory that does not exist.
         """
-        return dict.fromkeys(self.domains, self.name)
+        return dict.fromkeys(self.domains, self.primary_site)
 
     def get_newrelic_config(self) -> NewRelicConfig | None:
         """`[monitoring.newrelic]`, or None when the bench configures no monitoring at all."""

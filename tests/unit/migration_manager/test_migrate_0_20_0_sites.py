@@ -63,7 +63,7 @@ def _bench(tmp_path, text: str):
 def test_the_database_table_moves_under_the_site(step, tmp_path):
     bench, path = _bench(tmp_path, BASE + EXTERNAL)
 
-    step._move_database_under_sites(bench)
+    step._write_sites_table(bench)
 
     text = path.read_text()
     assert f'[sites."{SITE}".database]' in text
@@ -75,7 +75,7 @@ def test_every_field_survives_the_move(step, tmp_path):
     cannot connect at all, so this asserts the whole record rather than a sample of it."""
     bench, path = _bench(tmp_path, BASE + EXTERNAL)
 
-    step._move_database_under_sites(bench)
+    step._write_sites_table(bench)
     database = BenchConfig.import_from_toml(path).get_database_config()
 
     assert (database.host, database.port, database.name) == ("rds.internal", 3307, "app_prod")
@@ -88,7 +88,7 @@ def test_the_migrated_file_is_what_the_loader_reads(step, tmp_path):
     somewhere under `[sites]`."""
     bench, path = _bench(tmp_path, BASE + EXTERNAL)
 
-    step._move_database_under_sites(bench)
+    step._write_sites_table(bench)
     config = BenchConfig.import_from_toml(path)
 
     assert config.get_database_config(SITE) is not None
@@ -100,7 +100,7 @@ def test_unrelated_config_is_left_alone(step, tmp_path):
     extra = '\n[redis]\ncache = "redis://r.example:6379/0"\nqueue = "redis://r.example:6379/1"\n'
     bench, path = _bench(tmp_path, BASE + 'alias_domains = ["www.shop.example.com"]\n' + EXTERNAL + extra)
 
-    step._move_database_under_sites(bench)
+    step._write_sites_table(bench)
     config = BenchConfig.import_from_toml(path)
 
     assert config.alias_domains == ["www.shop.example.com"]
@@ -116,10 +116,10 @@ def test_running_it_again_changes_nothing(step, tmp_path):
     release sorts below its own final version."""
     bench, path = _bench(tmp_path, BASE + EXTERNAL)
 
-    step._move_database_under_sites(bench)
+    step._write_sites_table(bench)
     once = path.read_text()
-    step._move_database_under_sites(bench)
-    step._move_database_under_sites(bench)
+    step._write_sites_table(bench)
+    step._write_sites_table(bench)
 
     assert path.read_text() == once
 
@@ -130,22 +130,37 @@ def test_an_already_migrated_site_is_not_overwritten_by_a_stale_table(step, tmp_
     both = BASE + EXTERNAL + f'\n[sites."{SITE}".database]\nhost = "migrated.internal"\nname = "app_prod"\n'
     bench, path = _bench(tmp_path, both)
 
-    step._move_database_under_sites(bench)
+    step._write_sites_table(bench)
 
     assert BenchConfig.import_from_toml(path).get_database_config().host == "migrated.internal"
 
 
-# --------------------------------------------------------------------------- nothing to do
+# ------------------------------------------------------- a bench with no external database
 
 
-def test_a_bench_with_no_external_database_is_untouched(step, tmp_path):
-    """Most benches are on `global-db` and have no `[database]` table at all."""
+def test_a_global_db_bench_still_gets_its_site_recorded(step, tmp_path):
+    """Most benches are on `global-db` and have no `[database]` table, so before this they had
+    nowhere at all that named their site. The entry has no keys and that is the point: it records
+    the NAME, which is the one fact that survives the bench name and the site name coming apart."""
     bench, path = _bench(tmp_path, BASE)
-    before = path.read_text()
 
-    step._move_database_under_sites(bench)
+    step._write_sites_table(bench)
 
-    assert path.read_text() == before
+    assert f'[sites."{SITE}"]' in path.read_text()
+    assert list(BenchConfig.import_from_toml(path).sites or {}) == [SITE]
+
+
+def test_a_global_db_bench_gains_nothing_but_the_site_entry(step, tmp_path):
+    """The step rewrites the whole document, so it has to be provably narrow: no invented database,
+    no other key touched."""
+    bench, path = _bench(tmp_path, BASE)
+
+    step._write_sites_table(bench)
+    config = BenchConfig.import_from_toml(path)
+
+    assert config.get_database_config() is None
+    assert config.runtime.value == "mount"
+    assert config.name == SITE
 
 
 def test_a_missing_config_file_is_not_an_error(step, tmp_path):
@@ -155,7 +170,7 @@ def test_a_missing_config_file_is_not_an_error(step, tmp_path):
     bench.path = tmp_path
     bench.name = SITE
 
-    step._move_database_under_sites(bench)  # must not raise
+    step._write_sites_table(bench)  # must not raise
 
 
 def test_an_empty_database_table_is_dropped(step, tmp_path):
@@ -163,7 +178,7 @@ def test_an_empty_database_table_is_dropped(step, tmp_path):
     loader no longer reads."""
     bench, path = _bench(tmp_path, BASE + "\n[database]\n")
 
-    step._move_database_under_sites(bench)
+    step._write_sites_table(bench)
 
     assert "[database]" not in path.read_text()
 
@@ -178,6 +193,6 @@ def test_the_rewrite_leaves_the_file_at_0600(step, tmp_path):
     bench, path = _bench(tmp_path, BASE + EXTERNAL)
     path.chmod(0o664)
 
-    step._move_database_under_sites(bench)
+    step._write_sites_table(bench)
 
     assert stat.S_IMODE(path.stat().st_mode) == 0o600

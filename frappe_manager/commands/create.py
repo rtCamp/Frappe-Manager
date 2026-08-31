@@ -350,6 +350,41 @@ def _resolve_redis(redis_cache: str | None, redis_queue: str | None) -> RedisCon
         raise typer.BadParameter(f"--redis-cache / --redis-queue: {_first_error(e)}") from e
 
 
+def mint_global_db_schema_name(site: str) -> str:
+    """The schema fm creates on its own `global-db` container for `site`.
+
+    Off the SITE, not the bench. The schema belongs to the site, so two benches serving
+    differently-named sites must not be able to collide here, and a bench renamed later must not
+    imply a different schema. Distinct from `--db-name`, which names a schema on a server fm does
+    not own. The random suffix is what actually guarantees uniqueness; the prefix is for a human
+    reading `SHOW DATABASES`.
+    """
+    sanitized = site.replace(".", "_").replace("-", "_")
+    return f"fm_{sanitized}_{secrets.token_hex(8)}"
+
+
+def record_site(
+    sites: dict[str, SiteConfig] | None, site: str, database: DatabaseConfig | None
+) -> dict[str, SiteConfig]:
+    """`[sites]` with `site` recorded, carrying `database` when there is one.
+
+    Every bench records its site, external database or not, keyed by the SITE name. This is the only
+    place that survives the bench name and the site name being different: the directory says `shop`,
+    this says `shop.localhost`, and `Bench.site_name` reads it back. An entry with no keys
+    round-trips as a bare `[sites."<name>"]` header, which is the record a bench on the global-db
+    container needs.
+
+    An entry already present is updated rather than replaced, so a `--config` overlay that described
+    the site keeps whatever else it set.
+    """
+    recorded = dict(sites or {})
+    existing = recorded.get(site)
+    recorded[site] = (
+        existing.model_copy(update={"database": database}) if existing else SiteConfig(database=database)
+    )
+    return recorded
+
+
 def _resolve_external_options(
     *,
     configured: DatabaseConfig | None,
@@ -784,17 +819,18 @@ def create(
     verbose = ctx.obj["verbose"]
     fm_config: FMConfigManager = ctx.obj["fm_config_manager"]
 
-    benchname = validate_sitename(benchname)
+    # The BENCH keeps the name as typed; the SITE is its FQDN form. `fm create shop` yields bench
+    # `shop` serving site `shop.localhost`, and `fm create a.example.com` yields bench
+    # `a.example.com` serving `a.example.com`, because a name that is already a domain is left
+    # alone. This is the one place the two are minted, and everything downstream reads them apart.
+    sitename = validate_sitename(benchname)
     output = get_global_output_handler()
     bench_service = BenchService(CLI_BENCHES_DIRECTORY, services_manager, verbose=verbose, output_handler=output)
     bench_config_path = bench_service.benches_directory / benchname / CLI_BENCH_CONFIG_FILE_NAME
 
     developer_mode_status = developer_mode == EnableDisableOptionsEnum.enable
     apps_config = cast("list[AppConfig]", apps)
-    sanitized_bench_name = benchname.replace(".", "_").replace("-", "_")
-    # The schema fm mints on its own global-db container. Distinct from --db-name, which
-    # names a schema on a server fm does not own.
-    global_db_name = f"fm_{sanitized_bench_name}_{secrets.token_hex(8)}"
+    global_db_name = mint_global_db_schema_name(sitename)
 
     # One construction path: create defaults, then each --config overlay, then the flags the user
     # actually passed. Precedence is the merge order, so no field needs a per-field application step
@@ -848,7 +884,7 @@ def create(
     # External database / redis. Every refusal is raised here, before the bench directory,
     # the compose file or a single connection exists.
     database_config, redis_config, credentials = _resolve_external_options(
-        configured=bench_config.get_database_config(benchname),
+        configured=bench_config.get_database_config(sitename),
         db_host=db_host,
         db_port=db_port,
         db_port_given=ctx.get_parameter_source("db_port") in _EXPLICIT_SOURCES,
@@ -864,17 +900,7 @@ def create(
         redis_cache=redis_cache,
         redis_queue=redis_queue,
     )
-    if database_config is not None:
-        # Keyed by site name, which is the bench name today: when a bench can hold several sites
-        # this becomes a data change rather than a schema change. Written under [sites] so a fresh
-        # bench starts in the shape the migration moves older ones into, rather than being created
-        # in the old shape and then needing migrating.
-        sites = dict(bench_config.sites or {})
-        existing = sites.get(benchname)
-        sites[benchname] = (
-            existing.model_copy(update={"database": database_config}) if existing else SiteConfig(database=database_config)
-        )
-        bench_config.sites = sites
+    bench_config.sites = record_site(bench_config.sites, sitename, database_config)
     if redis_config is not None:
         bench_config.redis = redis_config
     if credentials is not None:
@@ -886,7 +912,18 @@ def create(
         bench_config.attach_existing_site = credentials.attach_existing_site
         bench_config.encryption_key = credentials.encryption_key
 
-    site_database = bench_config.get_database_config(benchname)
+    # Say both names out loud. `fm create shop` makes a bench called `shop` serving a site called
+    # `shop.localhost`, and an operator who is told only one of them cannot tell which to type at
+    # `fm shell` or which host to open.
+    if sitename != benchname:
+        output.print(
+            f"Bench [fm.info]{benchname}[/fm.info] will serve the site [fm.info]{sitename}[/fm.info].",
+            emoji_code=":globe_with_meridians:",
+        )
+
+    # Keyed by the SITE, which is what `[sites]` holds: looking this up by the bench name finds
+    # nothing the moment the two differ.
+    site_database = bench_config.get_database_config(sitename)
     if site_database is not None:
         output.print(
             f"External database: this site lives on [fm.info]{site_database.host}:{site_database.port}"

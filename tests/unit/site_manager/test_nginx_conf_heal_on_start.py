@@ -85,7 +85,7 @@ def _bench(path: Path, docker_ops) -> Bench:
     # value on a real BenchConfig (default 50M). Omitting it here made the refresh raise
     # AttributeError, which the best-effort start path then swallowed as a warning -- so every
     # assertion below about real-ip.conf passed or failed for the wrong reason.
-    bench.bench_config = SimpleNamespace(auth=None, admin_tools=False, upload_limit="50M")
+    bench.bench_config = SimpleNamespace(auth=None, admin_tools=False, upload_limit="50M", sites=None)
     bench.bench_nginx_controller = MagicMock()
     # The overlay refresh reads the subnet from the services compose, which is the pinned
     # source of truth. Wiring it keeps these tests off the live-docker fallback, which would

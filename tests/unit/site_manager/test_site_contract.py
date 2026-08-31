@@ -1286,6 +1286,9 @@ class TestHandleDatabaseDeletion:
 
     def test_external_database_config_is_looked_up_for_this_site(self, harness):
         harness.bench.bench_config = MagicMock()
+        # A bare MagicMock answers `len() == 0` and `in` as False, so `site_name` cannot resolve
+        # and refuses. Recording the bench's own site is what production does.
+        harness.bench.bench_config.sites = {SITE: MagicMock()}
         harness.bench.external_database_config()
         harness.bench.bench_config.get_database_config.assert_called_once_with(SITE)
 

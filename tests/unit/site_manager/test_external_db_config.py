@@ -50,7 +50,12 @@ def _bc(tmp_path: Path, **kwargs) -> BenchConfig:
     """
     if "database" in kwargs:
         databases = kwargs.pop("database") or {}
-        kwargs["sites"] = {site: SiteConfig(database=cfg) for site, cfg in databases.items()}
+        # The bench's own site is always recorded, then any site the caller gave a database. That is
+        # the invariant create and the migration establish, and without it a config describing only
+        # ANOTHER site would make that one look like this bench's.
+        sites = {_SITE: SiteConfig()}
+        sites.update({site: SiteConfig(database=cfg) for site, cfg in databases.items()})
+        kwargs["sites"] = sites
     return BenchConfig(
         name=_SITE,
         developer_mode=False,
@@ -314,17 +319,19 @@ def test_create_bench_site_config_writes_a_file_that_does_not_exist_yet(tmp_path
     """
     from frappe_manager.site_manager.site import Bench
 
-    # `bench.path` is the BENCH directory and `bench.name` is read here purely as the SITE name:
-    # `create_bench_site_config` builds `<path>/workspace/frappe-bench/sites/<name>/`
-    # (`frappe_manager/site_manager/site.py:439`). The two roles are one attribute until phase 2
-    # gives the site its own identity, so the expected path is built from the same constant the
-    # fixture declares as the site rather than from a second literal: when the site stops coming
-    # from `bench.name`, this assertion moves with it instead of quietly still matching.
+    # `bench.path` is the BENCH directory; the `sites/<X>/` segment inside it is the SITE.
+    # `create_bench_site_config` builds `<path>/workspace/frappe-bench/sites/<site_name>/`, and
+    # `site_name` now comes from the recorded `[sites]` entry rather than from the directory, so the
+    # stand-in has to carry one. Naming the bench `shop` while its site is `shop.localhost` is the
+    # shape after the decoupling, and it makes this assertion fail if the site directory is ever
+    # built from the bench name again.
+    bench_name = "shop"
     site = "shop.localhost"
 
     bench = object.__new__(Bench)
     bench.path = tmp_path
-    bench.name = site
+    bench.name = bench_name
+    bench.bench_config = _bc(tmp_path, sites={site: SiteConfig()})
 
     Bench.create_bench_site_config(bench, {"db_name": "app_prod", "db_host": "mydb.example.com"})
 

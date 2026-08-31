@@ -271,10 +271,17 @@ class Bench:
         verbose: bool = False,
         output_handler: OutputHandler | None = None,
     ) -> "Bench":
-        if domain_level(bench_name) == 0:
-            bench_name = bench_name + ".localhost"
-
+        # Same rule as the CLI's resolver: a bench name is taken as typed, and the `.localhost`
+        # form is only a fallback for benches created before the bench name and the site name came
+        # apart. Appending unconditionally here overrode whatever the resolver decided, so a bench
+        # genuinely called `shop` could not be opened at all.
         bench_path = benches_path / bench_name
+        if not bench_path.exists() and domain_level(bench_name) == 0:
+            legacy_name = bench_name + ".localhost"
+            legacy_path = benches_path / legacy_name
+            if legacy_path.exists():
+                bench_name, bench_path = legacy_name, legacy_path
+
         bench_config_path: Path = bench_path / bench_config_file_name
 
         if not bench_path.exists():
@@ -320,28 +327,51 @@ class Bench:
         """The Frappe site this bench acts on: the schema, the `sites/<name>/` directory, the
         `--site` argument.
 
-        Equal to `self.name` today and NOT interchangeable with it. `self.name` is the BENCH: its
-        directory under `~/frappe/sites/`, its compose project, the address a user types. This is
-        the SITE. They are the same string only because a bench holds one site named after it, and
-        the bench directory is the source because that is what production writes `sites/<name>/`
-        from; `BenchConfig.name` is deliberately NOT used here, since the design's target shape is
-        `name = "shop"` beside `[sites."shop.localhost"]` and reading it would be wrong the moment
-        those differ. When `[sites]` lands, this property is the one place that changes.
+        Read from `[sites]`, which is where every bench now records its one site. That is the whole
+        purpose of the table: the site's name is a FACT about the bench, not something derivable
+        from the directory once `fm create shop` starts yielding a site called `shop.localhost`.
+
+        `self.name` is the BENCH: its directory under `~/frappe/sites/`, its compose project, the
+        address a user types. The two are still the same string for existing benches, and reading
+        them from different places is what lets that stop being true without touching any caller.
+
+        A bench with no recorded site falls back to its own name. That is not a compatibility
+        branch for an old file shape: `Bench` objects are also built mid-create, before the config
+        has been assembled, and during a migration that is in the middle of writing the table.
         """
-        return self.name
+        sites = self.bench_config.sites if self.bench_config else None
+        if not sites:
+            # No recorded site. NOT a compatibility branch for an old file shape: `Bench` objects
+            # are built mid-create, before the config is assembled, and during a migration that is
+            # part-way through writing the table.
+            return self.name
+        if self.name in sites:
+            # An entry named after the bench: that is every bench today, and it is also what keeps
+            # a config describing several sites resolving to the right one.
+            return self.name
+        if len(sites) == 1:
+            # One recorded site under a different name: the bench name and the site name have come
+            # apart, which is the whole point of recording it.
+            return next(iter(sites))
+        # Several sites, none named after the bench. Nothing here can choose between them, and
+        # guessing would silently target someone else's schema.
+        raise BenchException(
+            self.name,
+            message=f"bench_config.toml records {len(sites)} sites ({', '.join(sorted(sites))}) and none is "
+            f"named after the bench, so fm cannot tell which one a bench-scoped command means. Name the site "
+            f"explicitly, or repair \\[sites] so one entry matches the bench.",
+        )
 
     @property
     def primary_domain(self) -> str:
         """The hostname this bench's primary site is served on: nginx, certificates, `Host:`.
 
-        Reads `self.name` rather than `bench_config.primary_domain` on purpose. Both are the same
-        string today, but after the decoupling the primary domain is the SITE's name, not
-        `BenchConfig.name` (the bench), so sourcing it from the config would have to be undone.
-        `BenchConfig` keeps its own copy for the two consumers that hold nothing but a config
-        (`get_site_mappings`, `export_to_compose_inputs`); this is the one every caller with a
-        `Bench` in hand should use.
+        The SITE's name, not the bench's. A site is a Frappe schema addressed by hostname, so the
+        two are the same string, and a bench called `shop` serves `shop.localhost`: returning
+        `self.name` here would put an unroutable host into `VIRTUAL_HOST`, a certificate subject
+        nothing resolves, and a `Host:` header the readiness probe cannot match.
         """
-        return self.name
+        return self.site_name
 
     @property
     def domains(self) -> list[str]:

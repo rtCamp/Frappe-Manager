@@ -138,6 +138,42 @@ def test_create_still_accepts_an_ordinary_name(tmp_path):
     assert "is reserved" not in _said(result)
 
 
+# ------------------------------------------- the bench name is a name, not the site's domain
+
+
+def test_create_keeps_the_bench_name_as_typed(tmp_path):
+    """`fm create shop` makes a bench called `shop`, serving a site called `shop.localhost`. The
+    name used to be normalised to the site's form here, so the bench WAS its site and the directory
+    came out as `shop.localhost`."""
+    from frappe_manager.utils.callbacks import create_command_sitename_callback
+
+    root = tmp_path / "sites"
+    root.mkdir(parents=True)
+    with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
+        assert create_command_sitename_callback("shop") == "shop"
+
+
+def test_create_leaves_a_name_that_is_already_a_domain_alone(tmp_path):
+    from frappe_manager.utils.callbacks import create_command_sitename_callback
+
+    root = tmp_path / "sites"
+    root.mkdir(parents=True)
+    with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
+        assert create_command_sitename_callback("a.example.com") == "a.example.com"
+
+
+def test_create_refuses_a_name_whose_legacy_bench_already_exists(tmp_path):
+    """A bench made before the names came apart is called `shop.localhost` and serves that site, so
+    `fm create shop` would otherwise stand up a second bench beside it serving the same site."""
+    from frappe_manager.utils.callbacks import create_command_sitename_callback
+
+    root = tmp_path / "sites"
+    (root / "shop.localhost").mkdir(parents=True)
+    with patch("frappe_manager.utils.callbacks.CLI_BENCHES_DIRECTORY", root):
+        with pytest.raises(typer.BadParameter, match="already exists"):
+            create_command_sitename_callback("shop")
+
+
 # -------------------------------------------------------------------- fm shell
 
 
