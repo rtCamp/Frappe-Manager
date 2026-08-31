@@ -86,7 +86,12 @@ class UpdateWorld:
         self.fm_config.validation.enforce_domain_uniqueness = True
 
         self.bench = MagicMock(name="Bench")
+        # bench, site and domain are one string today; a mock that sets only `name` hands a
+        # MagicMock to any caller that correctly asks for the site or the domain.
         self.bench.name = BENCH
+        self.bench.site_name = BENCH
+        self.bench.primary_domain = BENCH
+        self.bench.domains = [BENCH]
         self.bench.path = self.bench_path
         self.bench.running = True
 
@@ -1111,7 +1116,12 @@ class DeployWorld:
         self.services = MagicMock(name="services_manager")
 
         self.bench = MagicMock(name="Bench")
+        # bench, site and domain are one string today; a mock that sets only `name` hands a
+        # MagicMock to any caller that correctly asks for the site or the domain.
         self.bench.name = BENCH
+        self.bench.site_name = BENCH
+        self.bench.primary_domain = BENCH
+        self.bench.domains = [BENCH]
         cfg = self.bench.bench_config
         cfg.runtime = BenchRuntime.image
         cfg.deploy_state = None

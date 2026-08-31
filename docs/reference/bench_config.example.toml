@@ -165,11 +165,15 @@
 # bench). Applied after source; overrides existing files. [optional, empty by default]
 # include = ...
 
-# ---- [database.<key>] ----------------------------------------------------------------------
+# ---- [sites.<key>] -------------------------------------------------------------------------
 
-# External database per site, keyed by site name ([database."<site>"]). No entry for a site means
-# that site lives on the fm-managed global-db container.
-# [database.<key>]
+# The Frappe sites this bench holds, keyed by site name ([sites."<site>"]). Exactly one entry
+# today. Replaces the old [database."<site>"] table, whose contents now live at
+# [sites."<site>".database].
+# [sites.<key>]
+#
+# The database server one site lives on (`[sites."<site>".database]`).
+# [sites.<key>.database]
 # Database server hostname or IP. Any MariaDB; MySQL is not supported. [required]
 # host = ...
 # Database server port. [default: 3306]

@@ -201,9 +201,10 @@ class BenchWorkers:
 
             extra_hosts = None
             if proxy_ip:
-                all_domains = [self.bench.name]
-                if self.bench.bench_config.alias_domains:
-                    all_domains.extend(self.bench.bench_config.alias_domains)
+                # One hosts override per served hostname, pointing it at the global proxy so a
+                # background job can reach the site over HTTP. A single worker container serves the
+                # whole bench, so this must be every domain the bench serves, not one.
+                all_domains = self.bench.domains
                 extra_hosts = [f"{domain}:{proxy_ip}" for domain in all_domains]
 
             # For dev SSL, workers need the CA cert mounted so outbound HTTPS

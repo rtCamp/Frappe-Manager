@@ -54,7 +54,7 @@ repo = "frappe/erpnext"
 """
 
 _EXTERNAL_TABLE = f"""
-[database."{SITE}"]
+[sites."{SITE}".database]
 host = "{DB_HOST}"
 name = "{SCHEMA}"
 user = "app_svc"
@@ -177,7 +177,14 @@ class _Harness:
     def _bench(self, config: BenchConfig):
         events = self.events
         bench = MagicMock()
+        # A real Bench derives all three from one string today, so a mock that sets only `name`
+        # would hand a MagicMock to any caller that correctly asks for the site or the domain.
+        # Setting them together is what keeps this harness honest about which role it is standing
+        # in for, and the day they diverge these become three different values here too.
         bench.name = SITE
+        bench.site_name = SITE
+        bench.primary_domain = SITE
+        bench.domains = [SITE]
         bench.path = self.root
         bench.bench_config = config
         bench.exists = True
@@ -529,7 +536,12 @@ def test_a_failing_clear_cache_does_not_fail_the_create(tmp_path):
 def test_a_localhost_bench_is_not_told_to_edit_the_hosts_file(tmp_path):
     """`.localhost` resolves without a hosts entry, so the notice is suppressed."""
     harness = _Harness(_config(tmp_path), tmp_path)
+    # Renaming the bench renames its one site and its domain with it, exactly as production
+    # does while they are the same string.
     harness.bench.name = "local.localhost"
+    harness.bench.site_name = "local.localhost"
+    harness.bench.primary_domain = "local.localhost"
+    harness.bench.domains = ["local.localhost"]
 
     harness.reraising_orchestrator().create_bench()
 
@@ -1716,6 +1728,29 @@ def test_a_failing_migrate_fails_the_create(tmp_path):
     assert "migrate" in warned
     printed = " ".join(str(call) for call in harness.output.print.call_args_list)
     assert "Database migrations completed" not in printed
+
+
+def test_the_migrate_remedy_addresses_the_site_instead_of_naming_it_twice(tmp_path):
+    """This remedy line used the same expression twice in one string, once as the `fm shell`
+    address (the BENCH) and once as the `--site` argument (the SITE), which is the canonical
+    example of the two identities being conflated. Once a bench named `shop` serves
+    `shop.localhost` the old form told the operator to migrate a site that does not exist.
+
+    The address form says both at once, and `fm shell BENCH/SITE` exports FRAPPE_SITE so the bare
+    `bench` command inside targets that site with no second name to keep in step. Nothing asserted
+    this message before, so the old form could be reintroduced silently.
+    """
+    harness = _Harness(_config(tmp_path), tmp_path)
+    harness.bench.app_manager._container_run.side_effect = RuntimeError("migrate exploded")
+    orchestrator = harness.orchestrator(real=("_phase6_install_apps", "_run_bench_migrate"))
+
+    with pytest.raises(BenchException):
+        orchestrator.create_bench()
+
+    warned = " ".join(str(call) for call in harness.output.warning.call_args_list)
+    assert f"fm shell {SITE}/{SITE} -- bench migrate" in warned
+    # The `--site` flag is what needed a second copy of the name kept in step with the first.
+    assert "--site" not in warned
 
 
 def test_the_migrate_command_is_built_from_the_benchs_own_cli_prefix(tmp_path):

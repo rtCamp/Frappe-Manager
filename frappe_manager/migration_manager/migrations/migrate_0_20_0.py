@@ -157,6 +157,9 @@ class MigrationV0200(MigrationBase):
         self._move_admin_tools_credentials(bench)
         # Ahead of the key drop: this one renames keys the drop list may later be told to remove.
         self._rewrite_ssl_table(bench)
+        # Also ahead of it, and for the same reason: this moves `[database]` rather than dropping
+        # it, so it has to run while the table is still there.
+        self._move_database_under_sites(bench)
         self._drop_removed_config_keys(bench)
 
         compose_path = bench.path / "docker-compose.admin-tools.yml"
@@ -319,6 +322,60 @@ class MigrationV0200(MigrationBase):
 
         toml_document.save(config_path, doc)
         self.output.print(f"Dropped removed config {', '.join(dropped)} for {bench.name}")
+
+    def _move_database_under_sites(self, bench: MigrationBench):
+        """`[database."<site>"]` becomes `[sites."<site>".database]`.
+
+        A bench holds exactly one site today and its name is the bench's, so this table already had
+        a site as its key: the move gives that site somewhere to hold its other per-site facts
+        later, instead of them accumulating as top-level keys that only happen to be per-site
+        because there is only one site.
+
+        `import_from_toml` reads only the new spelling, which is the established pattern here
+        rather than a new risk: the same release renamed `dns_challenge_providers` to
+        `dns_providers` and reads only that. A bench that gets this far carries the new shape, so
+        there is nothing to fall back to, and a compatibility branch would land in the one function
+        whose dual paths caused three separate bugs in this cycle.
+
+        Idempotent, and it has to be: 0.20.0 is unreleased, so a bench recorded at `0.20.0.dev0`
+        re-runs this migration (`0.20.0.dev0 < 0.20.0`) whenever one is triggered at all.
+        """
+        config_path = bench.path / "bench_config.toml"
+        if not config_path.exists():
+            return
+
+        doc = tomlkit.parse(config_path.read_text())
+        old = doc.get("database")
+        if not isinstance(old, MutableMapping):
+            # Either already migrated, or the bench never had an external database. Both are
+            # nothing to do, and dropping a non-table `database` key is not this step's business.
+            return
+
+        sites = doc.get("sites")
+        if not isinstance(sites, MutableMapping):
+            sites = tomlkit.table(is_super_table=True)
+            doc["sites"] = sites
+
+        moved = []
+        for site_name, database in old.items():
+            if not isinstance(database, MutableMapping):
+                continue
+            site = sites.get(site_name)
+            if not isinstance(site, MutableMapping):
+                site = tomlkit.table(is_super_table=True)
+                sites[site_name] = site
+            # A `database` already under the site wins: it is the migrated copy, and overwriting it
+            # with the stale top-level one would undo a previous run of this step.
+            if "database" not in site:
+                site["database"] = database
+                moved.append(site_name)
+
+        del doc["database"]
+        toml_document.save(config_path, doc)
+        if moved:
+            self.output.print(f"Moved \\[database] under \\[sites] for {', '.join(moved)}")
+        else:
+            self.output.print(f"Dropped the empty \\[database] table for {bench.name}")
 
     def _rewrite_ssl_table(self, bench: MigrationBench):
         """Bring a bench's TLS configuration into the one shape the loader reads: an [ssl]

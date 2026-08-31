@@ -79,7 +79,9 @@ def orphaned_database_error(bench: "Bench", cause: Exception) -> BenchException:
             f"  fm delete {bench.name} --yes --no-delete-db-from-global-db",
         ]
     else:
-        site_config = bench.path / "workspace" / "frappe-bench" / "sites" / bench.name / "site_config.json"
+        # `bench.path` is the BENCH directory; the `sites/<X>/` segment inside it is the SITE. One
+        # statement, both identities, which is the shape this whole split exists to separate.
+        site_config = bench.path / "workspace" / "frappe-bench" / "sites" / bench.site_name / "site_config.json"
         lines += [
             f"The schema name could not be read from {site_config}. Find it there, or in global-db,",
             f"drop it, then run: fm delete {bench.name} --yes --no-delete-db-from-global-db",
@@ -313,6 +315,39 @@ class Bench:
         """Check if all bench services are running."""
         return self.docker_ops.is_running()
 
+    @property
+    def site_name(self) -> str:
+        """The Frappe site this bench acts on: the schema, the `sites/<name>/` directory, the
+        `--site` argument.
+
+        Equal to `self.name` today and NOT interchangeable with it. `self.name` is the BENCH: its
+        directory under `~/frappe/sites/`, its compose project, the address a user types. This is
+        the SITE. They are the same string only because a bench holds one site named after it, and
+        the bench directory is the source because that is what production writes `sites/<name>/`
+        from; `BenchConfig.name` is deliberately NOT used here, since the design's target shape is
+        `name = "shop"` beside `[sites."shop.localhost"]` and reading it would be wrong the moment
+        those differ. When `[sites]` lands, this property is the one place that changes.
+        """
+        return self.name
+
+    @property
+    def primary_domain(self) -> str:
+        """The hostname this bench's primary site is served on: nginx, certificates, `Host:`.
+
+        Reads `self.name` rather than `bench_config.primary_domain` on purpose. Both are the same
+        string today, but after the decoupling the primary domain is the SITE's name, not
+        `BenchConfig.name` (the bench), so sourcing it from the config would have to be undone.
+        `BenchConfig` keeps its own copy for the two consumers that hold nothing but a config
+        (`get_site_mappings`, `export_to_compose_inputs`); this is the one every caller with a
+        `Bench` in hand should use.
+        """
+        return self.name
+
+    @property
+    def domains(self) -> list[str]:
+        """Every hostname this bench serves, primary first, then aliases."""
+        return [self.primary_domain, *(self.bench_config.alias_domains or [])]
+
     def _get_services_running_status(self) -> dict:
         """Get the running status of all services."""
         return self.docker_ops.get_services_running_status()
@@ -422,7 +457,7 @@ class Bench:
         Args:
             config (dict): A dictionary containing the key-value pairs
         """
-        site_config_path = self.path / "workspace/frappe-bench/sites" / self.name / "site_config.json"
+        site_config_path = self.path / "workspace/frappe-bench/sites" / self.site_name / "site_config.json"
         if not site_config_path.exists():
             raise BenchException(self.name, message=f"File not found {site_config_path.name}.")
         save_dict_to_file(config, site_config_path)
@@ -436,7 +471,7 @@ class Bench:
         the site afterwards, so a file fm wrote first survives untouched and is what the rest of
         `new-site` reads. Unlike `set_bench_site_config` this creates the directory and the file.
         """
-        site_dir = self.path / "workspace/frappe-bench/sites" / self.name
+        site_dir = self.path / "workspace/frappe-bench/sites" / self.site_name
         site_dir.mkdir(parents=True, exist_ok=True)
         site_config_path = site_dir / "site_config.json"
         # save_dict_to_file merges, so it reads the file before writing and cannot create one.
@@ -670,7 +705,7 @@ class Bench:
         url = "http://localhost"
         headers = ""
         if self.bench_config.environment_type == FMBenchEnvType.prod:
-            headers = f"-H 'Host: {self.name}'"
+            headers = f"-H 'Host: {self.primary_domain}'"
 
         check_command = curl_command.format(retry=retry, headers=headers, url=url)
 
@@ -1061,7 +1096,7 @@ class Bench:
         means the fm-managed `global-db` container, exactly as before `[database]` existed. This is
         the single place that decision is made; `BenchService` calls it on the bench it is deleting.
         """
-        return self.bench_config.get_database_config(self.name)
+        return self.bench_config.get_database_config(self.site_name)
 
     def _handle_database_deletion(self, delete_db_from_global_db: bool | None):
         """
@@ -1224,12 +1259,12 @@ class Bench:
                 required_flag="--admin-pass",
             )
 
-        self.output.change_head(f"Resetting bench site {self.name}")
+        self.output.change_head(f"Resetting bench site {self.site_name}")
 
         self.site_manager.reset_bench_site(admin_pass)
         self.set_bench_site_config({"admin_password": admin_pass})
 
-        self.output.print(f"Reset bench site {self.name}")
+        self.output.print(f"Reset bench site {self.site_name}")
 
     def restart_supervisor_service(
         self,
@@ -1317,7 +1352,7 @@ class Bench:
         upload_limit = self.bench_config.upload_limit
         changed = False
 
-        site_config = self.path / "workspace" / "frappe-bench" / "sites" / self.name / "site_config.json"
+        site_config = self.path / "workspace" / "frappe-bench" / "sites" / self.site_name / "site_config.json"
         if site_config.is_file():
             wanted_bytes = self._parse_size_to_bytes(upload_limit)
             try:
@@ -1333,7 +1368,7 @@ class Bench:
         # the proxy's own 1M default no matter what its own nginx allows.
         vhostd_dir = self.services.path / "nginx-proxy" / "vhostd"
         if vhostd_dir.exists():
-            domains = [self.name, *self.bench_config.alias_domains]
+            domains = self.domains
             before = {d: (vhostd_dir / d).read_text() if (vhostd_dir / d).is_file() else None for d in domains}
             UploadLimitManager(vhostd_dir).set_upload_limit_for_domains(domains, upload_limit.lower())
             for domain, previous in before.items():

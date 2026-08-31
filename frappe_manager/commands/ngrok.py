@@ -95,10 +95,10 @@ def ngrok(
                 fm_config_manager.export_to_toml()
                 output.print("Saved ngrok auth token to config", emoji_code=":white_check_mark:")
 
-        output.print(f"Creating ngrok tunnel for {bench.name}", emoji_code=":link:")
+        output.print(f"Creating ngrok tunnel for {bench.primary_domain}", emoji_code=":link:")
 
         try:
-            create_tunnel(bench.name, auth_token)
+            create_tunnel(bench.primary_domain, auth_token)
         except Exception as e:
             output.display_error(f"Failed to create tunnel: {e!s}")
             raise

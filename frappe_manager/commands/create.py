@@ -32,6 +32,7 @@ from frappe_manager.site_manager.bench_config import (
     FMBenchEnvType,
     RedisConfig,
     RestartPolicyEnum,
+    SiteConfig,
     requests_immutable_runtime_inputs,
 )
 from frappe_manager.site_manager.bench_service import BenchService
@@ -864,9 +865,16 @@ def create(
         redis_queue=redis_queue,
     )
     if database_config is not None:
-        # Keyed by site name, which is the bench name today: when a bench can hold several
-        # sites this becomes a data change rather than a schema change.
-        bench_config.database = {**(bench_config.database or {}), benchname: database_config}
+        # Keyed by site name, which is the bench name today: when a bench can hold several sites
+        # this becomes a data change rather than a schema change. Written under [sites] so a fresh
+        # bench starts in the shape the migration moves older ones into, rather than being created
+        # in the old shape and then needing migrating.
+        sites = dict(bench_config.sites or {})
+        existing = sites.get(benchname)
+        sites[benchname] = (
+            existing.model_copy(update={"database": database_config}) if existing else SiteConfig(database=database_config)
+        )
+        bench_config.sites = sites
     if redis_config is not None:
         bench_config.redis = redis_config
     if credentials is not None:

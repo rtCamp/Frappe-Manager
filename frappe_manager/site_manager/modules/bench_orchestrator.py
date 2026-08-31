@@ -197,7 +197,7 @@ class BenchOrchestrator:
                 # Frappe caches that route miss in redis -- flush it or the fresh
                 # site 404s until a manual clear-cache.
                 self.output.change_head("Clearing website route cache")
-                clear_cmd = " ".join(bench.app_manager.bench_cli_cmd + ["--site", bench.name, "clear-cache"])
+                clear_cmd = " ".join(bench.app_manager.bench_cli_cmd + ["--site", bench.site_name, "clear-cache"])
                 try:
                     bench.app_manager._container_run(clear_cmd)
                 except Exception as e:
@@ -217,7 +217,7 @@ class BenchOrchestrator:
         if apps_installed:
             bench.info()
 
-            if ".localhost" not in bench.name:
+            if ".localhost" not in bench.primary_domain:
                 self.output.print(
                     "Please note that You will have to add a host entry to your system's hosts file to access the bench locally.",
                 )
@@ -264,7 +264,7 @@ class BenchOrchestrator:
         # Pre-create the site dir (frappe-owned) so the per-site bind isn't auto-created
         # root-owned by `compose up`; new-site --force then populates that existing empty
         # dir. (The compose was already projected to the image shape in phase 1.)
-        (bench.path / "workspace" / "frappe-bench" / "sites" / bench.name).mkdir(parents=True, exist_ok=True)
+        (bench.path / "workspace" / "frappe-bench" / "sites" / bench.site_name).mkdir(parents=True, exist_ok=True)
         self._phase3_start_and_verify_bench()
         self._phase4_create_site(force=True)
 
@@ -472,7 +472,7 @@ class BenchOrchestrator:
         if self._external_flow is db_probe.Flow.provision:
             self._provision_external_schema()
 
-        self.output.change_head(f"Creating bench site {bench.name}")
+        self.output.change_head(f"Creating bench site {bench.site_name}")
         bench.site_manager.create_bench_site(force=force)
 
         bench.set_bench_site_config({"admin_password": bench.bench_config.admin_pass})
@@ -496,7 +496,7 @@ class BenchOrchestrator:
 
     def _external_database(self) -> DatabaseConfig:
         """The `[database."<site>"]` entry driving this create. Only called once the gate ran."""
-        database = self.bench.bench_config.get_database_config(self.bench.name)
+        database = self.bench.bench_config.get_database_config(self.bench.site_name)
         if database is None:
             raise BenchOperationException(
                 self.bench.name,
@@ -527,7 +527,7 @@ class BenchOrchestrator:
         """
         bench = self.bench
         config = bench.bench_config
-        database = config.get_database_config(bench.name)
+        database = config.get_database_config(bench.site_name)
 
         if database is None:
             return
@@ -535,9 +535,9 @@ class BenchOrchestrator:
         mysql_home = None
         if database.ca:
             self.output.change_head("Installing the database CA")
-            db_tls.install_site_ca(bench.path, bench.name, Path(database.ca))
-            mysql_home = db_tls.site_mysql_home(bench.name)
-            self.output.print(f"Installed {database.ca} for {bench.name} and refreshed the CA bundle")
+            db_tls.install_site_ca(bench.path, bench.site_name, Path(database.ca))
+            mysql_home = db_tls.site_mysql_home(bench.site_name)
+            self.output.print(f"Installed {database.ca} for {bench.site_name} and refreshed the CA bundle")
 
         attach = config.attach_existing_site
         # Only a password the OPERATOR supplied can be authenticated. On the provisioning path fm
@@ -587,9 +587,9 @@ class BenchOrchestrator:
         # in only on the provisioning path: `grant_all_privileges` is the single thing in Frappe
         # that reads it and only `setup_database` reaches it, so on adopt-empty or attach the key
         # would imply behaviour it does not have.
-        self.output.change_head(f"Writing sites/{bench.name}/site_config.json")
+        self.output.change_head(f"Writing sites/{bench.site_name}/site_config.json")
         bench.create_bench_site_config(
-            config.get_site_config_data(bench.name, provisioning=decision.flow is db_probe.Flow.provision)
+            config.get_site_config_data(bench.site_name, provisioning=decision.flow is db_probe.Flow.provision)
         )
 
         if self._attaching:
@@ -751,12 +751,12 @@ class BenchOrchestrator:
                 admin_password=config.db_admin_password,
                 site_user=database.login_user,
                 schema=database.name,
-                mysql_home=db_tls.site_mysql_home(bench.name) if database.ca else None,
+                mysql_home=db_tls.site_mysql_home(bench.site_name) if database.ca else None,
             )
         else:
             result = db_probe.probe_stage_two(
                 self._probe_runner(use_run=False),
-                site=bench.name,
+                site=bench.site_name,
                 schema=database.name,
             )
 
@@ -798,7 +798,7 @@ class BenchOrchestrator:
         bench.site_manager.provision_external_schema(
             admin_user=config.db_admin_user,
             admin_password=config.db_admin_password,
-            site=bench.name,
+            site=bench.site_name,
         )
         # Only from here does a later failure have something to offer to undo.
         self._provisioned = database
@@ -823,9 +823,9 @@ class BenchOrchestrator:
         database = self._external_database()
 
         self.output.change_head(f"Attaching {bench.name} to the existing site in {database.name}")
-        bench.site_manager.create_site_dirs(bench.name)
+        bench.site_manager.create_site_dirs(bench.site_name)
         self.output.print(
-            f"Created the site directories for {bench.name}. Nothing was written to {database.name} on {database.host}."
+            f"Created the site directories for {bench.site_name}. Nothing was written to {database.name} on {database.host}."
         )
 
     def _disable_migrate_for_attach(self) -> None:
@@ -867,7 +867,7 @@ class BenchOrchestrator:
             "Attached site: phase 6 is skipped entirely, because bench install-app and bench"
             " migrate both write to the database. If the schema does need reconciling against"
             f" this bench's apps, that is yours to run when you choose: fm shell {bench.name},"
-            f" then bench --site {bench.name} migrate."
+            f" then bench --site {bench.site_name} migrate."
         )
 
         return True
@@ -917,7 +917,7 @@ class BenchOrchestrator:
             [
                 "import sys",
                 "import frappe",
-                f'frappe.init({json.dumps(bench.name)}, sites_path=".")',
+                f'frappe.init({json.dumps(bench.site_name)}, sites_path=".")',
                 f"frappe.flags.root_login = {json.dumps(admin_user)}",
                 "frappe.flags.root_password = sys.stdin.readline().strip()",
                 'frappe.local.session = frappe._dict({"user": "Administrator"})',
@@ -1028,7 +1028,7 @@ class BenchOrchestrator:
                 "How to fix:\n"
                 f"1. Shell into the bench: fm shell {bench.name}\n"
                 "2. Install apps manually:\n"
-                f"   bench --site {bench.name} install-app <app_name>\n"
+                f"   bench --site {bench.site_name} install-app <app_name>\n"
                 "3. Check logs for specific errors:\n"
                 f"   fm logs {bench.name} -f\n\n"
                 f"📋 Check detailed logs at: {CLI_DIR / 'logs' / 'fm.log'}\n",
@@ -1046,7 +1046,7 @@ class BenchOrchestrator:
         """
         bench = self.bench
 
-        migrate_cmd = " ".join(bench.app_manager.bench_cli_cmd + ["--site", bench.name, "migrate"])
+        migrate_cmd = " ".join(bench.app_manager.bench_cli_cmd + ["--site", bench.site_name, "migrate"])
 
         try:
             bench.app_manager._container_run(
@@ -1058,7 +1058,11 @@ class BenchOrchestrator:
             self.output.stop()
             self.output.warning(
                 "⚠️  Database migration failed. The site schema is NOT migrated. You may need to run:\n"
-                f"  fm shell {bench.name} -- bench --site {bench.name} migrate",
+                # This line used the same expression twice, once as the `fm shell` address (the
+                # BENCH) and once as the `--site` argument (the SITE). The address form says both
+                # at once, and `fm shell BENCH/SITE` exports FRAPPE_SITE so the bare `bench`
+                # command inside targets that site with no second name to keep in step.
+                f"  fm shell {bench.name}/{bench.site_name} -- bench migrate",
             )
             return False
         else:
@@ -1207,13 +1211,13 @@ class BenchOrchestrator:
         add_list = add_domains if add_domains else []
         remove_list = remove_domains if remove_domains else []
 
-        if bench.name in add_list:
-            self.output.warning(f"Skipping '{bench.name}' - primary domain cannot be added as alias")
-            add_list = [d for d in add_list if d != bench.name]
+        if bench.primary_domain in add_list:
+            self.output.warning(f"Skipping '{bench.primary_domain}' - primary domain cannot be added as alias")
+            add_list = [d for d in add_list if d != bench.primary_domain]
 
-        if bench.name in remove_list:
+        if bench.primary_domain in remove_list:
             self.output.stop()
-            raise ValueError(f"Cannot remove primary domain '{bench.name}'. Only alias domains can be removed.")
+            raise ValueError(f"Cannot remove primary domain '{bench.primary_domain}'. Only alias domains can be removed.")
 
         added_domains = []
         for domain in add_list:

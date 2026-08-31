@@ -1118,7 +1118,11 @@ class MonitoringConfig(BaseModel):
 
 
 class DatabaseConfig(BaseModel):
-    """External database for one site (`[database."<site>"]`; absent means the `global-db` container)."""
+    """The database server one site lives on (`[sites."<site>".database]`).
+
+    Absent means that site is on the fm-managed `global-db` container. This is the only switch:
+    there is no separate boolean.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -1140,6 +1144,41 @@ class DatabaseConfig(BaseModel):
     def login_user(self) -> str:
         """The user fm logs in as: `user` when set, otherwise the schema name."""
         return self.user or self.name
+
+
+class SiteConfig(BaseModel):
+    """One Frappe site inside a bench (`[sites."<name>"]`).
+
+    A bench holds exactly one site today, so this collection has one entry keyed by the site's
+    name. It exists now so that the things that are per-site have somewhere to live BEFORE a bench
+    can hold several, which is what makes the later change additive rather than a re-shaping.
+
+    The rule for what belongs here: fm stores what the OPERATOR told fm; Frappe stores what Frappe
+    generated. `database` is the first kind, which is why it can move here cleanly: the operator
+    named an external server at create time, Frappe never writes that table, so there is exactly
+    one owner and nothing to reconcile.
+
+    The schema's own credentials (`db_name`, `db_user`, `db_password`) are the second kind and
+    deliberately do NOT live here, though they were briefly added. Frappe writes them into
+    `sites/<site>/site_config.json` at `new-site` and rewrites them on restore and reinstall
+    without telling fm, so a copy here would go stale silently with no invalidation path and two
+    answers with no rule for which wins. The apparent payoff was letting fm still act when that
+    file is unreadable, which is the case `orphaned_database_error` reports; but this file sits in
+    the same bench directory, on the same disk, inside the same `rm -rf`, so it is almost never the
+    surviving copy. `get_bench_db_connection_info` reads them from Frappe's file, which stays the
+    single source.
+
+    `db_admin_user` and `db_admin_password` remain create-time only for a different reason: they
+    provision schemas on someone else's server, so no LATER fm run should be able to.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    database: DatabaseConfig | None = Field(
+        None,
+        description="External database server for this site. Absent means the site lives on the "
+        "fm-managed 'global-db' container, exactly as before `[database]` existed.",
+    )
 
 
 class RedisConfig(BaseModel):
@@ -1213,10 +1252,11 @@ class BenchConfig(BaseModel):
         description="Mount runtime: workspace was seeded from this baked image at create "
         "(extracted; no clone/install/build). Provenance record.",
     )
-    database: dict[str, DatabaseConfig] | None = Field(
+    sites: dict[str, SiteConfig] | None = Field(
         None,
-        description="External database per site, keyed by site name ([database.\"<site>\"]). "
-        "No entry for a site means that site lives on the fm-managed global-db container.",
+        description='The Frappe sites this bench holds, keyed by site name ([sites."<site>"]). '
+        "Exactly one entry today. Replaces the old [database.\"<site>\"] table, whose contents now "
+        'live at [sites."<site>".database].',
     )
     redis: RedisConfig | None = Field(
         None,
@@ -1371,6 +1411,18 @@ class BenchConfig(BaseModel):
         """
         return self.apps_list
 
+    def get_site(self, site: str | None = None) -> SiteConfig | None:
+        """The `[sites."<site>"]` entry, or None when the bench does not know that site.
+
+        `site` defaults to this config's own `name`, which is the bench name and is also the site
+        name for as long as a bench holds one site named after it. The default is what keeps the
+        many callers that pass nothing working; it is also the line that changes when the two names
+        come apart.
+        """
+        if not self.sites:
+            return None
+        return self.sites.get(site or self.name)
+
     def get_database_config(self, site: str | None = None) -> DatabaseConfig | None:
         """
         External database configuration for a site, or None when there is none.
@@ -1381,9 +1433,8 @@ class BenchConfig(BaseModel):
         Args:
             site: Site name; defaults to this bench's own name.
         """
-        if not self.database:
-            return None
-        return self.database.get(site or self.name)
+        site_config = self.get_site(site)
+        return site_config.database if site_config else None
 
     def get_primary_certificate(self) -> SSLCertificate:
         """
@@ -1587,8 +1638,19 @@ class BenchConfig(BaseModel):
             "workers": WorkersConfig(**_table(data, "workers")) if data.get("workers") else None,
             "build": BuildConfig(**_table(data, "build")) if data.get("build") else None,
             "monitoring": MonitoringConfig(**_table(data, "monitoring")) if data.get("monitoring") else None,
-            "database": {str(k): DatabaseConfig(**_filter_removed(v, "database")) for k, v in data["database"].items()}
-            if data.get("database")
+            # Only the new shape is read. A bench that reaches this line has been migrated, exactly
+            # as with the 0.20 `dns_challenge_providers` -> `dns_providers` rename: a compatibility
+            # branch would be the departure, and it would land in the one function whose dual paths
+            # caused three separate bugs in this cycle.
+            "sites": {
+                str(name): SiteConfig(
+                    database=DatabaseConfig(**_filter_removed(site["database"], "database"))
+                    if site.get("database")
+                    else None,
+                )
+                for name, site in data["sites"].items()
+            }
+            if data.get("sites")
             else None,
             "redis": RedisConfig(**_table(data, "redis")) if data.get("redis") else None,
         }
@@ -1661,23 +1723,46 @@ class BenchConfig(BaseModel):
             data["encryption_key"] = self.encryption_key
         return data
 
+    @property
+    def primary_domain(self) -> str:
+        """The hostname the primary site is served on: nginx `VIRTUAL_HOST`, the certificate
+        subject, an HTTP `Host:` header.
+
+        This is the DOMAIN role of `name`, not the site role. `BenchConfig.name` is the bench (the
+        design's target shape is `name = "shop"` alongside `[sites."a.example.com"]`), so the
+        config cannot answer "which site" until that table exists; `Bench.site_name` owns that
+        question and reads the bench directory, which is what production actually uses for
+        `sites/<name>/`. Keeping the site question off this model is deliberate: an accessor here
+        returning `self.name` would look authoritative and be wrong the moment a bench is named
+        `shop` and serves `shop.localhost`.
+        """
+        return self.name
+
+    @property
+    def domains(self) -> list[str]:
+        """Every hostname this bench serves: the primary domain, then its aliases.
+
+        `get_site_mappings` and `export_to_compose_inputs` each built this list themselves before,
+        which is two places to update when a domain stops being the bench name.
+        """
+        return [self.primary_domain, *(self.alias_domains or [])]
+
     def get_site_mappings(self) -> dict[str, str]:
-        mappings = {}
-        mappings[self.name] = self.name
-        if self.alias_domains:
-            for alias in self.alias_domains:
-                mappings[alias] = self.name
-        return mappings
+        """domain -> site, for the nginx entrypoint's `SITE_MAPPINGS`.
+
+        The value is the identity collapse in one expression: it must be the SITE serving that
+        domain, and the only thing this model knows is its own name. It is correct today because a
+        bench holds one site named after it. When `[sites]` lands, the value comes from the site
+        that owns the domain and this becomes a real per-domain map.
+        """
+        return dict.fromkeys(self.domains, self.name)
 
     def get_newrelic_config(self) -> NewRelicConfig | None:
         """`[monitoring.newrelic]`, or None when the bench configures no monitoring at all."""
         return self.monitoring.newrelic if self.monitoring else None
 
     def export_to_compose_inputs(self):
-        all_domains = [self.name]
-        if self.alias_domains:
-            all_domains.extend(self.alias_domains)
-        domains_string = ",".join(all_domains)
+        domains_string = ",".join(self.domains)
         newrelic = self.get_newrelic_config()
 
         environment = {

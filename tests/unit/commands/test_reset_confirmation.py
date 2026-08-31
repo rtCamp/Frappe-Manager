@@ -55,7 +55,12 @@ def _run(*, yes=False, admin_pass=None, answer=None, interactive=True):
     ctx.obj = {"services": MagicMock(), "verbose": False}
 
     bench = MagicMock(name="Bench")
+    # bench, site and domain are one string today; a mock that sets only `name` hands a
+    # MagicMock to any caller that correctly asks for the site or the domain.
     bench.name = BENCH
+    bench.site_name = BENCH
+    bench.primary_domain = BENCH
+    bench.domains = [BENCH]
 
     previous = handler.is_interactive()
     handler.set_interactive_mode(not interactive)
@@ -188,7 +193,12 @@ def test_both_spellings_of_the_bypass_parse(tmp_path):
 
     for flag in ("--yes", "-y"):
         bench = MagicMock(name="Bench")
+        # bench, site and domain are one string today; a mock that sets only `name` hands a
+        # MagicMock to any caller that correctly asks for the site or the domain.
         bench.name = BENCH
+        bench.site_name = BENCH
+        bench.primary_domain = BENCH
+        bench.domains = [BENCH]
         with (
             patch.object(reset_cmd, "Bench") as bench_cls,
             patch.object(reset_cmd, "check_bench_migration_required"),

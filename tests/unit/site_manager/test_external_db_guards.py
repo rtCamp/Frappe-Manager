@@ -38,7 +38,7 @@ def _config(tmp_path: Path, *, name: str, external_site: str | None = None, ca: 
     """A bench config whose `[database]` table holds an entry for `external_site` only."""
     toml = f'name = "{name}"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
     if external_site:
-        toml += f'\n[database."{external_site}"]\nhost = "{EXTERNAL_HOST}"\nname = "{SCHEMA}"\n'
+        toml += f'\n[sites."{external_site}".database]\nhost = "{EXTERNAL_HOST}"\nname = "{SCHEMA}"\n'
         if ca:
             toml += f'ca = "{ca}"\n'
     path = tmp_path / f"{name}.toml"
@@ -204,7 +204,7 @@ def test_no_global_db_secret_or_endpoint_reaches_an_external_create(tmp_path):
     """
     captured: list[tuple[str, dict]] = []
     # `config.name` is the SITE here, not the bench: `create_bench_site` creates the site the
-    # config names, and the external branch triggers on `[database."<that site>"]`. Splitting the
+    # config names, and the external branch triggers on `[sites."<that site>".database]`. Splitting the
     # two the way the delete guards above do would describe a bench holding a `[database]` entry
     # for a site it is not creating, which is a misconfiguration rather than this scenario. It was
     # measured: with the names split, the argv came out as global-db, carrying the root password

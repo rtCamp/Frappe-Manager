@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import pytest
 
 from frappe_manager.docker.compose_file import ComposeFile
-from frappe_manager.site_manager.bench_config import BenchRuntime, DatabaseConfig, RedisConfig
+from frappe_manager.site_manager.bench_config import BenchRuntime, DatabaseConfig, RedisConfig, SiteConfig
 from frappe_manager.site_manager.modules import db_tls
 from frappe_manager.site_manager.modules.compose_shape import (
     BENCH_REDIS_SERVICES,
@@ -32,12 +32,17 @@ EXTERNAL_REDIS = RedisConfig(cache="redis://r.example:6379/0", queue="redis://r.
 
 
 def _cfg(runtime, name="s.localhost", tag=None, base_image=None, database=None, redis=None):
+    """`database={site: cfg}` is translated into the `sites` shape the production code reads.
+
+    Kept as a kwarg because what these tests assert is "the bench has an external database", not
+    where the model files it.
+    """
     return SimpleNamespace(
         runtime=runtime,
         name=name,
         base_image=base_image,
         deploy_state=SimpleNamespace(current_tag=tag) if tag else None,
-        database=database,
+        sites={site: SiteConfig(database=cfg) for site, cfg in (database or {}).items()} or None,
         redis=redis,
     )
 

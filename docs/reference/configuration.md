@@ -396,7 +396,7 @@ db_name = "fm_mybench_localhost_9f4c1a77d0e35b62"
     Changing this value points the bench at a schema that does not exist. FM expects the database name to match this field exactly.
 
 !!! info "Unused on an external database"
-    A site with a [`[database."<site>"]`](#database) entry lives on that server, under `[database]` `name`. `db_name` is still generated and stored, but nothing reads it for that site.
+    A site with a [`[sites."<site>".database]`](#sites-database) entry lives on that server, under `[database]` `name`. `db_name` is still generated and stored, but nothing reads it for that site.
 
 ---
 
@@ -685,10 +685,10 @@ Worker care: how `fm restart` and the `fm switch` pipeline treat RQ workers and 
 
 ---
 
-### `[database."<site>"]` {#database}
+### `[sites."<site>".database]` {#sites-database}
 
 **Default:** (absent)  
-**File key:** `[database."<site>"]`, one table per site name
+**File key:** `[sites."<site>".database]`, one table per site name
 
 External MariaDB for one site. An absent entry means that site lives on the FM-managed `global-db` container; there is no separate on/off flag.
 
@@ -702,7 +702,7 @@ External MariaDB for one site. An absent entry means that site lives on the FM-m
 | `check_hostname` | `true` | verify the server certificate names the host dialled. Set `false` only for a certificate that cannot name it |
 
 ```toml
-[database."mybench.localhost"]
+[sites."mybench.localhost".database]
 host = "db.example.com"
 port = 3306
 name = "app_prod"

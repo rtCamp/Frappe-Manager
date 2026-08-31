@@ -58,7 +58,7 @@ def reset(
         # TTY prompt_ask raises NonInteractiveError naming --yes: refusing is the
         # only safe answer when nobody is there to read the question.
         output.warning(
-            f"Resetting '{bench.name}' drops its database and reinstalls every app. Every site record, file and customisation is lost, and there is no undo.",
+            f"Resetting '{bench.site_name}' drops its database and reinstalls every app. Every site record, file and customisation is lost, and there is no undo.",
         )
         choice = output.prompt_ask(
             prompt=f"🤔 Do you want to reset [bold][fm.ok]'{bench.name}'[/bold][/fm.ok]",

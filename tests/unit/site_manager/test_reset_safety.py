@@ -53,7 +53,7 @@ def _config(tmp_path: Path, *, name: str, external_site: str | None = None) -> B
     """A real BenchConfig so the per-site `[database]` lookup under test is the real one."""
     toml = f'name = "{name}"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
     if external_site:
-        toml += f'\n[database."{external_site}"]\nhost = "{EXTERNAL_HOST}"\nname = "{SCHEMA}"\nuser = "app_svc"\n'
+        toml += f'\n[sites."{external_site}".database]\nhost = "{EXTERNAL_HOST}"\nname = "{SCHEMA}"\nuser = "app_svc"\n'
     path = tmp_path / f"{name}.toml"
     path.write_text(toml)
     return BenchConfig.import_from_toml(path)

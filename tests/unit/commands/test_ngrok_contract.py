@@ -83,7 +83,12 @@ def _run_ngrok(config, answer: str = "no", gate=None, **kwargs):
     params.update(kwargs)
 
     bench = MagicMock(name="Bench")
+    # bench, site and domain are one string today; a mock that sets only `name` hands a
+    # MagicMock to any caller that correctly asks for the site or the domain.
     bench.name = BENCH
+    bench.site_name = BENCH
+    bench.primary_domain = BENCH
+    bench.domains = [BENCH]
     bench.running = True
 
     with (

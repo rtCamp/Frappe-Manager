@@ -25,6 +25,7 @@ import tempfile
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from frappe_manager.docker import DockerException
 from frappe_manager.exceptions import FrappeManagerException, NonInteractiveError
@@ -46,6 +47,9 @@ from frappe_manager.site_manager.bench_config import (
 from frappe_manager.site_manager.hooks import hook_env, hook_script
 from frappe_manager.site_manager.modules import db_probe, db_tls
 from frappe_manager.utils.docker import run_command_with_exit_code
+
+if TYPE_CHECKING:
+    from frappe_manager.site_manager.site import Bench
 
 BENCH_BIN = "/opt/user/.bin/bench"
 FRAPPE_SERVICE = "frappe"
@@ -244,12 +248,18 @@ def plan_artifact_removal(kept: list, pruned: list, protected_tags: set[str]) ->
 class DeployOrchestrator:
     """Runs the image deploy / rollback pipeline for a single bench."""
 
-    def __init__(self, bench, output_handler: OutputHandler | None = None):
+    def __init__(self, bench: "Bench", output_handler: OutputHandler | None = None):
         self.bench = bench
         self.config = bench.bench_config
         self.switch_config = self.config.switch
         self.workers_config = self.config.workers or WorkersConfig()
-        self.site = bench.name
+        # The SITE, not the bench: this feeds `bench --site {self.site}`, the
+        # `[database."<site>"]` lookup, `site_mysql_home` and `<site>/site_config.json`. It read
+        # `bench.name` until the identities were separated, which was invisible only because the
+        # two are the same string. The annotation on `bench` above is load-bearing too: while the
+        # parameter was untyped, a symbol-aware search for reads of `Bench.name` could not see
+        # this line at all, which is how it survived the census.
+        self.site = bench.site_name
         self.bench_path = Path(bench.path)
         self.docker = bench.docker_client
         # migrate='auto' probe details (verdict/pending/drift); exported to hook env.
@@ -269,7 +279,7 @@ class DeployOrchestrator:
     def _require_image_mode(self) -> None:
         if self.config.runtime != BenchRuntime.image:
             raise DeployError(
-                f"Bench '{self.site}' is not in image runtime "
+                f"Bench '{self.bench.name}' is not in image runtime "
                 f"(runtime={self.config.runtime.value}). Set runtime = 'image'.",
             )
         if not self.config.image:

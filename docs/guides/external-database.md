@@ -2,7 +2,7 @@
 
 By default every site fm creates lives on `global-db`, the MariaDB container fm runs and owns. Point a site at your own server instead when you want a managed database, a replicated one, or one your DBA already administers.
 
-An external database is declared per site, not per bench, as a [`[database."<sitename>"]`](../reference/configuration.md#database) table in `bench_config.toml`. No table means that site is on `global-db`, which is the only switch there is.
+An external database is declared per site, not per bench, as a [`[sites."<sitename>".database]`](../reference/configuration.md#sites-database) table in `bench_config.toml`. No table means that site is on `global-db`, which is the only switch there is.
 
 ## What fm refuses to do on a server it does not own
 
@@ -126,4 +126,4 @@ There is no fm command that repoints a bench's site at a different server; `[dat
 !!! info "See also"
     - [fm create command](../commands/create.md): every external database and redis flag
     - [Architecture](../reference/architecture.md): how a bench reaches its database
-    - [Configuration](../reference/configuration.md#database): the `[database."<site>"]` and [`[redis]`](../reference/configuration.md#redis) keys, key by key
+    - [Configuration](../reference/configuration.md#sites-database): the `[sites."<site>".database]` and [`[redis]`](../reference/configuration.md#redis) keys, key by key

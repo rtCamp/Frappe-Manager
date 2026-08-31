@@ -292,11 +292,14 @@ def auth(
             # would refuse fm's own default state: warn and proceed.
             if enabling_web:
                 output.error(
-                    f"Bench '{bench.name}' has no TLS certificate: basic auth sends the credentials base64-encoded on every request, so on the web surface they would travel in the clear in front of every path including /api. Add HTTPS with 'fm ssl add {bench.name}', or pass --insecure to accept that.",
+                    # Two roles in one sentence: the certificate is keyed by DOMAIN (that is what a
+                    # browser validates and what `SSLCertificate.domain` holds), while `fm ssl add`
+                    # takes the BENCH as its first positional and the hostname separately.
+                    f"Domain '{bench.primary_domain}' has no TLS certificate: basic auth sends the credentials base64-encoded on every request, so on the web surface they would travel in the clear in front of every path including /api. Add HTTPS with 'fm ssl add {bench.name}', or pass --insecure to accept that.",
                     exception=typer.Exit(code=1),
                 )
             output.warning(
-                f"Bench '{bench.name}' has no TLS certificate: basic auth sends the credentials base64-encoded on every request, so the admin tools credentials are effectively cleartext (--insecure silences this)"
+                f"Domain '{bench.primary_domain}' has no TLS certificate: basic auth sends the credentials base64-encoded on every request, so the admin tools credentials are effectively cleartext (--insecure silences this)"
             )
 
     # Capability gate for the web surface only. nginx forwards the Authorization

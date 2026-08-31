@@ -104,7 +104,12 @@ def _orch(tmp_path, switch=None, external=False):
     bench_path = tmp_path / "bench"
     (bench_path / "workspace" / "frappe-bench" / "logs").mkdir(parents=True, exist_ok=True)
     bench = SimpleNamespace(
+        # bench, site and domain are one string today, and this stand-in must carry all three
+        # because the orchestrator correctly asks for the site where it means the site.
         name=SITE,
+        site_name=SITE,
+        primary_domain=SITE,
+        domains=[SITE],
         path=bench_path,
         bench_config=config,
         docker_client=MagicMock(),

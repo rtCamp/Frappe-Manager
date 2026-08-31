@@ -321,7 +321,7 @@ def update(
         database_config = bench.bench_config.get_database_config()
         if database_config is None:
             output.display_error(
-                f"{bench.name} has no \\[database] entry in bench_config.toml: the bench uses the fm-managed "
+                f"{bench.site_name} has no \\[database] entry in bench_config.toml: the bench uses the fm-managed "
                 "'global-db' container, whose TLS material fm owns, so there is no external CA to refresh.",
             )
             raise typer.Exit(1)
@@ -416,7 +416,7 @@ def update(
                 # prevent: the site connects again while the bundle still carries the expired certificate, so
                 # dumps and restores stay broken until someone notices. The [database.<site>].ca rewrite below
                 # is the third write, keeping the recorded host path equal to what was installed.
-                container_ca_path = db_tls.install_site_ca(bench.path, bench.name, db_ca)
+                container_ca_path = db_tls.install_site_ca(bench.path, bench.site_name, db_ca)
             except (OSError, ValueError) as error:
                 output.display_error(str(error))
                 raise typer.Exit(1) from error
@@ -432,7 +432,7 @@ def update(
                 output.print("Running containers read the new CA on their next database connection; no restart needed.")
             else:
                 output.warning(
-                    f"{bench.name} was configured without database TLS: sites/{bench.name}/site_config.json "
+                    f"{bench.site_name} was configured without database TLS: sites/{bench.site_name}/site_config.json "
                     "carries no db_ssl_ca, so Frappe keeps connecting WITHOUT TLS -- this CA only serves the "
                     "dumps fm takes (my.cnf and ca-bundle.pem). Add db_ssl_ca to that site config to turn "
                     "TLS on for the site itself.",
@@ -641,7 +641,7 @@ def update(
                 output.change_head(f"Installing {app_name} to site")
                 bench.app_manager.install_app_to_site(app_name)
             output.change_head("Running bench migrate")
-            migrate_cmd = " ".join(bench.app_manager.bench_cli_cmd + ["--site", bench.name, "migrate"])
+            migrate_cmd = " ".join(bench.app_manager.bench_cli_cmd + ["--site", bench.site_name, "migrate"])
             bench.app_manager._container_run(migrate_cmd)
             output.change_head("Restarting services to load grafted apps")
             bench.restart_web_containers_services(use_container_restart=False)

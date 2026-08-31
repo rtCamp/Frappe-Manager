@@ -34,12 +34,12 @@ environment = "prod"
 name = "erpnext"
 repo = "frappe/erpnext"
 
-[database."{SITE}"]
+[sites."{SITE}".database]
 host = "mydb.abc.rds.amazonaws.com"
 name = "app_prod"
 user = "app_svc"
 
-[database."{OTHER}"]
+[sites."{OTHER}".database]
 host = "shopdb.xyz.rds.amazonaws.com"
 name = "shop_prod"
 user = "shop_svc"

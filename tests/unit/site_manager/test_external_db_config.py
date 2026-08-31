@@ -18,6 +18,7 @@ import pytest
 from pydantic import ValidationError
 
 from frappe_manager.site_manager.bench_config import (
+    SiteConfig,
     BenchConfig,
     DatabaseConfig,
     FMBenchEnvType,
@@ -40,7 +41,16 @@ _RUNTIME_ONLY = (
 
 
 def _bc(tmp_path: Path, **kwargs) -> BenchConfig:
-    """A minimal bench named `x.localhost`; kwargs carry the external-db surface."""
+    """A minimal bench named `x.localhost`; kwargs carry the external-db surface.
+
+    `database={site: cfg}` is still accepted here and translated into the `[sites."<site>"]` shape
+    the model now holds. The call sites read as "this bench has an external database for that
+    site", which is the fact under test; WHERE that fact is stored is the model's business, covered
+    by the round-trip tests rather than restated at forty call sites.
+    """
+    if "database" in kwargs:
+        databases = kwargs.pop("database") or {}
+        kwargs["sites"] = {site: SiteConfig(database=cfg) for site, cfg in databases.items()}
     return BenchConfig(
         name=_SITE,
         developer_mode=False,
@@ -92,7 +102,7 @@ def test_toml_roundtrip_preserves_the_database_entry_and_redis(tmp_path):
     bc.export_to_toml(path)
 
     # Site names carry dots, so the table key has to survive quoting.
-    assert '[database."x.localhost"]' in path.read_text()
+    assert '[sites."x.localhost".database]' in path.read_text()
 
     back = BenchConfig.import_from_toml(path)
     entry = back.get_database_config()

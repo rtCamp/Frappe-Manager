@@ -691,7 +691,7 @@ def _bench_config(name="test.localhost", alias_domains=None, ssl_certificates=()
         runtime=BenchRuntime.mount,
         base_image=None,
         deploy_state=None,
-        database=None,
+        sites=None,
         redis=None,
         workers=None,
     )
@@ -705,8 +705,15 @@ def _make_workers(tmp_path, *, confs=(), common_config=None, bench_config=None) 
         (config_dir / conf).write_text("[program:x]\n")
     bench = MagicMock()
     bench.path = bench_path
+    # bench, site and domain are one string today; a mock that sets only `name` hands a MagicMock
+    # to any caller that correctly asks for the site or the domain.
     bench.name = "test.localhost"
+    bench.site_name = "test.localhost"
+    bench.primary_domain = "test.localhost"
     bench.bench_config = bench_config or _bench_config()
+    # Derived from the config the caller supplied, exactly as `Bench.domains` does, so a test that
+    # passes alias domains gets them here instead of silently seeing only the primary.
+    bench.domains = [bench.primary_domain, *(bench.bench_config.alias_domains or [])]
     bench.get_common_bench_config.return_value = {} if common_config is None else common_config
     workers = BenchWorkers(bench, output_handler=MagicMock())
     # never let a real docker client near a real daemon

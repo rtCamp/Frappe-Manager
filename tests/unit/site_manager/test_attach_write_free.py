@@ -53,7 +53,7 @@ repo = "frappe/erpnext"
 """
 
 _EXTERNAL_TABLE = f"""
-[database."{SITE}"]
+[sites."{SITE}".database]
 host = "{EXTERNAL_HOST}"
 name = "{SCHEMA}"
 user = "app_svc"
@@ -125,7 +125,12 @@ class _Harness:
 
     def _bench(self, config: BenchConfig, tmp_path: Path):
         bench = MagicMock()
+        # One string plays bench, site and domain today; a mock that sets only `name` hands a
+        # MagicMock to any caller that correctly asks for the site.
         bench.name = SITE
+        bench.site_name = SITE
+        bench.primary_domain = SITE
+        bench.domains = [SITE]
         bench.path = tmp_path / "bench"
         bench.bench_config = config
 
