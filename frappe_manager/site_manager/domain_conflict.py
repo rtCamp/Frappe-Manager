@@ -6,14 +6,25 @@ from frappe_manager.site_manager.bench_config import BenchConfig
 
 
 class DomainConflict:
-    def __init__(self, domain: str, owner_bench: str, is_primary: bool = False):
+    """A candidate domain that some other bench already serves.
+
+    Carries the owning SITE as well as the bench, because a bench can serve several and "which
+    bench has it" no longer locates the clash.
+    """
+
+    def __init__(self, domain: str, owner_bench: str, owner_site: str):
         self.domain = domain
         self.owner_bench = owner_bench
-        self.is_primary = is_primary
+        self.owner_site = owner_site
+
+    @property
+    def is_site_name(self) -> bool:
+        """True when the clash is with a site's own name rather than one of its aliases."""
+        return self.domain.lower() == self.owner_site.lower()
 
     def __str__(self):
-        type_str = "primary domain" if self.is_primary else "alias"
-        return f"'{self.domain}' → already used as {type_str} by bench '{self.owner_bench}'"
+        role = "the domain of" if self.is_site_name else "an alias of"
+        return f"'{self.domain}' → already {role} site '{self.owner_site}' in bench '{self.owner_bench}'"
 
 
 class DomainConflictError(FrappeManagerException):
@@ -26,8 +37,16 @@ class DomainConflictError(FrappeManagerException):
 def build_global_domain_map(
     benches_root: Path = CLI_BENCHES_DIRECTORY,
     exclude_bench: str | None = None,
-) -> dict[str, tuple[str, bool]]:
-    domain_map = {}
+) -> dict[str, tuple[str, str]]:
+    """Every domain any bench serves -> (bench, the site serving it).
+
+    Built from `get_site_mappings`, which is the same table the nginx entrypoint routes by, so this
+    check and the routing agree by construction. It used to register `config.name` plus a
+    bench-level alias list, which left every non-primary site's own domain OUT of the map: two
+    benches could each serve `b.example.com` with no conflict reported, and the clash surfaced as
+    whichever container nginx happened to route to.
+    """
+    domain_map: dict[str, tuple[str, str]] = {}
 
     if not benches_root.exists():
         return domain_map
@@ -45,13 +64,8 @@ def build_global_domain_map(
 
         try:
             config = BenchConfig.import_from_toml(config_file)
-            bench_name = config.name
-
-            domain_map[config.name.lower()] = (bench_name, True)
-
-            for alias in config.alias_domains or []:
-                domain_map[alias.lower()] = (bench_name, False)
-
+            for domain, site in config.get_site_mappings().items():
+                domain_map[domain.lower()] = (config.name, site)
         except Exception:
             continue
 
@@ -69,8 +83,8 @@ def check_domain_conflicts(
     for domain in candidate_domains:
         normalized = domain.lower()
         if normalized in domain_map:
-            owner_bench, is_primary = domain_map[normalized]
-            conflicts.append(DomainConflict(domain, owner_bench, is_primary))
+            owner_bench, owner_site = domain_map[normalized]
+            conflicts.append(DomainConflict(domain, owner_bench, owner_site))
 
     return conflicts
 

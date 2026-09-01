@@ -29,8 +29,6 @@
 # Mount runtime: workspace was seeded from this baked image at create (extracted; no
 # clone/install/build). Provenance record. [optional, unset by default]
 # seed_image = ...
-# List of alias domains for the bench [optional, empty by default]
-# alias_domains = ...
 # Maximum upload size (e.g., '50M', '100M', '500M', '1G') [default: '50M']
 # upload_limit = ...
 # GitHub personal access token for private repositories [optional, unset by default]
@@ -188,6 +186,9 @@
 # Verify the server certificate names the host dialled. Set false only for a certificate that
 # cannot name it. [default: True]
 # check_hostname = ...
+# Extra hostnames this site is served on, besides its own name. A site's name IS its canonical
+# domain; these are alternates for the same site. [optional, empty by default]
+# alias_domains = ...
 
 # ---- [redis] -------------------------------------------------------------------------------
 

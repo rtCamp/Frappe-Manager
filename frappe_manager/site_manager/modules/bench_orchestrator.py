@@ -1196,33 +1196,65 @@ class BenchOrchestrator:
         bench.save_bench_config()
         self.output.print("Started bench services")
 
-    def update_alias_domains(self, add_domains: list[str] | None = None, remove_domains: list[str] | None = None):
-        """
-        Update alias domains without restarting services.
+    def update_alias_domains(
+        self,
+        add_domains: list[str] | None = None,
+        remove_domains: list[str] | None = None,
+        site: str | None = None,
+    ):
+        """Add or remove alternate hostnames for ONE site, without restarting services.
 
-        SSL certificates are NOT automatically generated for new alias domains.
-        Users must explicitly add SSL certificates using: fm ssl add <bench> <domain>
+        SSL certificates are NOT generated for a new alias; the caller is told to run
+        `fm ssl add <bench> <domain>`.
+
+        `site` defaults to the bench's primary site. That default is a SELECTION, so it is allowed
+        to fail on a bench where no site is named after the bench: attaching an alias to a guessed
+        site would route a hostname at someone else's schema, which is exactly what moving aliases
+        out of a bench-level list removed.
         """
         bench = self.bench
+        target = site or bench.site_name
 
-        backup_aliases = copy.deepcopy(bench.bench_config.alias_domains or [])
+        sites = bench.bench_config.sites or {}
+        entry = sites.get(target)
+        if entry is None:
+            self.output.stop()
+            known = ", ".join(f"'{s}'" for s in sorted(sites)) or "no sites"
+            raise ValueError(f"bench '{bench.name}' has no site '{target}'. It serves {known}.")
+
+        backup_aliases = copy.deepcopy(entry.alias_domains or [])
         current_aliases = set(backup_aliases)
 
         add_list = add_domains if add_domains else []
         remove_list = remove_domains if remove_domains else []
 
-        if bench.primary_domain in add_list:
-            self.output.warning(f"Skipping '{bench.primary_domain}' - primary domain cannot be added as alias")
-            add_list = [d for d in add_list if d != bench.primary_domain]
+        # A site's own name is its canonical domain, so it cannot also be one of its alternates.
+        if target in add_list:
+            self.output.warning(f"Skipping '{target}' - a site's own domain cannot be its alias")
+            add_list = [d for d in add_list if d != target]
 
-        if bench.primary_domain in remove_list:
+        if target in remove_list:
             self.output.stop()
-            raise ValueError(f"Cannot remove primary domain '{bench.primary_domain}'. Only alias domains can be removed.")
+            raise ValueError(f"Cannot remove '{target}': it is the site's own domain, not an alias.")
+
+        # A domain resolves to exactly one site, and `get_site_mappings` would silently overwrite,
+        # so a hostname already serving a SIBLING site is refused here rather than stolen.
+        siblings = {name: e for name, e in sites.items() if name != target}
+        for domain in list(add_list):
+            owner = next(
+                (name for name, e in siblings.items() if domain == name or domain in (e.alias_domains or [])),
+                None,
+            )
+            if owner is not None:
+                self.output.stop()
+                raise ValueError(
+                    f"Cannot add '{domain}' to '{target}': it already belongs to site '{owner}' in this bench."
+                )
 
         added_domains = []
         for domain in add_list:
             if domain in current_aliases:
-                self.output.warning(f"Domain '{domain}' is already an alias. Skipping")
+                self.output.warning(f"Domain '{domain}' is already an alias of '{target}'. Skipping")
             else:
                 current_aliases.add(domain)
                 added_domains.append(domain)
@@ -1234,7 +1266,7 @@ class BenchOrchestrator:
         removed_domains = []
         for domain in remove_list:
             if domain not in current_aliases:
-                self.output.warning(f"Domain '{domain}' is not an alias. Skipping")
+                self.output.warning(f"Domain '{domain}' is not an alias of '{target}'. Skipping")
             else:
                 current_aliases.remove(domain)
                 removed_domains.append(domain)
@@ -1244,12 +1276,12 @@ class BenchOrchestrator:
             return
 
         if added_domains:
-            self.output.print(f"Adding aliases: {', '.join(added_domains)}")
+            self.output.print(f"Adding aliases to '{target}': {', '.join(added_domains)}")
         if removed_domains:
-            self.output.print(f"Removing aliases: {', '.join(removed_domains)}")
+            self.output.print(f"Removing aliases from '{target}': {', '.join(removed_domains)}")
 
-        updated_aliases = sorted(list(current_aliases))
-        bench.bench_config.alias_domains = updated_aliases
+        updated_aliases = sorted(current_aliases)
+        entry.alias_domains = updated_aliases
 
         try:
             # An alias is only real once compose and nginx carry it, so bench_config.toml is
@@ -1266,7 +1298,7 @@ class BenchOrchestrator:
                     self.output.print(f"  fm ssl add {bench.name} {domain}", emoji_code="")
 
         except Exception as e:
-            bench.bench_config.alias_domains = backup_aliases
+            entry.alias_domains = backup_aliases
             # `ensure_fm_nginx_confs`, reached through generate_compose, writes the file on its
             # own when it mints an auth password, so the restore is persisted rather than left
             # as an in-memory assignment the next fm run reads straight past.

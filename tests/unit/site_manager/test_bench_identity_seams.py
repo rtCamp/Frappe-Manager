@@ -28,21 +28,34 @@ BENCH = "shop"
 SITE = "shop.localhost"
 
 
-def _bench(name: str = BENCH, *, site: str | None = SITE, alias_domains: list[str] | None = None) -> Bench:
+def _bench(name: str = BENCH, *, site: str | None = SITE, domains: list[str] | None = None) -> Bench:
     """A bench whose name and site are DIFFERENT strings by default.
 
     This is what the `[sites]` table bought. While a bench was its own site, no fixture here could
     tell a site-meaning read from a bench-meaning one, and these tests could only pre-wire the
     roles. Now the site is recorded separately, so `shop` versus `shop.localhost` makes reading the
     wrong one fail.
+
+    `domains` is the list the config publishes, not a bench-level alias list to be composed with the
+    primary: `Bench.domains` reads it whole, so the stand-in has to carry the finished list. Tests
+    about what that list CONTAINS belong on the config, which is where it is now built.
     """
     bench = Bench.__new__(Bench)  # bypass __init__: no docker, no compose, no services
     bench.name = name
     bench.bench_config = SimpleNamespace(
         name=name,
-        alias_domains=alias_domains or [],
-        sites={site: SimpleNamespace(database=None)} if site else None,
+        domains=domains if domains is not None else ([site] if site else [name]),
+        sites={site: SimpleNamespace(database=None, alias_domains=[])} if site else None,
     )
+    return bench
+
+
+def _bench_over(config: BenchConfig) -> Bench:
+    """The same bypass, over a REAL config. `Bench.domains` delegates, so the only way to test what
+    it publishes for a multi-site bench is to let the real property build the list."""
+    bench = Bench.__new__(Bench)
+    bench.name = config.name
+    bench.bench_config = config
     return bench
 
 
@@ -95,30 +108,20 @@ def test_the_served_domain_is_the_site_and_not_the_bench():
     assert _bench().primary_domain == SITE
 
 
-def test_the_domain_list_is_the_primary_then_the_aliases_in_order():
-    """Order is load-bearing: `export_to_compose_inputs` joins this into `VIRTUAL_HOST`, and
-    nginx-proxy treats the first host as the canonical one."""
-    bench = _bench(alias_domains=["www.shop.example.com", "shop.example.com"])
+def test_the_domain_list_is_the_configs_own_and_is_not_recomposed():
+    """`Bench.domains` reads ONE accessor. It used to compose `primary_domain` with a bench-level
+    alias list, which made enumeration depend on selection: it omitted every non-primary site's
+    domain and raised outright on a bench whose primary is ambiguous (both pinned under "routing N
+    sites" below). The seam that keeps that from coming back is that the bench contributes nothing
+    of its own to the list, so what the list CONTAINS is tested on the config, where it is built."""
+    published = [SITE, "www.shop.example.com", "b.example.com"]
+    bench = _bench(domains=published)
 
-    assert bench.domains == [SITE, "www.shop.example.com", "shop.example.com"]
+    assert bench.domains == published
 
 
-def test_the_domain_list_is_built_from_the_single_domain_accessor():
-    bench = _bench(alias_domains=["alias.localhost"])
-    assert bench.domains[0] == bench.primary_domain
-
-
-def test_a_bench_with_no_aliases_serves_only_its_primary_domain():
+def test_a_bench_with_one_plain_site_serves_only_that_domain():
     assert _bench().domains == [SITE]
-
-
-def test_a_none_alias_list_is_treated_as_empty():
-    """`alias_domains` defaults to `[]` on a real config, but a partially built one and older
-    configs can carry None, and this list is spread into compose material."""
-    bench = _bench()
-    bench.bench_config.alias_domains = None
-
-    assert bench.domains == [SITE]
 
 
 # ------------------------------------------------- the config-side accessors, for callers holding one
@@ -126,17 +129,24 @@ def test_a_none_alias_list_is_treated_as_empty():
 
 @pytest.fixture
 def config(tmp_path):
-    """A real BenchConfig whose bench name and site name DIFFER, because that is the shape now."""
+    """A real BenchConfig whose bench name and site name DIFFER, because that is the shape now.
+
+    The alias is recorded under the SITE it serves. A bench-level list could not say which site an
+    alias reached, so there is no longer a top-level key to write it to.
+    """
     toml = tmp_path / "bench_config.toml"
     toml.write_text(
         f'name = "{BENCH}"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
-        'alias_domains = ["www.shop.example.com"]\n'
         f'\n[sites."{SITE}"]\n'
+        'alias_domains = ["www.shop.example.com"]\n'
     )
     return BenchConfig.import_from_toml(toml)
 
 
 def test_the_config_serves_its_site_then_its_aliases(config):
+    """Order is load-bearing: `export_to_compose_inputs` joins this into `VIRTUAL_HOST` and
+    nginx-proxy treats the first host as the canonical one, so the site's own name leads and its
+    alternates follow it."""
     assert config.domains == [SITE, "www.shop.example.com"]
 
 
@@ -282,11 +292,18 @@ def test_the_config_domain_is_the_site_and_not_the_bench(tmp_path):
 SECOND = "b.example.com"
 
 
-def _multi(tmp_path, *sites: str, aliases: str = "") -> BenchConfig:
+def _multi(tmp_path, *sites: str, aliases: dict[str, list[str]] | None = None) -> BenchConfig:
+    """N recorded sites, each carrying ITS OWN alternates: `alias_domains` sits under the site table
+    now, so there is no bench-wide list a fixture could write."""
+    per_site = aliases or {}
+    body = ""
+    for site in sites:
+        body += f'\n[sites."{site}"]\n'
+        if per_site.get(site):
+            body += f"alias_domains = {json.dumps(per_site[site])}\n"
     toml = tmp_path / "bench_config.toml"
-    body = "".join(f'\n[sites."{s}"]\n' for s in sites)
     toml.write_text(
-        f'name = "{BENCH}"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n{aliases}{body}'
+        f'name = "{BENCH}"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n{body}'
     )
     return BenchConfig.import_from_toml(toml)
 
@@ -311,12 +328,19 @@ def test_the_primary_sites_domain_leads(tmp_path):
     assert config.domains[0] == config.primary_site
 
 
-def test_a_bench_alias_is_served_by_the_primary_site(tmp_path):
-    """`alias_domains` is still bench-level, so an alias has no site of its own to belong to."""
-    config = _multi(tmp_path, SITE, SECOND, aliases='alias_domains = ["www.shop.example.com"]\n')
+def test_an_alias_reaches_the_site_it_is_recorded_under(tmp_path):
+    """The reason the list moved. Bench-level, an alias had no site to belong to, so the mapping had
+    to send every one of them to the PRIMARY: an alternate of the second site answered with the
+    first site's data -- a wrong answer, not a missing one. Each alias now maps to its own site."""
+    config = _multi(
+        tmp_path, SITE, SECOND, aliases={SITE: ["www.shop.example.com"], SECOND: ["www.b.example.com"]}
+    )
 
-    assert config.get_site_mappings()["www.shop.example.com"] == SITE
-    assert "www.shop.example.com" in config.domains
+    mappings = config.get_site_mappings()
+    assert mappings["www.shop.example.com"] == SITE
+    assert mappings["www.b.example.com"] == SECOND
+    # Each site's own name, then that site's alternates: the list reads as the routing table.
+    assert config.domains == [SITE, "www.shop.example.com", SECOND, "www.b.example.com"]
 
 
 def test_sites_can_be_enumerated_even_when_no_primary_can_be_chosen(tmp_path):
@@ -337,6 +361,33 @@ def test_a_single_site_bench_routes_exactly_as_before(tmp_path):
 
     assert config.domains == [SITE]
     assert config.get_site_mappings() == {SITE: SITE}
+
+
+# The same two facts read through `Bench`, because that is the object every consumer holds and both
+# of these were live bugs while it composed the list itself instead of delegating.
+
+
+def test_the_bench_publishes_every_site_even_when_no_primary_can_be_chosen(tmp_path):
+    """It RAISED. Composing from `primary_domain` made enumeration depend on selection, so a bench
+    called `shop` recording only `a.example.com` and `b.example.com` could not name its hostnames at
+    all -- and the consumers are worker `extra_hosts` and the per-domain upload caps, neither of
+    which is choosing a site. Only a caller asking which site a command means may refuse."""
+    bench = _bench_over(_multi(tmp_path, "a.example.com", SECOND))
+
+    assert bench.domains == ["a.example.com", SECOND]
+    with pytest.raises(BenchException, match="none is named after"):
+        _ = bench.primary_domain
+
+
+def test_the_bench_publishes_a_non_primary_sites_domain_and_its_aliases(tmp_path):
+    """The other half: on a bench that resolves fine, composing from `primary_domain` returned
+    `['shop.localhost']` and nothing else, so `b.example.com` was absent from worker `extra_hosts`
+    (unreachable from a background job) and from vhostd (pinned to nginx-proxy's 1M upload default
+    whatever `upload_limit` said)."""
+    bench = _bench_over(_multi(tmp_path, SITE, SECOND, aliases={SECOND: ["www.b.example.com"]}))
+
+    assert bench.domains == [SITE, SECOND, "www.b.example.com"]
+    assert bench.primary_domain == SITE
 
 
 # --------------------------------------------------------------- the roles are not interchangeable
@@ -373,10 +424,11 @@ SCHEMA = "fm_shop_abc123"
 def _write_site(bench_path, site: str, db_name: str | None = None, *, raw: str | None = None):
     """Put one site on disk at `<bench>/workspace/frappe-bench/sites/<site>/`.
 
-    The refusal counts and names the sites `Bench.site_schemas()` enumerates, and that
-    enumeration is from DISK rather than from `bench_config.toml`: the filesystem is the only
-    map from a bench to the schemas it owns, and delete runs precisely when the config may be
-    missing or stale.
+    The refusal counts and names the sites `Bench.site_schemas()` enumerates. That enumeration is
+    driven by `[sites]` in the config, and each schema is then read off the site's own file here:
+    fm only ever destroys what it wrote down, so a site present on disk but absent from the config
+    is reported by `unmanaged_site_dirs()` and never acted on. Callers therefore have to RECORD the
+    site as well as write it, which `_bench_on_disk` does.
     """
     site_dir = bench_path / "workspace" / "frappe-bench" / "sites" / site
     site_dir.mkdir(parents=True, exist_ok=True)
@@ -388,7 +440,12 @@ def _bench_on_disk(tmp_path, *sites: tuple[str, str | None]) -> Bench:
     bench = Bench.__new__(Bench)
     bench.name = BENCH
     bench.path = tmp_path / BENCH
-    bench.bench_config = SimpleNamespace(get_database_config=lambda site: None)
+    # Recorded in `[sites]` AND written to disk: the config says which sites exist, the disk says
+    # what schema each one uses.
+    bench.bench_config = SimpleNamespace(
+        get_database_config=lambda site: None,
+        sites=dict.fromkeys(site for site, _ in sites),
+    )
     for site, db_name in sites:
         _write_site(bench.path, site, db_name)
     return bench
@@ -439,7 +496,7 @@ def test_the_refusal_keeps_the_bench_directory_and_says_so(tmp_path):
 def test_a_corrupt_site_config_does_not_break_the_refusal(tmp_path):
     """The drop has already failed; a second failure while reading the config to explain it would
     replace a useful message with a traceback. Unparseable reads as unreadable."""
-    bench = _bench_on_disk(tmp_path)
+    bench = _bench_on_disk(tmp_path, (SITE, None))
     _write_site(bench.path, SITE, raw="{not json")
 
     message = _refusal(bench, (SITE, "schema name could not be read from its site config"))
@@ -473,3 +530,58 @@ def test_every_site_failing_is_counted_against_the_whole_bench(tmp_path):
     assert "Database deletion failed for 2 of 2 site(s)." in message
     assert f"DROP DATABASE IF EXISTS `{SCHEMA}`;" in message
     assert f"DROP DATABASE IF EXISTS `{SECOND_SCHEMA}`;" in message
+
+
+# ------------------------------------------------- one certificate per served hostname
+# `create_individual_certificates` had no test against the real model: the only reference was a
+# MagicMock standing in for it. It built the primary entry from the BENCH name and then walked a
+# bench-level alias list, so on a bench named `shop` serving `shop.localhost` it minted a
+# certificate for `shop` (a hostname nothing resolves) and none for the site actually served.
+
+
+def _template() -> "SSLCertificate":
+    from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
+    from frappe_manager.ssl_manager.certificate import SSLCertificate
+
+    return SSLCertificate(domain="placeholder.example.com", ssl_type=SUPPORTED_SSL_TYPES.le)
+
+
+def test_a_certificate_is_minted_for_every_hostname_the_bench_serves(tmp_path):
+    config = _multi(tmp_path, SITE, SECOND, aliases={SITE: ["www.shop.localhost"], SECOND: ["www.b.example.com"]})
+
+    config.create_individual_certificates(_template())
+
+    assert [c.domain for c in config.ssl_certificates] == config.domains
+
+
+def test_the_bench_name_gets_no_certificate_when_it_is_not_a_served_hostname(tmp_path):
+    """The bench is `shop` and nothing answers on `shop`; a certificate for it would be issued
+    against a name that does not resolve, and the site actually served would have none."""
+    config = _multi(tmp_path, SITE)
+
+    config.create_individual_certificates(_template())
+
+    minted = [c.domain for c in config.ssl_certificates]
+    assert minted == [SITE]
+    assert BENCH not in minted
+
+
+def test_every_minted_certificate_copies_the_template_settings(tmp_path):
+    """Only `domain` may differ between entries; sharing one object would make a later edit to one
+    certificate silently change the rest."""
+    config = _multi(tmp_path, SITE, SECOND)
+    template = _template()
+
+    config.create_individual_certificates(template)
+
+    assert {c.ssl_type for c in config.ssl_certificates} == {template.ssl_type}
+    assert len({id(c) for c in config.ssl_certificates}) == len(config.ssl_certificates)
+
+
+def test_minting_replaces_the_previous_certificate_set(tmp_path):
+    config = _multi(tmp_path, SITE)
+    config.ssl_certificates = [_template()]
+
+    config.create_individual_certificates(_template())
+
+    assert [c.domain for c in config.ssl_certificates] == [SITE]

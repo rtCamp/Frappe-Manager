@@ -1625,8 +1625,9 @@ def test_status_reports_on_off_and_foreign_per_domain_without_reloading(out, tmp
     _write_bench_config(
         benches,
         "mybench",
-        'alias_domains = ["alias.example.com", "plain.example.com"]\n'
-        '[[ssl.certificates]]\ndomain = "mybench"\nssl_type = "letsencrypt"\n',
+        # Both aliases are alternates for the site `mybench`; aliases are recorded per site.
+        '[sites."mybench"]\nalias_domains = ["alias.example.com", "plain.example.com"]\n'
+        '\n[[ssl.certificates]]\ndomain = "mybench"\nssl_type = "letsencrypt"\n',
     )
     vhostd.mkdir(parents=True)
     (vhostd / "mybench").write_text(_vhost_conf("mybench", "b" * 32, "/html", 404, 300, [], [], secure_cookie=True))
@@ -1695,7 +1696,8 @@ def test_off_deletes_the_file_when_only_the_fm_block_was_in_it(tmp_path):
 def test_off_reloads_once_for_all_domains(out, tmp_path):
     services, vhostd, _ = _maint_services(tmp_path)
     benches = tmp_path / "benches"
-    _write_bench_config(benches, "mybench", 'alias_domains = ["alias.example.com"]\n')
+    # `alias.example.com` is an alias of the site `mybench`.
+    _write_bench_config(benches, "mybench", '[sites."mybench"]\nalias_domains = ["alias.example.com"]\n')
     vhostd.mkdir(parents=True)
     for domain in ("mybench", "alias.example.com"):
         (vhostd / domain).write_text(_vhost_conf("mybench", "f" * 32, "/html", 503, 300, [], [], secure_cookie=False))
@@ -1708,7 +1710,8 @@ def test_off_reloads_once_for_all_domains(out, tmp_path):
 def test_enable_writes_the_page_and_block_for_every_domain_then_reloads(out, tmp_path):
     services, vhostd, html = _maint_services(tmp_path)
     benches = tmp_path / "benches"
-    _write_bench_config(benches, "mybench", 'alias_domains = ["alias.example.com"]\n')
+    # `alias.example.com` is an alias of the site `mybench`.
+    _write_bench_config(benches, "mybench", '[sites."mybench"]\nalias_domains = ["alias.example.com"]\n')
     r = _run_maintenance(services, benches, response_code=404, allow_ip=["203.0.113.7"], allow_path=["/hook*"])
     assert r.exit is None
     assert (html / "fm-maintenance-mybench.html").is_file()
@@ -1783,7 +1786,9 @@ def test_the_bypass_cookie_gets_secure_only_on_the_domains_that_have_tls(out, tm
     _write_bench_config(
         benches,
         "mybench",
-        'alias_domains = ["plain.example.com"]\n[[ssl.certificates]]\ndomain = "mybench"\nssl_type = "letsencrypt"\n',
+        # `plain.example.com` is an alias of the site `mybench`; only `mybench` has a certificate.
+        '[sites."mybench"]\nalias_domains = ["plain.example.com"]\n'
+        '\n[[ssl.certificates]]\ndomain = "mybench"\nssl_type = "letsencrypt"\n',
     )
     _run_maintenance(services, benches)
     assert "; Secure" in (vhostd / "mybench").read_text()

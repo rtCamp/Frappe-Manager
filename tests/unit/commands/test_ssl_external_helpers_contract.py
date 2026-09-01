@@ -1176,7 +1176,8 @@ def test_nginx_scan_subtracts_every_domain_of_every_bench(h, nginx_probe):
     )
     nginx_probe.bench_service_cls.return_value.get_bench_names.return_value = ["bench.localhost"]
     bench = nginx_probe.bench_cls.get_object.return_value
-    bench.bench_config.get_all_domains.return_value = ["bench.localhost", "alias.localhost"]
+    # alias.localhost is an alias OF the site bench.localhost, so both are bench hostnames.
+    bench.bench_config.domains = ["bench.localhost", "alias.localhost"]
 
     assert external_helpers._get_non_bench_domains_from_nginx(h.services) == ["external.example.com"]
 
@@ -1198,7 +1199,7 @@ def test_nginx_scan_skips_benches_that_fail_to_load_and_keeps_their_domains(h, n
         if name == "broken.localhost":
             raise RuntimeError("bench is unreadable")
         return SimpleNamespace(
-            bench_config=SimpleNamespace(get_all_domains=lambda: ["ok.localhost"]),
+            bench_config=SimpleNamespace(domains=["ok.localhost"]),
         )
 
     nginx_probe.bench_cls.get_object.side_effect = get_object

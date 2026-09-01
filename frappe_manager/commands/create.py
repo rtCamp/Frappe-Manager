@@ -58,10 +58,11 @@ _PANEL_EXTERNAL = "External Database and Redis Options"
 # writes; everything else about them (precedence, validation, defaults) is the merge and the model.
 # Absent on purpose: `--base-image` is overloaded per runtime (see _apply_base_image); `--bench-only`,
 # `--config` and `--allow-domain-conflicts` are not BenchConfig fields; the external database and
-# redis flags are resolved separately because five of them are secrets that never reach disk.
+# redis flags are resolved separately because five of them are secrets that never reach disk;
+# `--alias-domains` writes under `[sites."<site>"]`, a path this static map cannot express, so
+# `record_site` applies it.
 _FLAG_TO_CONFIG: dict[str, tuple[str, ...]] = {
     "admin_pass": ("admin_pass",),
-    "alias_domains": ("alias_domains",),
     "apps": ("apps",),
     "developer_mode": ("developer_mode",),
     "environment": ("environment",),
@@ -364,9 +365,12 @@ def mint_global_db_schema_name(site: str) -> str:
 
 
 def record_site(
-    sites: dict[str, SiteConfig] | None, site: str, database: DatabaseConfig | None
+    sites: dict[str, SiteConfig] | None,
+    site: str,
+    database: DatabaseConfig | None,
+    alias_domains: list[str] | None = None,
 ) -> dict[str, SiteConfig]:
-    """`[sites]` with `site` recorded, carrying `database` when there is one.
+    """`[sites]` with `site` recorded, carrying `database` and any aliases when there are some.
 
     Every bench records its site, external database or not, keyed by the SITE name. This is the only
     place that survives the bench name and the site name being different: the directory says `shop`,
@@ -374,14 +378,19 @@ def record_site(
     round-trips as a bare `[sites."<name>"]` header, which is the record a bench on the global-db
     container needs.
 
+    `alias_domains` arrives here rather than through `_FLAG_TO_CONFIG` because its key path depends
+    on the site name, which a static flag-to-path map cannot express.
+
     An entry already present is updated rather than replaced, so a `--config` overlay that described
-    the site keeps whatever else it set.
+    the site keeps whatever else it set. Aliases are only overwritten when the caller supplied some,
+    so a later `record_site` for the same site does not silently drop them.
     """
     recorded = dict(sites or {})
     existing = recorded.get(site)
-    recorded[site] = (
-        existing.model_copy(update={"database": database}) if existing else SiteConfig(database=database)
-    )
+    update: dict[str, object] = {"database": database}
+    if alias_domains is not None:
+        update["alias_domains"] = list(alias_domains)
+    recorded[site] = existing.model_copy(update=update) if existing else SiteConfig(**update)  # type: ignore[arg-type]
     return recorded
 
 def _add_site_to_bench(
@@ -391,6 +400,7 @@ def _add_site_to_bench(
     services_manager: ServicesManager,
     verbose: bool,
     apps: list[AppConfig],
+    alias_domains: list[str] | None = None,
 ) -> None:
     """Add `site` to the bench `benchname`, which already exists and may be serving.
 
@@ -418,7 +428,11 @@ def _add_site_to_bench(
 
     # Recorded BEFORE `new-site`, because `get_site_config_data` and the TLS paths are keyed by site
     # and are read during creation. Saved to disk only once the site works, below.
-    bench.bench_config.sites = record_site(bench.bench_config.sites, site, None)
+    # `--alias-domains` names alternates for the site being ADDED, so they are recorded on its entry
+    # here just as the fresh-create path records them on the first site's. Missing this is invisible
+    # to a unit test of `record_site`: the flag simply never arrived, and the site was created with
+    # an empty alias list while fm reported success.
+    bench.bench_config.sites = record_site(bench.bench_config.sites, site, None, alias_domains)
 
     try:
         output.change_head(f"Creating site {site}")
@@ -901,6 +915,7 @@ def create(
             services_manager=services_manager,
             verbose=verbose,
             apps=cast("list[AppConfig]", apps),
+            alias_domains=alias_domains,
         )
         return
 
@@ -931,7 +946,6 @@ def create(
                 requested,
                 {
                     "admin_pass": admin_pass,
-                    "alias_domains": alias_domains,
                     "apps": apps_config,
                     "developer_mode": developer_mode_status,
                     "environment": environment,
@@ -985,7 +999,14 @@ def create(
         redis_cache=redis_cache,
         redis_queue=redis_queue,
     )
-    bench_config.sites = record_site(bench_config.sites, sitename, database_config)
+    # `--bench-only` stops before the site is created, so recording one would have `[sites]` claim a
+    # site that has no directory, no schema and no `site_config.json`. Everything downstream trusts
+    # that table: `fm list` and `fm info` reported the phantom, `Bench.site_name` resolved to it,
+    # routing published a VIRTUAL_HOST entry for it, and `fm delete --all-sites` would have gone
+    # looking for its schema. An empty table is the correct record of a bench with no sites, and it
+    # is exactly what deleting the last site leaves behind.
+    if not bench_only:
+        bench_config.sites = record_site(bench_config.sites, sitename, database_config, alias_domains)
     if redis_config is not None:
         bench_config.redis = redis_config
     if credentials is not None:
@@ -1020,7 +1041,7 @@ def create(
     if newrelic_config and newrelic_config.enabled and not newrelic_config.license_key:
         raise typer.BadParameter("--newrelic-license-key is required when --newrelic is set.")
 
-    all_domains = {bench_config.name, *bench_config.alias_domains}
+    all_domains = set(bench_config.domains)
     skip_check = allow_domain_conflicts or not fm_config.validation.enforce_domain_uniqueness
     try:
         validate_domains_unique(all_domains, benches_root=CLI_BENCHES_DIRECTORY, skip_check=skip_check)

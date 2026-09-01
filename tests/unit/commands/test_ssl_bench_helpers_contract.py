@@ -55,6 +55,7 @@ from frappe_manager.commands.ssl.bench_helpers import (
 )
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
+from frappe_manager.site_manager.bench_config import SiteConfig
 from frappe_manager.site_manager.exceptions import AdminToolsFailedToStart, AdminToolsFailedToStop, BenchException
 from frappe_manager.site_manager.modules.bench_admin_tools import BenchAdminTools
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE, SUPPORTED_SSL_TYPES
@@ -97,9 +98,24 @@ class SSLHarness:
 
         self.Bench = stack.enter_context(patch(f"{SSL_MODULE}.Bench"))
         self.bench = self.Bench.get_object.return_value
-        self.bench.bench_config.get_all_domains.return_value = [DOMAIN, ALIAS]
+        # Aliases live on the site now, so the harness records them the way a bench does: this
+        # bench's single site is named after the bench (DOMAIN), and ALIAS is an alias OF that
+        # site. `bench_config.domains` -- what all three helpers read -- is site name then aliases.
+        self.set_sites({DOMAIN: [ALIAS]})
         self.cert_manager = self.bench.certificate_manager
         self.cert_manager.list_certificates.return_value = []
+
+    def set_sites(self, sites: dict[str, list[str]]) -> None:
+        """Record `{site name: that site's aliases}` and derive the bench's hostname list from it.
+
+        Mirrors `BenchConfig.domains`: each site contributes its own name (a site's name IS its
+        canonical domain) followed by the aliases recorded under that site.
+        """
+        configs = {name: SiteConfig(alias_domains=aliases) for name, aliases in sites.items()}
+        self.bench.bench_config.sites = configs
+        self.bench.bench_config.domains = [
+            domain for name, config in configs.items() for domain in (name, *config.alias_domains)
+        ]
 
     # -- convenience readers -----------------------------------------------------------
 
@@ -535,12 +551,15 @@ def test_list_renders_a_fixed_eight_column_certificate_table(h):
 
 @pytest.mark.timeout(15)
 def test_list_is_driven_by_the_config_domains_in_config_order(h):
-    h.bench.bench_config.get_all_domains.return_value = [ALIAS, DOMAIN]
+    # Config order is now site-then-its-aliases, so the row order is the site DOMAIN followed by
+    # its alias -- neither alphabetical (ALIAS sorts first) nor certificate-driven (only DOMAIN
+    # has one). The reverse order the old bench-level list could express is unreachable.
+    h.set_sites({DOMAIN: [ALIAS]})
     h.cert_manager.list_certificates.return_value = [_cert_row(DOMAIN)]
 
     _list_bench_certificates(h.ctx, BENCH)
 
-    assert [row[0] for row in _rows(h.table())] == [ALIAS, DOMAIN]
+    assert [row[0] for row in _rows(h.table())] == [DOMAIN, ALIAS]
 
 
 @pytest.mark.timeout(15)
@@ -556,7 +575,7 @@ def test_list_shows_a_configured_domain_with_no_certificate_as_no_ssl(h):
 def test_list_hides_a_certificate_whose_domain_left_the_bench_config(h):
     """SUSPICION (pinned): a certificate for an un-configured domain is silently invisible,
     so a stale certificate cannot be discovered through ``fm ssl list``."""
-    h.bench.bench_config.get_all_domains.return_value = [DOMAIN]
+    h.set_sites({DOMAIN: []})  # the bench's one site, no aliases
     h.cert_manager.list_certificates.return_value = [_cert_row(DOMAIN), _cert_row("orphan.example.com")]
 
     _list_bench_certificates(h.ctx, BENCH)
@@ -566,7 +585,7 @@ def test_list_hides_a_certificate_whose_domain_left_the_bench_config(h):
 
 @pytest.mark.timeout(15)
 def test_list_reports_an_issued_certificate_with_expiry_and_days_left(h):
-    h.bench.bench_config.get_all_domains.return_value = [DOMAIN]
+    h.set_sites({DOMAIN: []})  # the bench's one site, no aliases
     h.cert_manager.list_certificates.return_value = [
         _cert_row(
             DOMAIN,
@@ -593,7 +612,7 @@ def test_list_reports_an_issued_certificate_with_expiry_and_days_left(h):
 
 @pytest.mark.timeout(15)
 def test_list_flags_a_certificate_that_needs_renewal(h):
-    h.bench.bench_config.get_all_domains.return_value = [DOMAIN]
+    h.set_sites({DOMAIN: []})  # the bench's one site, no aliases
     h.cert_manager.list_certificates.return_value = [
         _cert_row(DOMAIN, expiry_date=datetime(2026, 1, 1, 0, 0, tzinfo=UTC), days_until_expiry=3, needs_renewal=True)
     ]
@@ -605,7 +624,7 @@ def test_list_flags_a_certificate_that_needs_renewal(h):
 
 @pytest.mark.timeout(15)
 def test_list_marks_a_configured_but_unissued_certificate_as_not_issued(h):
-    h.bench.bench_config.get_all_domains.return_value = [DOMAIN]
+    h.set_sites({DOMAIN: []})  # the bench's one site, no aliases
     h.cert_manager.list_certificates.return_value = [_cert_row(DOMAIN, exists=False, days_until_expiry=99)]
 
     _list_bench_certificates(h.ctx, BENCH)
@@ -617,7 +636,7 @@ def test_list_marks_a_configured_but_unissued_certificate_as_not_issued(h):
 
 @pytest.mark.timeout(15)
 def test_list_falls_back_to_na_when_an_issued_certificate_has_no_expiry_date(h):
-    h.bench.bench_config.get_all_domains.return_value = [DOMAIN]
+    h.set_sites({DOMAIN: []})  # the bench's one site, no aliases
     h.cert_manager.list_certificates.return_value = [_cert_row(DOMAIN, exists=True, expiry_date=None)]
 
     _list_bench_certificates(h.ctx, BENCH)
@@ -628,7 +647,7 @@ def test_list_falls_back_to_na_when_an_issued_certificate_has_no_expiry_date(h):
 @pytest.mark.timeout(15)
 @pytest.mark.parametrize("challenge_type", [None, ""])
 def test_list_renders_a_missing_challenge_type_as_na(h, challenge_type):
-    h.bench.bench_config.get_all_domains.return_value = [DOMAIN]
+    h.set_sites({DOMAIN: []})  # the bench's one site, no aliases
     h.cert_manager.list_certificates.return_value = [_cert_row(DOMAIN, challenge_type=challenge_type, exists=False)]
 
     _list_bench_certificates(h.ctx, BENCH)
@@ -638,7 +657,7 @@ def test_list_renders_a_missing_challenge_type_as_na(h, challenge_type):
 
 @pytest.mark.timeout(15)
 def test_list_lets_the_last_duplicate_certificate_entry_win(h):
-    h.bench.bench_config.get_all_domains.return_value = [DOMAIN]
+    h.set_sites({DOMAIN: []})  # the bench's one site, no aliases
     h.cert_manager.list_certificates.return_value = [
         _cert_row(DOMAIN, ssl_type="dev", exists=False),
         _cert_row(DOMAIN, ssl_type="letsencrypt", exists=False),

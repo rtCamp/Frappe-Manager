@@ -39,6 +39,9 @@ shell can observe, so they are not interchangeable:
   address one because a bench holds several sites now, and destroying one site
   is not destroying the bench. The bench name is what reaches the command body,
   exactly as with the other aliases; the site rides on `ctx.obj["site"]`.
+  It is also the only alias whose shell completion offers sites: the others carry
+  `sites_autocompletion_callback`, which completes bench names alone, so an
+  argument that refuses a site part can never complete the operator into one.
 
 Commands whose `benchname` genuinely differs (`create`, `migrate`,
 `self compose`, `bake`, `deploy`, `maintenance`, `ssl dns-config cloudflare`)
@@ -50,6 +53,7 @@ from typing import Annotated
 import typer
 
 from frappe_manager.utils.callbacks import (
+    bench_site_autocompletion_callback,
     bench_site_callback,
     sitename_callback,
     sites_autocompletion_callback,
@@ -90,7 +94,7 @@ BenchSiteArgument = Annotated[
     str | None,
     typer.Argument(
         help="Bench, or bench/site.",
-        autocompletion=sites_autocompletion_callback,
+        autocompletion=bench_site_autocompletion_callback,
         callback=bench_site_callback,
     ),
 ]

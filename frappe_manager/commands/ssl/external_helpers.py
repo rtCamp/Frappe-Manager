@@ -426,7 +426,7 @@ def _get_non_bench_domains_from_nginx(services_manager) -> list[str]:
             try:
                 output = SilentOutputHandler()
                 bench = Bench.get_object(bench_name, services_manager, output_handler=output)
-                bench_domains.update(bench.bench_config.get_all_domains())
+                bench_domains.update(bench.bench_config.domains)
             except Exception as e:
                 logger.debug(f"cert scan skipped {bench_name}: {e}")
                 continue

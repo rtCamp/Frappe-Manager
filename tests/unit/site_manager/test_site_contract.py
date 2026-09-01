@@ -181,16 +181,22 @@ def status(service: str, name: str, state: str) -> dict:
     return {"Service": service, "Name": name, "State": state}
 
 
-def put_site_on_disk(bench_path: Path, site: str, *, schema: str | None = None, raw: str | None = None) -> Path:
+def put_site_on_disk(
+    bench_path: Path, site: str, *, schema: str | None = None, raw: str | None = None, bench=None
+) -> Path:
     """Write `sites/<site>/site_config.json`, which is where a site's schema name actually lives.
 
-    `Bench.site_schemas()` enumerates the FILESYSTEM rather than `bench_config.toml`: the schema is
-    minted as `fm_<site>_<hex>` and written nowhere else, and delete has to work on a bench whose
-    config is missing or stale. So a bench with no site directory holds no sites at all, and any
-    test about the removal path has to put one here.
+    Both halves are needed for a site to be one fm will act on. `[sites]` is the record of WHICH
+    sites exist, and `sites/<site>/site_config.json` is the only place each schema name is written.
+    Pass `bench` to record it as well as write it; without that the site is on disk and unrecorded,
+    which is exactly the hand-made site `unmanaged_site_dirs()` reports and delete never touches.
 
     `raw` writes the file verbatim, for the unreadable case.
     """
+    if bench is not None:
+        recorded = getattr(bench.bench_config, "sites", None) or {}
+        recorded[site] = MagicMock()
+        bench.bench_config.sites = recorded
     site_dir = bench_path / "workspace" / "frappe-bench" / "sites" / site
     site_dir.mkdir(parents=True, exist_ok=True)
     body = raw if raw is not None else json.dumps({"db_name": schema} if schema else {})
@@ -1182,7 +1188,10 @@ class TestUpdateUploadLimit:
         site_config.write_text("{}")
         vhostd = harness.services.path / "nginx-proxy" / "vhostd"
         vhostd.mkdir(parents=True, exist_ok=True)
-        bench.bench_config.alias_domains = ["alias.example.com"]
+        # `alias.example.com` is an alternate FOR the site `test.localhost`, which is where the list
+        # lives; the limit has to reach every hostname the bench serves, aliases included, because
+        # a domain with no vhost entry gets nginx-proxy's own 1M default.
+        bench.bench_config.sites = {SITE: SiteConfig(alias_domains=["alias.example.com"])}
         harness.services.is_service_running.return_value = True
 
         with patch.object(BenchConfig, "export_to_compose_inputs", return_value={"environment": {}}):
@@ -1193,6 +1202,10 @@ class TestUpdateUploadLimit:
         assert bench.bench_config.upload_limit == "100M"
         custom = harness.path / "configs" / "nginx" / "conf" / "custom" / "upload-limit.conf"
         assert custom.read_text() == "client_max_body_size 100m;\n"
+        # Both hostnames the bench serves carry the cap: the site's own name and its alias. The
+        # directive is appended to whatever vhost fragment is already there, hence the substring.
+        assert "client_max_body_size 100m;" in (vhostd / SITE).read_text()
+        assert "client_max_body_size 100m;" in (vhostd / "alias.example.com").read_text()
         bench.bench_nginx_controller.reload.assert_called()
         harness.services.nginx_controller.reload.assert_called_once_with()
 
@@ -1282,7 +1295,7 @@ class TestRemoveBench:
         name. This used to warn "Continuing with bench removal", delete the directory anyway, and
         exit 0."""
         bench = self._removable(harness)
-        put_site_on_disk(harness.path, SITE, schema="fm_test_ab12")
+        put_site_on_disk(harness.path, SITE, schema="fm_test_ab12", bench=bench)
         entry = SiteSchema(site=SITE, schema="fm_test_ab12", external_host=None)
         bench._handle_database_deletion.return_value = [(entry, "db unreachable")]
 
@@ -1297,7 +1310,7 @@ class TestRemoveBench:
         routine raises out of the step any more. The catch stays because the directory must survive
         an unexpected failure as well."""
         bench = self._removable(harness)
-        put_site_on_disk(harness.path, SITE, schema="fm_test_ab12")
+        put_site_on_disk(harness.path, SITE, schema="fm_test_ab12", bench=bench)
         bench._handle_database_deletion.side_effect = RuntimeError("db unreachable")
 
         with pytest.raises(BenchException, match="Database deletion failed"):
@@ -1320,7 +1333,7 @@ class TestHandleDatabaseDeletion:
         switch for "this schema is not fm's to drop".
         """
         bench = harness.bench
-        put_site_on_disk(harness.path, SITE, schema=schema)
+        put_site_on_disk(harness.path, SITE, schema=schema, bench=bench)
         bench.bench_config.sites = {SITE: SiteConfig(database=external)}
         bench.remove_database_and_user = MagicMock()
         return bench
@@ -1448,7 +1461,7 @@ class TestMultiSiteRemoval:
         """Nothing raised: fm just cannot tell which schema this site uses, and the file that could
         answer is inside the directory, so the directory stays."""
         bench = self._bench(harness, {SITE: "fm_test_b2"})
-        put_site_on_disk(harness.path, self.ALIAS, raw="{not json")
+        put_site_on_disk(harness.path, self.ALIAS, raw="{not json", bench=bench)
         calls = record_removal_steps(harness)
 
         with pytest.raises(BenchException, match="Database deletion failed for 1 of 2 site") as excinfo:
@@ -2041,8 +2054,19 @@ class TestThinDelegations:
     def test_alias_domain_updates_are_an_orchestrator_workflow(self, harness):
         bench = harness.bench
         bench.orchestrator = MagicMock()
+        # The site travels through, same as the removal route above: an alias is an alternate FOR a
+        # site, so which site it attaches to is part of the request. None means the bench's primary,
+        # which the orchestrator resolves.
         bench.update_alias_domains(["a.example.com"], ["b.example.com"])
-        bench.orchestrator.update_alias_domains.assert_called_once_with(["a.example.com"], ["b.example.com"])
+        bench.orchestrator.update_alias_domains.assert_called_once_with(
+            ["a.example.com"], ["b.example.com"], site=None
+        )
+
+        bench.orchestrator.update_alias_domains.reset_mock()
+        bench.update_alias_domains(["a.example.com"], None, site="other.example.com")
+        bench.orchestrator.update_alias_domains.assert_called_once_with(
+            ["a.example.com"], None, site="other.example.com"
+        )
 
     def test_has_certificate_routes_to_the_ssl_module(self, harness):
         harness.bench.ssl = MagicMock(**{"has_certificate.return_value": True})

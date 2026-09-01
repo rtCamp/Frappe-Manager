@@ -48,7 +48,7 @@ SSL configuration:
 
 import gzip
 import shutil
-from collections.abc import MutableMapping
+from collections.abc import MutableMapping, MutableSequence
 from pathlib import Path
 
 import tomlkit
@@ -379,9 +379,23 @@ class MigrationV0200(MigrationBase):
         # The bench's own site, named after the bench. Runs whether or not there was a `[database]`
         # table, because this is the entry a global-db bench never had.
         created = bench.name not in sites
-        _ = site_entry(bench.name)
+        primary = site_entry(bench.name)
 
-        if not moved and not created and not isinstance(old, MutableMapping):
+        # `alias_domains` was bench-level, so it had no site to belong to and the routing table had
+        # to send every alias to the primary site. The bench's own site IS that primary, so moving
+        # the list there preserves exactly the routing the bench had, with the attribution now
+        # recorded instead of inferred.
+        aliases = doc.get("alias_domains")
+        moved_aliases = False
+        if isinstance(aliases, MutableSequence):
+            # An existing per-site list wins, same rule as `database`: overwriting it would undo a
+            # previous run of this step.
+            if aliases and "alias_domains" not in primary:
+                primary["alias_domains"] = aliases
+                moved_aliases = True
+            del doc["alias_domains"]
+
+        if not moved and not created and not moved_aliases and not isinstance(old, MutableMapping):
             return
 
         toml_document.save(config_path, doc)
@@ -389,8 +403,10 @@ class MigrationV0200(MigrationBase):
             self.output.print(f"Moved \\[database] under \\[sites] for {', '.join(moved)}")
         elif created:
             self.output.print(f"Recorded site {bench.name} under \\[sites]")
-        else:
+        elif not moved_aliases:
             self.output.print(f"Dropped the empty \\[database] table for {bench.name}")
+        if moved_aliases:
+            self.output.print(f'Moved alias_domains under \\[sites."{bench.name}"]')
 
     def _rewrite_ssl_table(self, bench: MigrationBench):
         """Bring a bench's TLS configuration into the one shape the loader reads: an [ssl]

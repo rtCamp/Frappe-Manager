@@ -215,9 +215,11 @@ class UpdateWorld:
 
     # -- run ---------------------------------------------------------------
 
-    def run(self, **kwargs):
+    def run(self, *, site: str | None = None, **kwargs):
         ctx = MagicMock(spec=typer.Context)
-        ctx.obj = {"services": self.services, "fm_config_manager": self.fm_config}
+        # `fm update BENCH/SITE` parses to a bench plus the addressed site, and the site rides on
+        # ctx.obj. A bare `fm update BENCH` leaves it None, which means the bench's primary site.
+        ctx.obj = {"services": self.services, "fm_config_manager": self.fm_config, "site": site}
         return update(ctx, benchname=BENCH, **kwargs)
 
 
@@ -783,19 +785,23 @@ class TestAliasDomains:
             skip_check=False,
         )
         world.bench.update_alias_domains.assert_called_once_with(
-            add_domains=["www.example.com", "api.example.com"], remove_domains=[]
+            add_domains=["www.example.com", "api.example.com"], remove_domains=[], site=None
         )
         assert "Alias domains updated successfully" in world.prints
 
     def test_a_conflict_refuses_the_update_and_advertises_the_override(self, world):
-        world.validate_domains_unique.side_effect = DomainConflictError([DomainConflict("www.example.com", "other")])
+        # The third positional is the SITE that already serves the domain, not a primary-or-not
+        # flag: 'www.example.com' is an alias of bench 'other''s site 'shop.other'.
+        world.validate_domains_unique.side_effect = DomainConflictError(
+            [DomainConflict("www.example.com", "other", "shop.other")]
+        )
 
         with pytest.raises(typer.Exit) as exc:
             world.run(add_alias=["www.example.com"])
 
         assert exc.value.exit_code == 1
         assert world.errors == [
-            "Domain conflicts detected:\n  - 'www.example.com' → already used as alias by bench 'other'"
+            "Domain conflicts detected:\n  - 'www.example.com' → already an alias of site 'shop.other' in bench 'other'"
         ]
         assert world.output.print.call_args.args[0] == "\nTo proceed anyway, use: --allow-domain-conflicts"
         assert world.output.print.call_args.kwargs == {"emoji_code": ""}
@@ -820,7 +826,18 @@ class TestAliasDomains:
         world.run(remove_alias=["shop.example.com"])
 
         world.validate_domains_unique.assert_not_called()
-        world.bench.update_alias_domains.assert_called_once_with(add_domains=[], remove_domains=["shop.example.com"])
+        world.bench.update_alias_domains.assert_called_once_with(
+            add_domains=[], remove_domains=["shop.example.com"], site=None
+        )
+
+    def test_the_addressed_site_is_the_one_the_alias_attaches_to(self, world):
+        """`fm update BENCH/SITE --add-alias`: an alias is an alternate for one SITE, so the site
+        named on the command line is handed down instead of the bench's primary."""
+        world.run(site="shop.example.com", add_alias=["www.example.com"])
+
+        world.bench.update_alias_domains.assert_called_once_with(
+            add_domains=["www.example.com"], remove_domains=[], site="shop.example.com"
+        )
 
     def test_alias_changes_do_not_trigger_a_bench_config_save(self, world):
         """Alias persistence is delegated to update_alias_domains; the command saves nothing."""

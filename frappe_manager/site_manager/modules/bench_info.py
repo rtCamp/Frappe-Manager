@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 from frappe_manager.docker import DockerException
 from frappe_manager.output_manager import OutputHandler
 from frappe_manager.output_manager.rich_output import RichOutputHandler
-from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime
+from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime, resolve_primary_site
 from frappe_manager.site_manager.exceptions import BenchException
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 from frappe_manager.ssl_manager.letsencrypt_certificate import LetsencryptSSLCertificate
@@ -59,6 +59,7 @@ class BenchInfo:
         has_certificate_fn,
         is_running_fn,
         get_services_running_status_fn,
+        unmanaged_site_dirs_fn,
         docker_client=None,
         output_handler: OutputHandler | None = None,
     ):
@@ -77,6 +78,11 @@ class BenchInfo:
             has_certificate_fn: Callable to check if certificate exists
             is_running_fn: Callable to check if bench is running
             get_services_running_status_fn: Callable to get services status
+            unmanaged_site_dirs_fn: Callable returning the site directories on disk that
+                `[sites]` does not record. Required, with no default: a default would let a
+                construction path that forgets it silently stop reporting drift, and a drift
+                report that quietly does not happen is the failure this reporting exists to
+                prevent.
             output_handler: Optional output handler for displaying information
         """
         self.bench_name = bench_name
@@ -90,6 +96,7 @@ class BenchInfo:
         self.has_certificate = has_certificate_fn
         self.is_running = is_running_fn
         self.get_services_running_status = get_services_running_status_fn
+        self.unmanaged_site_dirs = unmanaged_site_dirs_fn
         self.docker_client = docker_client
         self.output = output_handler or RichOutputHandler()
 
@@ -253,16 +260,39 @@ class BenchInfo:
         protocol = "https" if self.has_certificate() else "http"
         active = self.is_running()
 
+        # `[sites]` is the record of what this bench serves, so an EMPTY table means zero sites (a
+        # `--bench-only` bench, or the last site deleted) rather than one site named after the bench,
+        # which is what `site_names` falls back to mid-create.
+        #
+        # `primary` is None when no recorded site is the bench's own, which is both of the states
+        # `fm info` has to survive: nothing recorded at all, and several recorded with none named
+        # after the bench. `primary_site` RAISES on the second, and this card is precisely where an
+        # operator goes to find out why a bench-scoped command on that bench refuses, so every read
+        # below has to print instead. `resolve_primary_site` is that rule's one implementation,
+        # shared with the model, so this cannot drift from what `fm shell` decides.
+        sites = config.site_names if config.sites else []
+        primary = resolve_primary_site(config.name, config.sites) if sites else None
+
+        # The host the card's link and the admin-tools URLs are built from: the primary when fm can
+        # name it, otherwise the first recorded site, and the bench name when there is no site at
+        # all. That is precisely what `BenchConfig.domains` publishes as `VIRTUAL_HOST` in each of
+        # those three cases, so the URL names a host nginx actually answers on.
+        domain = primary or (sites[0] if sites else self.bench_name)
+
         admin_pass = config.admin_pass + " (default)"
-        site_config = self.get_site_config()
+        # No primary means no single site whose config could be read, and a recorded site can have no
+        # directory yet; the bench config's password is then all fm has, and it is labelled default.
+        try:
+            site_config = self.get_site_config(primary) if primary else {}
+        except BenchException:
+            site_config = {}
         if "admin_password" in site_config:
             admin_pass = site_config["admin_password"]
 
         # The bench NAME titles the card, because that is what every command takes. Every URL below
-        # is the primary DOMAIN, because that is what nginx routes and what a browser can open: a
-        # bench `shop` printed `http://shop`, which resolves nowhere, while the site it serves is at
+        # is a site's DOMAIN, because that is what nginx routes and what a browser can open: a bench
+        # `shop` printed `http://shop`, which resolves nowhere, while the site it serves is at
         # `http://shop.localhost`.
-        domain = config.primary_domain
         card = railcard.Card(
             self.bench_name,
             railcard.bench_meta(
@@ -274,7 +304,16 @@ class BenchInfo:
 
         # ---- site
         card.section("site")
-        card.fact("url", f"{protocol}://{domain}")
+        if not sites:
+            # There is no URL to print, and `http://<bench>` would send the operator to an address
+            # that serves nothing. Saying so is what makes a bench-only bench's card useful.
+            card.fact("url", "[fm.muted]no site recorded in bench_config.toml[/fm.muted]")
+        elif primary is None:
+            # fm refuses to guess which site a bench-scoped command means, so the card says why
+            # rather than picking one; the rows below carry the addresses that do work.
+            card.fact("url", f"[fm.muted]{len(sites)} sites recorded, none named after the bench[/fm.muted]")
+        else:
+            card.fact("url", f"{protocol}://{primary}")
         if self.has_certificate():
             ssl_cert = config.get_primary_certificate()
             ssl_service_type = f"{ssl_cert.ssl_type.value}"
@@ -284,8 +323,45 @@ class BenchInfo:
             card.fact("https", f"{ssl_service_type.upper()} [fm.muted]·[/fm.muted] {remaining}")
         else:
             card.fact("https", "[fm.muted]not enabled[/fm.muted]")
-        if config.alias_domains:
-            card.fact("domains", ", ".join(sorted(config.alias_domains)))
+        # One row per site, skipped for the single ordinary case (one site on fm's own global-db)
+        # because `url` above already names it and its schema is in the `access` section: the common
+        # bench's card keeps printing exactly what it always has. Every other shape says something
+        # `url` cannot, namely that the bench serves more than one site, or that the one site's
+        # schema lives on a server fm does not own and whose host the operator needs to see.
+        if sites and (len(sites) > 1 or config.get_database_config(sites[0]) is not None):
+            for i, site in enumerate(sites):
+                database = config.get_database_config(site)
+                # Absence of a `[sites."<site>".database]` entry IS the switch: the site is on the
+                # global-db container fm owns. Anything else is someone else's server, named.
+                where = f"external · {database.host}:{database.port}" if database else "global-db"
+                marker = "  [fm.ok]● primary[/fm.ok]" if site == primary else ""
+                card.fact("sites" if i == 0 else "", f"{protocol}://{site}  [fm.muted]{where}[/fm.muted]{marker}")
+
+        # Site directories on disk that `[sites]` does not record: someone ran `bench new-site` by
+        # hand inside `fm shell`. Reported, never acted on, because fm only ever destroys a schema it
+        # wrote down.
+        #
+        # TWO rows however many there are: the card is a summary and every fact on it is written to
+        # fit 80 columns, which one sentence per directory does not. `fm delete` says the same thing
+        # at length, per directory, because that is where the schema is about to be destroyed and
+        # where the operator needs to be told which file carries its name. The wording differs
+        # between the two surfaces deliberately.
+        unmanaged = self.unmanaged_site_dirs()
+        if unmanaged:
+            card.fact("unmanaged", " [fm.muted]·[/fm.muted] ".join(f"sites/{name}/" for name in unmanaged))
+            card.fact("", "[fm.muted]not in bench_config.toml; fm will not touch their schemas[/fm.muted]")
+        # One row per site that has aliases, because a flat list cannot say which hostname reaches
+        # which schema. The site goes in the VALUE, not the label: the label column is 14 characters
+        # and `aliases of <site>` overruns it, which knocks this card's alignment out. Continuation
+        # rows carry an empty label, the same shape the unmanaged row above uses.
+        labelled = False
+        for site in sites:
+            entry = (config.sites or {}).get(site)
+            if entry is None or not entry.alias_domains:
+                continue
+            listed = ", ".join(sorted(entry.alias_domains))
+            card.fact("aliases" if not labelled else "", f"[fm.muted]{site}[/fm.muted]  {listed}")
+            labelled = True
         abs_path = self.bench_path.absolute()
         card.fact("dir", f"[fm.muted][link=file://{abs_path}]{abs_path}[/link][/fm.muted]")
 

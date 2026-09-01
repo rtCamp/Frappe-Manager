@@ -174,19 +174,25 @@ def test_bench_service_delete_shares_the_guard(tmp_path):
     path, the two drifted in the wording of the database question, and the copy is now gone. Asserted
     through the public entry point rather than the handler, so it stays true however the delegation
     is spelled.
+
+    A mixed bench, because that is what this config describes: the bench's own site on fm's global-db
+    and a second one on a server fm does not own. Both are recorded in `[sites]`, so both have to be
+    on disk; a recorded site with no `site_config.json` is unreadable, and unreadable blocks.
     """
     output = MagicMock()
     bench = _bench(
         tmp_path,
         _config(tmp_path, name=EXTERNAL_BENCH, external_site=EXTERNAL_SITE),
         EXTERNAL_BENCH,
-        {EXTERNAL_SITE: SCHEMA},
+        {EXTERNAL_BENCH: GLOBAL_SCHEMA, EXTERNAL_SITE: SCHEMA},
     )
+    bench.output.prompt_ask.return_value = "yes"
 
     _service(output, bench).delete_bench(EXTERNAL_BENCH, yes=True)
 
-    assert bench.database.remove_database_and_user.called is False
-    assert bench.output.prompt_ask.called is False
+    # The external one is never dropped and never asked about; the global-db one still is.
+    assert _dropped(bench) == [EXTERNAL_BENCH]
+    assert EXTERNAL_SITE not in _dropped(bench)
     assert EXTERNAL_HOST in _printed(bench.output)
     # Resolved, not outstanding: a schema fm does not own does not block the directory.
     bench.remove_containers_and_dirs.assert_called_once_with()

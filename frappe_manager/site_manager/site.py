@@ -273,6 +273,7 @@ class Bench:
             has_certificate_fn=lambda: self.has_certificate(),
             is_running_fn=lambda: self.running,
             get_services_running_status_fn=self._get_services_running_status,
+            unmanaged_site_dirs_fn=self.unmanaged_site_dirs,
             docker_client=docker_client,
             output_handler=self.output,
         )
@@ -405,8 +406,21 @@ class Bench:
 
     @property
     def domains(self) -> list[str]:
-        """Every hostname this bench serves, primary first, then aliases."""
-        return [self.primary_domain, *(self.bench_config.alias_domains or [])]
+        """Every hostname this bench serves, primary site first.
+
+        Delegates rather than composing `primary_domain` with the alias list, because that made
+        ENUMERATION depend on SELECTION. `resolve_primary_site` draws that line explicitly: routing
+        has to publish every site of a bench whose primary is ambiguous, and only a caller asking
+        "which site does this bench-scoped command mean" is allowed to fail. Building this list from
+        `primary_domain` broke the rule twice over: it omitted every non-primary site's domain on a
+        bench that resolves fine, and it raised outright on one that does not.
+
+        Both consumers are enumeration. Worker `extra_hosts` is the `/etc/hosts` override that lets
+        a background job reach a site over HTTP, and the vhostd files cap uploads per domain, so a
+        missing entry means a second site unreachable from a worker and pinned to nginx-proxy's 1M
+        default no matter what `upload_limit` says.
+        """
+        return self.bench_config.domains
 
     def _get_services_running_status(self) -> dict:
         """Get the running status of all services."""
@@ -933,23 +947,29 @@ class Bench:
             self.logger.exception(f"Failed to renew SSL certificate: {self.name}", extra_fields=extra)
             raise
 
-    def update_alias_domains(self, add_domains: list[str] | None = None, remove_domains: list[str] | None = None):
-        """
-        Update alias domains for the bench with atomic rollback support.
+    def update_alias_domains(
+        self,
+        add_domains: list[str] | None = None,
+        remove_domains: list[str] | None = None,
+        site: str | None = None,
+    ):
+        """Add or remove alternate hostnames for ONE of this bench's sites.
 
-        Works independently of SSL status:
-        - If SSL is active: regenerates certificate with updated domains
-        - If SSL is inactive: updates config only
+        Works independently of SSL status: with SSL active the certificate set is regenerated, with
+        SSL inactive only the config changes.
 
         Args:
-            add_domains: List of domains to add as aliases
-            remove_domains: List of domains to remove from aliases
+            add_domains: hostnames to add as aliases of `site`
+            remove_domains: hostnames to remove from `site`
+            site: which site the aliases belong to. None means the bench's primary site, which is
+                what `fm update BENCH` (no site part) asks for; `fm update BENCH/SITE` names one.
+                An alias is an alternate FOR a site, so it cannot be attached to a bench.
 
         Raises:
-            ValueError: If attempting to remove primary domain
-            Exception: If certificate generation fails (config is rolled back)
+            ValueError: attempting to remove a site's own name, which is not an alias
+            Exception: certificate generation failed (the config is rolled back)
         """
-        self.orchestrator.update_alias_domains(add_domains, remove_domains)
+        self.orchestrator.update_alias_domains(add_domains, remove_domains, site=site)
 
     def info(self):
         """
@@ -1131,31 +1151,50 @@ class Bench:
         return self.path / "workspace" / "frappe-bench" / "sites"
 
     def site_schemas(self) -> list[SiteSchema]:
-        """Every site present on disk, sorted by name. See :class:`SiteSchema` for why on disk.
+        """The sites fm MANAGES, from `[sites]`, each with the schema read off its own site config.
 
-        A directory counts as a site when it contains `site_config.json`. That file is what Frappe
-        writes for a site and what carries `db_name`, so its presence is the same question as "is
-        there a schema here to account for". It also excludes `sites/assets` and the other shared
-        entries without needing a list of names to skip.
+        The config is the only source of truth for which sites exist. The filesystem is a
+        reconciliation input: reported by :meth:`unmanaged_site_dirs`, never acted on.
+
+        Enumerating the filesystem instead looks attractive for delete, whose job is cleaning up
+        what exists, and it is a data-loss path. Someone runs `bench new-site test.localhost` by hand
+        inside `fm shell`; fm never provisioned that schema and has no record of it; under
+        filesystem enumeration `fm delete BENCH --all-sites` would find the directory, read its
+        `db_name` and DROP it. Config-as-truth cannot do that, because fm only ever destroys what it
+        wrote down.
+
+        The schema itself still comes from disk, because `sites/<site>/site_config.json` is the only
+        place a site's `db_name` is recorded.
+        """
+        schemas: list[SiteSchema] = []
+        for site in sorted(self.bench_config.sites or {}):
+            schema: str | None = None
+            # Unreadable rather than absent, which `SiteSchema.unreadable` treats as blocking.
+            with contextlib.suppress(OSError, ValueError):
+                config = self.sites_dir / site / "site_config.json"
+                schema = json.loads(config.read_text()).get("db_name") or None
+
+            external = self.bench_config.get_database_config(site)
+            schemas.append(SiteSchema(site=site, schema=schema, external_host=external.host if external else None))
+
+        return schemas
+
+    def unmanaged_site_dirs(self) -> list[str]:
+        """Site directories on disk that `[sites]` does not record, sorted.
+
+        Reported, never acted on: fm will not drop a schema it did not provision. A directory counts
+        as a site when it holds `site_config.json`, which is what Frappe writes and what carries
+        `db_name`, and which also excludes `sites/assets` without needing a list of names to skip.
         """
         if not self.sites_dir.is_dir():
             return []
 
-        schemas: list[SiteSchema] = []
-        for entry in sorted(self.sites_dir.iterdir(), key=lambda p: p.name):
-            config = entry / "site_config.json"
-            if not entry.is_dir() or not config.is_file():
-                continue
-
-            schema: str | None = None
-            # Unreadable rather than absent, which `SiteSchema.unreadable` treats as blocking.
-            with contextlib.suppress(OSError, ValueError):
-                schema = json.loads(config.read_text()).get("db_name") or None
-
-            external = self.bench_config.get_database_config(entry.name)
-            schemas.append(SiteSchema(site=entry.name, schema=schema, external_host=external.host if external else None))
-
-        return schemas
+        recorded = set(self.bench_config.sites or {})
+        return sorted(
+            entry.name
+            for entry in self.sites_dir.iterdir()
+            if entry.is_dir() and entry.name not in recorded and (entry / "site_config.json").is_file()
+        )
 
     def remove_database_and_user(self, site: str | None = None):
         """Drop one site's schema and user from global-db. None means this bench's own site."""
@@ -1192,6 +1231,16 @@ class Bench:
         read off this container by the global proxy too, so the same recreation is what makes the new
         hostname routable from outside at all.
 
+        Recreating is necessary but NOT sufficient. The entrypoint renders `conf.d/default.conf`
+        only when that file is absent (`Docker/nginx/entrypoint.sh`), and the file lives on a
+        host-mounted volume, so it survives any number of recreations. The rendered file carries the
+        `map $host $frappe_site_name` block and the `server_name` list, both baked from whatever
+        `SITE_MAPPINGS` held at first render. Leaving it in place meant an added site was served by
+        the FIRST site's schema: the container environment was correct, nginx never read it, and the
+        request fell through to the default server whose map answers with the original site. Wrong
+        data returned with a 200 is worse than the 503 the recreation was added to fix, so the
+        generated file goes first and the entrypoint rebuilds it from the new environment.
+
         Callers save the config first: this reads it, it does not write it.
         """
         compose_inputs = self.bench_config.export_to_compose_inputs()
@@ -1199,6 +1248,10 @@ class Bench:
         compose_inputs["environment"]["frappe"] = compose_inputs["environment"].get("frappe", {})
         compose_inputs["environment"]["frappe"]["FRAPPE_ENV"] = self.bench_config.environment_type.value
         self.generate_compose(compose_inputs)
+
+        # Only the generated file. Everything a host adds lives in conf.d/ or custom/ beside it.
+        default_conf = self.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
+        default_conf.unlink(missing_ok=True)
 
         self.output.change_head("Publishing the site map to nginx")
         output = self.docker_client.compose.up(
@@ -1382,6 +1435,15 @@ class Bench:
         """
         extra = {"operation": "db_handle_deletion", "bench_name": self.name}
         self.logger.debug(f"Handling database deletion for bench: {self.name}", extra_fields=extra)
+
+        # Reported, never acted on. These directories are about to be deleted with the bench, and
+        # their schemas are NOT fm's to drop, so the operator has to be told where to find them
+        # while the files that name them still exist.
+        for unmanaged in self.unmanaged_site_dirs():
+            self.output.warning(
+                f"sites/{unmanaged}/ exists on disk but is not in bench_config.toml. "
+                f"fm will not touch its schema. Its name is in sites/{unmanaged}/site_config.json."
+            )
 
         outstanding: list[tuple[SiteSchema, str]] = []
         for entry in self.site_schemas():

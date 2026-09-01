@@ -29,12 +29,13 @@ from frappe_manager.site_manager.modules.bench_docker import BenchDockerOps
 from frappe_manager.site_manager.modules.realip import build_bench_realip_conf
 from frappe_manager.site_manager.site import Bench
 
-# `bench.name` reaches these tests as a DOMAIN, not a bench name: the overlay refresh builds
-# `domains = [self.name, *alias_domains]` (`frappe_manager/site_manager/site.py:1336`) and writes
-# one nginx-proxy `vhostd/<domain>` file per entry. Being a peer of `alias_domains` in that list is
-# what settles it. The bench name and the served domain are one string until phase 3 splits them,
-# so the vhostd assertions below key off this constant rather than repeating the literal: when the
-# domain stops coming from `bench.name`, they move with it instead of still matching by accident.
+# `bench.name` reaches these tests as a DOMAIN, not a bench name: the overlay refresh writes one
+# nginx-proxy `vhostd/<domain>` file per entry of `Bench.domains`, which delegates to
+# `BenchConfig.domains` -- each site's own name followed by that site's aliases. A config with no
+# `[sites]` table serves one site named after the bench, so that list is `[bench.name]` here.
+# The bench name and the served domain are one string until phase 3 splits them, so the vhostd
+# assertions below key off this constant rather than repeating the literal: when the domain stops
+# coming from `bench.name`, they move with it instead of still matching by accident.
 DOMAIN = "heal.localhost"
 
 pytestmark = pytest.mark.timeout(15)
@@ -85,7 +86,12 @@ def _bench(path: Path, docker_ops) -> Bench:
     # value on a real BenchConfig (default 50M). Omitting it here made the refresh raise
     # AttributeError, which the best-effort start path then swallowed as a warning -- so every
     # assertion below about real-ip.conf passed or failed for the wrong reason.
-    bench.bench_config = SimpleNamespace(auth=None, admin_tools=False, upload_limit="50M", sites=None)
+    # `domains` is what `Bench.domains` delegates to now that aliases hang off a site rather than
+    # the bench, and it is what the vhostd half of the refresh iterates. One site, DOMAIN, with no
+    # aliases of its own -- the same list a real BenchConfig with an empty `[sites]` table returns.
+    bench.bench_config = SimpleNamespace(
+        auth=None, admin_tools=False, upload_limit="50M", sites=None, domains=[DOMAIN]
+    )
     bench.bench_nginx_controller = MagicMock()
     # The overlay refresh reads the subnet from the services compose, which is the pinned
     # source of truth. Wiring it keeps these tests off the live-docker fallback, which would
@@ -254,7 +260,6 @@ def test_an_existing_bench_gains_its_upload_limit_on_start(tmp_path):
     vhostd.mkdir(parents=True)
     bench = _bench(tmp_path, _real_ops(tmp_path))
     bench.services.path = tmp_path / "services"
-    bench.bench_config.alias_domains = []
 
     bench.start()
 
@@ -270,7 +275,6 @@ def test_the_proxy_is_not_reloaded_when_the_limit_already_matches(tmp_path):
     (vhostd / DOMAIN).write_text("\nclient_max_body_size 50m;\n")
     bench = _bench(tmp_path, _real_ops(tmp_path))
     bench.services.path = tmp_path / "services"
-    bench.bench_config.alias_domains = []
 
     bench.start()
 
@@ -322,6 +326,12 @@ def test_a_failed_overlay_refresh_does_not_block_the_start_and_is_reported(tmp_p
 
         @property
         def admin_tools(self):
+            raise RuntimeError("bench config unreadable")
+
+        @property
+        def domains(self):
+            # `Bench.domains` delegates here, so the vhostd half of the refresh reads the config
+            # too: leaving this off would make that read an AttributeError with another message.
             raise RuntimeError("bench config unreadable")
 
     _healthy_base(tmp_path)

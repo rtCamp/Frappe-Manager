@@ -22,6 +22,23 @@ from frappe_manager.services_manager.services import ServicesManager
 from frappe_manager.site_manager.bench_config import BenchConfig, FMBenchEnvType
 from frappe_manager.site_manager.site import Bench
 
+# `fm list` is the overview, `fm info` the detail view and `--json` the complete record, so the card
+# names the sites an operator can address and stops at three: the names ARE the payload here (they
+# are the second half of every `BENCH/SITE` address), while a bench serving more than a handful is
+# read with `fm info`. Three is the limit the info card's own `_compact_list` already uses.
+_SITES_SHOWN_IN_LIST = 3
+
+
+def _sites_fact(sites: list[str]) -> str:
+    """The ``sites`` card row for one bench: primary first, truncated, ``none`` when there are none."""
+    if not sites:
+        # A real state, not missing data: `--bench-only` creates a bench with no site in it, and
+        # deleting the last site leaves one. Saying so is the point of the row.
+        return "[fm.muted]none[/fm.muted]"
+    shown = ", ".join(sites[:_SITES_SHOWN_IN_LIST])
+    extra = len(sites) - _SITES_SHOWN_IN_LIST
+    return f"{shown} [fm.muted]+{extra}[/fm.muted]" if extra > 0 else shown
+
 
 class BenchService:
     """
@@ -233,6 +250,15 @@ class BenchService:
                     rows.append(
                         {
                             "name": bench.name,
+                            # `[sites]` is the record of what a bench serves, so an EMPTY table means
+                            # zero sites (a `--bench-only` bench, or the last site deleted), not one
+                            # site named after the bench: `site_names` answers with the bench's own
+                            # name there, which is its mid-create fallback, and a siteless bench
+                            # would then be listed as serving a site that does not exist. Never
+                            # `primary_site`, which RAISES when several sites are recorded and none
+                            # is named after the bench: that would drop the row of a bench whose
+                            # only fault is being multi-site, and `fm list` must show every bench.
+                            "sites": config.site_names if config.sites else [],
                             "status": "active" if bench.running else "inactive",
                             "runtime": config.runtime.value,
                             "environment": config.environment_type.value,
@@ -241,7 +267,10 @@ class BenchService:
                             "previous_tag": deploy_state.previous_tag if deploy_state else None,
                             "base_image": config.base_image,
                             "seed_image": config.seed_image,
-                            "alias_domains": list(config.alias_domains or []),
+                            # Every alias across the bench's sites. `fm list` is the overview, so it
+                            # names the extra hostnames without saying which site each serves; the
+                            # attribution is `fm info`'s job, the same split the `sites` row uses.
+                            "alias_domains": [d for d in config.domains if d not in set(config.site_names)],
                             "developer_mode": config.developer_mode,
                             "admin_tools": config.admin_tools,
                             "restart_policy": config.restart_policy.value,
@@ -302,6 +331,7 @@ class BenchService:
                 active,
                 link=f"http://{row['name']}",
             )
+            card.fact("sites", _sites_fact(row["sites"]))
             card.fact("apps", ", ".join(row["apps"]) or "-")
             if row["deployed_tag"]:
                 card.fact("tag", row["deployed_tag"])

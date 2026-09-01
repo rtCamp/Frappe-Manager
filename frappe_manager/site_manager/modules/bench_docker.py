@@ -118,9 +118,10 @@ class BenchDockerOps:
             for container_name, user_data in inputs["user"].items():
                 users[container_name] = (user_data["uid"], user_data["gid"])
 
-        network_aliases = [self.config.name]
-        if self.config.alias_domains:
-            network_aliases.extend(self.config.alias_domains)
+        # Every hostname the bench serves: each site's own name plus that site's aliases. This was
+        # `self.config.name` plus a bench-level alias list, which on a bench whose site is not named
+        # after it aliased the network to a hostname nothing serves and left the real site out.
+        network_aliases = list(self.config.domains)
 
         # No domain aliases on bench nginx — internal DNS resolution for all domains
         # is handled via extra_hosts (pointing to the global proxy).
@@ -132,9 +133,7 @@ class BenchDockerOps:
         proxy_ip = get_proxy_ip_on_frontend()
 
         if proxy_ip:
-            all_domains = [self.config.name]
-            if self.config.alias_domains:
-                all_domains.extend(self.config.alias_domains)
+            all_domains = self.config.domains
             extra_hosts = [f"{domain}:{proxy_ip}" for domain in all_domains]
             for service in ["frappe", "socketio", "schedule"]:
                 self.compose_file_manager.set_extrahosts(service, extra_hosts)
@@ -171,9 +170,15 @@ class BenchDockerOps:
                     envs["REQUESTS_CA_BUNDLE"] = container_ca_path
                     self.compose_file_manager.set_envs(svc, envs, append=True)
 
-        # Use configure_bench method to set all configurations atomically
+        # The container-name prefix is BENCH-scoped, so it comes from the bench name and not from
+        # `network_aliases[0]`. Those were the same string while the aliases list started at
+        # `self.config.name`; once it became `self.config.domains` the first entry turned into the
+        # primary SITE's domain, and a bench named `shop` serving `shop.localhost` would have
+        # written its compose as `fm__shop_localhost` while the leftover-container cleanup
+        # (site.py), admin tools, the database config and the workers compose all still say
+        # `fm__shop`.
         self.compose_file_manager.configure_bench(
-            prefix=get_container_name_prefix(network_aliases[0]),
+            prefix=get_container_name_prefix(self.config.name),
             version=get_current_fm_version(),
             envs=environments,
             labels=labels,

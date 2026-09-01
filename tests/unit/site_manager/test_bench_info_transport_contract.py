@@ -36,6 +36,7 @@ from frappe_manager.site_manager.bench_config import (
     AuthConfig,
     BenchRuntime,
     FMBenchEnvType,
+    resolve_primary_site,
 )
 from frappe_manager.site_manager.bench_service import BenchService
 from frappe_manager.site_manager.exceptions import BenchException
@@ -53,6 +54,9 @@ BENCH = "bench.localhost"
 # Deliberately NOT the bench name. Reading a site's files under the bench name is the bug these
 # stand-ins have to be able to catch, and a fixture that gives one string to both roles cannot.
 SITE = "web.example.com"
+# A bench holds N sites and the alias rows are per-site, so a second site is needed to tell one
+# row's aliases from another's.
+SECOND_SITE = "b.example.com"
 ADMIN_PW = "admin-pass"  # a literal here would trip S106
 AUTH_PW = "s3cr3t"
 ROOT_PW = "rootpass"
@@ -65,32 +69,58 @@ def _docker_exc(cmd="docker pull x"):
 # =========================================================================== BenchInfo: wiring
 
 
-def _config(**over):
+def _config(*, sites=None, aliases=None, **over):
     """Minimal duck-typed BenchConfig: display_info only ever reads these attributes.
 
-    `primary_site` is deliberately DIFFERENT from the bench name, because reading the site config
+    `sites` maps each recorded site name to its external database config, or to None for a site on
+    the global-db container fm owns; it defaults to the single site every other test wants, and
+    `sites={}` is a bench with no site in it. It drives `name`, `sites`, `site_names`,
+    `primary_site` and `get_database_config` TOGETHER, because a stand-in where those disagree
+    describes no bench that can exist.
+
+    `aliases` maps a site name to ITS alternate hostnames. That is where the list lives now, so the
+    recorded entries carry it: one flat bench-level list could not say which site an alias reached,
+    and the card prints one row per site precisely because it can now say.
+
+    Which site is the bench's own comes from the real `resolve_primary_site`, the one
+    implementation of that rule, rather than from a second copy of it here: display_info calls it
+    on this stand-in's `name` and `sites`, so a fixture answering differently would test nothing.
+
+    The primary is deliberately DIFFERENT from the bench name, because reading the site config
     under the bench name is the bug this stand-in has to be able to catch.
     """
+    recorded = {SITE: None} if sites is None else sites
+    alias_lists = aliases or {}
+    resolved = resolve_primary_site(BENCH, recorded)
     base = {
         "runtime": BenchRuntime.mount,
         "environment_type": FMBenchEnvType.prod,
         "restart_policy": SimpleNamespace(value="unless-stopped"),
         "admin_pass": ADMIN_PW,
-        "alias_domains": [],
         "deploy_state": None,
         "base_image": None,
         "seed_image": None,
         "admin_tools": False,
         "auth": None,
-        "primary_site": SITE,
-        "primary_domain": SITE,
+        # The real model stores None rather than an empty table, and `site_names` falls back to the
+        # BENCH name there: enumeration has to read `sites` to tell those two apart. Each entry is
+        # a site record, which is what carries that site's own aliases.
+        "sites": {
+            site: SimpleNamespace(database=database, alias_domains=list(alias_lists.get(site, [])))
+            for site, database in recorded.items()
+        }
+        or None,
+        "name": BENCH,
+        "site_names": list(recorded) or [BENCH],
+        "primary_site": resolved,
+        "get_database_config": lambda site=None: recorded.get(site or resolved),
     }
     base.update(over)
     return SimpleNamespace(**base)
 
 
-def _info(tmp_path, **over):
-    """BenchInfo through its REAL __init__ (it has no side effects) so the wiring is pinned."""
+def _kwargs(tmp_path, **over) -> dict:
+    """Every argument BenchInfo requires, so a test can also drop one and pin the refusal."""
     kwargs = {
         "bench_name": BENCH,
         "bench_path": tmp_path,
@@ -103,33 +133,50 @@ def _info(tmp_path, **over):
         "has_certificate_fn": MagicMock(return_value=False),
         "is_running_fn": MagicMock(return_value=True),
         "get_services_running_status_fn": MagicMock(return_value={}),
+        "unmanaged_site_dirs_fn": MagicMock(return_value=[]),
         "docker_client": None,
         "output_handler": MagicMock(),
     }
     kwargs.update(over)
-    return BenchInfo(**kwargs)
+    return kwargs
+
+
+def _info(tmp_path, **over):
+    """BenchInfo through its REAL __init__ (it has no side effects) so the wiring is pinned."""
+    return BenchInfo(**_kwargs(tmp_path, **over))
 
 
 def test_constructor_stores_the_injected_callables_under_their_short_names(tmp_path):
-    """The four ``*_fn`` arguments are stored WITHOUT the suffix; display_info calls them by
+    """The five ``*_fn`` arguments are stored WITHOUT the suffix; display_info calls them by
     the short name, so renaming either half breaks the card."""
-    db_fn, cert_fn, running_fn, status_fn = MagicMock(), MagicMock(), MagicMock(), MagicMock()
+    db_fn, cert_fn, running_fn, status_fn, drift_fn = (MagicMock() for _ in range(5))
     info = _info(
         tmp_path,
         get_db_connection_info_fn=db_fn,
         has_certificate_fn=cert_fn,
         is_running_fn=running_fn,
         get_services_running_status_fn=status_fn,
+        unmanaged_site_dirs_fn=drift_fn,
     )
     assert (info.get_db_connection_info, info.has_certificate) == (db_fn, cert_fn)
     assert (info.is_running, info.get_services_running_status) == (running_fn, status_fn)
+    assert info.unmanaged_site_dirs is drift_fn
+
+
+def test_the_drift_callable_has_no_default_so_no_construction_can_skip_the_report(tmp_path):
+    """A defaulted `unmanaged_site_dirs_fn` would let a caller that forgets it silently never
+    report a site directory fm does not manage, and a drift report that quietly does not happen is
+    worse than none: an operator would read the card as "fm knows about everything here"."""
+    kwargs = {k: v for k, v in _kwargs(tmp_path).items() if k != "unmanaged_site_dirs_fn"}
+    with pytest.raises(TypeError, match="unmanaged_site_dirs_fn"):
+        BenchInfo(**kwargs)
 
 
 def test_constructor_shares_bench_database_prefix_and_output_default(tmp_path):
     """The twin of BenchDatabase.__init__: same first four positional facts, same
     ``output_handler or RichOutputHandler()`` default.
 
-    Differences (BenchInfo only): workers, admin_tools, certificate_manager, four injected
+    Differences (BenchInfo only): workers, admin_tools, certificate_manager, five injected
     callables and an optional docker_client; BenchDatabase instead takes a single
     ``set_common_bench_config_fn``.
     """
@@ -556,18 +603,77 @@ def test_display_info_admin_tools_disabled_says_not_enabled(tmp_path, card_spy):
     assert card.facts["tools"] == "[fm.muted]not enabled[/fm.muted]"
 
 
-def test_display_info_domains_fact_only_when_aliases_exist_and_is_sorted(tmp_path, card_spy):
-    info = _displayable(tmp_path)
-    info.bench_config.alias_domains = ["z.example", "a.example"]
+def _alias_rows(card) -> list[str]:
+    """The alias block: the row labelled `aliases` plus the unlabelled continuations under it.
+
+    Read off `rows` rather than `facts`, because `facts` drops empty labels by design and every
+    continuation row carries one. The `sites` block above is built the same way, so a per-site row
+    here is the card's existing convention and not a new shape. The site sits in the VALUE because
+    the label column is 14 characters wide and `aliases of <site>` overruns it.
+    """
+    collected, inside = [], False
+    for kind, label, value in card.rows:
+        if kind != "fact":
+            continue
+        if label == "aliases":
+            inside, collected = True, [value]
+        elif inside and label == "":
+            collected.append(value)
+        elif inside:
+            break
+    return collected
+
+
+def test_display_info_alias_rows_name_their_site_and_are_sorted(tmp_path, card_spy):
+    """The flat `domains` fact is gone: an alias is an alternate FOR a site, so the row names that
+    site. A bench whose sites have no aliases prints no such row at all."""
+    info = _displayable(tmp_path, bench_config=_config(aliases={SITE: ["z.example", "a.example"]}))
     info.display_info()
 
     (card,) = card_spy.made
-    assert card.facts["domains"] == "a.example, z.example"
+    assert _alias_rows(card) == [f"[fm.muted]{SITE}[/fm.muted]  a.example, z.example"]
 
     _CardSpy.made = []
     plain = _displayable(tmp_path)
     plain.display_info()
-    assert "domains" not in _CardSpy.made[0].facts
+    assert _alias_rows(_CardSpy.made[0]) == []
+
+
+def test_display_info_gives_every_site_with_aliases_its_own_row(tmp_path, card_spy):
+    """Why one joined fact could not survive N sites: two sites each holding an alternate produced
+    one list in which no hostname said which schema it reached."""
+    info = _displayable(
+        tmp_path,
+        bench_config=_config(
+            sites={SITE: None, SECOND_SITE: None},
+            aliases={SITE: ["www.web.example.com"], SECOND_SITE: ["www.b.example.com"]},
+        ),
+    )
+    info.display_info()
+
+    (card,) = card_spy.made
+    assert _alias_rows(card) == [
+        f"[fm.muted]{SITE}[/fm.muted]  www.web.example.com",
+        f"[fm.muted]{SECOND_SITE}[/fm.muted]  www.b.example.com",
+    ]
+
+
+def test_display_info_alias_block_carries_one_label_and_aligns_the_rest(tmp_path, card_spy):
+    """The label column is 14 characters. Putting the site in the label instead knocked `sites`,
+    `aliases` and `dir` out of alignment on a real bench, which is how this was caught."""
+    info = _displayable(
+        tmp_path,
+        bench_config=_config(
+            sites={SITE: None, SECOND_SITE: None},
+            aliases={SITE: ["www.web.example.com"], SECOND_SITE: ["www.b.example.com"]},
+        ),
+    )
+    info.display_info()
+
+    (card,) = card_spy.made
+    labels = [label for kind, label, _ in card.rows if kind == "fact" and label.startswith("aliases")]
+    assert labels == ["aliases"]
+    assert all(len(label) <= 14 for kind, label, _ in card.rows if kind == "fact")
 
 
 def test_display_info_services_section_reports_bench_workers_and_tools_sorted(tmp_path, card_spy):
@@ -901,7 +1007,25 @@ def test_discover_benches_requires_a_compose_file_and_ignores_plain_files(tmp_pa
 # --------------------------------------------------------------------------- list data
 
 
-def _listable_bench(path: Path, name: str, **over):
+def _listable_bench(path: Path, name: str, *, sites=(SITE,), aliases=(), **over):
+    """A bench `list_benches_data` can read. `sites` is the recorded `[sites]` table's keys, and it
+    is deliberately NOT the bench name: a row that read the sites out of the bench's own name would
+    pass a fixture that gave one string to both roles. `sites=()` is a bench with no site in it.
+
+    `aliases` are the alternate hostnames of the FIRST recorded site, because that is where they
+    live now; the row flattens them back out across the bench, and it does that by subtracting
+    `site_names` from `domains`, so those three have to agree here."""
+    site_names = list(sites) or [name]
+    recorded = {site: SimpleNamespace(database=None, alias_domains=[]) for site in sites}
+    if aliases:
+        recorded[site_names[0]].alias_domains = list(aliases)
+    # Each site's own name followed by that site's aliases, exactly as the real property publishes
+    # them into VIRTUAL_HOST. A siteless bench falls back to its own name and has no entry.
+    domains: list[str] = []
+    for site in site_names:
+        domains.append(site)
+        if site in recorded:
+            domains.extend(recorded[site].alias_domains)
     config = SimpleNamespace(
         runtime=BenchRuntime.mount,
         environment_type=FMBenchEnvType.prod,
@@ -909,10 +1033,13 @@ def _listable_bench(path: Path, name: str, **over):
         deploy_state=None,
         base_image=None,
         seed_image=None,
-        alias_domains=None,
         developer_mode=False,
         admin_tools=True,
         restart_policy=SimpleNamespace(value="always"),
+        sites=recorded or None,
+        # The real property's mid-create fallback, which is why the row reads `sites` to decide.
+        site_names=site_names,
+        domains=domains,
     )
     for key, value in over.items():
         setattr(config, key, value)
@@ -964,7 +1091,7 @@ def test_list_benches_data_reports_the_deployed_tags_for_an_image_bench(tmp_path
         "a.localhost",
         runtime=BenchRuntime.image,
         deploy_state=SimpleNamespace(current_tag="r:new", previous_tag="r:old"),
-        alias_domains=["alias.localhost"],
+        aliases=["alias.localhost"],
     )
     with patch.object(BenchService, "get_bench", return_value=bench):
         (row,) = _service(tmp_path).list_benches_data()
@@ -1049,6 +1176,7 @@ def test_list_benches_view_warns_about_a_broken_bench_and_draws_no_card(tmp_path
         {
             "name": "a.localhost",
             "error": None,
+            "sites": [SITE],
             "status": "active",
             "runtime": "mount",
             "environment": "prod",
@@ -1081,6 +1209,7 @@ def test_list_benches_view_adds_image_and_alias_facts_only_when_set(tmp_path, mo
     row = {
         "name": "a.localhost",
         "error": None,
+        "sites": [SITE],
         "status": "inactive",
         "runtime": "image",
         "environment": "prod",

@@ -23,12 +23,16 @@ SECOND = "b.example.com"
 
 
 @pytest.fixture
-def bench():
+def bench(tmp_path):
     """A bench stand-in whose config reports two recorded sites."""
     b = Bench.__new__(Bench)  # bypass __init__: no Docker, no compose, no services
     b.name = BENCH
     b.logger = MagicMock()
     b.output = MagicMock()
+    # A real directory: publishing deletes the GENERATED nginx conf so the entrypoint re-renders it
+    # from the new environment, and that is a filesystem operation on the bench path.
+    b.path = tmp_path / BENCH
+    (b.path / "configs" / "nginx" / "conf" / "conf.d").mkdir(parents=True)
     b.bench_config = MagicMock()
     b.bench_config.environment_type = SimpleNamespace(value="prod")
     b.bench_config.export_to_compose_inputs.return_value = {
@@ -40,6 +44,47 @@ def bench():
     b.docker_client = MagicMock()
     b.output.live_lines = MagicMock()
     return b
+
+
+def _default_conf(bench):
+    return bench.path / "configs" / "nginx" / "conf" / "conf.d" / "default.conf"
+
+
+def test_the_generated_nginx_conf_is_dropped_so_the_entrypoint_rebuilds_it(bench):
+    """Recreating the container is necessary but not sufficient. The entrypoint renders
+    `conf.d/default.conf` only when it is ABSENT, and that file is host-mounted, so it survives any
+    number of recreations. Left in place it keeps the `map $host $frappe_site_name` block and the
+    `server_name` list baked at first render, and an added site is served by the FIRST site's
+    schema: measured on a real bench, `b.example.com` returned `shop.localhost`'s content with a
+    200. Wrong data behind a 200 is worse than the 503 the recreation was added to fix.
+    """
+    conf = _default_conf(bench)
+    conf.write_text("server_name shop.localhost;  # rendered when the bench had one site\n")
+
+    bench.republish_site_map()
+
+    assert not conf.exists()
+
+
+def test_publishing_a_bench_with_no_generated_conf_yet_is_not_an_error(bench):
+    """First publish of a freshly created bench: there is nothing to drop."""
+    assert not _default_conf(bench).exists()
+
+    bench.republish_site_map()
+
+    bench.docker_client.compose.up.assert_called_once()
+
+
+def test_only_the_generated_conf_is_dropped(bench):
+    """Host-side additions live in `conf.d/` and `custom/` beside it; publishing must not touch
+    them, or an operator's own server block disappears on the next site change."""
+    conf_d = bench.path / "configs" / "nginx" / "conf" / "conf.d"
+    _default_conf(bench).write_text("generated\n")
+    (conf_d / "operator.conf").write_text("server { listen 8080; }\n")
+
+    bench.republish_site_map()
+
+    assert (conf_d / "operator.conf").read_text() == "server { listen 8080; }\n"
 
 
 def test_the_map_is_rendered_from_the_recorded_sites(bench):

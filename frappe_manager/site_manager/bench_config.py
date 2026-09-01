@@ -1202,6 +1202,13 @@ class SiteConfig(BaseModel):
 
     `db_admin_user` and `db_admin_password` remain create-time only for a different reason: they
     provision schemas on someone else's server, so no LATER fm run should be able to.
+
+    `alias_domains` moved here for the same reason `database` did, and because a bench-level list
+    could not say which site an alias reached: `get_site_mappings` had to guess, sending every alias
+    to the primary site (or to the first recorded one when no primary could be named) and admitting
+    in a comment that this was the one place an alias could reach a site the operator did not
+    intend. A site's name is its canonical domain, so an alias belongs to the site it is an
+    alternate FOR.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -1210,6 +1217,11 @@ class SiteConfig(BaseModel):
         None,
         description="External database server for this site. Absent means the site lives on the "
         "fm-managed 'global-db' container, exactly as before `[database]` existed.",
+    )
+    alias_domains: list[str] = Field(
+        default=[],
+        description="Extra hostnames this site is served on, besides its own name. A site's name "
+        "IS its canonical domain; these are alternates for the same site.",
     )
 
 
@@ -1340,7 +1352,6 @@ class BenchConfig(BaseModel):
         description="DNS provider credentials for DNS-01 challenge (e.g., {'cloudflare': {...}})",
     )
 
-    alias_domains: list[str] = Field(default=[], description="List of alias domains for the bench")
 
     upload_limit: str = Field(default="50M", description="Maximum upload size (e.g., '50M', '100M', '500M', '1G')")
 
@@ -1504,49 +1515,30 @@ class BenchConfig(BaseModel):
             self.ssl_certificates = [certificate]
 
     def create_individual_certificates(self, template_certificate: SSLCertificate) -> None:
-        """
-        Create individual certificate entries for primary domain and all alias domains.
+        """One certificate entry per hostname this bench serves, from a template.
 
-        This replaces any existing certificates with individual certificate entries
-        for each domain (primary + aliases), using the template certificate as a base.
+        Driven by `domains`, so it covers every site and every site's aliases. It used to build the
+        primary entry from `self.name` and then walk a bench-level alias list, which on a bench
+        whose site is not named after it minted a certificate for a hostname nothing resolves and
+        none for the site actually being served.
 
         Args:
-            template_certificate: Certificate configuration to use as template
-                                 (ssl_type, challenge_type, acme_client, etc.)
+            template_certificate: the configuration (ssl_type, challenge_type, acme_client, ...)
+                every entry is built from; only `domain` differs between them.
         """
         from copy import deepcopy
 
-        new_certificates = []
+        certificates = []
+        for domain in self.domains:
+            certificate = deepcopy(template_certificate)
+            certificate.domain = domain
+            certificates.append(certificate)
 
-        # Create certificate for primary domain
-        primary_cert = deepcopy(template_certificate)
-        primary_cert.domain = self.name
-        new_certificates.append(primary_cert)
-
-        # Create individual certificates for each alias domain
-        for alias_domain in self.alias_domains:
-            alias_cert = deepcopy(template_certificate)
-            alias_cert.domain = alias_domain
-            new_certificates.append(alias_cert)
-
-        # Replace all certificates with individual ones
-        self.ssl_certificates = new_certificates
+        self.ssl_certificates = certificates
 
     @property
     def container_name_prefix(self):
         return get_container_name_prefix(self.name)
-
-    def get_all_domains(self) -> list[str]:
-        """
-        Get all domains configured for this bench (primary + aliases).
-
-        Returns:
-            List of all domains that can have SSL certificates.
-        """
-        all_domains = [self.name]
-        if self.alias_domains:
-            all_domains.extend(self.alias_domains)
-        return all_domains
 
     def export_to_toml(self, path: Path) -> None:
         """Export to TOML: `environment`, [monitoring], [switch], [build], [ssl],
@@ -1620,7 +1612,6 @@ class BenchConfig(BaseModel):
             if isinstance(provider_data, dict):
                 dns_providers_dict[provider_name] = DNSProviderConfig.import_from_toml_doc(provider_data)
 
-        alias_domains_list = data.get("alias_domains", [])
 
         migration_state_data = data.get("migration_state", None)
         migration_state_obj = None
@@ -1652,7 +1643,6 @@ class BenchConfig(BaseModel):
             "root_path": data.get("root_path", None),
             "ssl_certificates": ssl_certificates_list,
             "dns_providers": dns_providers_dict if dns_providers_dict else None,
-            "alias_domains": alias_domains_list,
             "upload_limit": data.get("upload_limit", "50M"),
             "auth": AuthConfig(**_table(data, "auth")) if data.get("auth") else None,
             "admin_pass": data.get("admin_pass", "admin"),
@@ -1681,6 +1671,9 @@ class BenchConfig(BaseModel):
                     database=DatabaseConfig(**_filter_removed(site["database"], "database"))
                     if site.get("database")
                     else None,
+                    # Named explicitly rather than splatting the table, so a stray key in a
+                    # hand-written file is refused by `extra="forbid"` instead of silently kept.
+                    alias_domains=[str(alias) for alias in (site.get("alias_domains") or [])],
                 )
                 for name, site in data["sites"].items()
             }
@@ -1816,33 +1809,39 @@ class BenchConfig(BaseModel):
 
     @property
     def domains(self) -> list[str]:
-        """Every hostname this bench serves: each site's own domain, then the bench's aliases.
+        """Every hostname this bench serves: each site's own name, then that site's aliases.
 
-        A site's name IS its domain, so every site contributes one. `alias_domains` is still
-        bench-level, so an alias is served by the PRIMARY site; per-site aliases are a later change,
-        and until then a second site cannot have an alias of its own.
+        A site's name IS its canonical domain, so every site contributes one, and an alias is an
+        alternate for the site it is recorded under.
 
         Order matters: `export_to_compose_inputs` joins this into `VIRTUAL_HOST` and nginx-proxy
-        treats the first host as the canonical one, so the primary site's domain leads.
+        treats the first host as the canonical one, so the primary site's own domain leads. Each
+        site's aliases follow that site rather than being appended in a block at the end, so the
+        list reads as the routing table it becomes.
         """
-        return [*self.site_names, *(self.alias_domains or [])]
+        ordered: list[str] = []
+        for site in self.site_names:
+            ordered.append(site)
+            entry = (self.sites or {}).get(site)
+            if entry is not None:
+                ordered.extend(entry.alias_domains)
+        return ordered
 
     def get_site_mappings(self) -> dict[str, str]:
         """domain -> site, for the nginx entrypoint's `SITE_MAPPINGS`.
 
-        Each site's domain maps to that site, which is what makes a second site reachable at all:
-        nginx hands the value to Frappe as the site to serve, so mapping every domain to one site
-        would route both hostnames at the first site's schema. The bench's aliases map to the
-        primary site, matching where `alias_domains` currently lives.
+        nginx hands the value to Frappe as the site to serve, so a domain mapped to the wrong site
+        is served the wrong schema. Every domain here resolves to the site it is recorded under, so
+        no attribution is inferred: the bench-level list this replaced had to send every alias to
+        the primary site, which was the one place an alias could reach a site nobody intended.
         """
-        mappings = {site: site for site in self.site_names}
-        # `alias_domains` is bench-level, so an alias has no site of its own to belong to. It goes to
-        # the primary, or to the first recorded site when there is no unambiguous primary, which is
-        # the one case where an alias could reach a site the operator did not intend. Per-site
-        # aliases are what removes the guess.
-        alias_target = self._primary_site_or_none() or self.site_names[0]
-        for alias in self.alias_domains or []:
-            mappings[alias] = alias_target
+        mappings: dict[str, str] = {}
+        for site in self.site_names:
+            mappings[site] = site
+            entry = (self.sites or {}).get(site)
+            if entry is not None:
+                for alias in entry.alias_domains:
+                    mappings[alias] = site
         return mappings
 
     def get_newrelic_config(self) -> NewRelicConfig | None:

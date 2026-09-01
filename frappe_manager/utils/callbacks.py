@@ -14,7 +14,7 @@ from frappe_manager import (
 from frappe_manager.exceptions import NonInteractiveError
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchNotFoundError
-from frappe_manager.utils.address import Address, parse_address
+from frappe_manager.utils.address import SEPARATOR, Address, parse_address
 from frappe_manager.utils.helpers import check_frappe_app_exists, get_current_fm_version
 from frappe_manager.utils.site import get_sitename_from_current_path, is_fqdn, is_wildcard_fqdn, validate_sitename
 
@@ -130,14 +130,92 @@ def version_callback(version: bool | None = None):
         raise typer.Exit()
 
 
-def sites_autocompletion_callback() -> list[Path]:
-    sites_list = []
-    for dir in CLI_BENCHES_DIRECTORY.iterdir():
-        if dir.is_dir():
-            dir = dir / "docker-compose.yml"
-            if dir.exists() and dir.is_file():
-                sites_list.append(dir)
-    return sites_list
+def _bench_names() -> list[str]:
+    """Every bench fm can act on: a directory under the benches root with a compose file.
+
+    The compose file is the test, not the directory, because the benches root also collects
+    half-created and hand-made directories that no command could do anything with.
+    """
+    try:
+        entries = sorted(CLI_BENCHES_DIRECTORY.iterdir())
+    except OSError:
+        # No benches root yet, i.e. nothing has been created. Not an error to report from a
+        # completion or a picker: there is simply nothing to offer.
+        return []
+    return [entry.name for entry in entries if (entry / "docker-compose.yml").is_file()]
+
+
+def sites_autocompletion_callback(incomplete: str = "") -> list[str]:
+    """Shell completion for the arguments that take a BENCH and refuse a site part.
+
+    Bench names only. An argument whose callback rejects `BENCH/SITE` must never be offered
+    one, or the shell completes the operator straight into a refusal.
+
+    typer hands the word being completed to any completion callback that declares a `str`
+    parameter for it (or one named `incomplete`), so the parameter is the whole contract; the
+    default keeps the function callable in-process, where the pickers below use it.
+    """
+    incomplete = incomplete or ""
+    return [bench for bench in _bench_names() if bench.startswith(incomplete)]
+
+
+def _completable_sites(bench: str) -> list[str]:
+    """The site names to offer for one bench: its own record, else what is on disk.
+
+    This runs inside a shell completion, so it is allowed to know nothing and never allowed to
+    raise: an unnamed bench, a missing bench and a bench whose config will not parse all offer
+    nothing rather than putting a traceback where the operator expected a word. It also stays
+    off the network and away from Docker for the same reason, which is why it reads the config
+    file and the sites directory directly instead of going through `Bench`.
+    """
+    # Deferred: bench_config pulls in the site_manager package, which imports this module.
+    from frappe_manager.site_manager.bench_config import BenchConfig
+
+    bench_dir = CLI_BENCHES_DIRECTORY / bench
+    config_path = bench_dir / CLI_BENCH_CONFIG_FILE_NAME
+
+    if config_path.is_file():
+        try:
+            config = BenchConfig.import_from_toml(config_path)
+            # `site_names` answers `[self.name]` for a bench that records no sites, which is a
+            # bench name and not a site. Fall through to the disk instead of offering it.
+            if config.sites:
+                return config.site_names
+        except Exception:
+            pass
+
+    return _sites_on_disk(bench_dir)
+
+
+def _sites_on_disk(bench_dir: Path) -> list[str]:
+    """Site directories under a bench's workspace, the fallback when the record cannot answer.
+
+    A directory counts as a site when it holds a `site_config.json`; that is what separates the
+    sites from `assets`, `apps.txt` and the rest of the bench's own furniture.
+    """
+    sites_dir = bench_dir / "workspace" / "frappe-bench" / "sites"
+    try:
+        entries = sorted(sites_dir.iterdir())
+    except OSError:
+        return []
+    return [entry.name for entry in entries if (entry / "site_config.json").is_file()]
+
+
+def bench_site_autocompletion_callback(incomplete: str = "") -> list[str]:
+    """Shell completion for the `BENCH[/SITE]` arguments.
+
+    Before the separator this is bench-name completion, unchanged. Once the separator is typed
+    the bench is already named, so the offer switches to that bench's sites, each returned as
+    the whole `BENCH/SITE` word: a completion replaces what has been typed rather than
+    appending to it, so a bare site name would complete `shop/b` to `b.example.com`.
+    """
+    incomplete = incomplete or ""
+    bench, separator, site_prefix = incomplete.partition(SEPARATOR)
+
+    if not separator:
+        return sites_autocompletion_callback(incomplete)
+
+    return [f"{bench}{SEPARATOR}{site}" for site in _completable_sites(bench) if site.startswith(site_prefix)]
 
 
 RESERVED_BENCH_NAME = "all"
@@ -164,7 +242,7 @@ def _resolve_bench(sitename: str | None) -> str:
         sitename = get_sitename_from_current_path()
 
     if not sitename:
-        sites_list = [site_name.parent.name for site_name in sites_autocompletion_callback()]
+        sites_list = _bench_names()
 
         if sites_list:
             output = get_global_output_handler()
@@ -364,7 +442,7 @@ def prompt_for_bench_selection(current_value: str | None) -> str | None:
     if benchname:
         return benchname
 
-    sites_list = [site_name.parent.name for site_name in sites_autocompletion_callback()]
+    sites_list = _bench_names()
 
     if not sites_list:
         return None

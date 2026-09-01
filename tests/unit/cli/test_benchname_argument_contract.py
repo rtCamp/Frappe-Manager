@@ -36,6 +36,7 @@ from frappe_manager.site_manager.exceptions import BenchException, BenchNotFound
 from frappe_manager.utils import callbacks
 from frappe_manager.utils import site as site_utils
 from frappe_manager.utils.callbacks import (
+    bench_site_autocompletion_callback,
     bench_site_callback,
     sitename_callback,
     sites_autocompletion_callback,
@@ -79,7 +80,6 @@ KNOWN_CANONICAL = frozenset(
         "fm restart",
         "fm start",
         "fm stop",
-        "fm update",
     }
 )
 
@@ -188,9 +188,9 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         )
         for sub in ("add", "list", "remove", "renew")
     },
-    # Three commands address a SITE, for two different reasons, and all three share the one
+    # Four commands address a SITE, for three different reasons, and all four share the one
     # alias `BenchSiteArgument`: same help text, same callback, `bench_site_callback`, the only
-    # one that accepts a site part.
+    # one that accepts a site part, and the only completer that offers sites.
     #
     # `fm shell`: the site half of the address becomes FRAPPE_SITE in the container, which Frappe
     # reads above common_site_config's default_site, so bare `bench` commands inside the shell
@@ -200,16 +200,20 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
     # different act from destroying the bench, and the address is how the operator says which.
     # They are here rather than in KNOWN_CANONICAL because moving off `sitename_callback` is
     # exactly the change that must not happen by accident.
+    #
+    # `fm update`: alias domains moved from the bench to the site, so `--add-alias` has to say
+    # WHICH site the new hostname reaches. It moved off the canonical block deliberately -- this
+    # entry is that decision, not drift.
     **{
         f"fm {command}": BenchnameSpec(
             help="Bench, or bench/site.",
             default=None,
             required=False,
             type_name="text",
-            autocompletion=sites_autocompletion_callback,
+            autocompletion=bench_site_autocompletion_callback,
             callback=bench_site_callback,
         )
-        for command in ("shell", "delete", "reset")
+        for command in ("shell", "delete", "reset", "update")
     },
     # dns-config credentials can be global, hence its own wording.
     "fm ssl dns-config cloudflare": BenchnameSpec(
@@ -384,7 +388,16 @@ def test_shared_callables_are_the_same_object_everywhere():
     assert not impostors, f"a second sitename_callback object is in play: {impostors}"
 
     completers = {spec_of(p).autocompletion for p in BENCHNAME_ARGUMENTS.values()} - {None}
-    assert completers == {sites_autocompletion_callback}
+    assert completers == {sites_autocompletion_callback, bench_site_autocompletion_callback}
+
+    # Only the address arguments complete sites. Offering `shop/b.example.com` to an argument
+    # whose callback refuses a site part completes the operator straight into a refusal.
+    address_completers = {
+        name
+        for name, param in BENCHNAME_ARGUMENTS.items()
+        if spec_of(param).autocompletion is bench_site_autocompletion_callback
+    }
+    assert address_completers == {"fm shell", "fm delete", "fm reset", "fm update"}
 
 
 def test_commands_without_any_benchname_callback_are_only_the_documented_ones():
@@ -577,36 +590,51 @@ class TestSitenameCallbackWithNoValue:
 
 
 # --------------------------------------------------------------------------- #
-# sites_autocompletion_callback -- shape only; it does read the benches dir,
-# so every test here points it at tmp_path.
+# sites_autocompletion_callback -- the bench-ONLY completer. It reads the
+# benches dir, so every test here points it at tmp_path.
 # --------------------------------------------------------------------------- #
 
 
 class TestSitesAutocompletionCallback:
-    def test_returns_compose_file_paths_for_each_bench(self, benches):
+    def test_returns_the_bench_names(self, benches):
         make_bench(benches, "a.localhost")
         make_bench(benches, "b.localhost")
-        result = sites_autocompletion_callback()
-        assert all(isinstance(p, Path) for p in result)
-        # Callers derive the bench name via `.parent.name`.
-        assert sorted(p.parent.name for p in result) == ["a.localhost", "b.localhost"]
-        assert {p.name for p in result} == {"docker-compose.yml"}
+        assert sites_autocompletion_callback("") == ["a.localhost", "b.localhost"]
+
+    def test_offers_only_the_benches_matching_what_has_been_typed(self, benches):
+        make_bench(benches, "shop")
+        make_bench(benches, "warehouse")
+        assert sites_autocompletion_callback("sh") == ["shop"]
 
     def test_directory_without_a_compose_file_is_not_a_bench(self, benches):
         (benches / "half-baked.localhost").mkdir()
         make_bench(benches, "real.localhost")
-        assert [p.parent.name for p in sites_autocompletion_callback()] == ["real.localhost"]
+        assert sites_autocompletion_callback("") == ["real.localhost"]
 
     def test_plain_files_in_the_benches_directory_are_ignored(self, benches):
         (benches / "stray.txt").write_text("x")
-        assert sites_autocompletion_callback() == []
+        assert sites_autocompletion_callback("") == []
 
     def test_empty_benches_directory_yields_no_completions(self, benches):
-        assert sites_autocompletion_callback() == []
+        assert sites_autocompletion_callback("") == []
 
-    def test_missing_benches_directory_raises(self, tmp_path, monkeypatch):
-        # No guard on iterdir(): a fresh install with no ~/frappe/sites makes shell
-        # completion raise instead of returning []. Pinned; see final report.
+    def test_missing_benches_directory_yields_no_completions(self, tmp_path, monkeypatch):
+        # A fresh install has no ~/frappe/sites yet. Shell completion runs on every TAB, so
+        # this has to be silence and not a traceback in the middle of the operator's line.
         monkeypatch.setattr(callbacks, "CLI_BENCHES_DIRECTORY", tmp_path / "absent")
-        with pytest.raises(FileNotFoundError):
-            sites_autocompletion_callback()
+        assert sites_autocompletion_callback("") == []
+
+    def test_a_bench_scoped_argument_never_offers_an_address(self, benches):
+        """The invariant behind having two completers, asserted on behaviour not identity.
+
+        `sitename_callback` and `standalone_address_callback` REFUSE a value with a site part,
+        so the completer they carry must never produce one: a shell that fills in
+        `shop/b.example.com` would be completing the operator straight into a refusal.
+        """
+        bench = make_bench(benches, "shop")
+        sites_dir = bench / "workspace" / "frappe-bench" / "sites" / "b.example.com"
+        sites_dir.mkdir(parents=True)
+        (sites_dir / "site_config.json").write_text("{}")
+
+        for incomplete in ("", "sh", "shop", "shop/", "shop/b"):
+            assert not [c for c in sites_autocompletion_callback(incomplete) if "/" in c]

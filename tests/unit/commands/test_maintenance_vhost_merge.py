@@ -83,7 +83,8 @@ def test_tls_state_is_tracked_per_domain_not_per_bench(tmp_path, monkeypatch):
     _write_bench_config(
         tmp_path,
         "mybench.localhost",
-        'alias_domains = ["secure.example.com", "plain.example.com"]\n'
+        # Both aliases belong to the site `mybench.localhost`; aliases live per site now.
+        '[sites."mybench.localhost"]\nalias_domains = ["secure.example.com", "plain.example.com"]\n'
         '\n[[ssl.certificates]]\ndomain = "secure.example.com"\nssl_type = "letsencrypt"\n',
     )
 
@@ -180,7 +181,8 @@ def _run_off(services, benches):
 
 def test_off_clears_the_vhost_of_an_alias_that_left_the_bench(tmp_path):
     services, vhostd, benches = _maint_env(tmp_path)
-    _write_bench_config(benches, "mybench", 'alias_domains = ["alias.example.com"]\n')
+    # `alias.example.com` is an alias OF the site `mybench`.
+    _write_bench_config(benches, "mybench", '[sites."mybench"]\nalias_domains = ["alias.example.com"]\n')
     for domain in ("mybench", "alias.example.com"):
         (vhostd / domain).write_text(_enabled_block())
     # ... and then `fm update mybench --remove-alias alias.example.com` happened.

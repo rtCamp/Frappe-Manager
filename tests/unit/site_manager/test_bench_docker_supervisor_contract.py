@@ -68,11 +68,17 @@ def _ops(
     *,
     runtime=BenchRuntime.mount,
     name="test.localhost",
+    site=None,
     alias_domains=None,
     ssl_certificates=(),
     yml=None,
 ) -> BenchDockerOps:
-    """A `BenchDockerOps` whose collaborators are all mocks."""
+    """A `BenchDockerOps` whose collaborators are all mocks.
+
+    `name` is the BENCH; `site` is the one site it serves, defaulting to the bench name because
+    that is what an fm-created bench looks like. They are separate knobs so a test can tell the
+    two apart: anything derived from the bench must not silently start following the site.
+    """
     ops = object.__new__(BenchDockerOps)
     ops.logger = MagicMock()
     ops.docker_client = MagicMock()
@@ -81,10 +87,14 @@ def _ops(
     ops.compose_file_manager.yml = yml or {
         "services": {"nginx": {"image": "nginx:pinned"}, "frappe": {"image": "frappe:pinned"}}
     }
+    # A stand-in for `BenchConfig`. `generate_compose` reads only `domains` for routing, so that is
+    # what the stand-in answers: aliases are no longer a bench-level list, they belong to a site,
+    # and `domains` is each site's own name followed by that site's aliases. This bench has one
+    # site, `site or name`, and `alias_domains` here are ITS aliases.
     ops.config = SimpleNamespace(
         name=name,
         runtime=runtime,
-        alias_domains=alias_domains,
+        domains=[site or name, *(alias_domains or [])],
         ssl_certificates=list(ssl_certificates),
         container_name_prefix="fm__test_localhost",
     )
@@ -406,14 +416,26 @@ class TestGenerateCompose:
         ops.compose_file_manager.write_to_file.assert_called_once_with()
 
     @pytest.mark.timeout(15)
-    def test_prefix_is_derived_from_the_bench_name_not_from_an_alias(self, tmp_path, monkeypatch):
-        ops = _ops(tmp_path, name="primary.localhost", alias_domains=["alias.localhost"])
+    def test_prefix_is_derived_from_the_bench_name_not_from_a_domain(self, tmp_path, monkeypatch):
+        """The container-name prefix is BENCH-scoped: it names the containers, and the
+        leftover-container cleanup, admin tools, the database config and the workers compose all
+        build it from the bench name. So this bench is `shop` while its site is `shop.localhost`,
+        which is the only shape that tells the two sources apart -- deriving the prefix from
+        `config.domains[0]` instead would write `fm__shop_localhost` here and leave every other
+        caller looking for `fm__shop`.
+        """
+        ops = _ops(
+            tmp_path,
+            name="shop",
+            site="shop.localhost",
+            alias_domains=["www.shop.example.com"],
+        )
         self._patch_shape(monkeypatch)
         monkeypatch.setattr(f"{DOCKER_MODULE}.get_proxy_ip_on_frontend", lambda: None)
 
         ops.generate_compose({})
 
-        assert ops.compose_file_manager.configure_bench.call_args.kwargs["prefix"] == "fm__primary_localhost"
+        assert ops.compose_file_manager.configure_bench.call_args.kwargs["prefix"] == "fm__shop"
 
     @pytest.mark.timeout(15)
     def test_every_domain_resolves_to_the_proxy_inside_the_containers(self, tmp_path, monkeypatch):

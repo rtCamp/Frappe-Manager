@@ -15,7 +15,13 @@ from pathlib import Path
 import pytest
 import typer
 
-from frappe_manager.commands.create import _FLAG_TO_CONFIG, _flag_overlay, bench_config_from_inputs, create
+from frappe_manager.commands.create import (
+    _FLAG_TO_CONFIG,
+    _flag_overlay,
+    bench_config_from_inputs,
+    create,
+    record_site,
+)
 from frappe_manager.site_manager.bench_config import (
     AppConfig,
     BenchConfig,
@@ -169,7 +175,9 @@ def test_an_unversioned_seed_image_is_refused():
 # meaningful with an image to point at.
 _PROBES: dict[str, tuple[object, object]] = {
     "admin_pass": ("pass-one", "pass-two"),
-    "alias_domains": (["a.example.com"], ["b.example.com"]),
+    # No `alias_domains` row: it left `_FLAG_TO_CONFIG` when aliases moved onto the site, because its
+    # key path is `[sites."<site>"].alias_domains` and depends on the site name, which this static
+    # map cannot express. `record_site` applies the flag instead; pinned by the test at the bottom.
     "apps": ([AppConfig.from_string("erpnext")], [AppConfig.from_string("hrms")]),
     "developer_mode": (False, True),
     "environment": (FMBenchEnvType.dev, FMBenchEnvType.prod),
@@ -210,3 +218,27 @@ def test_every_mapped_flag_changes_the_resulting_config():
         second, _ = _build([], **{**companions, name: high})
         assert isinstance(first, BenchConfig)
         assert first != second, f"'{name}' is mapped in _FLAG_TO_CONFIG but changing it changed nothing"
+
+
+def test_alias_domains_is_a_real_flag_that_deliberately_is_not_mapped():
+    """`--alias-domains` looks exactly like a mapped flag -- a config value under another name --
+    and must nonetheless stay OUT of `_FLAG_TO_CONFIG`. Aliases moved onto the site, so the key it
+    writes is `[sites."<site>"].alias_domains`, whose path depends on the site name. A row in the
+    static map could only write a top-level `alias_domains`, a field `BenchConfig` no longer has.
+
+    So both halves of the wiring live elsewhere, and this pins them: the flag is still a real
+    `create` parameter, and `record_site` is what puts its value on the addressed site -- from where
+    `domains` and `get_site_mappings()` pick it up, attributed to that site and no other.
+    """
+    assert "alias_domains" in inspect.signature(create).parameters
+    assert "alias_domains" not in _FLAG_TO_CONFIG, (
+        "alias_domains is back in _FLAG_TO_CONFIG; it can only write a top-level key BenchConfig rejects"
+    )
+
+    bc, _ = _build([])
+    # `fm create x.localhost --alias-domains www.example.com`: the alias belongs to x.localhost.
+    bc.sites = record_site(bc.sites, "x.localhost", None, ["www.example.com"])
+
+    assert bc.sites["x.localhost"].alias_domains == ["www.example.com"]
+    assert bc.domains == ["x.localhost", "www.example.com"]
+    assert bc.get_site_mappings() == {"x.localhost": "x.localhost", "www.example.com": "x.localhost"}

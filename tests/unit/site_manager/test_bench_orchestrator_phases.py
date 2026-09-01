@@ -27,7 +27,13 @@ import pytest
 
 from frappe_manager.docker.docker_exceptions import DockerException
 from frappe_manager.docker.subprocess_output import SubprocessOutput
-from frappe_manager.site_manager.bench_config import BenchConfig, DeployState, FMBenchEnvType, SwitchConfig
+from frappe_manager.site_manager.bench_config import (
+    BenchConfig,
+    DeployState,
+    FMBenchEnvType,
+    SiteConfig,
+    SwitchConfig,
+)
 from frappe_manager.site_manager.exceptions import BenchException, BenchOperationException
 from frappe_manager.site_manager.modules import db_probe, db_tls
 from frappe_manager.site_manager.modules.bench_orchestrator import BenchOrchestrator
@@ -51,6 +57,12 @@ _APPS_TABLE = """
 [[apps]]
 name = "erpnext"
 repo = "frappe/erpnext"
+"""
+
+# Every bench fm creates records its site here, and the per-site things (the external database,
+# the alias domains) hang off this entry rather than off the bench.
+_SITES_TABLE = f"""
+[sites."{SITE}"]
 """
 
 _EXTERNAL_TABLE = f"""
@@ -78,7 +90,7 @@ def _config(
     if seed_image:
         top.append(f'seed_image = "{seed_image}"')
     # Order matters: bare keys after a table header would land inside that table.
-    toml = "\n".join(top) + _APPS_TABLE
+    toml = "\n".join(top) + _APPS_TABLE + _SITES_TABLE
     if external:
         toml += _EXTERNAL_TABLE
         if ca:
@@ -2050,26 +2062,73 @@ def test_workers_are_only_started_when_their_compose_exists(tmp_path):
 
 
 # --------------------------------------------------------------------------- alias domains
+#
+# An alias is an alternate hostname FOR ONE SITE, so it is recorded under `[sites."<site>"]` and
+# not on the bench: a bench-level list could not say which of a bench's sites a hostname reached.
+# Every assertion here therefore reads the alias list off the site entry it belongs to.
+
+SIBLING = "shop.example.com"
 
 
-def test_the_primary_domain_cannot_be_added_as_its_own_alias(tmp_path):
+def _aliases(harness: _Harness, site: str = SITE) -> list[str]:
+    """The alternate hostnames recorded for `site`; the bench's own site unless asked otherwise."""
+    return harness.config.sites[site].alias_domains
+
+
+def _add_sibling_site(harness: _Harness, *aliases: str) -> None:
+    """A second site in the same bench. Its name and these aliases belong to IT, which is the
+    whole point of the ownership guard below."""
+    harness.config.sites[SIBLING] = SiteConfig(alias_domains=list(aliases))
+
+
+def test_a_sites_own_domain_cannot_be_added_as_its_own_alias(tmp_path):
     """Skipped with a warning rather than refused: the rest of the request still applies."""
     harness = _Harness(_config(tmp_path), tmp_path)
 
     harness.orchestrator().update_alias_domains(add_domains=[SITE, "extra.example.com"])
 
-    assert harness.config.alias_domains == ["extra.example.com"]
+    assert _aliases(harness) == ["extra.example.com"]
     assert f"Skipping '{SITE}'" in str(harness.output.warning.call_args_list)
 
 
-def test_the_primary_domain_cannot_be_removed_at_all(tmp_path):
-    """Refused, because there is no sane thing to do with the request."""
+def test_a_sites_own_domain_cannot_be_removed_at_all(tmp_path):
+    """Refused, because there is no sane thing to do with the request: a site's name IS its
+    canonical domain, so it is not an alias anyone can take away."""
     harness = _Harness(_config(tmp_path), tmp_path)
     orchestrator = harness.orchestrator()
 
-    with pytest.raises(ValueError, match="Cannot remove primary domain"):
+    with pytest.raises(ValueError) as exception:
         orchestrator.update_alias_domains(remove_domains=[SITE])
 
+    assert str(exception.value) == f"Cannot remove '{SITE}': it is the site's own domain, not an alias."
+    assert harness.events.has("save_bench_config") is False
+
+
+@pytest.mark.parametrize(
+    "domain",
+    [
+        pytest.param(SIBLING, id="the-siblings-own-name"),
+        pytest.param("cart.example.com", id="an-alias-of-the-sibling"),
+    ],
+)
+def test_a_domain_a_sibling_site_already_serves_is_refused(tmp_path, domain):
+    """`get_site_mappings` is keyed by domain, so a hostname recorded under two sites of the same
+    bench would resolve to whichever entry was written last. The request is refused instead of
+    quietly taking the domain off the site that owns it."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+    _add_sibling_site(harness, "cart.example.com")
+    orchestrator = harness.orchestrator()
+
+    with pytest.raises(ValueError) as exception:
+        orchestrator.update_alias_domains(add_domains=[domain])
+
+    assert str(exception.value) == (
+        f"Cannot add '{domain}' to '{SITE}': it already belongs to site '{SIBLING}' in this bench."
+    )
+    # Refused before anything was recorded or rendered: neither site moved.
+    assert _aliases(harness) == []
+    assert _aliases(harness, SIBLING) == ["cart.example.com"]
+    assert harness.bench.generate_compose.called is False
     assert harness.events.has("save_bench_config") is False
 
 
@@ -2077,7 +2136,7 @@ def test_a_no_op_request_saves_nothing_and_touches_no_container(tmp_path):
     """Adding an alias that is already there and removing one that is not: nothing changed, so
     nothing is written and nginx is not recreated."""
     harness = _Harness(_config(tmp_path), tmp_path)
-    harness.config.alias_domains = ["www.example.com"]
+    harness.config.sites[SITE].alias_domains = ["www.example.com"]
 
     harness.orchestrator().update_alias_domains(add_domains=["www.example.com"], remove_domains=["gone.example.com"])
 
@@ -2085,8 +2144,8 @@ def test_a_no_op_request_saves_nothing_and_touches_no_container(tmp_path):
     assert harness.bench.generate_compose.called is False
     assert "No changes to apply" in str(harness.output.print.call_args_list)
     warned = str(harness.output.warning.call_args_list)
-    assert "is already an alias" in warned
-    assert "is not an alias" in warned
+    assert f"is already an alias of '{SITE}'" in warned
+    assert f"is not an alias of '{SITE}'" in warned
 
 
 def test_an_applied_change_regenerates_the_compose_before_saving_the_config(tmp_path):
@@ -2094,11 +2153,12 @@ def test_an_applied_change_regenerates_the_compose_before_saving_the_config(tmp_
     the in-memory config and never reads the file back, so writing bench_config.toml LAST means a
     render failure leaves nothing on disk to roll back. The alias list is still stored sorted."""
     harness = _Harness(_config(tmp_path), tmp_path)
-    harness.config.alias_domains = ["b.example.com"]
+    harness.config.sites[SITE].alias_domains = ["b.example.com"]
 
     harness.orchestrator().update_alias_domains(add_domains=["a.example.com"])
 
-    assert harness.config.alias_domains == ["a.example.com", "b.example.com"]
+    assert _aliases(harness) == ["a.example.com", "b.example.com"]
+    assert f"Adding aliases to '{SITE}': a.example.com" in str(harness.output.print.call_args_list)
     harness.events.before("generate_compose", "save_bench_config")
     assert harness.bench.docker_client.compose.up.call_args.kwargs == {
         "services": ["nginx"],
@@ -2131,9 +2191,9 @@ def test_a_render_failure_never_leaves_the_new_alias_on_disk(tmp_path):
     file on its own when it mints an auth password. So whatever is on disk afterwards is the OLD
     list, never the requested one."""
     harness = _Harness(_config(tmp_path), tmp_path)
-    harness.config.alias_domains = ["a.example.com"]
+    harness.config.sites[SITE].alias_domains = ["a.example.com"]
     saved: list[list[str]] = []
-    harness.bench.save_bench_config.side_effect = lambda *_a, **_k: saved.append(list(harness.config.alias_domains))
+    harness.bench.save_bench_config.side_effect = lambda *_a, **_k: saved.append(list(_aliases(harness)))
     harness.bench.generate_compose.side_effect = RuntimeError("template blew up")
     orchestrator = harness.orchestrator()
 
@@ -2141,7 +2201,28 @@ def test_a_render_failure_never_leaves_the_new_alias_on_disk(tmp_path):
         orchestrator.update_alias_domains(add_domains=["b.example.com"])
 
     assert all("b.example.com" not in written for written in saved), saved
-    assert harness.config.alias_domains == ["a.example.com"]
+    assert _aliases(harness) == ["a.example.com"]
+
+
+def test_a_render_failure_restores_the_alias_list_of_the_site_it_addressed(tmp_path):
+    """The rollback is per SITE, which is the thing a bench-level list could not do: the update
+    addressed the sibling, so the sibling's old list is what comes back -- in memory and in the
+    persisted restore -- and the bench's own site, which was never part of the request, is left
+    exactly as it was."""
+    harness = _Harness(_config(tmp_path), tmp_path)
+    harness.config.sites[SITE].alias_domains = ["a.example.com"]  # alternates for SITE
+    _add_sibling_site(harness, "cart.example.com")  # ...and for SIBLING
+    saved: list[list[str]] = []
+    harness.bench.save_bench_config.side_effect = lambda *_a, **_k: saved.append(list(_aliases(harness, SIBLING)))
+    harness.bench.generate_compose.side_effect = RuntimeError("template blew up")
+    orchestrator = harness.orchestrator()
+
+    with pytest.raises(Exception, match="Failed to update alias domains: template blew up"):
+        orchestrator.update_alias_domains(add_domains=["b.example.com"], site=SIBLING)
+
+    assert _aliases(harness, SIBLING) == ["cart.example.com"]
+    assert _aliases(harness) == ["a.example.com"]
+    assert saved == [["cart.example.com"]]
 
 
 def test_a_wildcard_alias_is_flagged_as_needing_dns01(tmp_path):
@@ -2163,26 +2244,27 @@ def test_added_aliases_come_with_the_command_that_gets_them_a_certificate(tmp_pa
 
 def test_removing_an_alias_needs_no_certificate_advice(tmp_path):
     harness = _Harness(_config(tmp_path), tmp_path)
-    harness.config.alias_domains = ["a.example.com"]
+    harness.config.sites[SITE].alias_domains = ["a.example.com"]
 
     harness.orchestrator().update_alias_domains(remove_domains=["a.example.com"])
 
-    assert harness.config.alias_domains == []
+    assert _aliases(harness) == []
+    assert f"Removing aliases from '{SITE}': a.example.com" in str(harness.output.print.call_args_list)
     assert "fm ssl add" not in str(harness.output.print.call_args_list)
 
 
 def test_a_failure_puts_the_alias_list_back_the_way_it_was(tmp_path):
     """The in-memory config was already mutated before the write, so the rollback is what keeps a
-    failed update from leaving the object claiming a domain the bench does not serve."""
+    failed update from leaving the site claiming a domain the bench does not serve."""
     harness = _Harness(_config(tmp_path), tmp_path)
-    harness.config.alias_domains = ["a.example.com"]
+    harness.config.sites[SITE].alias_domains = ["a.example.com"]
     harness.bench.save_bench_config.side_effect = RuntimeError("disk full")
     orchestrator = harness.orchestrator()
 
     with pytest.raises(Exception, match="Failed to update alias domains: disk full"):
         orchestrator.update_alias_domains(add_domains=["b.example.com"])
 
-    assert harness.config.alias_domains == ["a.example.com"]
+    assert _aliases(harness) == ["a.example.com"]
 
 
 def test_a_full_service_restart_regenerates_the_compose_between_stop_and_up(tmp_path):

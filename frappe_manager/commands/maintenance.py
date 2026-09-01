@@ -152,7 +152,18 @@ def _bench_domains(benchname: str) -> tuple[list[str], dict[str, bool]]:
     """
     config_path = CLI_BENCHES_DIRECTORY / benchname / "bench_config.toml"
     data = tomlkit.parse(config_path.read_text())
-    domains = [benchname, *list(data.get("alias_domains", []) or [])]
+    # Every hostname the bench serves, read from `[sites]`: each site's own name plus that site's
+    # aliases. This read `alias_domains` at the top level, which the aliases moved out of. Keeping
+    # the raw-TOML read rather than loading BenchConfig is deliberate, so maintenance still works on
+    # a bench whose config the model would refuse.
+    sites = data.get("sites") or {}
+    domains = []
+    for site_name, entry in sites.items():
+        domains.append(str(site_name))
+        domains.extend(str(alias) for alias in ((entry or {}).get("alias_domains") or []))
+    if not domains:
+        # No `[sites]` recorded: a bench that has not been migrated, whose one site is its own name.
+        domains = [benchname]
     certificates = (data.get("ssl") or {}).get("certificates") or []
     secured = {str(cert.get("domain")) for cert in certificates if str(cert.get("ssl_type", "none")) != "none"}
     return domains, {domain: domain in secured for domain in domains}

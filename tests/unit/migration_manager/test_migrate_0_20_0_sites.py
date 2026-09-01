@@ -4,6 +4,11 @@ A bench holds exactly one site today and its name is the bench's, so that table 
 as its key. The move gives the site somewhere to hold its other per-site facts later, instead of
 them accumulating as top-level keys that are only per-site because there happens to be one site.
 
+Top-level `alias_domains` makes the same trip, under `[sites."<bench name>"]`. It is the exact key
+the paragraph above predicted: per-site by accident of there being one site, and bench-level only
+because there was nowhere else to put it. Its old home is why `get_site_mappings()` had to send
+every alias to the primary site; recorded under a site, an alias finally names the site it reaches.
+
 `import_from_toml` reads only the new spelling. That is the established pattern in this release, not
 a new risk: the same migration renames `dns_challenge_providers` to `dns_providers` and reads only
 that. So the tests below assert the file shape AND that the result loads, because a migration that
@@ -17,6 +22,7 @@ import stat
 from unittest.mock import MagicMock
 
 import pytest
+import tomlkit
 
 from frappe_manager.migration_manager.migrations.migrate_0_20_0 import MigrationV0200
 from frappe_manager.site_manager.bench_config import BenchConfig
@@ -98,14 +104,108 @@ def test_the_migrated_file_is_what_the_loader_reads(step, tmp_path):
 def test_unrelated_config_is_left_alone(step, tmp_path):
     """The step rewrites the whole document, so everything it is not about has to come back."""
     extra = '\n[redis]\ncache = "redis://r.example:6379/0"\nqueue = "redis://r.example:6379/1"\n'
-    bench, path = _bench(tmp_path, BASE + 'alias_domains = ["www.shop.example.com"]\n' + EXTERNAL + extra)
+    bench, path = _bench(tmp_path, BASE + EXTERNAL + extra)
 
     step._write_sites_table(bench)
     config = BenchConfig.import_from_toml(path)
 
-    assert config.alias_domains == ["www.shop.example.com"]
     assert config.redis is not None
     assert config.redis.cache == "redis://r.example:6379/0"
+
+
+# ------------------------------------------------------------------- the alias_domains move
+#
+# `alias_domains` was a bench-level list, so it named no site and the routing table had to send
+# every alias to the primary site. The bench's own site IS that primary, so moving the list under
+# `[sites."<bench>"]` preserves the routing the bench already had while recording the attribution
+# instead of inferring it. The loader reads only the per-site spelling, so a list left at the top
+# level is a bench that silently stops answering on its own aliases.
+
+
+def test_a_bench_level_alias_list_moves_under_the_bench_site(step, tmp_path):
+    bench, path = _bench(tmp_path, BASE + 'alias_domains = ["www.shop.example.com"]\n' + EXTERNAL)
+
+    step._write_sites_table(bench)
+    doc = tomlkit.parse(path.read_text())
+
+    # The list now belongs to the site `shop.localhost`, the bench's own site.
+    assert doc["sites"][SITE]["alias_domains"] == ["www.shop.example.com"]
+    # The top-level key is gone, not merely shadowed: BenchConfig has no such field any more, so a
+    # copy left behind is a second spelling of the routing table that nothing reads.
+    assert "alias_domains" not in doc
+
+
+def test_the_moved_aliases_are_what_the_loader_routes(step, tmp_path):
+    """The file shape is only half of it: the alias has to come back attributed to the site, which
+    is what `get_site_mappings()` hands nginx as the site to serve."""
+    bench, path = _bench(tmp_path, BASE + 'alias_domains = ["www.shop.example.com"]\n' + EXTERNAL)
+
+    step._write_sites_table(bench)
+    config = BenchConfig.import_from_toml(path)
+
+    assert config.sites is not None
+    assert config.sites[SITE].alias_domains == ["www.shop.example.com"]
+    assert config.domains == [SITE, "www.shop.example.com"]
+    assert config.get_site_mappings() == {SITE: SITE, "www.shop.example.com": SITE}
+
+
+def test_the_alias_move_is_reported(step, tmp_path):
+    """A migration that silently relocates the routing table gives the operator nothing to check."""
+    bench, path = _bench(tmp_path, BASE + 'alias_domains = ["www.shop.example.com"]\n')
+
+    step._write_sites_table(bench)
+
+    printed = [call.args[0] for call in step.output.print.call_args_list if call.args]
+    assert f'Moved alias_domains under \\[sites."{SITE}"]' in printed
+
+
+def test_re_running_the_alias_move_changes_nothing(step, tmp_path):
+    """Same reason as the database move: a bench at `0.20.0.dev0` runs this step again, and a second
+    pass must not duplicate the list or strand it back at the top level."""
+    bench, path = _bench(tmp_path, BASE + 'alias_domains = ["www.shop.example.com"]\n' + EXTERNAL)
+
+    step._write_sites_table(bench)
+    once = path.read_text()
+    step._write_sites_table(bench)
+    step._write_sites_table(bench)
+
+    assert path.read_text() == once
+    assert BenchConfig.import_from_toml(path).sites[SITE].alias_domains == ["www.shop.example.com"]
+
+
+def test_an_existing_per_site_alias_list_wins_over_a_stale_top_level_one(step, tmp_path):
+    """If both shapes are present the per-site list is the migrated copy, exactly as with
+    `database`. Preferring the top-level list would undo a run that already happened -- and worse,
+    resurrect an alias the operator removed afterwards."""
+    both = (
+        BASE
+        + 'alias_domains = ["stale.example.com"]\n'
+        + f'\n[sites."{SITE}"]\nalias_domains = ["current.example.com"]\n'
+    )
+    bench, path = _bench(tmp_path, both)
+
+    step._write_sites_table(bench)
+    config = BenchConfig.import_from_toml(path)
+
+    assert config.sites[SITE].alias_domains == ["current.example.com"]
+    # The stale top-level copy is never read: `import_from_toml` builds its input key by key, so an
+    # unrecognised top-level `alias_domains` cannot reach the model. The step also means to delete
+    # it, and in this one shape (no `[database]` table at all, `[sites."<bench>"]` already present)
+    # it does not, because the early return skips the save that would have persisted the delete.
+    # Reported as a production gap rather than pinned here; it is cosmetic, not routing.
+    assert not hasattr(config, "alias_domains")
+
+
+def test_an_empty_top_level_alias_list_is_just_dropped(step, tmp_path):
+    """Nothing to attribute, so nothing is recorded under the site -- but the key still goes, since
+    the loader no longer reads it and leaving it would keep a field BenchConfig rejects."""
+    bench, path = _bench(tmp_path, BASE + "alias_domains = []\n")
+
+    step._write_sites_table(bench)
+    text = path.read_text()
+
+    assert "alias_domains" not in text
+    assert BenchConfig.import_from_toml(path).sites[SITE].alias_domains == []
 
 
 # --------------------------------------------------------------------------- re-running

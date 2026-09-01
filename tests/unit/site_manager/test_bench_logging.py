@@ -389,7 +389,9 @@ class TestDatabaseOperationLogging:
     ):
         """_handle_database_deletion() should log with operation=db_deletion_handler.
 
-        The handler walks the sites on disk now, so the bench needs a real `path` to walk.
+        The handler walks the sites `[sites]` RECORDS, reading each schema off that site's own file,
+        so the bench needs both the record and a real `path`. A site present only on disk is
+        deliberately not walked: fm never drops a schema it did not write down.
         """
         mocker.patch.object(Bench, "__init__", lambda *args, **kwargs: None)
         bench = Bench.__new__(Bench)
@@ -397,6 +399,7 @@ class TestDatabaseOperationLogging:
         bench.path = tmp_path / "shop"
         bench.logger = mock_logger
         bench.bench_config = MagicMock()
+        bench.bench_config.sites = {"shop.localhost": MagicMock()}
         bench.bench_config.get_database_config.return_value = None
         bench.remove_database_and_user = MagicMock()
         bench.output = MagicMock()

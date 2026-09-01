@@ -39,7 +39,7 @@ def _add_bench_certificate(
     output = get_output_handler(ctx)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
-    allowed_domains = bench.bench_config.get_all_domains()
+    allowed_domains = bench.bench_config.domains
     if domain not in allowed_domains:
         output.display_error(
             f"Domain '{domain}' is not configured for bench '{benchname}'.\n"
@@ -104,7 +104,7 @@ def _remove_bench_certificate(ctx: typer.Context, benchname: str, domain: str, y
     output = get_output_handler(ctx)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
-    domains = bench.bench_config.get_all_domains()
+    domains = bench.bench_config.domains
     if domain not in domains:
         output.display_error(f"Domain '{domain}' is not configured for bench '{benchname}'")
         raise typer.Exit(1)
@@ -174,7 +174,7 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
     output = get_output_handler(ctx)
     bench = Bench.get_object(benchname, services_manager, output_handler=output)
 
-    all_domains = bench.bench_config.get_all_domains()
+    all_domains = bench.bench_config.domains
 
     certs = bench.certificate_manager.list_certificates()
 

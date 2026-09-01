@@ -6,7 +6,7 @@ from typer_examples import example
 
 from frappe_manager import CLI_BENCHES_DIRECTORY, EnableDisableOptionsEnum
 from frappe_manager.commands import check_bench_migration_required
-from frappe_manager.commands.arguments import BenchNameArgument
+from frappe_manager.commands.arguments import BenchSiteArgument
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.output_manager import get_global_output_handler, spinner
 from frappe_manager.site_manager.bench_config import (
@@ -90,7 +90,7 @@ def is_immutable_update_request(
 )
 def update(
     ctx: typer.Context,
-    benchname: BenchNameArgument = None,
+    benchname: BenchSiteArgument = None,
     admin_tools: Annotated[
         EnableDisableOptionsEnum | None,
         typer.Option(
@@ -599,7 +599,13 @@ def update(
 
         if add_alias or remove_alias:
             output.change_head("Updating alias domains")
-            bench.update_alias_domains(add_domains=add_domains_list, remove_domains=remove_domains_list)
+            # An alias is an alternate for a SITE, so `fm update BENCH/SITE` names the one it
+            # attaches to and a bare `fm update BENCH` means the bench's primary site.
+            bench.update_alias_domains(
+                add_domains=add_domains_list,
+                remove_domains=remove_domains_list,
+                site=ctx.obj.get("site") if ctx.obj else None,
+            )
             output.print("Alias domains updated successfully")
 
         # Handle upload limit update
