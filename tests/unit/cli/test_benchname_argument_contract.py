@@ -36,11 +36,14 @@ from frappe_manager.site_manager.exceptions import BenchException, BenchNotFound
 from frappe_manager.utils import callbacks
 from frappe_manager.utils import site as site_utils
 from frappe_manager.utils.callbacks import (
+    bench_all_autocompletion_callback,
+    bench_all_callback,
+    bench_domain_autocompletion_callback,
+    bench_domain_callback,
     bench_site_autocompletion_callback,
     bench_site_callback,
     sitename_callback,
     sites_autocompletion_callback,
-    standalone_address_callback,
 )
 
 PARAM_NAME = "benchname"
@@ -122,15 +125,18 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         autocompletion=sites_autocompletion_callback,
         callback=_maintenance_sitename_callback,
     ),
-    # `migrate` runs BEFORE benches are known-good (and supports --all-benches),
-    # so it deliberately has neither completion nor validation.
+    # `migrate` is the one bench-scoped command that can also run over every bench in a single run,
+    # so it carries `BenchAllArgument`: completion offers `all` beside the bench names, and
+    # `bench_all_callback` is `sitename_callback` for a named bench and a pass-through for the `all`
+    # address, which names no directory. It used to have neither completion nor validation, because
+    # acting on every bench lived in a `--all-benches` flag and the body did its own existence check.
     "fm migrate": BenchnameSpec(
-        help="Bench name to migrate",
+        help="Name of the bench, or all.",
         default=None,
         required=False,
         type_name="text",
-        autocompletion=None,
-        callback=None,
+        autocompletion=bench_all_autocompletion_callback,
+        callback=bench_all_callback,
     ),
     # `bake` supports a standalone mode driven by --apps/--config, so it keeps
     # completion but drops the must-exist callback.
@@ -171,20 +177,22 @@ EXCEPTIONS: dict[str, BenchnameSpec] = {
         autocompletion=None,
         callback=None,
     ),
-    # The four `ssl` subcommands all support standalone (bench-less) certificates, so they
-    # share their own variant: completion yes, must-exist validation no. They DO carry
-    # `standalone_address_callback`, which parses the `BENCH[/SITE]` address and refuses a
-    # site part without normalising the name or requiring the bench to exist. Before it,
-    # a slashed value reached `Bench.get_object` and died as a not-found error on a nested
-    # path rather than as a parse error.
+    # The four `ssl` subcommands address a DOMAIN, so they share `BenchDomainArgument` rather than
+    # either bench-only alias. A certificate is keyed by hostname and a bench serves its sites' names
+    # AND their aliases, so the population is wider than `BenchSiteArgument`'s.
+    # `bench_domain_callback` parses `BENCH[/DOMAIN]` and hands the domain half on through
+    # `ctx.obj["domain"]`. It deliberately does NOT require the bench to exist: `--standalone` puts an
+    # external domain, belonging to no bench, in this same position. `all` reaches the body as itself,
+    # which is how `ssl list all` and `ssl renew all` span every bench and how `ssl add` and
+    # `ssl remove` refuse it on blast radius.
     **{
         f"fm ssl {sub}": BenchnameSpec(
-            help="Name of the bench (omit for standalone mode).",
+            help="Bench, bench/domain, or all.",
             default=None,
             required=False,
             type_name="text",
-            autocompletion=sites_autocompletion_callback,
-            callback=standalone_address_callback,
+            autocompletion=bench_domain_autocompletion_callback,
+            callback=bench_domain_callback,
         )
         for sub in ("add", "list", "remove", "renew")
     },
@@ -388,16 +396,28 @@ def test_shared_callables_are_the_same_object_everywhere():
     assert not impostors, f"a second sitename_callback object is in play: {impostors}"
 
     completers = {spec_of(p).autocompletion for p in BENCHNAME_ARGUMENTS.values()} - {None}
-    assert completers == {sites_autocompletion_callback, bench_site_autocompletion_callback}
-
-    # Only the address arguments complete sites. Offering `shop/b.example.com` to an argument
-    # whose callback refuses a site part completes the operator straight into a refusal.
-    address_completers = {
-        name
-        for name, param in BENCHNAME_ARGUMENTS.items()
-        if spec_of(param).autocompletion is bench_site_autocompletion_callback
+    assert completers == {
+        sites_autocompletion_callback,
+        bench_all_autocompletion_callback,
+        bench_site_autocompletion_callback,
+        bench_domain_autocompletion_callback,
     }
-    assert address_completers == {"fm shell", "fm delete", "fm reset", "fm update"}
+
+    # Each completer reaches exactly the arguments whose callback accepts what it offers. A
+    # completer wired to an argument that refuses its output completes the operator straight into a
+    # refusal: `shop/b.example.com` offered where only a bench is accepted, or `all` offered where
+    # the bench has to exist.
+    by_completer: dict[object, set[str]] = {}
+    for name, param in BENCHNAME_ARGUMENTS.items():
+        by_completer.setdefault(spec_of(param).autocompletion, set()).add(name)
+    assert by_completer[bench_site_autocompletion_callback] == {"fm shell", "fm delete", "fm reset", "fm update"}
+    assert by_completer[bench_domain_autocompletion_callback] == {
+        "fm ssl add",
+        "fm ssl list",
+        "fm ssl remove",
+        "fm ssl renew",
+    }
+    assert by_completer[bench_all_autocompletion_callback] == {"fm migrate"}
 
 
 def test_commands_without_any_benchname_callback_are_only_the_documented_ones():
@@ -412,21 +432,24 @@ def test_commands_without_any_benchname_callback_are_only_the_documented_ones():
 
 
 def test_commands_that_skip_the_must_exist_check_are_only_the_documented_ones():
-    """The narrower contract the test above stopped covering once the `ssl` commands gained
-    `standalone_address_callback`: they have a callback now, but it deliberately does NOT
-    require the bench to exist, because they also manage domains belonging to no bench.
+    """The narrower contract the test above stopped covering once the `ssl` commands gained a
+    callback of their own: they have one now, but `bench_domain_callback` deliberately does NOT
+    require the bench to exist, because `--standalone` puts a domain belonging to no bench into that
+    same position.
 
-    Only `sitename_callback` and `bench_site_callback` run the must-exist check (both go
-    through `_resolve_bench`). A command that silently moves off one of those loses the
-    check and the picker, which is exactly what this pins.
+    Three callbacks run the check, all of them through `_resolve_bench`: `sitename_callback`,
+    `bench_site_callback`, and `bench_all_callback`, which is `sitename_callback` for every value
+    except the `all` address. `fm migrate` is on this side of the line now: the existence check that
+    used to live in its body moved into the argument when `--all-benches` became the `all` address,
+    so a missing bench is refused as a usage error before the command body runs. A command that
+    silently moves off one of those three loses the check and the picker, which is what this pins.
     """
-    must_exist = {sitename_callback, bench_site_callback}
+    must_exist = {sitename_callback, bench_site_callback, bench_all_callback}
     skipping = {name for name, param in BENCHNAME_ARGUMENTS.items() if unwrap_callback(param) not in must_exist}
     expected = {
         "fm bake",
         "fm create",
         "fm maintenance",
-        "fm migrate",
         "fm self compose",
         "fm ssl add",
         "fm ssl dns-config cloudflare",
@@ -471,9 +494,14 @@ def benches(tmp_path, monkeypatch):
 
 
 def make_bench(benches_dir: Path, name: str) -> Path:
-    """A directory that `sites_autocompletion_callback` counts as a bench."""
+    """A directory that `_bench_names` counts as a bench, so the completers and `all` see it.
+
+    The bench config is what makes it one. The compose file is written too because a real bench has
+    both, and a test that dropped it would stop noticing if the registry ever moved back.
+    """
     bench = benches_dir / name
     bench.mkdir()
+    (bench / "bench_config.toml").write_text(f'name = "{name}"\n')
     (bench / "docker-compose.yml").write_text("services: {}\n")
     return bench
 
@@ -589,6 +617,41 @@ class TestSitenameCallbackWithNoValue:
         display_error.assert_not_called()
 
 
+class TestBenchAllCallback:
+    """`bench_all_callback` is `sitename_callback` plus one address.
+
+    `fm migrate` used to spell "every bench" as `--all-benches` and check the named bench itself,
+    inside the body. Both halves moved here: `all` is now a value of the argument, and everything
+    that is not `all` goes through the same must-exist resolution every other bench command uses.
+    """
+
+    def test_the_all_address_is_returned_untouched_and_resolves_nothing(self, benches):
+        # No bench called `all` exists here, and none needs to: `all` names no directory. If this
+        # went through `_resolve_bench` it would raise BenchNotFoundError instead.
+        assert callbacks.bench_all_callback("all") == "all"
+
+    def test_a_named_bench_still_has_to_exist(self, benches):
+        make_bench(benches, "real.localhost")
+        with pytest.raises(BenchNotFoundError):
+            callbacks.bench_all_callback("ghost.localhost")
+
+    def test_a_named_bench_that_exists_resolves_like_any_other(self, benches):
+        make_bench(benches, "hello.localhost")
+        assert callbacks.bench_all_callback("hello") == "hello.localhost"
+
+    def test_a_site_part_is_refused_even_though_all_is_accepted(self, benches):
+        # Migrating one site of a bench is meaningless: the containers, workspace and workers are
+        # shared, so the address form has to stay bench-wide.
+        make_bench(benches, "shop")
+        with pytest.raises(typer.BadParameter, match=r"takes a bench, not a site"):
+            callbacks.bench_all_callback("shop/b.example.com")
+
+    def test_all_is_offered_by_the_completer_beside_the_bench_names(self, benches):
+        make_bench(benches, "a.localhost")
+        assert callbacks.bench_all_autocompletion_callback("") == ["a.localhost", "all"]
+        assert callbacks.bench_all_autocompletion_callback("al") == ["all"]
+
+
 # --------------------------------------------------------------------------- #
 # sites_autocompletion_callback -- the bench-ONLY completer. It reads the
 # benches dir, so every test here points it at tmp_path.
@@ -606,8 +669,12 @@ class TestSitesAutocompletionCallback:
         make_bench(benches, "warehouse")
         assert sites_autocompletion_callback("sh") == ["shop"]
 
-    def test_directory_without_a_compose_file_is_not_a_bench(self, benches):
-        (benches / "half-baked.localhost").mkdir()
+    def test_directory_without_a_bench_config_is_not_a_bench(self, benches):
+        # The config is the registry marker, not the directory and not the compose file: a
+        # half-created bench has the compose file long before anything can act on it.
+        half_baked = benches / "half-baked.localhost"
+        half_baked.mkdir()
+        (half_baked / "docker-compose.yml").write_text("services: {}\n")
         make_bench(benches, "real.localhost")
         assert sites_autocompletion_callback("") == ["real.localhost"]
 
@@ -625,11 +692,11 @@ class TestSitesAutocompletionCallback:
         assert sites_autocompletion_callback("") == []
 
     def test_a_bench_scoped_argument_never_offers_an_address(self, benches):
-        """The invariant behind having two completers, asserted on behaviour not identity.
+        """The invariant behind having several completers, asserted on behaviour not identity.
 
-        `sitename_callback` and `standalone_address_callback` REFUSE a value with a site part,
-        so the completer they carry must never produce one: a shell that fills in
-        `shop/b.example.com` would be completing the operator straight into a refusal.
+        `sitename_callback` REFUSES a value with a site part, so the completer it carries must never
+        produce one: a shell that fills in `shop/b.example.com` would be completing the operator
+        straight into a refusal.
         """
         bench = make_bench(benches, "shop")
         sites_dir = bench / "workspace" / "frappe-bench" / "sites" / "b.example.com"

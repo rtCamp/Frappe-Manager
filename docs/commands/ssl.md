@@ -25,27 +25,25 @@ $ fm ssl [OPTIONS] COMMAND [ARGS]...
 
 Renew SSL certificates before they expire.
 
-Renews one bench by default, or a single domain of it if you name one. --all covers every bench, and --standalone switches to the external Docker project domains.
+Renews every certificate of one bench by default, or a single one when the address names a domain. 'all' covers every bench, and --standalone switches to the external Docker project domains.
 
 A certificate that is not yet due is reported and left alone, unless you pass --force.
 
 **Usage**:
 
 ```console
-$ fm ssl renew BENCHNAME DOMAIN [OPTIONS]
+$ fm ssl renew BENCHNAME [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench (omit for standalone mode).
-* `DOMAIN`: Domain to renew. Omit to renew every certificate in scope.
+* `BENCHNAME`: Bench, bench/domain, or all.
 
 **Options**:
 
-* `--all`: Renew every bench, or with --standalone every external domain.
 * `--standalone`: Renew an external (non-bench) domain.
-* `--dry-run`: Rehearse against Let's Encrypt staging. Nothing on disk changes.
-* `-f, --force`: Renew even when the certificate is not near expiry yet.
+* `--dry-run`: Rehearse against Let's Encrypt staging.
+* `--force`: Renew even when the certificate is not due.
 
 
 ## Examples
@@ -59,25 +57,35 @@ fm ssl renew mybench
 ### Renew one domain
 
 ```bash
-fm ssl renew mybench example.com
+fm ssl renew mybench/example.com
+```
+
+### Renew every certificate on one bench, named explicitly
+
+```bash
+fm ssl renew mybench/all
 ```
 
 ### Renew every bench
 
+'all' goes where a bench name goes. One bench failing is reported and the rest still renew.
+
 ```bash
-fm ssl renew --all
+fm ssl renew all
 ```
 
 ### Renew an external domain
 
+An external domain belongs to no bench, so it is named bare rather than as an address.
+
 ```bash
-fm ssl renew --standalone example.com
+fm ssl renew example.com --standalone
 ```
 
 ### Renew one that is not due yet
 
 ```bash
-fm ssl renew mybench example.com --force
+fm ssl renew mybench/example.com --force
 ```
 
 
@@ -85,7 +93,7 @@ fm ssl renew mybench example.com --force
 
 List SSL certificates with their expiry and renewal status.
 
-Lists one bench by default, including its domains that have no certificate yet. --standalone lists external Docker project domains instead, and --all lists both.
+Lists one bench by default, including its domains that have no certificate yet. 'all' lists every bench and the external domains together, and --standalone lists only the external Docker project domains.
 
 The DNS Provider column names the \[ssl.dns_providers] credential set each DNS-01 certificate authenticates with, "default" for the unlabelled account, and "(missing)" when the label or the default account is not stored at either scope.
 
@@ -97,12 +105,11 @@ $ fm ssl list BENCHNAME [OPTIONS]
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench (omit for standalone mode).
+* `BENCHNAME`: Bench, bench/domain, or all.
 
 **Options**:
 
 * `--standalone`: List external (non-bench) domains instead of a bench.
-* `--all`: List both external domains and every bench.
 
 
 ## Examples
@@ -121,8 +128,10 @@ fm ssl list --standalone
 
 ### List every certificate fm manages
 
+Every bench and the external domains together. A bench fm cannot read is reported in place, not fatal.
+
 ```bash
-fm ssl list --all
+fm ssl list all
 ```
 
 
@@ -135,13 +144,12 @@ Bench mode takes a bench name and one of its configured domains (add new ones wi
 **Usage**:
 
 ```console
-$ fm ssl add BENCHNAME DOMAIN [OPTIONS]
+$ fm ssl add BENCHNAME [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench (omit for standalone mode).
-* `DOMAIN`: Domain to issue the certificate for.
+* `BENCHNAME`: Bench, bench/domain, or all.
 
 **Options**:
 
@@ -160,7 +168,7 @@ $ fm ssl add BENCHNAME DOMAIN [OPTIONS]
 ### Issue a certificate for a bench domain
 
 ```bash
-fm ssl add mybench example.com
+fm ssl add mybench/example.com
 ```
 
 ### Issue one when the domain has no public A record
@@ -168,13 +176,21 @@ fm ssl add mybench example.com
 DNS-01 needs provider credentials, see fm ssl dns-config.
 
 ```bash
-fm ssl add mybench example.com --challenge dns01
+fm ssl add mybench/example.com --challenge dns01
 ```
 
 ### Rehearse against the staging server first
 
 ```bash
-fm ssl add mybench example.com --dry-run
+fm ssl add mybench/example.com --dry-run
+```
+
+### Issue for every domain the bench serves
+
+One certificate per hostname, each site's own name and its aliases. Bare 'all' is refused here: issuing across every bench at once can cross Let's Encrypt's rate limit.
+
+```bash
+fm ssl add mybench/all
 ```
 
 ### Issue for an external Docker project
@@ -188,7 +204,7 @@ fm ssl add example.com --standalone
 acme.sh looks for _acme-challenge.acme.example.net instead of the bench's own zone.
 
 ```bash
-fm ssl add mybench example.com --challenge dns01 --cname acme.example.net
+fm ssl add mybench/example.com --challenge dns01 --cname acme.example.net
 ```
 
 ### Authenticate DNS-01 against a second Cloudflare account
@@ -196,7 +212,7 @@ fm ssl add mybench example.com --challenge dns01 --cname acme.example.net
 acct-b is a label stored by fm ssl dns-config cloudflare --name acct-b, at either global or bench scope.
 
 ```bash
-fm ssl add mybench example.com --challenge dns01 --dns-provider acct-b
+fm ssl add mybench/example.com --challenge dns01 --dns-provider acct-b
 ```
 
 
@@ -209,13 +225,12 @@ Asks for confirmation unless you pass --yes. --standalone deletes an external Do
 **Usage**:
 
 ```console
-$ fm ssl remove BENCHNAME DOMAIN [OPTIONS]
+$ fm ssl remove BENCHNAME [OPTIONS]
 ```
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench (omit for standalone mode).
-* `DOMAIN`: Domain whose certificate to delete.
+* `BENCHNAME`: Bench, bench/domain, or all.
 
 **Options**:
 
@@ -228,13 +243,21 @@ $ fm ssl remove BENCHNAME DOMAIN [OPTIONS]
 ### Delete a bench certificate
 
 ```bash
-fm ssl remove mybench example.com
+fm ssl remove mybench/example.com
 ```
 
 ### Delete without the confirmation prompt
 
 ```bash
-fm ssl remove mybench example.com --yes
+fm ssl remove mybench/example.com --yes
+```
+
+### Delete every certificate the bench holds
+
+Back to plain HTTP on every domain of that bench. Bare 'all' is refused here.
+
+```bash
+fm ssl remove mybench/all
 ```
 
 ### Delete an external domain's certificate

@@ -868,7 +868,7 @@ Force staging Let's Encrypt server for testing. Prevents hitting production rate
 
 ```bash
 export FM_LETSENCRYPT_STAGING=1
-fm ssl add mybench.com
+fm ssl add mybench/example.com
 ```
 
 !!! warning "Staging certificates are untrusted"

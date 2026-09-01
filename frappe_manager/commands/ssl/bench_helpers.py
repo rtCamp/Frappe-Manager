@@ -15,6 +15,7 @@ from frappe_manager.ssl_manager.certificate_exceptions import (
 )
 from frappe_manager.ssl_manager.letsencrypt_certificate import build_letsencrypt_certificate
 from frappe_manager.ssl_manager.ssl_utils import resolve_dns_provider
+from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME
 
 from .helpers import get_output_handler
 
@@ -223,3 +224,19 @@ def _list_bench_certificates(ctx: typer.Context, benchname: str):
         table.add_row(domain, ssl_type, challenge_type, dns_provider, status, expiry, days_left, renewal)
 
     output.print_data(table)
+
+
+def _resolve_domains(ctx: typer.Context, benchname: str, domain: str) -> list[str]:
+    """The domains one `BENCH/DOMAIN` address selects.
+
+    `BENCH/all` is every hostname the bench serves, which is the only form that can say "issue for
+    everything" without naming each one; anything else is that single domain, returned as given so
+    the caller's own check still reports an unknown one with the allowed list.
+    """
+    if domain != RESERVED_BENCH_NAME:
+        return [domain]
+
+    services_manager = ctx.obj["services"]
+    output = get_output_handler(ctx)
+    bench = Bench.get_object(benchname, services_manager, output_handler=output)
+    return list(bench.bench_config.domains)

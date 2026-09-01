@@ -59,13 +59,13 @@ fm update mybench --add-alias example.com
 ## HTTP-01 setup
 
 ```bash
-fm ssl add mybench example.com --dry-run
+fm ssl add mybench/example.com --dry-run
 ```
 
 A successful rehearsal ends with `Certificate generated successfully (staging)` followed by the skipped-step lines (symlinks, redirect config, nginx restart, config save). Then issue for real:
 
 ```bash
-fm ssl add mybench example.com
+fm ssl add mybench/example.com
 ```
 
 Verify:
@@ -113,11 +113,11 @@ With `--name`, the credentials land in `[ssl.dns_providers.<label>]` instead, at
 ### 3. Issue
 
 ```bash
-fm ssl add mybench example.com --challenge dns01 --dry-run
-fm ssl add mybench example.com --challenge dns01
+fm ssl add mybench/example.com --challenge dns01 --dry-run
+fm ssl add mybench/example.com --challenge dns01
 
 # Authenticate this domain against a labelled credential set
-fm ssl add mybench client.example.com --challenge dns01 --dns-provider client-zones
+fm ssl add mybench/client.example.com --challenge dns01 --dns-provider client-zones
 ```
 
 `--dns-provider` records the label on the certificate, so every later renewal reaches for the same account. Omit it and the certificate uses the default pair described above. The flag applies to DNS-01 only, and `fm ssl add` resolves the label before it changes anything, so a typo is refused on the spot instead of halfway through issuance. A label stored at neither scope is an error at renewal too: fm refuses rather than authenticating against whichever other account happens to be configured.
@@ -132,7 +132,7 @@ DNS-01 is the only challenge type that can cover a wildcard. The wildcard has to
 
 ```bash
 fm update mybench --add-alias '*.example.com'
-fm ssl add mybench '*.example.com' --challenge dns01
+fm ssl add 'mybench/*.example.com' --challenge dns01
 ```
 
 !!! note
@@ -151,7 +151,7 @@ _acme-challenge.example.com. CNAME _acme-challenge.acme.example.net.
 Then issue against the delegated zone, whose credentials are the ones that must be saved with `fm ssl dns-config`:
 
 ```bash
-fm ssl add mybench example.com --challenge dns01 --cname acme.example.net
+fm ssl add mybench/example.com --challenge dns01 --cname acme.example.net
 ```
 
 ---
@@ -164,7 +164,7 @@ fm ssl add mybench example.com --challenge dns01 --cname acme.example.net
 fm ssl add example.com --standalone
 ```
 
-`list`, `renew` and `remove` take `--standalone` the same way, and `fm ssl list --all` covers external domains and every bench at once.
+`list`, `renew` and `remove` take `--standalone` the same way, and `fm ssl list all` covers external domains and every bench at once.
 
 Connect the backend by giving its container the nginx-proxy environment variables and joining fm's proxy network:
 
@@ -191,7 +191,7 @@ Until that is in place the domain answers `503 Backend Not Connected` over HTTPS
 ## Local development certificates (`--dev`) {#local-development-certificates-dev}
 
 ```bash
-fm ssl add mybench mybench.local --dev
+fm ssl add mybench/mybench.local --dev
 ```
 
 `--dev` skips Let's Encrypt entirely: no internet, public DNS, or open ports. On first use fm generates a CA under `~/frappe/services/nginx-proxy/ssl/dev/ca/` and installs it into the host trust store (macOS login keychain, the Linux system CA store, plus Firefox and Chrome NSS databases when `certutil` is present) so browsers accept the leaf certificate.
@@ -199,7 +199,7 @@ fm ssl add mybench mybench.local --dev
 Leaf certificates are valid for 397 days, so they never fall inside the 30-day renewal window during normal use. To re-issue one from the same CA, force it:
 
 ```bash
-fm ssl renew mybench mybench.local --force
+fm ssl renew mybench/mybench.local --force
 ```
 
 `--dev` is bench mode only and cannot be combined with `--standalone`.
@@ -212,7 +212,7 @@ Let's Encrypt certificates are valid for 90 days. fm treats a certificate as due
 
 ```bash
 fm ssl renew mybench                        # every certificate on one bench
-fm ssl renew --all                          # every bench
+fm ssl renew all                            # every bench
 ```
 
 Renewal resolves a DNS-01 certificate's credentials afresh every time, from the `dns_provider` label recorded on the certificate, so rotating a Cloudflare token means re-saving it under the same label and nothing else.
@@ -224,7 +224,7 @@ crontab -e
 ```
 
 ```
-0 3 * * * fm ssl renew --all
+0 3 * * * fm ssl renew all
 ```
 
 Running it daily is safe: certificates that are not due are skipped. Certificate lifetimes are also shrinking under the CA/Browser Forum schedule adopted in 2025 (200 days from March 2026, 100 from March 2027, 47 from March 2029), so manual renewal will stop being practical.

@@ -131,10 +131,15 @@ def version_callback(version: bool | None = None):
 
 
 def _bench_names() -> list[str]:
-    """Every bench fm can act on: a directory under the benches root with a compose file.
+    """Every bench fm can act on: a directory under the benches root carrying a bench config.
 
-    The compose file is the test, not the directory, because the benches root also collects
-    half-created and hand-made directories that no command could do anything with.
+    The config is the test, not the directory and not the compose file, because the benches root
+    also collects half-created and hand-made directories that no command could do anything with,
+    and because every command reads the config before it touches a container. One registry, so
+    completion, the interactive picker and `all` can never disagree about which benches exist.
+
+    `fm list` deliberately enumerates more widely: it is a diagnostic view whose job includes
+    showing a bench whose config is broken. That is a different question from this one.
     """
     try:
         entries = sorted(CLI_BENCHES_DIRECTORY.iterdir())
@@ -142,7 +147,33 @@ def _bench_names() -> list[str]:
         # No benches root yet, i.e. nothing has been created. Not an error to report from a
         # completion or a picker: there is simply nothing to offer.
         return []
-    return [entry.name for entry in entries if (entry / "docker-compose.yml").is_file()]
+    return [entry.name for entry in entries if (entry / CLI_BENCH_CONFIG_FILE_NAME).is_file()]
+
+
+def resolve_bench_targets(value: str | None) -> list[str]:
+    """The benches an address selects: every one for `all`, otherwise just the one named.
+
+    One registry for every `all`, and it is the same `_bench_names` the picker and completion
+    offer, so what the shell suggests is what `all` acts on.
+
+    A directory with a compose file but an unreadable config IS included, deliberately. Excluding
+    it would make `fm ssl renew all` quietly skip a bench nobody renewed and report success; the
+    caller reports the failure per bench instead. That is also why this does not read any config:
+    deciding membership on a file that might not parse would turn a broken bench into an absent
+    one.
+    """
+    if value == RESERVED_BENCH_NAME:
+        return _bench_names()
+    return [value] if value else []
+
+
+def bench_all_autocompletion_callback(incomplete: str = "") -> list[str]:
+    """Shell completion for the arguments that also take `all`.
+
+    `all` is offered alongside the bench names rather than left for the operator to remember,
+    because a reserved word nothing completes reads like a word that does not exist.
+    """
+    return [name for name in [*_bench_names(), RESERVED_BENCH_NAME] if name.startswith(incomplete)]
 
 
 def sites_autocompletion_callback(incomplete: str = "") -> list[str]:
@@ -199,6 +230,41 @@ def _sites_on_disk(bench_dir: Path) -> list[str]:
     except OSError:
         return []
     return [entry.name for entry in entries if (entry / "site_config.json").is_file()]
+
+
+def _completable_domains(bench: str) -> list[str]:
+    """Every hostname a bench serves: each site's own name, then that site's aliases.
+
+    Wider than `_completable_sites` on purpose. A certificate is keyed by domain, so an alias is a
+    valid `ssl` target and completing only site names would hide half the answers.
+    """
+    bench_dir = CLI_BENCHES_DIRECTORY / bench
+    config_file = bench_dir / "bench_config.toml"
+    if config_file.is_file():
+        try:
+            from frappe_manager.site_manager.bench_config import BenchConfig
+
+            return BenchConfig.import_from_toml(config_file).domains
+        except Exception:
+            # A completion is never allowed to fail loudly; fall through to the directory walk.
+            pass
+    return _sites_on_disk(bench_dir)
+
+
+def bench_domain_autocompletion_callback(incomplete: str = "") -> list[str]:
+    """Shell completion for `BENCH[/DOMAIN]`.
+
+    Before the separator this is bench-name completion. After it the bench is named, so the offer
+    becomes that bench's served hostnames, each returned as the whole word because a completion
+    replaces what was typed rather than appending to it.
+    """
+    incomplete = incomplete or ""
+    bench, separator, domain_prefix = incomplete.partition(SEPARATOR)
+
+    if not separator:
+        return sites_autocompletion_callback(incomplete)
+
+    return [f"{bench}{SEPARATOR}{d}" for d in _completable_domains(bench) if d.startswith(domain_prefix)]
 
 
 def bench_site_autocompletion_callback(incomplete: str = "") -> list[str]:
@@ -307,6 +373,19 @@ def sitename_callback(sitename: str | None):
     return _resolve_bench(sitename)
 
 
+def bench_all_callback(sitename: str | None):
+    """`BENCH` or `all` for the commands that can act on every bench in one run.
+
+    `all` short-circuits the must-exist resolution below it: it is an address, not a name, so
+    there is no directory to find. Everything else is `sitename_callback` exactly, including the
+    refusal of a site part, because acting on every bench is still a bench-scoped act.
+    """
+    if sitename == RESERVED_BENCH_NAME:
+        return sitename
+
+    return sitename_callback(sitename)
+
+
 def _recorded_sites(bench: str) -> list[str]:
     """The sites a bench serves, from its `[sites]` table.
 
@@ -362,20 +441,30 @@ def bench_site_callback(ctx: typer.Context, value: str | None) -> str | None:
     return bench
 
 
-def standalone_address_callback(value: str | None) -> str | None:
-    """`BENCH` for the `ssl` commands, which resolve the bench themselves.
+def bench_domain_callback(ctx: typer.Context, value: str | None) -> str | None:
+    """`BENCH[/DOMAIN]` for the `ssl` commands, where the second segment is a served HOSTNAME.
 
-    Parses and refuses a site part, then returns the value otherwise UNCHANGED: no
-    normalisation and no must-exist check, because these commands also manage
-    certificates for domains that belong to no bench. Without this, a slashed value
-    reached `Bench.get_object` and died as a not-found error on a nested path.
+    A different second segment from `bench_site_callback`, and deliberately so. That one validates
+    against `site_names`; a certificate is keyed by DOMAIN (`SSLCertificate.domain`), and a bench
+    serves its sites' names AND their aliases. Every site name is a served domain, so the two agree
+    wherever they overlap; this one additionally admits an alias, which is meaningful for a
+    certificate and meaningless for a schema.
+
+    Returns the bench UNCHANGED: no normalisation and no must-exist check, because these commands
+    also manage domains belonging to no bench at all (`--standalone`), and in that mode this
+    argument carries the external domain itself.
+
+    The domain is NOT checked against the bench here. `bench_helpers` already does that with the
+    bench loaded, and its refusal names the allowed domains and how to add one; doing it here would
+    mean loading the config twice to say the same thing worse.
     """
     if not value:
         return value
 
     address = _parse_or_refuse(value)
-    if address.site is not None:
-        raise typer.BadParameter(_SITE_PART_REFUSAL.format(bench=address.bench))
+
+    if address.site is not None and ctx.obj is not None:
+        ctx.obj["domain"] = address.site
 
     return address.bench
 

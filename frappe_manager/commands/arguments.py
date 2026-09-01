@@ -23,14 +23,17 @@ shell can observe, so they are not interchangeable:
   would silently offer to prune whatever bench the picker lands on instead of
   refusing. Do not collapse these two aliases into one.
 
-* :data:`StandaloneBenchNameArgument` -- optional, and deliberately WITHOUT the
-  must-exist check, for the `fm ssl` subcommands. They also manage certificates
-  for domains that belong to no bench, so `sitename_callback`'s must-exist check
-  would reject valid input; they resolve the bench themselves. It does carry
-  `standalone_address_callback`, which parses the address and refuses a site part
-  but neither normalises the name nor requires the bench to exist. Without it a
-  slashed value reached `Bench.get_object` and died as a not-found error on a
-  nested path.
+* :data:`BenchDomainArgument` -- optional, and deliberately WITHOUT the must-exist
+  check, for the `fm ssl` subcommands. They also manage certificates for domains
+  that belong to no bench, so `sitename_callback`'s must-exist check would reject
+  valid input; they resolve the bench themselves. Its second segment is a served
+  DOMAIN, not a site: a certificate is keyed by hostname, so a bench's aliases are
+  addressable here and are not in `BenchSiteArgument`.
+
+* :data:`BenchAllArgument` -- a bench name or the `all` address, for `fm migrate`,
+  the one bench-scoped command that can run over every bench at once. `all` is a
+  reserved word refused as a bench NAME at create time, which is what lets it mean
+  something else in this position without ambiguity.
 
 * :data:`BenchSiteArgument` -- optional, validated, and the ONLY alias that
   accepts a site part. Three commands use it, for two different reasons.
@@ -53,11 +56,14 @@ from typing import Annotated
 import typer
 
 from frappe_manager.utils.callbacks import (
+    bench_all_autocompletion_callback,
+    bench_all_callback,
+    bench_domain_autocompletion_callback,
+    bench_domain_callback,
     bench_site_autocompletion_callback,
     bench_site_callback,
     sitename_callback,
     sites_autocompletion_callback,
-    standalone_address_callback,
 )
 
 BenchNameArgument = Annotated[
@@ -70,6 +76,16 @@ BenchNameArgument = Annotated[
 ]
 """Optional, validated bench name. Call sites keep their `= None` default."""
 
+BenchAllArgument = Annotated[
+    str | None,
+    typer.Argument(
+        help="Name of the bench, or all.",
+        autocompletion=bench_all_autocompletion_callback,
+        callback=bench_all_callback,
+    ),
+]
+"""Bench name or the `all` address, for the commands that can run over every bench at once."""
+
 RequiredBenchNameArgument = Annotated[
     str,
     typer.Argument(
@@ -80,16 +96,6 @@ RequiredBenchNameArgument = Annotated[
 ]
 """Validated bench name that must be given explicitly. Declared with no default."""
 
-StandaloneBenchNameArgument = Annotated[
-    str | None,
-    typer.Argument(
-        help="Name of the bench (omit for standalone mode).",
-        autocompletion=sites_autocompletion_callback,
-        callback=standalone_address_callback,
-    ),
-]
-"""Optional bench name, address-parsed but with no must-exist validation."""
-
 BenchSiteArgument = Annotated[
     str | None,
     typer.Argument(
@@ -99,3 +105,18 @@ BenchSiteArgument = Annotated[
     ),
 ]
 """Optional address. The only alias that accepts a site part; `fm shell`, `fm delete` and `fm reset` use it."""
+
+BenchDomainArgument = Annotated[
+    str | None,
+    typer.Argument(
+        help="Bench, bench/domain, or all.",
+        autocompletion=bench_domain_autocompletion_callback,
+        callback=bench_domain_callback,
+    ),
+]
+"""Optional address whose second segment is a served DOMAIN, not a site.
+
+The `ssl` commands use it: a certificate is keyed by domain, and a bench serves its sites' names
+AND their aliases, so the population is wider than `BenchSiteArgument`'s. Like the standalone
+alias it does no must-exist check, because `--standalone` puts an external domain in this same
+position."""

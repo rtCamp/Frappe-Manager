@@ -79,7 +79,7 @@ fm auth mybench --protect web --protect tools --user alice --password -
 
 Basic auth sends the credentials base64-encoded on every request, not encrypted. On a bench with no certificate:
 
-- `--protect web` is refused outright, because it would put those credentials in front of every path including `/api`. Add HTTPS with `fm ssl add mybench`, or pass `--insecure` to accept it.
+- `--protect web` is refused outright, because it would put those credentials in front of every path including `/api`. Add HTTPS with `fm ssl add mybench/example.com`, or pass `--insecure` to accept it.
 - `--protect tools` warns and proceeds, since that is fm's own default state. `--insecure` silences the warning.
 
 ### Exemptions

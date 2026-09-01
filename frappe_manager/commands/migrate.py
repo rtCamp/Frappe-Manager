@@ -2,10 +2,11 @@ from enum import Enum
 from typing import Annotated
 
 import typer
-from typer_examples import example
 from rich.table import Table
+from typer_examples import example
 
 from frappe_manager import CLI_BENCH_CONFIG_FILE_NAME, CLI_BENCHES_DIRECTORY
+from frappe_manager.commands.arguments import BenchAllArgument
 from frappe_manager.metadata_manager import FMConfigManager
 from frappe_manager.migration_manager.bench_migration_state import (
     get_bench_migration_version,
@@ -14,6 +15,7 @@ from frappe_manager.migration_manager.bench_migration_state import (
 from frappe_manager.migration_manager.migration_executor import MigrationExecutor
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager import get_global_output_handler, spinner
+from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME, resolve_bench_targets
 from frappe_manager.utils.helpers import get_current_fm_version
 
 
@@ -37,27 +39,21 @@ class MigrationFailureAction(str, Enum):
 )
 @example(
     "Migrate every bench",
-    "--all-benches",
+    "all",
+    detail="'all' goes where a bench name goes: it is an address meaning every bench fm manages, not a flag.",
 )
 @example(
     "Migrate every bench unattended",
-    "--all-benches --auto-proceed --on-failure=archive",
+    "all --auto-proceed --on-failure=archive",
     detail="The combination for CI and large fleets: no prompts, and one bad bench does not undo the others.",
 )
 @example(
     "Leave some benches behind",
-    "--all-benches --exclude-bench mybench1,mybench2",
+    "all --exclude-bench mybench1,mybench2",
 )
 def migrate(
     ctx: typer.Context,
-    benchname: Annotated[
-        str | None,
-        typer.Argument(help="Bench name to migrate"),
-    ] = None,
-    all_benches: Annotated[
-        bool,
-        typer.Option("--all-benches", help="Migrate every bench FM manages."),
-    ] = False,
+    benchname: BenchAllArgument = None,
     skip_backup: Annotated[
         bool,
         typer.Option(
@@ -73,7 +69,7 @@ def migrate(
     ] = None,
     exclude_bench: Annotated[
         str | None,
-        typer.Option("--exclude-bench", help="Benches to leave alone (comma-separated). Only with --all-benches."),
+        typer.Option("--exclude-bench", help="Benches to leave alone (comma-separated). Only with the 'all' address."),
     ] = None,
     auto_proceed: Annotated[
         bool,
@@ -97,7 +93,7 @@ def migrate(
     """
     Bring Frappe Manager and its benches up to the current version.
 
-    Benches are never migrated implicitly: a bare fm migrate updates only FM's own config and global services. Name a bench, or pass --all-benches, to migrate benches themselves.
+    Benches are never migrated implicitly: a bare fm migrate updates only FM's own config and global services. Name a bench, or say 'all', to migrate benches themselves.
 
     Every other bench command refuses to run against a bench that is behind, so migrate first.
     """
@@ -106,14 +102,8 @@ def migrate(
 
     failure_action = on_failure.value if on_failure else "prompt"
 
-    if benchname and all_benches:
-        output.display_error("Cannot specify both <benchname> and --all-benches")
-        output.stop()
-        typer.echo(ctx.get_help())
-        raise typer.Exit(1)
-
-    if exclude_bench and not all_benches:
-        output.display_error("--exclude-bench can only be used with --all-benches")
+    if exclude_bench and benchname != RESERVED_BENCH_NAME:
+        output.display_error(f"--exclude-bench only means something with '{RESERVED_BENCH_NAME}', which names every bench")
         output.stop()
         typer.echo(ctx.get_help())
         raise typer.Exit(1)
@@ -128,20 +118,9 @@ def migrate(
     if exclude_bench:
         exclude_bench_list = [b.strip() for b in exclude_bench.split(",")]
 
-    target_benches = None
-    if benchname:
-        bench_path = CLI_BENCHES_DIRECTORY / benchname
-        if not bench_path.exists():
-            output.display_error(f"Bench '{benchname}' does not exist")
-            raise typer.Exit(1)
-        target_benches = [benchname]
-    elif all_benches:
-        target_benches = []
-        if CLI_BENCHES_DIRECTORY.exists():
-            for bench_path in CLI_BENCHES_DIRECTORY.iterdir():
-                if bench_path.is_dir() and (bench_path / CLI_BENCH_CONFIG_FILE_NAME).exists():
-                    if bench_path.name not in exclude_bench_list:
-                        target_benches.append(bench_path.name)
+    # The same registry completion and the picker use, so the set `all` migrates is the set the
+    # shell offered. The bench named outright was already resolved and checked by the callback.
+    target_benches = [b for b in resolve_bench_targets(benchname) if b not in exclude_bench_list] or None
 
     fm_infrastructure_version = fm_config_manager.get_system_migration_version()
     fm_infrastructure_needs_migration = rerun or (fm_infrastructure_version < current_version)

@@ -33,6 +33,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import typer
 from rich.console import Console
+from typer.testing import CliRunner
 
 from frappe_manager.commands.auth import (
     AuthSurface,
@@ -61,6 +62,7 @@ from frappe_manager.commands.shell import (
 from frappe_manager.migration_manager.version import Version
 from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.bench_config import AuthConfig, BenchRuntime
+from frappe_manager.site_manager.exceptions import BenchNotFoundError
 from frappe_manager.ssl_manager import SUPPORTED_SSL_TYPES
 
 # `frappe_manager.commands` re-exports the command FUNCTIONS under the module
@@ -70,6 +72,10 @@ auth_mod = import_module("frappe_manager.commands.auth")
 migrate_mod = import_module("frappe_manager.commands.migrate")
 shell_mod = import_module("frappe_manager.commands.shell")
 maintenance_mod = import_module("frappe_manager.commands.maintenance")
+
+# `resolve_bench_targets` reads the benches root from `callbacks`, not from `migrate`, so a test
+# that only redirects the command module's copy would have `all` enumerate the real ~/frappe.
+callbacks_mod = import_module("frappe_manager.utils.callbacks")
 
 COMPOSE = ["docker", "compose", "-f", "docker-compose.yml"]
 
@@ -696,7 +702,6 @@ def _run_migrate(
 
     params = {
         "benchname": None,
-        "all_benches": False,
         "skip_backup": False,
         "skip_backup_for": None,
         "exclude_bench": None,
@@ -709,6 +714,8 @@ def _run_migrate(
     versions = bench_versions or {}
     with (
         patch.object(migrate_mod, "CLI_BENCHES_DIRECTORY", benches_dir),
+        # `all` is expanded by `resolve_bench_targets`, which reads the constant out of `callbacks`.
+        patch.object(callbacks_mod, "CLI_BENCHES_DIRECTORY", benches_dir),
         patch.object(migrate_mod, "get_current_fm_version", return_value=current_version),
         patch.object(migrate_mod, "MigrationExecutor") as executor_cls,
         patch.object(migrate_mod, "set_bench_migration_version") as set_bench_version,
@@ -739,24 +746,88 @@ def _executor_kwargs(r):
     return r.executor_cls.call_args.kwargs
 
 
-def test_benchname_with_all_benches_is_refused_with_help(out, tmp_path):
-    r = _run_migrate(tmp_path, benchname="a.localhost", all_benches=True)
+def _migrate_cli(argv, benches_dir, monkeypatch, *, system_version="0.18.0", current_version="0.19.0"):
+    """Invoke `migrate` through a runner so the ARGUMENT CALLBACK runs.
+
+    Every other migrate test calls the body directly, which is the right level for the body's own
+    decisions but skips the parameter callbacks entirely. The two tests below are about what the
+    callback does with the value before the body ever sees it, so they need real parsing.
+    """
+    monkeypatch.setattr(callbacks_mod, "CLI_BENCHES_DIRECTORY", benches_dir)
+    monkeypatch.setattr(migrate_mod, "CLI_BENCHES_DIRECTORY", benches_dir)
+
+    fm_config_manager = MagicMock()
+    fm_config_manager.get_system_migration_version.return_value = Version(system_version)
+
+    app = typer.Typer()
+    app.command()(migrate)
+
+    with (
+        patch.object(migrate_mod, "get_current_fm_version", return_value=current_version),
+        patch.object(migrate_mod, "MigrationExecutor") as executor_cls,
+        patch.object(migrate_mod, "set_bench_migration_version"),
+        patch.object(migrate_mod, "spinner"),
+    ):
+        executor_cls.return_value.execute.return_value = True
+        executor_cls.return_value.migrate_benches = {}
+        result = CliRunner().invoke(app, argv, obj={"fm_config_manager": fm_config_manager})
+    return result, executor_cls
+
+
+@pytest.mark.usefixtures("out")
+def test_all_is_accepted_in_the_benchname_slot_so_no_conflict_can_be_expressed(tmp_path, monkeypatch):
+    """`all` IS the benchname now, which is why "every bench" and "one bench" cannot both be asked for.
+
+    `--all-benches` was a flag, so it could be combined with a name and the body had to refuse the
+    pair with "Cannot specify both <benchname> and --all-benches". One slot holds one value, so that
+    guard has nothing left to guard. What has to hold instead is that the word survives the argument
+    callback, which for every other value demands a bench directory of that name: there is no bench
+    called `all` here, and `all` still reaches the body and selects both real benches.
+    """
+    benches_dir = tmp_path / "sites"
+    _bench_dir(benches_dir, "a.localhost")
+    _bench_dir(benches_dir, "b.localhost")
+
+    result, executor_cls = _migrate_cli(["all"], benches_dir, monkeypatch)
+
+    assert result.exception is None, result.exception
+    assert sorted(executor_cls.call_args.kwargs["target_benches"]) == ["a.localhost", "b.localhost"]
+
+
+@pytest.mark.usefixtures("out")
+def test_a_missing_bench_is_refused_before_the_body_runs(tmp_path, monkeypatch):
+    """The existence check left the body when `--all-benches` became the `all` address.
+
+    It used to be an `output.display_error("Bench 'x' does not exist")` plus exit 1 inside `migrate`.
+    `benchname` carries `bench_all_callback` now, so a typo is refused while the argument is being
+    parsed: the body never runs and no executor is ever built.
+    """
+    benches_dir = tmp_path / "sites"
+    _bench_dir(benches_dir, "real.localhost")
+
+    result, executor_cls = _migrate_cli(["ghost.localhost"], benches_dir, monkeypatch)
+
+    assert result.exit_code != 0
+    assert isinstance(result.exception, BenchNotFoundError)
+    assert "ghost.localhost" in str(result.exception)
+    executor_cls.assert_not_called()
+
+
+def test_exclude_bench_with_one_named_bench_is_refused(out, tmp_path):
+    # Subtracting from a set of one is either a no-op or an empty migration; either way the operator
+    # asked for something the command cannot honour, so it says so instead of guessing.
+    _bench_dir(tmp_path, "a.localhost")
+    r = _run_migrate(tmp_path, benchname="a.localhost", exclude_bench="b.localhost")
     assert r.exit.exit_code == 1
-    assert "Cannot specify both <benchname> and --all-benches" in joined(out.display_error)
+    assert "--exclude-bench only means something with 'all', which names every bench" in joined(out.display_error)
     r.executor_cls.assert_not_called()
 
 
-def test_exclude_bench_without_all_benches_is_refused(out, tmp_path):
+def test_exclude_bench_with_no_bench_named_at_all_is_refused(out, tmp_path):
+    # A bare `fm migrate` touches infrastructure and no bench, so there is nothing to exclude from.
     r = _run_migrate(tmp_path, exclude_bench="a.localhost")
     assert r.exit.exit_code == 1
-    assert "--exclude-bench can only be used with --all-benches" in joined(out.display_error)
-    r.executor_cls.assert_not_called()
-
-
-def test_a_missing_bench_is_refused_by_name(out, tmp_path):
-    r = _run_migrate(tmp_path, benchname="ghost.localhost")
-    assert r.exit.exit_code == 1
-    assert "Bench 'ghost.localhost' does not exist" in joined(out.display_error)
+    assert "--exclude-bench only means something with 'all', which names every bench" in joined(out.display_error)
     r.executor_cls.assert_not_called()
 
 
@@ -786,12 +857,14 @@ def test_an_older_infrastructure_version_is_migrated_without_a_bench(out, tmp_pa
 
 
 @pytest.mark.usefixtures("out")
-def test_all_benches_collects_only_directories_holding_a_bench_config(tmp_path):
+def test_all_collects_only_directories_holding_a_bench_config(tmp_path):
+    # `all` expands through `_bench_names`, the one registry completion and the picker also read, so
+    # the set it migrates is the set the shell offered. A directory with no config is not a bench.
     _bench_dir(tmp_path, "a.localhost")
     _bench_dir(tmp_path, "b.localhost")
     _bench_dir(tmp_path, "no-config.localhost", with_config=False)
     (tmp_path / "stray.txt").write_text("x")
-    r = _run_migrate(tmp_path, all_benches=True)
+    r = _run_migrate(tmp_path, benchname="all")
     assert sorted(_executor_kwargs(r)["target_benches"]) == ["a.localhost", "b.localhost"]
 
 
@@ -800,7 +873,7 @@ def test_exclude_bench_is_split_on_commas_and_removes_targets(tmp_path):
     _bench_dir(tmp_path, "a.localhost")
     _bench_dir(tmp_path, "b.localhost")
     _bench_dir(tmp_path, "c.localhost")
-    r = _run_migrate(tmp_path, all_benches=True, exclude_bench="a.localhost, c.localhost")
+    r = _run_migrate(tmp_path, benchname="all", exclude_bench="a.localhost, c.localhost")
     assert _executor_kwargs(r)["target_benches"] == ["b.localhost"]
     assert _executor_kwargs(r)["exclude_benches"] == ["a.localhost", "c.localhost"]
 
@@ -878,7 +951,7 @@ def test_a_bench_that_raised_is_reported_as_failed_and_never_stamped(out, tmp_pa
     assert "Check logs for details" in joined(out.display_error)
 
 
-def test_all_benches_exits_nonzero_when_only_some_benches_failed(out, tmp_path):
+def test_all_exits_nonzero_when_only_some_benches_failed(out, tmp_path):
     """A partially failed fleet migration must not report success to a CI job checking $?.
 
     The total-executor-failure guard earlier in the body does not cover this: `execute()`
@@ -888,7 +961,7 @@ def test_all_benches_exits_nonzero_when_only_some_benches_failed(out, tmp_path):
     _bench_dir(tmp_path, "b.localhost")
     r = _run_migrate(
         tmp_path,
-        all_benches=True,
+        benchname="all",
         current_version="0.19.0",
         migrate_benches={
             "a.localhost": {"last_migration_version": Version("0.19.0"), "exception": None},
@@ -901,12 +974,12 @@ def test_all_benches_exits_nonzero_when_only_some_benches_failed(out, tmp_path):
     assert "Migration failed" in table
 
 
-def test_all_benches_exits_zero_when_every_bench_migrated(out, tmp_path):
+def test_all_exits_zero_when_every_bench_migrated(out, tmp_path):
     _bench_dir(tmp_path, "a.localhost")
     _bench_dir(tmp_path, "b.localhost")
     r = _run_migrate(
         tmp_path,
-        all_benches=True,
+        benchname="all",
         current_version="0.19.0",
         migrate_benches={
             "a.localhost": {"last_migration_version": Version("0.19.0"), "exception": None},

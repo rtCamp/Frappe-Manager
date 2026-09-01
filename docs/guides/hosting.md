@@ -35,15 +35,15 @@ fm create clientone.example.com -e prod
 ## 4. Add HTTPS
 
 ```bash
-fm ssl add clientone.example.com clientone.example.com --dry-run   # validate first
-fm ssl add clientone.example.com clientone.example.com             # then issue
+fm ssl add clientone.example.com/clientone.example.com --dry-run   # validate first
+fm ssl add clientone.example.com/clientone.example.com             # then issue
 ```
 
 fm installs no renewal timer, so add the renewal once per server:
 
 ```bash
 # crontab: safe to run daily, certificates that are not due are skipped
-0 3 * * * fm ssl renew --all
+0 3 * * * fm ssl renew all
 ```
 
 The [SSL guide](ssl.md) covers the rest, including the DNS-01 (Cloudflare) challenge for when port 80 is blocked or you need a wildcard certificate (`--challenge dns01`).
@@ -63,7 +63,7 @@ One machine runs many benches behind the same nginx proxy; each new client is a 
 
 ```bash
 fm create clienttwo.example.com -e prod
-fm ssl add clienttwo.example.com clienttwo.example.com
+fm ssl add clienttwo.example.com/clienttwo.example.com
 ```
 
 - Point the new domain's DNS record at the same server first.
@@ -73,7 +73,7 @@ fm ssl add clienttwo.example.com clienttwo.example.com
 ## Staying safe
 
 - **Backups**: fm does not back up site data; `bench backup` does, and the artefacts live inside the bench you are backing up. See [Backup & Restore](backup-restore.md), then get the files off the server.
-- **Upgrading fm**: keep the CLI and your benches in sync; see [Upgrading fm](../getting-started/installation.md#upgrading-fm) (`fm self update` then `fm migrate --all-benches`).
+- **Upgrading fm**: keep the CLI and your benches in sync; see [Upgrading fm](../getting-started/installation.md#upgrading-fm) (`fm self update` then `fm migrate all`).
 - **Behind a CDN or load balancer**: run `fm self real-ip` so the proxy logs and any `fm auth --allow-ip` list see the visitor's address instead of the CDN's.
 - **Monitoring**: report the web process to New Relic APM; see [Monitoring](environments.md#monitoring-new-relic).
 - **Web concurrency**: Gunicorn worker and thread counts have sensible RAM/CPU-based defaults; see [Web Serving & Concurrency](../concepts/web-serving.md).

@@ -26,7 +26,7 @@
 #   FM_PYTHON          Python for target FM (e.g., 3.13)
 #   FM_PREVIOUS_REPO   Previous version spec (e.g., git+https://...@fix/install-deps)
 #   FM_REPO            Target version spec (e.g., git+https://...@fix-migrations)
-#   FM_MIGRATE_FLAGS   Migration flags (e.g., --all-benches --auto-proceed)
+#   FM_MIGRATE_FLAGS   Migration flags (e.g., all --auto-proceed)
 #   FM_STOP_CONTAINERS Stop FM containers before migration (default: true)
 #
 

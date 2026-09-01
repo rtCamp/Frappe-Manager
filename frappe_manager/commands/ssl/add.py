@@ -5,30 +5,36 @@ from typing import Annotated
 import typer
 from typer_examples import example
 
-from frappe_manager.commands.arguments import StandaloneBenchNameArgument
+from frappe_manager.commands.arguments import BenchDomainArgument
 from frappe_manager.output_manager import temporary_stop
 from frappe_manager.ssl_manager import LETSENCRYPT_PREFERRED_CHALLENGE
-from frappe_manager.utils.callbacks import prompt_for_bench_selection
+from frappe_manager.utils.callbacks import RESERVED_BENCH_NAME, prompt_for_bench_selection
 
-from .bench_helpers import _add_bench_certificate
+from .bench_helpers import _add_bench_certificate, _resolve_domains
 from .external_helpers import _add_external_certificate
 from .helpers import get_output_handler
 
 
 @example(
     "Issue a certificate for a bench domain",
-    "{benchname} example.com",
+    "{benchname}/example.com",
     benchname="mybench",
 )
 @example(
     "Issue one when the domain has no public A record",
-    "{benchname} example.com --challenge dns01",
+    "{benchname}/example.com --challenge dns01",
     detail="DNS-01 needs provider credentials, see fm ssl dns-config.",
     benchname="mybench",
 )
 @example(
     "Rehearse against the staging server first",
-    "{benchname} example.com --dry-run",
+    "{benchname}/example.com --dry-run",
+    benchname="mybench",
+)
+@example(
+    "Issue for every domain the bench serves",
+    "{benchname}/all",
+    detail="One certificate per hostname, each site's own name and its aliases. Bare 'all' is refused here: issuing across every bench at once can cross Let's Encrypt's rate limit.",
     benchname="mybench",
 )
 @example(
@@ -37,20 +43,19 @@ from .helpers import get_output_handler
 )
 @example(
     "Validate through a delegated zone",
-    "{benchname} example.com --challenge dns01 --cname acme.example.net",
+    "{benchname}/example.com --challenge dns01 --cname acme.example.net",
     detail="acme.sh looks for _acme-challenge.acme.example.net instead of the bench's own zone.",
     benchname="mybench",
 )
 @example(
     "Authenticate DNS-01 against a second Cloudflare account",
-    "{benchname} example.com --challenge dns01 --dns-provider acct-b",
+    "{benchname}/example.com --challenge dns01 --dns-provider acct-b",
     detail="acct-b is a label stored by fm ssl dns-config cloudflare --name acct-b, at either global or bench scope.",
     benchname="mybench",
 )
 def add_certificate(
     ctx: typer.Context,
-    benchname: StandaloneBenchNameArgument = None,
-    domain: Annotated[str | None, typer.Argument(help="Domain to issue the certificate for.")] = None,
+    benchname: BenchDomainArgument = None,
     challenge: Annotated[
         LETSENCRYPT_PREFERRED_CHALLENGE,
         typer.Option("--challenge", "-c", help="ACME validation method."),
@@ -138,33 +143,49 @@ def add_certificate(
         )
         raise typer.Exit(1)
 
-    if standalone:
-        # Standalone mode: domain can be first arg (as benchname) or second arg
-        actual_domain = domain if domain else benchname
+    # The address's second segment, put there by `bench_domain_callback`. In standalone mode there
+    # is no bench, so the external domain arrives as the whole (unslashed) argument instead.
+    domain = ctx.obj.get("domain") if ctx.obj else None
 
-        if not actual_domain:
+    if benchname == RESERVED_BENCH_NAME:
+        output = get_output_handler(ctx)
+        output.display_error(
+            "'all' is not accepted here: issuing a certificate for every domain of every bench can "
+            "cross Let's Encrypt's rate limit in one command. Name a bench, and use 'BENCH/all' for "
+            "every domain of that one."
+        )
+        raise typer.Exit(1)
+
+    if standalone:
+        if domain:
+            output = get_output_handler(ctx)
+            output.display_error(
+                "An external domain belongs to no bench, so --standalone takes a bare domain: "
+                f"use 'fm ssl add {domain} --standalone'."
+            )
+            raise typer.Exit(1)
+
+        if not benchname:
             output = get_output_handler(ctx)
             output.display_error("Domain is required in standalone mode")
             with temporary_stop(output):
                 typer.echo(ctx.get_help())
             raise typer.Exit(1)
 
-        if benchname and domain:
-            output = get_output_handler(ctx)
-            output.display_error("Cannot specify both benchname and domain in standalone mode")
-            with temporary_stop(output):
-                typer.echo(ctx.get_help())
-            raise typer.Exit(1)
+        _add_external_certificate(ctx, benchname, challenge, cname, dry_run, skip_dns_check, wait_for_dns)
+        return
 
-        _add_external_certificate(ctx, actual_domain, challenge, cname, dry_run, skip_dns_check, wait_for_dns)
-    else:
-        benchname = prompt_for_bench_selection(benchname)
+    benchname = prompt_for_bench_selection(benchname)
 
-        if not benchname or not domain:
-            output = get_output_handler(ctx)
-            output.display_error("Both benchname and domain are required in bench mode")
-            with temporary_stop(output):
-                typer.echo(ctx.get_help())
-            raise typer.Exit(1)
+    if not benchname or not domain:
+        output = get_output_handler(ctx)
+        output.display_error(
+            "An address of the form BENCH/DOMAIN is required in bench mode, naming the hostname the "
+            "certificate is for. 'BENCH/all' issues one for every domain the bench serves."
+        )
+        with temporary_stop(output):
+            typer.echo(ctx.get_help())
+        raise typer.Exit(1)
 
-        _add_bench_certificate(ctx, benchname, domain, challenge, cname, dry_run, dev=dev, dns_provider=dns_provider)
+    for target in _resolve_domains(ctx, benchname, domain):
+        _add_bench_certificate(ctx, benchname, target, challenge, cname, dry_run, dev=dev, dns_provider=dns_provider)

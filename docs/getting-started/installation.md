@@ -134,7 +134,7 @@ Run these two commands, in this order. The first updates the CLI; the second bri
 
 ```bash
 fm self update
-fm migrate --all-benches
+fm migrate all
 ```
 
 Do not skip the second one: every bench command refuses to run against a bench that is behind the installed fm. See [Migrations](../reference/migrations.md) for what `fm migrate` does and how its backups and rollback work.

@@ -93,7 +93,7 @@ Skipping the backup is possible and rarely wise:
 
 ```bash
 fm migrate --skip-backup-for mybench            # this bench only, comma-separated for several
-fm migrate --all-benches --skip-all-backup      # every bench
+fm migrate all --skip-all-backup                # every bench
 ```
 
 !!! danger

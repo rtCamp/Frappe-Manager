@@ -1,9 +1,11 @@
 """The `BENCH[/SITE]` positional, black-box through the CLI.
 
 A bench holds exactly one site today, so `fm shell` is the only command that can do
-anything with a site part and every other command refuses one. These tests pin that
-split, and they pin it at the CLI boundary rather than by calling the callbacks,
-because the exit code and the message are the contract a user meets.
+anything with a site part and every other bench-scoped command refuses one. The `ssl`
+commands are the exception, and a different one: their second segment is a served
+DOMAIN rather than a site. These tests pin that split, and they pin it at the CLI
+boundary rather than by calling the callbacks, because the exit code and the message
+are the contract a user meets.
 
 Most cases need no bench on disk: the refusal happens in the parameter callback,
 BEFORE the must-exist check, which is the property that makes a mistyped address
@@ -20,6 +22,7 @@ from frappe_manager.commands.create import create
 from frappe_manager.commands.restart import restart
 from frappe_manager.commands.shell import shell
 from frappe_manager.commands.ssl.list import list_certificates
+from frappe_manager.output_manager import get_global_output_handler
 from frappe_manager.site_manager.exceptions import BenchNotFoundError
 
 runner = CliRunner()
@@ -98,12 +101,26 @@ def test_the_refusal_names_the_bench_form_to_use(benches):
     assert f"use '{BENCH}'" in _said(result)
 
 
-def test_an_ssl_command_refuses_a_site_part_too(benches):
-    """The four `ssl` commands carried NO callback before this, so a slashed value reached
-    `Bench.get_object` and died as a not-found error on a nested path."""
-    result = runner.invoke(_app("list", list_certificates), [f"{BENCH}/{BENCH}"])
+def test_an_ssl_command_reads_the_second_segment_as_a_domain(benches):
+    """The `ssl` commands carry `bench_domain_callback`, not the site-refusing one: a certificate
+    is keyed by domain, and a bench serves its sites' names AND their aliases. So the second
+    segment is honoured, handed on through `ctx.obj`, and `fm ssl list` refuses it in its own body
+    with its own reason rather than as a malformed address."""
+    handler = get_global_output_handler()
+
+    with patch.object(handler, "display_error") as display_error:
+        result = runner.invoke(_app("list", list_certificates), [f"{BENCH}/shop.example.com"], obj={})
+
+    assert result.exit_code == 1
+    assert "takes a bench, not a single domain" in str(display_error.call_args)
+
+
+def test_an_ssl_command_still_refuses_a_third_segment(benches):
+    """Honouring a domain is not honouring anything: the address grammar is still two parts."""
+    result = runner.invoke(_app("list", list_certificates), [f"{BENCH}/a/b"], obj={})
+
     assert result.exit_code == 2
-    assert "takes a bench, not a site" in _said(result)
+    assert "more than one" in _said(result)
 
 
 def test_a_bench_scoped_command_still_accepts_a_plain_bench(benches):

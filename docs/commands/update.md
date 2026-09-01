@@ -12,7 +12,7 @@ $ fm update BENCHNAME [OPTIONS]
 
 **Arguments**:
 
-* `BENCHNAME`: Name of the bench.
+* `BENCHNAME`: Bench, or bench/site.
 
 **Options**:
 

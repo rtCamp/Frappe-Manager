@@ -12,7 +12,7 @@ FM migrates two things, tracked separately:
 Both are **version-aware**: FM records the version each one is migrated to and only runs the migrations newer than that.
 
 !!! important "A bare `fm migrate` touches no bench"
-    `fm migrate` with no arguments migrates only the FM infrastructure. Benches are never migrated implicitly: name one, or pass `--all-benches`.
+    `fm migrate` with no arguments migrates only the FM infrastructure. Benches are never migrated implicitly: name one, or name `all` for every bench FM manages.
 
     Naming a bench migrates the infrastructure too, if it is behind.
 
@@ -20,7 +20,7 @@ Both are **version-aware**: FM records the version each one is migrated to and o
     ```bash
     fm self update            # update the CLI
     fm migrate                # FM infrastructure only
-    fm migrate --all-benches  # then the benches
+    fm migrate all            # then the benches
     ```
 
 ---
@@ -141,10 +141,10 @@ Migrates that bench, plus the infrastructure if it is behind.
 !!! warning "`fm migrate` wants the exact directory name"
     Most commands normalise a bare `mybench` to `mybench.localhost` for you. `fm migrate` does not: it looks up `~/frappe/sites/<what you typed>` and reports `Bench 'mybench' does not exist` if that is not a directory. Use the name `fm list` shows.
 
-### Every bench {#migrate-all-benches}
+### Every bench {#migrate-all}
 
 ```bash
-fm migrate --all-benches
+fm migrate all
 ```
 
 Targets every directory in `~/frappe/sites/` that has a `bench_config.toml`. Benches are migrated one at a time, in one pass per migration version.
@@ -185,10 +185,10 @@ Re-applies the current release's migration steps even when the target is already
 ### Exclude benches {#exclude-benches}
 
 ```bash
-fm migrate --all-benches --exclude-bench oldbench.localhost,legacy.localhost
+fm migrate all --exclude-bench oldbench.localhost,legacy.localhost
 ```
 
-Comma-separated, and only valid with `--all-benches`. As with the positional argument, the names have to be the exact bench directory names.
+Comma-separated, and only valid with `all`, since there is nothing to exclude from a single named bench. As with the bench name itself, the excluded names have to be the exact bench directory names.
 
 ---
 
@@ -200,11 +200,11 @@ When a bench's migration raises, FM restores that bench's backups for the failin
 
 **One bench:** asks whether to roll the bench back to its pre-migration state, or to skip the rollback and leave it as it is for manual fixing and a retry with `fm migrate <bench>`.
 
-**`--all-benches`:** asks whether to **archive** the failed benches and keep the successful ones migrated, or to **revert the migration for every bench**.
+**`all`:** asks whether to **archive** the failed benches and keep the successful ones migrated, or to **revert the migration for every bench**.
 
 ### `--on-failure=rollback` {#on-failure-rollback}
 
-Rolls back without asking: backups are restored, the recorded version is rewound, and the command exits non-zero. With `--all-benches` this reverts every bench, not just the failed one, and prints how to reinstall the previous CLI.
+Rolls back without asking: backups are restored, the recorded version is rewound, and the command exits non-zero. With `all` this reverts every bench, not just the failed one, and prints how to reinstall the previous CLI.
 
 !!! tip "Use it in automation"
     This is what the inline migration gate uses, and the safe default for unattended runs of a single production bench.
@@ -212,7 +212,7 @@ Rolls back without asking: backups are restored, the recorded version is rewound
 ### `--on-failure=archive` {#on-failure-archive}
 
 ```bash
-fm migrate --all-benches --auto-proceed --on-failure=archive
+fm migrate all --auto-proceed --on-failure=archive
 ```
 
 Each failed bench is rolled back to its last successfully completed migration version and its directory is moved from `~/frappe/sites/<bench>/` to `~/frappe/archived/<bench>/`. The benches that succeeded stay migrated. FM prints which benches it archived.
@@ -227,7 +227,7 @@ Each failed bench is rolled back to its last successfully completed migration ve
 ### `--skip-all-backup` {#skip-backups}
 
 ```bash
-fm migrate --all-benches --skip-all-backup
+fm migrate all --skip-all-backup
 ```
 
 !!! danger "No backups means no rollback"
@@ -236,7 +236,7 @@ fm migrate --all-benches --skip-all-backup
 ### `--skip-backup-for` {#skip-backup-for}
 
 ```bash
-fm migrate --all-benches --skip-backup-for testbench.localhost,devbench.localhost
+fm migrate all --skip-backup-for testbench.localhost,devbench.localhost
 ```
 
 Comma-separated. Those benches are migrated without a backup; the rest are backed up normally.

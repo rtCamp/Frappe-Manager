@@ -42,8 +42,8 @@ The most common commands to get you started:
     ---
 
     ```bash
-    fm ssl add mybench example.com
-    fm ssl add mybench example.com --challenge dns01
+    fm ssl add mybench/example.com
+    fm ssl add mybench/example.com --challenge dns01
     ```
 
 </div>
@@ -249,10 +249,10 @@ Manage SSL certificates and HTTPS.
 Add, remove, renew, and list SSL certificates using Let's Encrypt (HTTP-01 or DNS-01 challenges).
 
 ```bash
-fm ssl add mybench example.com
-fm ssl add mybench example.com --challenge dns01
-fm ssl remove mybench example.com
-fm ssl renew mybench example.com
+fm ssl add mybench/example.com
+fm ssl add mybench/example.com --challenge dns01
+fm ssl remove mybench/example.com
+fm ssl renew mybench/example.com
 fm ssl list mybench
 ```
 
@@ -287,7 +287,7 @@ Migrate FM infrastructure and benches when upgrading Frappe Manager versions, wi
 
 ```bash
 fm migrate
-fm migrate --all-benches
+fm migrate all
 ```
 
 ### :material-wrench: [`fm self`](self.md) {.command-heading}

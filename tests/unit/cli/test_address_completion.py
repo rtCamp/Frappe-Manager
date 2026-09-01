@@ -18,6 +18,8 @@ bench name and the site names DIFFER on purpose: a fixture that gives one string
 cannot catch code that reaches for a site under the bench's name.
 """
 
+from types import SimpleNamespace
+
 import pytest
 
 from frappe_manager.utils import callbacks
@@ -38,17 +40,32 @@ def benches(tmp_path, monkeypatch):
 
 
 def make_bench(benches_dir, name: str):
-    """A directory the completer counts as a bench: it has a compose file."""
+    """A directory the completer counts as a bench: it has a `bench_config.toml`.
+
+    The config is the registry marker, so a directory without one is not offered at all. The
+    compose file goes in too because a real bench has both, and no test should depend on a shape
+    that never occurs on disk.
+    """
     bench = benches_dir / name
     bench.mkdir()
     (bench / "docker-compose.yml").write_text("services: {}\n")
+    (bench / "bench_config.toml").write_text(f'name = "{name}"\n')
     return bench
 
 
-def record_sites(bench, *sites: str) -> None:
-    """Write the bench's own `bench_config.toml`, recording `sites` under `[sites]`."""
+def record_sites(bench, *sites: str, aliases: dict[str, list[str]] | None = None) -> None:
+    """Write the bench's own `bench_config.toml`, recording `sites` under `[sites]`.
+
+    `aliases` maps a site to its extra hostnames, which is what tells the DOMAIN completion apart
+    from the SITE completion: an alias is a served hostname and is not a site name.
+    """
+    aliases = aliases or {}
     body = f'name = "{bench.name}"\ndeveloper_mode = false\nadmin_tools = false\nenvironment = "prod"\n'
-    body += "".join(f'\n[sites."{site}"]\n' for site in sites)
+    for site in sites:
+        body += f'\n[sites."{site}"]\n'
+        if aliases.get(site):
+            listed = ", ".join(f'"{a}"' for a in aliases[site])
+            body += f"alias_domains = [{listed}]\n"
     (bench / "bench_config.toml").write_text(body)
 
 
@@ -83,6 +100,26 @@ class TestBeforeTheSeparator:
         make_bench(benches, "warehouse")
 
         assert bench_site_autocompletion_callback("sh") == [BENCH]
+
+    def test_a_directory_without_a_config_is_not_a_bench(self, benches):
+        # The config is the registry marker, and this is the shape that tells it apart from the
+        # compose file: a bench torn down mid-delete, or a hand-made directory, has one and not
+        # the other. Offering it completes the operator into a command that cannot run.
+        make_bench(benches, BENCH)
+        halfbaked = benches / "halfbaked"
+        halfbaked.mkdir()
+        (halfbaked / "docker-compose.yml").write_text("services: {}\n")
+
+        assert bench_site_autocompletion_callback("") == [BENCH]
+
+    def test_the_reserved_word_is_offered_where_it_means_something(self, benches):
+        # `all` completes for the commands that accept it, and does NOT leak into the ones that
+        # do not: a word the shell suggests and the command refuses is worse than no suggestion.
+        make_bench(benches, BENCH)
+
+        assert callbacks.bench_all_autocompletion_callback("") == [BENCH, "all"]
+        assert callbacks.bench_all_autocompletion_callback("a") == ["all"]
+        assert bench_site_autocompletion_callback("") == [BENCH]
 
     def test_a_bench_name_is_never_offered_with_a_site_appended(self, shop):
         # Before the separator the operator has not asked for a site yet, and completing
@@ -130,7 +167,10 @@ class TestWhereTheSitesComeFrom:
         ]
 
     def test_a_bench_with_no_config_falls_back_to_the_sites_on_disk(self, benches):
+        # A bench mid-create, before its config is written. Distinct from the test below, where
+        # the config exists and records nothing: this one has no file to read at all.
         bench = make_bench(benches, BENCH)
+        (bench / "bench_config.toml").unlink()
         make_site_dir(bench, PRIMARY_SITE)
         make_site_dir(bench, SECOND_SITE)
 
@@ -199,3 +239,76 @@ class TestItNeverRaises:
         make_bench(benches, BENCH)
 
         assert bench_site_autocompletion_callback(None) == [BENCH]
+
+
+class TestTheDomainHalf:
+    """`BENCH/DOMAIN` for the `ssl` commands, whose second segment is a served HOSTNAME.
+
+    Kept apart from the site tests on purpose: these two completions answer different questions,
+    and the whole reason the domain one exists is that a certificate is keyed by hostname, so a
+    bench's aliases are addressable for `ssl` and are not addressable for `shell` or `delete`.
+    """
+
+    def test_an_alias_completes_for_a_certificate_and_not_for_a_site(self, benches):
+        bench = make_bench(benches, BENCH)
+        record_sites(bench, PRIMARY_SITE, aliases={PRIMARY_SITE: ["www.shop.example.com"]})
+
+        assert callbacks.bench_domain_autocompletion_callback("shop/") == [
+            f"{BENCH}/{PRIMARY_SITE}",
+            f"{BENCH}/www.shop.example.com",
+        ]
+        # The same bench, the same prefix, through the site completion: the alias is absent,
+        # because no site is named `www.shop.example.com` and no schema answers to it.
+        assert bench_site_autocompletion_callback("shop/") == [f"{BENCH}/{PRIMARY_SITE}"]
+
+    def test_a_prefix_matching_only_an_alias_still_completes(self, benches):
+        # The case that fails if the domain half quietly falls back to the site list: `www` names
+        # nothing at all among the sites.
+        bench = make_bench(benches, BENCH)
+        record_sites(bench, PRIMARY_SITE, aliases={PRIMARY_SITE: ["www.shop.example.com"]})
+
+        assert callbacks.bench_domain_autocompletion_callback("shop/www") == [
+            f"{BENCH}/www.shop.example.com"
+        ]
+        assert bench_site_autocompletion_callback("shop/www") == []
+
+    def test_each_site_carries_its_own_aliases(self, benches):
+        # Ordering is per site, name then that site's aliases, so the operator reads the list as
+        # the grouping it is rather than as one flat pile of hostnames.
+        bench = make_bench(benches, BENCH)
+        record_sites(
+            bench,
+            PRIMARY_SITE,
+            SECOND_SITE,
+            aliases={PRIMARY_SITE: ["www.shop.example.com"], SECOND_SITE: ["www.b.example.com"]},
+        )
+
+        assert callbacks.bench_domain_autocompletion_callback("shop/") == [
+            f"{BENCH}/{PRIMARY_SITE}",
+            f"{BENCH}/www.shop.example.com",
+            f"{BENCH}/{SECOND_SITE}",
+            f"{BENCH}/www.b.example.com",
+        ]
+
+    def test_before_the_separator_it_is_still_just_bench_names(self, benches):
+        make_bench(benches, BENCH)
+        make_bench(benches, "warehouse")
+
+        assert callbacks.bench_domain_autocompletion_callback("") == [BENCH, "warehouse"]
+
+
+class TestTheRegistryOrder:
+    def test_benches_are_offered_in_a_stable_order(self, benches, monkeypatch):
+        # `iterdir` is filesystem order, which is arbitrary and differs between machines. Every
+        # consumer of this list is either a completion an operator reads or the sequence `all`
+        # acts in, and both need the same answer twice in a row.
+        for name in ("warehouse", "shop", "atelier"):
+            make_bench(benches, name)
+
+        # Handed back deliberately out of order, because most filesystems happen to return
+        # `iterdir` sorted and an assertion on real disk cannot tell a sort from luck.
+        shuffled = SimpleNamespace(iterdir=lambda: sorted(benches.iterdir(), reverse=True))
+        monkeypatch.setattr(callbacks, "CLI_BENCHES_DIRECTORY", shuffled)
+
+        assert callbacks._bench_names() == ["atelier", "shop", "warehouse"]
+        assert callbacks.resolve_bench_targets("all") == ["atelier", "shop", "warehouse"]

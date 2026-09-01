@@ -14,7 +14,7 @@ uv tool install --python 3.13 frappe-manager
 
 ```bash
 fm self update
-fm migrate --all-benches
+fm migrate all
 ```
 
 The first updates the CLI, the second brings fm's config, the global services and your benches up to match it. Every bench command refuses to run against a bench that is behind, so do not skip it. Details: [Upgrading fm](getting-started/installation.md#upgrading-fm).
@@ -129,9 +129,9 @@ If pulls still fail, check the CLI logs for details: [Logs](reference/logs.md).
 ### How do I enable HTTPS for my bench?
 
 ```bash
-fm ssl add mybench example.com
+fm ssl add mybench/example.com
 ```
 
 The default HTTP-01 challenge needs the domain's A record pointing at this server and port 80 reachable from the internet. If you cannot open port 80, use `--challenge dns01` with saved provider credentials. For a local bench that needs no public DNS at all, `--dev` issues from fm's own CA.
 
-Renewal is not automatic: run `fm ssl renew --all` from a daily cron. The [SSL guide](guides/ssl.md) has step-by-step instructions for all of it.
+Renewal is not automatic: run `fm ssl renew all` from a daily cron. The [SSL guide](guides/ssl.md) has step-by-step instructions for all of it.
